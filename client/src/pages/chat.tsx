@@ -221,13 +221,14 @@ export default function ChatPage() {
         <div className="flex items-center gap-2">
           <Button
             variant="outline"
-            size="sm"
+            size="icon"
+            className="md:w-auto md:px-3"
             onClick={() => addNoteMutation.mutate()}
             disabled={addNoteMutation.isPending}
             data-testid="button-add-note"
           >
-            <CheckCircle2 className="w-4 h-4 mr-2" />
-            Add Note to Bubble
+            <CheckCircle2 className="w-4 h-4 md:mr-2" />
+            <span className="hidden md:inline">Add Note to Bubble</span>
           </Button>
           <Button
             variant="ghost"
