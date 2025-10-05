@@ -34,6 +34,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.setHeader('Content-Type', 'text/event-stream');
       res.setHeader('Cache-Control', 'no-cache');
       res.setHeader('Connection', 'keep-alive');
+      res.setHeader('X-Accel-Buffering', 'no'); // Disable nginx buffering
+      res.flushHeaders(); // Send headers immediately
 
       // Call OpenAI API with streaming
       const stream = await openai.chat.completions.create({
@@ -48,6 +50,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const content = chunk.choices[0]?.delta?.content;
         if (content) {
           res.write(`data: ${JSON.stringify({ content })}\n\n`);
+          // @ts-ignore - flush is available in some environments
+          if (res.flush) res.flush();
         }
       }
 
