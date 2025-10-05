@@ -39,25 +39,85 @@ export default function ChatPage() {
     scrollToBottom();
   }, [messages]);
 
-  const chatMutation = useMutation<ChatResponse, Error, { messages: ChatMessage[] }>({
+  const chatMutation = useMutation<void, Error, { messages: ChatMessage[] }>({
     mutationFn: async ({ messages }) => {
-      const response = await apiRequest("POST", "/api/chat", {
-        messages,
-        user: {
-          id: "demo-user-123",
-          email: "demo@wyshbone.ai",
-        },
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages,
+          user: {
+            id: "demo-user-123",
+            email: "demo@wyshbone.ai",
+          },
+        }),
       });
-      return await response.json();
-    },
-    onSuccess: (data) => {
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      
+      if (!reader) {
+        throw new Error("No response body");
+      }
+
+      // Create a placeholder message for streaming content
+      const assistantMessageId = crypto.randomUUID();
       const assistantMessage: Message = {
-        id: crypto.randomUUID(),
+        id: assistantMessageId,
         role: "assistant",
-        content: data.reply,
+        content: "",
         timestamp: new Date(),
       };
+
       setMessages((prev) => [...prev, assistantMessage]);
+
+      let accumulatedContent = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        
+        if (done) break;
+
+        const chunk = decoder.decode(value);
+        const lines = chunk.split('\n');
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6);
+            
+            if (data === '[DONE]') {
+              return;
+            }
+
+            try {
+              const parsed = JSON.parse(data);
+              
+              if (parsed.error) {
+                throw new Error(parsed.error);
+              }
+
+              if (parsed.content) {
+                accumulatedContent += parsed.content;
+                
+                // Update the message with accumulated content
+                setMessages((prev) =>
+                  prev.map((msg) =>
+                    msg.id === assistantMessageId
+                      ? { ...msg, content: accumulatedContent }
+                      : msg
+                  )
+                );
+              }
+            } catch (e) {
+              // Skip invalid JSON
+            }
+          }
+        }
+      }
     },
     onError: (error) => {
       const errorMessage: SystemMessage = {
@@ -235,20 +295,6 @@ export default function ChatPage() {
             })
           )}
 
-          {chatMutation.isPending && (
-            <div className="flex gap-3" data-testid="loading-indicator">
-              <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center flex-shrink-0">
-                <Sparkles className="w-4 h-4 text-muted-foreground" />
-              </div>
-              <div className="bg-card border border-card-border rounded-lg px-4 py-3">
-                <div className="flex gap-1">
-                  <div className="w-2 h-2 bg-muted-foreground rounded-full animate-pulse" />
-                  <div className="w-2 h-2 bg-muted-foreground rounded-full animate-pulse delay-75" />
-                  <div className="w-2 h-2 bg-muted-foreground rounded-full animate-pulse delay-150" />
-                </div>
-              </div>
-            </div>
-          )}
 
           <div ref={messagesEndRef} />
         </div>

@@ -8,7 +8,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Enable CORS for all routes
   app.use(cors());
 
-  // POST /api/chat - Chat with OpenAI
+  // POST /api/chat - Chat with OpenAI (streaming)
   app.post("/api/chat", async (req, res) => {
     try {
       // Validate request body
@@ -24,28 +24,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(500).json({ error: "OPENAI_API_KEY is not configured" });
       }
 
+      // Set headers for Server-Sent Events
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+
       // Add system prompt to messages
       const messagesWithSystem = [
         { role: "system" as const, content: WYSHBONE_SYSTEM_PROMPT },
         ...messages,
       ];
 
-      // Call OpenAI API - using gpt-5 (latest model released August 7, 2025)
-      const completion = await openai.chat.completions.create({
+      // Call OpenAI API with streaming - using gpt-5 (latest model released August 7, 2025)
+      const stream = await openai.chat.completions.create({
         model: "gpt-5",
         messages: messagesWithSystem,
         max_completion_tokens: 8192,
+        stream: true,
       });
 
-      const reply = completion.choices[0]?.message?.content || "I apologize, but I couldn't generate a response.";
+      // Stream the response
+      for await (const chunk of stream) {
+        const content = chunk.choices[0]?.delta?.content;
+        if (content) {
+          res.write(`data: ${JSON.stringify({ content })}\n\n`);
+        }
+      }
 
-      res.json({ reply });
+      // Send done signal
+      res.write(`data: [DONE]\n\n`);
+      res.end();
     } catch (error: any) {
       console.error("Chat error:", error);
-      res.status(500).json({ 
-        error: "Failed to process chat request", 
-        message: error.message 
-      });
+      res.write(`data: ${JSON.stringify({ error: error.message })}\n\n`);
+      res.end();
     }
   });
 
