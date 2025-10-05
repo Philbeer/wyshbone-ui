@@ -257,7 +257,16 @@ export default function ChatPage() {
               </p>
             </div>
           ) : (
-            messages.map((message) => {
+            messages
+              .filter((message) => {
+                // Filter out empty messages (they'll be shown as thinking dots instead)
+                if ("type" in message && message.type === "system") {
+                  return true; // Always show system messages
+                }
+                const chatMessage = message as Message;
+                return chatMessage.content.trim().length > 0; // Only show messages with content
+              })
+              .map((message) => {
               if ("type" in message && message.type === "system") {
                 return (
                   <div
