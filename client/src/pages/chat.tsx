@@ -310,6 +310,23 @@ export default function ChatPage() {
             })
           )}
 
+          {/* Thinking indicator */}
+          {isStreaming && (
+            <div className="flex gap-3 flex-row" data-testid="thinking-indicator">
+              <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 bg-muted">
+                <Sparkles className="w-4 h-4 text-muted-foreground" />
+              </div>
+              <div className="flex flex-col items-start max-w-3xl">
+                <div className="rounded-lg px-4 py-3 bg-card border border-card-border">
+                  <div className="flex gap-1">
+                    <span className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
+                    <span className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
+                    <span className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           <div ref={messagesEndRef} />
         </div>
