@@ -4,7 +4,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Send, Sparkles, User, CheckCircle2, Moon, Sun } from "lucide-react";
-import type { ChatMessage, ChatResponse, AddNoteResponse } from "@shared/schema";
+import type { ChatMessage, AddNoteResponse } from "@shared/schema";
 
 type Message = ChatMessage & {
   id: string;
@@ -24,8 +24,10 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
   const [input, setInput] = useState("");
   const [theme, setTheme] = useState<"light" | "dark">("dark");
+  const [isStreaming, setIsStreaming] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", theme === "dark");
@@ -39,27 +41,102 @@ export default function ChatPage() {
     scrollToBottom();
   }, [messages]);
 
-  const chatMutation = useMutation<ChatResponse, Error, { messages: ChatMessage[] }>({
-    mutationFn: async ({ messages }) => {
-      const response = await apiRequest("POST", "/api/chat", {
-        messages,
-        user: {
-          id: "demo-user-123",
-          email: "demo@wyshbone.ai",
+  const streamChatResponse = async (conversationMessages: ChatMessage[]) => {
+    setIsStreaming(true);
+    
+    // Create assistant message with empty content
+    const assistantMessageId = crypto.randomUUID();
+    const assistantMessage: Message = {
+      id: assistantMessageId,
+      role: "assistant",
+      content: "",
+      timestamp: new Date(),
+    };
+    setMessages((prev) => [...prev, assistantMessage]);
+
+    try {
+      // Create abort controller for this request
+      abortControllerRef.current = new AbortController();
+
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
         },
+        body: JSON.stringify({
+          messages: conversationMessages,
+          user: {
+            id: "demo-user-123",
+            email: "demo@wyshbone.ai",
+          },
+        }),
+        signal: abortControllerRef.current.signal,
       });
-      return await response.json();
-    },
-    onSuccess: (data) => {
-      const assistantMessage: Message = {
-        id: crypto.randomUUID(),
-        role: "assistant",
-        content: data.reply,
-        timestamp: new Date(),
-      };
-      setMessages((prev) => [...prev, assistantMessage]);
-    },
-    onError: (error) => {
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+
+      if (!reader) {
+        throw new Error("Response body is not readable");
+      }
+
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        
+        // Keep the last incomplete line in the buffer
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            const data = line.slice(6);
+            
+            if (data === "[DONE]") {
+              setIsStreaming(false);
+              return;
+            }
+
+            try {
+              const parsed = JSON.parse(data);
+              
+              if (parsed.error) {
+                throw new Error(parsed.error);
+              }
+
+              if (parsed.content) {
+                setMessages((prev) =>
+                  prev.map((msg) =>
+                    msg.id === assistantMessageId
+                      ? { ...msg, content: msg.content + parsed.content }
+                      : msg
+                  )
+                );
+              }
+            } catch (e) {
+              console.error("Error parsing SSE data:", e);
+            }
+          }
+        }
+      }
+
+      setIsStreaming(false);
+    } catch (error: any) {
+      setIsStreaming(false);
+      
+      // Remove the empty assistant message
+      setMessages((prev) => prev.filter((msg) => msg.id !== assistantMessageId));
+      
+      // Add error message
       const errorMessage: SystemMessage = {
         id: crypto.randomUUID(),
         type: "system",
@@ -67,8 +144,8 @@ export default function ChatPage() {
         timestamp: new Date(),
       };
       setMessages((prev) => [...prev, errorMessage]);
-    },
-  });
+    }
+  };
 
   const addNoteMutation = useMutation<AddNoteResponse, Error, void>({
     mutationFn: async () => {
@@ -100,7 +177,7 @@ export default function ChatPage() {
   });
 
   const handleSend = () => {
-    if (!input.trim() || chatMutation.isPending) return;
+    if (!input.trim() || isStreaming) return;
 
     const userMessage: Message = {
       id: crypto.randomUUID(),
@@ -116,9 +193,7 @@ export default function ChatPage() {
       .filter((msg): msg is Message => !("type" in msg))
       .map(({ role, content }) => ({ role, content }));
 
-    chatMutation.mutate({
-      messages: [...conversationHistory, { role: userMessage.role, content: userMessage.content }],
-    });
+    streamChatResponse([...conversationHistory, { role: userMessage.role, content: userMessage.content }]);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -235,20 +310,6 @@ export default function ChatPage() {
             })
           )}
 
-          {chatMutation.isPending && (
-            <div className="flex gap-3" data-testid="loading-indicator">
-              <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center flex-shrink-0">
-                <Sparkles className="w-4 h-4 text-muted-foreground" />
-              </div>
-              <div className="bg-card border border-card-border rounded-lg px-4 py-3">
-                <div className="flex gap-1">
-                  <div className="w-2 h-2 bg-muted-foreground rounded-full animate-pulse" />
-                  <div className="w-2 h-2 bg-muted-foreground rounded-full animate-pulse delay-75" />
-                  <div className="w-2 h-2 bg-muted-foreground rounded-full animate-pulse delay-150" />
-                </div>
-              </div>
-            </div>
-          )}
 
           <div ref={messagesEndRef} />
         </div>
@@ -270,7 +331,7 @@ export default function ChatPage() {
             />
             <Button
               onClick={handleSend}
-              disabled={!input.trim() || chatMutation.isPending}
+              disabled={!input.trim() || isStreaming}
               size="default"
               className="flex-shrink-0"
               data-testid="button-send"
