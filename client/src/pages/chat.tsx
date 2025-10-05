@@ -216,7 +216,7 @@ export default function ChatPage() {
           <div className="w-8 h-8 rounded-md overflow-hidden">
             <img src={wyshboneLogo} alt="Wyshbone" className="w-full h-full object-cover" />
           </div>
-          <h1 className="text-2xl font-bold tracking-tight" style={{ color: '#2c7373' }}>Wyshbone AI</h1>
+          <h1 className="text-lg md:text-2xl font-bold tracking-tight" style={{ color: '#2c7373' }}>Wyshbone AI</h1>
         </div>
         <div className="flex items-center gap-2">
           <Button
