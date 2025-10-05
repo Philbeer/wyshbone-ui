@@ -35,7 +35,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const stream = await openai.chat.completions.create({
           model: "gpt-5",
           messages: messagesWithSystem,
-          max_tokens: 8192,
+          max_completion_tokens: 8192,
           stream: true,
         });
 
@@ -63,7 +63,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const completion = await openai.chat.completions.create({
           model: "gpt-5",
           messages: messagesWithSystem,
-          max_tokens: 8192,
+          max_completion_tokens: 8192,
         });
 
         const reply = completion.choices[0]?.message?.content || "I apologize, but I couldn't generate a response.";
