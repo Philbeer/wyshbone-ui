@@ -30,16 +30,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ...messages,
       ];
 
-      // Call OpenAI API - using gpt-5 (latest model released August 7, 2025)
-      const completion = await openai.chat.completions.create({
-        model: "gpt-5",
-        messages: messagesWithSystem,
-        max_completion_tokens: 8192,
-      });
+      try {
+        // Attempt streaming - using gpt-5 (latest model released August 7, 2025)
+        const stream = await openai.chat.completions.create({
+          model: "gpt-5",
+          messages: messagesWithSystem,
+          max_tokens: 8192,
+          stream: true,
+        });
 
-      const reply = completion.choices[0]?.message?.content || "I apologize, but I couldn't generate a response.";
+        // Set streaming headers
+        res.setHeader('Content-Type', 'text/event-stream');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('Connection', 'keep-alive');
 
-      res.json({ reply });
+        let fullReply = "";
+
+        for await (const chunk of stream) {
+          const content = chunk.choices[0]?.delta?.content || "";
+          if (content) {
+            fullReply += content;
+            res.write(`data: ${JSON.stringify({ content })}\n\n`);
+          }
+        }
+
+        res.write(`data: ${JSON.stringify({ done: true, reply: fullReply })}\n\n`);
+        res.end();
+      } catch (streamError: any) {
+        console.warn("Streaming failed, falling back to non-streamed request:", streamError.message);
+
+        // Graceful fallback: non-streamed request
+        const completion = await openai.chat.completions.create({
+          model: "gpt-5",
+          messages: messagesWithSystem,
+          max_tokens: 8192,
+        });
+
+        const reply = completion.choices[0]?.message?.content || "I apologize, but I couldn't generate a response.";
+        res.json({ reply });
+      }
     } catch (error: any) {
       console.error("Chat error:", error);
       res.status(500).json({ 
