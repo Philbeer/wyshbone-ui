@@ -24,10 +24,8 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
   const [input, setInput] = useState("");
   const [theme, setTheme] = useState<"light" | "dark">("dark");
-  const [isStreaming, setIsStreaming] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const streamingMessageIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", theme === "dark");
@@ -43,100 +41,25 @@ export default function ChatPage() {
 
   const chatMutation = useMutation<ChatResponse, Error, { messages: ChatMessage[] }>({
     mutationFn: async ({ messages }) => {
-      const response = await fetch("/api/chat", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
+      const response = await apiRequest("POST", "/api/chat", {
+        messages,
+        user: {
+          id: "demo-user-123",
+          email: "demo@wyshbone.ai",
         },
-        body: JSON.stringify({
-          messages,
-          user: {
-            id: "demo-user-123",
-            email: "demo@wyshbone.ai",
-          },
-        }),
       });
-
-      if (!response.ok) {
-        throw new Error(`${response.status}: ${response.statusText}`);
-      }
-
-      const contentType = response.headers.get("content-type");
-      
-      // Handle streaming response
-      if (contentType?.includes("text/event-stream")) {
-        setIsStreaming(true);
-        const messageId = crypto.randomUUID();
-        streamingMessageIdRef.current = messageId;
-
-        // Add initial empty assistant message
-        const initialMessage: Message = {
-          id: messageId,
-          role: "assistant",
-          content: "",
-          timestamp: new Date(),
-        };
-        setMessages((prev) => [...prev, initialMessage]);
-
-        const reader = response.body?.getReader();
-        const decoder = new TextDecoder();
-        let fullContent = "";
-
-        if (reader) {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-
-            const chunk = decoder.decode(value);
-            const lines = chunk.split("\n");
-
-            for (const line of lines) {
-              if (line.startsWith("data: ")) {
-                const data = JSON.parse(line.slice(6));
-                if (data.content) {
-                  fullContent += data.content;
-                  setMessages((prev) =>
-                    prev.map((msg) =>
-                      msg.id === messageId && "role" in msg
-                        ? { ...msg, content: fullContent }
-                        : msg
-                    )
-                  );
-                }
-                if (data.done) {
-                  setIsStreaming(false);
-                  streamingMessageIdRef.current = null;
-                  return { reply: data.reply };
-                }
-              }
-            }
-          }
-        }
-
-        setIsStreaming(false);
-        streamingMessageIdRef.current = null;
-        return { reply: fullContent };
-      } else {
-        // Handle non-streaming (fallback) response
-        const data = await response.json();
-        return data;
-      }
+      return await response.json();
     },
     onSuccess: (data) => {
-      // Only add message if not streaming (streaming already added it)
-      if (!streamingMessageIdRef.current) {
-        const assistantMessage: Message = {
-          id: crypto.randomUUID(),
-          role: "assistant",
-          content: data.reply,
-          timestamp: new Date(),
-        };
-        setMessages((prev) => [...prev, assistantMessage]);
-      }
+      const assistantMessage: Message = {
+        id: crypto.randomUUID(),
+        role: "assistant",
+        content: data.reply,
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, assistantMessage]);
     },
     onError: (error) => {
-      setIsStreaming(false);
-      streamingMessageIdRef.current = null;
       const errorMessage: SystemMessage = {
         id: crypto.randomUUID(),
         type: "system",
@@ -177,7 +100,7 @@ export default function ChatPage() {
   });
 
   const handleSend = () => {
-    if (!input.trim() || chatMutation.isPending || isStreaming) return;
+    if (!input.trim() || chatMutation.isPending) return;
 
     const userMessage: Message = {
       id: crypto.randomUUID(),
@@ -312,7 +235,7 @@ export default function ChatPage() {
             })
           )}
 
-          {chatMutation.isPending && !isStreaming && (
+          {chatMutation.isPending && (
             <div className="flex gap-3" data-testid="loading-indicator">
               <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center flex-shrink-0">
                 <Sparkles className="w-4 h-4 text-muted-foreground" />
@@ -347,7 +270,7 @@ export default function ChatPage() {
             />
             <Button
               onClick={handleSend}
-              disabled={!input.trim() || chatMutation.isPending || isStreaming}
+              disabled={!input.trim() || chatMutation.isPending}
               size="default"
               className="flex-shrink-0"
               data-testid="button-send"
