@@ -359,11 +359,11 @@ export default function ChatPage() {
             <Button
               onClick={handleSend}
               disabled={!input.trim() || isStreaming}
-              size="default"
+              size="icon"
               className="flex-shrink-0"
               data-testid="button-send"
             >
-              <Send className="w-4 h-4" />
+              <img src={wyshboneLogo} alt="Send" className="w-5 h-5 object-contain" />
             </Button>
           </div>
         </div>
