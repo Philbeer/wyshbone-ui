@@ -41,14 +41,14 @@ export default function ChatPage() {
 
   const chatMutation = useMutation<ChatResponse, Error, { messages: ChatMessage[] }>({
     mutationFn: async ({ messages }) => {
-      const response = await apiRequest<ChatResponse>("POST", "/api/chat", {
+      const response = await apiRequest("POST", "/api/chat", {
         messages,
         user: {
           id: "demo-user-123",
           email: "demo@wyshbone.ai",
         },
       });
-      return response;
+      return await response.json();
     },
     onSuccess: (data) => {
       const assistantMessage: Message = {
@@ -72,12 +72,12 @@ export default function ChatPage() {
 
   const addNoteMutation = useMutation<AddNoteResponse, Error, void>({
     mutationFn: async () => {
-      const response = await apiRequest<AddNoteResponse>("POST", "/api/tool/add_note", {
+      const response = await apiRequest("POST", "/api/tool/add_note", {
         userToken: "demo-token-123",
         leadId: "lead-456",
         note: "This is a demo note from the Wyshbone AI chat interface",
       });
-      return response;
+      return await response.json();
     },
     onSuccess: () => {
       const systemMessage: SystemMessage = {
@@ -113,7 +113,7 @@ export default function ChatPage() {
     setInput("");
 
     const conversationHistory = messages
-      .filter((msg): msg is Message => "role" in msg)
+      .filter((msg): msg is Message => !("type" in msg))
       .map(({ role, content }) => ({ role, content }));
 
     chatMutation.mutate({
@@ -197,12 +197,13 @@ export default function ChatPage() {
                 );
               }
 
-              const isUser = message.role === "user";
+              const chatMessage = message as Message;
+              const isUser = chatMessage.role === "user";
               return (
                 <div
-                  key={message.id}
+                  key={chatMessage.id}
                   className={`flex gap-3 ${isUser ? "flex-row-reverse" : "flex-row"}`}
-                  data-testid={`message-${message.role}-${message.id}`}
+                  data-testid={`message-${chatMessage.role}-${chatMessage.id}`}
                 >
                   <div
                     className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
@@ -223,10 +224,10 @@ export default function ChatPage() {
                           : "bg-card border border-card-border"
                       }`}
                     >
-                      <p className="text-[15px] leading-relaxed whitespace-pre-wrap">{message.content}</p>
+                      <p className="text-[15px] leading-relaxed whitespace-pre-wrap">{chatMessage.content}</p>
                     </div>
                     <span className="text-xs text-muted-foreground mt-1">
-                      {message.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                      {chatMessage.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                     </span>
                   </div>
                 </div>
