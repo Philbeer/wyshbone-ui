@@ -41,3 +41,24 @@ export const addNoteResponseSchema = z.object({
 });
 
 export type AddNoteResponse = z.infer<typeof addNoteResponseSchema>;
+
+// Search request schema
+export const searchRequestSchema = z.object({
+  query: z.string(),
+});
+
+export type SearchRequest = z.infer<typeof searchRequestSchema>;
+
+// Search response schema (wyshbone_results)
+export const searchResponseSchema = z.object({
+  query: z.string(),
+  generated_at: z.string(),
+  results: z.array(z.object({
+    title: z.string(),
+    url: z.string(),
+    snippet: z.string(),
+  })),
+  notes: z.string(),
+});
+
+export type SearchResponse = z.infer<typeof searchResponseSchema>;
