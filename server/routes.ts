@@ -37,7 +37,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Call OpenAI API with streaming
       const stream = await openai.chat.completions.create({
-        model: "gpt-4o",
+        model: "gpt-4o-mini",
         messages: messagesWithSystem,
         max_tokens: 1500,
         stream: true,
