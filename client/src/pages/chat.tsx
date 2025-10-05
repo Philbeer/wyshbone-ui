@@ -59,6 +59,15 @@ export default function ChatPage() {
       };
       setMessages((prev) => [...prev, assistantMessage]);
     },
+    onError: (error) => {
+      const errorMessage: SystemMessage = {
+        id: crypto.randomUUID(),
+        type: "system",
+        content: `Failed to get response: ${error.message}`,
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, errorMessage]);
+    },
   });
 
   const addNoteMutation = useMutation<AddNoteResponse, Error, void>({
@@ -74,10 +83,19 @@ export default function ChatPage() {
       const systemMessage: SystemMessage = {
         id: crypto.randomUUID(),
         type: "system",
-        content: "✓ Note successfully added to Bubble",
+        content: "Note successfully added to Bubble",
         timestamp: new Date(),
       };
       setMessages((prev) => [...prev, systemMessage]);
+    },
+    onError: (error) => {
+      const errorMessage: SystemMessage = {
+        id: crypto.randomUUID(),
+        type: "system",
+        content: `Failed to add note: ${error.message}`,
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, errorMessage]);
     },
   });
 
@@ -245,7 +263,7 @@ export default function ChatPage() {
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="Type your message..."
-              className="resize-none border-0 bg-transparent text-[15px] focus-visible:ring-0 focus-visible:ring-offset-0 min-h-[48px] max-h-[200px]"
+              className="resize-none border-0 bg-transparent text-[15px] focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 min-h-[48px] max-h-[200px]"
               rows={1}
               data-testid="input-message"
             />
