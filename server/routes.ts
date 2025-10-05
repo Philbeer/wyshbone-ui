@@ -35,11 +35,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.setHeader('Cache-Control', 'no-cache');
       res.setHeader('Connection', 'keep-alive');
 
-      // Call OpenAI API with streaming - using gpt-5 (latest model released August 7, 2025)
+      // Call OpenAI API with streaming
       const stream = await openai.chat.completions.create({
-        model: "gpt-5",
+        model: "gpt-4o",
         messages: messagesWithSystem,
-        max_completion_tokens: 8192,
+        max_tokens: 1500,
         stream: true,
       });
 
