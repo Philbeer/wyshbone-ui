@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Send, User, CheckCircle2, Moon, Sun } from "lucide-react";
 import type { ChatMessage, AddNoteResponse } from "@shared/schema";
-import wyshboneLogo from "@assets/wyshbone-logo_1759667225199.png";
+import wyshboneLogo from "@assets/wyshbone-logo_1759667581806.png";
 
 type Message = ChatMessage & {
   id: string;
@@ -213,8 +213,8 @@ export default function ChatPage() {
       {/* Header */}
       <header className="h-16 border-b border-border backdrop-blur-sm bg-background/90 flex items-center justify-between px-6 sticky top-0 z-10">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-primary rounded-md flex items-center justify-center p-1">
-            <img src={wyshboneLogo} alt="Wyshbone" className="w-full h-full object-contain" />
+          <div className="w-8 h-8 rounded-md overflow-hidden">
+            <img src={wyshboneLogo} alt="Wyshbone" className="w-full h-full object-cover" />
           </div>
           <h1 className="text-2xl font-bold tracking-tight">Wyshbone AI</h1>
         </div>
@@ -249,8 +249,8 @@ export default function ChatPage() {
         <div className="max-w-4xl mx-auto space-y-4">
           {messages.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full min-h-[400px] text-center">
-              <div className="w-16 h-16 bg-primary rounded-full flex items-center justify-center mb-4 p-3">
-                <img src={wyshboneLogo} alt="Wyshbone" className="w-full h-full object-contain" />
+              <div className="w-16 h-16 rounded-full overflow-hidden mb-4">
+                <img src={wyshboneLogo} alt="Wyshbone" className="w-full h-full object-cover" />
               </div>
               <h2 className="text-xl font-semibold mb-2">Welcome to Wyshbone AI</h2>
               <p className="text-muted-foreground max-w-md">
@@ -292,13 +292,13 @@ export default function ChatPage() {
                 >
                   <div
                     className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
-                      isUser ? "bg-primary" : "bg-primary"
-                    } ${!isUser ? "p-1.5" : ""}`}
+                      isUser ? "bg-primary" : "overflow-hidden"
+                    }`}
                   >
                     {isUser ? (
                       <User className="w-4 h-4 text-primary-foreground" />
                     ) : (
-                      <img src={wyshboneLogo} alt="Wyshbone" className="w-full h-full object-contain" />
+                      <img src={wyshboneLogo} alt="Wyshbone" className="w-full h-full object-cover" />
                     )}
                   </div>
                   <div className={`flex flex-col ${isUser ? "items-end" : "items-start"} max-w-3xl`}>
@@ -323,8 +323,8 @@ export default function ChatPage() {
           {/* Thinking indicator */}
           {isStreaming && (
             <div className="flex gap-3 flex-row" data-testid="thinking-indicator">
-              <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 bg-primary p-1.5">
-                <img src={wyshboneLogo} alt="Wyshbone" className="w-full h-full object-contain" />
+              <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0">
+                <img src={wyshboneLogo} alt="Wyshbone" className="w-full h-full object-cover" />
               </div>
               <div className="flex flex-col items-start max-w-3xl">
                 <div className="rounded-lg px-4 py-3 bg-card border border-card-border">
@@ -360,10 +360,10 @@ export default function ChatPage() {
               onClick={handleSend}
               disabled={!input.trim() || isStreaming}
               size="icon"
-              className="flex-shrink-0"
+              className="flex-shrink-0 p-0 overflow-hidden"
               data-testid="button-send"
             >
-              <img src={wyshboneLogo} alt="Send" className="w-5 h-5 object-contain" />
+              <img src={wyshboneLogo} alt="Send" className="w-full h-full object-cover" />
             </Button>
           </div>
         </div>
