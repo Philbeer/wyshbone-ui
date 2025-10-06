@@ -118,9 +118,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Build the input array from conversation history or single query
       let inputMessages;
       if (messages && messages.length > 0) {
-        // Convert chat messages to Responses API format
-        inputMessages = messages.map((msg: any) => ({
-          role: msg.role,
+        // Filter to only user messages and convert to Responses API format
+        // The Responses API only accepts user messages in the input
+        const userMessages = messages.filter((msg: any) => msg.role === "user");
+        
+        if (userMessages.length === 0) {
+          return res.status(400).json({ error: "No user messages found in conversation history" });
+        }
+        
+        inputMessages = userMessages.map((msg: any) => ({
+          role: "user",
           content: [
             {
               type: "input_text",
