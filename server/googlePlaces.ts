@@ -129,7 +129,7 @@ export async function verifyVenue({
 
   const best = ranked[0];
   return {
-    found: best.score >= 4, // threshold; adjust as you like
+    found: best.score >= 6, // higher threshold for better accuracy
     best: {
       placeId: best.place.id,
       name: best.place.displayName?.text || "",

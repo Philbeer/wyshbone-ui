@@ -102,22 +102,39 @@ export default function ChatPage() {
           )
         );
       } else {
-        // Format the structured response nicely
+        // Format the structured response with verified venue information
         let formattedContent = `**Search Results for: "${data.query}"**\n\n`;
         
-        if (data.results && data.results.length > 0) {
-          formattedContent += `**Found ${data.results.length} result(s):**\n\n`;
+        if (data.verified && data.results && data.results.length > 0) {
+          formattedContent += `✅ **Found ${data.results.length} verified operational venue(s):**\n\n`;
           data.results.forEach((result: any, index: number) => {
-            formattedContent += `${index + 1}. **${result.title}**\n`;
-            formattedContent += `   ${result.snippet}\n`;
-            formattedContent += `   🔗 ${result.url}\n\n`;
+            formattedContent += `${index + 1}. **${result.name}**\n`;
+            formattedContent += `   📍 ${result.address}\n`;
+            if (result.phone) {
+              formattedContent += `   📞 ${result.phone}\n`;
+            }
+            if (result.website) {
+              formattedContent += `   🌐 ${result.website}\n`;
+            }
+            formattedContent += `   🆔 Place ID: \`${result.placeId}\`\n`;
+            formattedContent += `   ℹ️ Status: ${result.businessStatus}\n\n`;
+          });
+        } else if (!data.verified && data.rawResults && data.rawResults.length > 0) {
+          formattedContent += `⚠️ **No verified venues found. Here are ${data.rawResults.length} unverified result(s):**\n\n`;
+          data.rawResults.forEach((result: any, index: number) => {
+            formattedContent += `${index + 1}. **${result.name}**\n`;
+            formattedContent += `   📍 ${result.address}\n`;
+            if (result.sourceUrl) {
+              formattedContent += `   🔗 ${result.sourceUrl}\n`;
+            }
+            formattedContent += `   ⚠️ Could not verify with Google Places\n\n`;
           });
         } else {
           formattedContent += `No results found.\n\n`;
         }
         
-        if (data.notes) {
-          formattedContent += `**Notes:**\n${data.notes}\n`;
+        if (data.message) {
+          formattedContent += `*${data.message}*\n\n`;
         }
         
         formattedContent += `\n*Generated at: ${new Date(data.generated_at).toLocaleString()}*`;

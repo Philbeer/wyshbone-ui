@@ -138,7 +138,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const userMessageCount = memoryConversation.filter(m => m.role === "user").length;
       const isFollowUp = userMessageCount > 1;
 
-      // Structured JSON schema for search output
+      // Structured JSON schema for initial search output (before Google Places verification)
       const wyshboneSchema = {
         type: "object",
         properties: {
@@ -152,21 +152,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
             items: {
               type: "object",
               properties: {
-                title: { type: "string" },
-                url: { type: "string" },
-                snippet: { type: "string" },
+                name: { type: "string", description: "Venue name" },
+                address: { type: "string", description: "Full address" },
+                sourceUrl: { type: "string", description: "URL where this info was found" },
               },
-              required: ["title", "url", "snippet"],
+              required: ["name", "address", "sourceUrl"],
               additionalProperties: false,
             },
-            description: "Array of search results",
-          },
-          notes: {
-            type: "string",
-            description: "Additional notes or summary about the search results",
+            description: "Array of venues found from web search",
           },
         },
-        required: ["query", "generated_at", "results", "notes"],
+        required: ["query", "generated_at", "results"],
         additionalProperties: false,
       };
 
@@ -278,10 +274,65 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // follow-ups: return plain text
         return res.json({ plain_text: outputText, is_follow_up: true });
       } else {
-        // initial searches: return JSON (or raw text if parse fails)
+        // initial searches: parse JSON and verify venues with Google Places
         try {
           const parsed = JSON.parse(outputText);
-          return res.json(parsed);
+          
+          // If no results or not an array, return as-is
+          if (!parsed.results || !Array.isArray(parsed.results) || parsed.results.length === 0) {
+            return res.json({ ...parsed, verified: false });
+          }
+          
+          // Import verifyVenue function
+          const { verifyVenue } = await import("./googlePlaces");
+          
+          // Verify each venue with Google Places
+          const verifiedResults = [];
+          const rawResults = [...parsed.results];
+          
+          for (const venue of parsed.results) {
+            try {
+              const verification = await verifyVenue({
+                name: venue.name,
+                address: venue.address,
+              });
+              
+              // Only include if found and operational
+              if (verification.found && verification.best?.businessStatus === "OPERATIONAL") {
+                verifiedResults.push({
+                  name: verification.best.name,
+                  address: verification.best.address,
+                  placeId: verification.best.placeId,
+                  businessStatus: verification.best.businessStatus,
+                  phone: verification.best.phone,
+                  website: verification.best.website,
+                  sourceUrl: venue.sourceUrl,
+                });
+              }
+            } catch (verifyError) {
+              console.error(`Error verifying venue ${venue.name}:`, verifyError);
+              // Continue with next venue if verification fails
+            }
+          }
+          
+          // If we have verified results, return them
+          if (verifiedResults.length > 0) {
+            return res.json({
+              query: parsed.query,
+              verified: true,
+              results: verifiedResults,
+              generated_at: parsed.generated_at,
+            });
+          } else {
+            // No verified results found - return raw results with verified: false
+            return res.json({
+              query: parsed.query,
+              verified: false,
+              rawResults: rawResults,
+              message: "No verified operational venues found",
+              generated_at: parsed.generated_at,
+            });
+          }
         } catch (e) {
           console.error("JSON parse error:", e);
           return res.json({ error: "Failed to parse JSON response", raw_text: outputText });

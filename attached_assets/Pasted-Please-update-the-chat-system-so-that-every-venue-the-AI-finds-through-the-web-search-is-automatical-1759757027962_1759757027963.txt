@@ -1,0 +1,68 @@
+Please update the chat system so that every venue the AI finds through the web search is automatically verified against Google Places before being returned.
+
+Here’s what I need implemented:
+
+Verification step:
+
+After the web_search tool produces the list of venues inside /api/search, loop through each result and call the verifyVenue() function from server/googlePlaces.ts.
+
+This will check the venue name + address with Google Places (New v1) and return the official placeId, businessStatus, phone, and website.
+
+Filtering rules:
+
+Only include venues where found === true and businessStatus === "OPERATIONAL".
+
+For each verified result, include the following fields:
+
+{
+  "name": "Venue Name",
+  "address": "Venue Address",
+  "placeId": "ChIJxxxxxx",
+  "businessStatus": "OPERATIONAL",
+  "phone": "+44...",
+  "website": "https://...",
+  "sourceUrl": "original web source URL"
+}
+
+
+Fallback:
+
+If no verified venues are found, return both the rawResults (the unverified web list) and verified: false in the response.
+
+Output format:
+The final /api/search JSON should look like this:
+
+{
+  "query": "pubs in Arundel West Sussex",
+  "verified": true,
+  "results": [
+    {
+      "name": "The Swan Hotel",
+      "address": "27-29 High St, Arundel BN18 ...",
+      "placeId": "ChIJ8eQDPkguc0gRr8Kh1EV4b2c",
+      "businessStatus": "OPERATIONAL",
+      "phone": "+44...",
+      "website": "https://www.swanarundel.co.uk/",
+      "sourceUrl": "https://www.swanarundel.co.uk/"
+    }
+  ],
+  "generated_at": "2025-10-06T13:55:00Z"
+}
+
+
+Performance and cost controls:
+
+Keep the X-Goog-FieldMask limited to:
+
+places.id,places.displayName,places.formattedAddress,
+places.businessStatus,places.nationalPhoneNumber,places.websiteUri
+
+
+Use a best.score >= 6 threshold in verifyVenue() to avoid false matches.
+
+Pass lat/lng/radiusMeters to verifyVenue() if available to improve accuracy.
+
+Goal:
+The first chat response should already include real Google Place IDs and only operational venues, without needing a separate verification step.
+
+After implementing this, the chatbot should always return verified results (e.g., pubs, coffee shops, etc.) with real Google Place IDs ready to be saved to Wyshbone.
