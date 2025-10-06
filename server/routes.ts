@@ -155,11 +155,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 title: { type: "string" },
                 url: { type: "string" },
                 snippet: { type: "string" },
+                address: { type: "string", description: "Full address if available" },
               },
               required: ["title", "url", "snippet"],
               additionalProperties: false,
             },
-            description: "Array of search results",
+            description: "Array of search results with venue details",
           },
           notes: {
             type: "string",
@@ -281,6 +282,53 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // initial searches: return JSON (or raw text if parse fails)
         try {
           const parsed = JSON.parse(outputText);
+          
+          // Verify each venue result with Google Places
+          if (parsed.results && Array.isArray(parsed.results)) {
+            const { verifyVenue } = await import("./googlePlaces");
+            
+            // Verify all venues in parallel
+            const verifiedResults = await Promise.all(
+              parsed.results.map(async (result: any) => {
+                try {
+                  // Extract name and address from the result
+                  const name = result.title;
+                  const address = result.address || result.snippet;
+                  
+                  // Verify with Google Places
+                  const verification = await verifyVenue({ name, address });
+                  
+                  // Add verification data to result
+                  return {
+                    ...result,
+                    googlePlaces: {
+                      verified: verification.found,
+                      placeId: verification.best?.placeId || null,
+                      businessStatus: verification.best?.businessStatus || null,
+                      verificationScore: verification.best?.score || 0,
+                      verifiedName: verification.best?.name || null,
+                      verifiedAddress: verification.best?.address || null,
+                      phone: verification.best?.phone || null,
+                      website: verification.best?.website || null,
+                    }
+                  };
+                } catch (verifyError) {
+                  console.error("Google Places verification error:", verifyError);
+                  // If verification fails, return result without verification data
+                  return {
+                    ...result,
+                    googlePlaces: {
+                      verified: false,
+                      error: "Verification failed",
+                    }
+                  };
+                }
+              })
+            );
+            
+            parsed.results = verifiedResults;
+          }
+          
           return res.json(parsed);
         } catch (e) {
           console.error("JSON parse error:", e);
