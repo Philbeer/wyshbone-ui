@@ -102,7 +102,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 url: { type: "string" },
                 snippet: { type: "string" }
               },
-              required: ["title", "url", "snippet"]
+              required: ["title", "url", "snippet"],
+              additionalProperties: false
             },
             description: "Array of search results"
           },
