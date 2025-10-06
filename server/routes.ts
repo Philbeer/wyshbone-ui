@@ -155,12 +155,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 title: { type: "string" },
                 url: { type: "string" },
                 snippet: { type: "string" },
-                address: { type: "string", description: "Full address if available" },
               },
               required: ["title", "url", "snippet"],
               additionalProperties: false,
             },
-            description: "Array of search results with venue details",
+            description: "Array of search results",
           },
           notes: {
             type: "string",
