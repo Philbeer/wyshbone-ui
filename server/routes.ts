@@ -326,18 +326,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
           
           // Verify each venue result with Google Places
           if (parsed.results && Array.isArray(parsed.results)) {
+            console.log(`[Google Places] Starting verification for ${parsed.results.length} results`);
             const { verifyVenue } = await import("./googlePlaces");
             
             // Verify all venues in parallel
             const verifiedResults = await Promise.all(
-              parsed.results.map(async (result: any) => {
+              parsed.results.map(async (result: any, index: number) => {
                 try {
                   // Extract name and address from the result
                   const name = result.title;
                   const address = result.address || result.snippet;
                   
+                  console.log(`[Google Places] Verifying #${index + 1}: "${name}"`);
+                  console.log(`[Google Places] Address context: "${address}"`);
+                  
                   // Verify with Google Places
                   const verification = await verifyVenue({ name, address });
+                  
+                  console.log(`[Google Places] Result #${index + 1}: found=${verification.found}, score=${verification.best?.score || 0}`);
                   
                   // Add verification data to result
                   return {
@@ -354,7 +360,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                     }
                   };
                 } catch (verifyError) {
-                  console.error("Google Places verification error:", verifyError);
+                  console.error(`[Google Places] Verification error for #${index + 1}:`, verifyError);
                   // If verification fails, return result without verification data
                   return {
                     ...result,
