@@ -123,12 +123,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Filter to only user messages
         const userMessages = messages.filter((msg: any) => msg.role === "user");
         
+        console.log(`Received ${userMessages.length} user messages`);
+        console.log("User messages:", userMessages.map((m: any) => m.content));
+        
         if (userMessages.length === 0) {
           return res.status(400).json({ error: "No user messages found in conversation history" });
         }
         
         // Check if this is a follow-up question (more than one user message)
         isFollowUp = userMessages.length > 1;
+        console.log(`Is follow-up: ${isFollowUp}`);
         
         // For follow-ups, only send the last message but with context instruction
         if (isFollowUp) {
