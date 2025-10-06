@@ -187,14 +187,20 @@ export default function ChatPage() {
       timestamp: new Date(),
     };
 
-    setMessages((prev) => [...prev, userMessage]);
-    setInput("");
-
+    // Build conversation history BEFORE adding new message to state
     const conversationHistory = messages
       .filter((msg): msg is Message => !("type" in msg))
       .map(({ role, content }) => ({ role, content }));
 
-    streamChatResponse([...conversationHistory, { role: userMessage.role, content: userMessage.content }]);
+    // Add new user message to the history
+    const fullConversation = [...conversationHistory, { role: userMessage.role, content: userMessage.content }];
+
+    // Update UI state
+    setMessages((prev) => [...prev, userMessage]);
+    setInput("");
+
+    // Send the full conversation
+    streamChatResponse(fullConversation);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
