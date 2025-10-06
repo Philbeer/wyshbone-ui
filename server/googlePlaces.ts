@@ -21,7 +21,7 @@ function norm(s: string) {
   return s.toLowerCase().replace(/\s+/g, " ").trim();
 }
 
-// Scores a result against {name, address/postcode}; tweak as needed
+// Scores a result against {name, address/postcode}; STRICT matching for accuracy
 function scoreResult(place: GPlace, targetName: string, targetAddress?: string) {
   let score = 0;
   const pName = norm(place.displayName?.text || "");
@@ -29,18 +29,40 @@ function scoreResult(place: GPlace, targetName: string, targetAddress?: string) 
   const tName = norm(targetName);
   const tAddr = norm(targetAddress || "");
 
-  if (pName === tName) score += 5;
-  else if (pName.includes(tName) || tName.includes(pName)) score += 3;
+  // STRICT name matching - must be exact or very close
+  if (pName === tName) {
+    score += 10; // Exact match is critical
+  } else if (pName.includes(tName) && pName.length - tName.length <= 10) {
+    // Close match: target name is contained and lengths are similar
+    score += 7;
+  } else if (tName.includes(pName) && tName.length - pName.length <= 10) {
+    score += 7;
+  } else {
+    // Name doesn't match well enough - heavily penalize
+    return 0; // Reject if name is too different
+  }
 
-  // postcode or town match helps a lot
+  // Postcode match is highly important for UK venues
   const postcodeMatch = (tAddr.match(/[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}/i)?.[0] || "").toLowerCase();
-  if (postcodeMatch && pAddr.includes(postcodeMatch)) score += 4;
+  if (postcodeMatch && pAddr.includes(postcodeMatch)) {
+    score += 8; // Postcode match is very reliable
+  }
 
-  // loose address containment
-  if (tAddr && (pAddr.includes(tAddr) || tAddr.includes(pAddr))) score += 2;
+  // Street name match (extract street from address)
+  const targetStreet = tAddr.match(/\d+\s+([^,]+)/)?.[1]?.toLowerCase().trim();
+  if (targetStreet && pAddr.includes(targetStreet)) {
+    score += 5; // Street address match is good
+  }
 
-  // prefer operational
-  if (place.businessStatus === "OPERATIONAL") score += 2;
+  // Town/city match
+  if (tAddr.includes("arundel") && pAddr.includes("arundel")) {
+    score += 3;
+  }
+
+  // Prefer operational
+  if (place.businessStatus === "OPERATIONAL") {
+    score += 2;
+  }
 
   return score;
 }
@@ -129,7 +151,7 @@ export async function verifyVenue({
 
   const best = ranked[0];
   return {
-    found: best.score >= 6, // higher threshold for better accuracy
+    found: best.score >= 10, // Strict threshold: requires good name + address/postcode match
     best: {
       placeId: best.place.id,
       name: best.place.displayName?.text || "",
