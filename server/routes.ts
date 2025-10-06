@@ -331,6 +331,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .json({ error: "Failed to add note", message: error.message });
     }
   });
+  // POST /api/places/verify – cross-check a venue, return Place ID + status
+  app.post("/api/places/verify", async (req, res) => {
+    try {
+      const { name, address, lat, lng, radiusMeters } = req.body || {};
+
+      if (!name) {
+        return res.status(400).json({ error: "Missing `name`" });
+      }
+
+      const locationBias =
+        lat && lng && radiusMeters
+          ? { lat: Number(lat), lng: Number(lng), radiusMeters: Number(radiusMeters) }
+          : undefined;
+
+      const { verifyVenue } = await import("./googlePlaces");
+
+      const result = await verifyVenue({
+        name,
+        address,
+        locationBias,
+      });
+
+      return res.json(result);
+    } catch (e: any) {
+      console.error("verify error:", e);
+      return res.status(500).json({ error: e.message || "Verify failed" });
+    }
+  });
 
   const httpServer = createServer(app);
   return httpServer;
