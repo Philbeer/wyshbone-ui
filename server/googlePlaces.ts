@@ -28,7 +28,7 @@ function norm(s: string) {
     .trim();
 }
 
-// Scores a result against {name, address/postcode}; STRICT matching for accuracy
+// Simplified, robust scoring
 function scoreResult(place: GPlace, targetName: string, targetAddress?: string) {
   let score = 0;
   const pName = norm(place.displayName?.text || "");
@@ -36,59 +36,49 @@ function scoreResult(place: GPlace, targetName: string, targetAddress?: string) 
   const tName = norm(targetName);
   const tAddr = norm(targetAddress || "");
 
-  // STRICT name matching - must be exact or very close
+  // Name similarity
   if (pName === tName) {
-    score += 15; // Exact match is critical
-  } else if (pName.includes(tName) && tName.length >= 4) {
-    // Target name is contained in place name (e.g., "Eagle Inn" in "The Eagle Inn")
-    const diff = pName.length - tName.length;
-    if (diff <= 5) score += 12; // Very close
-    else if (diff <= 10) score += 8;
-    else score += 4;
-  } else if (tName.includes(pName) && pName.length >= 4) {
-    // Place name is contained in target (reverse case)
-    const diff = tName.length - pName.length;
-    if (diff <= 5) score += 12;
-    else if (diff <= 10) score += 8;
-    else score += 4;
-  } else {
-    // Names don't match well - this is likely wrong
-    score += 0; // Continue scoring but name mismatch is a red flag
+    score += 5; // Exact match
+  } else if (pName && tName && (pName.includes(tName) || tName.includes(pName))) {
+    score += 3; // Partial match
   }
 
-  // Postcode match is highly important for UK venues
+  // Postcode is very reliable for UK
   const postcodeMatch = (tAddr.match(/[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}/i)?.[0] || "").toLowerCase();
   if (postcodeMatch && pAddr.includes(postcodeMatch)) {
-    score += 8; // Postcode match is very reliable
+    score += 4;
   }
 
-  // Street name match (extract street from address)
-  const targetStreet = tAddr.match(/\d+\s+([^,]+)/)?.[1]?.toLowerCase().trim();
-  if (targetStreet && pAddr.includes(targetStreet)) {
-    score += 5; // Street address match is good
+  // Town/location match
+  const townMatch = tAddr.match(/,\s*([^,\d]+?)(?:,|\s+[A-Z]{1,2}\d|$)/i);
+  if (townMatch) {
+    const town = townMatch[1].trim().toLowerCase();
+    if (pAddr.includes(town)) {
+      score += 2;
+    }
   }
 
-  // Town/city match
-  if (tAddr.includes("arundel") && pAddr.includes("arundel")) {
+  // Prefer operational businesses
+  if (place.businessStatus === "OPERATIONAL") {
     score += 3;
   }
 
-  // Prefer operational
-  if (place.businessStatus === "OPERATIONAL") {
-    score += 2;
+  // CRITICAL: Favor actual business entities over addresses/routes
+  const types = place.types || [];
+  const isBusiness = types.some(t => 
+    ["bar", "restaurant", "night_club", "cafe", "food", "point_of_interest", "establishment"].includes(t)
+  );
+  const isAddressOnly = types.includes("street_address") || types.includes("premise");
+  
+  if (isBusiness && !isAddressOnly) {
+    score += 5; // Strongly prefer businesses
+  } else if (isAddressOnly && !isBusiness) {
+    score -= 10; // Penalize pure addresses
   }
 
-  // CRITICAL: Boost business entities, penalize street addresses
-  const types = place.types || [];
-  const isStreetAddress = types.includes("street_address") || types.includes("route");
-  const isBusiness = types.some(t => 
-    ["bar", "restaurant", "night_club", "cafe", "food", "establishment", "point_of_interest"].includes(t)
-  );
-  
-  if (isBusiness) {
-    score += 20; // Strongly prefer actual businesses
-  } else if (isStreetAddress && !isBusiness) {
-    score -= 100; // Heavily penalize pure street addresses (not the business!)
+  // Penalize if address doesn't match at all
+  if (tAddr && pAddr && !pAddr.includes(tAddr.substring(0, 20)) && !tAddr.includes(pAddr.substring(0, 20))) {
+    score -= 2;
   }
 
   return score;
@@ -157,20 +147,33 @@ export async function verifyVenue({
   region?: string;
   locationBias?: { lat: number; lng: number; radiusMeters: number };
 }) {
-  // Extract just the town/city from address for better business matching
-  let locationQuery = "";
-  if (address) {
-    // Try to extract town (e.g., "Arundel" from "45 High Street, Arundel, BN18 9AG")
-    const townMatch = address.match(/,\s*([^,\d]+?)(?:,|\s+[A-Z]{1,2}\d|$)/i);
-    if (townMatch) {
-      locationQuery = townMatch[1].trim();
-    }
+  // Try TWO searches to maximize coverage:
+  // 1. Name + postcode (most specific)
+  // 2. Just name (broadest, catches all entities)
+  
+  const postcodeMatch = address?.match(/[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}/i)?.[0];
+  
+  let allPlaces: GPlace[] = [];
+  
+  // Search 1: Name + Postcode (if available)
+  if (postcodeMatch) {
+    const query1 = `${name} ${postcodeMatch}`;
+    console.log(`   📍 Search #1: "${query1}"`);
+    const results1 = await searchPlaceId({ apiKey, textQuery: query1, region, locationBias });
+    allPlaces.push(...results1);
   }
   
-  // Search by name + town only (not full address) to get actual business entities
-  const query = locationQuery ? `${name}, ${locationQuery}` : name;
-  console.log(`   📍 Google Places query: "${query}"`);
-  const places = await searchPlaceId({ apiKey, textQuery: query, region, locationBias });
+  // Search 2: Just the name (broad search)
+  console.log(`   📍 Search #2: "${name}"`);
+  const results2 = await searchPlaceId({ apiKey, textQuery: name, region, locationBias });
+  allPlaces.push(...results2);
+  
+  // Deduplicate by Place ID
+  const uniquePlaces = Array.from(
+    new Map(allPlaces.map(p => [p.id, p])).values()
+  );
+  
+  const places = uniquePlaces;
 
   if (places.length === 0) {
     return {
@@ -190,7 +193,7 @@ export async function verifyVenue({
 
   const best = ranked[0];
   return {
-    found: best.score >= 15, // Strict threshold: requires good name match + some address confirmation
+    found: best.score >= 8, // Balanced threshold: name + postcode/location + operational
     best: {
       placeId: best.place.id,
       name: best.place.displayName?.text || "",
