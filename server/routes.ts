@@ -117,24 +117,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Build the input array from conversation history or single query
       let inputMessages;
+      let isFollowUp = false;
+      
       if (messages && messages.length > 0) {
-        // Filter to only user messages and convert to Responses API format
-        // The Responses API only accepts user messages in the input
+        // Filter to only user messages
         const userMessages = messages.filter((msg: any) => msg.role === "user");
         
         if (userMessages.length === 0) {
           return res.status(400).json({ error: "No user messages found in conversation history" });
         }
         
-        inputMessages = userMessages.map((msg: any) => ({
-          role: "user",
-          content: [
+        // Check if this is a follow-up question (more than one user message)
+        isFollowUp = userMessages.length > 1;
+        
+        // For follow-ups, only send the last message but with context instruction
+        if (isFollowUp) {
+          const lastUserMessage = userMessages[userMessages.length - 1].content;
+          const contextMessages = userMessages.slice(0, -1).map((m: any) => m.content).join("\n");
+          
+          inputMessages = [
             {
-              type: "input_text",
-              text: msg.content
+              role: "user",
+              content: [
+                {
+                  type: "input_text",
+                  text: `Previous questions: ${contextMessages}\n\nCurrent question: ${lastUserMessage}`
+                }
+              ]
             }
-          ]
-        }));
+          ];
+        } else {
+          // Single message - convert to Responses API format
+          inputMessages = [{
+            role: "user",
+            content: [
+              {
+                type: "input_text",
+                text: userMessages[0].content
+              }
+            ]
+          }];
+        }
       } else {
         // Single query format
         inputMessages = [
@@ -151,28 +174,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Call the new OpenAI Responses API
+      // Only use structured output and web_search for initial queries, not follow-ups
+      const requestBody: any = {
+        model: "gpt-4o-mini",
+        input: inputMessages,
+      };
+
+      // Add web_search and structured output only for non-follow-up queries
+      if (!isFollowUp) {
+        requestBody.tools = [{ type: "web_search" }];
+        requestBody.text = {
+          format: {
+            type: "json_schema",
+            name: "wyshbone_results",
+            schema: wyshboneSchema
+          }
+        };
+      }
+
       const response = await fetch("https://api.openai.com/v1/responses", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`
         },
-        body: JSON.stringify({
-          model: "gpt-4o-mini",
-          input: inputMessages,
-          tools: [
-            {
-              type: "web_search"
-            }
-          ],
-          text: {
-            format: {
-              type: "json_schema",
-              name: "wyshbone_results",
-              schema: wyshboneSchema
-            }
-          }
-        })
+        body: JSON.stringify(requestBody)
       });
 
       if (!response.ok) {
@@ -216,17 +242,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      // Try to parse the JSON
-      try {
-        const parsedResults = JSON.parse(outputText);
-        return res.json(parsedResults);
-      } catch (parseError) {
-        console.error("JSON parse error:", parseError);
-        // If JSON parse fails, return the raw text
-        return res.json({ 
-          error: "Failed to parse JSON response",
-          raw_text: outputText 
+      // Try to parse the JSON for structured responses, or return plain text for follow-ups
+      if (isFollowUp) {
+        // For follow-ups, return plain text response
+        return res.json({
+          plain_text: outputText,
+          is_follow_up: true
         });
+      } else {
+        // For search queries, parse JSON
+        try {
+          const parsedResults = JSON.parse(outputText);
+          return res.json(parsedResults);
+        } catch (parseError) {
+          console.error("JSON parse error:", parseError);
+          // If JSON parse fails, return the raw text
+          return res.json({ 
+            error: "Failed to parse JSON response",
+            raw_text: outputText 
+          });
+        }
       }
 
     } catch (error: any) {

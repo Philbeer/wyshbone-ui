@@ -91,6 +91,15 @@ export default function ChatPage() {
       } else if (data.error) {
         // Other errors
         throw new Error(data.error);
+      } else if (data.is_follow_up && data.plain_text) {
+        // Handle plain text follow-up responses
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === assistantMessageId
+              ? { ...msg, content: data.plain_text }
+              : msg
+          )
+        );
       } else {
         // Format the structured response nicely
         let formattedContent = `**Search Results for: "${data.query}"**\n\n`;
