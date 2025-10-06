@@ -134,6 +134,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (isFollowUp) {
           const lastUserMessage = userMessages[userMessages.length - 1].content;
           
+          console.log("Total messages received:", messages.length);
+          console.log("Messages breakdown:");
+          messages.forEach((msg: any, idx: number) => {
+            console.log(`  [${idx}] ${msg.role}: ${msg.content?.substring(0, 50)}...`);
+          });
+          
           // Build conversation context including both user questions and assistant responses
           let conversationContext = "Previous conversation:\n\n";
           for (let i = 0; i < messages.length - 1; i++) {
@@ -144,6 +150,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
               conversationContext += `Assistant: ${msg.content}\n\n`;
             }
           }
+          
+          console.log("Context length:", conversationContext.length, "chars");
           
           inputMessages = [
             {
