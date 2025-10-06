@@ -162,13 +162,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const data = await response.json();
       
-      // Extract the text from response.output[1].content[0].text
-      const outputText = data.output?.[1]?.content?.[0]?.text;
+      // Extract the text from the response - try multiple possible locations
+      let outputText = null;
+      
+      // Try output[1].content[0].text first (assistant response)
+      if (data.output?.[1]?.content?.[0]?.text) {
+        outputText = data.output[1].content[0].text;
+      } 
+      // Try output[0].content[0].text as fallback
+      else if (data.output?.[0]?.content?.[0]?.text) {
+        outputText = data.output[0].content[0].text;
+      }
+      // Try to find any output with content
+      else if (data.output && Array.isArray(data.output)) {
+        for (const item of data.output) {
+          if (item.content?.[0]?.text) {
+            outputText = item.content[0].text;
+            break;
+          }
+        }
+      }
       
       if (!outputText) {
+        console.error("Could not parse OpenAI response:", JSON.stringify(data, null, 2));
         return res.status(500).json({ 
           error: "Unexpected response format", 
-          details: "Could not find text in response.output[1].content[0].text",
+          details: "Could not find text in response output",
           raw: data
         });
       }
