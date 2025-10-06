@@ -59,17 +59,14 @@ export default function ChatPage() {
       // Create abort controller for this request
       abortControllerRef.current = new AbortController();
 
-      // Get the last user message as the query
-      const lastMessage = conversationMessages[conversationMessages.length - 1];
-      const query = lastMessage?.content || "";
-
+      // Send full conversation history for context
       const response = await fetch("/api/search", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          query: query,
+          messages: conversationMessages,
         }),
         signal: abortControllerRef.current.signal,
       });

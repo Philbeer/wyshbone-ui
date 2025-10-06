@@ -68,13 +68,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // POST /api/search - Search with OpenAI Responses API
   app.post("/api/search", async (req, res) => {
     try {
-      // Validate request body
-      const validation = searchRequestSchema.safeParse(req.body);
-      if (!validation.success) {
-        return res.status(400).json({ error: "Invalid request format", details: validation.error });
+      // Accept either query string or messages array for conversation history
+      const { query, messages } = req.body;
+      
+      if (!query && (!messages || messages.length === 0)) {
+        return res.status(400).json({ error: "Either query or messages must be provided" });
       }
-
-      const { query } = validation.data;
 
       // Check if OpenAI API key is configured
       if (!process.env.OPENAI_API_KEY) {
@@ -116,6 +115,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
         additionalProperties: false
       };
 
+      // Build the input array from conversation history or single query
+      let inputMessages;
+      if (messages && messages.length > 0) {
+        // Convert chat messages to Responses API format
+        inputMessages = messages.map((msg: any) => ({
+          role: msg.role,
+          content: [
+            {
+              type: "input_text",
+              text: msg.content
+            }
+          ]
+        }));
+      } else {
+        // Single query format
+        inputMessages = [
+          {
+            role: "user",
+            content: [
+              {
+                type: "input_text",
+                text: query
+              }
+            ]
+          }
+        ];
+      }
+
       // Call the new OpenAI Responses API
       const response = await fetch("https://api.openai.com/v1/responses", {
         method: "POST",
@@ -125,17 +152,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         },
         body: JSON.stringify({
           model: "gpt-4o-mini",
-          input: [
-            {
-              role: "user",
-              content: [
-                {
-                  type: "input_text",
-                  text: query
-                }
-              ]
-            }
-          ],
+          input: inputMessages,
           tools: [
             {
               type: "web_search"
