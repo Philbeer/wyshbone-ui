@@ -19,6 +19,45 @@ function getSessionId(req: import("express").Request) {
   return (req.headers["x-session-id"] as string) || req.ip || "anon";
 }
 
+// Intent-based follow-up detection using keyword heuristics
+// Returns true if message appears to be a follow-up question, false if it's a new search
+function detectFollowUpIntent(message: string): boolean {
+  const lowerMsg = message.toLowerCase().trim();
+  
+  // Follow-up indicators - references to previous context
+  const followUpPatterns = [
+    /^(tell me more|more about|what about|how about)/,
+    /(the )?(first|second|third|last|previous) (one|result|option)/,
+    /^(that|this|those|these)/,
+    /^(thanks|thank you|ok|okay|yes|no|sure)/,
+    /^(can you )?(explain|elaborate|clarify)/,
+    /^(what does|what is|who is|where is) (that|this|it)/,
+  ];
+  
+  for (const pattern of followUpPatterns) {
+    if (pattern.test(lowerMsg)) {
+      return true; // This is a follow-up
+    }
+  }
+  
+  // Search indicators - these suggest a new search query
+  const searchPatterns = [
+    /(find|show|search|list|get|give me|suggest)/,
+    /\d+\s+(pubs?|restaurants?|bars?|cafes?|venues?|places?|hotels?|shops?)/,
+    /(in|at|near|around)\s+\w+/,
+    /(where can|where to|best|top|good)/,
+  ];
+  
+  for (const pattern of searchPatterns) {
+    if (pattern.test(lowerMsg)) {
+      return false; // This is a new search
+    }
+  }
+  
+  // Default to new search for ambiguous cases (as recommended by architect)
+  return false;
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
   // Enable CORS for all routes
   app.use(cors());
@@ -128,15 +167,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ? messages[messages.length - 1].content 
         : query;
       
+      // Detect if this is a follow-up question or a new search query
+      // This runs BEFORE appending to memory to avoid bias
+      const isFollowUp = detectFollowUpIntent(latestUserMessage);
+      
       // Store user message in memory
       appendMessage(sessionId, { role: "user", content: latestUserMessage });
       
       // Get full conversation from memory
       const memoryConversation = getConversation(sessionId);
-      
-      // Check if this is a follow-up (more than just system prompt + one user message)
-      const userMessageCount = memoryConversation.filter(m => m.role === "user").length;
-      const isFollowUp = userMessageCount > 1;
 
       // Structured JSON schema for search output
       const wyshboneSchema = {
