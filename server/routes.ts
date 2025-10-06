@@ -171,6 +171,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // This runs BEFORE appending to memory to avoid bias
       const isFollowUp = detectFollowUpIntent(latestUserMessage);
       
+      console.log(`[Intent Detection] Message: "${latestUserMessage}"`);
+      console.log(`[Intent Detection] isFollowUp: ${isFollowUp}`);
+      
       // Store user message in memory
       appendMessage(sessionId, { role: "user", content: latestUserMessage });
       
