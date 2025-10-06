@@ -292,10 +292,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
           
           for (const venue of parsed.results) {
             try {
+              console.log(`\n🔍 Verifying venue: "${venue.name}"`);
+              console.log(`   Address: ${venue.address}`);
+              
               const verification = await verifyVenue({
                 name: venue.name,
                 address: venue.address,
               });
+              
+              console.log(`   Found: ${verification.found}`);
+              if (verification.best) {
+                console.log(`   Best match: "${verification.best.name}"`);
+                console.log(`   Match score: ${verification.best.score}`);
+                console.log(`   Place ID: ${verification.best.placeId}`);
+                console.log(`   Status: ${verification.best.businessStatus}`);
+              }
+              
+              if (verification.candidates && verification.candidates.length > 0) {
+                console.log(`   Other candidates:`);
+                verification.candidates.slice(0, 3).forEach((c: any, i: number) => {
+                  console.log(`     ${i + 1}. "${c.name}" (score: ${c.score}) - ${c.placeId}`);
+                });
+              }
               
               // Only include if found and operational
               if (verification.found && verification.best?.businessStatus === "OPERATIONAL") {
@@ -308,6 +326,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   website: verification.best.website,
                   sourceUrl: venue.sourceUrl,
                 });
+              } else {
+                console.log(`   ❌ Skipped: ${!verification.found ? 'not found' : 'not operational'}`);
               }
             } catch (verifyError) {
               console.error(`Error verifying venue ${venue.name}:`, verifyError);
