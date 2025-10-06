@@ -59,75 +59,69 @@ export default function ChatPage() {
       // Create abort controller for this request
       abortControllerRef.current = new AbortController();
 
-      const response = await fetch("/api/chat", {
+      // Get the last user message as the query
+      const lastMessage = conversationMessages[conversationMessages.length - 1];
+      const query = lastMessage?.content || "";
+
+      const response = await fetch("/api/search", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          messages: conversationMessages,
-          user: {
-            id: "demo-user-123",
-            email: "demo@wyshbone.ai",
-          },
+          query: query,
         }),
         signal: abortControllerRef.current.signal,
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        const errorData = await response.json().catch(() => ({ error: "Unknown error" }));
+        throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
       }
 
-      const reader = response.body?.getReader();
-      const decoder = new TextDecoder();
+      const data = await response.json();
 
-      if (!reader) {
-        throw new Error("Response body is not readable");
-      }
-
-      let buffer = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
+      // Check if there's an error or raw text (failed JSON parse)
+      if (data.error && data.raw_text) {
+        // If JSON parsing failed on the backend, show the raw text
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === assistantMessageId
+              ? { ...msg, content: data.raw_text }
+              : msg
+          )
+        );
+      } else if (data.error) {
+        // Other errors
+        throw new Error(data.error);
+      } else {
+        // Format the structured response nicely
+        let formattedContent = `**Search Results for: "${data.query}"**\n\n`;
         
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        
-        // Keep the last incomplete line in the buffer
-        buffer = lines.pop() || "";
-
-        for (const line of lines) {
-          if (line.startsWith("data: ")) {
-            const data = line.slice(6);
-            
-            if (data === "[DONE]") {
-              setIsStreaming(false);
-              return;
-            }
-
-            try {
-              const parsed = JSON.parse(data);
-              
-              if (parsed.error) {
-                throw new Error(parsed.error);
-              }
-
-              if (parsed.content) {
-                setMessages((prev) =>
-                  prev.map((msg) =>
-                    msg.id === assistantMessageId
-                      ? { ...msg, content: msg.content + parsed.content }
-                      : msg
-                  )
-                );
-              }
-            } catch (e) {
-              console.error("Error parsing SSE data:", e);
-            }
-          }
+        if (data.results && data.results.length > 0) {
+          formattedContent += `**Found ${data.results.length} result(s):**\n\n`;
+          data.results.forEach((result: any, index: number) => {
+            formattedContent += `${index + 1}. **${result.title}**\n`;
+            formattedContent += `   ${result.snippet}\n`;
+            formattedContent += `   🔗 ${result.url}\n\n`;
+          });
+        } else {
+          formattedContent += `No results found.\n\n`;
         }
+        
+        if (data.notes) {
+          formattedContent += `**Notes:**\n${data.notes}\n`;
+        }
+        
+        formattedContent += `\n*Generated at: ${new Date(data.generated_at).toLocaleString()}*`;
+
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === assistantMessageId
+              ? { ...msg, content: formattedContent }
+              : msg
+          )
+        );
       }
 
       setIsStreaming(false);
