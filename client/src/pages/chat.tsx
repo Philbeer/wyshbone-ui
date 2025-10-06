@@ -110,28 +110,6 @@ export default function ChatPage() {
           data.results.forEach((result: any, index: number) => {
             formattedContent += `${index + 1}. **${result.title}**\n`;
             formattedContent += `   ${result.snippet}\n`;
-            
-            // Add Google Places verification status
-            if (result.googlePlaces) {
-              const gp = result.googlePlaces;
-              if (gp.verified) {
-                formattedContent += `   ✅ **Verified** on Google Places (Score: ${gp.verificationScore})\n`;
-                if (gp.verifiedAddress) {
-                  formattedContent += `   📍 ${gp.verifiedAddress}\n`;
-                }
-                if (gp.phone) {
-                  formattedContent += `   📞 ${gp.phone}\n`;
-                }
-                if (gp.website) {
-                  formattedContent += `   🌐 ${gp.website}\n`;
-                }
-                formattedContent += `   🆔 Place ID: ${gp.placeId}\n`;
-                formattedContent += `   📊 Status: ${gp.businessStatus}\n`;
-              } else {
-                formattedContent += `   ⚠️ Not verified on Google Places\n`;
-              }
-            }
-            
             formattedContent += `   🔗 ${result.url}\n\n`;
           });
         } else {
