@@ -147,26 +147,40 @@ export async function verifyVenue({
   region?: string;
   locationBias?: { lat: number; lng: number; radiusMeters: number };
 }) {
-  // Try TWO searches to maximize coverage:
-  // 1. Name + postcode (most specific)
-  // 2. Just name (broadest, catches all entities)
+  // Try multiple targeted searches:
+  // 1. Name + full address (most complete)
+  // 2. Name + postcode (specific)
+  // 3. Name + street + town (medium specificity)
   
   const postcodeMatch = address?.match(/[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}/i)?.[0];
+  const streetMatch = address?.match(/(\d+\s+[^,]+)/)?.[1]?.trim();
+  const townMatch = address?.match(/,\s*([^,\d]+?)(?:,|\s+[A-Z]{1,2}\d|$)/i)?.[1]?.trim();
   
   let allPlaces: GPlace[] = [];
   
-  // Search 1: Name + Postcode (if available)
-  if (postcodeMatch) {
-    const query1 = `${name} ${postcodeMatch}`;
+  // Search 1: Name + Full Address
+  if (address) {
+    const query1 = `${name}, ${address}`;
     console.log(`   📍 Search #1: "${query1}"`);
     const results1 = await searchPlaceId({ apiKey, textQuery: query1, region, locationBias });
     allPlaces.push(...results1);
   }
   
-  // Search 2: Just the name (broad search)
-  console.log(`   📍 Search #2: "${name}"`);
-  const results2 = await searchPlaceId({ apiKey, textQuery: name, region, locationBias });
-  allPlaces.push(...results2);
+  // Search 2: Name + Postcode
+  if (postcodeMatch) {
+    const query2 = `${name} ${postcodeMatch}`;
+    console.log(`   📍 Search #2: "${query2}"`);
+    const results2 = await searchPlaceId({ apiKey, textQuery: query2, region, locationBias });
+    allPlaces.push(...results2);
+  }
+  
+  // Search 3: Name + Street + Town
+  if (streetMatch && townMatch) {
+    const query3 = `${name}, ${streetMatch}, ${townMatch}`;
+    console.log(`   📍 Search #3: "${query3}"`);
+    const results3 = await searchPlaceId({ apiKey, textQuery: query3, region, locationBias });
+    allPlaces.push(...results3);
+  }
   
   // Deduplicate by Place ID
   const uniquePlaces = Array.from(
