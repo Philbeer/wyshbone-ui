@@ -145,6 +145,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
             }
           }
           
+          console.log("=== CONVERSATION CONTEXT ===");
+          console.log(conversationContext);
+          console.log("=== END CONTEXT ===");
+          
           inputMessages = [
             {
               role: "user",
