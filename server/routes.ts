@@ -134,10 +134,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
         isFollowUp = userMessages.length > 1;
         console.log(`Is follow-up: ${isFollowUp}`);
         
-        // For follow-ups, only send the last message but with context instruction
+        // For follow-ups, include conversation history (both user and assistant messages)
         if (isFollowUp) {
           const lastUserMessage = userMessages[userMessages.length - 1].content;
-          const contextMessages = userMessages.slice(0, -1).map((m: any) => m.content).join("\n");
+          
+          // Build conversation context including both user questions and assistant responses
+          let conversationContext = "Previous conversation:\n\n";
+          for (let i = 0; i < messages.length - 1; i++) {
+            const msg = messages[i];
+            if (msg.role === "user") {
+              conversationContext += `User: ${msg.content}\n\n`;
+            } else if (msg.role === "assistant") {
+              conversationContext += `Assistant: ${msg.content}\n\n`;
+            }
+          }
           
           inputMessages = [
             {
@@ -145,7 +155,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               content: [
                 {
                   type: "input_text",
-                  text: `Previous questions: ${contextMessages}\n\nCurrent question: ${lastUserMessage}`
+                  text: `${conversationContext}Current question: ${lastUserMessage}`
                 }
               ]
             }
