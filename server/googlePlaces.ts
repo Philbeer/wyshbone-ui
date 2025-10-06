@@ -157,7 +157,19 @@ export async function verifyVenue({
   region?: string;
   locationBias?: { lat: number; lng: number; radiusMeters: number };
 }) {
-  const query = address ? `${name}, ${address}` : name;
+  // Extract just the town/city from address for better business matching
+  let locationQuery = "";
+  if (address) {
+    // Try to extract town (e.g., "Arundel" from "45 High Street, Arundel, BN18 9AG")
+    const townMatch = address.match(/,\s*([^,\d]+?)(?:,|\s+[A-Z]{1,2}\d|$)/i);
+    if (townMatch) {
+      locationQuery = townMatch[1].trim();
+    }
+  }
+  
+  // Search by name + town only (not full address) to get actual business entities
+  const query = locationQuery ? `${name}, ${locationQuery}` : name;
+  console.log(`   📍 Google Places query: "${query}"`);
   const places = await searchPlaceId({ apiKey, textQuery: query, region, locationBias });
 
   if (places.length === 0) {
