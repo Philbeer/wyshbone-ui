@@ -8,6 +8,7 @@ type GPlace = {
   businessStatus?: "OPERATIONAL" | "CLOSED_TEMPORARILY" | "CLOSED_PERMANENTLY" | string;
   nationalPhoneNumber?: string;
   websiteUri?: string;
+  types?: string[]; // e.g., ["bar", "restaurant", "establishment"] vs ["street_address"]
 };
 
 type SearchResp = {
@@ -77,6 +78,19 @@ function scoreResult(place: GPlace, targetName: string, targetAddress?: string) 
     score += 2;
   }
 
+  // CRITICAL: Boost business entities, penalize street addresses
+  const types = place.types || [];
+  const isStreetAddress = types.includes("street_address") || types.includes("route");
+  const isBusiness = types.some(t => 
+    ["bar", "restaurant", "night_club", "cafe", "food", "establishment", "point_of_interest"].includes(t)
+  );
+  
+  if (isBusiness) {
+    score += 20; // Strongly prefer actual businesses
+  } else if (isStreetAddress && !isBusiness) {
+    score -= 100; // Heavily penalize pure street addresses (not the business!)
+  }
+
   return score;
 }
 
@@ -85,7 +99,7 @@ export async function searchPlaceId({
   textQuery,          // e.g., "The Fisherman's Joy, 43 Queen Street, Arundel BN18 9JG"
   region = "GB",      // bias/normalization
   locationBias,       // optional: { lat, lng, radiusMeters }
-  fieldMask = "places.id,places.displayName,places.formattedAddress,places.businessStatus,places.nationalPhoneNumber,places.websiteUri",
+  fieldMask = "places.id,places.displayName,places.formattedAddress,places.businessStatus,places.nationalPhoneNumber,places.websiteUri,places.types",
 }: {
   apiKey?: string;
   textQuery: string;
@@ -179,6 +193,7 @@ export async function verifyVenue({
       name: r.place.displayName?.text || "",
       address: r.place.formattedAddress || "",
       businessStatus: r.place.businessStatus || "UNKNOWN",
+      types: r.place.types || [],
       score: r.score,
     })),
   };

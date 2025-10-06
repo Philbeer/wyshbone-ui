@@ -311,7 +311,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
               if (verification.candidates && verification.candidates.length > 0) {
                 console.log(`   Other candidates:`);
                 verification.candidates.slice(0, 3).forEach((c: any, i: number) => {
-                  console.log(`     ${i + 1}. "${c.name}" (score: ${c.score}) - ${c.placeId}`);
+                  const typesStr = c.types?.length ? c.types.join(", ") : "no types";
+                  console.log(`     ${i + 1}. "${c.name}" (score: ${c.score}) [${typesStr}] - ${c.placeId}`);
                 });
               }
               
