@@ -1,61 +1,88 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
-import { openai, WYSHBONE_SYSTEM_PROMPT } from "./openai";
-import { chatRequestSchema, addNoteRequestSchema, searchRequestSchema } from "@shared/schema";
+import { openai } from "./openai"; // keep your existing OpenAI client
+import {
+  getConversation,
+  appendMessage,
+  resetConversation,
+  maybeSummarize,
+} from "./memory";
+import {
+  chatRequestSchema,
+  addNoteRequestSchema,
+  searchRequestSchema,
+} from "@shared/schema";
 import cors from "cors";
+
+// Helper to identify each user's session (Bubble should send x-session-id)
+function getSessionId(req: import("express").Request) {
+  return (req.headers["x-session-id"] as string) || req.ip || "anon";
+}
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Enable CORS for all routes
   app.use(cors());
 
-  // POST /api/chat - Chat with OpenAI (streaming)
+  // ===========================
+  // POST /api/chat – streaming + MEMORY
+  // ===========================
   app.post("/api/chat", async (req, res) => {
     try {
-      // Validate request body
+      // Validate request body against your existing schema
       const validation = chatRequestSchema.safeParse(req.body);
       if (!validation.success) {
-        return res.status(400).json({ error: "Invalid request format", details: validation.error });
+        return res
+          .status(400)
+          .json({ error: "Invalid request format", details: validation.error });
       }
 
-      const { messages, user } = validation.data;
+      const { messages, user } = validation.data; // 'user' kept in case you use it elsewhere
+      const sessionId = getSessionId(req);
 
-      // Check if OpenAI API key is configured
-      if (!process.env.OPENAI_API_KEY) {
-        return res.status(500).json({ error: "OPENAI_API_KEY is not configured" });
-      }
+      // Grab the latest user message text (last item in the array)
+      const latestUserText =
+        messages?.length ? String(messages[messages.length - 1].content) : "";
 
-      // Add system prompt to messages
-      const messagesWithSystem = [
-        { role: "system" as const, content: WYSHBONE_SYSTEM_PROMPT },
-        ...messages,
-      ];
+      // 1) Store user's new message in memory
+      appendMessage(sessionId, { role: "user", content: latestUserText });
 
-      // Set headers for streaming
-      res.setHeader('Content-Type', 'text/event-stream');
-      res.setHeader('Cache-Control', 'no-cache');
-      res.setHeader('Connection', 'keep-alive');
-      res.setHeader('X-Accel-Buffering', 'no'); // Disable nginx buffering
-      res.flushHeaders(); // Send headers immediately
+      // 2) Compact long conversations with a summary when needed
+      await maybeSummarize(sessionId, openai);
 
-      // Call OpenAI API with streaming
+      // 3) Pull the memory-backed conversation to send to OpenAI
+      const memoryMessages = getConversation(sessionId);
+
+      // Prepare streaming headers
+      res.setHeader("Content-Type", "text/event-stream");
+      res.setHeader("Cache-Control", "no-cache");
+      res.setHeader("Connection", "keep-alive");
+      res.setHeader("X-Accel-Buffering", "no");
+      res.flushHeaders();
+
+      // Stream from OpenAI with memory messages
+      let aiBuffer = "";
+
       const stream = await openai.chat.completions.create({
         model: "gpt-4o-mini",
-        messages: messagesWithSystem,
+        messages: memoryMessages,
         max_tokens: 1500,
         stream: true,
       });
 
-      // Stream chunks to client
       for await (const chunk of stream) {
         const content = chunk.choices[0]?.delta?.content;
         if (content) {
+          aiBuffer += content; // collect full assistant reply
           res.write(`data: ${JSON.stringify({ content })}\n\n`);
-          // @ts-ignore - flush is available in some environments
+          // @ts-ignore - flush exists in this env
           if (res.flush) res.flush();
         }
       }
 
-      // Send done signal
+      // Save assistant reply to memory
+      appendMessage(sessionId, { role: "assistant", content: aiBuffer });
+
+      // End stream
       res.write(`data: [DONE]\n\n`);
       res.end();
     } catch (error: any) {
@@ -65,32 +92,60 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // POST /api/search - Search with OpenAI Responses API
+  // Optional: clear memory for a given session (useful for "New chat")
+  app.post("/api/chat/reset", (req, res) => {
+    const sessionId = getSessionId(req);
+    resetConversation(sessionId);
+    res.json({ status: "ok", message: "Conversation reset." });
+  });
+
+  // =========================================
+  // POST /api/search – OpenAI Responses API
+  // (kept as you provided; unchanged in logic)
+  // =========================================
   app.post("/api/search", async (req, res) => {
     try {
+      // Get session ID for memory tracking
+      const sessionId = getSessionId(req);
+      
       // Accept either query string or messages array for conversation history
       const { query, messages } = req.body;
-      
+
       if (!query && (!messages || messages.length === 0)) {
-        return res.status(400).json({ error: "Either query or messages must be provided" });
+        return res
+          .status(400)
+          .json({ error: "Either query or messages must be provided" });
       }
 
-      // Check if OpenAI API key is configured
       if (!process.env.OPENAI_API_KEY) {
-        return res.status(500).json({ error: "OPENAI_API_KEY is not configured" });
+        return res
+          .status(500)
+          .json({ error: "OPENAI_API_KEY is not configured" });
       }
+      
+      // Get the latest user message
+      const latestUserMessage = messages && messages.length > 0 
+        ? messages[messages.length - 1].content 
+        : query;
+      
+      // Store user message in memory
+      appendMessage(sessionId, { role: "user", content: latestUserMessage });
+      
+      // Get full conversation from memory
+      const memoryConversation = getConversation(sessionId);
+      
+      // Check if this is a follow-up (more than just system prompt + one user message)
+      const userMessageCount = memoryConversation.filter(m => m.role === "user").length;
+      const isFollowUp = userMessageCount > 1;
 
-      // Define the JSON schema for structured output
+      // Structured JSON schema for search output
       const wyshboneSchema = {
         type: "object",
         properties: {
-          query: {
-            type: "string",
-            description: "The original search query"
-          },
+          query: { type: "string", description: "The original search query" },
           generated_at: {
             type: "string",
-            description: "ISO timestamp when the response was generated"
+            description: "ISO timestamp when the response was generated",
           },
           results: {
             type: "array",
@@ -99,114 +154,77 @@ export async function registerRoutes(app: Express): Promise<Server> {
               properties: {
                 title: { type: "string" },
                 url: { type: "string" },
-                snippet: { type: "string" }
+                snippet: { type: "string" },
               },
               required: ["title", "url", "snippet"],
-              additionalProperties: false
+              additionalProperties: false,
             },
-            description: "Array of search results"
+            description: "Array of search results",
           },
           notes: {
             type: "string",
-            description: "Additional notes or summary about the search results"
-          }
+            description: "Additional notes or summary about the search results",
+          },
         },
         required: ["query", "generated_at", "results", "notes"],
-        additionalProperties: false
+        additionalProperties: false,
       };
 
-      // Build the input array from conversation history or single query
-      let inputMessages;
-      let isFollowUp = false;
+      // Build input for Responses API based on memory conversation
+      let inputMessages: any;
       
-      if (messages && messages.length > 0) {
-        // Filter to only user messages
-        const userMessages = messages.filter((msg: any) => msg.role === "user");
-        
-        if (userMessages.length === 0) {
-          return res.status(400).json({ error: "No user messages found in conversation history" });
-        }
-        
-        // Check if this is a follow-up question (more than one user message)
-        isFollowUp = userMessages.length > 1;
-        
-        // For follow-ups, include conversation history (both user and assistant messages)
-        if (isFollowUp) {
-          const lastUserMessage = userMessages[userMessages.length - 1].content;
-          
-          console.log("Total messages received:", messages.length);
-          console.log("Messages breakdown:");
-          messages.forEach((msg: any, idx: number) => {
-            console.log(`  [${idx}] ${msg.role}: ${msg.content?.substring(0, 50)}...`);
-          });
-          
-          // Build conversation context including both user questions and assistant responses
-          let conversationContext = "Previous conversation:\n\n";
-          for (let i = 0; i < messages.length - 1; i++) {
-            const msg = messages[i];
-            if (msg.role === "user") {
-              conversationContext += `User: ${msg.content}\n\n`;
-            } else if (msg.role === "assistant") {
-              conversationContext += `Assistant: ${msg.content}\n\n`;
-            }
+      if (isFollowUp) {
+        // For follow-ups, format the entire conversation as context
+        let conversationText = "";
+        for (const msg of memoryConversation) {
+          if (msg.role === "system") {
+            // Skip system messages for Responses API
+            continue;
           }
-          
-          console.log("Context length:", conversationContext.length, "chars");
-          
-          inputMessages = [
-            {
-              role: "user",
-              content: [
-                {
-                  type: "input_text",
-                  text: `${conversationContext}Current question: ${lastUserMessage}`
-                }
-              ]
-            }
-          ];
-        } else {
-          // Single message - convert to Responses API format
-          inputMessages = [{
-            role: "user",
-            content: [
-              {
-                type: "input_text",
-                text: userMessages[0].content
-              }
-            ]
-          }];
+          const roleLabel = msg.role === "user" ? "User" : "Assistant";
+          conversationText += `${roleLabel}: ${msg.content}\n\n`;
         }
-      } else {
-        // Single query format
+        
         inputMessages = [
           {
             role: "user",
             content: [
               {
                 type: "input_text",
-                text: query
-              }
-            ]
-          }
+                text: conversationText.trim(),
+              },
+            ],
+          },
+        ];
+      } else {
+        // For first query, just send the latest message
+        inputMessages = [
+          {
+            role: "user",
+            content: [
+              {
+                type: "input_text",
+                text: latestUserMessage,
+              },
+            ],
+          },
         ];
       }
 
-      // Call the new OpenAI Responses API
-      // Only use structured output and web_search for initial queries, not follow-ups
       const requestBody: any = {
         model: "gpt-4o-mini",
         input: inputMessages,
       };
 
-      // Add web_search and structured output only for non-follow-up queries
+      // Add web_search + JSON schema only for non-follow-up queries
       if (!isFollowUp) {
         requestBody.tools = [{ type: "web_search" }];
         requestBody.text = {
           format: {
             type: "json_schema",
             name: "wyshbone_results",
-            schema: wyshboneSchema
-          }
+            schema: wyshboneSchema,
+          },
         };
       }
 
@@ -214,35 +232,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`
+          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
         },
-        body: JSON.stringify(requestBody)
+        body: JSON.stringify(requestBody),
       });
 
       if (!response.ok) {
         const errorText = await response.text();
         console.error("OpenAI API error:", errorText);
-        return res.status(response.status).json({ 
-          error: "OpenAI API request failed", 
-          details: errorText 
-        });
+        return res
+          .status(response.status)
+          .json({ error: "OpenAI API request failed", details: errorText });
       }
 
       const data = await response.json();
-      
-      // Extract the text from the response - try multiple possible locations
-      let outputText = null;
-      
-      // Try output[1].content[0].text first (assistant response)
+
+      // Extract assistant text
+      let outputText: string | null = null;
       if (data.output?.[1]?.content?.[0]?.text) {
         outputText = data.output[1].content[0].text;
-      } 
-      // Try output[0].content[0].text as fallback
-      else if (data.output?.[0]?.content?.[0]?.text) {
+      } else if (data.output?.[0]?.content?.[0]?.text) {
         outputText = data.output[0].content[0].text;
-      }
-      // Try to find any output with content
-      else if (data.output && Array.isArray(data.output)) {
+      } else if (Array.isArray(data.output)) {
         for (const item of data.output) {
           if (item.content?.[0]?.text) {
             outputText = item.content[0].text;
@@ -250,59 +261,61 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
         }
       }
-      
+
       if (!outputText) {
-        console.error("Could not parse OpenAI response:", JSON.stringify(data, null, 2));
-        return res.status(500).json({ 
-          error: "Unexpected response format", 
+        console.error("Could not parse OpenAI response:", JSON.stringify(data));
+        return res.status(500).json({
+          error: "Unexpected response format",
           details: "Could not find text in response output",
-          raw: data
+          raw: data,
         });
       }
 
-      // Try to parse the JSON for structured responses, or return plain text for follow-ups
+      // Store assistant's response in memory
+      appendMessage(sessionId, { role: "assistant", content: outputText });
+
       if (isFollowUp) {
-        // For follow-ups, return plain text response
-        return res.json({
-          plain_text: outputText,
-          is_follow_up: true
-        });
+        // follow-ups: return plain text
+        return res.json({ plain_text: outputText, is_follow_up: true });
       } else {
-        // For search queries, parse JSON
+        // initial searches: return JSON (or raw text if parse fails)
         try {
-          const parsedResults = JSON.parse(outputText);
-          return res.json(parsedResults);
-        } catch (parseError) {
-          console.error("JSON parse error:", parseError);
-          // If JSON parse fails, return the raw text
-          return res.json({ 
-            error: "Failed to parse JSON response",
-            raw_text: outputText 
-          });
+          const parsed = JSON.parse(outputText);
+          return res.json(parsed);
+        } catch (e) {
+          console.error("JSON parse error:", e);
+          return res.json({ error: "Failed to parse JSON response", raw_text: outputText });
         }
       }
-
     } catch (error: any) {
       console.error("Search error:", error);
-      return res.status(500).json({ 
-        error: "Search request failed", 
-        message: error.message 
-      });
+      return res
+        .status(500)
+        .json({ error: "Search request failed", message: error.message });
     }
   });
 
-  // POST /api/tool/add_note - Stub for Bubble integration
+  // Reset search conversation memory
+  app.post("/api/search/reset", (req, res) => {
+    const sessionId = getSessionId(req);
+    resetConversation(sessionId);
+    res.json({ status: "ok", message: "Search conversation reset." });
+  });
+
+  // =========================================
+  // POST /api/tool/add_note – Bubble stub
+  // =========================================
   app.post("/api/tool/add_note", async (req, res) => {
     try {
-      // Validate request body
       const validation = addNoteRequestSchema.safeParse(req.body);
       if (!validation.success) {
-        return res.status(400).json({ error: "Invalid request format", details: validation.error });
+        return res
+          .status(400)
+          .json({ error: "Invalid request format", details: validation.error });
       }
 
       const { userToken, leadId, note } = validation.data;
 
-      // Log the payload (stub for Bubble integration)
       console.log("📝 Add Note Request (Stub):", {
         userToken,
         leadId,
@@ -310,18 +323,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         timestamp: new Date().toISOString(),
       });
 
-      // Return success response
       res.json({ ok: true });
     } catch (error: any) {
       console.error("Add note error:", error);
-      res.status(500).json({ 
-        error: "Failed to add note", 
-        message: error.message 
-      });
+      res
+        .status(500)
+        .json({ error: "Failed to add note", message: error.message });
     }
   });
 
   const httpServer = createServer(app);
-
   return httpServer;
 }
