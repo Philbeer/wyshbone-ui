@@ -16,9 +16,15 @@ type SearchResp = {
 
 const PLACES_ENDPOINT = "https://places.googleapis.com/v1/places:searchText";
 
-// Simple cleaner for comparisons
+// Enhanced cleaner for comparisons - handles common variations
 function norm(s: string) {
-  return s.toLowerCase().replace(/\s+/g, " ").trim();
+  return s
+    .toLowerCase()
+    .replace(/[''\u2019]/g, "") // Remove apostrophes
+    .replace(/[.,]/g, "") // Remove periods and commas
+    .replace(/\bthe\b/g, "") // Remove "the" prefix/suffix
+    .replace(/\s+/g, " ") // Normalize whitespace
+    .trim();
 }
 
 // Scores a result against {name, address/postcode}; STRICT matching for accuracy
@@ -31,15 +37,22 @@ function scoreResult(place: GPlace, targetName: string, targetAddress?: string) 
 
   // STRICT name matching - must be exact or very close
   if (pName === tName) {
-    score += 10; // Exact match is critical
-  } else if (pName.includes(tName) && pName.length - tName.length <= 10) {
-    // Close match: target name is contained and lengths are similar
-    score += 7;
-  } else if (tName.includes(pName) && tName.length - pName.length <= 10) {
-    score += 7;
+    score += 15; // Exact match is critical
+  } else if (pName.includes(tName) && tName.length >= 4) {
+    // Target name is contained in place name (e.g., "Eagle Inn" in "The Eagle Inn")
+    const diff = pName.length - tName.length;
+    if (diff <= 5) score += 12; // Very close
+    else if (diff <= 10) score += 8;
+    else score += 4;
+  } else if (tName.includes(pName) && pName.length >= 4) {
+    // Place name is contained in target (reverse case)
+    const diff = tName.length - pName.length;
+    if (diff <= 5) score += 12;
+    else if (diff <= 10) score += 8;
+    else score += 4;
   } else {
-    // Name doesn't match well enough - heavily penalize
-    return 0; // Reject if name is too different
+    // Names don't match well - this is likely wrong
+    score += 0; // Continue scoring but name mismatch is a red flag
   }
 
   // Postcode match is highly important for UK venues
@@ -151,7 +164,7 @@ export async function verifyVenue({
 
   const best = ranked[0];
   return {
-    found: best.score >= 10, // Strict threshold: requires good name + address/postcode match
+    found: best.score >= 15, // Strict threshold: requires good name match + some address confirmation
     best: {
       placeId: best.place.id,
       name: best.place.displayName?.text || "",
