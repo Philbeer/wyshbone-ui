@@ -504,13 +504,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
               instagram: { type: "string", nullable: true },
               facebook: { type: "string", nullable: true },
             },
+            required: ["website", "linkedin", "twitter", "instagram", "facebook"],
+            additionalProperties: false,
           },
           category: { type: "string" },
           summary: { type: "string" },
           suggested_intro: { type: "string" },
           lead_score: { type: "number" },
         },
-        required: ["placeId", "category", "summary", "suggested_intro", "lead_score"],
+        required: ["placeId", "domain", "contact_email", "socials", "category", "summary", "suggested_intro", "lead_score"],
+        additionalProperties: false,
       };
 
       // JSON schema for contact enrichment
@@ -557,11 +560,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 linkedin_url: { type: "string", nullable: true },
                 notes: { type: "string", nullable: true },
               },
-              required: ["name", "title", "role_normalized", "source_url", "source_type", "confidence"],
+              required: ["name", "title", "role_normalized", "source_url", "source_type", "source_date", "confidence", "email_public", "email_type", "phone_public", "linkedin_url", "notes"],
+              additionalProperties: false,
             },
           },
         },
         required: ["placeId", "contacts"],
+        additionalProperties: false,
       };
 
       // Process items with concurrency control
@@ -900,11 +905,13 @@ Return structured data with the EXACT placeId: "${placeId}"`;
                 linkedin_url: { type: "string", nullable: true },
                 notes: { type: "string", nullable: true },
               },
-              required: ["name", "title", "role_normalized", "source_url", "source_type", "confidence"],
+              required: ["name", "title", "role_normalized", "source_url", "source_type", "source_date", "confidence", "email_public", "email_type", "phone_public", "linkedin_url", "notes"],
+              additionalProperties: false,
             },
           },
         },
         required: ["placeId", "contacts"],
+        additionalProperties: false,
       };
 
       const enrichContactsForItem = async (item: any) => {
@@ -1146,13 +1153,16 @@ Return structured data with the EXACT placeId: "${placeId}"`;
               instagram: { type: "string", nullable: true },
               facebook: { type: "string", nullable: true },
             },
+            required: ["website", "linkedin", "twitter", "instagram", "facebook"],
+            additionalProperties: false,
           },
           category: { type: "string" },
           summary: { type: "string" },
           suggested_intro: { type: "string" },
           lead_score: { type: "number" },
         },
-        required: ["placeId", "category", "summary", "suggested_intro", "lead_score"],
+        required: ["placeId", "domain", "contact_email", "socials", "category", "summary", "suggested_intro", "lead_score"],
+        additionalProperties: false,
       };
 
       const enrichItem = async (item: any) => {

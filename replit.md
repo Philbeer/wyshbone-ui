@@ -147,15 +147,19 @@ A modern AI chat interface built with Node.js, Express, and React that integrate
    - All endpoints filter to OPERATIONAL businesses only
    - Enrichment uses OpenAI Responses API with web_search and JSON schema
 
-5. **Public Contact Discovery (October 7, 2025)**
+5. **Public Contact Discovery (October 7, 2025)** ✅ COMPLETED
    - Extended POST /api/prospects/enrich with optional contact enrichment
    - Added POST /api/prospects/enrich_contacts for contacts-only enrichment
    - Implemented strict guardrails: only PUBLIC info with verifiable source URLs
    - Never guesses personal emails, phone numbers, or names
-   - Contact schema includes: name, title, role_normalized, source_url, source_type, confidence
+   - Contact schema includes: name, title, role_normalized, source_url, source_type, confidence, email_public, phone_public, linkedin_url, notes
    - Supports role filtering, maxPerPlace limits, and minConfidence thresholds
+   - Backend validation enforces: source URL validation (HTTP/HTTPS), role matching, confidence threshold, Place ID integrity
+   - Place ID mismatches are rejected (not overwritten) to prevent hallucinated data
    - Updated system prompt to emphasize public-only contact discovery
    - Added curl examples to README for contact enrichment
+   - Fixed JSON schema validation: added required arrays and additionalProperties: false to all schemas
+   - Tested successfully with real UK pub data (The Swan Hotel, Arundel) returning verified contacts
 
 ## Environment Variables
 
