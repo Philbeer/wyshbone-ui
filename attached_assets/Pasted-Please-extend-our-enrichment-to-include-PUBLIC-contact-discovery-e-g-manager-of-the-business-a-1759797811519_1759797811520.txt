@@ -1,0 +1,107 @@
+Please extend our enrichment to include PUBLIC contact discovery (e.g., “manager of the business”) after Places (v1). Do not change the Places-first search. Only add contact enrichment as an optional step with guardrails.
+
+========================================
+A) Update /api/prospects/enrich (contacts)
+========================================
+- Support an optional payload flag:
+  {
+    "items": [...],
+    "concurrency": 3,
+    "contacts": {
+      "enabled": true,
+      "roles": ["general manager","bar manager","taproom manager","head brewer","owner","landlord"],  // default list
+      "maxPerPlace": 3,
+      "minConfidence": 0.6
+    }
+  }
+
+- When contacts.enabled = true:
+  - Use the OpenAI Responses API with web_search to find PUBLIC contact info.
+  - Search strategy per place (use whichever fields we already have: name, domain/website, city/town):
+    * Query patterns:
+      - "<business name>" <town> manager
+      - site:<domain> team OR staff OR "meet the team"
+      - "<business name>" LinkedIn "general manager" OR "bar manager" OR "head brewer"
+      - "<business name>" Instagram / About / Press pages
+    * Prefer the business’s own website, then major socials (LinkedIn, Instagram, Facebook), reputable directories, and news/press.
+    * Do NOT use paywalled, login-gated, or scraped sources.
+
+- JSON schema for contact output:
+  {
+    type: "object",
+    properties: {
+      placeId: { type: "string" },
+      contacts: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            name: { type: "string" },
+            title: { type: "string" },
+            role_normalized: { type: "string", description: "one of: general_manager, bar_manager, taproom_manager, head_brewer, owner, landlord, other" },
+            source_url: { type: "string" },
+            source_type: { type: "string", description: "website|linkedin|instagram|facebook|news|other" },
+            source_date: { type: "string", nullable: true, description: "ISO date if available (post/article/profile last updated)" },
+            confidence: { type: "number", description: "0–1" },
+            email_public: { type: "string", nullable: true, description: "Only if clearly published; never guess" },
+            email_type: { type: "string", nullable: true, description: "generic|personal" },
+            phone_public: { type: "string", nullable: true },
+            linkedin_url: { type: "string", nullable: true },
+            notes: { type: "string", nullable: true }
+          },
+          required: ["name","title","role_normalized","source_url","source_type","confidence"]
+        }
+      }
+    },
+    required: ["placeId","contacts"]
+  }
+
+- LLM prompt rules (important):
+  - Return ONLY contacts that are clearly PUBLIC and current.
+  - Never invent or guess names, titles, emails, or phones.
+  - If an email is not clearly shown publicly, set email_public = null. Do NOT guess pattern-based emails.
+  - Prefer manager-like roles requested in the input "roles".
+  - Include source_url and source_type for every contact; skip contacts without a verifiable public source.
+  - If info looks older than ~18 months or the person has moved on, either skip or lower confidence.
+  - Cap at contacts.maxPerPlace; drop results with confidence < minConfidence.
+
+- Merge contacts into existing enrichment response:
+  For each item, return:
+  {
+    ...existing fields...,
+    "contacts": [ ...filtered contacts... ]
+  }
+
+- Rate-limit & concurrency: Keep concurrency default at 3–5 to control cost; short backoff between items.
+
+========================================
+B) New endpoint for contacts-only (optional convenience)
+========================================
+POST /api/prospects/enrich_contacts
+Body: {
+  "items": [{ "placeId":"ChIJ...", "name":"...", "address":"...", "website":"..." }, ...],
+  "roles": ["general manager","bar manager"],
+  "maxPerPlace": 3,
+  "minConfidence": 0.6,
+  "concurrency": 3
+}
+→ Returns { enriched: [{ placeId, contacts:[...] }, ...] }
+
+========================================
+C) System prompt addition (safety)
+========================================
+In the system/assistant prompt used for enrichment:
+“Only return PUBLIC contact info with a verifiable source URL. Never guess personal emails, phone numbers, or names. If unsure, return an empty contacts list.”
+
+========================================
+D) Acceptance criteria
+========================================
+1) Calling /api/prospects/enrich with contacts.enabled=true returns a contacts[] array per place with name, title, role_normalized, source_url, source_type, confidence; NO guessed emails.
+2) Filtering respects roles, maxPerPlace, and minConfidence.
+3) Contacts without a clear public source_url are excluded.
+4) Example: For a pub with a visible “Meet the team” page listing a General Manager, that contact is returned with source_url and confidence >= 0.8.
+5) README updated with a curl example:
+   curl -s -X POST "$APP/api/prospects/enrich" -H "Content-Type: application/json" -d '{
+     "items":[{"placeId":"ChIJ...","name":"The Swan Hotel","address":"Arundel BN18...","website":"https://..."}],
+     "contacts":{"enabled":true,"roles":["general manager","bar manager"],"maxPerPlace":2,"minConfidence":0.7}
+   }'

@@ -8,9 +8,12 @@ This application provides AI-powered prospect discovery using Google Places API 
 Search for verified businesses using Google Places API. Returns only OPERATIONAL venues with real Google Place IDs.
 
 ### 2. Prospect Enrichment (`POST /api/prospects/enrich`)
-Enrich a list of places with additional data using GPT web search, including domain, contact email, social links, business category, summary, and lead score.
+Enrich a list of places with additional data using GPT web search, including domain, contact email, social links, business category, summary, and lead score. Optionally discover public contacts (managers, owners) with verifiable sources.
 
-### 3. Combined Search & Enrich (`POST /api/prospects/search_and_enrich`)
+### 3. Contact-Only Enrichment (`POST /api/prospects/enrich_contacts`)
+Find public contact information (managers, owners) for verified businesses using GPT web search with strict guardrails.
+
+### 4. Combined Search & Enrich (`POST /api/prospects/search_and_enrich`)
 End-to-end prospecting: searches Google Places first, then enriches results with GPT.
 
 ## API Examples
@@ -44,6 +47,36 @@ curl -s -X POST "$APP/api/prospects/enrich" -H "Content-Type: application/json" 
 }'
 ```
 
+### Enrich with public contacts
+Enrich places with business data AND find public contacts (managers, owners):
+```bash
+curl -s -X POST "$APP/api/prospects/enrich" -H "Content-Type: application/json" -d '{
+  "items":[
+    {"placeId":"ChIJ...","name":"The Swan Hotel","address":"Arundel BN18...","website":"https://..."}
+  ],
+  "contacts":{
+    "enabled":true,
+    "roles":["general manager","bar manager"],
+    "maxPerPlace":2,
+    "minConfidence":0.7
+  }
+}'
+```
+
+### Contacts-only enrichment
+Find public contacts for verified businesses:
+```bash
+curl -s -X POST "$APP/api/prospects/enrich_contacts" -H "Content-Type: application/json" -d '{
+  "items":[
+    {"placeId":"ChIJ...","name":"The Swan Hotel","address":"Arundel BN18...","website":"https://..."}
+  ],
+  "roles":["general manager","bar manager"],
+  "maxPerPlace":3,
+  "minConfidence":0.6,
+  "concurrency":3
+}'
+```
+
 ### End-to-end search and enrichment
 Search Google Places and enrich results in one call:
 ```bash
@@ -62,6 +95,7 @@ curl -s -X POST "$APP/api/prospects/search_and_enrich" -H "Content-Type: applica
 - **Google Places First**: Always uses verified Google Places data as the foundation
 - **Never Fabricates Place IDs**: All Place IDs come from Google's official API
 - **GPT Enrichment**: Uses OpenAI Responses API with web_search for additional context
+- **Public Contact Discovery**: Optional contact enrichment with strict guardrails (no guessing, verifiable sources only)
 - **Structured Output**: Returns JSON schema validated responses
 - **Concurrency Control**: Manages API rate limits with configurable batch processing
 
@@ -110,5 +144,27 @@ Enriched results add:
   "summary": "Traditional British pub...",
   "suggested_intro": "I noticed your establishment...",
   "lead_score": 72
+}
+```
+
+With contact enrichment enabled:
+```json
+{
+  "contacts": [
+    {
+      "name": "John Smith",
+      "title": "General Manager",
+      "role_normalized": "general_manager",
+      "source_url": "https://example.com/team",
+      "source_type": "website",
+      "source_date": "2024-09-15",
+      "confidence": 0.85,
+      "email_public": "john@example.com",
+      "email_type": "personal",
+      "phone_public": null,
+      "linkedin_url": "https://linkedin.com/in/johnsmith",
+      "notes": "Listed on team page since 2024"
+    }
+  ]
 }
 ```

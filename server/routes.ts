@@ -470,7 +470,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // =========================================
   app.post("/api/prospects/enrich", async (req, res) => {
     try {
-      const { items, concurrency = 3 } = req.body || {};
+      const { items, concurrency = 3, contacts } = req.body || {};
 
       if (!items || !Array.isArray(items) || items.length === 0) {
         return res.status(400).json({ error: "Missing or empty `items` array" });
@@ -480,7 +480,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(500).json({ error: "OPENAI_API_KEY is not configured" });
       }
 
-      // JSON schema for enrichment output
+      // Parse contacts configuration
+      const contactsConfig = contacts?.enabled ? {
+        enabled: true,
+        roles: contacts.roles || ["general manager", "bar manager", "taproom manager", "head brewer", "owner", "landlord"],
+        maxPerPlace: contacts.maxPerPlace || 3,
+        minConfidence: contacts.minConfidence || 0.6,
+      } : { enabled: false };
+
+      // JSON schema for enrichment output (without contacts)
       const enrichmentSchema = {
         type: "object",
         properties: {
@@ -505,6 +513,57 @@ export async function registerRoutes(app: Express): Promise<Server> {
         required: ["placeId", "category", "summary", "suggested_intro", "lead_score"],
       };
 
+      // JSON schema for contact enrichment
+      const contactEnrichmentSchema = {
+        type: "object",
+        properties: {
+          placeId: { type: "string" },
+          contacts: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                name: { type: "string" },
+                title: { type: "string" },
+                role_normalized: { 
+                  type: "string", 
+                  description: "one of: general_manager, bar_manager, taproom_manager, head_brewer, owner, landlord, other" 
+                },
+                source_url: { type: "string" },
+                source_type: { 
+                  type: "string", 
+                  description: "website|linkedin|instagram|facebook|news|other" 
+                },
+                source_date: { 
+                  type: "string", 
+                  nullable: true, 
+                  description: "ISO date if available (post/article/profile last updated)" 
+                },
+                confidence: { 
+                  type: "number", 
+                  description: "0-1" 
+                },
+                email_public: { 
+                  type: "string", 
+                  nullable: true, 
+                  description: "Only if clearly published; never guess" 
+                },
+                email_type: { 
+                  type: "string", 
+                  nullable: true, 
+                  description: "generic|personal" 
+                },
+                phone_public: { type: "string", nullable: true },
+                linkedin_url: { type: "string", nullable: true },
+                notes: { type: "string", nullable: true },
+              },
+              required: ["name", "title", "role_normalized", "source_url", "source_type", "confidence"],
+            },
+          },
+        },
+        required: ["placeId", "contacts"],
+      };
+
       // Process items with concurrency control
       const enrichItem = async (item: any) => {
         const placeId = item.placeId || item.resourceName?.replace(/^places\//, "") || "";
@@ -512,6 +571,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const address = item.address || "";
         const website = item.website || "";
         const phone = item.phone || "";
+        const domain = item.domain || (website ? new URL(website).hostname : "");
+
+        // Extract city/town from address for contact search
+        const cityMatch = address.match(/,\s*([^,\d]+?)(?:,|\s+[A-Z]{1,2}\d|$)/i);
+        const city = cityMatch ? cityMatch[1].trim() : "";
 
         const prompt = `You are a B2B sales research assistant. Enrich this business with web search:
 
@@ -596,16 +660,173 @@ Return structured data with the EXACT placeId provided above: "${placeId}"`;
 
           const enrichment = JSON.parse(outputText);
           
-          // CRITICAL: Validate that GPT returned the exact Place ID we provided
+          // CRITICAL: Validate that GPT returned the exact Place ID we provided - reject if mismatch
           if (enrichment.placeId !== placeId) {
-            console.error(`Place ID mismatch! Expected: ${placeId}, Got: ${enrichment.placeId}`);
-            // Force the correct Place ID instead of accepting fabricated one
-            enrichment.placeId = placeId;
+            console.error(`Enrichment Place ID mismatch! Expected: ${placeId}, Got: ${enrichment.placeId}. Rejecting enrichment.`);
+            // Don't use hallucinated enrichment for wrong place - return minimal data
+            return {
+              ...item,
+              placeId,
+              domain: null,
+              contact_email: null,
+              socials: {},
+              category: "unknown",
+              summary: "Enrichment rejected due to Place ID mismatch",
+              suggested_intro: "",
+              lead_score: 0,
+              ...(contactsConfig.enabled ? { contacts: [] } : {}),
+            };
+          }
+
+          // Optional: Enrich with public contacts if enabled
+          let contacts = [];
+          if (contactsConfig.enabled) {
+            const enrichedDomain = enrichment.domain || domain;
+            const enrichedWebsite = enrichment.socials?.website || website;
+
+            const contactPrompt = `You are a B2B sales research assistant. Find PUBLIC contact information for this business.
+
+Business: ${name}
+${city ? `City: ${city}` : ""}
+${enrichedDomain ? `Domain: ${enrichedDomain}` : ""}
+${enrichedWebsite ? `Website: ${enrichedWebsite}` : ""}
+
+CRITICAL SAFETY RULES:
+- Only return PUBLIC contact info with a verifiable source URL
+- Never guess personal emails, phone numbers, or names
+- If unsure, return an empty contacts list
+- Never use paywalled, login-gated, or scraped sources
+
+CRITICAL: You MUST use the exact Place ID provided below. Do NOT generate or modify it.
+Place ID (use verbatim): ${placeId}
+
+Search for contacts with these roles: ${contactsConfig.roles.join(", ")}
+
+Search strategy:
+1. Check "${name}" ${city} manager OR owner
+2. ${enrichedDomain ? `Search site:${enrichedDomain} for "team" OR "staff" OR "meet the team" OR "about us"` : ""}
+3. Search "${name}" LinkedIn for relevant roles (${contactsConfig.roles.slice(0, 3).join(", ")})
+4. Check Instagram/Facebook business pages for contact info
+5. Look for press mentions or news articles
+
+For each contact found:
+- Verify they are current (within ~18 months)
+- Include the exact source URL where you found the info
+- Set confidence (0-1) based on how current and authoritative the source is
+- Only include email/phone if clearly published publicly
+- Classify source_type as: website, linkedin, instagram, facebook, news, or other
+
+Return up to ${contactsConfig.maxPerPlace} contacts with confidence >= ${contactsConfig.minConfidence}.
+Return structured data with the EXACT placeId: "${placeId}"`;
+
+            try {
+              const contactRequestBody = {
+                model: "gpt-4o-mini",
+                input: [
+                  {
+                    role: "user",
+                    content: [
+                      {
+                        type: "input_text",
+                        text: contactPrompt,
+                      },
+                    ],
+                  },
+                ],
+                tools: [{ type: "web_search" }],
+                text: {
+                  format: {
+                    type: "json_schema",
+                    name: "contact_enrichment",
+                    schema: contactEnrichmentSchema,
+                  },
+                },
+              };
+
+              const contactResponse = await fetch("https://api.openai.com/v1/responses", {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+                },
+                body: JSON.stringify(contactRequestBody),
+              });
+
+              if (contactResponse.ok) {
+                const contactData = await contactResponse.json();
+
+                let contactOutputText: string | null = null;
+                if (contactData.output?.[1]?.content?.[0]?.text) {
+                  contactOutputText = contactData.output[1].content[0].text;
+                } else if (contactData.output?.[0]?.content?.[0]?.text) {
+                  contactOutputText = contactData.output[0].content[0].text;
+                } else if (Array.isArray(contactData.output)) {
+                  for (const contactItem of contactData.output) {
+                    if (contactItem.content?.[0]?.text) {
+                      contactOutputText = contactItem.content[0].text;
+                      break;
+                    }
+                  }
+                }
+
+                if (contactOutputText) {
+                  const contactEnrichment = JSON.parse(contactOutputText);
+                  
+                  // CRITICAL: Validate Place ID - reject mismatches instead of overwriting
+                  if (contactEnrichment.placeId !== placeId) {
+                    console.error(`Contact Place ID mismatch! Expected: ${placeId}, Got: ${contactEnrichment.placeId}. Rejecting contact enrichment.`);
+                    // Don't use hallucinated contacts for wrong place
+                  } else {
+                    // Filter contacts by role, confidence, source validation, and max count
+                  const normalizedRoles = contactsConfig.roles.map((r: string) => 
+                    r.toLowerCase().replace(/\s+/g, "_")
+                  );
+                  
+                    contacts = (contactEnrichment.contacts || [])
+                      .filter((c: any) => {
+                        // Must have source URL
+                        if (!c.source_url || typeof c.source_url !== "string") {
+                          console.warn(`Contact "${c.name}" rejected: missing source_url`);
+                          return false;
+                        }
+                        
+                        // Source URL must be valid HTTPS URL
+                        try {
+                          const url = new URL(c.source_url);
+                          if (!url.protocol.startsWith("http")) {
+                            console.warn(`Contact "${c.name}" rejected: invalid source_url protocol`);
+                            return false;
+                          }
+                        } catch (e) {
+                          console.warn(`Contact "${c.name}" rejected: malformed source_url`);
+                          return false;
+                        }
+                        
+                        // Must meet confidence threshold
+                        if (c.confidence < contactsConfig.minConfidence) {
+                          return false;
+                        }
+                        
+                        // Must match requested roles
+                        if (normalizedRoles.length > 0 && !normalizedRoles.includes(c.role_normalized)) {
+                          return false;
+                        }
+                        
+                        return true;
+                      })
+                      .slice(0, contactsConfig.maxPerPlace);
+                  }
+                }
+              }
+            } catch (contactError: any) {
+              console.error(`Contact enrichment error for ${name}:`, contactError.message);
+            }
           }
           
           return {
             ...item,
             ...enrichment,
+            ...(contactsConfig.enabled ? { contacts } : {}),
           };
         } catch (error: any) {
           console.error(`Enrichment error for ${name}:`, error.message);
@@ -619,6 +840,7 @@ Return structured data with the EXACT placeId provided above: "${placeId}"`;
             summary: "Enrichment failed",
             suggested_intro: "",
             lead_score: 0,
+            ...(contactsConfig.enabled ? { contacts: [] } : {}),
           };
         }
       };
@@ -635,6 +857,236 @@ Return structured data with the EXACT placeId provided above: "${placeId}"`;
     } catch (e: any) {
       console.error("prospects/enrich error:", e);
       return res.status(500).json({ error: e.message || "Enrichment failed" });
+    }
+  });
+
+  // =========================================
+  // POST /api/prospects/enrich_contacts - Contacts-only enrichment
+  // =========================================
+  app.post("/api/prospects/enrich_contacts", async (req, res) => {
+    try {
+      const { items, concurrency = 3, roles, maxPerPlace = 3, minConfidence = 0.6 } = req.body || {};
+
+      if (!items || !Array.isArray(items) || items.length === 0) {
+        return res.status(400).json({ error: "Missing or empty `items` array" });
+      }
+
+      if (!process.env.OPENAI_API_KEY) {
+        return res.status(500).json({ error: "OPENAI_API_KEY is not configured" });
+      }
+
+      const contactRoles = roles || ["general manager", "bar manager", "taproom manager", "head brewer", "owner", "landlord"];
+
+      // JSON schema for contact enrichment
+      const contactEnrichmentSchema = {
+        type: "object",
+        properties: {
+          placeId: { type: "string" },
+          contacts: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                name: { type: "string" },
+                title: { type: "string" },
+                role_normalized: { type: "string", description: "one of: general_manager, bar_manager, taproom_manager, head_brewer, owner, landlord, other" },
+                source_url: { type: "string" },
+                source_type: { type: "string", description: "website|linkedin|instagram|facebook|news|other" },
+                source_date: { type: "string", nullable: true, description: "ISO date if available" },
+                confidence: { type: "number", description: "0-1" },
+                email_public: { type: "string", nullable: true, description: "Only if clearly published; never guess" },
+                email_type: { type: "string", nullable: true, description: "generic|personal" },
+                phone_public: { type: "string", nullable: true },
+                linkedin_url: { type: "string", nullable: true },
+                notes: { type: "string", nullable: true },
+              },
+              required: ["name", "title", "role_normalized", "source_url", "source_type", "confidence"],
+            },
+          },
+        },
+        required: ["placeId", "contacts"],
+      };
+
+      const enrichContactsForItem = async (item: any) => {
+        const placeId = item.placeId || item.resourceName?.replace(/^places\//, "") || "";
+        const name = item.name || "";
+        const address = item.address || "";
+        const website = item.website || "";
+        const domain = item.domain || (website ? new URL(website).hostname : "");
+
+        // Extract city from address
+        const cityMatch = address.match(/,\s*([^,\d]+?)(?:,|\s+[A-Z]{1,2}\d|$)/i);
+        const city = cityMatch ? cityMatch[1].trim() : "";
+
+        const contactPrompt = `You are a B2B sales research assistant. Find PUBLIC contact information for this business.
+
+Business: ${name}
+${city ? `City: ${city}` : ""}
+${domain ? `Domain: ${domain}` : ""}
+${website ? `Website: ${website}` : ""}
+
+CRITICAL SAFETY RULES:
+- Only return PUBLIC contact info with a verifiable source URL
+- Never guess personal emails, phone numbers, or names
+- If unsure, return an empty contacts list
+- Never use paywalled, login-gated, or scraped sources
+
+CRITICAL: You MUST use the exact Place ID provided below. Do NOT generate or modify it.
+Place ID (use verbatim): ${placeId}
+
+Search for contacts with these roles: ${contactRoles.join(", ")}
+
+Search strategy:
+1. Check "${name}" ${city} manager OR owner
+2. ${domain ? `Search site:${domain} for "team" OR "staff" OR "meet the team" OR "about us"` : ""}
+3. Search "${name}" LinkedIn for relevant roles (${contactRoles.slice(0, 3).join(", ")})
+4. Check Instagram/Facebook business pages for contact info
+5. Look for press mentions or news articles
+
+For each contact found:
+- Verify they are current (within ~18 months)
+- Include the exact source URL where you found the info
+- Set confidence (0-1) based on how current and authoritative the source is
+- Only include email/phone if clearly published publicly
+- Classify source_type as: website, linkedin, instagram, facebook, news, or other
+
+Return up to ${maxPerPlace} contacts with confidence >= ${minConfidence}.
+Return structured data with the EXACT placeId: "${placeId}"`;
+
+        try {
+          const requestBody = {
+            model: "gpt-4o-mini",
+            input: [
+              {
+                role: "user",
+                content: [
+                  {
+                    type: "input_text",
+                    text: contactPrompt,
+                  },
+                ],
+              },
+            ],
+            tools: [{ type: "web_search" }],
+            text: {
+              format: {
+                type: "json_schema",
+                name: "contact_enrichment",
+                schema: contactEnrichmentSchema,
+              },
+            },
+          };
+
+          const response = await fetch("https://api.openai.com/v1/responses", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+            },
+            body: JSON.stringify(requestBody),
+          });
+
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`OpenAI API error: ${errorText}`);
+          }
+
+          const data = await response.json();
+
+          let outputText: string | null = null;
+          if (data.output?.[1]?.content?.[0]?.text) {
+            outputText = data.output[1].content[0].text;
+          } else if (data.output?.[0]?.content?.[0]?.text) {
+            outputText = data.output[0].content[0].text;
+          } else if (Array.isArray(data.output)) {
+            for (const contactItem of data.output) {
+              if (contactItem.content?.[0]?.text) {
+                outputText = contactItem.content[0].text;
+                break;
+              }
+            }
+          }
+
+          if (!outputText) {
+            throw new Error("No text output from Responses API");
+          }
+
+          const contactEnrichment = JSON.parse(outputText);
+
+          // CRITICAL: Validate Place ID - reject mismatches instead of overwriting
+          if (contactEnrichment.placeId !== placeId) {
+            console.error(`Contact Place ID mismatch! Expected: ${placeId}, Got: ${contactEnrichment.placeId}. Rejecting contact enrichment.`);
+            // Don't use hallucinated contacts for wrong place
+            return {
+              placeId,
+              contacts: [],
+            };
+          }
+
+          // Filter contacts by role, confidence, source validation, and max count
+          const normalizedRoles = contactRoles.map((r: string) => 
+            r.toLowerCase().replace(/\s+/g, "_")
+          );
+          
+          const contacts = (contactEnrichment.contacts || [])
+            .filter((c: any) => {
+              // Must have source URL
+              if (!c.source_url || typeof c.source_url !== "string") {
+                console.warn(`Contact "${c.name}" rejected: missing source_url`);
+                return false;
+              }
+              
+              // Source URL must be valid HTTP/HTTPS URL
+              try {
+                const url = new URL(c.source_url);
+                if (!url.protocol.startsWith("http")) {
+                  console.warn(`Contact "${c.name}" rejected: invalid source_url protocol`);
+                  return false;
+                }
+              } catch (e) {
+                console.warn(`Contact "${c.name}" rejected: malformed source_url`);
+                return false;
+              }
+              
+              // Must meet confidence threshold
+              if (c.confidence < minConfidence) {
+                return false;
+              }
+              
+              // Must match requested roles
+              if (normalizedRoles.length > 0 && !normalizedRoles.includes(c.role_normalized)) {
+                return false;
+              }
+              
+              return true;
+            })
+            .slice(0, maxPerPlace);
+
+          return {
+            placeId,
+            contacts,
+          };
+        } catch (error: any) {
+          console.error(`Contact enrichment error for ${name}:`, error.message);
+          return {
+            placeId,
+            contacts: [],
+          };
+        }
+      };
+
+      // Process in batches with concurrency control
+      const enriched = [];
+      for (let i = 0; i < items.length; i += concurrency) {
+        const batch = items.slice(i, i + concurrency);
+        const batchResults = await Promise.all(batch.map(enrichContactsForItem));
+        enriched.push(...batchResults);
+      }
+
+      return res.json({ enriched });
+    } catch (e: any) {
+      console.error("prospects/enrich_contacts error:", e);
+      return res.status(500).json({ error: e.message || "Contact enrichment failed" });
     }
   });
 

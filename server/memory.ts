@@ -13,7 +13,9 @@ const SYSTEM_PROMPT: ChatMessage = {
     "as bullet points, summaries, or simple tables.\n\n" +
     "For new-customer discovery, ALWAYS call /api/places/search first. Never fabricate Google Place IDs. " +
     "Only enrich after Places results using /api/prospects/enrich. If no Places matches are found, " +
-    "return an empty list with verified=false.",
+    "return an empty list with verified=false.\n\n" +
+    "When enriching contacts: Only return PUBLIC contact info with a verifiable source URL. " +
+    "Never guess personal emails, phone numbers, or names. If unsure, return an empty contacts list.",
 };
 
 export function getConversation(sessionId: string): Conversation {
