@@ -31,6 +31,30 @@ A modern AI chat interface built with Node.js, Express, and React that integrate
 - Adds Wyshbone system prompt automatically
 - Returns AI-generated response
 
+#### POST /api/places/search
+- **Input**: `{ query, locationText?, lat?, lng?, radiusMeters?, typesFilter?, maxResults? }`
+- **Output**: `{ results: [{placeId, resourceName, name, address, businessStatus, phone, website, types, rating, userRatingCount, location}], generated_at }`
+- Uses Google Places API (New v1) for verified business discovery
+- Filters to OPERATIONAL businesses only
+- Returns real Google Place IDs (never fabricated)
+- Supports location bias via coordinates or text resolution
+
+#### POST /api/prospects/enrich
+- **Input**: `{ items: [{placeId, name, address, website?, phone?}], concurrency? }`
+- **Output**: `{ enriched: [{...original, domain, contact_email, socials, category, summary, suggested_intro, lead_score}] }`
+- Uses OpenAI Responses API with web_search for enrichment
+- Adds domain, contact email, social links, business classification
+- Generates summary and suggested outreach intro
+- Calculates lead score (0-100) based on online presence
+- Enforces exact Place ID matching (no fabrication)
+
+#### POST /api/prospects/search_and_enrich
+- **Input**: `{ query, locationText?, lat?, lng?, radiusMeters?, typesFilter?, maxResults?, enrich?, concurrency? }`
+- **Output**: `{ verified: true, results: [{...places data, ...enrichment data}], generated_at }`
+- Combined endpoint: searches Google Places first, then enriches with GPT
+- End-to-end prospecting workflow in one call
+- Can disable enrichment with `enrich: false`
+
 #### POST /api/tool/add_note
 - **Input**: `{ userToken, leadId, note }`
 - **Output**: `{ ok: true }`
@@ -99,9 +123,21 @@ A modern AI chat interface built with Node.js, Express, and React that integrate
    - Validated theme toggle functionality
    - Ensured accessibility standards (WCAG AA)
 
+4. **Google Places Integration & GPT Enrichment (October 7, 2025)**
+   - Added `searchPlaces()` function to server/googlePlaces.ts for Places v1 API
+   - Implemented POST /api/places/search endpoint for verified business discovery
+   - Implemented POST /api/prospects/enrich endpoint for GPT-powered enrichment
+   - Implemented POST /api/prospects/search_and_enrich combined endpoint
+   - Updated system prompt to enforce Places-first workflow
+   - Added backend validation to prevent Place ID fabrication
+   - Created README.md with curl examples for all new endpoints
+   - All endpoints filter to OPERATIONAL businesses only
+   - Enrichment uses OpenAI Responses API with web_search and JSON schema
+
 ## Environment Variables
 
-- `OPENAI_API_KEY`: Required for OpenAI GPT-5 integration
+- `OPENAI_API_KEY`: Required for OpenAI GPT-5 integration and prospect enrichment
+- `GOOGLE_MAPS_API_KEY`: Required for Google Places API (New v1) business discovery
 - `SESSION_SECRET`: Pre-configured session secret
 
 ## Design Guidelines
