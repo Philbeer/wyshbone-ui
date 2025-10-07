@@ -92,8 +92,19 @@ export default function ChatPage() {
       } else if (data.error) {
         // Other errors
         throw new Error(data.error);
+      } else if (data.conversational) {
+        // Handle conversational responses (no venue listings)
+        const formattedContent = data.answer || "I understand your question, but I don't have a specific answer right now.";
+        
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === assistantMessageId
+              ? { ...msg, content: formattedContent }
+              : msg
+          )
+        );
       } else {
-        // Format all structured responses with verified venue information
+        // Format venue search results
         let formattedContent = `**Search Results for: "${data.query}"**\n\n`;
         
         if (data.verified && data.results && data.results.length > 0) {
