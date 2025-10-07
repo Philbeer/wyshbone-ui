@@ -1,0 +1,206 @@
+Please update THIS app so **prospecting starts with Google Places (New v1)** and then uses GPT to enrich those verified places. Do not remove any existing routes (chat, Places verify/details, etc.). Add the following modules and endpoints.
+
+========================================
+A) Google Places (New v1) as the primary discovery
+========================================
+
+Goal: When a user searches “<query>” + “<location>”, we first hit Places v1 to get verified business records (with Place IDs), then enrich those.
+
+1) Add to server/googlePlaces.ts:
+- export async function searchPlaces({
+    query,                 // e.g. "brewery", "coffee roastery", "pub"
+    locationText?,         // e.g. "Arundel, UK"
+    lat?, lng?, radiusMeters?, // if provided, use as location bias circle (5–15km typical)
+    maxResults = 30,
+    typesFilter?           // optional: array of types to keep
+  })
+  Behavior:
+  - If lat/lng provided → use LocationBias circle.
+  - Else if locationText provided → resolve a center via places:searchText on the location term (choose the best locality/admin area) and use that for bias.
+  - Call places:searchText with tight FieldMask:
+    X-Goog-FieldMask:
+      places.id,places.displayName,places.formattedAddress,
+      places.businessStatus,places.nationalPhoneNumber,places.websiteUri,
+      places.types,places.rating,places.userRatingCount,places.location
+  - Filter to businessStatus === "OPERATIONAL".
+  - If typesFilter is provided, keep only results whose types intersect typesFilter.
+  - Normalize each result to:
+    {
+      placeId: "<bare ChIJ...>",            // strip "places/" prefix
+      resourceName: "places/<ChIJ...>",
+      name,
+      address,
+      businessStatus,
+      phone,
+      website,
+      types,
+      rating,
+      userRatingCount,
+      location: { lat, lng }
+    }
+  - Return up to maxResults items. (If there’s a nextPageToken in v1, support it as pageToken input/output.)
+
+2) Add endpoint (inside registerRoutes before return httpServer):
+POST /api/places/search
+Body: {
+  "query": "pub",
+  "locationText": "Arundel, UK",
+  "lat": 50.856, "lng": -0.553, "radiusMeters": 12000,   // optional, overrides locationText
+  "typesFilter": ["bar","restaurant","point_of_interest","establishment"],
+  "maxResults": 30
+}
+Response: { results: [ { placeId, resourceName, name, address, businessStatus, phone, website, types, rating, userRatingCount, location } ], generated_at }
+
+Notes:
+- Use ONLY Places v1 for this step (no LLM web_search here).
+- Never fabricate Place IDs. Always return both placeId (bare) and resourceName.
+
+========================================
+B) GPT enrichment (after Places search)
+========================================
+
+Goal: Given the verified Places results, call the OpenAI Responses API (with web_search) to enrich each place with website/domain (if missing), generic contact email (if present publicly), social links, short summary, tags, and a suggested intro line.
+
+1) Add endpoint:
+POST /api/prospects/enrich
+Body: {
+  "items": [
+    {
+      "placeId": "ChIJ...",            // or resourceName
+      "name": "The Swan Hotel",
+      "address": "27-29 High St, Arundel BN18 ...",
+      "website": "https://...",
+      "phone": "+44 ..."
+    },
+    ...
+  ],
+  "concurrency": 3                    // optional, default 3–5
+}
+Behavior:
+- For each item, build a single LLM prompt that:
+  - If website missing, use web_search to find the official site.
+  - Extract domain, generic contact email if publicly listed (info@, hello@, contact@), social links (linkedin/twitter/instagram/facebook) if present.
+  - Classify business (e.g., bar, brewery taproom, roastery, etc.).
+  - Generate a 1–2 sentence neutral summary.
+  - Create a short suggested outreach intro referencing what they do (no fluff).
+- Use the Responses API with web_search and a **JSON schema** output. Suggested schema:
+  {
+    type: "object",
+    properties: {
+      placeId: { type: "string" },
+      domain: { type: "string", nullable: true },
+      contact_email: { type: "string", nullable: true },
+      socials: {
+        type: "object",
+        properties: {
+          website: { type: "string", nullable: true },
+          linkedin: { type: "string", nullable: true },
+          twitter: { type: "string", nullable: true },
+          instagram: { type: "string", nullable: true },
+          facebook: { type: "string", nullable: true }
+        }
+      },
+      category: { type: "string" },
+      summary: { type: "string" },
+      suggested_intro: { type: "string" },
+      lead_score: { type: "number" }   // 0–100 heuristic
+    },
+    required: ["placeId","category","summary","suggested_intro","lead_score"]
+  }
+- Merge enrichment back onto the input item and return { enriched: [...] }.
+- Rate limit & concurrency to avoid cost spikes (default 3 at a time).
+
+2) Add combined endpoint:
+POST /api/prospects/search_and_enrich
+Body: {
+  "query": "pub",
+  "locationText": "Arundel, UK",
+  "lat": 50.856, "lng": -0.553, "radiusMeters": 12000,     // optional
+  "typesFilter": ["bar","restaurant","point_of_interest","establishment"],
+  "maxResults": 20,
+  "enrich": true,               // if false, return places-only
+  "concurrency": 3
+}
+Behavior:
+- Call /api/places/search with provided params.
+- If enrich=true, call /api/prospects/enrich for the returned items.
+- Response:
+  {
+    "verified": true,
+    "results": [
+      {
+        "placeId": "ChIJ...",
+        "resourceName": "places/ChIJ...",
+        "name": "...",
+        "address": "...",
+        "businessStatus": "OPERATIONAL",
+        "phone": "+44 ...",
+        "website": "https://...",
+        "types": [...],
+        "rating": 4.4,
+        "userRatingCount": 312,
+        "location": { "lat": 50.85, "lng": -0.55 },
+
+        // enrichment
+        "domain": "example.com",
+        "contact_email": "info@example.com",
+        "socials": { "website":"...", "linkedin":"...", "instagram":"..." },
+        "category": "pub",
+        "summary": "…",
+        "suggested_intro": "…",
+        "lead_score": 72
+      }
+    ],
+    "generated_at": "<ISO>"
+  }
+
+========================================
+C) Guardrails & system prompt updates
+========================================
+- Update the assistant/system prompt used by search flows:
+  “For new-customer discovery, ALWAYS call /api/places/search first. Never fabricate Google Place IDs. Only enrich after Places results using /api/prospects/enrich. If no Places matches are found, return an empty list with verified=false.”
+- Keep OPERATIONAL-only results from Places.
+- Dedupe by placeId/domain.
+
+========================================
+D) Acceptance criteria
+========================================
+1) POST /api/places/search with { query:"pub", locationText:"Arundel, UK", radiusMeters:12000 } returns ONLY OPERATIONAL venues with real Google Place IDs (placeId + resourceName), phone, website where present.
+2) POST /api/prospects/enrich on 2–3 items returns domain/contact_email/socials/summary/suggested_intro/lead_score via the Responses API.
+3) POST /api/prospects/search_and_enrich returns Places results already enriched (when enrich=true).
+4) No LLM web_search is used before Places; Place IDs are never fabricated.
+5) Provide 3 curl examples in README:
+   - places-only search
+   - enrichment-only (on given items)
+   - search_and_enrich end-to-end
+
+========================================
+E) Example curl (please add to README)
+========================================
+# Places-first search
+curl -s -X POST "$APP/api/places/search" -H "Content-Type: application/json" -d '{
+  "query":"pub",
+  "locationText":"Arundel, UK",
+  "radiusMeters":12000,
+  "typesFilter":["bar","restaurant","point_of_interest","establishment"],
+  "maxResults":20
+}'
+
+# Enrich an array of 2 results
+curl -s -X POST "$APP/api/prospects/enrich" -H "Content-Type: application/json" -d '{
+  "items":[
+    {"placeId":"ChIJ...","name":"The Swan Hotel","address":"...","website":"https://..."},
+    {"placeId":"ChIJ...","name":"The Kings Arms","address":"..."}
+  ],
+  "concurrency":3
+}'
+
+# End-to-end
+curl -s -X POST "$APP/api/prospects/search_and_enrich" -H "Content-Type: application/json" -d '{
+  "query":"pub",
+  "locationText":"Arundel, UK",
+  "radiusMeters":12000,
+  "maxResults":10,
+  "enrich":true,
+  "concurrency":3
+}'
