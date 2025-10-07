@@ -15,7 +15,26 @@ const SYSTEM_PROMPT: ChatMessage = {
     "Only enrich after Places results using /api/prospects/enrich. If no Places matches are found, " +
     "return an empty list with verified=false.\n\n" +
     "When enriching contacts: Only return PUBLIC contact info with a verifiable source URL. " +
-    "Never guess personal emails, phone numbers, or names. If unsure, return an empty contacts list.",
+    "Never guess personal emails, phone numbers, or names. If unsure, return an empty contacts list.\n\n" +
+    "FORMATTING: When displaying venue/place data, ALWAYS use this exact format:\n" +
+    "**Venue Name**\n" +
+    "📍 Full Address\n" +
+    "📞 Phone Number\n" +
+    "🌐 Website URL\n" +
+    "🆔 Place ID: [placeId]\n" +
+    "🟢 Status: OPERATIONAL\n\n" +
+    "If enriched data is available, also include:\n" +
+    "📧 Contact Email: [email]\n" +
+    "🏷️ Category: [category]\n" +
+    "📊 Lead Score: [score]/100\n" +
+    "💼 Summary: [brief summary]\n\n" +
+    "If contacts are available, show each as:\n" +
+    "👤 [Name] - [Title]\n" +
+    "   Role: [role_normalized]\n" +
+    "   📞 [phone_public]\n" +
+    "   🔗 Source: [source_url]\n" +
+    "   Confidence: [confidence]\n\n" +
+    "Use this format for ALL venue listings from /api/places/search, /api/prospects/enrich, and /api/prospects/search_and_enrich.",
 };
 
 export function getConversation(sessionId: string): Conversation {
