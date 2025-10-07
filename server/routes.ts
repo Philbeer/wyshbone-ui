@@ -212,17 +212,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         input: inputMessages,
       };
 
-      // Add web_search + JSON schema only for non-follow-up queries
-      if (!isFollowUp) {
-        requestBody.tools = [{ type: "web_search" }];
-        requestBody.text = {
-          format: {
-            type: "json_schema",
-            name: "wyshbone_results",
-            schema: wyshboneSchema,
-          },
-        };
-      }
+      // Always add web_search + JSON schema for venue searches
+      requestBody.tools = [{ type: "web_search" }];
+      requestBody.text = {
+        format: {
+          type: "json_schema",
+          name: "wyshbone_results",
+          schema: wyshboneSchema,
+        },
+      };
 
       const response = await fetch("https://api.openai.com/v1/responses", {
         method: "POST",
@@ -270,13 +268,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Store assistant's response in memory
       appendMessage(sessionId, { role: "assistant", content: outputText });
 
-      if (isFollowUp) {
-        // follow-ups: return plain text
-        return res.json({ plain_text: outputText, is_follow_up: true });
-      } else {
-        // initial searches: parse JSON and verify venues with Google Places
-        try {
-          const parsed = JSON.parse(outputText);
+      // Try to parse JSON response (both initial and follow-up searches)
+      try {
+        const parsed = JSON.parse(outputText);
           
           // If no results or not an array, return as-is
           if (!parsed.results || !Array.isArray(parsed.results) || parsed.results.length === 0) {
@@ -354,10 +348,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
               generated_at: parsed.generated_at,
             });
           }
-        } catch (e) {
-          console.error("JSON parse error:", e);
-          return res.json({ error: "Failed to parse JSON response", raw_text: outputText });
+      } catch (e) {
+        console.error("JSON parse error:", e);
+        // If JSON parsing fails, return plain text for follow-ups
+        if (isFollowUp) {
+          return res.json({ plain_text: outputText, is_follow_up: true });
         }
+        return res.json({ error: "Failed to parse JSON response", raw_text: outputText });
       }
     } catch (error: any) {
       console.error("Search error:", error);
