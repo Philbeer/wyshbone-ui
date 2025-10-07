@@ -173,6 +173,17 @@ A modern AI chat interface built with Node.js, Express, and React that integrate
    - Google Places remains the authoritative source - web enrichment happens separately
    - Tested successfully: follow-up queries return completely different venues (no overlaps)
 
+7. **Three-Way Planner with Conversational Support (October 7, 2025)** ✅ COMPLETED
+   - Fixed regression where conversational questions triggered venue searches
+   - Extended planner to support THREE actions: "search", "use_cache", and "respond"
+   - **"search"** - User wants to discover new venue listings (e.g., "find pubs in London")
+   - **"use_cache"** - User wants more results from existing search (e.g., "show 5 more")
+   - **"respond"** - User asks conversational/analytical questions (e.g., "how many pubs are in London?", "what makes a good pub?")
+   - Added conversational response format: `{conversational: true, answer: "...", generated_at}`
+   - Fixed OpenAI API requirement: planner prompt must contain lowercase "json" for json_object response format
+   - Tested successfully: conversational questions return estimates/discussion, not venue lists
+   - System now correctly distinguishes between search intent vs. conversation
+
 ## Environment Variables
 
 - `OPENAI_API_KEY`: Required for OpenAI GPT-5 integration and prospect enrichment

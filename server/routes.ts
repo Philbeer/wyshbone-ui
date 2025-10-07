@@ -135,12 +135,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const memoryConversation = getConversation(sessionId);
       const { getVenueCacheContext, addVenuesToCache, markVenuesAsServed, getVenueCache } = await import("./memory");
       
-      // STEP 1: GPT Planner - Decide if we need to search for new venues
+      // STEP 1: GPT Planner - Decide intent: search, use cache, or conversational response
       const plannerMessages = [
+        {
+          role: "system" as const,
+          content: `You are a venue search intent classifier. Your job is to distinguish between:
+- Requests for SPECIFIC VENUE LISTINGS (use "search" or "use_cache")
+- CONVERSATIONAL questions, estimates, or general discussion (use "respond")
+
+KEY DISTINCTION:
+- "find X" / "show me X" / "I need X" = SEARCH for venue listings
+- "how many X?" / "what is X?" / "tell me about X" = CONVERSATIONAL response
+
+DO NOT search when user asks "how many" or similar analytical questions. Just answer conversationally.
+
+Reply with a json object matching the action schema specified below.`
+        },
         ...memoryConversation.map((msg) => ({ role: msg.role as "system" | "user" | "assistant", content: msg.content })),
         {
           role: "user" as const,
-          content: `${latestUserMessage}\n\n${getVenueCacheContext(sessionId)}\n\nDecide: Do you need to search for NEW venues, or can you answer from the cache? Respond with JSON: {"action": "search" or "use_cache", "query": "refined search query if searching", "count": number of results needed, "reasoning": "brief explanation"}`
+          content: `User query: "${latestUserMessage}"
+
+${getVenueCacheContext(sessionId)}
+
+Choose ONE action:
+
+1. "search" - User wants a LIST of specific venues
+   ✓ "find 5 pubs in London"
+   ✓ "show me restaurants"
+   ✗ "how many pubs are in London?" (this is NOT a search!)
+   ✗ "what's a good pub?" (this is NOT a search!)
+
+2. "use_cache" - User wants MORE from existing results
+   ✓ "show 5 more"
+   ✓ "next results"
+
+3. "respond" - User wants CONVERSATION/INFORMATION (NOT venue listings)
+   ✓ "how many pubs do you think there are in london?" 
+   ✓ "what makes a good pub?"
+   ✓ "thanks"
+   ✓ "tell me about pubs"
+
+Response format:
+- If "respond": {"action": "respond", "answer": "your conversational answer here", "reasoning": "..."}
+- If "search": {"action": "search", "query": "...", "count": N, "reasoning": "..."}
+- If "use_cache": {"action": "use_cache", "count": N, "reasoning": "..."}`
         }
       ];
 
@@ -155,9 +194,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       console.log("🎯 Planner decision:", plan);
 
+      // STEP 2: Handle conversational responses
+      if (plan.action === "respond") {
+        const conversationalResponse = {
+          query: latestUserMessage,
+          conversational: true,
+          answer: plan.answer || "I'd be happy to discuss that with you.",
+          generated_at: new Date().toISOString()
+        };
+        
+        // Store assistant's response in memory
+        appendMessage(sessionId, { role: "assistant", content: plan.answer || conversationalResponse.answer });
+        
+        return res.json(conversationalResponse);
+      }
+
       let newVenues: any[] = [];
 
-      // STEP 2: If planner says "search", call Google Places FIRST as primary source
+      // STEP 3: If planner says "search", call Google Places FIRST as primary source
       if (plan.action === "search") {
         const { searchPlaces } = await import("./googlePlaces");
         
@@ -195,7 +249,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      // STEP 3: Use GPT formatter to create final response from cache
+      // STEP 4: Use GPT formatter to create final response from cache
       const cache = getVenueCache(sessionId);
       const availableVenues = cache.filter((v) => !v.served);
       
