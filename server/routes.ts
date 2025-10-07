@@ -172,10 +172,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
 
         // Call Google Places API directly as primary source
+        // Always fetch 60 results (3 pages of 20) to build a large cache
         const placesResults = await searchPlaces({
           query: plan.query || latestUserMessage,
           locationText: locationText || undefined,
-          maxResults: plan.count || 10,
+          maxResults: 60, // Fetch up to 60 results across 3 pages
         });
 
         console.log(`📍 Google Places found ${placesResults.length} venues`);

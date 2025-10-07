@@ -220,26 +220,52 @@ export async function searchPlaces({
     };
   }
 
-  const resp = await fetch(PLACES_ENDPOINT, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Goog-Api-Key": apiKey,
-      "X-Goog-FieldMask": fieldMask,
-    },
-    body: JSON.stringify(body),
-  });
+  // Fetch multiple pages (up to 3 pages, 20 results each = 60 total)
+  let allPlaces: GPlace[] = [];
+  let nextPageToken: string | undefined;
+  const maxPages = 3;
+  const maxResultCount = 20; // Max 20 per page for Places API v1
+  
+  for (let page = 0; page < maxPages; page++) {
+    const pageBody: any = { ...body, maxResultCount };
+    if (nextPageToken) {
+      pageBody.pageToken = nextPageToken;
+    }
 
-  if (!resp.ok) {
-    const text = await resp.text();
-    throw new Error(`Places API error ${resp.status}: ${text}`);
+    const resp = await fetch(PLACES_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": apiKey,
+        "X-Goog-FieldMask": fieldMask,
+      },
+      body: JSON.stringify(pageBody),
+    });
+
+    if (!resp.ok) {
+      const text = await resp.text();
+      throw new Error(`Places API error ${resp.status}: ${text}`);
+    }
+
+    const data = (await resp.json()) as any;
+    const pagePlaces = data.places || [];
+    allPlaces.push(...pagePlaces);
+    
+    nextPageToken = data.nextPageToken;
+    console.log(`   📄 Page ${page + 1}: ${pagePlaces.length} results${nextPageToken ? ' (nextPageToken: ' + nextPageToken.substring(0, 20) + '...)' : ' (no more pages)'}`);
+    
+    if (!nextPageToken) {
+      break; // No more pages
+    }
+    
+    // Small delay between pages to avoid rate limiting
+    if (page < maxPages - 1 && nextPageToken) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
   }
 
-  const data = (await resp.json()) as SearchResp;
-  let places = data.places || [];
-
   // Filter to OPERATIONAL only
-  places = places.filter(p => p.businessStatus === "OPERATIONAL");
+  let places = allPlaces.filter(p => p.businessStatus === "OPERATIONAL");
 
   // Apply types filter if provided
   if (typesFilter && typesFilter.length > 0) {
@@ -249,8 +275,8 @@ export async function searchPlaces({
     });
   }
 
-  // Normalize results
-  const results = places.slice(0, maxResults).map(p => {
+  // Normalize results - return ALL results up to maxResults (default 60)
+  const results = places.slice(0, maxResults || 60).map(p => {
     const placeId = p.id.replace(/^places\//, ""); // Strip "places/" prefix
     return {
       placeId,
@@ -270,7 +296,7 @@ export async function searchPlaces({
     };
   });
 
-  console.log(`✓ Found ${results.length} OPERATIONAL places`);
+  console.log(`✓ Found ${results.length} OPERATIONAL places across ${allPlaces.length} total`);
   return results;
 }
 
