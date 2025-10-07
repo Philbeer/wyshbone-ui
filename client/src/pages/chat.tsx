@@ -59,15 +59,15 @@ export default function ChatPage() {
       // Create abort controller for this request
       abortControllerRef.current = new AbortController();
 
-      // Send just the latest user message - server handles conversation memory
-      const latestMessage = conversationMessages[conversationMessages.length - 1];
-      const response = await fetch("/api/search", {
+      // Send conversation to /api/chat endpoint (GPT-5 with web search)
+      const response = await fetch("/api/chat", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          query: latestMessage.content,
+          messages: conversationMessages,
+          user: { id: "demo-user", email: "demo@wyshbone.com" },
         }),
         signal: abortControllerRef.current.signal,
       });
@@ -77,77 +77,57 @@ export default function ChatPage() {
         throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
       }
 
-      const data = await response.json();
+      // Handle SSE streaming response from /api/chat
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      let accumulatedContent = "";
 
-      // Check if there's an error or raw text (failed JSON parse)
-      if (data.error && data.raw_text) {
-        // If JSON parsing failed on the backend, show the raw text
-        setMessages((prev) =>
-          prev.map((msg) =>
-            msg.id === assistantMessageId
-              ? { ...msg, content: data.raw_text }
-              : msg
-          )
-        );
-      } else if (data.error) {
-        // Other errors
-        throw new Error(data.error);
-      } else if (data.conversational) {
-        // Handle conversational responses (no venue listings)
-        const formattedContent = data.answer || "I understand your question, but I don't have a specific answer right now.";
-        
-        setMessages((prev) =>
-          prev.map((msg) =>
-            msg.id === assistantMessageId
-              ? { ...msg, content: formattedContent }
-              : msg
-          )
-        );
-      } else {
-        // Format venue search results
-        let formattedContent = `**Search Results for: "${data.query}"**\n\n`;
-        
-        if (data.verified && data.results && data.results.length > 0) {
-          formattedContent += `✅ **Found ${data.results.length} verified operational venue(s):**\n\n`;
-          data.results.forEach((result: any, index: number) => {
-            formattedContent += `${index + 1}. **${result.name}**\n`;
-            formattedContent += `   📍 ${result.address}\n`;
-            if (result.phone) {
-              formattedContent += `   📞 ${result.phone}\n`;
-            }
-            if (result.website) {
-              formattedContent += `   🌐 ${result.website}\n`;
-            }
-            formattedContent += `   🆔 Place ID: \`${result.placeId}\`\n`;
-            formattedContent += `   ℹ️ Status: ${result.businessStatus}\n\n`;
-          });
-        } else if (!data.verified && data.rawResults && data.rawResults.length > 0) {
-          formattedContent += `⚠️ **No verified venues found. Here are ${data.rawResults.length} unverified result(s):**\n\n`;
-          data.rawResults.forEach((result: any, index: number) => {
-            formattedContent += `${index + 1}. **${result.name}**\n`;
-            formattedContent += `   📍 ${result.address}\n`;
-            if (result.sourceUrl) {
-              formattedContent += `   🔗 ${result.sourceUrl}\n`;
-            }
-            formattedContent += `   ⚠️ Could not verify with Google Places\n\n`;
-          });
-        } else {
-          formattedContent += `No results found.\n\n`;
-        }
-        
-        if (data.message) {
-          formattedContent += `*${data.message}*\n\n`;
-        }
-        
-        formattedContent += `\n*Generated at: ${new Date(data.generated_at).toLocaleString()}*`;
+      if (!reader) {
+        throw new Error("Failed to get response reader");
+      }
 
-        setMessages((prev) =>
-          prev.map((msg) =>
-            msg.id === assistantMessageId
-              ? { ...msg, content: formattedContent }
-              : msg
-          )
-        );
+      while (true) {
+        const { done, value } = await reader.read();
+        
+        if (done) break;
+        
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split('\n');
+        
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6); // Remove 'data: ' prefix
+            
+            if (data === '[DONE]') {
+              // Stream complete
+              break;
+            }
+            
+            try {
+              const parsed = JSON.parse(data);
+              if (parsed.content) {
+                accumulatedContent += parsed.content;
+                
+                // Update message in real-time
+                setMessages((prev) =>
+                  prev.map((msg) =>
+                    msg.id === assistantMessageId
+                      ? { ...msg, content: accumulatedContent }
+                      : msg
+                  )
+                );
+              }
+              if (parsed.error) {
+                throw new Error(parsed.error);
+              }
+            } catch (e) {
+              // Skip invalid JSON lines
+              if (data !== '[DONE]') {
+                console.warn('Failed to parse SSE data:', data);
+              }
+            }
+          }
+        }
       }
 
       setIsStreaming(false);
