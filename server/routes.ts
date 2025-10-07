@@ -77,31 +77,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log("🤖 Calling GPT-5 Responses API with web_search enabled...");
       
       try {
+        // Use non-streaming for reliability, then stream to client
         // @ts-ignore
-        const stream = await openai.responses.create({
+        const response = await openai.responses.create({
           model: "gpt-5",
           input: conversationInput.trim(),
           tools: [{ type: "web_search" }],
-          stream: true,
+          stream: false,
         });
 
-        console.log("✅ Responses API stream started");
-
-        for await (const event of stream) {
+        console.log("✅ Responses API completed");
+        
+        // @ts-ignore
+        if (response.output_text) {
           // @ts-ignore
-          if (event.type === 'response.output_text.delta') {
+          aiBuffer = response.output_text;
+          console.log("✅ Got output_text, length:", aiBuffer.length);
+          
+          // Stream to client word-by-word for responsive UX
+          const words = aiBuffer.split(' ');
+          for (const word of words) {
+            res.write(`data: ${JSON.stringify({ content: word + ' ' })}\n\n`);
             // @ts-ignore
-            const text = event.delta;
-            if (text) {
-              aiBuffer += text;
-              res.write(`data: ${JSON.stringify({ content: text })}\n\n`);
-              // @ts-ignore
-              if (res.flush) res.flush();
-            }
+            if (res.flush) res.flush();
           }
+        } else {
+          console.log("❌ No output_text in response");
+          aiBuffer = "I apologize, but I couldn't generate a response.";
+          res.write(`data: ${JSON.stringify({ content: aiBuffer })}\n\n`);
         }
         
-        console.log(`✅ Responses API completed. Total response: ${aiBuffer.length} chars`);
       } catch (err: any) {
         console.error("❌ Responses API error:", err.message);
         console.error("Error details:", JSON.stringify(err, null, 2));
