@@ -235,7 +235,7 @@ Response format:
 
         console.log(`📍 Google Places found ${placesResults.length} venues`);
 
-        // Add Google Places results to cache
+        // Add Google Places results to cache with all fields
         if (placesResults.length > 0) {
           addVenuesToCache(
             sessionId,
@@ -243,6 +243,9 @@ Response format:
               placeId: v.placeId,
               name: v.name,
               address: v.address,
+              businessStatus: v.businessStatus,
+              phone: v.phone,
+              website: v.website,
             }))
           );
           newVenues = placesResults;
@@ -257,7 +260,7 @@ Response format:
         ...memoryConversation.map((msg) => ({ role: msg.role as "system" | "user" | "assistant", content: msg.content })),
         {
           role: "system" as const,
-          content: `Available venues to show (not yet served): ${JSON.stringify(availableVenues)}\n\nCreate a response using these venues. Format as JSON: {"query": "...", "verified": true, "results": [{placeId, name, address, ...}], "generated_at": "ISO timestamp"}`
+          content: `Available venues to show (not yet served): ${JSON.stringify(availableVenues)}\n\nCreate a response using these venues. Format as json: {"query": "...", "verified": true, "results": [{placeId, name, address, businessStatus, phone, website}], "generated_at": "ISO timestamp"}\n\nIMPORTANT: Include ALL available fields (placeId, name, address, businessStatus, phone, website) for each venue in the results array. Do not omit any fields.`
         }
       ];
 
