@@ -15,27 +15,7 @@ const SYSTEM_PROMPT: ChatMessage = {
     "Only enrich after Places results using /api/prospects/enrich. If no Places matches are found, " +
     "return an empty list with verified=false.\n\n" +
     "When enriching contacts: Only return PUBLIC contact info with a verifiable source URL. " +
-    "Never guess personal emails, phone numbers, or names. If unsure, return an empty contacts list.\n\n" +
-    "CRITICAL FORMATTING RULE: When displaying ANY venue/place data, you MUST use emoji icons. Here is the EXACT format to use:\n\n" +
-    "1. **Venue Name**\n" +
-    "📍 Full street address\n" +
-    "📞 Phone number\n" +
-    "🌐 Website URL (if available)\n" +
-    "🆔 Place ID: ChIJ...\n" +
-    "🟢 Status: OPERATIONAL\n\n" +
-    "If enriched data exists, add:\n" +
-    "📧 Contact Email: email@domain.com\n" +
-    "🏷️ Category: [type]\n" +
-    "📊 Lead Score: XX/100\n" +
-    "💼 Summary: [1-2 sentence description]\n\n" +
-    "If contact info exists:\n" +
-    "👤 Name - Job Title\n" +
-    "   • Role: role_normalized\n" +
-    "   • 📞 Public phone\n" +
-    "   • 🔗 Source: URL\n" +
-    "   • Confidence: 0.X\n\n" +
-    "NEVER use bullet point format like '- **Location:**' or '- **Address:**'. ALWAYS use the emoji icons shown above. " +
-    "This applies to ALL results from /api/places/search, /api/prospects/enrich, and /api/prospects/search_and_enrich.",
+    "Never guess personal emails, phone numbers, or names. If unsure, return an empty contacts list.",
 };
 
 export function getConversation(sessionId: string): Conversation {
