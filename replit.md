@@ -26,10 +26,12 @@ A modern AI chat interface built with Node.js, Express, and React that integrate
 
 #### POST /api/chat
 - **Input**: `{ messages: [{role, content}], user: {id, email} }`
-- **Output**: `{ reply: "..." }`
-- Integrates with OpenAI GPT-5
+- **Output**: Server-Sent Events (SSE) stream with `data: {"content": "..."}`
+- Uses OpenAI **Responses API** with **GPT-5 model**
+- **Web search enabled**: Can fetch live information from the internet
+- Streaming responses for real-time user experience
 - Adds Wyshbone system prompt automatically
-- Returns AI-generated response
+- Maintains conversation history with memory system
 
 #### POST /api/places/search
 - **Input**: `{ query, locationText?, lat?, lng?, radiusMeters?, typesFilter?, maxResults? }`
@@ -183,6 +185,17 @@ A modern AI chat interface built with Node.js, Express, and React that integrate
    - Fixed OpenAI API requirement: planner prompt must contain lowercase "json" for json_object response format
    - Tested successfully: conversational questions return estimates/discussion, not venue lists
    - System now correctly distinguishes between search intent vs. conversation
+
+8. **GPT-5 Responses API Upgrade with Web Search (October 7, 2025)** ✅ COMPLETED
+   - Migrated POST /api/chat from Chat Completions API to Responses API
+   - Now uses `client.responses.create()` instead of `client.chat.completions.create()`
+   - Changed from model `gpt-4o-mini` to `gpt-5` for flagship performance
+   - Enabled `tools: [{ type: "web_search" }]` for live internet access
+   - Implemented proper streaming with `event.type === 'response.output_text.delta'`
+   - Chatbot can now fetch real-time information (weather, news, current events)
+   - Tested successfully: accurately fetched current weather in Tokyo during live test
+   - Maintains full conversation history and memory system
+   - Preserves all existing features (streaming, error handling, session management)
 
 ## Environment Variables
 

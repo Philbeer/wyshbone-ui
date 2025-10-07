@@ -59,24 +59,53 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.setHeader("X-Accel-Buffering", "no");
       res.flushHeaders();
 
-      // Stream from OpenAI with memory messages
+      // Stream from OpenAI using Responses API with GPT-5 and web search
       let aiBuffer = "";
 
-      const stream = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
-        messages: memoryMessages,
-        max_tokens: 1500,
-        stream: true,
-      });
-
-      for await (const chunk of stream) {
-        const content = chunk.choices[0]?.delta?.content;
-        if (content) {
-          aiBuffer += content; // collect full assistant reply
-          res.write(`data: ${JSON.stringify({ content })}\n\n`);
-          // @ts-ignore - flush exists in this env
-          if (res.flush) res.flush();
+      // Build conversation context for Responses API
+      let conversationInput = "";
+      for (const msg of memoryMessages) {
+        if (msg.role === "system") {
+          conversationInput += `System: ${msg.content}\n\n`;
+        } else if (msg.role === "user") {
+          conversationInput += `User: ${msg.content}\n\n`;
+        } else if (msg.role === "assistant") {
+          conversationInput += `Assistant: ${msg.content}\n\n`;
         }
+      }
+      
+      console.log("🤖 Calling GPT-5 Responses API with web_search enabled...");
+      
+      try {
+        // @ts-ignore
+        const stream = await openai.responses.create({
+          model: "gpt-5",
+          input: conversationInput.trim(),
+          tools: [{ type: "web_search" }],
+          stream: true,
+        });
+
+        console.log("✅ Responses API stream started");
+
+        for await (const event of stream) {
+          // @ts-ignore
+          if (event.type === 'response.output_text.delta') {
+            // @ts-ignore
+            const text = event.delta;
+            if (text) {
+              aiBuffer += text;
+              res.write(`data: ${JSON.stringify({ content: text })}\n\n`);
+              // @ts-ignore
+              if (res.flush) res.flush();
+            }
+          }
+        }
+        
+        console.log(`✅ Responses API completed. Total response: ${aiBuffer.length} chars`);
+      } catch (err: any) {
+        console.error("❌ Responses API error:", err.message);
+        console.error("Error details:", JSON.stringify(err, null, 2));
+        throw err;
       }
 
       // Save assistant reply to memory
