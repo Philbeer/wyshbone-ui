@@ -432,6 +432,413 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // =========================================
+  // POST /api/places/search - Places v1 discovery
+  // =========================================
+  app.post("/api/places/search", async (req, res) => {
+    try {
+      const { query, locationText, lat, lng, radiusMeters, typesFilter, maxResults } = req.body || {};
+
+      if (!query) {
+        return res.status(400).json({ error: "Missing `query`" });
+      }
+
+      const { searchPlaces } = await import("./googlePlaces");
+
+      const results = await searchPlaces({
+        query,
+        locationText,
+        lat: lat !== undefined ? Number(lat) : undefined,
+        lng: lng !== undefined ? Number(lng) : undefined,
+        radiusMeters: radiusMeters !== undefined ? Number(radiusMeters) : undefined,
+        maxResults: maxResults !== undefined ? Number(maxResults) : 30,
+        typesFilter,
+      });
+
+      return res.json({
+        results,
+        generated_at: new Date().toISOString(),
+      });
+    } catch (e: any) {
+      console.error("places/search error:", e);
+      return res.status(500).json({ error: e.message || "Search failed" });
+    }
+  });
+
+  // =========================================
+  // POST /api/prospects/enrich - GPT enrichment via Responses API
+  // =========================================
+  app.post("/api/prospects/enrich", async (req, res) => {
+    try {
+      const { items, concurrency = 3 } = req.body || {};
+
+      if (!items || !Array.isArray(items) || items.length === 0) {
+        return res.status(400).json({ error: "Missing or empty `items` array" });
+      }
+
+      if (!process.env.OPENAI_API_KEY) {
+        return res.status(500).json({ error: "OPENAI_API_KEY is not configured" });
+      }
+
+      // JSON schema for enrichment output
+      const enrichmentSchema = {
+        type: "object",
+        properties: {
+          placeId: { type: "string" },
+          domain: { type: "string", nullable: true },
+          contact_email: { type: "string", nullable: true },
+          socials: {
+            type: "object",
+            properties: {
+              website: { type: "string", nullable: true },
+              linkedin: { type: "string", nullable: true },
+              twitter: { type: "string", nullable: true },
+              instagram: { type: "string", nullable: true },
+              facebook: { type: "string", nullable: true },
+            },
+          },
+          category: { type: "string" },
+          summary: { type: "string" },
+          suggested_intro: { type: "string" },
+          lead_score: { type: "number" },
+        },
+        required: ["placeId", "category", "summary", "suggested_intro", "lead_score"],
+      };
+
+      // Process items with concurrency control
+      const enrichItem = async (item: any) => {
+        const placeId = item.placeId || item.resourceName?.replace(/^places\//, "") || "";
+        const name = item.name || "";
+        const address = item.address || "";
+        const website = item.website || "";
+        const phone = item.phone || "";
+
+        const prompt = `You are a B2B sales research assistant. Enrich this business with web search:
+
+Business: ${name}
+Address: ${address}
+${website ? `Website: ${website}` : ""}
+${phone ? `Phone: ${phone}` : ""}
+
+CRITICAL: You MUST use the exact Place ID provided below. Do NOT generate or modify it.
+Place ID (use verbatim): ${placeId}
+
+Tasks:
+1. ${website ? "Verify the website is correct" : "Find the official website"}
+2. Extract domain name (e.g., example.com)
+3. Find generic contact email if publicly listed (info@, hello@, contact@)
+4. Find social media links (LinkedIn, Twitter, Instagram, Facebook)
+5. Classify the business type (e.g., pub, brewery, restaurant, cafe)
+6. Write a 1-2 sentence neutral summary of what they do
+7. Create a short suggested outreach intro (1 sentence, professional, no fluff)
+8. Assign a lead score 0-100 based on online presence quality
+
+Return structured data with the EXACT placeId provided above: "${placeId}"`;
+
+        try {
+          const requestBody = {
+            model: "gpt-4o-mini",
+            input: [
+              {
+                role: "user",
+                content: [
+                  {
+                    type: "input_text",
+                    text: prompt,
+                  },
+                ],
+              },
+            ],
+            tools: [{ type: "web_search" }],
+            text: {
+              format: {
+                type: "json_schema",
+                name: "enrichment",
+                schema: enrichmentSchema,
+              },
+            },
+          };
+
+          const response = await fetch("https://api.openai.com/v1/responses", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+            },
+            body: JSON.stringify(requestBody),
+          });
+
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`OpenAI API error: ${errorText}`);
+          }
+
+          const data = await response.json();
+
+          // Extract text from response
+          let outputText: string | null = null;
+          if (data.output?.[1]?.content?.[0]?.text) {
+            outputText = data.output[1].content[0].text;
+          } else if (data.output?.[0]?.content?.[0]?.text) {
+            outputText = data.output[0].content[0].text;
+          } else if (Array.isArray(data.output)) {
+            for (const item of data.output) {
+              if (item.content?.[0]?.text) {
+                outputText = item.content[0].text;
+                break;
+              }
+            }
+          }
+
+          if (!outputText) {
+            throw new Error("No text output from Responses API");
+          }
+
+          const enrichment = JSON.parse(outputText);
+          
+          // CRITICAL: Validate that GPT returned the exact Place ID we provided
+          if (enrichment.placeId !== placeId) {
+            console.error(`Place ID mismatch! Expected: ${placeId}, Got: ${enrichment.placeId}`);
+            // Force the correct Place ID instead of accepting fabricated one
+            enrichment.placeId = placeId;
+          }
+          
+          return {
+            ...item,
+            ...enrichment,
+          };
+        } catch (error: any) {
+          console.error(`Enrichment error for ${name}:`, error.message);
+          return {
+            ...item,
+            placeId,
+            domain: null,
+            contact_email: null,
+            socials: {},
+            category: "unknown",
+            summary: "Enrichment failed",
+            suggested_intro: "",
+            lead_score: 0,
+          };
+        }
+      };
+
+      // Process in batches with concurrency control
+      const enriched = [];
+      for (let i = 0; i < items.length; i += concurrency) {
+        const batch = items.slice(i, i + concurrency);
+        const batchResults = await Promise.all(batch.map(enrichItem));
+        enriched.push(...batchResults);
+      }
+
+      return res.json({ enriched });
+    } catch (e: any) {
+      console.error("prospects/enrich error:", e);
+      return res.status(500).json({ error: e.message || "Enrichment failed" });
+    }
+  });
+
+  // =========================================
+  // POST /api/prospects/search_and_enrich - Combined endpoint
+  // =========================================
+  app.post("/api/prospects/search_and_enrich", async (req, res) => {
+    try {
+      const { query, locationText, lat, lng, radiusMeters, typesFilter, maxResults, enrich = true, concurrency = 3 } = req.body || {};
+
+      if (!query) {
+        return res.status(400).json({ error: "Missing `query`" });
+      }
+
+      // Step 1: Search Places
+      const { searchPlaces } = await import("./googlePlaces");
+      const places = await searchPlaces({
+        query,
+        locationText,
+        lat: lat !== undefined ? Number(lat) : undefined,
+        lng: lng !== undefined ? Number(lng) : undefined,
+        radiusMeters: radiusMeters !== undefined ? Number(radiusMeters) : undefined,
+        maxResults: maxResults !== undefined ? Number(maxResults) : 20,
+        typesFilter,
+      });
+
+      if (!enrich) {
+        return res.json({
+          verified: true,
+          results: places,
+          generated_at: new Date().toISOString(),
+        });
+      }
+
+      // Step 2: Enrich with GPT
+      if (!process.env.OPENAI_API_KEY) {
+        return res.json({
+          verified: true,
+          results: places,
+          generated_at: new Date().toISOString(),
+          note: "Enrichment skipped - OPENAI_API_KEY not configured",
+        });
+      }
+
+      const enrichmentSchema = {
+        type: "object",
+        properties: {
+          placeId: { type: "string" },
+          domain: { type: "string", nullable: true },
+          contact_email: { type: "string", nullable: true },
+          socials: {
+            type: "object",
+            properties: {
+              website: { type: "string", nullable: true },
+              linkedin: { type: "string", nullable: true },
+              twitter: { type: "string", nullable: true },
+              instagram: { type: "string", nullable: true },
+              facebook: { type: "string", nullable: true },
+            },
+          },
+          category: { type: "string" },
+          summary: { type: "string" },
+          suggested_intro: { type: "string" },
+          lead_score: { type: "number" },
+        },
+        required: ["placeId", "category", "summary", "suggested_intro", "lead_score"],
+      };
+
+      const enrichItem = async (item: any) => {
+        const placeId = item.placeId || "";
+        const name = item.name || "";
+        const address = item.address || "";
+        const website = item.website || "";
+        const phone = item.phone || "";
+
+        const prompt = `You are a B2B sales research assistant. Enrich this business with web search:
+
+Business: ${name}
+Address: ${address}
+${website ? `Website: ${website}` : ""}
+${phone ? `Phone: ${phone}` : ""}
+
+CRITICAL: You MUST use the exact Place ID provided below. Do NOT generate or modify it.
+Place ID (use verbatim): ${placeId}
+
+Tasks:
+1. ${website ? "Verify the website is correct" : "Find the official website"}
+2. Extract domain name (e.g., example.com)
+3. Find generic contact email if publicly listed (info@, hello@, contact@)
+4. Find social media links (LinkedIn, Twitter, Instagram, Facebook)
+5. Classify the business type (e.g., pub, brewery, restaurant, cafe)
+6. Write a 1-2 sentence neutral summary of what they do
+7. Create a short suggested outreach intro (1 sentence, professional, no fluff)
+8. Assign a lead score 0-100 based on online presence quality
+
+Return structured data with the EXACT placeId provided above: "${placeId}"`;
+
+        try {
+          const requestBody = {
+            model: "gpt-4o-mini",
+            input: [
+              {
+                role: "user",
+                content: [
+                  {
+                    type: "input_text",
+                    text: prompt,
+                  },
+                ],
+              },
+            ],
+            tools: [{ type: "web_search" }],
+            text: {
+              format: {
+                type: "json_schema",
+                name: "enrichment",
+                schema: enrichmentSchema,
+              },
+            },
+          };
+
+          const response = await fetch("https://api.openai.com/v1/responses", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+            },
+            body: JSON.stringify(requestBody),
+          });
+
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`OpenAI API error: ${errorText}`);
+          }
+
+          const data = await response.json();
+
+          // Extract text from response
+          let outputText: string | null = null;
+          if (data.output?.[1]?.content?.[0]?.text) {
+            outputText = data.output[1].content[0].text;
+          } else if (data.output?.[0]?.content?.[0]?.text) {
+            outputText = data.output[0].content[0].text;
+          } else if (Array.isArray(data.output)) {
+            for (const item of data.output) {
+              if (item.content?.[0]?.text) {
+                outputText = item.content[0].text;
+                break;
+              }
+            }
+          }
+
+          if (!outputText) {
+            throw new Error("No text output from Responses API");
+          }
+
+          const enrichment = JSON.parse(outputText);
+          
+          // CRITICAL: Validate that GPT returned the exact Place ID we provided
+          if (enrichment.placeId !== placeId) {
+            console.error(`Place ID mismatch! Expected: ${placeId}, Got: ${enrichment.placeId}`);
+            // Force the correct Place ID instead of accepting fabricated one
+            enrichment.placeId = placeId;
+          }
+          
+          return {
+            ...item,
+            ...enrichment,
+          };
+        } catch (error: any) {
+          console.error(`Enrichment error for ${name}:`, error.message);
+          return {
+            ...item,
+            placeId,
+            domain: null,
+            contact_email: null,
+            socials: {},
+            category: "unknown",
+            summary: "Enrichment failed",
+            suggested_intro: "",
+            lead_score: 0,
+          };
+        }
+      };
+
+      // Process in batches
+      const enriched = [];
+      for (let i = 0; i < places.length; i += concurrency) {
+        const batch = places.slice(i, i + concurrency);
+        const batchResults = await Promise.all(batch.map(enrichItem));
+        enriched.push(...batchResults);
+      }
+
+      return res.json({
+        verified: true,
+        results: enriched,
+        generated_at: new Date().toISOString(),
+      });
+    } catch (e: any) {
+      console.error("prospects/search_and_enrich error:", e);
+      return res.status(500).json({ error: e.message || "Search and enrich failed" });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }

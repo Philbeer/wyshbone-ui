@@ -134,6 +134,146 @@ export async function searchPlaceId({
 }
 
 // Convenience: verify by separate name + address and pick best match
+// New search function for Places v1 discovery (primary prospecting)
+export async function searchPlaces({
+  query,
+  locationText,
+  lat,
+  lng,
+  radiusMeters,
+  maxResults = 30,
+  typesFilter,
+  apiKey = process.env.GOOGLE_MAPS_API_KEY!,
+  region = "GB",
+}: {
+  query: string;
+  locationText?: string;
+  lat?: number;
+  lng?: number;
+  radiusMeters?: number;
+  maxResults?: number;
+  typesFilter?: string[];
+  apiKey?: string;
+  region?: string;
+}) {
+  if (!apiKey) throw new Error("Missing GOOGLE_MAPS_API_KEY");
+
+  let locationBias: { lat: number; lng: number; radiusMeters: number } | undefined;
+
+  // Determine location bias
+  if (lat !== undefined && lng !== undefined && radiusMeters !== undefined) {
+    // Use provided coordinates
+    locationBias = { lat, lng, radiusMeters };
+  } else if (locationText) {
+    // Resolve location text to coordinates
+    console.log(`🌍 Resolving location: "${locationText}"`);
+    const locationQuery = locationText;
+    const body = {
+      textQuery: locationQuery,
+      languageCode: "en",
+      regionCode: region,
+    };
+
+    const resp = await fetch(PLACES_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": apiKey,
+        "X-Goog-FieldMask": "places.id,places.displayName,places.location",
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (resp.ok) {
+      const data = (await resp.json()) as any;
+      if (data.places && data.places.length > 0) {
+        const bestLocation = data.places[0];
+        if (bestLocation.location) {
+          locationBias = {
+            lat: bestLocation.location.latitude,
+            lng: bestLocation.location.longitude,
+            radiusMeters: radiusMeters || 12000, // Default 12km
+          };
+          console.log(`✓ Using location: ${bestLocation.displayName?.text || locationText} (${locationBias.lat}, ${locationBias.lng})`);
+        }
+      }
+    }
+  }
+
+  // Now search for the query with location bias
+  console.log(`🔍 Searching for: "${query}" with location bias`);
+  
+  const fieldMask = "places.id,places.displayName,places.formattedAddress,places.businessStatus,places.nationalPhoneNumber,places.websiteUri,places.types,places.rating,places.userRatingCount,places.location";
+  
+  const body: Record<string, any> = {
+    textQuery: query,
+    languageCode: "en",
+    regionCode: region,
+  };
+
+  if (locationBias) {
+    body.locationBias = {
+      circle: {
+        center: { latitude: locationBias.lat, longitude: locationBias.lng },
+        radius: locationBias.radiusMeters,
+      },
+    };
+  }
+
+  const resp = await fetch(PLACES_ENDPOINT, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Goog-Api-Key": apiKey,
+      "X-Goog-FieldMask": fieldMask,
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`Places API error ${resp.status}: ${text}`);
+  }
+
+  const data = (await resp.json()) as SearchResp;
+  let places = data.places || [];
+
+  // Filter to OPERATIONAL only
+  places = places.filter(p => p.businessStatus === "OPERATIONAL");
+
+  // Apply types filter if provided
+  if (typesFilter && typesFilter.length > 0) {
+    places = places.filter(p => {
+      const placeTypes = p.types || [];
+      return placeTypes.some(t => typesFilter.includes(t));
+    });
+  }
+
+  // Normalize results
+  const results = places.slice(0, maxResults).map(p => {
+    const placeId = p.id.replace(/^places\//, ""); // Strip "places/" prefix
+    return {
+      placeId,
+      resourceName: p.id, // Keep original with prefix
+      name: p.displayName?.text || "",
+      address: p.formattedAddress || "",
+      businessStatus: p.businessStatus || "UNKNOWN",
+      phone: p.nationalPhoneNumber || null,
+      website: p.websiteUri || null,
+      types: p.types || [],
+      rating: (p as any).rating || null,
+      userRatingCount: (p as any).userRatingCount || null,
+      location: (p as any).location ? {
+        lat: (p as any).location.latitude,
+        lng: (p as any).location.longitude,
+      } : null,
+    };
+  });
+
+  console.log(`✓ Found ${results.length} OPERATIONAL places`);
+  return results;
+}
+
 export async function verifyVenue({
   name,
   address,
