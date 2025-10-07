@@ -161,6 +161,18 @@ A modern AI chat interface built with Node.js, Express, and React that integrate
    - Fixed JSON schema validation: added required arrays and additionalProperties: false to all schemas
    - Tested successfully with real UK pub data (The Swan Hotel, Arundel) returning verified contacts
 
+6. **Intelligent Search Flow with Venue Deduplication (October 7, 2025)** ✅ COMPLETED
+   - Refactored POST /api/search to use GPT planner that decides when to search vs. use cached venues
+   - Updated SYSTEM_PROMPT to remove "ALWAYS call /api/places/search first" - now GPT evaluates context
+   - Implemented 3-step architecture:
+     1. GPT Planner analyzes query + conversation + venue cache → decides "search" or "use_cache"
+     2. If "search": calls Google Places API as PRIMARY source (not web search)
+     3. GPT Formatter creates response from cached venues, marks them as served
+   - Added venue cache system (server/memory.ts) tracking served/unserved venues per session
+   - Prevents duplicate results: "find 5 pubs" then "find 5 more" returns different venues
+   - Google Places remains the authoritative source - web enrichment happens separately
+   - Tested successfully: follow-up queries return completely different venues (no overlaps)
+
 ## Environment Variables
 
 - `OPENAI_API_KEY`: Required for OpenAI GPT-5 integration and prospect enrichment

@@ -3,17 +3,27 @@ import OpenAI from "openai";
 export type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
 type Conversation = ChatMessage[];
 
+export type VenueCache = {
+  placeId: string;
+  name: string;
+  address: string;
+  served: boolean;
+}[];
+
 const conversations = new Map<string, Conversation>();
+const venueCaches = new Map<string, VenueCache>();
 
 const SYSTEM_PROMPT: ChatMessage = {
   role: "system",
   content:
     "You are Wyshbone AI, a helpful sales/research assistant. Be concise and structured. " +
-    "You remember the session context. On request, you can reformat previous output " +
-    "as bullet points, summaries, or simple tables.\n\n" +
-    "For new-customer discovery, ALWAYS call /api/places/search first. Never fabricate Google Place IDs. " +
-    "Only enrich after Places results using /api/prospects/enrich. If no Places matches are found, " +
-    "return an empty list with verified=false.\n\n" +
+    "You remember the session context and previously found venues.\n\n" +
+    "WORKFLOW for venue discovery:\n" +
+    "1. Analyze the user's query in context of the conversation\n" +
+    "2. Check if you can answer from previously found venues (marked 'served: false' means not yet shown)\n" +
+    "3. Only search for NEW venues via /api/places/search if you need more results\n" +
+    "4. Never fabricate Google Place IDs - only use verified Places API results\n" +
+    "5. Track which venues you've shown to avoid duplicates\n\n" +
     "When enriching contacts: Only return PUBLIC contact info with a verifiable source URL. " +
     "Never guess personal emails, phone numbers, or names. If unsure, return an empty contacts list.",
 };
@@ -32,6 +42,49 @@ export function appendMessage(sessionId: string, msg: ChatMessage) {
 
 export function resetConversation(sessionId: string) {
   conversations.set(sessionId, [SYSTEM_PROMPT]);
+  venueCaches.delete(sessionId);
+}
+
+export function getVenueCache(sessionId: string): VenueCache {
+  if (!venueCaches.has(sessionId)) {
+    venueCaches.set(sessionId, []);
+  }
+  return venueCaches.get(sessionId)!;
+}
+
+export function addVenuesToCache(sessionId: string, venues: { placeId: string; name: string; address: string }[]) {
+  const cache = getVenueCache(sessionId);
+  for (const venue of venues) {
+    if (!cache.find((v) => v.placeId === venue.placeId)) {
+      cache.push({ ...venue, served: false });
+    }
+  }
+}
+
+export function markVenuesAsServed(sessionId: string, placeIds: string[]) {
+  const cache = getVenueCache(sessionId);
+  for (const venue of cache) {
+    if (placeIds.includes(venue.placeId)) {
+      venue.served = true;
+    }
+  }
+}
+
+export function getVenueCacheContext(sessionId: string): string {
+  const cache = getVenueCache(sessionId);
+  if (cache.length === 0) return "No venues found yet in this session.";
+  
+  const served = cache.filter((v) => v.served);
+  const unserved = cache.filter((v) => !v.served);
+  
+  let context = `Venue cache (${cache.length} total):\n`;
+  if (served.length > 0) {
+    context += `Already shown (${served.length}): ${served.map((v) => v.name).join(", ")}\n`;
+  }
+  if (unserved.length > 0) {
+    context += `Not yet shown (${unserved.length}): ${unserved.map((v) => `${v.name} [${v.placeId}]`).join(", ")}`;
+  }
+  return context;
 }
 
 export async function maybeSummarize(

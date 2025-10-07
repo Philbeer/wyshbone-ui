@@ -133,229 +133,99 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Get full conversation from memory
       const memoryConversation = getConversation(sessionId);
+      const { getVenueCacheContext, addVenuesToCache, markVenuesAsServed, getVenueCache } = await import("./memory");
       
-      // Check if this is a follow-up (more than just system prompt + one user message)
-      const userMessageCount = memoryConversation.filter(m => m.role === "user").length;
-      const isFollowUp = userMessageCount > 1;
-
-      // Structured JSON schema for initial search output (before Google Places verification)
-      const wyshboneSchema = {
-        type: "object",
-        properties: {
-          query: { type: "string", description: "The original search query" },
-          generated_at: {
-            type: "string",
-            description: "ISO timestamp when the response was generated",
-          },
-          results: {
-            type: "array",
-            items: {
-              type: "object",
-              properties: {
-                name: { type: "string", description: "Venue name" },
-                address: { type: "string", description: "Full address" },
-                sourceUrl: { type: "string", description: "URL where this info was found" },
-              },
-              required: ["name", "address", "sourceUrl"],
-              additionalProperties: false,
-            },
-            description: "Array of venues found from web search",
-          },
-        },
-        required: ["query", "generated_at", "results"],
-        additionalProperties: false,
-      };
-
-      // Build input for Responses API based on memory conversation
-      let inputMessages: any;
-      
-      if (isFollowUp) {
-        // For follow-ups, format the entire conversation as context
-        let conversationText = "";
-        for (const msg of memoryConversation) {
-          if (msg.role === "system") {
-            // Skip system messages for Responses API
-            continue;
-          }
-          const roleLabel = msg.role === "user" ? "User" : "Assistant";
-          conversationText += `${roleLabel}: ${msg.content}\n\n`;
+      // STEP 1: GPT Planner - Decide if we need to search for new venues
+      const plannerMessages = [
+        ...memoryConversation.map((msg) => ({ role: msg.role as "system" | "user" | "assistant", content: msg.content })),
+        {
+          role: "user" as const,
+          content: `${latestUserMessage}\n\n${getVenueCacheContext(sessionId)}\n\nDecide: Do you need to search for NEW venues, or can you answer from the cache? Respond with JSON: {"action": "search" or "use_cache", "query": "refined search query if searching", "count": number of results needed, "reasoning": "brief explanation"}`
         }
-        
-        inputMessages = [
-          {
-            role: "user",
-            content: [
-              {
-                type: "input_text",
-                text: conversationText.trim(),
-              },
-            ],
-          },
-        ];
-      } else {
-        // For first query, just send the latest message
-        inputMessages = [
-          {
-            role: "user",
-            content: [
-              {
-                type: "input_text",
-                text: latestUserMessage,
-              },
-            ],
-          },
-        ];
-      }
+      ];
 
-      const requestBody: any = {
+      const plannerResponse = await openai.chat.completions.create({
         model: "gpt-4o-mini",
-        input: inputMessages,
-      };
-
-      // Always add web_search + JSON schema for venue searches
-      requestBody.tools = [{ type: "web_search" }];
-      requestBody.text = {
-        format: {
-          type: "json_schema",
-          name: "wyshbone_results",
-          schema: wyshboneSchema,
-        },
-      };
-
-      const response = await fetch("https://api.openai.com/v1/responses", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-        },
-        body: JSON.stringify(requestBody),
+        messages: plannerMessages,
+        response_format: { type: "json_object" },
       });
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error("OpenAI API error:", errorText);
-        return res
-          .status(response.status)
-          .json({ error: "OpenAI API request failed", details: errorText });
-      }
+      const plannerText = plannerResponse.choices[0]?.message?.content || "{}";
+      const plan = JSON.parse(plannerText);
+      
+      console.log("🎯 Planner decision:", plan);
 
-      const data = await response.json();
+      let newVenues: any[] = [];
 
-      // Extract assistant text
-      let outputText: string | null = null;
-      if (data.output?.[1]?.content?.[0]?.text) {
-        outputText = data.output[1].content[0].text;
-      } else if (data.output?.[0]?.content?.[0]?.text) {
-        outputText = data.output[0].content[0].text;
-      } else if (Array.isArray(data.output)) {
-        for (const item of data.output) {
-          if (item.content?.[0]?.text) {
-            outputText = item.content[0].text;
-            break;
-          }
+      // STEP 2: If planner says "search", call Google Places FIRST as primary source
+      if (plan.action === "search") {
+        const { searchPlaces } = await import("./googlePlaces");
+        
+        // Extract location from query (simple parsing)
+        const queryLower = (plan.query || latestUserMessage).toLowerCase();
+        let locationText = "";
+        
+        // Common patterns: "in [location]", "near [location]", "at [location]"
+        const locationMatch = queryLower.match(/(?:in|near|at)\s+([a-z\s,]+?)(?:\s|$)/);
+        if (locationMatch) {
+          locationText = locationMatch[1].trim();
         }
-      }
 
-      if (!outputText) {
-        console.error("Could not parse OpenAI response:", JSON.stringify(data));
-        return res.status(500).json({
-          error: "Unexpected response format",
-          details: "Could not find text in response output",
-          raw: data,
+        // Call Google Places API directly as primary source
+        const placesResults = await searchPlaces({
+          query: plan.query || latestUserMessage,
+          locationText: locationText || undefined,
+          maxResults: plan.count || 10,
         });
-      }
 
-      // Store assistant's response in memory
-      appendMessage(sessionId, { role: "assistant", content: outputText });
+        console.log(`📍 Google Places found ${placesResults.length} venues`);
 
-      // Try to parse JSON response (both initial and follow-up searches)
-      try {
-        const parsed = JSON.parse(outputText);
-          
-          // If no results or not an array, return as-is
-          if (!parsed.results || !Array.isArray(parsed.results) || parsed.results.length === 0) {
-            return res.json({ ...parsed, verified: false });
-          }
-          
-          // Import verifyVenue function
-          const { verifyVenue } = await import("./googlePlaces");
-          
-          // Verify each venue with Google Places
-          const verifiedResults = [];
-          const rawResults = [...parsed.results];
-          
-          for (const venue of parsed.results) {
-            try {
-              console.log(`\n🔍 Verifying venue: "${venue.name}"`);
-              console.log(`   Address: ${venue.address}`);
-              
-              const verification = await verifyVenue({
-                name: venue.name,
-                address: venue.address,
-              });
-              
-              console.log(`   Found: ${verification.found}`);
-              if (verification.best) {
-                console.log(`   Best match: "${verification.best.name}"`);
-                console.log(`   Match score: ${verification.best.score}`);
-                console.log(`   Place ID: ${verification.best.placeId}`);
-                console.log(`   Status: ${verification.best.businessStatus}`);
-              }
-              
-              if (verification.candidates && verification.candidates.length > 0) {
-                console.log(`   Other candidates:`);
-                verification.candidates.slice(0, 3).forEach((c: any, i: number) => {
-                  const typesStr = c.types?.length ? c.types.join(", ") : "no types";
-                  console.log(`     ${i + 1}. "${c.name}" (score: ${c.score}) [${typesStr}] - ${c.placeId}`);
-                });
-              }
-              
-              // Only include if found and operational
-              if (verification.found && verification.best?.businessStatus === "OPERATIONAL") {
-                verifiedResults.push({
-                  name: verification.best.name,
-                  address: verification.best.address,
-                  placeId: verification.best.placeId,
-                  businessStatus: verification.best.businessStatus,
-                  phone: verification.best.phone,
-                  website: verification.best.website,
-                  sourceUrl: venue.sourceUrl,
-                });
-              } else {
-                console.log(`   ❌ Skipped: ${!verification.found ? 'not found' : 'not operational'}`);
-              }
-            } catch (verifyError) {
-              console.error(`Error verifying venue ${venue.name}:`, verifyError);
-              // Continue with next venue if verification fails
-            }
-          }
-          
-          // If we have verified results, return them
-          if (verifiedResults.length > 0) {
-            return res.json({
-              query: parsed.query,
-              verified: true,
-              results: verifiedResults,
-              generated_at: parsed.generated_at,
-            });
-          } else {
-            // No verified results found - return raw results with verified: false
-            return res.json({
-              query: parsed.query,
-              verified: false,
-              rawResults: rawResults,
-              message: "No verified operational venues found",
-              generated_at: parsed.generated_at,
-            });
-          }
-      } catch (e) {
-        console.error("JSON parse error:", e);
-        // If JSON parsing fails, return plain text for follow-ups
-        if (isFollowUp) {
-          return res.json({ plain_text: outputText, is_follow_up: true });
+        // Add Google Places results to cache
+        if (placesResults.length > 0) {
+          addVenuesToCache(
+            sessionId,
+            placesResults.map((v) => ({
+              placeId: v.placeId,
+              name: v.name,
+              address: v.address,
+            }))
+          );
+          newVenues = placesResults;
         }
-        return res.json({ error: "Failed to parse JSON response", raw_text: outputText });
       }
+
+      // STEP 3: Use GPT formatter to create final response from cache
+      const cache = getVenueCache(sessionId);
+      const availableVenues = cache.filter((v) => !v.served);
+      
+      const formatterMessages = [
+        ...memoryConversation.map((msg) => ({ role: msg.role as "system" | "user" | "assistant", content: msg.content })),
+        {
+          role: "system" as const,
+          content: `Available venues to show (not yet served): ${JSON.stringify(availableVenues)}\n\nCreate a response using these venues. Format as JSON: {"query": "...", "verified": true, "results": [{placeId, name, address, ...}], "generated_at": "ISO timestamp"}`
+        }
+      ];
+
+      const formatterResponse = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: formatterMessages,
+        response_format: { type: "json_object" },
+      });
+
+      const formatterText = formatterResponse.choices[0]?.message?.content || "{}";
+      const finalResponse = JSON.parse(formatterText);
+
+      // Mark venues as served
+      if (finalResponse.results && Array.isArray(finalResponse.results)) {
+        const servedPlaceIds = finalResponse.results.map((v: any) => v.placeId).filter(Boolean);
+        markVenuesAsServed(sessionId, servedPlaceIds);
+      }
+
+      // Store assistant's formatted response in memory
+      appendMessage(sessionId, { role: "assistant", content: formatterText });
+
+      return res.json(finalResponse);
+
     } catch (error: any) {
       console.error("Search error:", error);
       return res
