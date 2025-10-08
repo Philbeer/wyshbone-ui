@@ -13,10 +13,66 @@ import {
   searchRequestSchema,
 } from "@shared/schema";
 import cors from "cors";
+import * as cheerio from "cheerio";
 
 // Helper to identify each user's session (Bubble should send x-session-id)
 function getSessionId(req: import("express").Request) {
   return (req.headers["x-session-id"] as string) || req.ip || "anon";
+}
+
+// Helper to detect URLs in text
+function extractUrls(text: string): string[] {
+  const urlRegex = /https?:\/\/[^\s]+/g;
+  const matches = text.match(urlRegex);
+  return matches || [];
+}
+
+// Helper to fetch and extract text content from a URL
+async function fetchUrlContent(url: string): Promise<string> {
+  try {
+    console.log(`🌐 Fetching URL: ${url}`);
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      },
+      signal: AbortSignal.timeout(10000) // 10 second timeout
+    });
+    
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    
+    const html = await response.text();
+    const $ = cheerio.load(html);
+    
+    // Remove script, style, nav, footer elements
+    $('script, style, nav, footer, header, aside').remove();
+    
+    // Extract title
+    const title = $('title').text().trim();
+    
+    // Extract main content (try article first, then main, then body)
+    let mainContent = '';
+    if ($('article').length > 0) {
+      mainContent = $('article').text();
+    } else if ($('main').length > 0) {
+      mainContent = $('main').text();
+    } else {
+      mainContent = $('body').text();
+    }
+    
+    // Clean up whitespace
+    const cleanContent = mainContent
+      .replace(/\s+/g, ' ')
+      .trim()
+      .substring(0, 15000); // Limit to ~15k chars
+    
+    console.log(`✅ Extracted ${cleanContent.length} characters from ${url}`);
+    return `Title: ${title}\n\nContent: ${cleanContent}`;
+  } catch (error: any) {
+    console.error(`❌ Failed to fetch ${url}:`, error.message);
+    throw new Error(`Could not fetch URL: ${error.message}`);
+  }
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -59,58 +115,128 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.setHeader("X-Accel-Buffering", "no");
       res.flushHeaders();
 
-      // Stream from OpenAI using Responses API with GPT-5 and web search
+      // Stream from OpenAI using Responses API with GPT-5
       let aiBuffer = "";
 
-      // Build conversation context for Responses API
-      let conversationInput = "";
-      for (const msg of memoryMessages) {
-        if (msg.role === "system") {
-          conversationInput += `System: ${msg.content}\n\n`;
-        } else if (msg.role === "user") {
-          conversationInput += `User: ${msg.content}\n\n`;
-        } else if (msg.role === "assistant") {
-          conversationInput += `Assistant: ${msg.content}\n\n`;
-        }
-      }
-      
-      console.log("🤖 Calling GPT-5 Responses API with web_search enabled...");
-      
-      try {
-        // Use non-streaming for reliability, then stream to client
-        // @ts-ignore
-        const response = await openai.responses.create({
-          model: "gpt-5",
-          input: conversationInput.trim(),
-          tools: [{ type: "web_search" }],
-          stream: false,
-        });
+      // Check if the latest message contains URLs
+      const urls = extractUrls(latestUserText);
+      const useDirectFetch = urls.length > 0;
 
-        console.log("✅ Responses API completed");
+      if (useDirectFetch) {
+        console.log(`🚀 Fast URL mode: Detected ${urls.length} URL(s) - using direct fetch`);
         
-        // @ts-ignore
-        if (response.output_text) {
-          // @ts-ignore
-          aiBuffer = response.output_text;
-          console.log("✅ Got output_text, length:", aiBuffer.length);
+        try {
+          // Fetch content from all URLs
+          const urlContents = await Promise.all(
+            urls.map(url => fetchUrlContent(url).catch(err => `[Error fetching ${url}: ${err.message}]`))
+          );
           
-          // Stream to client word-by-word for responsive UX
-          const words = aiBuffer.split(' ');
-          for (const word of words) {
-            res.write(`data: ${JSON.stringify({ content: word + ' ' })}\n\n`);
-            // @ts-ignore
-            if (res.flush) res.flush();
+          // Build prompt with URL content
+          let conversationInput = "";
+          for (const msg of memoryMessages.slice(0, -1)) { // All messages except the last one
+            if (msg.role === "system") {
+              conversationInput += `System: ${msg.content}\n\n`;
+            } else if (msg.role === "user") {
+              conversationInput += `User: ${msg.content}\n\n`;
+            } else if (msg.role === "assistant") {
+              conversationInput += `Assistant: ${msg.content}\n\n`;
+            }
           }
-        } else {
-          console.log("❌ No output_text in response");
-          aiBuffer = "I apologize, but I couldn't generate a response.";
-          res.write(`data: ${JSON.stringify({ content: aiBuffer })}\n\n`);
+          
+          // Add the latest message with URL content
+          conversationInput += `User: ${latestUserText}\n\n`;
+          conversationInput += `URL Content:\n${urlContents.join('\n\n---\n\n')}\n\n`;
+          conversationInput += `Please provide a helpful response based on the URL content above.`;
+          
+          console.log("🤖 Calling GPT-5 Responses API (WITHOUT web_search for speed)...");
+          
+          // @ts-ignore
+          const response = await openai.responses.create({
+            model: "gpt-5",
+            input: conversationInput.trim(),
+            stream: false,
+          });
+
+          console.log("✅ Responses API completed");
+          
+          // @ts-ignore
+          if (response.output_text) {
+            // @ts-ignore
+            aiBuffer = response.output_text;
+            console.log("✅ Got output_text, length:", aiBuffer.length);
+            
+            // Stream to client word-by-word for responsive UX
+            const words = aiBuffer.split(' ');
+            for (const word of words) {
+              res.write(`data: ${JSON.stringify({ content: word + ' ' })}\n\n`);
+              // @ts-ignore
+              if (res.flush) res.flush();
+            }
+          } else {
+            console.log("❌ No output_text in response");
+            aiBuffer = "I apologize, but I couldn't generate a response.";
+            res.write(`data: ${JSON.stringify({ content: aiBuffer })}\n\n`);
+          }
+          
+        } catch (err: any) {
+          console.error("❌ URL fetch error:", err.message);
+          throw err;
         }
         
-      } catch (err: any) {
-        console.error("❌ Responses API error:", err.message);
-        console.error("Error details:", JSON.stringify(err, null, 2));
-        throw err;
+      } else {
+        // No URLs detected - use web_search for general queries
+        console.log("🌐 General query mode: Using web_search tool");
+        
+        // Build conversation context for Responses API
+        let conversationInput = "";
+        for (const msg of memoryMessages) {
+          if (msg.role === "system") {
+            conversationInput += `System: ${msg.content}\n\n`;
+          } else if (msg.role === "user") {
+            conversationInput += `User: ${msg.content}\n\n`;
+          } else if (msg.role === "assistant") {
+            conversationInput += `Assistant: ${msg.content}\n\n`;
+          }
+        }
+        
+        console.log("🤖 Calling GPT-5 Responses API with web_search enabled...");
+        
+        try {
+          // Use non-streaming for reliability, then stream to client
+          // @ts-ignore
+          const response = await openai.responses.create({
+            model: "gpt-5",
+            input: conversationInput.trim(),
+            tools: [{ type: "web_search" }],
+            stream: false,
+          });
+
+          console.log("✅ Responses API completed");
+          
+          // @ts-ignore
+          if (response.output_text) {
+            // @ts-ignore
+            aiBuffer = response.output_text;
+            console.log("✅ Got output_text, length:", aiBuffer.length);
+            
+            // Stream to client word-by-word for responsive UX
+            const words = aiBuffer.split(' ');
+            for (const word of words) {
+              res.write(`data: ${JSON.stringify({ content: word + ' ' })}\n\n`);
+              // @ts-ignore
+              if (res.flush) res.flush();
+            }
+          } else {
+            console.log("❌ No output_text in response");
+            aiBuffer = "I apologize, but I couldn't generate a response.";
+            res.write(`data: ${JSON.stringify({ content: aiBuffer })}\n\n`);
+          }
+          
+        } catch (err: any) {
+          console.error("❌ Responses API error:", err.message);
+          console.error("Error details:", JSON.stringify(err, null, 2));
+          throw err;
+        }
       }
 
       // Save assistant reply to memory
