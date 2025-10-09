@@ -1,0 +1,201 @@
+Add a new natural-language TOOL to my existing chatbot so the bot can trigger a Bubble backend API workflow in batch.
+
+The tool name is `bubble_run_batch`. It should:
+- Parse a user’s free text (e.g., “Run Head of Sales for dentistry supplies, veterinary supplies; then Director for farm shops; delay 4s”).
+- Extract:
+  - business_types: array of strings (required)
+  - roles: array of strings (optional; default ["Head of Sales"])
+  - delay_ms: integer (optional; default 4000)
+- For each (role × business_type) pair, POST to my Bubble public workflow with fixed defaults (below), then wait `delay_ms` before the next call.
+- Never expose secrets in logs.
+
+========================================
+ENV / SECRETS (create if missing)
+========================================
+Add these keys in Replit “Secrets” (left sidebar > Tools > Secrets):
+
+BUBBLE_BASE_URL = https://YOUR-APP.bubbleapps.io/version-test
+WORKFLOW_SLUG   = ai-big-wysh-front-end-now-backend
+BUBBLE_TOKEN    =   (leave blank unless the endpoint needs auth)
+GOOGLE_API_KEY_DEFAULT = [PUT THE GOOGLE KEY HERE]
+RUN_DELAY_DEFAULT_MS = 4000
+
+========================================
+FILES TO ADD / MODIFY
+========================================
+
+1) Create file: src/tools/bubble.ts
+-----------------------------------
+import fetch from "node-fetch";
+
+const BASE = process.env.BUBBLE_BASE_URL!;
+const SLUG = process.env.WORKFLOW_SLUG || "ai-big-wysh-front-end-now-backend";
+const TOKEN = process.env.BUBBLE_TOKEN || "";
+const GOOGLE_API_KEY_DEFAULT = process.env.GOOGLE_API_KEY_DEFAULT || "";
+const RUN_DELAY_DEFAULT_MS = Number(process.env.RUN_DELAY_DEFAULT_MS || 4000);
+
+if (!BASE) {
+  console.warn("⚠️ Set BUBBLE_BASE_URL in Secrets, e.g. https://wyshbone.bubbleapps.io/version-test");
+}
+
+function sleep(ms: number) {
+  return new Promise(res => setTimeout(res, ms));
+}
+
+function payloadFor(businessType: string, role: string) {
+  // Keep keys EXACTLY as Bubble expects (including spaces)
+  return {
+    "Input Google Value": "",
+    "Input API key": GOOGLE_API_KEY_DEFAULT,
+    "Index_counter": 1,
+    "Dynamic Location County": "Greater London",
+    "Dynamic Business Type": businessType,
+    "Dynamic Country Countries": "United Kingdom",
+    "Schedule ID 2": "2354720",
+    "Target Email Position": role || "Head of Sales"
+  };
+}
+
+async function callBubbleOnce(businessType: string, role: string) {
+  const url = `${BASE}/api/1.1/wf/${SLUG}`;
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (TOKEN) headers["Authorization"] = `Bearer ${TOKEN}`;
+
+  const payload = payloadFor(businessType, role);
+  const resp = await fetch(url, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(payload)
+  });
+  const text = await resp.text();
+  let data: any;
+  try { data = JSON.parse(text); } catch { data = { raw: text }; }
+
+  return { ok: resp.ok, status: resp.status, data };
+}
+
+export type RunBatchArgs = {
+  business_types: string[];
+  roles?: string[];
+  delay_ms?: number;
+};
+
+export async function bubbleRunBatch({ business_types, roles, delay_ms }: RunBatchArgs) {
+  const bt = (business_types || []).map(s => String(s).trim()).filter(Boolean);
+  if (!bt.length) throw new Error("business_types is required (non-empty).");
+
+  const rl = (roles && roles.length ? roles : ["Head of Sales"])
+              .map(s => String(s).trim()).filter(Boolean);
+
+  const wait = Math.max(0, Number(delay_ms ?? RUN_DELAY_DEFAULT_MS));
+
+  const results: any[] = [];
+  for (const role of rl) {
+    for (const b of bt) {
+      const r = await callBubbleOnce(b, role);
+      results.push({ business_type: b, role, ok: r.ok, status: r.status });
+      if (wait) await sleep(wait);
+    }
+  }
+  return { ok: true, results };
+}
+
+export const bubbleRunBatchTool = {
+  name: "bubble_run_batch",
+  description:
+    "Trigger Wyshbone Bubble backend to run through a list of business types (and optional roles). " +
+    "Use when the user asks to 'run' or 'trigger' searches for specific business types or roles. " +
+    "The tool batches calls to the Bubble API workflow.",
+  parameters: {
+    type: "object",
+    properties: {
+      business_types: {
+        type: "array",
+        description: "List of business types. Accept natural language lists; split on commas/newlines.",
+        items: { type: "string" }
+      },
+      roles: {
+        type: "array",
+        description: "Target Email Positions (e.g., ['Head of Sales','Director']). Defaults to ['Head of Sales']",
+        items: { type: "string" }
+      },
+      delay_ms: {
+        type: "integer",
+        description: "Delay between calls in milliseconds. Defaults to RUN_DELAY_DEFAULT_MS."
+      }
+    },
+    required: ["business_types"]
+  }
+};
+
+2) Modify: src/agent/tools.ts  (or wherever you register tools)
+----------------------------------------------------------------
+// Import the new tool and register it with the agent
+import { bubbleRunBatchTool, bubbleRunBatch } from "./bubble";
+
+export const TOOL_SPECS = [
+  // ... any existing tools,
+  bubbleRunBatchTool
+];
+
+// In your tool dispatcher, add:
+export async function handleToolCall(name: string, args: any) {
+  switch (name) {
+    case "bubble_run_batch":
+      return await bubbleRunBatch(args);
+    // ... your other tools
+    default:
+      throw new Error(`Unknown tool: ${name}`);
+  }
+}
+
+3) Modify: src/agent/systemPrompt.ts (or wherever you define the system / instructions)
+---------------------------------------------------------------------------------------
+Append this to the system prompt:
+
+"You can call a tool named `bubble_run_batch` whenever the user asks to run or trigger Wyshbone searches or workflows for certain business types or roles. 
+Extract business_types and roles from natural language (split comma- or newline-separated text). 
+Default role is 'Head of Sales' if none is given. 
+Use a sensible delay between calls (4000 ms by default) unless the user specifies another delay."
+
+4) (Optional) Add a REST route so non-chat code can trigger a batch:
+--------------------------------------------------------------------
+Create src/server/bubbleRoutes.ts with an Express POST `/api/bubble/run-batch` that forwards to bubbleRunBatch(args).
+If you already have a routes file, just register it there.
+
+========================================
+WIREFRAME OF HOW THE CHAT SHOULD BEHAVE
+========================================
+Example user messages that MUST activate the tool:
+
+- “Run head of sales for dentistry supplies, veterinary practice supplies and bottle shops. 4s delay.”
+- “Trigger Director for: farm shops\ncheese makers\nartisan bakeries — 3000 ms delay.”
+- “Do Head of Sales and Director for dental suppliers, then veterinary suppliers.”
+
+The model should fill:
+{
+  "business_types": ["dentistry supplies","veterinary practice supplies","bottle shops"],
+  "roles": ["Head of Sales"],
+  "delay_ms": 4000
+}
+…and call `bubble_run_batch`.
+
+========================================
+AFTER YOU ADD THE FILES
+========================================
+1) Install & run:
+   npm install
+   npm run dev   (or npm run start, depending on your Procfile)
+
+2) In Replit **Secrets**, set:
+   BUBBLE_BASE_URL = https://wyshbone.bubbleapps.io/version-test    (or your base)
+   WORKFLOW_SLUG   = ai-big-wysh-front-end-now-backend
+   BUBBLE_TOKEN    =   (leave empty unless required)
+   GOOGLE_API_KEY_DEFAULT = [your Google key]
+   RUN_DELAY_DEFAULT_MS   = 4000
+
+3) Test in chat:
+   “Run Head of Sales for dentistry supplies, veterinary practice supplies; delay 4000 ms.”
+   The assistant should call `bubble_run_batch` and return a compact status list.
+
+Return success when compiled with no TypeScript errors and the tool is callable by the agent.
