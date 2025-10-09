@@ -62,3 +62,25 @@ export const searchResponseSchema = z.object({
 });
 
 export type SearchResponse = z.infer<typeof searchResponseSchema>;
+
+// Bubble run batch request schema
+export const bubbleRunBatchRequestSchema = z.object({
+  business_types: z.array(z.string()).min(1, "At least one business type is required"),
+  roles: z.array(z.string()).optional(),
+  delay_ms: z.number().int().min(0).optional(),
+});
+
+export type BubbleRunBatchRequest = z.infer<typeof bubbleRunBatchRequestSchema>;
+
+// Bubble run batch response schema
+export const bubbleRunBatchResponseSchema = z.object({
+  ok: z.boolean(),
+  results: z.array(z.object({
+    business_type: z.string(),
+    role: z.string(),
+    ok: z.boolean(),
+    status: z.number(),
+  })),
+});
+
+export type BubbleRunBatchResponse = z.infer<typeof bubbleRunBatchResponseSchema>;
