@@ -22,7 +22,7 @@ function payloadFor(businessType: string, role: string) {
     "Index_counter": 1,
     "Dynamic Location": "1757507977753x173405489735527500",
     "Dynamic Business Type": businessType,
-    "Dynamic Country Countries": "United Kingdom",
+    "Dynamic Country": "United Kingdom",
     "Schedule ID 2": "2354720",
     "Target Email Position": role || "Head of Sales"
   };
