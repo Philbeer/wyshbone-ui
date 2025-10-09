@@ -20,7 +20,7 @@ function payloadFor(businessType: string, role: string) {
     "Input Google Value": "",
     "Input API key": GOOGLE_API_KEY_DEFAULT,
     "Index_counter": 1,
-    "Dynamic Location County": "Greater London",
+    "Dynamic Location": "Greater London",
     "Dynamic Business Type": businessType,
     "Dynamic Country Countries": "United Kingdom",
     "Schedule ID 2": "2354720",
