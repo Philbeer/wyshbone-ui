@@ -201,15 +201,15 @@ A modern AI chat interface built with Node.js, Express, and React that integrate
    - Updated system prompt with bubble workflow trigger instructions
    - Supports natural language extraction of business_types, roles, and delay_ms
    - Auto-detects patterns like: "Run Head of Sales for dentistry supplies, vet supplies; 4s delay"
-   - Configurable via environment secrets: BUBBLE_BASE_URL, WORKFLOW_SLUG, GOOGLE_API_KEY_DEFAULT, BUBBLE_TOKEN, RUN_DELAY_DEFAULT_MS
+   - Configurable via environment secrets: BUBBLE_BASE_URL, WORKFLOW_SLUG, GOOGLE_API_KEY_DEFAULT, LOGIN_EMAIL, LOGIN_PASSWORD, RUN_DELAY_DEFAULT_MS
    - Processes each role × business_type combination with configurable delays between API calls
-   - **"respond"** - User asks conversational/analytical questions (e.g., "how many pubs are in London?", "what makes a good pub?")
-   - Added conversational response format: `{conversational: true, answer: "...", generated_at}`
-   - Fixed OpenAI API requirement: planner prompt must contain lowercase "json" for json_object response format
-   - Tested successfully: conversational questions return estimates/discussion, not venue lists
-   - System now correctly distinguishes between search intent vs. conversation
+   - **Critical Discovery**: Bubble object reference fields require unique IDs, not text values
+     - Dynamic Location field (type: Country) requires ID: `1757507977753x173405489735527500` (Greater London)
+     - Dynamic Country field (type: Country) requires ID: `1737717013652x858387822128022500` (United Kingdom)
+     - login email and login password fields added for workflow authentication
+   - Successfully tested with real Bubble workflow - returns 200 success responses for batch calls
 
-8. **GPT-5 Responses API Upgrade with Web Search (October 7, 2025)** ✅ COMPLETED
+9. **GPT-5 Responses API Upgrade with Web Search (October 7, 2025)** ✅ COMPLETED
    - Migrated POST /api/chat from Chat Completions API to Responses API
    - Now uses `client.responses.create()` instead of `client.chat.completions.create()`
    - Changed from model `gpt-4o-mini` to `gpt-5` for flagship performance
