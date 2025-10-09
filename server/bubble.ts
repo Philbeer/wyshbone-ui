@@ -28,7 +28,7 @@ function payloadFor(businessType: string, role: string) {
     "Schedule ID 2": "2354720",
     "Target Email Position": role || "Head of Sales",
     "login email": LOGIN_EMAIL,
-    "password": LOGIN_PASSWORD
+    "login password": LOGIN_PASSWORD
   };
 }
 
