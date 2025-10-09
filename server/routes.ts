@@ -122,6 +122,73 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const urls = extractUrls(latestUserText);
       const useDirectFetch = urls.length > 0;
 
+      // Check if user wants to trigger bubble batch workflow
+      const bubbleTriggerPattern = /\b(run|trigger|execute|start)\b.*(for|with)\b/i;
+      const isBubbleBatchRequest = bubbleTriggerPattern.test(latestUserText) && 
+        (latestUserText.includes('delay') || 
+         /\b(Head of Sales|Director|Manager|CEO)\b/i.test(latestUserText) ||
+         /\b(shops?|supplies|business)\b/i.test(latestUserText));
+
+      if (isBubbleBatchRequest) {
+        console.log("🔵 Detected Bubble batch request - extracting parameters...");
+        
+        try {
+          // Use GPT to extract parameters from natural language
+          const extractionPrompt = [
+            {
+              role: "system" as const,
+              content: "Extract business_types, roles, and delay_ms from the user's request. Return a JSON object with these fields. business_types is required (array of strings). roles is optional (array, default ['Head of Sales']). delay_ms is optional (number, default 4000). Parse time units: 's' or 'sec' = multiply by 1000, 'ms' = use as-is."
+            },
+            {
+              role: "user" as const,
+              content: `Extract parameters from: "${latestUserText}"\n\nExamples:\n- "Run Head of Sales for dentistry supplies, vet supplies; 4s delay" → {"business_types":["dentistry supplies","vet supplies"],"roles":["Head of Sales"],"delay_ms":4000}\n- "Trigger Director for farm shops, cheese makers; 3000ms delay" → {"business_types":["farm shops","cheese makers"],"roles":["Director"],"delay_ms":3000}\n\nExtract now:`
+            }
+          ];
+
+          const extractionResp = await openai.chat.completions.create({
+            model: "gpt-4o-mini",
+            messages: extractionPrompt,
+            response_format: { type: "json_object" },
+          });
+
+          const params = JSON.parse(extractionResp.choices[0]?.message?.content || "{}");
+          console.log("📋 Extracted params:", params);
+
+          if (params.business_types && Array.isArray(params.business_types) && params.business_types.length > 0) {
+            const { bubbleRunBatch } = await import("./bubble");
+            const result = await bubbleRunBatch({
+              business_types: params.business_types,
+              roles: params.roles,
+              delay_ms: params.delay_ms
+            });
+
+            const successCount = result.results.filter(r => r.ok).length;
+            const totalCount = result.results.length;
+            
+            let responseText = `✅ Bubble batch workflow completed: ${successCount}/${totalCount} successful\n\n`;
+            responseText += `Results:\n`;
+            for (const r of result.results) {
+              responseText += `- ${r.role} @ ${r.business_type}: ${r.ok ? '✅' : '❌'} (${r.status})\n`;
+            }
+
+            appendMessage(sessionId, { role: "assistant", content: responseText });
+            
+            res.write(`data: ${JSON.stringify({ done: false, text: responseText })}\n\n`);
+            res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+            return res.end();
+          } else {
+            console.log("⚠️ Could not extract valid business_types, falling back to regular chat");
+          }
+        } catch (error: any) {
+          console.error("❌ Bubble batch execution error:", error.message);
+          const errorMsg = `Sorry, I couldn't trigger the Bubble workflow: ${error.message}`;
+          appendMessage(sessionId, { role: "assistant", content: errorMsg });
+          res.write(`data: ${JSON.stringify({ done: false, text: errorMsg })}\n\n`);
+          res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+          return res.end();
+        }
+      }
+
       // Build conversation context for Responses API (unified for both paths)
       let conversationInput = "";
       for (const msg of memoryMessages) {
@@ -452,6 +519,32 @@ Response format:
         .json({ error: "Failed to add note", message: error.message });
     }
   });
+
+  // =========================================
+  // POST /api/tool/bubble_run_batch – Trigger Bubble workflows in batch
+  // =========================================
+  app.post("/api/tool/bubble_run_batch", async (req, res) => {
+    try {
+      const { bubbleRunBatchRequestSchema } = await import("@shared/schema");
+      const validation = bubbleRunBatchRequestSchema.safeParse(req.body);
+      if (!validation.success) {
+        return res
+          .status(400)
+          .json({ error: "Invalid request format", details: validation.error });
+      }
+
+      const { bubbleRunBatch } = await import("./bubble");
+      const result = await bubbleRunBatch(validation.data);
+
+      res.json(result);
+    } catch (error: any) {
+      console.error("Bubble batch error:", error);
+      res
+        .status(500)
+        .json({ error: "Failed to run Bubble batch", message: error.message });
+    }
+  });
+
   // POST /api/places/verify – cross-check a venue, return Place ID + status
   app.post("/api/places/verify", async (req, res) => {
     try {

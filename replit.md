@@ -76,6 +76,16 @@ A modern AI chat interface built with Node.js, Express, and React that integrate
 - Currently a stub that logs payload to console
 - Ready for future Bubble Backend Workflow integration
 
+#### POST /api/tool/bubble_run_batch
+- **Input**: `{ business_types: string[], roles?: string[], delay_ms?: number }`
+- **Output**: `{ ok: boolean, results: [{business_type, role, ok, status}] }`
+- Triggers Wyshbone Bubble backend API workflows in batch
+- Processes each role × business_type combination with configurable delay
+- Auto-detectable via natural language in chat (e.g., "Run Head of Sales for dentistry supplies, vet supplies; 4s delay")
+- Defaults: roles=['Head of Sales'], delay_ms=4000
+- **Required Secrets**: BUBBLE_BASE_URL, WORKFLOW_SLUG, GOOGLE_API_KEY_DEFAULT
+- **Optional Secrets**: BUBBLE_TOKEN, RUN_DELAY_DEFAULT_MS
+
 ### UI Components
 
 **Header**
@@ -104,6 +114,8 @@ A modern AI chat interface built with Node.js, Express, and React that integrate
 - `ChatResponse`: `{ reply: string }`
 - `AddNoteRequest`: `{ userToken, leadId, note }`
 - `AddNoteResponse`: `{ ok: boolean }`
+- `BubbleRunBatchRequest`: `{ business_types: string[], roles?: string[], delay_ms?: number }`
+- `BubbleRunBatchResponse`: `{ ok: boolean, results: [{business_type, role, ok, status}] }`
 
 ### Frontend Structure
 - `client/src/pages/chat.tsx`: Main chat interface component
@@ -180,6 +192,17 @@ A modern AI chat interface built with Node.js, Express, and React that integrate
    - Extended planner to support THREE actions: "search", "use_cache", and "respond"
    - **"search"** - User wants to discover new venue listings (e.g., "find pubs in London")
    - **"use_cache"** - User wants more results from existing search (e.g., "show 5 more")
+
+8. **Bubble Batch Workflow Integration (October 9, 2025)** ✅ COMPLETED
+   - Added POST /api/tool/bubble_run_batch endpoint for triggering Bubble backend workflows
+   - Implemented natural language detection in chat for bubble batch requests
+   - Created server/bubble.ts with batch execution logic and delay handling
+   - Added BubbleRunBatchRequest and BubbleRunBatchResponse schemas
+   - Updated system prompt with bubble workflow trigger instructions
+   - Supports natural language extraction of business_types, roles, and delay_ms
+   - Auto-detects patterns like: "Run Head of Sales for dentistry supplies, vet supplies; 4s delay"
+   - Configurable via environment secrets: BUBBLE_BASE_URL, WORKFLOW_SLUG, GOOGLE_API_KEY_DEFAULT, BUBBLE_TOKEN, RUN_DELAY_DEFAULT_MS
+   - Processes each role × business_type combination with configurable delays between API calls
    - **"respond"** - User asks conversational/analytical questions (e.g., "how many pubs are in London?", "what makes a good pub?")
    - Added conversational response format: `{conversational: true, answer: "...", generated_at}`
    - Fixed OpenAI API requirement: planner prompt must contain lowercase "json" for json_object response format
