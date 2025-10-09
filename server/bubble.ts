@@ -5,6 +5,8 @@ const SLUG = process.env.WORKFLOW_SLUG || "ai-big-wysh-front-end-now-backend";
 const TOKEN = process.env.BUBBLE_TOKEN || "";
 const GOOGLE_API_KEY_DEFAULT = process.env.GOOGLE_API_KEY_DEFAULT || "";
 const RUN_DELAY_DEFAULT_MS = Number(process.env.RUN_DELAY_DEFAULT_MS || 4000);
+const LOGIN_EMAIL = process.env.LOGIN_EMAIL || "";
+const LOGIN_PASSWORD = process.env.LOGIN_PASSWORD || "";
 
 if (!BASE) {
   console.warn("⚠️ Set BUBBLE_BASE_URL in Secrets, e.g. https://wyshbone.bubbleapps.io/version-test");
@@ -24,7 +26,9 @@ function payloadFor(businessType: string, role: string) {
     "Dynamic Business Type": businessType,
     "Dynamic Country": "1737717013652x858387822128022500",
     "Schedule ID 2": "2354720",
-    "Target Email Position": role || "Head of Sales"
+    "Target Email Position": role || "Head of Sales",
+    "login email": LOGIN_EMAIL,
+    "password": LOGIN_PASSWORD
   };
 }
 
