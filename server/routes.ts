@@ -625,11 +625,27 @@ Examples:
                 const result = await getRegions('US', 'county', 'Texas');
                 selectedCounties = result.regions.slice(0, numCounties).map(r => r.name);
                 granularity = 'county';
-              } else if (isUSState || rawCountryLower === 'us' || rawCountryLower === 'usa' || rawCountryLower === 'united states') {
+              } else if (isUSState) {
+                // Specific US state mentioned (e.g., "Florida") → use that exact state
+                const capitalizedState = rawCountry.split(' ').map((word: string) => 
+                  word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+                ).join(' ');
+                selectedCounties = [capitalizedState];
+                granularity = 'state';
+              } else if (rawCountryLower === 'us' || rawCountryLower === 'usa' || rawCountryLower === 'united states') {
+                // Generic "US" → load all states and pick N
                 const result = await getRegions('US', 'state');
                 selectedCounties = result.regions.slice(0, numCounties).map(r => r.name);
                 granularity = 'state';
-              } else if (rawCountryLower === 'australia' || rawCountryLower === 'au' || isAustralianState) {
+              } else if (isAustralianState) {
+                // Specific Australian state mentioned (e.g., "New South Wales") → use that exact state
+                const capitalizedState = rawCountry.split(' ').map((word: string) => 
+                  word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+                ).join(' ');
+                selectedCounties = [capitalizedState];
+                granularity = 'state';
+              } else if (rawCountryLower === 'australia' || rawCountryLower === 'au') {
+                // Generic "Australia" → load all states and pick N
                 const result = await getRegions('AU', 'state');
                 selectedCounties = result.regions.slice(0, numCounties).map(r => r.name);
                 granularity = 'state';
@@ -641,10 +657,6 @@ Examples:
                 const result = await getRegions('CA', 'province');
                 selectedCounties = result.regions.slice(0, numCounties).map(r => r.name);
                 granularity = 'province';
-              } else if (rawCountryLower === 'us' || rawCountryLower === 'usa' || rawCountryLower === 'united states') {
-                const result = await getRegions('US', 'state');
-                selectedCounties = result.regions.slice(0, numCounties).map(r => r.name);
-                granularity = 'state';
               } else {
                 // Default to UK counties
                 const result = await getRegions('UK', 'county');
