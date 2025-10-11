@@ -390,21 +390,22 @@ Examples:
             // Determine location and load appropriate region data
             const location = params.location || 'UK';
             let selectedCounties: string[] = [];
-            let countryCode = 'UK';
             
             const numCounties = params.number_countiestosearch || 1;
+            
+            // Normalize country code using ISO mapping (Texas → US, UK → GB, etc.)
+            const { getRegionCode } = await import("./regions");
+            const countryCode = getRegionCode(location);
             
             if (location.toLowerCase() === 'texas') {
               const { getRegions } = await import("./regions");
               const texasCountiesResult = await getRegions('US', 'county', 'Texas');
               selectedCounties = texasCountiesResult.regions.slice(0, numCounties).map(r => r.name);
-              countryCode = 'Texas';
             } else {
               // Default to UK
               const ukCountiesData = await import("./data/uk_counties.json");
               const ukCounties = ukCountiesData.default;
               selectedCounties = ukCounties.slice(0, numCounties).map((c: any) => c.name);
-              countryCode = 'UK';
             }
 
             console.log(`🗺️ Auto-selected ${numCounties} ${countryCode} counties:`, selectedCounties);
@@ -586,18 +587,22 @@ Examples:
           try {
             const params = JSON.parse(toolCallBuffer.arguments);
             const { bubbleRunBatch } = await import("./bubble");
+            const { getRegionCode } = await import("./regions");
             
             // Apply defaults
             const roles = params.roles || ['Head of Sales'];
             const delayMs = params.delay_ms || 4000;
             const smarleadId = params.smarlead_id || '2354720';
-            const country = params.country || 'UK';
+            const rawCountry = params.country || 'UK';
             const numCounties = params.number_countiestosearch || 1;
+            
+            // Normalize country code to ISO alpha-2 (US, GB, IE, AU, CA)
+            const countryCode = getRegionCode(rawCountry);
             
             // Load counties if not provided
             let selectedCounties = params.counties;
             if (!selectedCounties) {
-              if (country.toLowerCase() === 'texas') {
+              if (rawCountry.toLowerCase() === 'texas') {
                 const { getRegions } = await import("./regions");
                 const texasCountiesResult = await getRegions('US', 'county', 'Texas');
                 selectedCounties = texasCountiesResult.regions.slice(0, numCounties).map(r => r.name);
@@ -607,7 +612,7 @@ Examples:
               }
             }
 
-            // Build preview and store pending confirmation
+            // Build preview and store pending confirmation (use ISO country code)
             await storage.setPendingConfirmation(sessionId, {
               business_types: params.business_types,
               roles,
@@ -615,7 +620,7 @@ Examples:
               number_countiestosearch: selectedCounties.length,
               smarlead_id: smarleadId,
               counties: selectedCounties,
-              country,
+              country: countryCode,  // Use ISO alpha-2 code
               timestamp: new Date().toISOString()
             });
 
@@ -625,7 +630,7 @@ Examples:
             for (const county of selectedCounties) {
               for (const businessType of params.business_types) {
                 for (const role of roles) {
-                  previewText += `• ${role} @ ${businessType} in **${county}, ${country}**\n`;
+                  previewText += `• ${role} @ ${businessType} in **${county}, ${countryCode}**\n`;  // Use ISO code
                 }
               }
             }
