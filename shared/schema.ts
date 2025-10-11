@@ -84,3 +84,64 @@ export const bubbleRunBatchResponseSchema = z.object({
 });
 
 export type BubbleRunBatchResponse = z.infer<typeof bubbleRunBatchResponseSchema>;
+
+// Job schema for region-powered bulk search
+export const jobSchema = z.object({
+  id: z.string(),
+  business_type: z.string(),
+  country: z.enum(["UK", "US"]),
+  granularity: z.enum(["county", "borough", "state"]),
+  region_ids: z.array(z.string()),
+  cursor: z.number().int().min(0),
+  processed: z.array(z.string()),
+  failed: z.array(z.object({
+    region_id: z.string(),
+    region_name: z.string(),
+    error: z.string(),
+  })).optional(),
+  status: z.enum(["pending", "running", "paused", "done", "cancelled"]),
+  created_by_email: z.string(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+
+export type Job = z.infer<typeof jobSchema>;
+
+// Job create request schema
+export const jobCreateRequestSchema = z.object({
+  business_type: z.string().min(1),
+  country: z.enum(["UK", "US"]),
+  granularity: z.enum(["county", "borough", "state"]),
+  region_filter: z.string().optional(),
+  userEmail: z.string().email(),
+});
+
+export type JobCreateRequest = z.infer<typeof jobCreateRequestSchema>;
+
+// Job create response schema
+export const jobCreateResponseSchema = z.object({
+  jobId: z.string(),
+  total_regions: z.number(),
+});
+
+export type JobCreateResponse = z.infer<typeof jobCreateResponseSchema>;
+
+// Job status response schema
+export const jobStatusResponseSchema = z.object({
+  jobId: z.string(),
+  business_type: z.string(),
+  status: z.enum(["pending", "running", "paused", "done", "cancelled"]),
+  processed_count: z.number(),
+  total: z.number(),
+  percent: z.number(),
+  recent_region: z.string().optional(),
+  failed: z.array(z.object({
+    region_id: z.string(),
+    region_name: z.string(),
+    error: z.string(),
+  })),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+
+export type JobStatusResponse = z.infer<typeof jobStatusResponseSchema>;

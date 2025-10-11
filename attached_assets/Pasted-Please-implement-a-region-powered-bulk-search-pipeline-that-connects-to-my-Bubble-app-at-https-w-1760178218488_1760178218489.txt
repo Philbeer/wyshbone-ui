@@ -1,0 +1,143 @@
+Please implement a region-powered bulk search pipeline that connects to my Bubble app at:
+https://wyshbonesales.com/version-82rkn
+
+---
+
+1) Create an endpoint `/api/regions/list` that returns administrative regions by scope.
+
+   Input:
+   {
+     country: "UK" | "US",
+     granularity: "county" | "borough" | "state"
+   }
+
+   Output:
+   [
+     { id, name, parent_id?, code }
+   ]
+
+   Start with static JSON files in `/server/data/`:
+   - uk_counties.json
+   - london_boroughs.json
+   - us_states.json
+   - us_counties_by_state.json
+
+   Load them into memory with caching for fast access.
+
+---
+
+2) Create a Job model (in `/server/storage.ts` or your DB):
+
+   {
+     id,
+     business_type,
+     country,
+     granularity,
+     region_ids: string[],
+     cursor: number,
+     processed: string[],
+     status: "pending" | "running" | "paused" | "done",
+     created_by_email
+   }
+
+---
+
+3) Create `/api/jobs/create`:
+
+   Input:
+   {
+     business_type,
+     country,
+     granularity,
+     region_filter?,   // e.g. "Greater London" or "Texas"
+     userEmail
+   }
+
+   Logic:
+   - Call `/api/regions/list` to get region_ids (filter if needed)
+   - Create a Job with cursor=0, status="pending"
+   - Return `{ jobId, total_regions }`
+
+---
+
+4) Create `/api/jobs/start` and `/api/jobs/stop` to control a background worker.
+
+---
+
+5) Implement a worker function `runJob(jobId)` that:
+
+   - Loops through all region_ids starting at `cursor`
+   - For each region:
+     POST to Bubble:
+     ```
+     https://wyshbonesales.com/version-82rkn/api/1.1/wf/run_search_for_region
+     ```
+     Body:
+     {
+       business_type,
+       country,
+       region_id
+     }
+   - On success: add region_id to processed, increment cursor
+   - On error: log and continue
+   - When complete: mark job `done`
+
+---
+
+6) Create `/api/jobs/status?jobId=...` returning:
+   {
+     jobId,
+     processed_count,
+     total,
+     percent,
+     recent_region,
+     failed: []
+   }
+
+---
+
+7) Chatbot integration:
+
+   When the user says something like:
+   “Run dentists across all London boroughs”
+
+   Extract:
+   {
+     business_type: "dentist",
+     country: "UK",
+     granularity: "borough",
+     region_filter: "London"
+   }
+
+   Then:
+   - Call `/api/jobs/create` → get jobId
+   - Reply: “Started job #123 with 33 boroughs.”
+   - Call `/api/jobs/start` in the background and stream `/api/jobs/status`.
+
+   Include quick chat commands:
+   - “status job 123”
+   - “pause job 123”
+   - “resume job 123”
+   - “cancel job 123”
+
+---
+
+8) The LLM must never enumerate the region list itself.
+   It only passes `jobId` and reads `/api/jobs/status`.
+
+---
+
+9) (Optional) Add features:
+   - Dry-run preview of first 3 regions
+   - Rate-limit knob (regions/min)
+   - Retries for failed requests
+   - Export `/api/jobs/export?jobId=...` to CSV
+
+---
+
+This system should let users request searches like:
+- “dentists in every county in Texas”
+- “pubs across all London boroughs”
+- “breweries in all English counties”
+
+without me maintaining huge region tables or hitting token limits.

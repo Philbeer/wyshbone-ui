@@ -122,6 +122,179 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const urls = extractUrls(latestUserText);
       const useDirectFetch = urls.length > 0;
 
+      // Check if user wants to control an existing job
+      const jobCommandPattern = /\b(status|pause|stop|resume|cancel)\s+job\s+(\S+)/i;
+      const jobCommandMatch = latestUserText.match(jobCommandPattern);
+      
+      if (jobCommandMatch) {
+        const [, command, jobId] = jobCommandMatch;
+        console.log(`🎯 Detected job command: ${command} for job ${jobId}`);
+        
+        try {
+          if (command.toLowerCase() === 'status') {
+            const statusResp = await fetch(`http://localhost:5000/api/jobs/status?jobId=${jobId}`);
+            const statusData = await statusResp.json();
+            
+            if (statusResp.ok) {
+              const responseText = `📊 Job ${jobId} Status:\n\n` +
+                `Business Type: ${statusData.business_type}\n` +
+                `Status: ${statusData.status}\n` +
+                `Progress: ${statusData.processed_count}/${statusData.total} (${statusData.percent}%)\n` +
+                `Recent Region: ${statusData.recent_region || 'N/A'}\n` +
+                `Failed: ${statusData.failed.length}`;
+              
+              appendMessage(sessionId, { role: "assistant", content: responseText });
+              res.write(`data: ${JSON.stringify({ done: false, text: responseText })}\n\n`);
+              res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+              return res.end();
+            } else {
+              const errorMsg = `❌ Failed to get job status: ${statusData.error || 'Unknown error'}`;
+              appendMessage(sessionId, { role: "assistant", content: errorMsg });
+              res.write(`data: ${JSON.stringify({ done: false, text: errorMsg })}\n\n`);
+              res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+              return res.end();
+            }
+          } else if (command.toLowerCase() === 'pause' || command.toLowerCase() === 'stop') {
+            const stopResp = await fetch(`http://localhost:5000/api/jobs/stop`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ jobId })
+            });
+            const stopData = await stopResp.json();
+            
+            const responseText = stopResp.ok 
+              ? `⏸️ Job ${jobId} has been paused` 
+              : `❌ Failed to pause job: ${stopData.error}`;
+            
+            appendMessage(sessionId, { role: "assistant", content: responseText });
+            res.write(`data: ${JSON.stringify({ done: false, text: responseText })}\n\n`);
+            res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+            return res.end();
+          } else if (command.toLowerCase() === 'resume') {
+            const startResp = await fetch(`http://localhost:5000/api/jobs/start`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ jobId })
+            });
+            const startData = await startResp.json();
+            
+            const responseText = startResp.ok 
+              ? `▶️ Job ${jobId} has been resumed` 
+              : `❌ Failed to resume job: ${startData.error}`;
+            
+            appendMessage(sessionId, { role: "assistant", content: responseText });
+            res.write(`data: ${JSON.stringify({ done: false, text: responseText })}\n\n`);
+            res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+            return res.end();
+          } else if (command.toLowerCase() === 'cancel') {
+            const stopResp = await fetch(`http://localhost:5000/api/jobs/stop`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ jobId })
+            });
+            const stopData = await stopResp.json();
+            
+            const responseText = stopResp.ok 
+              ? `🛑 Job ${jobId} has been cancelled` 
+              : `❌ Failed to cancel job: ${stopData.error}`;
+            
+            appendMessage(sessionId, { role: "assistant", content: responseText });
+            res.write(`data: ${JSON.stringify({ done: false, text: responseText })}\n\n`);
+            res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+            return res.end();
+          }
+        } catch (error: any) {
+          console.error("❌ Job command error:", error.message);
+          const errorMsg = `Sorry, I couldn't execute that command: ${error.message}`;
+          appendMessage(sessionId, { role: "assistant", content: errorMsg });
+          res.write(`data: ${JSON.stringify({ done: false, text: errorMsg })}\n\n`);
+          res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+          return res.end();
+        }
+      }
+
+      // Check if user wants to create a region-powered job
+      const jobCreationPattern = /\b(run|search|find)\b.*(across|in all|every)\b.*(counties|boroughs|states)/i;
+      const isJobCreationRequest = jobCreationPattern.test(latestUserText);
+      
+      if (isJobCreationRequest) {
+        console.log("🔵 Detected region job request - extracting parameters...");
+        
+        try {
+          const extractionPrompt = [
+            {
+              role: "system" as const,
+              content: `Extract job parameters from user request. Return JSON with: business_type (string), country ("UK" or "US"), granularity ("county", "borough", or "state"), region_filter (optional string like "London" or "Texas"). 
+              
+Examples:
+- "Run dentists across all London boroughs" → {"business_type":"dentists","country":"UK","granularity":"borough","region_filter":"London"}
+- "Search for pubs in every English county" → {"business_type":"pubs","country":"UK","granularity":"county"}
+- "Find breweries in all Texas counties" → {"business_type":"breweries","country":"US","granularity":"county","region_filter":"Texas"}`
+            },
+            {
+              role: "user" as const,
+              content: `Extract from: "${latestUserText}"`
+            }
+          ];
+
+          const extractionResp = await openai.chat.completions.create({
+            model: "gpt-4o-mini",
+            messages: extractionPrompt,
+            response_format: { type: "json_object" },
+          });
+
+          const params = JSON.parse(extractionResp.choices[0]?.message?.content || "{}");
+          console.log("📋 Extracted job params:", params);
+
+          if (params.business_type && params.country && params.granularity) {
+            // Create the job
+            const createResp = await fetch(`http://localhost:5000/api/jobs/create`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                business_type: params.business_type,
+                country: params.country,
+                granularity: params.granularity,
+                region_filter: params.region_filter,
+                userEmail: user.email
+              })
+            });
+
+            const createData = await createResp.json();
+            
+            if (createResp.ok) {
+              const { jobId, total_regions } = createData;
+              
+              // Start the job in background
+              fetch(`http://localhost:5000/api/jobs/start`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ jobId })
+              }).catch(err => console.error("Failed to start job:", err));
+
+              const responseText = `✅ Started job #${jobId} with ${total_regions} regions!\n\n` +
+                `I'm now running searches for "${params.business_type}" across all regions.\n\n` +
+                `Use "status job ${jobId}" to check progress.`;
+              
+              appendMessage(sessionId, { role: "assistant", content: responseText });
+              res.write(`data: ${JSON.stringify({ done: false, text: responseText })}\n\n`);
+              res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+              return res.end();
+            } else {
+              const errorMsg = `❌ Failed to create job: ${createData.error}`;
+              appendMessage(sessionId, { role: "assistant", content: errorMsg });
+              res.write(`data: ${JSON.stringify({ done: false, text: errorMsg })}\n\n`);
+              res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+              return res.end();
+            }
+          } else {
+            console.log("⚠️ Could not extract valid job parameters");
+          }
+        } catch (error: any) {
+          console.error("❌ Job creation error:", error.message);
+        }
+      }
+
       // Check if user wants to trigger bubble batch workflow
       const bubbleTriggerPattern = /\b(run|trigger|execute|start)\b.*(for|with)\b/i;
       const isBubbleBatchRequest = bubbleTriggerPattern.test(latestUserText) && 
@@ -1440,6 +1613,225 @@ Return structured data with the EXACT placeId provided above: "${placeId}"`;
     } catch (e: any) {
       console.error("prospects/search_and_enrich error:", e);
       return res.status(500).json({ error: e.message || "Search and enrich failed" });
+    }
+  });
+
+  // ===========================
+  // POST /api/jobs/create
+  // ===========================
+  app.post("/api/jobs/create", async (req, res) => {
+    try {
+      const { jobCreateRequestSchema } = await import('@shared/schema');
+      const validation = jobCreateRequestSchema.safeParse(req.body);
+      
+      if (!validation.success) {
+        return res.status(400).json({ 
+          error: "Invalid request format", 
+          details: validation.error 
+        });
+      }
+
+      const { business_type, country, granularity, region_filter, userEmail } = validation.data;
+
+      // Get regions
+      const { getRegions } = await import('./regions');
+      const regions = getRegions({ country, granularity, region_filter });
+
+      if (regions.length === 0) {
+        return res.status(400).json({ 
+          error: "No regions found matching the criteria" 
+        });
+      }
+
+      // Create job
+      const jobId = `job_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+      const now = new Date().toISOString();
+      
+      const job = {
+        id: jobId,
+        business_type,
+        country,
+        granularity,
+        region_ids: regions.map(r => r.id),
+        cursor: 0,
+        processed: [],
+        failed: [],
+        status: "pending" as const,
+        created_by_email: userEmail,
+        created_at: now,
+        updated_at: now,
+      };
+
+      const { storage } = await import('./storage');
+      await storage.createJob(job);
+
+      return res.json({
+        jobId,
+        total_regions: regions.length
+      });
+    } catch (e: any) {
+      console.error("jobs/create error:", e);
+      return res.status(500).json({ error: e.message || "Failed to create job" });
+    }
+  });
+
+  // ===========================
+  // POST /api/jobs/start
+  // ===========================
+  app.post("/api/jobs/start", async (req, res) => {
+    try {
+      const { jobId } = req.body;
+      
+      if (!jobId) {
+        return res.status(400).json({ error: "jobId is required" });
+      }
+
+      const { storage } = await import('./storage');
+      const job = await storage.getJob(jobId);
+      
+      if (!job) {
+        return res.status(404).json({ error: "Job not found" });
+      }
+
+      if (job.status === "done") {
+        return res.status(400).json({ error: "Job is already completed" });
+      }
+
+      // Update job status to running
+      await storage.updateJob(jobId, { status: "running" });
+
+      // Start the background worker
+      const { startJobWorker } = await import('./jobWorker');
+      startJobWorker(jobId);
+
+      return res.json({ ok: true, jobId, status: "running" });
+    } catch (e: any) {
+      console.error("jobs/start error:", e);
+      return res.status(500).json({ error: e.message || "Failed to start job" });
+    }
+  });
+
+  // ===========================
+  // POST /api/jobs/stop
+  // ===========================
+  app.post("/api/jobs/stop", async (req, res) => {
+    try {
+      const { jobId } = req.body;
+      
+      if (!jobId) {
+        return res.status(400).json({ error: "jobId is required" });
+      }
+
+      const { storage } = await import('./storage');
+      const job = await storage.getJob(jobId);
+      
+      if (!job) {
+        return res.status(404).json({ error: "Job not found" });
+      }
+
+      // Update job status to paused
+      await storage.updateJob(jobId, { status: "paused" });
+
+      // Stop the worker (it will check status and pause)
+      const { stopJobWorker } = await import('./jobWorker');
+      stopJobWorker(jobId);
+
+      return res.json({ ok: true, jobId, status: "paused" });
+    } catch (e: any) {
+      console.error("jobs/stop error:", e);
+      return res.status(500).json({ error: e.message || "Failed to stop job" });
+    }
+  });
+
+  // ===========================
+  // GET /api/jobs/status
+  // ===========================
+  app.get("/api/jobs/status", async (req, res) => {
+    try {
+      const { jobId } = req.query;
+      
+      if (!jobId) {
+        return res.status(400).json({ error: "jobId is required" });
+      }
+
+      const { storage } = await import('./storage');
+      const job = await storage.getJob(String(jobId));
+      
+      if (!job) {
+        return res.status(404).json({ error: "Job not found" });
+      }
+
+      // Get region name for the most recent processed region
+      let recent_region: string | undefined;
+      if (job.processed.length > 0) {
+        const { getRegions } = await import('./regions');
+        const regions = getRegions({ 
+          country: job.country, 
+          granularity: job.granularity 
+        });
+        const lastProcessed = job.processed[job.processed.length - 1];
+        const region = regions.find(r => r.id === lastProcessed);
+        recent_region = region?.name;
+      }
+
+      const percent = job.region_ids.length > 0 
+        ? Math.round((job.processed.length / job.region_ids.length) * 100)
+        : 0;
+
+      return res.json({
+        jobId: job.id,
+        business_type: job.business_type,
+        status: job.status,
+        processed_count: job.processed.length,
+        total: job.region_ids.length,
+        percent,
+        recent_region,
+        failed: job.failed || [],
+        created_at: job.created_at,
+        updated_at: job.updated_at,
+      });
+    } catch (e: any) {
+      console.error("jobs/status error:", e);
+      return res.status(500).json({ error: e.message || "Failed to get job status" });
+    }
+  });
+
+  // ===========================
+  // GET /api/regions/list
+  // ===========================
+  app.get("/api/regions/list", async (req, res) => {
+    try {
+      const { country, granularity, region_filter } = req.query;
+
+      if (!country || !granularity) {
+        return res.status(400).json({ 
+          error: "Missing required parameters: country and granularity" 
+        });
+      }
+
+      if (country !== 'UK' && country !== 'US') {
+        return res.status(400).json({ 
+          error: "Invalid country. Must be 'UK' or 'US'" 
+        });
+      }
+
+      if (!['county', 'borough', 'state'].includes(String(granularity))) {
+        return res.status(400).json({ 
+          error: "Invalid granularity. Must be 'county', 'borough', or 'state'" 
+        });
+      }
+
+      const { getRegions } = await import('./regions');
+      const regions = getRegions({
+        country: country as 'UK' | 'US',
+        granularity: granularity as 'county' | 'borough' | 'state',
+        region_filter: region_filter as string | undefined
+      });
+
+      return res.json(regions);
+    } catch (e: any) {
+      console.error("regions/list error:", e);
+      return res.status(500).json({ error: e.message || "Failed to load regions" });
     }
   });
 
