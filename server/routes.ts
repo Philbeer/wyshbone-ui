@@ -329,15 +329,15 @@ Examples:
 
             appendMessage(sessionId, { role: "assistant", content: responseText });
             
-            res.write(`data: ${JSON.stringify({ done: false, text: responseText })}\n\n`);
-            res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+            res.write(`data: ${JSON.stringify({ content: responseText })}\n\n`);
+            res.write(`data: [DONE]\n\n`);
             return res.end();
           } catch (error: any) {
             console.error("❌ Bubble batch execution error:", error.message);
             const errorMsg = `Sorry, I couldn't trigger the Bubble workflow: ${error.message}`;
             appendMessage(sessionId, { role: "assistant", content: errorMsg });
-            res.write(`data: ${JSON.stringify({ done: false, text: errorMsg })}\n\n`);
-            res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+            res.write(`data: ${JSON.stringify({ content: errorMsg })}\n\n`);
+            res.write(`data: [DONE]\n\n`);
             return res.end();
           }
         } else if (cancellationPattern.test(latestUserText.trim())) {
@@ -346,8 +346,8 @@ Examples:
           
           const responseText = "❌ Batch workflow cancelled.";
           appendMessage(sessionId, { role: "assistant", content: responseText });
-          res.write(`data: ${JSON.stringify({ done: false, text: responseText })}\n\n`);
-          res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+          res.write(`data: ${JSON.stringify({ content: responseText })}\n\n`);
+          res.write(`data: [DONE]\n\n`);
           return res.end();
         }
       }
@@ -427,8 +427,8 @@ Examples:
             previewText += `\n✅ Type **"yes"** to confirm or **"no"** to cancel`;
 
             appendMessage(sessionId, { role: "assistant", content: previewText });
-            res.write(`data: ${JSON.stringify({ done: false, text: previewText })}\n\n`);
-            res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+            res.write(`data: ${JSON.stringify({ content: previewText })}\n\n`);
+            res.write(`data: [DONE]\n\n`);
             return res.end();
           } else {
             console.log("⚠️ Could not extract valid business_types, falling back to regular chat");
@@ -437,8 +437,8 @@ Examples:
           console.error("❌ Bubble batch extraction error:", error.message);
           const errorMsg = `Sorry, I couldn't parse your request: ${error.message}`;
           appendMessage(sessionId, { role: "assistant", content: errorMsg });
-          res.write(`data: ${JSON.stringify({ done: false, text: errorMsg })}\n\n`);
-          res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+          res.write(`data: ${JSON.stringify({ content: errorMsg })}\n\n`);
+          res.write(`data: [DONE]\n\n`);
           return res.end();
         }
       }
