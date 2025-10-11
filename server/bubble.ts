@@ -20,7 +20,8 @@ function sleep(ms: number): Promise<void> {
 function payloadFor(
   businessType: string, 
   role: string,
-  numberCountiesToSearch?: number,
+  county: string,
+  country: string,
   smarleadId?: string
 ) {
   // Keep keys EXACTLY as Bubble expects (including spaces)
@@ -28,12 +29,12 @@ function payloadFor(
     "Input Google Value": "",
     "Input API key": GOOGLE_API_KEY_DEFAULT,
     "Index_counter": 1,
-    "Dynamic Location": "1757507977753x173405489735527500",
+    "Dynamic Location": county,
     "Dynamic Business Type": businessType,
-    "Dynamic Country": "1737717013652x858387822128022500",
+    "Dynamic Country": country,
     "Schedule ID 2": smarleadId || "2354720",
     "Target Email Position": role || "Head of Sales",
-    "number_countiestosearch": numberCountiesToSearch || 1,
+    "number_countiestosearch": 1,  // Always 1 for individual calls
     "login email": LOGIN_EMAIL,
     "login password": LOGIN_PASSWORD
   };
@@ -42,7 +43,8 @@ function payloadFor(
 async function callBubbleOnce(
   businessType: string, 
   role: string,
-  numberCountiesToSearch?: number,
+  county: string,
+  country: string,
   smarleadId?: string
 ) {
   if (!BASE) {
@@ -55,9 +57,9 @@ async function callBubbleOnce(
     headers["Authorization"] = `Bearer ${TOKEN}`;
   }
 
-  const payload = payloadFor(businessType, role, numberCountiesToSearch, smarleadId);
+  const payload = payloadFor(businessType, role, county, country, smarleadId);
   
-  console.log(`🔄 Calling Bubble workflow for: ${role} @ ${businessType}`);
+  console.log(`🔄 Calling Bubble workflow for: ${role} @ ${businessType} in ${county}, ${country}`);
   
   const resp = await fetch(url, {
     method: "POST",
@@ -91,6 +93,7 @@ export async function bubbleRunBatch(params: BubbleRunBatchRequest): Promise<Bub
               .map(s => String(s).trim()).filter(Boolean);
 
   const wait = Math.max(0, delay_ms ?? RUN_DELAY_DEFAULT_MS);
+  const country = "UK";  // Default to UK
 
   // Auto-generate counties if number_countiestosearch > 1
   const countyCount = number_countiestosearch || 1;
@@ -112,6 +115,7 @@ export async function bubbleRunBatch(params: BubbleRunBatchRequest): Promise<Bub
     delay_ms: wait,
     number_countiestosearch: countyCount,
     counties: countyCount > 1 ? counties : ['N/A - single call mode'],
+    country,
     smarlead_id: smarlead_id || "2354720 (default)",
     total_calls: totalCalls
   });
@@ -125,7 +129,7 @@ export async function bubbleRunBatch(params: BubbleRunBatchRequest): Promise<Bub
         for (const b of bt) {
           try {
             console.log(`📍 Calling for county: ${county}`);
-            const r = await callBubbleOnce(b, role, countyCount, smarlead_id);
+            const r = await callBubbleOnce(b, role, county, country, smarlead_id);
             results.push({ 
               business_type: b, 
               role, 
@@ -155,16 +159,18 @@ export async function bubbleRunBatch(params: BubbleRunBatchRequest): Promise<Bub
       }
     }
   } else {
-    // Single call mode (original behavior)
+    // Single call mode - use first county or default
+    const defaultCounty = "Bedfordshire";
     for (const role of rl) {
       for (const b of bt) {
         try {
-          const r = await callBubbleOnce(b, role, countyCount, smarlead_id);
+          const r = await callBubbleOnce(b, role, defaultCounty, country, smarlead_id);
           results.push({ 
             business_type: b, 
             role, 
             ok: r.ok, 
-            status: r.status 
+            status: r.status,
+            county: defaultCounty
           });
           
           // Wait between calls (except for the last one)
@@ -177,7 +183,8 @@ export async function bubbleRunBatch(params: BubbleRunBatchRequest): Promise<Bub
             business_type: b, 
             role, 
             ok: false, 
-            status: 500 
+            status: 500,
+            county: defaultCounty
           });
         }
       }
