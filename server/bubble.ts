@@ -201,18 +201,22 @@ export async function bubbleRunBatch(params: BubbleRunBatchRequest): Promise<Bub
       }
     }
   } else {
-    // Single call mode - use autogen endpoint with default county
-    const defaultCounty = "Bedfordshire";
+    // Single call mode - use explicit county if provided, otherwise default to Bedfordshire
+    const singleCounty = (explicitCounties && explicitCounties.length > 0) 
+      ? explicitCounties[0] 
+      : "Bedfordshire";
+    
     for (const role of rl) {
       for (const b of bt) {
         try {
-          const r = await callBubbleAutogen(b, role, defaultCounty, country, smarlead_id);
+          console.log(`🔄 Calling Bubble autogen workflow for: ${role} @ ${b} in ${singleCounty}, ${country}`);
+          const r = await callBubbleAutogen(b, role, singleCounty, country, smarlead_id);
           results.push({ 
             business_type: b, 
             role, 
             ok: r.ok, 
             status: r.status,
-            county: defaultCounty
+            county: singleCounty
           });
           
           // Wait between calls (except for the last one)
@@ -226,7 +230,7 @@ export async function bubbleRunBatch(params: BubbleRunBatchRequest): Promise<Bub
             role, 
             ok: false, 
             status: 500,
-            county: defaultCounty
+            county: singleCounty
           });
         }
       }
