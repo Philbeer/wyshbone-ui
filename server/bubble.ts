@@ -119,19 +119,9 @@ export async function bubbleRunBatch(params: BubbleRunBatchRequest): Promise<Bub
 
   const wait = Math.max(0, delay_ms ?? RUN_DELAY_DEFAULT_MS);
   
-  // Map location names to country codes for Bubble
-  let country = "UK";  // Default to UK
-  if (requestCountry) {
-    // If it's "Texas" or any US state, use "USA"
-    if (requestCountry.toLowerCase() === 'texas' || requestCountry.toLowerCase() === 'usa' || requestCountry.toLowerCase() === 'us') {
-      country = "USA";
-    } else if (requestCountry.toLowerCase() === 'uk' || requestCountry.toLowerCase() === 'united kingdom') {
-      country = "UK";
-    } else {
-      // For other locations, use as-is
-      country = requestCountry;
-    }
-  }
+  // Use ISO alpha-2 country code (already mapped by getRegionCode)
+  // requestCountry is already ISO alpha-2: "US", "GB", "AU", "IE", "CA"
+  const country = requestCountry || "GB";  // Default to GB (UK)
 
   // Use explicit counties if provided (from confirmation flow), otherwise auto-generate
   let counties: string[] = [];
