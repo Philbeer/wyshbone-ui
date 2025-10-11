@@ -3,6 +3,7 @@ import { getRegions } from "./regions";
 
 const BASE = process.env.BUBBLE_BASE_URL || "";
 const SLUG = process.env.WORKFLOW_SLUG || "ai-big-wysh-front-end-now-backend";
+const SLUG_AUTOGEN = "replit-triggered-wyshautogen";  // New autogen endpoint
 const TOKEN = process.env.BUBBLE_TOKEN || "";
 const GOOGLE_API_KEY_DEFAULT = process.env.GOOGLE_API_KEY_DEFAULT || "";
 const RUN_DELAY_DEFAULT_MS = Number(process.env.RUN_DELAY_DEFAULT_MS || 4000);
@@ -17,14 +18,36 @@ function sleep(ms: number): Promise<void> {
   return new Promise(res => setTimeout(res, ms));
 }
 
-function payloadFor(
+// Payload for old endpoint (uses IDs)
+function payloadForOldEndpoint(
+  businessType: string, 
+  role: string,
+  numberCountiesToSearch?: number,
+  smarleadId?: string
+) {
+  return {
+    "Input Google Value": "",
+    "Input API key": GOOGLE_API_KEY_DEFAULT,
+    "Index_counter": 1,
+    "Dynamic Location": "1757507977753x173405489735527500",
+    "Dynamic Business Type": businessType,
+    "Dynamic Country": "1737717013652x858387822128022500",
+    "Schedule ID 2": smarleadId || "2354720",
+    "Target Email Position": role || "Head of Sales",
+    "number_countiestosearch": numberCountiesToSearch || 1,
+    "login email": LOGIN_EMAIL,
+    "login password": LOGIN_PASSWORD
+  };
+}
+
+// Payload for autogen endpoint (uses text)
+function payloadForAutogenEndpoint(
   businessType: string, 
   role: string,
   county: string,
   country: string,
   smarleadId?: string
 ) {
-  // Keep keys EXACTLY as Bubble expects (including spaces)
   return {
     "Input Google Value": "",
     "Input API key": GOOGLE_API_KEY_DEFAULT,
@@ -34,13 +57,14 @@ function payloadFor(
     "Dynamic Country": country,
     "Schedule ID 2": smarleadId || "2354720",
     "Target Email Position": role || "Head of Sales",
-    "number_countiestosearch": 1,  // Always 1 for individual calls
+    "number_countiestosearch": 1,  // Always 1 for autogen
     "login email": LOGIN_EMAIL,
     "login password": LOGIN_PASSWORD
   };
 }
 
-async function callBubbleOnce(
+// Call autogen endpoint with text values
+async function callBubbleAutogen(
   businessType: string, 
   role: string,
   county: string,
@@ -51,15 +75,15 @@ async function callBubbleOnce(
     throw new Error("BUBBLE_BASE_URL is not configured. Please set it in Replit Secrets.");
   }
 
-  const url = `${BASE}/api/1.1/wf/${SLUG}`;
+  const url = `${BASE}/api/1.1/wf/${SLUG_AUTOGEN}`;
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (TOKEN) {
     headers["Authorization"] = `Bearer ${TOKEN}`;
   }
 
-  const payload = payloadFor(businessType, role, county, country, smarleadId);
+  const payload = payloadForAutogenEndpoint(businessType, role, county, country, smarleadId);
   
-  console.log(`🔄 Calling Bubble workflow for: ${role} @ ${businessType} in ${county}, ${country}`);
+  console.log(`🔄 Calling Bubble autogen workflow for: ${role} @ ${businessType} in ${county}, ${country}`);
   
   const resp = await fetch(url, {
     method: "POST",
@@ -75,7 +99,7 @@ async function callBubbleOnce(
     data = { raw: text }; 
   }
 
-  console.log(`${resp.ok ? '✅' : '❌'} Bubble response (${resp.status}):`, 
+  console.log(`${resp.ok ? '✅' : '❌'} Bubble autogen response (${resp.status}):`, 
     JSON.stringify(data).substring(0, 200));
 
   return { ok: resp.ok, status: resp.status, data };
@@ -122,14 +146,14 @@ export async function bubbleRunBatch(params: BubbleRunBatchRequest): Promise<Bub
 
   const results: BubbleRunBatchResponse['results'] = [];
   
-  // If counties are auto-generated, loop through them
+  // If counties are auto-generated, use autogen endpoint
   if (countyCount > 1 && counties.length > 0) {
     for (const county of counties) {
       for (const role of rl) {
         for (const b of bt) {
           try {
-            console.log(`📍 Calling for county: ${county}`);
-            const r = await callBubbleOnce(b, role, county, country, smarlead_id);
+            console.log(`📍 Calling autogen endpoint for county: ${county}`);
+            const r = await callBubbleAutogen(b, role, county, country, smarlead_id);
             results.push({ 
               business_type: b, 
               role, 
@@ -146,7 +170,7 @@ export async function bubbleRunBatch(params: BubbleRunBatchRequest): Promise<Bub
               await sleep(wait);
             }
           } catch (error: any) {
-            console.error(`❌ Error calling Bubble for ${role} @ ${b} in ${county}:`, error.message);
+            console.error(`❌ Error calling Bubble autogen for ${role} @ ${b} in ${county}:`, error.message);
             results.push({ 
               business_type: b, 
               role, 
@@ -159,12 +183,12 @@ export async function bubbleRunBatch(params: BubbleRunBatchRequest): Promise<Bub
       }
     }
   } else {
-    // Single call mode - use first county or default
+    // Single call mode - use autogen endpoint with default county
     const defaultCounty = "Bedfordshire";
     for (const role of rl) {
       for (const b of bt) {
         try {
-          const r = await callBubbleOnce(b, role, defaultCounty, country, smarlead_id);
+          const r = await callBubbleAutogen(b, role, defaultCounty, country, smarlead_id);
           results.push({ 
             business_type: b, 
             role, 
@@ -178,7 +202,7 @@ export async function bubbleRunBatch(params: BubbleRunBatchRequest): Promise<Bub
             await sleep(wait);
           }
         } catch (error: any) {
-          console.error(`❌ Error calling Bubble for ${role} @ ${b}:`, error.message);
+          console.error(`❌ Error calling Bubble autogen for ${role} @ ${b}:`, error.message);
           results.push({ 
             business_type: b, 
             role, 
