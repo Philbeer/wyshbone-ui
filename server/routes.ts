@@ -319,11 +319,12 @@ Examples:
 
             const successCount = result.results.filter(r => r.ok).length;
             const totalCount = result.results.length;
+            const country = pendingConfirmation.country || 'UK';
             
             let responseText = `✅ Bubble batch workflow completed: ${successCount}/${totalCount} successful\n\n`;
             responseText += `Results:\n`;
             for (const r of result.results) {
-              const countyInfo = r.county ? ` [${r.county}]` : '';
+              const countyInfo = r.county ? ` [${r.county}, ${country}]` : '';
               responseText += `- ${r.role} @ ${r.business_type}${countyInfo}: ${r.ok ? '✅' : '❌'} (${r.status})\n`;
             }
 
@@ -385,13 +386,27 @@ Examples:
           console.log("📋 Extracted params:", params);
 
           if (params.business_types && Array.isArray(params.business_types) && params.business_types.length > 0) {
-            // Auto-select counties for preview
-            const ukCountiesData = await import("./data/uk_counties.json");
-            const ukCounties = ukCountiesData.default;
+            // Determine location and load appropriate region data
+            const location = params.location || 'UK';
+            let selectedCounties: string[] = [];
+            let countryCode = 'UK';
+            
             const numCounties = params.number_countiestosearch || 1;
-            const selectedCounties = ukCounties.slice(0, numCounties).map((c: any) => c.name);
+            
+            if (location.toLowerCase() === 'texas') {
+              const texasCountiesData = await import("./data/texas_counties.json");
+              const texasCounties = texasCountiesData.default;
+              selectedCounties = texasCounties.slice(0, numCounties);
+              countryCode = 'Texas';
+            } else {
+              // Default to UK
+              const ukCountiesData = await import("./data/uk_counties.json");
+              const ukCounties = ukCountiesData.default;
+              selectedCounties = ukCounties.slice(0, numCounties).map((c: any) => c.name);
+              countryCode = 'UK';
+            }
 
-            console.log(`🗺️ Auto-selected ${numCounties} counties:`, selectedCounties);
+            console.log(`🗺️ Auto-selected ${numCounties} ${countryCode} counties:`, selectedCounties);
 
             // Apply defaults now - what user sees is what gets executed
             const roles = params.roles || ['Head of Sales'];
@@ -406,6 +421,7 @@ Examples:
               number_countiestosearch: numCounties,  // Store computed value
               smarlead_id: smarleadId,  // Store computed default
               counties: selectedCounties,  // Store auto-selected counties
+              country: countryCode,  // Store country/state
               timestamp: new Date().toISOString()
             });
 
@@ -416,7 +432,7 @@ Examples:
             for (const county of selectedCounties) {
               for (const businessType of params.business_types) {
                 for (const role of roles) {
-                  previewText += `• ${role} @ ${businessType} in **${county}, UK**\n`;
+                  previewText += `• ${role} @ ${businessType} in **${county}, ${countryCode}**\n`;
                 }
               }
             }

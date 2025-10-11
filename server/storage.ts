@@ -8,6 +8,7 @@ export interface PendingBatchConfirmation {
   number_countiestosearch?: number;
   smarlead_id?: string;
   counties: string[];
+  country?: string;
   timestamp: string;
 }
 
