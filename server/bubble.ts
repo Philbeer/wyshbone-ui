@@ -16,7 +16,12 @@ function sleep(ms: number): Promise<void> {
   return new Promise(res => setTimeout(res, ms));
 }
 
-function payloadFor(businessType: string, role: string) {
+function payloadFor(
+  businessType: string, 
+  role: string,
+  numberCountiesToSearch?: number,
+  smarleadId?: string
+) {
   // Keep keys EXACTLY as Bubble expects (including spaces)
   return {
     "Input Google Value": "",
@@ -25,14 +30,20 @@ function payloadFor(businessType: string, role: string) {
     "Dynamic Location": "1757507977753x173405489735527500",
     "Dynamic Business Type": businessType,
     "Dynamic Country": "1737717013652x858387822128022500",
-    "Schedule ID 2": "2354720",
+    "Schedule ID 2": smarleadId || "2354720",
     "Target Email Position": role || "Head of Sales",
+    "number_countiestosearch": numberCountiesToSearch || 1,
     "login email": LOGIN_EMAIL,
     "login password": LOGIN_PASSWORD
   };
 }
 
-async function callBubbleOnce(businessType: string, role: string) {
+async function callBubbleOnce(
+  businessType: string, 
+  role: string,
+  numberCountiesToSearch?: number,
+  smarleadId?: string
+) {
   if (!BASE) {
     throw new Error("BUBBLE_BASE_URL is not configured. Please set it in Replit Secrets.");
   }
@@ -43,7 +54,7 @@ async function callBubbleOnce(businessType: string, role: string) {
     headers["Authorization"] = `Bearer ${TOKEN}`;
   }
 
-  const payload = payloadFor(businessType, role);
+  const payload = payloadFor(businessType, role, numberCountiesToSearch, smarleadId);
   
   console.log(`🔄 Calling Bubble workflow for: ${role} @ ${businessType}`);
   
@@ -68,7 +79,7 @@ async function callBubbleOnce(businessType: string, role: string) {
 }
 
 export async function bubbleRunBatch(params: BubbleRunBatchRequest): Promise<BubbleRunBatchResponse> {
-  const { business_types, roles, delay_ms } = params;
+  const { business_types, roles, delay_ms, number_countiestosearch, smarlead_id } = params;
 
   const bt = business_types.map(s => String(s).trim()).filter(Boolean);
   if (!bt.length) {
@@ -84,6 +95,8 @@ export async function bubbleRunBatch(params: BubbleRunBatchRequest): Promise<Bub
     business_types: bt,
     roles: rl,
     delay_ms: wait,
+    number_countiestosearch: number_countiestosearch || 1,
+    smarlead_id: smarlead_id || "2354720 (default)",
     total_calls: bt.length * rl.length
   });
 
@@ -92,7 +105,7 @@ export async function bubbleRunBatch(params: BubbleRunBatchRequest): Promise<Bub
   for (const role of rl) {
     for (const b of bt) {
       try {
-        const r = await callBubbleOnce(b, role);
+        const r = await callBubbleOnce(b, role, number_countiestosearch, smarlead_id);
         results.push({ 
           business_type: b, 
           role, 

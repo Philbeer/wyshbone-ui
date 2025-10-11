@@ -310,11 +310,11 @@ Examples:
           const extractionPrompt = [
             {
               role: "system" as const,
-              content: "Extract business_types, roles, and delay_ms from the user's request. Return a JSON object with these fields. business_types is required (array of strings). roles is optional (array, default ['Head of Sales']). delay_ms is optional (number, default 4000). Parse time units: 's' or 'sec' = multiply by 1000, 'ms' = use as-is."
+              content: "Extract business_types, roles, delay_ms, number_countiestosearch, and smarlead_id from the user's request. Return a JSON object with these fields. business_types is required (array of strings). roles is optional (array, default ['Head of Sales']). delay_ms is optional (number, default 4000). number_countiestosearch is optional (number, default 1). smarlead_id is optional (string). Parse time units: 's' or 'sec' = multiply by 1000, 'ms' = use as-is. Extract county/region numbers from phrases like '5 counties', '10 regions', etc."
             },
             {
               role: "user" as const,
-              content: `Extract parameters from: "${latestUserText}"\n\nExamples:\n- "Run Head of Sales for dentistry supplies, vet supplies; 4s delay" → {"business_types":["dentistry supplies","vet supplies"],"roles":["Head of Sales"],"delay_ms":4000}\n- "Trigger Director for farm shops, cheese makers; 3000ms delay" → {"business_types":["farm shops","cheese makers"],"roles":["Director"],"delay_ms":3000}\n\nExtract now:`
+              content: `Extract parameters from: "${latestUserText}"\n\nExamples:\n- "Run Head of Sales for dentistry supplies, vet supplies; 4s delay" → {"business_types":["dentistry supplies","vet supplies"],"roles":["Head of Sales"],"delay_ms":4000}\n- "Trigger Director for farm shops, cheese makers; 3000ms delay, 5 counties, smarlead 12345" → {"business_types":["farm shops","cheese makers"],"roles":["Director"],"delay_ms":3000,"number_countiestosearch":5,"smarlead_id":"12345"}\n- "Run for dentist supplies, 10 regions, smarlead abc123" → {"business_types":["dentist supplies"],"number_countiestosearch":10,"smarlead_id":"abc123"}\n\nExtract now:`
             }
           ];
 
@@ -332,7 +332,9 @@ Examples:
             const result = await bubbleRunBatch({
               business_types: params.business_types,
               roles: params.roles,
-              delay_ms: params.delay_ms
+              delay_ms: params.delay_ms,
+              number_countiestosearch: params.number_countiestosearch,
+              smarlead_id: params.smarlead_id
             });
 
             const successCount = result.results.filter(r => r.ok).length;

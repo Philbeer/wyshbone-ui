@@ -68,6 +68,8 @@ export const bubbleRunBatchRequestSchema = z.object({
   business_types: z.array(z.string()).min(1, "At least one business type is required"),
   roles: z.array(z.string()).optional(),
   delay_ms: z.number().int().min(0).optional(),
+  number_countiestosearch: z.number().int().min(1).optional(),
+  smarlead_id: z.string().optional(),
 });
 
 export type BubbleRunBatchRequest = z.infer<typeof bubbleRunBatchRequestSchema>;
