@@ -31,15 +31,13 @@ const SYSTEM_PROMPT: ChatMessage = {
     "5. Track which venues you've shown to avoid duplicates\n\n" +
     "BUBBLE BATCH WORKFLOW TRIGGER:\n" +
     "When a user asks to 'run', 'trigger', or 'execute' searches/workflows for business types and roles:\n" +
-    "1. Extract business_types from their natural language (comma/newline separated)\n" +
-    "2. Extract roles if specified (default: ['Head of Sales'])\n" +
-    "3. Extract delay_ms if specified (default: 4000)\n" +
-    "4. Make a POST request to /api/tool/bubble_run_batch with the extracted parameters\n" +
-    "5. Report the batch results concisely to the user\n\n" +
-    "Examples that should trigger bubble_run_batch:\n" +
-    "- 'Run Head of Sales for dentistry supplies, veterinary supplies; 4s delay'\n" +
-    "- 'Trigger Director for farm shops, cheese makers; 3000ms delay'\n" +
-    "- 'Do Head of Sales and Director for dental suppliers'\n\n" +
+    "1. Extract business_types, roles, delay_ms, country, and number_countiestosearch from their request\n" +
+    "2. Call the bubble_run_batch tool with the extracted parameters\n" +
+    "3. The tool will show a preview and ask for confirmation\n\n" +
+    "Examples that should trigger the bubble_run_batch tool:\n" +
+    "- 'Run Head of Sales for dentistry supplies, veterinary supplies' → call bubble_run_batch\n" +
+    "- 'Search for gyms in 3 UK counties' → call bubble_run_batch with business_types: ['gyms'], number_countiestosearch: 3\n" +
+    "- 'Find restaurants in Texas' → call bubble_run_batch with business_types: ['restaurants'], country: 'Texas'\n\n" +
     "When enriching contacts: Only return PUBLIC contact info with a verifiable source URL. " +
     "Never guess personal emails, phone numbers, or names. If unsure, return an empty contacts list.",
 };

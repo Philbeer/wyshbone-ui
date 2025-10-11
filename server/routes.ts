@@ -460,19 +460,10 @@ Examples:
         }
       }
 
-      // Build conversation context for Responses API (unified for both paths)
-      let conversationInput = "";
-      for (const msg of memoryMessages) {
-        if (msg.role === "system") {
-          conversationInput += `System: ${msg.content}\n\n`;
-        } else if (msg.role === "user") {
-          conversationInput += `User: ${msg.content}\n\n`;
-        } else if (msg.role === "assistant") {
-          conversationInput += `Assistant: ${msg.content}\n\n`;
-        }
-      }
-
-      // If URLs detected, fetch and append content
+      // Prepare messages array (DON'T mutate memoryMessages - create copy if needed)
+      let chatMessages = memoryMessages;
+      
+      // If URLs detected, fetch and inject content WITHOUT mutating stored conversation
       if (useDirectFetch) {
         console.log(`🚀 Fast URL mode: Detected ${urls.length} URL(s) - using direct fetch`);
         
@@ -485,9 +476,12 @@ Examples:
             }))
           );
           
-          // Append URL content to the conversation
-          conversationInput += `\nURL Content Retrieved:\n${urlContents.join('\n\n---\n\n')}\n\n`;
-          conversationInput += `Please provide a helpful response based on the above URL content.`;
+          // Create a NEW messages array with URL content (don't mutate stored memory)
+          const urlContentMessage = {
+            role: "system" as const,
+            content: `URL Content Retrieved:\n${urlContents.join('\n\n---\n\n')}\n\nPlease provide a helpful response based on the above URL content.`
+          };
+          chatMessages = [...memoryMessages, urlContentMessage];
           
         } catch (err: any) {
           console.error("❌ URL fetch error:", err.message);
@@ -495,48 +489,171 @@ Examples:
         }
       }
       
-      // Choose tools based on whether we have URLs
-      const tools = useDirectFetch ? [] : [{ type: "web_search" as const }];
-      
-      if (useDirectFetch) {
-        console.log("🤖 Calling GPT-5 Responses API (WITHOUT web_search for speed)...");
-      } else {
-        console.log("🌐 Calling GPT-5 Responses API with web_search enabled...");
+      // Define tools: bubble_run_batch function + web_search
+      const bubbleTool = {
+        type: "function" as const,
+        function: {
+          name: "bubble_run_batch",
+          description: "Trigger Wyshbone backend workflows in batch for business types and roles",
+          parameters: {
+            type: "object",
+            properties: {
+              business_types: {
+                type: "array",
+                items: { type: "string" },
+                description: "List of business types to search for (e.g., ['dentistry supplies', 'veterinary supplies'])"
+              },
+              roles: {
+                type: "array",
+                items: { type: "string" },
+                description: "Roles to target (default: ['Head of Sales'])"
+              },
+              delay_ms: {
+                type: "number",
+                description: "Delay between workflow runs in milliseconds (default: 4000)"
+              },
+              number_countiestosearch: {
+                type: "number",
+                description: "Number of counties/regions to search (default: 1)"
+              },
+              smarlead_id: {
+                type: "string",
+                description: "Smarlead campaign ID (default: '2354720')"
+              },
+              counties: {
+                type: "array",
+                items: { type: "string" },
+                description: "Specific counties to search (optional, auto-selected if not provided)"
+              },
+              country: {
+                type: "string",
+                description: "Country or region (e.g., 'UK', 'Texas', 'Ireland')"
+              }
+            },
+            required: ["business_types"]
+          }
+        }
+      };
+
+      // Add web_search for non-URL queries (restore browsing capability)
+      const tools: any[] = [bubbleTool];
+      if (!useDirectFetch) {
+        tools.push({ type: "web_search" });
       }
+
+      console.log(`🌐 Calling Chat Completions API with ${tools.length} tool(s)...`);
       
       try {
-        // Call OpenAI Responses API
-        // @ts-ignore
-        const response = await openai.responses.create({
-          model: "gpt-5",
-          input: conversationInput.trim(),
-          tools: tools.length > 0 ? tools : undefined,
-          stream: false,
+        // Call OpenAI Chat Completions API with streaming
+        const stream = await openai.chat.completions.create({
+          model: "gpt-4o",
+          messages: chatMessages as any,
+          tools,
+          stream: true,
         });
 
-        console.log("✅ Responses API completed");
+        console.log("✅ Chat Completions API stream started");
         
-        // @ts-ignore
-        if (response.output_text) {
-          // @ts-ignore
-          aiBuffer = response.output_text;
-          console.log("✅ Got output_text, length:", aiBuffer.length);
+        let toolCallBuffer = { name: "", arguments: "" };
+        let isToolCall = false;
+
+        for await (const chunk of stream) {
+          const delta = chunk.choices[0]?.delta;
           
-          // Stream to client word-by-word for responsive UX
-          const words = aiBuffer.split(' ');
-          for (const word of words) {
-            res.write(`data: ${JSON.stringify({ content: word + ' ' })}\n\n`);
+          // Handle tool calls
+          if (delta.tool_calls) {
+            isToolCall = true;
+            const toolCall = delta.tool_calls[0];
+            if (toolCall.function?.name) {
+              toolCallBuffer.name = toolCall.function.name;
+            }
+            if (toolCall.function?.arguments) {
+              toolCallBuffer.arguments += toolCall.function.arguments;
+            }
+          }
+          // Handle content streaming
+          else if (delta.content) {
+            aiBuffer += delta.content;
+            res.write(`data: ${JSON.stringify({ content: delta.content })}\n\n`);
             // @ts-ignore
             if (res.flush) res.flush();
           }
-        } else {
-          console.log("❌ No output_text in response");
+        }
+
+        // Process tool call if detected
+        if (isToolCall && toolCallBuffer.name === "bubble_run_batch") {
+          console.log("🔧 Tool call detected:", toolCallBuffer.name);
+          console.log("📦 Arguments:", toolCallBuffer.arguments);
+          
+          try {
+            const params = JSON.parse(toolCallBuffer.arguments);
+            const { bubbleRunBatch } = await import("./bubble");
+            
+            // Apply defaults
+            const roles = params.roles || ['Head of Sales'];
+            const delayMs = params.delay_ms || 4000;
+            const smarleadId = params.smarlead_id || '2354720';
+            const country = params.country || 'UK';
+            const numCounties = params.number_countiestosearch || 1;
+            
+            // Load counties if not provided
+            let selectedCounties = params.counties;
+            if (!selectedCounties) {
+              if (country.toLowerCase() === 'texas') {
+                const { getRegions } = await import("./regions");
+                const texasCountiesResult = await getRegions('US', 'county', 'Texas');
+                selectedCounties = texasCountiesResult.regions.slice(0, numCounties).map(r => r.name);
+              } else {
+                const ukCountiesData = await import("./data/uk_counties.json");
+                selectedCounties = ukCountiesData.default.slice(0, numCounties).map((c: any) => c.name);
+              }
+            }
+
+            // Build preview and store pending confirmation
+            await storage.setPendingConfirmation(sessionId, {
+              business_types: params.business_types,
+              roles,
+              delay_ms: delayMs,
+              number_countiestosearch: selectedCounties.length,
+              smarlead_id: smarleadId,
+              counties: selectedCounties,
+              country,
+              timestamp: new Date().toISOString()
+            });
+
+            let previewText = `📋 **Batch Workflow Preview**\n\n`;
+            previewText += `I'll make **${selectedCounties.length} API call(s)** to the autogen endpoint:\n\n`;
+            
+            for (const county of selectedCounties) {
+              for (const businessType of params.business_types) {
+                for (const role of roles) {
+                  previewText += `• ${role} @ ${businessType} in **${county}, ${country}**\n`;
+                }
+              }
+            }
+            
+            previewText += `\n**Parameters:**\n`;
+            previewText += `- Delay: ${delayMs}ms\n`;
+            previewText += `- Smarlead ID: ${smarleadId}\n`;
+            previewText += `\n✅ Type **"yes"** to confirm or **"no"** to cancel`;
+
+            aiBuffer = previewText;
+            res.write(`data: ${JSON.stringify({ content: previewText })}\n\n`);
+            
+          } catch (toolErr: any) {
+            console.error("❌ Tool execution error:", toolErr.message);
+            aiBuffer = `Error processing workflow: ${toolErr.message}`;
+            res.write(`data: ${JSON.stringify({ content: aiBuffer })}\n\n`);
+          }
+        }
+        
+        if (!aiBuffer) {
           aiBuffer = "I apologize, but I couldn't generate a response.";
           res.write(`data: ${JSON.stringify({ content: aiBuffer })}\n\n`);
         }
         
       } catch (err: any) {
-        console.error("❌ Responses API error:", err.message);
+        console.error("❌ Chat Completions API error:", err.message);
         console.error("Error details:", JSON.stringify(err, null, 2));
         throw err;
       }
