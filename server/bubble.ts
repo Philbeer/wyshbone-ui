@@ -118,7 +118,7 @@ export async function bubbleRunBatch(params: BubbleRunBatchRequest): Promise<Bub
               .map(s => String(s).trim()).filter(Boolean);
 
   const wait = Math.max(0, delay_ms ?? RUN_DELAY_DEFAULT_MS);
-  const country = "gb";  // UK country code for Google Places API
+  const country = "UK";  // Default to UK
 
   // Auto-generate counties if number_countiestosearch > 1
   const countyCount = number_countiestosearch || 1;

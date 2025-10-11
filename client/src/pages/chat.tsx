@@ -29,7 +29,6 @@ export default function ChatPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
-  const sessionIdRef = useRef<string>(crypto.randomUUID());
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", theme === "dark");
@@ -65,7 +64,6 @@ export default function ChatPage() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-session-id": sessionIdRef.current,
         },
         body: JSON.stringify({
           messages: conversationMessages,
