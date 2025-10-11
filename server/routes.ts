@@ -535,13 +535,11 @@ Examples:
         }
       };
 
-      // Add web_search for non-URL queries (restore browsing capability)
+      // Note: Chat Completions API doesn't support web_search tool type (only 'function' and 'custom')
+      // For now, only bubble_run_batch tool is available. Web search would need to be a separate function.
       const tools: any[] = [bubbleTool];
-      if (!useDirectFetch) {
-        tools.push({ type: "web_search" });
-      }
 
-      console.log(`🌐 Calling Chat Completions API with ${tools.length} tool(s)...`);
+      console.log(`🌐 Calling Chat Completions API with function calling...`);
       
       try {
         // Call OpenAI Chat Completions API with streaming
