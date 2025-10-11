@@ -398,16 +398,16 @@ Examples:
             const delayMs = params.delay_ms || 4000;
             const smarleadId = params.smarlead_id || '2354720 (default)';
             
-            let previewText = `📋 **Bubble Workflow Preview**\n\n`;
+            let previewText = `📋 BUBBLE WORKFLOW PREVIEW\n\n`;
             previewText += `I'm about to send the following to the Bubble endpoint:\n\n`;
-            previewText += `**Business Types:** ${params.business_types.join(', ')}\n`;
-            previewText += `**Roles:** ${roles.join(', ')}\n`;
-            previewText += `**Counties:** ${countyNames.join(', ')}\n`;
-            previewText += `**Country Code:** gb\n`;
-            previewText += `**Delay:** ${delayMs}ms between calls\n`;
-            previewText += `**Smarlead ID:** ${smarleadId}\n`;
-            previewText += `**Total Calls:** ${params.business_types.length * roles.length * countyNames.length}\n\n`;
-            previewText += `Would you like me to proceed? (yes/no)`;
+            previewText += `• Business Types: ${params.business_types.join(', ')}\n`;
+            previewText += `• Roles: ${roles.join(', ')}\n`;
+            previewText += `• Counties: ${countyNames.join(', ')}\n`;
+            previewText += `• Country Code: gb\n`;
+            previewText += `• Delay: ${delayMs}ms between calls\n`;
+            previewText += `• Smarlead ID: ${smarleadId}\n`;
+            previewText += `• Total Calls: ${params.business_types.length * roles.length * countyNames.length}\n\n`;
+            previewText += `Reply "yes" to proceed or "no" to cancel.`;
 
             // Store pending request
             pendingBubbleRequests.set(sessionId, {
