@@ -343,7 +343,8 @@ Examples:
             let responseText = `✅ Bubble batch workflow completed: ${successCount}/${totalCount} successful\n\n`;
             responseText += `Results:\n`;
             for (const r of result.results) {
-              responseText += `- ${r.role} @ ${r.business_type}: ${r.ok ? '✅' : '❌'} (${r.status})\n`;
+              const countyInfo = r.county ? ` [${r.county}]` : '';
+              responseText += `- ${r.role} @ ${r.business_type}${countyInfo}: ${r.ok ? '✅' : '❌'} (${r.status})\n`;
             }
 
             appendMessage(sessionId, { role: "assistant", content: responseText });

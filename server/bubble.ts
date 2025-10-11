@@ -1,4 +1,5 @@
 import type { BubbleRunBatchRequest, BubbleRunBatchResponse } from "@shared/schema";
+import { getRegions } from "./regions";
 
 const BASE = process.env.BUBBLE_BASE_URL || "";
 const SLUG = process.env.WORKFLOW_SLUG || "ai-big-wysh-front-end-now-backend";
@@ -91,40 +92,94 @@ export async function bubbleRunBatch(params: BubbleRunBatchRequest): Promise<Bub
 
   const wait = Math.max(0, delay_ms ?? RUN_DELAY_DEFAULT_MS);
 
+  // Auto-generate counties if number_countiestosearch > 1
+  const countyCount = number_countiestosearch || 1;
+  let counties: string[] = [];
+  
+  if (countyCount > 1) {
+    const ukCounties = getRegions({ country: 'UK', granularity: 'county' });
+    counties = ukCounties.slice(0, countyCount).map(r => r.name);
+    console.log(`🗺️ Auto-selected ${counties.length} counties:`, counties);
+  }
+
+  const totalCalls = countyCount > 1 
+    ? bt.length * rl.length * counties.length 
+    : bt.length * rl.length;
+
   console.log(`🚀 Starting Bubble batch run:`, {
     business_types: bt,
     roles: rl,
     delay_ms: wait,
-    number_countiestosearch: number_countiestosearch || 1,
+    number_countiestosearch: countyCount,
+    counties: countyCount > 1 ? counties : ['N/A - single call mode'],
     smarlead_id: smarlead_id || "2354720 (default)",
-    total_calls: bt.length * rl.length
+    total_calls: totalCalls
   });
 
   const results: BubbleRunBatchResponse['results'] = [];
   
-  for (const role of rl) {
-    for (const b of bt) {
-      try {
-        const r = await callBubbleOnce(b, role, number_countiestosearch, smarlead_id);
-        results.push({ 
-          business_type: b, 
-          role, 
-          ok: r.ok, 
-          status: r.status 
-        });
-        
-        // Wait between calls (except for the last one)
-        if (wait && (role !== rl[rl.length - 1] || b !== bt[bt.length - 1])) {
-          await sleep(wait);
+  // If counties are auto-generated, loop through them
+  if (countyCount > 1 && counties.length > 0) {
+    for (const county of counties) {
+      for (const role of rl) {
+        for (const b of bt) {
+          try {
+            console.log(`📍 Calling for county: ${county}`);
+            const r = await callBubbleOnce(b, role, countyCount, smarlead_id);
+            results.push({ 
+              business_type: b, 
+              role, 
+              ok: r.ok, 
+              status: r.status,
+              county
+            });
+            
+            // Wait between calls (except for the last one)
+            const isLast = county === counties[counties.length - 1] && 
+                          role === rl[rl.length - 1] && 
+                          b === bt[bt.length - 1];
+            if (wait && !isLast) {
+              await sleep(wait);
+            }
+          } catch (error: any) {
+            console.error(`❌ Error calling Bubble for ${role} @ ${b} in ${county}:`, error.message);
+            results.push({ 
+              business_type: b, 
+              role, 
+              ok: false, 
+              status: 500,
+              county
+            });
+          }
         }
-      } catch (error: any) {
-        console.error(`❌ Error calling Bubble for ${role} @ ${b}:`, error.message);
-        results.push({ 
-          business_type: b, 
-          role, 
-          ok: false, 
-          status: 500 
-        });
+      }
+    }
+  } else {
+    // Single call mode (original behavior)
+    for (const role of rl) {
+      for (const b of bt) {
+        try {
+          const r = await callBubbleOnce(b, role, countyCount, smarlead_id);
+          results.push({ 
+            business_type: b, 
+            role, 
+            ok: r.ok, 
+            status: r.status 
+          });
+          
+          // Wait between calls (except for the last one)
+          if (wait && (role !== rl[rl.length - 1] || b !== bt[bt.length - 1])) {
+            await sleep(wait);
+          }
+        } catch (error: any) {
+          console.error(`❌ Error calling Bubble for ${role} @ ${b}:`, error.message);
+          results.push({ 
+            business_type: b, 
+            role, 
+            ok: false, 
+            status: 500 
+          });
+        }
       }
     }
   }

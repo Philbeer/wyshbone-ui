@@ -82,6 +82,7 @@ export const bubbleRunBatchResponseSchema = z.object({
     role: z.string(),
     ok: z.boolean(),
     status: z.number(),
+    county: z.string().optional(),
   })),
 });
 
