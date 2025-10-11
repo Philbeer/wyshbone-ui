@@ -616,11 +616,19 @@ Examples:
                                         rawCountryLower.includes('qld') ||
                                         rawCountryLower.includes(', au');
               
+              // Check if it's a US state (common states)
+              const usStates = ['alabama', 'alaska', 'arizona', 'arkansas', 'california', 'colorado', 'connecticut', 'delaware', 'florida', 'georgia', 'hawaii', 'idaho', 'illinois', 'indiana', 'iowa', 'kansas', 'kentucky', 'louisiana', 'maine', 'maryland', 'massachusetts', 'michigan', 'minnesota', 'mississippi', 'missouri', 'montana', 'nebraska', 'nevada', 'new hampshire', 'new jersey', 'new mexico', 'new york', 'north carolina', 'north dakota', 'ohio', 'oklahoma', 'oregon', 'pennsylvania', 'rhode island', 'south carolina', 'south dakota', 'tennessee', 'texas', 'utah', 'vermont', 'virginia', 'washington', 'west virginia', 'wisconsin', 'wyoming'];
+              const isUSState = usStates.includes(rawCountryLower);
+              
               // Determine which dataset to use based on country
               if (rawCountryLower === 'texas') {
                 const result = await getRegions('US', 'county', 'Texas');
                 selectedCounties = result.regions.slice(0, numCounties).map(r => r.name);
                 granularity = 'county';
+              } else if (isUSState || rawCountryLower === 'us' || rawCountryLower === 'usa' || rawCountryLower === 'united states') {
+                const result = await getRegions('US', 'state');
+                selectedCounties = result.regions.slice(0, numCounties).map(r => r.name);
+                granularity = 'state';
               } else if (rawCountryLower === 'australia' || rawCountryLower === 'au' || isAustralianState) {
                 const result = await getRegions('AU', 'state');
                 selectedCounties = result.regions.slice(0, numCounties).map(r => r.name);
