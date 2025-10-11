@@ -70,6 +70,7 @@ export const bubbleRunBatchRequestSchema = z.object({
   delay_ms: z.number().int().min(0).optional(),
   number_countiestosearch: z.number().int().min(1).optional(),
   smarlead_id: z.string().optional(),
+  counties: z.array(z.string()).optional(), // Explicit counties override auto-generation
 });
 
 export type BubbleRunBatchRequest = z.infer<typeof bubbleRunBatchRequestSchema>;

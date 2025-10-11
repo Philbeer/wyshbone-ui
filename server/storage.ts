@@ -1,6 +1,16 @@
 // Storage interface for the Wyshbone Chat Agent
 import type { Job } from "@shared/schema";
 
+export interface PendingBatchConfirmation {
+  business_types: string[];
+  roles?: string[];
+  delay_ms?: number;
+  number_countiestosearch?: number;
+  smarlead_id?: string;
+  counties: string[];
+  timestamp: string;
+}
+
 export interface IStorage {
   // Job CRUD methods
   createJob(job: Job): Promise<Job>;
@@ -8,10 +18,16 @@ export interface IStorage {
   updateJob(id: string, updates: Partial<Job>): Promise<Job | null>;
   deleteJob(id: string): Promise<boolean>;
   listJobs(email?: string): Promise<Job[]>;
+  
+  // Pending confirmation methods
+  setPendingConfirmation(sessionId: string, params: PendingBatchConfirmation): Promise<void>;
+  getPendingConfirmation(sessionId: string): Promise<PendingBatchConfirmation | null>;
+  clearPendingConfirmation(sessionId: string): Promise<void>;
 }
 
 export class MemStorage implements IStorage {
   private jobs: Map<string, Job> = new Map();
+  private pendingConfirmations: Map<string, PendingBatchConfirmation> = new Map();
 
   async createJob(job: Job): Promise<Job> {
     this.jobs.set(job.id, job);
@@ -41,6 +57,18 @@ export class MemStorage implements IStorage {
       return allJobs.filter(job => job.created_by_email === email);
     }
     return allJobs;
+  }
+
+  async setPendingConfirmation(sessionId: string, params: PendingBatchConfirmation): Promise<void> {
+    this.pendingConfirmations.set(sessionId, params);
+  }
+
+  async getPendingConfirmation(sessionId: string): Promise<PendingBatchConfirmation | null> {
+    return this.pendingConfirmations.get(sessionId) || null;
+  }
+
+  async clearPendingConfirmation(sessionId: string): Promise<void> {
+    this.pendingConfirmations.delete(sessionId);
   }
 }
 

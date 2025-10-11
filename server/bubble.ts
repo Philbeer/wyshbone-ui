@@ -107,7 +107,7 @@ async function callBubbleAutogen(
 }
 
 export async function bubbleRunBatch(params: BubbleRunBatchRequest): Promise<BubbleRunBatchResponse> {
-  const { business_types, roles, delay_ms, number_countiestosearch, smarlead_id } = params;
+  const { business_types, roles, delay_ms, number_countiestosearch, smarlead_id, counties: explicitCounties } = params;
 
   const bt = business_types.map(s => String(s).trim()).filter(Boolean);
   if (!bt.length) {
@@ -120,11 +120,15 @@ export async function bubbleRunBatch(params: BubbleRunBatchRequest): Promise<Bub
   const wait = Math.max(0, delay_ms ?? RUN_DELAY_DEFAULT_MS);
   const country = "UK";  // Default to UK
 
-  // Auto-generate counties if number_countiestosearch > 1
-  const countyCount = number_countiestosearch || 1;
+  // Use explicit counties if provided (from confirmation flow), otherwise auto-generate
   let counties: string[] = [];
+  let countyCount = number_countiestosearch || 1;
   
-  if (countyCount > 1) {
+  if (explicitCounties && explicitCounties.length > 0) {
+    counties = explicitCounties;
+    countyCount = counties.length;
+    console.log(`📍 Using explicit counties from confirmation:`, counties);
+  } else if (countyCount > 1) {
     const ukCounties = getRegions({ country: 'UK', granularity: 'county' });
     counties = ukCounties.slice(0, countyCount).map(r => r.name);
     console.log(`🗺️ Auto-selected ${counties.length} counties:`, counties);
