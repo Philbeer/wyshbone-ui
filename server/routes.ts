@@ -314,7 +314,8 @@ Examples:
               delay_ms: pendingConfirmation.delay_ms,
               number_countiestosearch: pendingConfirmation.number_countiestosearch,
               smarlead_id: pendingConfirmation.smarlead_id,
-              counties: pendingConfirmation.counties  // Pass exact counties from preview
+              counties: pendingConfirmation.counties,  // Pass exact counties from preview
+              country: pendingConfirmation.country  // Pass country/state
             });
 
             const successCount = result.results.filter(r => r.ok).length;

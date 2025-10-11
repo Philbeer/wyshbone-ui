@@ -107,7 +107,7 @@ async function callBubbleAutogen(
 }
 
 export async function bubbleRunBatch(params: BubbleRunBatchRequest): Promise<BubbleRunBatchResponse> {
-  const { business_types, roles, delay_ms, number_countiestosearch, smarlead_id, counties: explicitCounties } = params;
+  const { business_types, roles, delay_ms, number_countiestosearch, smarlead_id, counties: explicitCounties, country: requestCountry } = params;
 
   const bt = business_types.map(s => String(s).trim()).filter(Boolean);
   if (!bt.length) {
@@ -118,7 +118,20 @@ export async function bubbleRunBatch(params: BubbleRunBatchRequest): Promise<Bub
               .map(s => String(s).trim()).filter(Boolean);
 
   const wait = Math.max(0, delay_ms ?? RUN_DELAY_DEFAULT_MS);
-  const country = "UK";  // Default to UK
+  
+  // Map location names to country codes for Bubble
+  let country = "UK";  // Default to UK
+  if (requestCountry) {
+    // If it's "Texas" or any US state, use "USA"
+    if (requestCountry.toLowerCase() === 'texas' || requestCountry.toLowerCase() === 'usa' || requestCountry.toLowerCase() === 'us') {
+      country = "USA";
+    } else if (requestCountry.toLowerCase() === 'uk' || requestCountry.toLowerCase() === 'united kingdom') {
+      country = "UK";
+    } else {
+      // For other locations, use as-is
+      country = requestCountry;
+    }
+  }
 
   // Use explicit counties if provided (from confirmation flow), otherwise auto-generate
   let counties: string[] = [];

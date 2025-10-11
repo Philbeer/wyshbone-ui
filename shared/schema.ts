@@ -71,6 +71,7 @@ export const bubbleRunBatchRequestSchema = z.object({
   number_countiestosearch: z.number().int().min(1).optional(),
   smarlead_id: z.string().optional(),
   counties: z.array(z.string()).optional(), // Explicit counties override auto-generation
+  country: z.string().optional(), // Country/state for the locations
 });
 
 export type BubbleRunBatchRequest = z.infer<typeof bubbleRunBatchRequestSchema>;
