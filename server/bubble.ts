@@ -84,6 +84,7 @@ async function callBubbleAutogen(
   const payload = payloadForAutogenEndpoint(businessType, role, county, country, smarleadId);
   
   console.log(`🔄 Calling Bubble autogen workflow for: ${role} @ ${businessType} in ${county}, ${country}`);
+  console.log(`📦 Autogen payload:`, JSON.stringify(payload, null, 2));
   
   const resp = await fetch(url, {
     method: "POST",
