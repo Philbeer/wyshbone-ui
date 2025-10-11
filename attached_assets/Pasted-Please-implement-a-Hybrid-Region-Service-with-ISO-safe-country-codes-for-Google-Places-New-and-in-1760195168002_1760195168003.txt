@@ -1,0 +1,152 @@
+Please implement a Hybrid Region Service with ISO-safe country codes for Google Places (New), and integrate it with our existing jobs flow. Connect to my Bubble app at:
+https://wyshbonesales.com/version-82rkn
+
+GOALS
+- /api/regions/list should first use local JSON tables (fast) and fall back to a cached live provider for other countries.
+- Every region returned must include a valid CLDR/ISO 3166-1 alpha-2 country code (e.g., "GB", "US") for Google Places New (no spaces, uppercase).
+- Keep existing /api/jobs/* flow; no UX changes.
+
+========================================
+1) STATIC DATA (core markets)
+========================================
+Create/ensure these datasets in /server/data/ (full lists, not samples) with schema:
+[
+  { "id":"west_sussex", "name":"West Sussex", "code":"GB-WSX", "country_code":"GB" }
+]
+Required files:
+- uk_counties.json (England counties & unitary authorities; include ISO codes where possible)
+- london_boroughs.json (32 boroughs + City of London; country_code=GB)
+- gb_devolved.json (Scotland council areas, Wales principal areas, NI districts; with ISO if available)
+- us_states.json (50 + DC; country_code="US")
+- us_counties_by_state/Texas.json (start with TX; include FIPS code if available; country_code="US")
+- ie_counties.json (Ireland; country_code="IE")
+- au_states.json (Australia; country_code="AU")
+- ca_provinces.json (Canada; country_code="CA")
+
+========================================
+2) REGION SERVICE (server/regions.ts)
+========================================
+Export functions:
+- loadLocalRegions(country: string, granularity: string, regionFilter?: string): Region[] | null
+  - Map (country, granularity) to a dataset:
+    (UK,"county") -> uk_counties.json
+    (UK,"borough") with regionFilter="London" -> london_boroughs.json
+    (GB devolved units) -> gb_devolved.json
+    (US,"state") -> us_states.json
+    (US,"county") + regionFilter="Texas" -> us_counties_by_state/Texas.json
+    (IE,"county") -> ie_counties.json
+    (AU,"state") -> au_states.json
+    (CA,"province") -> ca_provinces.json
+- fetchRemoteRegions(country: string, granularity: string, regionFilter?: string): Region[]
+  - Fallback provider: choose ONE (GeoNames or Overpass). Normalize to schema { id, name, code?, country_code }.
+- Caching:
+  - Cache remote results in /server/cache/regions/<hash>.json for 24 hours.
+- getRegions(country, granularity, regionFilter?): Region[] with metadata
+  1) Try local dataset
+  2) Else try cache
+  3) Else call fetchRemoteRegions(), write cache, return
+  4) Attach a "source" flag: "local" | "remote_cached"
+
+Include helpers in this module:
+- slugifyName(name): lowercase, remove spaces/punctuation for id fallback
+- toCodeSafe(value): value.trim().toUpperCase() (guards against " gb" issues)
+
+========================================
+3) ISO COUNTRY CODE MAPPING
+========================================
+Create helper getRegionCode(countryText: string): string that returns an ISO alpha-2 code for Google:
+- Map common variants to codes:
+  "uk","united kingdom","england","scotland","wales","northern ireland" => "GB"
+  "us","usa","united states","america" => "US"
+  "fr","france" => "FR"
+  "au","australia" => "AU"
+  "ca","canada" => "CA"
+  "ie","ireland","eire" => "IE"
+  (Add a few more common ones as needed.)
+- Otherwise, fallback: toCodeSafe(countryText)
+- If falling back, console.warn so we can add the mapping later.
+
+Ensure every region object returned by /api/regions/list includes:
+  country_code: getRegionCode(countryParam)
+
+========================================
+4) API ENDPOINTS
+========================================
+Add/extend:
+GET /api/regions/list
+Query:
+- country (e.g., UK, US, IE, AU, CA, FR, DE)
+- granularity ("county" | "borough" | "state" | "province" | "department")
+- region_filter (optional; e.g., "London" or "Texas")
+Return:
+{
+  "source":"local" | "remote_cached",
+  "country_code":"GB",
+  "regions":[ { "id","name","code?","country_code" } ]
+}
+
+Diagnostics:
+GET /api/regions/debug/supported   -> lists all local datasets and counts
+GET /api/regions/clear-cache       -> dev-only, clears region cache
+
+========================================
+5) JOBS INTEGRATION
+========================================
+In /api/jobs/create:
+- Use /api/regions/list to build region_ids from returned regions.
+- For US county runs with region_filter (e.g., Texas), ensure we only use that state’s counties.
+- Store job meta: business_type, country, granularity, region_filter, region_ids, cursor, processed[], status, created_by_email.
+
+Worker:
+- When calling Google Places New, ALWAYS send "regionCode" from the region.country_code field (uppercase, trimmed).
+- Example payload to Google:
+  {
+    "textQuery": "<business_type> in <region name>",
+    "regionCode": "<country_code>",   // e.g., "GB"
+    ...
+  }
+
+========================================
+6) RATE & RELIABILITY
+========================================
+- Remote provider rate limit: max 1 req/sec; retry with backoff on 429/5xx.
+- Cache remote results for 24h.
+- Log a single-line summary per job start/end with counts.
+
+========================================
+7) CONSOLE DOCS (on server start)
+========================================
+After build/run, print example URLs:
+- /api/regions/list?country=UK&granularity=county
+- /api/regions/list?country=UK&granularity=borough&region_filter=London
+- /api/regions/list?country=US&granularity=state
+- /api/regions/list?country=US&granularity=county&region_filter=Texas
+- /api/regions/list?country=IE&granularity=county
+- /api/regions/list?country=FR&granularity=department
+
+Also print:
+- "Google Places regionCode source: <country_code from mapping>" for a sample call.
+
+========================================
+8) DON’T CHANGE CHAT/UX
+========================================
+Keep the chat flow unchanged; only the region enumeration source improves.
+
+========================================
+9) BUBBLE INTEGRATION (unchanged)
+========================================
+Worker continues to POST to:
+https://wyshbonesales.com/version-82rkn/api/1.1/wf/run_search_for_region
+with
+{
+  "business_type": "...",
+  "country": "<original text or code as you already send>",
+  "region_id": "<region.id or name>"
+}
+(If we later switch to the text-wrapper workflow, we will only change the endpoint URL.)
+
+Finally, please:
+- Build & run.
+- Show sample outputs (UK counties "local", US Texas counties "local").
+- Show a fallback example (France departments) with "remote_cached".
+- Demonstrate that Places "regionCode" is "GB" (uppercase, trimmed) in the job payload.

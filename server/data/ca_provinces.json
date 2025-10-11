@@ -1,0 +1,15 @@
+[
+  { "id": "on", "name": "Ontario", "code": "CA-ON", "country_code": "CA" },
+  { "id": "qc", "name": "Quebec", "code": "CA-QC", "country_code": "CA" },
+  { "id": "bc", "name": "British Columbia", "code": "CA-BC", "country_code": "CA" },
+  { "id": "ab", "name": "Alberta", "code": "CA-AB", "country_code": "CA" },
+  { "id": "mb", "name": "Manitoba", "code": "CA-MB", "country_code": "CA" },
+  { "id": "sk", "name": "Saskatchewan", "code": "CA-SK", "country_code": "CA" },
+  { "id": "ns", "name": "Nova Scotia", "code": "CA-NS", "country_code": "CA" },
+  { "id": "nb", "name": "New Brunswick", "code": "CA-NB", "country_code": "CA" },
+  { "id": "pe", "name": "Prince Edward Island", "code": "CA-PE", "country_code": "CA" },
+  { "id": "nl", "name": "Newfoundland and Labrador", "code": "CA-NL", "country_code": "CA" },
+  { "id": "yt", "name": "Yukon", "code": "CA-YT", "country_code": "CA" },
+  { "id": "nt", "name": "Northwest Territories", "code": "CA-NT", "country_code": "CA" },
+  { "id": "nu", "name": "Nunavut", "code": "CA-NU", "country_code": "CA" }
+]
