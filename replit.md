@@ -18,12 +18,22 @@ The user interface follows modern Material Design principles, drawing inspiratio
     - **Google Places API (New v1):** For verified business discovery (`/api/places/search`, `/api/prospects/search_and_enrich`). Filters for OPERATIONAL businesses and returns real Google Place IDs.
     - **OpenAI GPT-5 for Enrichment:** Enriches prospects with domain, contact email, social links, business classification, summary, and lead score (`/api/prospects/enrich`). Includes optional public contact discovery with strict guardrails (`/api/prospects/enrich_contacts`). Contacts must have verifiable source URLs.
     - **Bubble Workflow Integration:** Trigger Bubble backend workflows in batch (`/api/tool/bubble_run_batch`) based on natural language input, supporting configurable delays and dynamic parameter mapping. **Multi-Country Support:** Supports UK counties and US state counties (e.g., Texas). Automatically detects location from phrases like "in Texas" and maps to appropriate country codes (Texas → USA). **Confirmation Flow:** Before executing batch requests, the chatbot auto-generates counties based on detected location, displays a detailed preview of all planned API calls with parameters and country, and requires user confirmation ("yes") or cancellation ("no") before proceeding.
-    - **Job Management:** Background job system (`/api/jobs/create`, `/api/jobs/start`, `/api/jobs/stop`, `/api/jobs/status`) for running searches across multiple regions. Features:
-        - **Region Data:** Static data files for UK counties (48), London boroughs (32), US states (50)
+    - **Job Management & Hybrid Region Service:** Background job system with comprehensive multi-country region support for running searches across geographic areas. Features:
+        - **Region Data (482 Total Regions):** 8 static datasets - UK counties (49), London boroughs (33), GB devolved regions (65), US states (50), Texas counties (238), Ireland counties (26), Australia states (8), Canada provinces (13)
+        - **Hybrid Region Service:** Local/cache/remote fallback system (`server/regions.ts`) with ISO-safe country codes:
+            - **Local Datasets:** Primary source, maps country/granularity to JSON files
+            - **Cache Layer:** In-memory caching for performance
+            - **Remote Fallback:** Stub for GeoNames/Overpass API integration (future)
+        - **ISO Country Code Mapping:** Automatically maps user-friendly names to ISO alpha-2 codes (UK→GB, US→US, Ireland→IE, Australia→AU, Canada→CA) for Google Places API compatibility
+        - **Region API Endpoints:**
+            - `GET /api/regions/list?country=UK&granularity=county` - Returns RegionsResult with source, country_code, regions[]
+            - `GET /api/regions/debug/supported` - Lists all available datasets
+            - `POST /api/regions/clear-cache` - Clears cached regions
         - **Natural Language Job Creation:** Auto-detects patterns like "Run dentists across all London boroughs" and creates jobs automatically
         - **Job Control Commands:** "status job <id>", "pause job <id>", "resume job <id>", "cancel job <id>"
-        - **Background Worker:** Processes regions sequentially with 500ms delay, calls Bubble's run_search_for_region workflow
+        - **Background Worker:** Processes regions sequentially with 500ms delay, passes region.country_code (ISO alpha-2) to Bubble's run_search_for_region workflow for Google Places integration
         - **Progress Tracking:** Real-time status updates with processed/failed region tracking and percentage complete
+        - **Startup Documentation:** Server prints example API endpoints and dataset statistics on startup
     - **Stub Endpoint:** `/api/tool/add_note` for future Bubble integration.
 - **Streaming Responses:** Server-Sent Events (SSE) for real-time AI responses and animated typing indicators.
 - **Error Handling:** Comprehensive error messages as system notifications.
