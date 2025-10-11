@@ -14,6 +14,10 @@ import {
 } from "@shared/schema";
 import cors from "cors";
 import * as cheerio from "cheerio";
+import { getRegions } from "./regions";
+
+// Store pending Bubble batch requests awaiting confirmation
+const pendingBubbleRequests = new Map<string, any>();
 
 // Helper to identify each user's session (Bubble should send x-session-id)
 function getSessionId(req: import("express").Request) {
@@ -295,6 +299,56 @@ Examples:
         }
       }
 
+      // Check if user is confirming/denying a pending Bubble batch request
+      const confirmPattern = /^(yes|confirm|go|proceed|ok|correct|yep|yeah|execute|do it|send it)/i;
+      const denyPattern = /^(no|cancel|stop|abort|nope|don't|never mind)/i;
+      
+      if (pendingBubbleRequests.has(sessionId)) {
+        const pendingRequest = pendingBubbleRequests.get(sessionId);
+        
+        if (confirmPattern.test(latestUserText.trim())) {
+          console.log("✅ User confirmed Bubble batch request");
+          pendingBubbleRequests.delete(sessionId);
+          
+          try {
+            const { bubbleRunBatch } = await import("./bubble");
+            const result = await bubbleRunBatch(pendingRequest);
+
+            const successCount = result.results.filter(r => r.ok).length;
+            const totalCount = result.results.length;
+            
+            let responseText = `✅ Bubble batch workflow completed: ${successCount}/${totalCount} successful\n\n`;
+            responseText += `Results:\n`;
+            for (const r of result.results) {
+              const countyInfo = r.county ? ` [${r.county}]` : '';
+              responseText += `- ${r.role} @ ${r.business_type}${countyInfo}: ${r.ok ? '✅' : '❌'} (${r.status})\n`;
+            }
+
+            appendMessage(sessionId, { role: "assistant", content: responseText });
+            
+            res.write(`data: ${JSON.stringify({ done: false, text: responseText })}\n\n`);
+            res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+            return res.end();
+          } catch (error: any) {
+            console.error("❌ Bubble batch execution error:", error.message);
+            const errorMsg = `Sorry, I couldn't trigger the Bubble workflow: ${error.message}`;
+            appendMessage(sessionId, { role: "assistant", content: errorMsg });
+            res.write(`data: ${JSON.stringify({ done: false, text: errorMsg })}\n\n`);
+            res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+            return res.end();
+          }
+        } else if (denyPattern.test(latestUserText.trim())) {
+          console.log("❌ User cancelled Bubble batch request");
+          pendingBubbleRequests.delete(sessionId);
+          
+          const responseText = "❌ Cancelled. The workflow will not be executed.";
+          appendMessage(sessionId, { role: "assistant", content: responseText });
+          res.write(`data: ${JSON.stringify({ done: false, text: responseText })}\n\n`);
+          res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+          return res.end();
+        }
+      }
+
       // Check if user wants to trigger bubble batch workflow
       const bubbleTriggerPattern = /\b(run|trigger|execute|start)\b.*(for|with)\b/i;
       const isBubbleBatchRequest = bubbleTriggerPattern.test(latestUserText) && 
@@ -328,8 +382,35 @@ Examples:
           console.log("📋 Extracted params:", params);
 
           if (params.business_types && Array.isArray(params.business_types) && params.business_types.length > 0) {
-            const { bubbleRunBatch } = await import("./bubble");
-            const result = await bubbleRunBatch({
+            // Auto-generate county names for preview
+            const countyCount = params.number_countiestosearch || 1;
+            let countyNames: string[] = [];
+            
+            if (countyCount > 1) {
+              const ukCounties = getRegions({ country: 'UK', granularity: 'county' });
+              countyNames = ukCounties.slice(0, countyCount).map(r => r.name);
+            } else {
+              countyNames = ['Bedfordshire'];
+            }
+
+            // Build preview message
+            const roles = params.roles || ['Head of Sales'];
+            const delayMs = params.delay_ms || 4000;
+            const smarleadId = params.smarlead_id || '2354720 (default)';
+            
+            let previewText = `📋 **Bubble Workflow Preview**\n\n`;
+            previewText += `I'm about to send the following to the Bubble endpoint:\n\n`;
+            previewText += `**Business Types:** ${params.business_types.join(', ')}\n`;
+            previewText += `**Roles:** ${roles.join(', ')}\n`;
+            previewText += `**Counties:** ${countyNames.join(', ')}\n`;
+            previewText += `**Country Code:** gb\n`;
+            previewText += `**Delay:** ${delayMs}ms between calls\n`;
+            previewText += `**Smarlead ID:** ${smarleadId}\n`;
+            previewText += `**Total Calls:** ${params.business_types.length * roles.length * countyNames.length}\n\n`;
+            previewText += `Would you like me to proceed? (yes/no)`;
+
+            // Store pending request
+            pendingBubbleRequests.set(sessionId, {
               business_types: params.business_types,
               roles: params.roles,
               delay_ms: params.delay_ms,
@@ -337,27 +418,16 @@ Examples:
               smarlead_id: params.smarlead_id
             });
 
-            const successCount = result.results.filter(r => r.ok).length;
-            const totalCount = result.results.length;
-            
-            let responseText = `✅ Bubble batch workflow completed: ${successCount}/${totalCount} successful\n\n`;
-            responseText += `Results:\n`;
-            for (const r of result.results) {
-              const countyInfo = r.county ? ` [${r.county}]` : '';
-              responseText += `- ${r.role} @ ${r.business_type}${countyInfo}: ${r.ok ? '✅' : '❌'} (${r.status})\n`;
-            }
-
-            appendMessage(sessionId, { role: "assistant", content: responseText });
-            
-            res.write(`data: ${JSON.stringify({ done: false, text: responseText })}\n\n`);
+            appendMessage(sessionId, { role: "assistant", content: previewText });
+            res.write(`data: ${JSON.stringify({ done: false, text: previewText })}\n\n`);
             res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
             return res.end();
           } else {
             console.log("⚠️ Could not extract valid business_types, falling back to regular chat");
           }
         } catch (error: any) {
-          console.error("❌ Bubble batch execution error:", error.message);
-          const errorMsg = `Sorry, I couldn't trigger the Bubble workflow: ${error.message}`;
+          console.error("❌ Bubble batch parameter extraction error:", error.message);
+          const errorMsg = `Sorry, I couldn't understand the request: ${error.message}`;
           appendMessage(sessionId, { role: "assistant", content: errorMsg });
           res.write(`data: ${JSON.stringify({ done: false, text: errorMsg })}\n\n`);
           res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
