@@ -607,12 +607,21 @@ Examples:
               const { getRegions } = await import("./regions");
               const rawCountryLower = rawCountry.toLowerCase().trim();
               
+              // Check if it's an Australian state (e.g., "New South Wales, AU" or "NSW")
+              const isAustralianState = rawCountryLower.includes('new south wales') || 
+                                        rawCountryLower.includes('victoria') || 
+                                        rawCountryLower.includes('queensland') || 
+                                        rawCountryLower.includes('nsw') ||
+                                        rawCountryLower.includes('vic') ||
+                                        rawCountryLower.includes('qld') ||
+                                        rawCountryLower.includes(', au');
+              
               // Determine which dataset to use based on country
               if (rawCountryLower === 'texas') {
                 const result = await getRegions('US', 'county', 'Texas');
                 selectedCounties = result.regions.slice(0, numCounties).map(r => r.name);
                 granularity = 'county';
-              } else if (rawCountryLower === 'australia' || rawCountryLower === 'au') {
+              } else if (rawCountryLower === 'australia' || rawCountryLower === 'au' || isAustralianState) {
                 const result = await getRegions('AU', 'state');
                 selectedCounties = result.regions.slice(0, numCounties).map(r => r.name);
                 granularity = 'state';

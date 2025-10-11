@@ -71,10 +71,32 @@ export function getRegionCode(countryText: string): string {
     'california': 'US',
     'new york': 'US',
     'florida': 'US',
+    // Australian states map to AU
+    'new south wales': 'AU',
+    'nsw': 'AU',
+    'victoria': 'AU',
+    'vic': 'AU',
+    'queensland': 'AU',
+    'qld': 'AU',
+    'south australia': 'AU',
+    'sa': 'AU',
+    'western australia': 'AU',
+    'wa': 'AU',
+    'tasmania': 'AU',
+    'tas': 'AU',
+    'northern territory': 'AU',
+    'nt': 'AU',
+    'australian capital territory': 'AU',
+    'act': 'AU',
   };
 
   if (mapping[normalized]) {
     return mapping[normalized];
+  }
+
+  // Check if it contains ", AU" (e.g., "New South Wales, AU")
+  if (normalized.includes(', au')) {
+    return 'AU';
   }
 
   // Fallback: use as-is with warning
