@@ -395,9 +395,9 @@ Examples:
             const numCounties = params.number_countiestosearch || 1;
             
             if (location.toLowerCase() === 'texas') {
-              const texasCountiesData = await import("./data/texas_counties.json");
-              const texasCounties = texasCountiesData.default;
-              selectedCounties = texasCounties.slice(0, numCounties);
+              const { getRegions } = await import("./regions");
+              const texasCountiesResult = await getRegions('US', 'county', 'Texas');
+              selectedCounties = texasCountiesResult.regions.slice(0, numCounties).map(r => r.name);
               countryCode = 'Texas';
             } else {
               // Default to UK
@@ -1715,6 +1715,67 @@ Return structured data with the EXACT placeId provided above: "${placeId}"`;
   });
 
   // ===========================
+  // Region API Endpoints
+  // ===========================
+  
+  // GET /api/regions/list
+  app.get("/api/regions/list", async (req, res) => {
+    try {
+      const country = req.query.country as string;
+      const granularity = req.query.granularity as string;
+      const region_filter = req.query.region_filter as string | undefined;
+
+      if (!country || !granularity) {
+        return res.status(400).json({ 
+          error: "country and granularity are required query parameters" 
+        });
+      }
+
+      const { getRegions } = await import('./regions');
+      const result = await getRegions(country, granularity, region_filter);
+
+      return res.json(result);
+    } catch (e: any) {
+      console.error("regions/list error:", e);
+      return res.status(500).json({ error: e.message || "Failed to fetch regions" });
+    }
+  });
+
+  // GET /api/regions/debug/supported
+  app.get("/api/regions/debug/supported", async (req, res) => {
+    try {
+      const { getSupportedDatasets } = await import('./regions');
+      const datasets = await getSupportedDatasets();
+
+      return res.json({
+        datasets,
+        total_datasets: Object.keys(datasets).length,
+        total_regions: Object.values(datasets).reduce((sum, count) => sum + count, 0)
+      });
+    } catch (e: any) {
+      console.error("regions/debug/supported error:", e);
+      return res.status(500).json({ error: e.message || "Failed to get supported datasets" });
+    }
+  });
+
+  // POST /api/regions/clear-cache
+  app.post("/api/regions/clear-cache", async (req, res) => {
+    try {
+      const { clearRegionCache } = await import('./regions');
+      const count = await clearRegionCache();
+
+      return res.json({
+        success: true,
+        cleared_files: count,
+        message: `Cleared ${count} cached region file(s)`
+      });
+    } catch (e: any) {
+      console.error("regions/clear-cache error:", e);
+      return res.status(500).json({ error: e.message || "Failed to clear cache" });
+    }
+  });
+
+  // ===========================
   // POST /api/jobs/create
   // ===========================
   app.post("/api/jobs/create", async (req, res) => {
@@ -1733,9 +1794,9 @@ Return structured data with the EXACT placeId provided above: "${placeId}"`;
 
       // Get regions
       const { getRegions } = await import('./regions');
-      const regions = getRegions({ country, granularity, region_filter });
+      const regionsResult = await getRegions(country, granularity, region_filter);
 
-      if (regions.length === 0) {
+      if (regionsResult.regions.length === 0) {
         return res.status(400).json({ 
           error: "No regions found matching the criteria" 
         });
@@ -1750,7 +1811,7 @@ Return structured data with the EXACT placeId provided above: "${placeId}"`;
         business_type,
         country,
         granularity,
-        region_ids: regions.map(r => r.id),
+        region_ids: regionsResult.regions.map(r => r.id),
         cursor: 0,
         processed: [],
         failed: [],
@@ -1765,7 +1826,7 @@ Return structured data with the EXACT placeId provided above: "${placeId}"`;
 
       return res.json({
         jobId,
-        total_regions: regions.length
+        total_regions: regionsResult.regions.length
       });
     } catch (e: any) {
       console.error("jobs/create error:", e);
@@ -1863,12 +1924,9 @@ Return structured data with the EXACT placeId provided above: "${placeId}"`;
       let recent_region: string | undefined;
       if (job.processed.length > 0) {
         const { getRegions } = await import('./regions');
-        const regions = getRegions({ 
-          country: job.country, 
-          granularity: job.granularity 
-        });
+        const regionsResult = await getRegions(job.country, job.granularity);
         const lastProcessed = job.processed[job.processed.length - 1];
-        const region = regions.find(r => r.id === lastProcessed);
+        const region = regionsResult.regions.find(r => r.id === lastProcessed);
         recent_region = region?.name;
       }
 
@@ -1920,13 +1978,13 @@ Return structured data with the EXACT placeId provided above: "${placeId}"`;
       }
 
       const { getRegions } = await import('./regions');
-      const regions = getRegions({
-        country: country as 'UK' | 'US',
-        granularity: granularity as 'county' | 'borough' | 'state',
-        region_filter: region_filter as string | undefined
-      });
+      const regionsResult = await getRegions(
+        country as string,
+        granularity as string,
+        region_filter as string | undefined
+      );
 
-      return res.json(regions);
+      return res.json(regionsResult);
     } catch (e: any) {
       console.error("regions/list error:", e);
       return res.status(500).json({ error: e.message || "Failed to load regions" });

@@ -142,8 +142,8 @@ export async function bubbleRunBatch(params: BubbleRunBatchRequest): Promise<Bub
     countyCount = counties.length;
     console.log(`📍 Using explicit counties from confirmation:`, counties);
   } else if (countyCount > 1) {
-    const ukCounties = getRegions({ country: 'UK', granularity: 'county' });
-    counties = ukCounties.slice(0, countyCount).map(r => r.name);
+    const ukCountiesResult = await getRegions('UK', 'county');
+    counties = ukCountiesResult.regions.slice(0, countyCount).map(r => r.name);
     console.log(`🗺️ Auto-selected ${counties.length} counties:`, counties);
   }
 

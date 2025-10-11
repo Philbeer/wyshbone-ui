@@ -68,7 +68,41 @@ app.use((req, res, next) => {
     port,
     host: "0.0.0.0",
     reusePort: true,
-  }, () => {
+  }, async () => {
     log(`serving on port ${port}`);
+    
+    // Print region service documentation
+    console.log('\n' + '='.repeat(80));
+    console.log('📍 HYBRID REGION SERVICE - ISO-Safe Country Codes for Google Places');
+    console.log('='.repeat(80));
+    console.log('\n🔍 Example API Endpoints:');
+    console.log(`   GET  http://localhost:${port}/api/regions/list?country=UK&granularity=county`);
+    console.log(`   GET  http://localhost:${port}/api/regions/list?country=UK&granularity=borough&region_filter=London`);
+    console.log(`   GET  http://localhost:${port}/api/regions/list?country=US&granularity=state`);
+    console.log(`   GET  http://localhost:${port}/api/regions/list?country=US&granularity=county&region_filter=Texas`);
+    console.log(`   GET  http://localhost:${port}/api/regions/list?country=IE&granularity=county`);
+    console.log(`   GET  http://localhost:${port}/api/regions/list?country=AU&granularity=state`);
+    console.log(`   GET  http://localhost:${port}/api/regions/list?country=CA&granularity=province`);
+    console.log(`   GET  http://localhost:${port}/api/regions/debug/supported`);
+    console.log(`   POST http://localhost:${port}/api/regions/clear-cache`);
+    
+    console.log('\n🗺️  Country Code Mapping:');
+    console.log('   UK → GB   |   US → US   |   Ireland → IE   |   Australia → AU   |   Canada → CA');
+    
+    try {
+      const { getSupportedDatasets } = await import('./regions');
+      const datasets = await getSupportedDatasets();
+      console.log('\n📊 Local Datasets Available:');
+      for (const [file, count] of Object.entries(datasets)) {
+        console.log(`   ✓ ${file.padEnd(35)} ${count} regions`);
+      }
+    } catch (err) {
+      console.log('\n⚠️  Could not load dataset info');
+    }
+    
+    console.log('\n🌐 Google Places Integration:');
+    console.log('   Jobs will pass regionCode (ISO alpha-2) to Google Places API');
+    console.log('   Example: UK regions → regionCode: "GB", US regions → regionCode: "US"');
+    console.log('\n' + '='.repeat(80) + '\n');
   });
 })();

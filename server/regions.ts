@@ -1,72 +1,310 @@
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
+// Hybrid Region Service with ISO-safe country codes for Google Places
+import * as fs from 'fs/promises';
+import * as path from 'path';
+import * as crypto from 'crypto';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-type Region = {
+export interface Region {
   id: string;
   name: string;
-  parent_id?: string;
-  code: string;
-};
-
-type RegionCache = {
-  uk_counties: Region[];
-  london_boroughs: Region[];
-  us_states: Region[];
-  us_counties_texas: Region[];
-};
-
-let cache: RegionCache | null = null;
-
-function loadRegionsData(): RegionCache {
-  if (cache) return cache;
-
-  const dataDir = path.join(__dirname, 'data');
-  
-  cache = {
-    uk_counties: JSON.parse(fs.readFileSync(path.join(dataDir, 'uk_counties.json'), 'utf-8')),
-    london_boroughs: JSON.parse(fs.readFileSync(path.join(dataDir, 'london_boroughs.json'), 'utf-8')),
-    us_states: JSON.parse(fs.readFileSync(path.join(dataDir, 'us_states.json'), 'utf-8')),
-    us_counties_texas: JSON.parse(fs.readFileSync(path.join(dataDir, 'us_counties_texas.json'), 'utf-8'))
-  };
-
-  return cache;
+  code?: string;
+  country_code: string;
 }
 
-export function getRegions(params: {
-  country: 'UK' | 'US';
-  granularity: 'county' | 'borough' | 'state';
-  region_filter?: string;
-}): Region[] {
-  const data = loadRegionsData();
-  let regions: Region[] = [];
+export interface RegionsResult {
+  source: 'local' | 'remote_cached';
+  country_code: string;
+  regions: Region[];
+}
 
-  if (params.country === 'UK') {
-    if (params.granularity === 'county') {
-      regions = data.uk_counties;
-    } else if (params.granularity === 'borough') {
-      regions = data.london_boroughs;
+// Helper: Slugify name for ID fallback
+export function slugifyName(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+}
+
+// Helper: Ensure code is uppercase and trimmed (guards against " gb" issues)
+export function toCodeSafe(value: string): string {
+  return value.trim().toUpperCase();
+}
+
+// ISO country code mapping
+export function getRegionCode(countryText: string): string {
+  const normalized = countryText.toLowerCase().trim();
+  
+  const mapping: Record<string, string> = {
+    'uk': 'GB',
+    'united kingdom': 'GB',
+    'england': 'GB',
+    'scotland': 'GB',
+    'wales': 'GB',
+    'northern ireland': 'GB',
+    'britain': 'GB',
+    'great britain': 'GB',
+    'us': 'US',
+    'usa': 'US',
+    'united states': 'US',
+    'america': 'US',
+    'fr': 'FR',
+    'france': 'FR',
+    'au': 'AU',
+    'australia': 'AU',
+    'ca': 'CA',
+    'canada': 'CA',
+    'ie': 'IE',
+    'ireland': 'IE',
+    'eire': 'IE',
+    'de': 'DE',
+    'germany': 'DE',
+    'es': 'ES',
+    'spain': 'ES',
+    'it': 'IT',
+    'italy': 'IT',
+    'nl': 'NL',
+    'netherlands': 'NL',
+    'be': 'BE',
+    'belgium': 'BE',
+    'pt': 'PT',
+    'portugal': 'PT',
+    'texas': 'US', // US state maps to US
+    'california': 'US',
+    'new york': 'US',
+    'florida': 'US',
+  };
+
+  if (mapping[normalized]) {
+    return mapping[normalized];
+  }
+
+  // Fallback: use as-is with warning
+  const fallback = toCodeSafe(countryText);
+  console.warn(`⚠️ Unknown country "${countryText}", using fallback code: ${fallback}`);
+  return fallback;
+}
+
+// Load local regions from JSON datasets
+export async function loadLocalRegions(
+  country: string,
+  granularity: string,
+  regionFilter?: string
+): Promise<Region[] | null> {
+  const dataDir = path.join(process.cwd(), 'server', 'data');
+  
+  // Map (country, granularity, regionFilter?) to dataset file
+  const countryNorm = country.toLowerCase().trim();
+  const granNorm = granularity.toLowerCase().trim();
+  const filterNorm = regionFilter?.toLowerCase().trim();
+
+  let dataFile: string | null = null;
+
+  // UK mappings
+  if (countryNorm === 'uk' || countryNorm === 'united kingdom' || countryNorm === 'gb') {
+    if (granNorm === 'county') {
+      dataFile = 'uk_counties.json';
+    } else if (granNorm === 'borough' && filterNorm === 'london') {
+      dataFile = 'london_boroughs.json';
+    } else if (granNorm === 'devolved' || granNorm === 'council') {
+      dataFile = 'gb_devolved.json';
     }
-  } else if (params.country === 'US') {
-    if (params.granularity === 'state') {
-      regions = data.us_states;
-    } else if (params.granularity === 'county') {
-      // For now, only Texas counties available
-      regions = data.us_counties_texas;
+  }
+  // US mappings
+  else if (countryNorm === 'us' || countryNorm === 'usa' || countryNorm === 'united states') {
+    if (granNorm === 'state') {
+      dataFile = 'us_states.json';
+    } else if (granNorm === 'county' && regionFilter) {
+      // Check if we have a state-specific county file
+      const stateFile = `us_counties_by_state/${regionFilter}.json`;
+      const statePath = path.join(dataDir, stateFile);
+      try {
+        await fs.access(statePath);
+        dataFile = stateFile;
+      } catch {
+        return null; // State county file doesn't exist
+      }
+    }
+  }
+  // Ireland
+  else if (countryNorm === 'ie' || countryNorm === 'ireland') {
+    if (granNorm === 'county') {
+      dataFile = 'ie_counties.json';
+    }
+  }
+  // Australia
+  else if (countryNorm === 'au' || countryNorm === 'australia') {
+    if (granNorm === 'state' || granNorm === 'territory') {
+      dataFile = 'au_states.json';
+    }
+  }
+  // Canada
+  else if (countryNorm === 'ca' || countryNorm === 'canada') {
+    if (granNorm === 'province' || granNorm === 'territory') {
+      dataFile = 'ca_provinces.json';
     }
   }
 
-  // Apply region_filter if provided
-  if (params.region_filter) {
-    const filter = params.region_filter.toLowerCase();
-    regions = regions.filter(r => 
-      r.name.toLowerCase().includes(filter) || 
-      (r.parent_id && r.parent_id.toLowerCase().includes(filter))
-    );
+  if (!dataFile) {
+    return null; // No local dataset available
   }
 
-  return regions;
+  try {
+    const filePath = path.join(dataDir, dataFile);
+    const content = await fs.readFile(filePath, 'utf-8');
+    const regions: Region[] = JSON.parse(content);
+    console.log(`✅ Loaded ${regions.length} regions from local dataset: ${dataFile}`);
+    return regions;
+  } catch (error: any) {
+    console.warn(`⚠️ Failed to load local dataset ${dataFile}:`, error.message);
+    return null;
+  }
+}
+
+// Fetch remote regions (fallback provider - stub for now)
+export async function fetchRemoteRegions(
+  country: string,
+  granularity: string,
+  regionFilter?: string
+): Promise<Region[]> {
+  // Stub: In production, call GeoNames or Overpass API
+  console.log(`🌐 Fetching remote regions for ${country}/${granularity}/${regionFilter || 'all'}`);
+  
+  // For now, return empty array (no remote provider configured)
+  // TODO: Implement GeoNames or Overpass integration
+  console.warn('⚠️ Remote region provider not configured - returning empty results');
+  return [];
+}
+
+// Get cache file path for remote results
+function getCachePath(country: string, granularity: string, regionFilter?: string): string {
+  const cacheDir = path.join(process.cwd(), 'server', 'cache', 'regions');
+  const key = `${country}_${granularity}_${regionFilter || 'all'}`;
+  const hash = crypto.createHash('md5').update(key).digest('hex');
+  return path.join(cacheDir, `${hash}.json`);
+}
+
+// Check if cache is valid (< 24 hours old)
+async function isCacheValid(cachePath: string): Promise<boolean> {
+  try {
+    const stats = await fs.stat(cachePath);
+    const ageMs = Date.now() - stats.mtimeMs;
+    const maxAgeMs = 24 * 60 * 60 * 1000; // 24 hours
+    return ageMs < maxAgeMs;
+  } catch {
+    return false;
+  }
+}
+
+// Load cached regions
+async function loadCache(cachePath: string): Promise<Region[] | null> {
+  try {
+    const content = await fs.readFile(cachePath, 'utf-8');
+    const data = JSON.parse(content);
+    console.log(`✅ Loaded ${data.regions.length} regions from cache`);
+    return data.regions;
+  } catch {
+    return null;
+  }
+}
+
+// Save to cache
+async function saveCache(cachePath: string, regions: Region[]): Promise<void> {
+  try {
+    await fs.mkdir(path.dirname(cachePath), { recursive: true });
+    await fs.writeFile(cachePath, JSON.stringify({ regions, cached_at: new Date().toISOString() }, null, 2));
+    console.log(`✅ Saved ${regions.length} regions to cache`);
+  } catch (error: any) {
+    console.warn(`⚠️ Failed to save cache:`, error.message);
+  }
+}
+
+// Main function: Get regions with fallback logic
+export async function getRegions(
+  country: string,
+  granularity: string,
+  regionFilter?: string
+): Promise<RegionsResult> {
+  const country_code = getRegionCode(country);
+
+  // 1) Try local dataset
+  const localRegions = await loadLocalRegions(country, granularity, regionFilter);
+  if (localRegions && localRegions.length > 0) {
+    return {
+      source: 'local',
+      country_code,
+      regions: localRegions,
+    };
+  }
+
+  // 2) Try cache
+  const cachePath = getCachePath(country, granularity, regionFilter);
+  if (await isCacheValid(cachePath)) {
+    const cachedRegions = await loadCache(cachePath);
+    if (cachedRegions && cachedRegions.length > 0) {
+      return {
+        source: 'remote_cached',
+        country_code,
+        regions: cachedRegions,
+      };
+    }
+  }
+
+  // 3) Fetch remote, save to cache, return
+  const remoteRegions = await fetchRemoteRegions(country, granularity, regionFilter);
+  if (remoteRegions.length > 0) {
+    await saveCache(cachePath, remoteRegions);
+  }
+
+  return {
+    source: 'remote_cached',
+    country_code,
+    regions: remoteRegions,
+  };
+}
+
+// Get supported local datasets
+export async function getSupportedDatasets(): Promise<Record<string, number>> {
+  const dataDir = path.join(process.cwd(), 'server', 'data');
+  const datasets: Record<string, number> = {};
+
+  const files = [
+    'uk_counties.json',
+    'london_boroughs.json',
+    'gb_devolved.json',
+    'us_states.json',
+    'us_counties_by_state/Texas.json',
+    'ie_counties.json',
+    'au_states.json',
+    'ca_provinces.json',
+  ];
+
+  for (const file of files) {
+    try {
+      const content = await fs.readFile(path.join(dataDir, file), 'utf-8');
+      const data = JSON.parse(content);
+      datasets[file] = Array.isArray(data) ? data.length : 0;
+    } catch {
+      // File doesn't exist or can't be read
+    }
+  }
+
+  return datasets;
+}
+
+// Clear region cache
+export async function clearRegionCache(): Promise<number> {
+  const cacheDir = path.join(process.cwd(), 'server', 'cache', 'regions');
+  try {
+    const files = await fs.readdir(cacheDir);
+    let count = 0;
+    for (const file of files) {
+      if (file.endsWith('.json')) {
+        await fs.unlink(path.join(cacheDir, file));
+        count++;
+      }
+    }
+    console.log(`✅ Cleared ${count} cached region files`);
+    return count;
+  } catch {
+    return 0;
+  }
 }

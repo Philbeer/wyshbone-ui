@@ -16,6 +16,7 @@ async function callBubbleForRegion(params: {
   country: string;
   region_id: string;
   region_name: string;
+  region_code: string;
 }): Promise<{ ok: boolean; status: number; error?: string }> {
   if (!BASE) {
     throw new Error("BUBBLE_BASE_URL is not configured");
@@ -31,6 +32,7 @@ async function callBubbleForRegion(params: {
         business_type: params.business_type,
         country: params.country,
         region_id: params.region_id,
+        region_code: params.region_code, // ISO country code for Google Places
       })
     });
 
@@ -62,10 +64,8 @@ export async function runJob(jobId: string): Promise<void> {
   console.log(`🚀 Starting job ${jobId}: ${job.business_type} across ${job.region_ids.length} regions`);
 
   // Get region details
-  const regions = getRegions({
-    country: job.country,
-    granularity: job.granularity,
-  });
+  const regionsResult = await getRegions(job.country, job.granularity);
+  const regions = regionsResult.regions;
 
   const regionMap = new Map(regions.map(r => [r.id, r]));
   const runningInfo = runningJobs.get(jobId);
@@ -101,6 +101,7 @@ export async function runJob(jobId: string): Promise<void> {
       country: job.country,
       region_id: regionId,
       region_name: region.name,
+      region_code: region.country_code, // ISO country code for Google Places
     });
 
     // Update job progress
