@@ -599,16 +599,40 @@ Examples:
             // Normalize country code to ISO alpha-2 (US, GB, IE, AU, CA)
             const countryCode = getRegionCode(rawCountry);
             
-            // Load counties if not provided
+            // Load regions if not provided based on country
             let selectedCounties = params.counties;
+            let granularity = 'county'; // Default granularity
+            
             if (!selectedCounties) {
-              if (rawCountry.toLowerCase() === 'texas') {
-                const { getRegions } = await import("./regions");
-                const texasCountiesResult = await getRegions('US', 'county', 'Texas');
-                selectedCounties = texasCountiesResult.regions.slice(0, numCounties).map(r => r.name);
+              const { getRegions } = await import("./regions");
+              const rawCountryLower = rawCountry.toLowerCase().trim();
+              
+              // Determine which dataset to use based on country
+              if (rawCountryLower === 'texas') {
+                const result = await getRegions('US', 'county', 'Texas');
+                selectedCounties = result.regions.slice(0, numCounties).map(r => r.name);
+                granularity = 'county';
+              } else if (rawCountryLower === 'australia' || rawCountryLower === 'au') {
+                const result = await getRegions('AU', 'state');
+                selectedCounties = result.regions.slice(0, numCounties).map(r => r.name);
+                granularity = 'state';
+              } else if (rawCountryLower === 'ireland' || rawCountryLower === 'ie') {
+                const result = await getRegions('IE', 'county');
+                selectedCounties = result.regions.slice(0, numCounties).map(r => r.name);
+                granularity = 'county';
+              } else if (rawCountryLower === 'canada' || rawCountryLower === 'ca') {
+                const result = await getRegions('CA', 'province');
+                selectedCounties = result.regions.slice(0, numCounties).map(r => r.name);
+                granularity = 'province';
+              } else if (rawCountryLower === 'us' || rawCountryLower === 'usa' || rawCountryLower === 'united states') {
+                const result = await getRegions('US', 'state');
+                selectedCounties = result.regions.slice(0, numCounties).map(r => r.name);
+                granularity = 'state';
               } else {
-                const ukCountiesData = await import("./data/uk_counties.json");
-                selectedCounties = ukCountiesData.default.slice(0, numCounties).map((c: any) => c.name);
+                // Default to UK counties
+                const result = await getRegions('UK', 'county');
+                selectedCounties = result.regions.slice(0, numCounties).map(r => r.name);
+                granularity = 'county';
               }
             }
 
