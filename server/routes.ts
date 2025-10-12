@@ -620,6 +620,10 @@ Examples:
               const ukCities = ['london', 'manchester', 'birmingham', 'liverpool', 'leeds', 'bristol', 'glasgow', 'edinburgh', 'cardiff', 'belfast'];
               const isUKCity = ukCities.includes(rawCountryLower);
               
+              // Check if it's an Australian city
+              const auCities = ['melbourne', 'sydney', 'brisbane', 'perth', 'adelaide', 'gold coast', 'canberra', 'newcastle', 'hobart', 'darwin'];
+              const isAUCity = auCities.includes(rawCountryLower);
+              
               // Check if it's a US state (common states)
               const usStates = ['alabama', 'alaska', 'arizona', 'arkansas', 'california', 'colorado', 'connecticut', 'delaware', 'florida', 'georgia', 'hawaii', 'idaho', 'illinois', 'indiana', 'iowa', 'kansas', 'kentucky', 'louisiana', 'maine', 'maryland', 'massachusetts', 'michigan', 'minnesota', 'mississippi', 'missouri', 'montana', 'nebraska', 'nevada', 'new hampshire', 'new jersey', 'new mexico', 'new york', 'north carolina', 'north dakota', 'ohio', 'oklahoma', 'oregon', 'pennsylvania', 'rhode island', 'south carolina', 'south dakota', 'tennessee', 'texas', 'utah', 'vermont', 'virginia', 'washington', 'west virginia', 'wisconsin', 'wyoming'];
               const isUSState = usStates.includes(rawCountryLower);
@@ -627,6 +631,13 @@ Examples:
               // Determine which dataset to use based on country
               if (isUKCity) {
                 // Specific UK city mentioned (e.g., "London") → use that exact city
+                const capitalizedCity = rawCountry.split(' ').map((word: string) => 
+                  word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+                ).join(' ');
+                selectedCounties = [capitalizedCity];
+                granularity = 'city';
+              } else if (isAUCity) {
+                // Specific Australian city mentioned (e.g., "Melbourne") → use that exact city
                 const capitalizedCity = rawCountry.split(' ').map((word: string) => 
                   word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
                 ).join(' ');
