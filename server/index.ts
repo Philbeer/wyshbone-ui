@@ -100,6 +100,17 @@ app.use((req, res, next) => {
       console.log('\n⚠️  Could not load dataset info');
     }
     
+    console.log('\n🌐 Dynamic Region Lookup:');
+    const hasGoogleKey = !!process.env.GOOGLE_API_KEY_DEFAULT;
+    if (hasGoogleKey) {
+      console.log('   ✅ Google Places API enabled for dynamic region discovery');
+      console.log('   📍 Automatic fallback: Unknown regions will be fetched from Google Places');
+      console.log('   🔄 Results cached for 24 hours');
+    } else {
+      console.log('   ⚠️  Google Places API key not set (GOOGLE_API_KEY_DEFAULT)');
+      console.log('   📍 Only local datasets available (no dynamic region discovery)');
+    }
+    
     console.log('\n🌐 Google Places Integration:');
     console.log('   Jobs will pass regionCode (ISO alpha-2) to Google Places API');
     console.log('   Example: UK regions → regionCode: "GB", US regions → regionCode: "US"');

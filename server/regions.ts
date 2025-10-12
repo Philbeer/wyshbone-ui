@@ -3,6 +3,8 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as crypto from 'crypto';
 
+const GOOGLE_API_KEY = process.env.GOOGLE_API_KEY_DEFAULT || "";
+
 export interface Region {
   id: string;
   name: string;
@@ -139,6 +141,71 @@ export function getRegionCode(countryText: string): string {
   return fallback;
 }
 
+// Dynamic region lookup using Google Places API Text Search
+export async function fetchRegionsDynamically(
+  countryCode: string,
+  granularity: string,
+  regionFilter?: string
+): Promise<Region[]> {
+  if (!GOOGLE_API_KEY) {
+    console.warn("⚠️ GOOGLE_API_KEY_DEFAULT not set, cannot perform dynamic region lookup");
+    return [];
+  }
+
+  try {
+    // Build search query based on granularity
+    let query = '';
+    if (regionFilter) {
+      query = `${granularity}s in ${regionFilter}, ${countryCode}`;
+    } else {
+      const granularityMap: Record<string, string> = {
+        'county': 'counties',
+        'state': 'states',
+        'province': 'provinces',
+        'city': 'cities',
+        'borough': 'boroughs',
+        'municipality': 'municipalities',
+        'district': 'districts'
+      };
+      const plural = granularityMap[granularity] || granularity;
+      query = `${plural} in ${countryCode}`;
+    }
+
+    const url = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(query)}&type=administrative_area_level_2&key=${GOOGLE_API_KEY}`;
+    
+    console.log(`🌐 Fetching regions dynamically from Google Places API: "${query}"`);
+    
+    const response = await fetch(url);
+    const data = await response.json();
+
+    if (data.status !== 'OK' && data.status !== 'ZERO_RESULTS') {
+      console.warn(`⚠️ Google Places API returned status: ${data.status}`);
+      return [];
+    }
+
+    if (!data.results || data.results.length === 0) {
+      console.log(`📍 No dynamic regions found for: ${query}`);
+      return [];
+    }
+
+    // Extract region names from Google Places results
+    const regions: Region[] = data.results.map((place: any, index: number) => {
+      const name = place.name || place.formatted_address?.split(',')[0] || `Region ${index + 1}`;
+      return {
+        id: slugifyName(name),
+        name: name,
+        country_code: toCodeSafe(countryCode)
+      };
+    });
+
+    console.log(`✅ Found ${regions.length} regions dynamically from Google Places API`);
+    return regions;
+  } catch (error: any) {
+    console.error(`❌ Error fetching regions dynamically:`, error.message);
+    return [];
+  }
+}
+
 // Load local regions from JSON datasets
 export async function loadLocalRegions(
   country: string,
@@ -215,19 +282,17 @@ export async function loadLocalRegions(
   }
 }
 
-// Fetch remote regions (fallback provider - stub for now)
+// Fetch remote regions using dynamic Google Places API lookup
 export async function fetchRemoteRegions(
   country: string,
   granularity: string,
   regionFilter?: string
 ): Promise<Region[]> {
-  // Stub: In production, call GeoNames or Overpass API
-  console.log(`🌐 Fetching remote regions for ${country}/${granularity}/${regionFilter || 'all'}`);
+  const country_code = getRegionCode(country);
+  console.log(`🌐 Using dynamic region lookup for ${country}/${granularity}/${regionFilter || 'all'}`);
   
-  // For now, return empty array (no remote provider configured)
-  // TODO: Implement GeoNames or Overpass integration
-  console.warn('⚠️ Remote region provider not configured - returning empty results');
-  return [];
+  // Use Google Places API for dynamic region discovery
+  return await fetchRegionsDynamically(country_code, granularity, regionFilter);
 }
 
 // Get cache file path for remote results
