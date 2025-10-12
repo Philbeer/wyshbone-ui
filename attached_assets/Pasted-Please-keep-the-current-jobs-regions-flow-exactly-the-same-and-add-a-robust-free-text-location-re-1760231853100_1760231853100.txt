@@ -1,0 +1,108 @@
+Please keep the current jobs + regions flow exactly the same, and add a robust free-text location resolver so the chat understands inputs like:
+- "pubs in Melbourne"
+- "bars in Texas"
+- "breweries in London"
+- "dentists in Victoria Australia"
+- "cafés in Dublin"
+- "coffee shops in Auckland NZ"
+
+GOAL
+Turn a user’s free-text into { country, country_code, granularity, region_filter } without requiring the user to know our exact granularity keywords. Prefer no follow-ups; ask one clarifying question only when unavoidable.
+
+TASKS
+
+A) LOCATION RESOLVER (server/locationResolver.ts)
+1) Export async function resolveLocation(text: string): Promise<{
+   country: string,           // e.g. "Australia"
+   country_code: string,      // ISO alpha-2, e.g. "AU"
+   granularity: "state" | "province" | "county" | "borough" | "department" | "region", // our internal
+   region_filter?: string,    // e.g. "Victoria" or "London" or "Texas"
+   confidence: number,        // 0..1
+   note?: string              // any assumptions made
+}>
+2) Implementation:
+   - Normalize: lowercase, trim, collapse spaces, strip punctuation.
+   - Fast dictionary for common English-speaking places:
+     - Country aliases → ISO: UK/England/Scotland/Wales/Northern Ireland→GB; US/USA/America→US; AU→AU; NZ→NZ; IE→IE; CA→CA.
+     - Big cities → country (and state where appropriate):
+       Melbourne→AU (state Victoria), Sydney→AU (NSW), Brisbane→AU (QLD), Perth→AU (WA), Adelaide→AU (SA)
+       London→GB (special: borough granularity), Manchester→GB (England), Birmingham→GB
+       Dublin→IE; Auckland→NZ; Toronto/Vancouver/Montreal→CA; New York/Los Angeles/Chicago/Texas/California→US
+   - If text contains a recognized COUNTRY ONLY → set {country, country_code}, leave granularity undefined; we’ll default later.
+   - If text contains a recognized STATE/PROVINCE/COUNTY name (e.g. "Texas", "Victoria", "Ontario") → set {country, country_code, granularity="state"|"province"|"county", region_filter}.
+   - If text contains a major CITY:
+     - Look up its enclosing admin area(s) via a small static city→country/state map (add a small JSON under /server/data/city_hints.json with top global cities; we already have UK/US/AU/IE/CA/NZ examples).
+     - Return {country, country_code, granularity based on country default (UK→"county"/"borough" when city is London; AU→"state"; US→"state"/"county"), region_filter=enclosing unit name}.
+   - If none match and REMOTE fallback is allowed, try GeoNames or Overpass (if enabled) to get the admin1 name and country code. Cache the result 24h in /server/cache/geocode.
+   - Always uppercase and trim the country_code (Google Places New requirement). Use existing getRegionCode() if present.
+
+3) Default granularity rules (if not specified):
+   - GB/UK:
+     - If region_filter = "London" → granularity="borough"
+     - Else granularity="county"
+   - AU → granularity="state"
+   - US → granularity="state" (if region_filter is a state). If text says "counties in <state>", set granularity="county" and region_filter=<state>.
+   - IE → granularity="county"
+   - CA → granularity="province"
+   - NZ → granularity="region"
+   - Otherwise granularity="region" and attempt remote fallback (if configured); else ask one clarifying question.
+
+B) INTEGRATION TO CHAT (/api/chat handler)
+1) After extracting business_type and raw location text from the user message, call resolveLocation(rawLocation).
+2) If confidence ≥ 0.7 → proceed silently.
+   If 0.4–0.7 → proceed but append a short “Note: assuming <region> in <country>” to the streamed response.
+   If < 0.4 → ask ONE clarifying question: “Did you mean <Option A> in <Country X> or <Option B> in <Country Y>?”. Offer top 2 guesses.
+3) Pass the resolved { country, country_code, granularity, region_filter } to /api/jobs/create (do NOT enumerate regions in the prompt; region listing still comes from /api/regions/list).
+
+C) /api/regions/list ADAPTER (no breaking changes)
+- Keep existing logic. Add support for when only country is provided and region_filter is empty:
+  - Return the top-level admin set for that country by default (e.g., AU→states, US→states, GB→counties).
+- If (country=GB & region_filter=London & granularity not provided) → granularity="borough".
+- Ensure every region item includes "country_code" (uppercase, trimmed).
+
+D) GOOGLE PLACES NEW COMPLIANCE
+- Wherever regionCode is sent to Google, ensure it is the ISO alpha-2 from the resolver (uppercase, trimmed). Log a warning if it’s missing.
+- Example payload:
+  {
+    "textQuery": "<business_type> in <region_filter || country>",
+    "regionCode": "<country_code>"
+  }
+
+E) CITY HINTS SEED (server/data/city_hints.json)
+Create a small starter file with entries like:
+[
+  { "city":"melbourne", "country":"Australia", "country_code":"AU", "admin_name":"Victoria", "preferred_granularity":"state" },
+  { "city":"sydney", "country":"Australia", "country_code":"AU", "admin_name":"New South Wales", "preferred_granularity":"state" },
+  { "city":"brisbane", "country":"Australia", "country_code":"AU", "admin_name":"Queensland", "preferred_granularity":"state" },
+  { "city":"perth", "country":"Australia", "country_code":"AU", "admin_name":"Western Australia", "preferred_granularity":"state" },
+  { "city":"adelaide", "country":"Australia", "country_code":"AU", "admin_name":"South Australia", "preferred_granularity":"state" },
+  { "city":"london", "country":"United Kingdom", "country_code":"GB", "admin_name":"London", "preferred_granularity":"borough" },
+  { "city":"manchester", "country":"United Kingdom", "country_code":"GB", "admin_name":"Greater Manchester", "preferred_granularity":"county" },
+  { "city":"birmingham", "country":"United Kingdom", "country_code":"GB", "admin_name":"West Midlands", "preferred_granularity":"county" },
+  { "city":"dublin", "country":"Ireland", "country_code":"IE", "admin_name":"Dublin", "preferred_granularity":"county" },
+  { "city":"auckland", "country":"New Zealand", "country_code":"NZ", "admin_name":"Auckland Region", "preferred_granularity":"region" },
+  { "city":"new york", "country":"United States", "country_code":"US", "admin_name":"New York", "preferred_granularity":"state" },
+  { "city":"los angeles", "country":"United States", "country_code":"US", "admin_name":"California", "preferred_granularity":"state" },
+  { "city":"chicago", "country":"United States", "country_code":"US", "admin_name":"Illinois", "preferred_granularity":"state" },
+  { "city":"toronto", "country":"Canada", "country_code":"CA", "admin_name":"Ontario", "preferred_granularity":"province" },
+  { "city":"vancouver", "country":"Canada", "country_code":"CA", "admin_name":"British Columbia", "preferred_granularity":"province" },
+  { "city":"montreal", "country":"Canada", "country_code":"CA", "admin_name":"Quebec", "preferred_granularity":"province" }
+]
+Use this first; later we can add a remote fallback (GeoNames/Overpass) and cache.
+
+F) TESTS / EXAMPLES
+Add console tests and sample URLs after build:
+- resolveLocation("pubs in Melbourne") → {country:"Australia", country_code:"AU", granularity:"state", region_filter:"Victoria", confidence>=0.8}
+- resolveLocation("bars in Texas") → {country:"United States", country_code:"US", granularity:"state", region_filter:"Texas"}
+- resolveLocation("breweries in London") → {country:"United Kingdom", country_code:"GB", granularity:"borough", region_filter:"London"}
+- resolveLocation("dentists in Dublin") → {country:"Ireland", country_code:"IE", granularity:"county", region_filter:"Dublin"}
+
+Then show that /api/jobs/create uses these resolved values and proceeds without asking the user to supply granularity explicitly.
+
+G) FALLBACK PROMPTING (only when needed)
+- If resolver confidence < 0.4, send ONE clarification to the user:
+  “Did you mean <Place, Country> or <Place, Country>? I can proceed with the best match if you prefer.”
+- Otherwise proceed and add a footnote like:
+  “Note: assuming Melbourne, Victoria, Australia.”
+
+Please implement, build, and share console logs of the four example resolutions above. Do not change any other behavior.

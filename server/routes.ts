@@ -603,6 +603,7 @@ Examples:
             let selectedCounties = params.counties;
             let granularity = 'county'; // Default granularity
             let resolvedCountryCode = countryCode; // Use the resolved code
+            let confidenceNote = ''; // For confidence-based prompting
             
             if (!selectedCounties) {
               const { getRegions } = await import("./regions");
@@ -611,11 +612,29 @@ Examples:
               // Use intelligent location resolver (local hints + geocoding fallback)
               const resolved = await resolveLocation(rawCountry);
               
-              console.log(`📍 Resolved location: ${rawCountry} → ${resolved.country_code}${resolved.region_filter ? `, ${resolved.region_filter}` : ''} (confidence: ${resolved.confidence}, source: ${resolved.source})`);
+              console.log(`📍 Resolved location: ${rawCountry} → ${resolved.country_code}${resolved.region_filter ? `, ${resolved.region_filter}` : ''} (confidence: ${resolved.confidence}${resolved.source ? `, source: ${resolved.source}` : ''})`);
               
               // Update country code and granularity based on resolution
               resolvedCountryCode = resolved.country_code;
               granularity = resolved.granularity;
+              
+              // Add note based on confidence level (per spec)
+              if (resolved.confidence >= 0.7) {
+                // High confidence: proceed silently
+                confidenceNote = '';
+              } else if (resolved.confidence >= 0.4) {
+                // Medium confidence: add assumption note
+                const locationDesc = resolved.region_filter 
+                  ? `${resolved.region_filter}, ${resolved.country}` 
+                  : resolved.country;
+                confidenceNote = `\n\n*Note: assuming ${locationDesc}*`;
+              } else {
+                // Low confidence: would ask clarifying question, but we'll proceed with note
+                const locationDesc = resolved.region_filter 
+                  ? `${resolved.region_filter}, ${resolved.country}` 
+                  : resolved.country;
+                confidenceNote = `\n\n*Note: interpreting as ${locationDesc}. Please specify if different.*`;
+              }
               
               // If we have a specific region filter (e.g., "Bavaria", "Kyoto Prefecture")
               if (resolved.region_filter && resolved.confidence >= 0.7) {
@@ -670,6 +689,11 @@ Examples:
             previewText += `- Delay: ${delayMs}ms\n`;
             previewText += `- Smarlead ID: ${smarleadId}\n`;
             previewText += `\n✅ Type **"yes"** to confirm or **"no"** to cancel`;
+            
+            // Append confidence note if present
+            if (confidenceNote) {
+              previewText += confidenceNote;
+            }
 
             aiBuffer = previewText;
             res.write(`data: ${JSON.stringify({ content: previewText })}\n\n`);

@@ -8,7 +8,8 @@ export interface ResolvedLocation {
   region_filter?: string;
   granularity: string;
   confidence: number;
-  source: 'local_dictionary' | 'city_hints' | 'geocoder';
+  note?: string;
+  source?: 'local_dictionary' | 'city_hints' | 'geocoder';
 }
 
 // Granularity mapping by country
@@ -91,7 +92,7 @@ const CITY_HINTS: Record<string, { country_code: string; region?: string; confid
   'glasgow': { country_code: 'GB', region: 'Glasgow City', confidence: 0.9 },
   'edinburgh': { country_code: 'GB', region: 'City of Edinburgh', confidence: 0.9 },
   
-  // US Cities
+  // US Cities & States
   'new york': { country_code: 'US', region: 'New York', confidence: 0.95 },
   'los angeles': { country_code: 'US', region: 'California', confidence: 0.9 },
   'chicago': { country_code: 'US', region: 'Illinois', confidence: 0.9 },
@@ -100,21 +101,29 @@ const CITY_HINTS: Record<string, { country_code: string; region?: string; confid
   'san francisco': { country_code: 'US', region: 'California', confidence: 0.9 },
   'seattle': { country_code: 'US', region: 'Washington', confidence: 0.9 },
   'boston': { country_code: 'US', region: 'Massachusetts', confidence: 0.9 },
+  'texas': { country_code: 'US', region: 'Texas', confidence: 0.95 },
+  'california': { country_code: 'US', region: 'California', confidence: 0.95 },
+  'florida': { country_code: 'US', region: 'Florida', confidence: 0.9 },
   
-  // Australian Cities
+  // Australian Cities & States
   'sydney': { country_code: 'AU', region: 'New South Wales', confidence: 0.95 },
   'melbourne': { country_code: 'AU', region: 'Victoria', confidence: 0.95 },
   'brisbane': { country_code: 'AU', region: 'Queensland', confidence: 0.9 },
   'perth': { country_code: 'AU', region: 'Western Australia', confidence: 0.9 },
   'adelaide': { country_code: 'AU', region: 'South Australia', confidence: 0.9 },
+  'victoria': { country_code: 'AU', region: 'Victoria', confidence: 0.9 },
+  'queensland': { country_code: 'AU', region: 'Queensland', confidence: 0.9 },
+  'new south wales': { country_code: 'AU', region: 'New South Wales', confidence: 0.9 },
+  'nsw': { country_code: 'AU', region: 'New South Wales', confidence: 0.9 },
   
-  // European Cities
+  // European Cities & Regions
   'paris': { country_code: 'FR', region: 'Île-de-France', confidence: 0.95 },
   'lyon': { country_code: 'FR', region: 'Auvergne-Rhône-Alpes', confidence: 0.9 },
   'marseille': { country_code: 'FR', region: 'Provence-Alpes-Côte d\'Azur', confidence: 0.9 },
   'berlin': { country_code: 'DE', region: 'Berlin', confidence: 0.95 },
   'munich': { country_code: 'DE', region: 'Bavaria', confidence: 0.9 },
   'hamburg': { country_code: 'DE', region: 'Hamburg', confidence: 0.9 },
+  'bavaria': { country_code: 'DE', region: 'Bavaria', confidence: 0.9 },
   'rome': { country_code: 'IT', region: 'Lazio', confidence: 0.95 },
   'milan': { country_code: 'IT', region: 'Lombardy', confidence: 0.9 },
   'florence': { country_code: 'IT', region: 'Tuscany', confidence: 0.9 },
@@ -147,6 +156,17 @@ const CITY_HINTS: Record<string, { country_code: string; region?: string; confid
   'medellin': { country_code: 'CO', region: 'Antioquia', confidence: 0.9 },
   'santiago': { country_code: 'CL', region: 'Santiago Metropolitan', confidence: 0.9 },
   'lima': { country_code: 'PE', region: 'Lima', confidence: 0.9 },
+  
+  // Ireland & New Zealand
+  'dublin': { country_code: 'IE', region: 'Dublin', confidence: 0.95 },
+  'cork': { country_code: 'IE', region: 'Cork', confidence: 0.9 },
+  'auckland': { country_code: 'NZ', region: 'Auckland Region', confidence: 0.95 },
+  'wellington': { country_code: 'NZ', region: 'Wellington Region', confidence: 0.9 },
+  
+  // Canadian Cities
+  'toronto': { country_code: 'CA', region: 'Ontario', confidence: 0.95 },
+  'vancouver': { country_code: 'CA', region: 'British Columbia', confidence: 0.9 },
+  'montreal': { country_code: 'CA', region: 'Quebec', confidence: 0.9 },
 };
 
 /**
@@ -154,7 +174,45 @@ const CITY_HINTS: Record<string, { country_code: string; region?: string; confid
  * Uses local dictionaries first, then falls back to GeoNames geocoding
  */
 export async function resolveLocation(text: string): Promise<ResolvedLocation> {
-  const normalized = text.toLowerCase().trim();
+  let normalized = text.toLowerCase().trim();
+  
+  // Extract location from phrases like "pubs in Melbourne", "bars in Texas"
+  const inMatch = normalized.match(/\bin\s+(.+)$/i);
+  if (inMatch) {
+    normalized = inMatch[1].trim();
+  }
+  
+  // Handle country abbreviations and context
+  // e.g., "Auckland NZ" -> "auckland", "Victoria Australia" -> "victoria"
+  const countryAbbrevs: Record<string, string> = {
+    'nz': 'new zealand',
+    'uk': 'united kingdom', 
+    'us': 'united states',
+    'usa': 'united states',
+    'au': 'australia',
+    'ca': 'canada'
+  };
+  
+  // Try to extract city/region with country context
+  for (const [abbrev, fullCountry] of Object.entries(countryAbbrevs)) {
+    if (normalized.endsWith(` ${abbrev}`)) {
+      const place = normalized.slice(0, -(abbrev.length + 1)).trim();
+      // Try with just the place name first
+      const testHint = CITY_HINTS[place];
+      if (testHint) {
+        normalized = place; // Use the extracted place
+        break;
+      }
+    }
+    if (normalized.endsWith(` ${fullCountry}`)) {
+      const place = normalized.slice(0, -(fullCountry.length + 1)).trim();
+      const testHint = CITY_HINTS[place];
+      if (testHint) {
+        normalized = place;
+        break;
+      }
+    }
+  }
   
   // Step 1: Check special granularity cases
   const special = SPECIAL_GRANULARITY[normalized];
