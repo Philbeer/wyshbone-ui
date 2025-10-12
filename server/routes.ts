@@ -602,115 +602,43 @@ Examples:
             // Load regions if not provided based on country
             let selectedCounties = params.counties;
             let granularity = 'county'; // Default granularity
+            let resolvedCountryCode = countryCode; // Use the resolved code
             
             if (!selectedCounties) {
               const { getRegions } = await import("./regions");
-              const rawCountryLower = rawCountry.toLowerCase().trim();
+              const { resolveLocation } = await import("./location-resolver");
               
-              // Check if it's an Australian state (e.g., "New South Wales, AU" or "NSW")
-              const isAustralianState = rawCountryLower.includes('new south wales') || 
-                                        rawCountryLower.includes('victoria') || 
-                                        rawCountryLower.includes('queensland') || 
-                                        rawCountryLower.includes('nsw') ||
-                                        rawCountryLower.includes('vic') ||
-                                        rawCountryLower.includes('qld') ||
-                                        rawCountryLower.includes(', au');
+              // Use intelligent location resolver (local hints + geocoding fallback)
+              const resolved = await resolveLocation(rawCountry);
               
-              // Check if it's London or a UK city
-              const ukCities = ['london', 'manchester', 'birmingham', 'liverpool', 'leeds', 'bristol', 'glasgow', 'edinburgh', 'cardiff', 'belfast'];
-              const isUKCity = ukCities.includes(rawCountryLower);
+              console.log(`📍 Resolved location: ${rawCountry} → ${resolved.country_code}${resolved.region_filter ? `, ${resolved.region_filter}` : ''} (confidence: ${resolved.confidence}, source: ${resolved.source})`);
               
-              // Check if it's an Australian city
-              const auCities = ['melbourne', 'sydney', 'brisbane', 'perth', 'adelaide', 'gold coast', 'canberra', 'newcastle', 'hobart', 'darwin'];
-              const isAUCity = auCities.includes(rawCountryLower);
+              // Update country code and granularity based on resolution
+              resolvedCountryCode = resolved.country_code;
+              granularity = resolved.granularity;
               
-              // Check if it's a Canadian province
-              const caProvinces = ['ontario', 'quebec', 'british columbia', 'alberta', 'manitoba', 'saskatchewan', 'nova scotia', 'new brunswick', 'newfoundland and labrador', 'prince edward island', 'northwest territories', 'yukon', 'nunavut'];
-              const isCAProvince = caProvinces.includes(rawCountryLower);
-              
-              // Check if it's a US state (common states)
-              const usStates = ['alabama', 'alaska', 'arizona', 'arkansas', 'california', 'colorado', 'connecticut', 'delaware', 'florida', 'georgia', 'hawaii', 'idaho', 'illinois', 'indiana', 'iowa', 'kansas', 'kentucky', 'louisiana', 'maine', 'maryland', 'massachusetts', 'michigan', 'minnesota', 'mississippi', 'missouri', 'montana', 'nebraska', 'nevada', 'new hampshire', 'new jersey', 'new mexico', 'new york', 'north carolina', 'north dakota', 'ohio', 'oklahoma', 'oregon', 'pennsylvania', 'rhode island', 'south carolina', 'south dakota', 'tennessee', 'texas', 'utah', 'vermont', 'virginia', 'washington', 'west virginia', 'wisconsin', 'wyoming'];
-              const isUSState = usStates.includes(rawCountryLower);
-              
-              // Determine which dataset to use based on country
-              if (isUKCity) {
-                // Specific UK city mentioned (e.g., "London") → use that exact city
-                const capitalizedCity = rawCountry.split(' ').map((word: string) => 
-                  word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
-                ).join(' ');
-                selectedCounties = [capitalizedCity];
-                granularity = 'city';
-              } else if (isAUCity) {
-                // Specific Australian city mentioned (e.g., "Melbourne") → use that exact city
-                const capitalizedCity = rawCountry.split(' ').map((word: string) => 
-                  word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
-                ).join(' ');
-                selectedCounties = [capitalizedCity];
-                granularity = 'city';
-              } else if (isCAProvince) {
-                // Specific Canadian province mentioned (e.g., "Ontario") → use that exact province
-                const capitalizedProvince = rawCountry.split(' ').map((word: string) => 
-                  word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
-                ).join(' ');
-                selectedCounties = [capitalizedProvince];
-                granularity = 'province';
-              } else if (rawCountryLower === 'texas') {
-                const result = await getRegions('US', 'county', 'Texas');
-                selectedCounties = result.regions.slice(0, numCounties).map(r => r.name);
-                granularity = 'county';
-              } else if (isUSState) {
-                // Specific US state mentioned (e.g., "Florida") → use that exact state
-                const capitalizedState = rawCountry.split(' ').map((word: string) => 
-                  word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
-                ).join(' ');
-                selectedCounties = [capitalizedState];
-                granularity = 'state';
-              } else if (rawCountryLower === 'us' || rawCountryLower === 'usa' || rawCountryLower === 'united states') {
-                // Generic "US" → load all states and pick N
-                const result = await getRegions('US', 'state');
-                selectedCounties = result.regions.slice(0, numCounties).map(r => r.name);
-                granularity = 'state';
-              } else if (isAustralianState) {
-                // Specific Australian state mentioned (e.g., "New South Wales") → use that exact state
-                const capitalizedState = rawCountry.split(' ').map((word: string) => 
-                  word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
-                ).join(' ');
-                selectedCounties = [capitalizedState];
-                granularity = 'state';
-              } else if (rawCountryLower === 'australia' || rawCountryLower === 'au') {
-                // Generic "Australia" → load all states and pick N
-                const result = await getRegions('AU', 'state');
-                selectedCounties = result.regions.slice(0, numCounties).map(r => r.name);
-                granularity = 'state';
-              } else if (rawCountryLower === 'ireland' || rawCountryLower === 'ie') {
-                const result = await getRegions('IE', 'county');
-                selectedCounties = result.regions.slice(0, numCounties).map(r => r.name);
-                granularity = 'county';
-              } else if (rawCountryLower === 'canada' || rawCountryLower === 'ca') {
-                const result = await getRegions('CA', 'province');
-                selectedCounties = result.regions.slice(0, numCounties).map(r => r.name);
-                granularity = 'province';
+              // If we have a specific region filter (e.g., "Bavaria", "Kyoto Prefecture")
+              if (resolved.region_filter && resolved.confidence >= 0.7) {
+                // Use the region directly if high confidence
+                selectedCounties = [resolved.region_filter];
               } else {
-                // Unknown region - use dynamic lookup!
-                console.log(`🔍 Unknown region "${rawCountry}" - using dynamic lookup`);
-                
-                // Try to infer granularity based on context
-                // Default to 'region' which will work for most cases (states, provinces, regions, etc.)
-                granularity = 'region';
-                
-                // Use the country code (even if fallback) and dynamic lookup will handle it
-                const result = await getRegions(countryCode, granularity);
+                // Load regions from our hybrid service (local + cache + GeoNames/Google Places)
+                const result = await getRegions(
+                  resolvedCountryCode, 
+                  granularity, 
+                  resolved.region_filter
+                );
                 
                 if (result.regions.length > 0) {
                   selectedCounties = result.regions.slice(0, numCounties).map(r => r.name);
-                  console.log(`✅ Dynamic lookup found ${result.regions.length} regions for ${rawCountry}`);
+                  console.log(`✅ Found ${result.regions.length} ${granularity}(s) for ${resolvedCountryCode} (source: ${result.source})`);
                 } else {
-                  // If dynamic lookup fails, use the country/region name itself
+                  // Ultimate fallback: use the location name itself
                   const capitalizedRegion = rawCountry.split(' ').map((word: string) => 
                     word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
                   ).join(' ');
                   selectedCounties = [capitalizedRegion];
-                  console.log(`⚠️ No regions found via dynamic lookup, using region name directly: ${capitalizedRegion}`);
+                  console.log(`⚠️ No regions found, using location name directly: ${capitalizedRegion}`);
                 }
               }
             }
@@ -723,7 +651,7 @@ Examples:
               number_countiestosearch: selectedCounties.length,
               smarlead_id: smarleadId,
               counties: selectedCounties,
-              country: countryCode,  // Use ISO alpha-2 code
+              country: resolvedCountryCode,  // Use resolved ISO alpha-2 code
               timestamp: new Date().toISOString()
             });
 
@@ -733,7 +661,7 @@ Examples:
             for (const county of selectedCounties) {
               for (const businessType of params.business_types) {
                 for (const role of roles) {
-                  previewText += `• ${role} @ ${businessType} in **${county}, ${countryCode}**\n`;  // Use ISO code
+                  previewText += `• ${role} @ ${businessType} in **${county}, ${resolvedCountryCode}**\n`;  // Use resolved ISO code
                 }
               }
             }

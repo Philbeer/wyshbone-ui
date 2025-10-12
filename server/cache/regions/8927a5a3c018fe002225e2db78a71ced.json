@@ -1,0 +1,10 @@
+{
+  "regions": [
+    {
+      "id": "stockholm_municipality",
+      "name": "Stockholm Municipality",
+      "country_code": "STOCKHOLM"
+    }
+  ],
+  "cached_at": "2025-10-12T00:57:19.748Z"
+}

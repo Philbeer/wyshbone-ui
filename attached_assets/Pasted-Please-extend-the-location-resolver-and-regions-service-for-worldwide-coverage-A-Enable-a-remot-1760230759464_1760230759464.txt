@@ -1,0 +1,40 @@
+Please extend the location resolver and regions service for worldwide coverage:
+
+A) Enable a remote geocoder fallback (GeoNames preferred):
+- New env: GEONAMES_USER (optional; if absent, use public demo endpoint but warn in logs).
+- Add /server/geocode.ts with function geocodePlace(q: string): Promise<{ country: string, country_code: string, admin1?: string, admin2?: string, confidence: number }>
+  - Call GeoNames searchJSON (name_equals or q), then hierarchy to get admin1/admin2.
+  - Normalize country_code to ISO alpha-2 uppercase, trimmed.
+  - Cache responses in /server/cache/geocode/<hash>.json for 24h.
+
+B) Wire into resolveLocation():
+- If local dictionaries/city_hints don’t match with confidence ≥0.7:
+  - Call geocodePlace(text)
+  - Map admin1→ our granularity defaults by country:
+      GB: county; if admin1="London" ⇒ borough
+      US: state
+      AU: state
+      IE: county
+      CA: province
+      NZ: region
+      Else: "region"
+  - Set { country, country_code, region_filter=admin1 || admin2, granularity, confidence }.
+  - If only country found (no admin name), return country only; let /api/regions/list return top-level regions.
+
+C) Regions list fallback (no local table):
+- If /api/regions/list has no local dataset for (country, granularity):
+  - Query GeoNames ‘children’ for admin1 list (or Overpass if GEONAMES_USER missing).
+  - Normalize to [{id, name, code?, country_code}] and cache for 24h.
+  - Return { source:"remote_cached", country_code, regions:[...] }.
+
+D) Safety & limits:
+- Rate limit remote calls to 1 req/sec with retry/backoff.
+- Always uppercase/trim country_code before returning or calling Google Places (regionCode).
+- Log a warning when using public GeoNames (no GEONAMES_USER), and print how to set the env var.
+
+E) Tests:
+- resolveLocation("pubs in Medellín") ⇒ country_code=CO, region_filter="Antioquia", granularity="region" (or dept), confidence≥0.7
+- /api/regions/list?country=FR&granularity=department ⇒ returns departments (remote_cached)
+- resolveLocation("cafes in Kyoto") ⇒ country_code=JP, region_filter="Kyoto Prefecture", granularity="region"
+
+Keep existing behavior and local tables intact; only use remote when local doesn’t cover the place.

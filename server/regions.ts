@@ -332,7 +332,7 @@ export async function loadLocalRegions(
   }
 }
 
-// Fetch remote regions using dynamic Google Places API lookup
+// Fetch remote regions using GeoNames or Google Places API lookup
 export async function fetchRemoteRegions(
   country: string,
   granularity: string,
@@ -341,7 +341,43 @@ export async function fetchRemoteRegions(
   const country_code = getRegionCode(country);
   console.log(`🌐 Using dynamic region lookup for ${country}/${granularity}/${regionFilter || 'all'}`);
   
-  // Use Google Places API for dynamic region discovery
+  // Try GeoNames first (better for administrative regions)
+  const { fetchGeoNamesRegions } = await import('./geocode');
+  
+  // Per-country admin level mapping (overrides default granularity mapping)
+  const countryAdminLevels: Record<string, Record<string, number>> = {
+    'JP': { 'prefecture': 1 },  // Japanese prefectures are ADM1
+    'CO': { 'department': 1 },  // Colombian departments are ADM1
+    'FR': { 'department': 2, 'region': 1 },  // French departments are ADM2, regions are ADM1
+    'ES': { 'province': 2, 'region': 1 },  // Spanish provinces are ADM2, autonomous communities are ADM1
+    'IT': { 'province': 2, 'region': 1 },  // Italian provinces are ADM2, regions are ADM1
+    'US': { 'county': 2, 'state': 1 },  // US counties are ADM2, states are ADM1
+    'GB': { 'county': 2 },  // UK counties are ADM2
+    'DE': { 'state': 1 },  // German states are ADM1
+  };
+  
+  // Determine admin level based on country-specific mapping or default granularity
+  let adminLevel = 1; // default
+  if (countryAdminLevels[country_code]?.[granularity] !== undefined) {
+    adminLevel = countryAdminLevels[country_code][granularity];
+  } else {
+    // Default mapping: states/provinces/regions → ADM1, counties/departments/districts → ADM2
+    adminLevel = granularity === 'state' || granularity === 'province' || granularity === 'region' ? 1 :
+                 granularity === 'county' || granularity === 'department' || granularity === 'prefecture' ||
+                 granularity === 'district' || granularity === 'governorate' || granularity === 'emirate' ? 2 : 1;
+  }
+  
+  try {
+    const geoNamesRegions = await fetchGeoNamesRegions(country_code, adminLevel);
+    if (geoNamesRegions.length > 0) {
+      console.log(`✅ Using GeoNames data: ${geoNamesRegions.length} regions`);
+      return geoNamesRegions as Region[];
+    }
+  } catch (error: any) {
+    console.warn(`⚠️ GeoNames lookup failed, falling back to Google Places:`, error.message);
+  }
+  
+  // Fallback to Google Places API for dynamic region discovery
   return await fetchRegionsDynamically(country_code, granularity, regionFilter);
 }
 
