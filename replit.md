@@ -18,14 +18,20 @@ The user interface follows modern Material Design principles, drawing inspiratio
     - **Google Places API (New v1):** For verified business discovery (`/api/places/search`, `/api/prospects/search_and_enrich`). Filters for OPERATIONAL businesses and returns real Google Place IDs.
     - **OpenAI GPT-5 for Enrichment:** Enriches prospects with domain, contact email, social links, business classification, summary, and lead score (`/api/prospects/enrich`). Includes optional public contact discovery with strict guardrails (`/api/prospects/enrich_contacts`). Contacts must have verifiable source URLs.
     - **Bubble Workflow Integration:** Trigger Bubble backend workflows in batch (`/api/tool/bubble_run_batch`) based on natural language input, supporting configurable delays and dynamic parameter mapping. **Multi-Country Support:** Supports UK counties and US state counties (e.g., Texas). Automatically detects location from phrases like "in Texas" and maps to appropriate country codes (Texas → USA). **Confirmation Flow:** Before executing batch requests, the chatbot auto-generates counties based on detected location, displays a detailed preview of all planned API calls with parameters and country, and requires user confirmation ("yes") or cancellation ("no") before proceeding.
-    - **Job Management & Hybrid Region Service:** Background job system with comprehensive multi-country region support for running searches across geographic areas. Features:
-        - **Dynamic Region Discovery:** Uses Google Places API Text Search to automatically find regions for ANY country/granularity (counties, cities, municipalities, districts). No manual dataset maintenance required!
-        - **Region Data (482+ Total Regions):** 8 static datasets for fast lookups - UK counties (49), London boroughs (33), GB devolved regions (65), US states (50), Texas counties (238), Ireland counties (26), Australia states (8), Canada provinces (13). Dynamic lookup provides unlimited coverage beyond these.
-        - **Hybrid Region Service:** Three-tier fallback system (`server/regions.ts`) with ISO-safe country codes:
+    - **Job Management & Worldwide Location Coverage:** Background job system with comprehensive worldwide region support for running searches across geographic areas. Features:
+        - **Intelligent Location Resolution** (`server/location-resolver.ts`): Parses natural language location inputs with 95+ city hints, local dictionaries, and GeoNames geocoding fallback. Returns structured data: country, granularity, region filter, and confidence scores.
+        - **GeoNames Integration** (`server/geocode.ts`): Tri-layer API approach for administrative regions:
+            - Layer 1: countryInfoJSON → childrenJSON (fetches ADM1 via geonameId)
+            - Layer 2: ADM2 retrieval via ADM1 iteration (all states/provinces processed for complete county/department coverage)
+            - Layer 3: searchJSON fallback with name_startsWith filter
+            - Includes 24-hour caching, 1 req/sec rate limiting, and exponential backoff retry
+        - **Per-Country Admin Level Mapping:** Handles country-specific admin structures (JP prefectures=ADM1, CO departments=ADM1, FR departments=ADM2, US counties=ADM2, etc.)
+        - **Region Data (482+ Static Regions):** 8 local datasets for instant lookups - UK counties (49), London boroughs (33), GB devolved regions (65), US states (50), Texas counties (238), Ireland counties (26), Australia states (8), Canada provinces (13). Dynamic GeoNames lookup provides unlimited worldwide coverage beyond these.
+        - **Three-Tier Hybrid Service** (`server/regions.ts`) with ISO-safe country codes:
             - **Local Datasets:** Primary source (fastest, no API cost), maps country/granularity to JSON files
-            - **Cache Layer:** 24-hour cache for dynamic lookups (avoids repeat API calls)
-            - **Dynamic Fallback:** Google Places API Text Search automatically discovers regions for any country/granularity not in local datasets
-        - **ISO Country Code Mapping:** Automatically maps user-friendly names to ISO alpha-2 codes (UK→GB, US→US, Ireland→IE, Australia→AU, Canada→CA). Also recognizes major cities (London, Melbourne, Sydney, Ontario, etc.) and maps to correct country codes
+            - **24-Hour Cache:** Stores GeoNames results to minimize API calls
+            - **Dynamic Fallback:** GeoNames API (preferred) → Google Places API Text Search (final fallback)
+        - **ISO Country Code Mapping:** Maps user-friendly names to ISO alpha-2 codes (UK→GB, US→US, Ireland→IE, Australia→AU, Canada→CA, etc.). Recognizes major cities (London, Melbourne, Medellín, Kyoto) and maps to correct country codes
         - **Region API Endpoints:**
             - `GET /api/regions/list?country=UK&granularity=county` - Returns RegionsResult with source, country_code, regions[]
             - `GET /api/regions/debug/supported` - Lists all available datasets
@@ -45,4 +51,5 @@ The user interface follows modern Material Design principles, drawing inspiratio
 ## External Dependencies
 - **OpenAI GPT-5:** For AI chat responses, prospect enrichment, and web search capabilities.
 - **Google Places API (New v1):** For business discovery and location-based searches.
+- **GeoNames API:** For worldwide administrative region discovery and geocoding. Provides ADM1 (states/provinces) and ADM2 (counties/departments) data with 24-hour caching.
 - **Bubble:** External platform for backend workflows, integrated via dedicated API endpoints for batch operations.
