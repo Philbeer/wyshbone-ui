@@ -624,6 +624,10 @@ Examples:
               const auCities = ['melbourne', 'sydney', 'brisbane', 'perth', 'adelaide', 'gold coast', 'canberra', 'newcastle', 'hobart', 'darwin'];
               const isAUCity = auCities.includes(rawCountryLower);
               
+              // Check if it's a Canadian province
+              const caProvinces = ['ontario', 'quebec', 'british columbia', 'alberta', 'manitoba', 'saskatchewan', 'nova scotia', 'new brunswick', 'newfoundland and labrador', 'prince edward island', 'northwest territories', 'yukon', 'nunavut'];
+              const isCAProvince = caProvinces.includes(rawCountryLower);
+              
               // Check if it's a US state (common states)
               const usStates = ['alabama', 'alaska', 'arizona', 'arkansas', 'california', 'colorado', 'connecticut', 'delaware', 'florida', 'georgia', 'hawaii', 'idaho', 'illinois', 'indiana', 'iowa', 'kansas', 'kentucky', 'louisiana', 'maine', 'maryland', 'massachusetts', 'michigan', 'minnesota', 'mississippi', 'missouri', 'montana', 'nebraska', 'nevada', 'new hampshire', 'new jersey', 'new mexico', 'new york', 'north carolina', 'north dakota', 'ohio', 'oklahoma', 'oregon', 'pennsylvania', 'rhode island', 'south carolina', 'south dakota', 'tennessee', 'texas', 'utah', 'vermont', 'virginia', 'washington', 'west virginia', 'wisconsin', 'wyoming'];
               const isUSState = usStates.includes(rawCountryLower);
@@ -643,6 +647,13 @@ Examples:
                 ).join(' ');
                 selectedCounties = [capitalizedCity];
                 granularity = 'city';
+              } else if (isCAProvince) {
+                // Specific Canadian province mentioned (e.g., "Ontario") → use that exact province
+                const capitalizedProvince = rawCountry.split(' ').map((word: string) => 
+                  word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+                ).join(' ');
+                selectedCounties = [capitalizedProvince];
+                granularity = 'province';
               } else if (rawCountryLower === 'texas') {
                 const result = await getRegions('US', 'county', 'Texas');
                 selectedCounties = result.regions.slice(0, numCounties).map(r => r.name);
