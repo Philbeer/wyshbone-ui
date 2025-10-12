@@ -691,10 +691,27 @@ Examples:
                 selectedCounties = result.regions.slice(0, numCounties).map(r => r.name);
                 granularity = 'province';
               } else {
-                // Default to UK counties
-                const result = await getRegions('UK', 'county');
-                selectedCounties = result.regions.slice(0, numCounties).map(r => r.name);
-                granularity = 'county';
+                // Unknown region - use dynamic lookup!
+                console.log(`🔍 Unknown region "${rawCountry}" - using dynamic lookup`);
+                
+                // Try to infer granularity based on context
+                // Default to 'region' which will work for most cases (states, provinces, regions, etc.)
+                granularity = 'region';
+                
+                // Use the country code (even if fallback) and dynamic lookup will handle it
+                const result = await getRegions(countryCode, granularity);
+                
+                if (result.regions.length > 0) {
+                  selectedCounties = result.regions.slice(0, numCounties).map(r => r.name);
+                  console.log(`✅ Dynamic lookup found ${result.regions.length} regions for ${rawCountry}`);
+                } else {
+                  // If dynamic lookup fails, use the country/region name itself
+                  const capitalizedRegion = rawCountry.split(' ').map((word: string) => 
+                    word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+                  ).join(' ');
+                  selectedCounties = [capitalizedRegion];
+                  console.log(`⚠️ No regions found via dynamic lookup, using region name directly: ${capitalizedRegion}`);
+                }
               }
             }
 
