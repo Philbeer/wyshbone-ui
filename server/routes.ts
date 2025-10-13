@@ -214,7 +214,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      // Check if user wants to create a region-powered job
+      // Check if user wants to create a region-powered job (ONLY for "across all" patterns)
+      // Regular "find/search" is now handled by Chat Completions API tool calling
       const jobCreationPattern = /\b(run|search|find)\b.*(across|in all|every)\b.*(counties|boroughs|states)/i;
       const isJobCreationRequest = jobCreationPattern.test(latestUserText);
       
@@ -369,12 +370,9 @@ Examples:
         }
       }
 
-      // Check if user wants to trigger bubble batch workflow
-      const bubbleTriggerPattern = /\b(run|trigger|execute|start)\b.*(for|with)\b/i;
-      const isBubbleBatchRequest = bubbleTriggerPattern.test(latestUserText) && 
-        (latestUserText.includes('delay') || 
-         /\b(Head of Sales|Director|Manager|CEO)\b/i.test(latestUserText) ||
-         /\b(shops?|supplies|business)\b/i.test(latestUserText));
+      // DISABLED: Old bubble batch detection - now handled by Chat Completions API tool calling
+      // This prevents duplicate execution without confirmation
+      const isBubbleBatchRequest = false; // Always false - tool calling handles this now
 
       if (isBubbleBatchRequest) {
         console.log("🔵 Detected Bubble batch request - extracting parameters...");
