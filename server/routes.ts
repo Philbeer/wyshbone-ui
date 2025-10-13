@@ -711,14 +711,27 @@ Be concise, practical, and action-oriented. Focus on UK businesses unless specif
                 confidenceNote = `\n\n*Note: interpreting as ${locationDesc}. Please specify if different.*`;
               }
               
-              // IMPORTANT: Always use the user's EXACT location, not the resolved region
-              // The resolver is ONLY used to determine the country code
-              const capitalizedLocation = rawCountry.split(' ').map((word: string) => 
-                word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
-              ).join(' ');
+              // IMPORTANT: Determine if user specified a specific location or just a country
+              // If only country specified (no city/region), use "-" as placeholder
+              const isCountryOnly = resolved.country_code === resolved.country || 
+                                   !resolved.region_filter ||
+                                   resolved.region_filter.toLowerCase() === resolved.country.toLowerCase();
               
-              selectedCounties = [capitalizedLocation];
-              console.log(`✅ Using user's exact location: "${capitalizedLocation}" in ${resolvedCountryCode}`);
+              let locationToUse: string;
+              if (isCountryOnly) {
+                // Just a country specified (e.g., "India") → use "-"
+                locationToUse = "-";
+                console.log(`✅ Country-only search: using "-" for whole country ${resolvedCountryCode}`);
+              } else {
+                // Specific city/region specified → use exact user input
+                const capitalizedLocation = rawCountry.split(' ').map((word: string) => 
+                  word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+                ).join(' ');
+                locationToUse = capitalizedLocation;
+                console.log(`✅ Using user's exact location: "${locationToUse}" in ${resolvedCountryCode}`);
+              }
+              
+              selectedCounties = [locationToUse];
             }
 
             // Build preview and store pending confirmation (use ISO country code)
