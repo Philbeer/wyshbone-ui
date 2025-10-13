@@ -474,6 +474,40 @@ Examples:
         }
       }
 
+      // CHECK FOR COUNTRY CHANGE COMMAND
+      const countryChangePattern = /\b(set|change|use|switch)\s+(country|location|region)?\s*(to|as)?\s+([a-zA-Z\s]+)/i;
+      const countryMatch = latestUserText.match(countryChangePattern);
+      
+      if (countryMatch) {
+        // Extract country name from command
+        const countryInput = countryMatch[4].trim();
+        
+        // Try to find matching country
+        const { loadCountryCodes, fillSlots } = await import("./slotExtractor");
+        loadCountryCodes(); // Ensure country codes are loaded
+        
+        // Use fillSlots to parse the country
+        const testSlots = fillSlots(`test ${countryInput}`);
+        
+        if (testSlots.country_code && testSlots.country) {
+          // Valid country found - save preference
+          await storage.setCountryPreference(sessionId, testSlots.country_code, testSlots.country);
+          
+          const confirmMsg = `✅ Default country changed to **${testSlots.country} (${testSlots.country_code})**`;
+          appendMessage(sessionId, { role: "assistant", content: confirmMsg });
+          res.write(`data: ${JSON.stringify({ content: confirmMsg })}\n\n`);
+          res.write(`data: [DONE]\n\n`);
+          return res.end();
+        } else {
+          // Country not recognized
+          const errorMsg = `Sorry, I couldn't recognize "${countryInput}" as a valid country. Please try again with a country name like "United Kingdom", "India", or "Vietnam".`;
+          appendMessage(sessionId, { role: "assistant", content: errorMsg });
+          res.write(`data: ${JSON.stringify({ content: errorMsg })}\n\n`);
+          res.write(`data: [DONE]\n\n`);
+          return res.end();
+        }
+      }
+
       // DETERMINISTIC SLOT EXTRACTION - Extract slots BEFORE calling OpenAI
       // Trigger slot extraction for:
       // 1. Explicit search verbs (find/search/look/get/show/fetch)
