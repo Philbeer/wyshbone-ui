@@ -12,16 +12,18 @@ export interface PendingBatchConfirmation {
   timestamp: string;
 }
 
+// Slots interface matching slotExtractor.ts
 export interface SlotContext {
-  business_type?: string;
-  place_text?: string;
+  query: string;
+  position?: string;
+  location?: string;
   country?: string;
   country_code?: string;
   granularity?: string;
   region_filter?: string;
-  raw_message?: string;
-  last_question?: string;
-  awaiting_country_for?: string;
+  needs_clarification?: boolean;
+  question?: string;
+  awaiting_country_for?: string; // For tracking clarification state
 }
 
 export interface IStorage {

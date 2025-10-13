@@ -480,7 +480,7 @@ Examples:
       // 2. Noun + location patterns (e.g., "dentists new york", "pubs in kendal")
       // 3. Ongoing slot collection (prevSlotContext exists)
       const searchPattern = /\b(find|search|look for|get|show|fetch)\b/i;
-      const nounLocationPattern = /\b(ceo|director|manager|owner|head|dentist|pub|restaurant|maker|shop|store|bar|cafe|hotel)\b/i;
+      const nounLocationPattern = /\b(ceo|director|manager|owner|head|dentists?|pubs?|restaurants?|makers?|shops?|stores?|bars?|cafes?|hotels?)\b/i;
       const hasLocationWords = /\b(in|at|near|around|across)\b/i;
       
       const isSearchRequest = searchPattern.test(latestUserText) || 
