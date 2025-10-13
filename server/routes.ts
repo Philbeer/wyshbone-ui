@@ -644,6 +644,9 @@ Be concise, practical, and action-oriented. Focus on UK businesses unless specif
             
             // Use default country if no location specified
             const defaultCountryFromReq = (req as any).defaultCountry;
+            console.log(`🌍 Default country from sidebar: ${defaultCountryFromReq || 'none'}`);
+            console.log(`📍 Country from AI: ${params.country || 'none'}`);
+            
             if (!params.country && !defaultCountryFromReq) {
               missingFields.push("location");
             }
@@ -676,6 +679,8 @@ Be concise, practical, and action-oriented. Focus on UK businesses unless specif
             const smarleadId = params.smarlead_id || '2354720';
             const rawCountry = params.country || defaultCountryFromReq;
             const numCounties = params.number_countiestosearch || 1;
+            
+            console.log(`✅ Using country: ${rawCountry} ${params.country ? '(from user message)' : '(from sidebar default)'}`);
             
             // Normalize country code to ISO alpha-2 (US, GB, IE, AU, CA)
             const countryCode = getRegionCode(rawCountry);
