@@ -476,8 +476,30 @@ Examples:
         }
       }
 
-      // Prepare messages array (DON'T mutate memoryMessages - create copy if needed)
-      let chatMessages = memoryMessages;
+      // Prepare messages array with system prompt (DON'T mutate memoryMessages)
+      const systemPrompt = {
+        role: "system" as const,
+        content: `You are a UK-focused AI assistant for Wyshbone. You help users discover businesses and trigger backend workflows.
+
+IMPORTANT: When users ask to find, search, or run businesses (e.g., "find pubs in Chichester", "search for dentists in Texas", "run vets in London"), you MUST use the bubble_run_batch tool.
+
+Tool Usage Guidelines:
+- Use bubble_run_batch when user wants to: find/search/discover businesses, run workflows, get business lists
+- Extract business_types from their request (e.g., "pubs", "dentists", "vets")
+- Extract location if mentioned (e.g., "Chichester", "Texas", "London")
+- Extract roles if mentioned (default: ["CEO"])
+- DO NOT ask clarifying questions unless absolutely necessary
+- The system will auto-detect the country and handle all location resolution
+
+Examples:
+- "find pubs Chichester" → Use bubble_run_batch with business_types: ["pubs"], country: "Chichester"
+- "search dentists in Texas" → Use bubble_run_batch with business_types: ["dentists"], country: "Texas"  
+- "run vets across 3 counties" → Use bubble_run_batch with business_types: ["vets"], number_countiestosearch: 3
+
+Be concise, practical, and action-oriented. Focus on UK businesses unless specified otherwise.`
+      };
+      
+      let chatMessages = [systemPrompt, ...memoryMessages];
       
       // If URLs detected, fetch and inject content WITHOUT mutating stored conversation
       if (useDirectFetch) {
@@ -497,7 +519,7 @@ Examples:
             role: "system" as const,
             content: `URL Content Retrieved:\n${urlContents.join('\n\n---\n\n')}\n\nPlease provide a helpful response based on the above URL content.`
           };
-          chatMessages = [...memoryMessages, urlContentMessage];
+          chatMessages = [systemPrompt, ...memoryMessages, urlContentMessage];
           
         } catch (err: any) {
           console.error("❌ URL fetch error:", err.message);
