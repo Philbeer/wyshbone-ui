@@ -43,12 +43,17 @@ export interface IStorage {
   setSlotContext(sessionId: string, context: SlotContext): Promise<void>;
   getSlotContext(sessionId: string): Promise<SlotContext | null>;
   clearSlotContext(sessionId: string): Promise<void>;
+  
+  // Country preference methods
+  setCountryPreference(sessionId: string, countryCode: string, countryName: string): Promise<void>;
+  getCountryPreference(sessionId: string): Promise<{ code: string; name: string } | null>;
 }
 
 export class MemStorage implements IStorage {
   private jobs: Map<string, Job> = new Map();
   private pendingConfirmations: Map<string, PendingBatchConfirmation> = new Map();
   private slotContexts: Map<string, SlotContext> = new Map();
+  private countryPreferences: Map<string, { code: string; name: string }> = new Map();
 
   async createJob(job: Job): Promise<Job> {
     this.jobs.set(job.id, job);
@@ -102,6 +107,14 @@ export class MemStorage implements IStorage {
 
   async clearSlotContext(sessionId: string): Promise<void> {
     this.slotContexts.delete(sessionId);
+  }
+
+  async setCountryPreference(sessionId: string, countryCode: string, countryName: string): Promise<void> {
+    this.countryPreferences.set(sessionId, { code: countryCode, name: countryName });
+  }
+
+  async getCountryPreference(sessionId: string): Promise<{ code: string; name: string } | null> {
+    return this.countryPreferences.get(sessionId) || null;
   }
 }
 
