@@ -671,9 +671,13 @@ Be concise, practical, and action-oriented. Focus on UK businesses unless specif
             // Import city detection function
             const { isCityName } = await import("./location-resolver");
             
+            // Store city name BEFORE clearing it, so we can use it as the search location
+            let cityName = '';
+            
             // Check if AI extracted a city instead of a country
             if (params.country && isCityName(params.country)) {
               console.log(`⚠️  "${params.country}" is a city, not a country - using sidebar default instead`);
+              cityName = params.country; // Save the city name
               params.country = ''; // Clear it so we use the sidebar default
             }
             
@@ -710,7 +714,13 @@ Be concise, practical, and action-oriented. Focus on UK businesses unless specif
             const rawCountry = params.country || defaultCountryFromReq;
             const numCounties = params.number_countiestosearch || 1;
             
+            // If we detected a city, use it as the location instead of the country
+            const locationToResolve = cityName || rawCountry;
+            
             console.log(`✅ Using country: ${rawCountry} ${params.country ? '(from user message)' : '(from sidebar default)'}`);
+            if (cityName) {
+              console.log(`📍 Using city as location: ${cityName}`);
+            }
             
             // Normalize country code to ISO alpha-2 (US, GB, IE, AU, CA)
             const countryCode = getRegionCode(rawCountry);
@@ -726,9 +736,19 @@ Be concise, practical, and action-oriented. Focus on UK businesses unless specif
               const { resolveLocation } = await import("./location-resolver");
               
               // Use intelligent location resolver (local hints + geocoding fallback)
-              const resolved = await resolveLocation(rawCountry);
+              // For cities: resolve the city name but use the sidebar country code
+              const resolved = cityName 
+                ? { 
+                    country: rawCountry === 'GB' ? 'United Kingdom' : rawCountry,
+                    country_code: countryCode,
+                    region_filter: cityName,
+                    granularity: 'city',
+                    confidence: 0.95,
+                    source: 'city_hints' as const
+                  }
+                : await resolveLocation(rawCountry);
               
-              console.log(`📍 Resolved location: ${rawCountry} → ${resolved.country_code}${resolved.region_filter ? `, ${resolved.region_filter}` : ''} (confidence: ${resolved.confidence}${resolved.source ? `, source: ${resolved.source}` : ''})`);
+              console.log(`📍 Resolved location: ${locationToResolve} → ${resolved.country_code}${resolved.region_filter ? `, ${resolved.region_filter}` : ''} (confidence: ${resolved.confidence}${resolved.source ? `, source: ${resolved.source}` : ''})`);
               
               // Update country code and granularity based on resolution
               resolvedCountryCode = resolved.country_code;
@@ -765,7 +785,7 @@ Be concise, practical, and action-oriented. Focus on UK businesses unless specif
                 console.log(`✅ Country-only search: using "${locationToUse}" for whole country ${resolvedCountryCode}`);
               } else {
                 // Specific city/region specified → use exact user input
-                const capitalizedLocation = rawCountry.split(' ').map((word: string) => 
+                const capitalizedLocation = locationToResolve.split(' ').map((word: string) => 
                   word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
                 ).join(' ');
                 locationToUse = capitalizedLocation;

@@ -18,7 +18,7 @@ const UK_CITIES = new Set([
   'bristol', 'glasgow', 'edinburgh', 'cardiff', 'belfast', 'newcastle',
   'nottingham', 'southampton', 'leicester', 'coventry', 'bradford', 'plymouth',
   'brighton', 'oxford', 'cambridge', 'york', 'bath', 'exeter', 'chester',
-  'kendal', 'carlisle', 'lancaster', 'durham', 'norwich', 'ipswich'
+  'kendal', 'carlisle', 'lancaster', 'durham', 'norwich', 'ipswich', 'arundel'
 ]);
 
 // Known cities in other countries
