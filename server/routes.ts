@@ -497,8 +497,27 @@ Examples:
         // Extract slots from message (or handle clarification)
         let slots;
         if (prevSlotContext && prevSlotContext.awaiting_country_for) {
-          // This is a clarification response
+          // This is a clarification response for country
           slots = handleClarification(prevSlotContext as any, latestUserText);
+        } else if (prevSlotContext && (prevSlotContext as any).awaiting_position) {
+          // This is a response for position - extract position from user's answer
+          const positions = ['head of sales', 'ceo', 'director', 'owner', 'manager', 'cfo', 'cto', 'coo', 'founder', 'vp', 'president'];
+          let extractedPosition = latestUserText.toLowerCase().trim();
+          
+          // Try to match known positions
+          for (const pos of positions) {
+            if (extractedPosition.includes(pos)) {
+              extractedPosition = pos;
+              break;
+            }
+          }
+          
+          // Combine with previous slots
+          slots = {
+            ...prevSlotContext,
+            position: extractedPosition,
+            awaiting_position: undefined
+          };
         } else {
           // Fresh extraction
           slots = fillSlots(latestUserText, prevSlotContext as any);
@@ -518,10 +537,24 @@ Examples:
           return res.end();
         }
         
+        // Check if position is missing - ASK for it (don't default to CEO)
+        if (!slots.position) {
+          const posQuestion = "What company position are you targeting? (e.g., CEO, Head of Sales, Director, Manager)";
+          console.log(`❓ Position missing, asking: ${posQuestion}`);
+          
+          // Save slots for next turn
+          await storage.setSlotContext(sessionId, { ...slots, awaiting_position: true } as any);
+          
+          appendMessage(sessionId, { role: "assistant", content: posQuestion });
+          res.write(`data: ${JSON.stringify({ content: posQuestion })}\n\n`);
+          res.write(`data: [DONE]\n\n`);
+          return res.end();
+        }
+        
         // All slots filled - clear context and DIRECTLY trigger workflow
         await storage.clearSlotContext(sessionId);
         console.log(`✅ Slots extracted:`, slots);
-        console.log(`📍 Will search for: ${slots.query}${slots.position ? ` (${slots.position})` : ''} in ${slots.location || slots.country} (${slots.country_code})`);
+        console.log(`📍 Will search for: ${slots.query} (${slots.position}) in ${slots.location || slots.country} (${slots.country_code})`);
         
         // Build location string for Bubble - use country code only
         const locationForBubble = slots.location 
@@ -529,7 +562,7 @@ Examples:
           : (slots.country || 'Unknown');
         
         // Generate confirmation preview
-        const roles = slots.position ? [slots.position.toUpperCase()] : ['CEO']; // Default to CEO if not specified
+        const roles = [slots.position.toUpperCase()]; // Position is required now
         
         const previewText = `📋 **Batch Workflow Preview**\n\n` +
           `I'll make **1 API call** to the autogen endpoint:\n\n` +
