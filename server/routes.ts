@@ -478,16 +478,24 @@ Examples:
       const searchPattern = /\b(find|search|look for|get|show|fetch)\b/i;
       const isSearchRequest = searchPattern.test(latestUserText);
       
-      if (isSearchRequest && !useDirectFetch) {
-        console.log("🎯 Detected search request - running slot filler...");
+      // Always check slot context (even for non-search messages) in case we're collecting missing info
+      const prevSlotContext = await storage.getSlotContext(sessionId);
+      
+      if (isSearchRequest || prevSlotContext) {
+        console.log("🎯 Running slot filler..." + (prevSlotContext ? " (with context)" : ""));
         
         const { ensureSlots } = await import("./slotFiller");
-        const slotResult = await ensureSlots(latestUserText);
+        const slotResult = await ensureSlots(latestUserText, prevSlotContext || undefined);
         
         if (!slotResult.ready) {
-          // Missing required information - ask clarifying question
+          // Missing required information - ask clarifying question and save context
           const question = slotResult.question || "I need more information to help you.";
           console.log(`❓ Slot filler asking: ${question}`);
+          
+          // Save context for next turn
+          if (slotResult.nextContext) {
+            await storage.setSlotContext(sessionId, slotResult.nextContext);
+          }
           
           appendMessage(sessionId, { role: "assistant", content: question });
           res.write(`data: ${JSON.stringify({ content: question })}\n\n`);
@@ -495,7 +503,8 @@ Examples:
           return res.end();
         }
         
-        // All slots filled - log and proceed with OpenAI
+        // All slots filled - clear context and proceed with OpenAI
+        await storage.clearSlotContext(sessionId);
         console.log(`✅ All slots filled:`, slotResult.slots);
         console.log(`📍 Location resolution: ${slotResult.resolution?.country} (${slotResult.resolution?.country_code}), confidence: ${slotResult.resolution?.confidence}`);
       }

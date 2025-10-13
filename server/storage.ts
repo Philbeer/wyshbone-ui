@@ -12,6 +12,18 @@ export interface PendingBatchConfirmation {
   timestamp: string;
 }
 
+export interface SlotContext {
+  business_type?: string;
+  place_text?: string;
+  country?: string;
+  country_code?: string;
+  granularity?: string;
+  region_filter?: string;
+  raw_message?: string;
+  last_question?: string;
+  awaiting_country_for?: string;
+}
+
 export interface IStorage {
   // Job CRUD methods
   createJob(job: Job): Promise<Job>;
@@ -24,11 +36,17 @@ export interface IStorage {
   setPendingConfirmation(sessionId: string, params: PendingBatchConfirmation): Promise<void>;
   getPendingConfirmation(sessionId: string): Promise<PendingBatchConfirmation | null>;
   clearPendingConfirmation(sessionId: string): Promise<void>;
+  
+  // Slot context methods
+  setSlotContext(sessionId: string, context: SlotContext): Promise<void>;
+  getSlotContext(sessionId: string): Promise<SlotContext | null>;
+  clearSlotContext(sessionId: string): Promise<void>;
 }
 
 export class MemStorage implements IStorage {
   private jobs: Map<string, Job> = new Map();
   private pendingConfirmations: Map<string, PendingBatchConfirmation> = new Map();
+  private slotContexts: Map<string, SlotContext> = new Map();
 
   async createJob(job: Job): Promise<Job> {
     this.jobs.set(job.id, job);
@@ -70,6 +88,18 @@ export class MemStorage implements IStorage {
 
   async clearPendingConfirmation(sessionId: string): Promise<void> {
     this.pendingConfirmations.delete(sessionId);
+  }
+
+  async setSlotContext(sessionId: string, context: SlotContext): Promise<void> {
+    this.slotContexts.set(sessionId, context);
+  }
+
+  async getSlotContext(sessionId: string): Promise<SlotContext | null> {
+    return this.slotContexts.get(sessionId) || null;
+  }
+
+  async clearSlotContext(sessionId: string): Promise<void> {
+    this.slotContexts.delete(sessionId);
   }
 }
 

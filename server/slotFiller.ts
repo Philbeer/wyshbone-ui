@@ -10,6 +10,7 @@ interface SlotContext {
   region_filter?: string;
   raw_message?: string;
   last_question?: string;
+  awaiting_country_for?: string; // Track location waiting for country clarification
 }
 
 interface SlotResult {
@@ -23,6 +24,7 @@ interface SlotResult {
     region_filter?: string;
   };
   resolution?: ResolvedLocation;
+  nextContext?: SlotContext; // Context to save for next turn
 }
 
 /**
@@ -40,9 +42,22 @@ export async function ensureSlots(
     raw_message: userMessage
   };
   
-  // Try to resolve location from current message
+  // If we're awaiting country clarification and user just gave a country, combine them
+  let messageToResolve = userMessage;
+  if (context.awaiting_country_for) {
+    // User was asked about location, now they're providing country
+    // Check if current message looks like just a country (no business type)
+    const testResolution = await resolveLocation({ raw_message: userMessage });
+    if (testResolution.country_code && !testResolution.business_type) {
+      // They just said a country - combine with previous location
+      messageToResolve = `${context.awaiting_country_for}, ${userMessage}`;
+      console.log(`🔗 Combining clarification: "${context.awaiting_country_for}" + "${userMessage}" → "${messageToResolve}"`);
+    }
+  }
+  
+  // Try to resolve location from current message (or combined message)
   const resolution = await resolveLocation({
-    raw_message: userMessage,
+    raw_message: messageToResolve,
     business_text: context.business_type,
     place_text: context.place_text
   });
@@ -76,13 +91,22 @@ export async function ensureSlots(
       const location = resolution.note.replace('Unknown location: ', '');
       return {
         ready: false,
-        question: `I couldn't determine the country for "${location}". Could you please specify the country? For example, you could say "UK" or "United States" or "Vietnam".`
+        question: `I couldn't determine the country for "${location}". Could you please specify the country? For example, you could say "UK" or "United States" or "Vietnam".`,
+        nextContext: {
+          ...context,
+          awaiting_country_for: location,
+          business_type: resolution.business_type
+        }
       };
     }
     
     return {
       ready: false,
-      question: "What location would you like to search in?"
+      question: "What location would you like to search in?",
+      nextContext: {
+        ...context,
+        business_type: resolution.business_type
+      }
     };
   }
   
