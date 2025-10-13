@@ -309,18 +309,87 @@ Examples:
       const correctionPattern = /^(actually|no,?\s+|i meant|change|correct|fix|instead|it should be)/i;
 
       if (pendingConfirmation) {
-        // Check if user wants to make a correction
-        if (correctionPattern.test(latestUserText.trim())) {
-          console.log("🔄 User wants to correct the workflow, clearing confirmation");
-          await storage.clearPendingConfirmation(sessionId);
+        // Check if user wants to make a correction/modification
+        if (correctionPattern.test(latestUserText.trim()) || 
+            /change.*to|make it|switch to|update.*to/i.test(latestUserText.trim())) {
+          console.log("🔄 User wants to modify the workflow");
           
-          // Let the AI reprocess the corrected request
-          const responseText = "I've cleared the previous workflow. Please tell me what you'd like to change.";
-          appendMessage(sessionId, { role: "assistant", content: responseText });
-          res.write(`data: ${JSON.stringify({ content: responseText, done: true })}\n\n`);
-          res.write(`data: [DONE]\n\n`);
-          res.end();
-          return;
+          // Use GPT to extract what they want to change
+          const modificationPrompt = [
+            {
+              role: "system" as const,
+              content: `You are updating a workflow. Extract what the user wants to change from their message. Return a JSON object with ONLY the fields they want to modify.
+
+Possible fields:
+- business_types: array of business types
+- roles: array of job roles  
+- delay_ms: number (convert "4s" to 4000, "500ms" to 500)
+- counties: array of specific locations
+- country: country code or name
+
+Only include fields the user explicitly wants to change. If they say "change to coffee shops", return {"business_types": ["coffee shops"]}. If they say "change location to Dublin", return {"counties": ["Dublin"]}.`
+            },
+            {
+              role: "user" as const,
+              content: `Current workflow: ${JSON.stringify(pendingConfirmation)}\n\nUser wants to modify: "${latestUserText}"\n\nExtract the modifications:`
+            }
+          ];
+
+          try {
+            const modResp = await openai.chat.completions.create({
+              model: "gpt-4o-mini",
+              messages: modificationPrompt,
+              response_format: { type: "json_object" },
+            });
+
+            const modifications = JSON.parse(modResp.choices[0]?.message?.content || "{}");
+            console.log("📝 Extracted modifications:", modifications);
+            
+            // Update pending confirmation with modifications
+            const updatedConfirmation = {
+              ...pendingConfirmation,
+              ...modifications,
+              timestamp: new Date().toISOString()
+            };
+            
+            await storage.setPendingConfirmation(sessionId, updatedConfirmation);
+            
+            // Show updated preview
+            let previewText = `📋 **Updated Workflow Preview**\n\n`;
+            const counties = updatedConfirmation.counties || [];
+            const country = updatedConfirmation.country || 'GB';
+            
+            previewText += `I'll make **${counties.length} API call(s)** to the autogen endpoint:\n\n`;
+            
+            for (const county of counties) {
+              for (const businessType of updatedConfirmation.business_types) {
+                for (const role of updatedConfirmation.roles) {
+                  previewText += `• ${role} @ ${businessType} in **${county}, ${country}**\n`;
+                }
+              }
+            }
+            
+            previewText += `\n**Parameters:**\n`;
+            previewText += `- Delay: ${updatedConfirmation.delay_ms}ms\n`;
+            previewText += `- Smarlead ID: ${updatedConfirmation.smarlead_id}\n`;
+            previewText += `\n✅ Type **"yes"** to confirm or **"no"** to cancel`;
+            
+            appendMessage(sessionId, { role: "assistant", content: previewText });
+            res.write(`data: ${JSON.stringify({ content: previewText })}\n\n`);
+            res.write(`data: [DONE]\n\n`);
+            res.end();
+            return;
+          } catch (err: any) {
+            console.error("❌ Modification extraction error:", err.message);
+            // Fall back to clearing if extraction fails
+            await storage.clearPendingConfirmation(sessionId);
+            const responseText = "I couldn't understand the change. Please tell me what you'd like to search for.";
+            appendMessage(sessionId, { role: "assistant", content: responseText });
+            res.write(`data: ${JSON.stringify({ content: responseText })}\n\n`);
+            res.write(`data: [DONE]\n\n`);
+            res.end();
+            return;
+          }
         }
         
         if (confirmationPattern.test(latestUserText.trim())) {
