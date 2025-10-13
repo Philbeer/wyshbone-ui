@@ -735,9 +735,12 @@ Be concise, practical, and action-oriented. Focus on UK businesses unless specif
               
               let locationToUse: string;
               if (isCountryOnly) {
-                // Just a country specified (e.g., "India") → use country name
-                locationToUse = resolved.country;
-                console.log(`✅ Country-only search: using "${locationToUse}" for whole country ${resolvedCountryCode}`);
+                // Just a country specified (e.g., "India", "Scotland") → use user's input, not resolved country name
+                const capitalizedCountry = rawCountry.split(' ').map((word: string) => 
+                  word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+                ).join(' ');
+                locationToUse = capitalizedCountry;
+                console.log(`✅ Country-only search: using user's input "${locationToUse}" for whole country ${resolvedCountryCode}`);
               } else {
                 // Specific city/region specified → use exact user input
                 const capitalizedLocation = rawCountry.split(' ').map((word: string) => 

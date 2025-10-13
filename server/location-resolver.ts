@@ -121,7 +121,7 @@ const SPECIAL_GRANULARITY: Record<string, { country_code: string; granularity: s
 
 // City hints for common cities (high confidence local matches)
 const CITY_HINTS: Record<string, { country_code: string; region?: string; confidence: number }> = {
-  // UK Cities
+  // UK Cities & Regions
   'london': { country_code: 'GB', region: 'London', confidence: 0.95 },
   'manchester': { country_code: 'GB', region: 'Greater Manchester', confidence: 0.9 },
   'birmingham': { country_code: 'GB', region: 'West Midlands', confidence: 0.9 },
@@ -130,10 +130,15 @@ const CITY_HINTS: Record<string, { country_code: string; region?: string; confid
   'bristol': { country_code: 'GB', region: 'Bristol', confidence: 0.9 },
   'glasgow': { country_code: 'GB', region: 'Glasgow City', confidence: 0.9 },
   'edinburgh': { country_code: 'GB', region: 'City of Edinburgh', confidence: 0.9 },
+  'aberdeen': { country_code: 'GB', region: 'Aberdeen City', confidence: 0.9 },
   'chichester': { country_code: 'GB', region: 'West Sussex', confidence: 0.9 },
   'brighton': { country_code: 'GB', region: 'East Sussex', confidence: 0.9 },
   'oxford': { country_code: 'GB', region: 'Oxfordshire', confidence: 0.9 },
   'cambridge': { country_code: 'GB', region: 'Cambridgeshire', confidence: 0.9 },
+  'scotland': { country_code: 'GB', confidence: 0.95 },
+  'wales': { country_code: 'GB', confidence: 0.95 },
+  'northern ireland': { country_code: 'GB', confidence: 0.95 },
+  'england': { country_code: 'GB', confidence: 0.95 },
   
   // US Cities & States
   'new york': { country_code: 'US', region: 'New York', confidence: 0.95 },
