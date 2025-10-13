@@ -557,13 +557,14 @@ Examples:
           slots = fillSlots(latestUserText, prevSlotContext as any);
         }
         
-        // USE DEFAULT COUNTRY if no country detected
+        // USE DEFAULT COUNTRY if no country detected (BEFORE checking needs_clarification)
         if (!slots.country_code && slots.query) {
           const defaultCountry = await storage.getCountryPreference(sessionId);
           if (defaultCountry) {
             slots.country_code = defaultCountry.code;
             slots.country = defaultCountry.name;
             slots.granularity = slots.location ? 'city' : 'country';
+            slots.needs_clarification = false; // Clear clarification flag since we have a default
             console.log(`📍 Using default country: ${defaultCountry.name} (${defaultCountry.code})`);
           }
         }
