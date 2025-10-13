@@ -533,6 +533,18 @@ Examples:
         if (prevSlotContext && prevSlotContext.awaiting_country_for) {
           // This is a clarification response for country
           slots = handleClarification(prevSlotContext as any, latestUserText);
+          
+          // If clarification failed and we have a default country, use it
+          if (slots.needs_clarification && !slots.country_code) {
+            const defaultCountry = await storage.getCountryPreference(sessionId);
+            if (defaultCountry) {
+              slots.country_code = defaultCountry.code;
+              slots.country = defaultCountry.name;
+              slots.granularity = slots.location ? 'city' : 'country';
+              slots.needs_clarification = false;
+              console.log(`📍 Clarification failed, using default country: ${defaultCountry.name} (${defaultCountry.code})`);
+            }
+          }
         } else if (prevSlotContext && (prevSlotContext as any).awaiting_position) {
           // This is a response for position - extract position from user's answer
           const positions = ['head of sales', 'ceo', 'director', 'owner', 'manager', 'cfo', 'cto', 'coo', 'founder', 'vp', 'president'];
@@ -2254,7 +2266,7 @@ Return structured data with the EXACT placeId provided above: "${placeId}"`;
   // GET /api/country/preference
   app.get("/api/country/preference", async (req, res) => {
     try {
-      const sessionId = req.headers['x-session-id'] as string || 'default';
+      const sessionId = getSessionId(req);
       const preference = await storage.getCountryPreference(sessionId);
       
       // Default to UK if no preference set
@@ -2272,7 +2284,7 @@ Return structured data with the EXACT placeId provided above: "${placeId}"`;
   // POST /api/country/preference
   app.post("/api/country/preference", async (req, res) => {
     try {
-      const sessionId = req.headers['x-session-id'] as string || 'default';
+      const sessionId = getSessionId(req);
       const { code, name } = req.body;
       
       if (!code || !name) {
