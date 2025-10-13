@@ -638,11 +638,11 @@ Be concise, practical, and action-oriented. Focus on UK businesses unless specif
               counties: {
                 type: "array",
                 items: { type: "string" },
-                description: "Specific counties to search (optional, auto-selected if not provided)"
+                description: "Specific cities/locations to search. Extract ALL cities mentioned by user. Examples: ['Bath', 'Kendal', 'London'], ['Cork', 'Dublin'], ['Miami', 'Houston']. If no specific cities mentioned, leave empty."
               },
               country: {
                 type: "string",
-                description: "ONLY provide this if user explicitly mentions a COUNTRY or large region like Texas. Do NOT include city names like 'London', 'Kendal', 'Manchester' - leave empty to use default country. Examples: 'UK', 'India', 'Brazil', 'Texas'"
+                description: "ONLY provide this if user explicitly mentions a COUNTRY or large region like Texas. Do NOT include city names like 'London', 'Kendal', 'Manchester' - these go in counties array. Leave empty to use default country. Examples: 'UK', 'India', 'Brazil', 'Texas'"
               }
             },
             required: ["business_types"]
@@ -740,17 +740,23 @@ Be concise, practical, and action-oriented. Focus on UK businesses unless specif
             // Import city detection function
             const { isCityName } = await import("./location-resolver");
             
-            // Store city name BEFORE clearing it, so we can use it as the search location
-            let cityName = '';
+            // Store city name(s) BEFORE clearing, so we can use them as search locations
+            let cityNames: string[] = [];
             
-            // Check if AI extracted a city instead of a country
-            if (params.country && isCityName(params.country)) {
+            // Check if AI extracted cities in counties array (for multi-city requests)
+            if (params.counties && Array.isArray(params.counties) && params.counties.length > 0) {
+              console.log(`📍 Multiple cities provided: ${params.counties.join(', ')}`);
+              cityNames = params.counties;
+              // Don't clear params.counties - we'll use it directly
+            }
+            // Check if AI extracted a city in country parameter instead
+            else if (params.country && isCityName(params.country)) {
               console.log(`⚠️  "${params.country}" is a city, not a country - using sidebar default instead`);
-              cityName = params.country; // Save the city name
+              cityNames = [params.country]; // Save the city name
               params.country = ''; // Clear it so we use the sidebar default
             }
             
-            if (!params.country && !defaultCountryFromReq) {
+            if (!params.country && !defaultCountryFromReq && cityNames.length === 0) {
               missingFields.push("location");
             }
             
@@ -783,12 +789,12 @@ Be concise, practical, and action-oriented. Focus on UK businesses unless specif
             const rawCountry = params.country || defaultCountryFromReq;
             const numCounties = params.number_countiestosearch || 1;
             
-            // If we detected a city, use it as the location instead of the country
-            const locationToResolve = cityName || rawCountry;
+            // If we detected cities, use the first one as the location to resolve country
+            const locationToResolve = cityNames.length > 0 ? cityNames[0] : rawCountry;
             
             console.log(`✅ Using country: ${rawCountry} ${params.country ? '(from user message)' : '(from sidebar default)'}`);
-            if (cityName) {
-              console.log(`📍 Using city as location: ${cityName}`);
+            if (cityNames.length > 0) {
+              console.log(`📍 Using cities as locations: ${cityNames.join(', ')}`);
             }
             
             // Normalize country code to ISO alpha-2 (US, GB, IE, AU, CA)
@@ -805,8 +811,8 @@ Be concise, practical, and action-oriented. Focus on UK businesses unless specif
               const { resolveLocation } = await import("./location-resolver");
               
               // Use intelligent location resolver (local hints + geocoding fallback)
-              // For cities: resolve the city name but use the sidebar country code
-              const resolved = cityName 
+              // For cities: resolve using the sidebar country code
+              const resolved = cityNames.length > 0
                 ? { 
                     country: (() => {
                       const codeToName: Record<string, string> = {
@@ -827,7 +833,7 @@ Be concise, practical, and action-oriented. Focus on UK businesses unless specif
                       return codeToName[countryCode] || rawCountry;
                     })(),
                     country_code: countryCode,
-                    region_filter: cityName,
+                    region_filter: cityNames[0], // Use first city for resolved object
                     granularity: 'city',
                     confidence: 0.95,
                     source: 'city_hints' as const
@@ -858,27 +864,35 @@ Be concise, practical, and action-oriented. Focus on UK businesses unless specif
                 confidenceNote = `\n\n*Note: interpreting as ${locationDesc}. Please specify if different.*`;
               }
               
-              // IMPORTANT: Determine if user specified a specific location or just a country
-              // If only country specified (no city/region), use "-" as placeholder
-              const isCountryOnly = resolved.country_code === resolved.country || 
-                                   !resolved.region_filter ||
-                                   resolved.region_filter.toLowerCase() === resolved.country.toLowerCase();
+              // IMPORTANT: Determine if user specified specific locations or just a country
               
-              let locationToUse: string;
-              if (isCountryOnly) {
-                // Just a country specified (e.g., "India") → use country name
-                locationToUse = resolved.country;
-                console.log(`✅ Country-only search: using "${locationToUse}" for whole country ${resolvedCountryCode}`);
+              if (cityNames.length > 0) {
+                // Multiple cities or single city specified → capitalize and use all of them
+                selectedCounties = cityNames.map(city => 
+                  city.split(' ').map((word: string) => 
+                    word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+                  ).join(' ')
+                );
+                console.log(`✅ Using ${selectedCounties.length} user-specified location(s): ${selectedCounties.join(', ')} in ${resolvedCountryCode}`);
               } else {
-                // Specific city/region specified → use exact user input
-                const capitalizedLocation = locationToResolve.split(' ').map((word: string) => 
-                  word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
-                ).join(' ');
-                locationToUse = capitalizedLocation;
-                console.log(`✅ Using user's exact location: "${locationToUse}" in ${resolvedCountryCode}`);
+                // No specific cities, check if it's a country-wide search
+                const isCountryOnly = resolved.country_code === resolved.country || 
+                                     !resolved.region_filter ||
+                                     resolved.region_filter.toLowerCase() === resolved.country.toLowerCase();
+                
+                if (isCountryOnly) {
+                  // Just a country specified (e.g., "India") → use country name
+                  selectedCounties = [resolved.country];
+                  console.log(`✅ Country-only search: using "${resolved.country}" for whole country ${resolvedCountryCode}`);
+                } else {
+                  // Single location from resolved data
+                  const capitalizedLocation = locationToResolve.split(' ').map((word: string) => 
+                    word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+                  ).join(' ');
+                  selectedCounties = [capitalizedLocation];
+                  console.log(`✅ Using user's exact location: "${capitalizedLocation}" in ${resolvedCountryCode}`);
+                }
               }
-              
-              selectedCounties = [locationToUse];
             }
 
             // Build preview and store pending confirmation (use ISO country code)
