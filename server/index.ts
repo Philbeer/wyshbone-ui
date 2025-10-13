@@ -71,9 +71,41 @@ app.use((req, res, next) => {
   }, async () => {
     log(`serving on port ${port}`);
     
+    // Load country codes and city hints at startup
+    try {
+      const { loadCountryCodes } = await import('./countryLoader');
+      const { loadCityHints, resolveLocation, formatResolution } = await import('./locationResolver');
+      loadCountryCodes();
+      loadCityHints();
+      
+      // Test resolver with provided examples
+      console.log('\n🧪 Testing Location Resolver:');
+      const tests = [
+        "find pubs truro",
+        "ice cream makers in Vietnam",
+        "CEO ice cream manufacturer Vietnam",
+        "dentists new york",
+        "bars melbourne"
+      ];
+      
+      for (const test of tests) {
+        const result = await resolveLocation({ raw_message: test });
+        const status = result.confidence >= 0.9 ? '✅' : (result.confidence >= 0.5 ? '⚠️' : '❌');
+        console.log(`   ${status} "${test}"`);
+        console.log(`      → ${formatResolution(result)}`);
+        console.log(`      → Confidence: ${result.confidence}, Granularity: ${result.granularity}`);
+        if (result.needs_clarification) {
+          console.log(`      → Would ask: "${result.note}"`);
+        }
+      }
+      console.log('');
+    } catch (err: any) {
+      console.error('❌ Failed to load location data:', err.message);
+    }
+    
     // Print region service documentation
     console.log('\n' + '='.repeat(80));
-    console.log('📍 HYBRID REGION SERVICE - ISO-Safe Country Codes for Google Places');
+    console.log('📍 DETERMINISTIC LOCATION RESOLVER & SLOT-FILLING PIPELINE');
     console.log('='.repeat(80));
     console.log('\n🔍 Example API Endpoints:');
     console.log(`   GET  http://localhost:${port}/api/regions/list?country=UK&granularity=county`);

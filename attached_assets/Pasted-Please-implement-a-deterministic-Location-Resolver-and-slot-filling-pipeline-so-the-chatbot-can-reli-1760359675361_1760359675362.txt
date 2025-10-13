@@ -1,0 +1,159 @@
+Please implement a deterministic Location Resolver and slot-filling pipeline so the chatbot can reliably understand free-text like:
+- "find pubs truro"
+- "ice cream makers in Vietnam"
+- "CEO ice cream manufacturer Vietnam"
+- "dentists new york"
+- "bars melbourne"
+and produce consistent params for our jobs API and Bubble workflow.
+
+GOALS
+- Keep current chat/jobs behavior, but routing MUST use a deterministic resolver (not LLM heuristics) for geography.
+- Use a slot-filling FSM: we must end with
+  { business_type, country, country_code, granularity, region_filter? }
+  or ask ONE clarifying question if low confidence.
+
+========================================
+1) DATA: Countries & ISO codes
+========================================
+- In /server/data/, add country_codes.csv (if not already). Columns: Country, Code
+  (We already have a CSV from the user; if not present, ask for it.)
+- On server start, load country_codes.csv into an in-memory map:
+  COUNTRY_MAP: { normalized_country_name -> "GB", ...}
+  CODE_TO_NAME: { "GB" -> "United Kingdom", ...}
+- Normalization: lowercase, trim, collapse whitespace, remove punctuation; also map common aliases:
+  uk, united kingdom, england, scotland, wales, northern ireland => GB
+  usa, united states, america => US
+  south korea, korea south => KR
+  north korea, korea north => KP
+  etc.
+- Export helper getCountryCode(inputText) that:
+  1) Normalizes input
+  2) Looks up exact match in COUNTRY_MAP
+  3) If alias matched, return mapped code
+  4) Else if 2-letter code provided, return uppercase(trim)
+  5) Else return null
+
+========================================
+2) CITY / REGION HINTS
+========================================
+- Create /server/data/city_hints.json (seed with popular cities):
+  [
+    {"city":"truro","country_code":"GB","admin1":"Cornwall","preferred_granularity":"county"},
+    {"city":"melbourne","country_code":"AU","admin1":"Victoria","preferred_granularity":"state"},
+    {"city":"new york","country_code":"US","admin1":"New York","preferred_granularity":"state"},
+    {"city":"london","country_code":"GB","admin1":"London","preferred_granularity":"borough"},
+    {"city":"hanoi","country_code":"VN","admin1":"Hanoi","preferred_granularity":"region"},
+    {"city":"ho chi minh city","country_code":"VN","admin1":"Ho Chi Minh City","preferred_granularity":"region"}
+  ]
+- Load this at startup into CITY_MAP keyed by normalized city name.
+
+========================================
+3) OPTIONAL REMOTE FALLBACK (behind env flag)
+========================================
+- Add /server/geocode.ts with geocodePlace(q) using GeoNames or Overpass only if process.env.ENABLE_REMOTE_GEOCODE === "true".
+- Cache results 24h in /server/cache/geocode/*.json.
+- geocodePlace(q) returns { country_code, admin1?, admin2?, confidence }.
+
+========================================
+4) LOCATION RESOLVER (server/locationResolver.ts)
+========================================
+Export async function resolveLocation(input: {
+  business_text: string,   // e.g. "pubs", "ice cream manufacturer"
+  place_text?: string      // raw user location fragment if we parsed it, else raw message
+}): Promise<{
+  business_type: string,
+  country: string,         // canonical name (e.g. "United Kingdom")
+  country_code: string,    // ISO-2 uppercase
+  granularity: "country" | "state" | "province" | "county" | "borough" | "region",
+  region_filter?: string,  // e.g. "Cornwall", "Victoria"
+  confidence: number,
+  note?: string,
+  needs_clarification?: boolean,
+  options?: Array<{country:string, country_code:string, region_filter?:string}>
+}>
+
+Algorithm (deterministic):
+A) Normalize message; split business_text from location using simple heuristics:
+   - If user typed "X in Y" or "X, Y", extract Y as place_text.
+   - If only one token (e.g., "Vietnam"), treat as place_text and business_text from earlier turn or ask for business if missing.
+
+B) Try strict country resolution:
+   - Use getCountryCode(place_text). If found => country_code set; country = CODE_TO_NAME[country_code]
+   - Set default granularity per country:
+     GB => "county" (unless admin1 = "London" then "borough")
+     US => "state"
+     AU => "state"
+     IE => "county"
+     CA => "province"
+     NZ => "region"
+     VN => "region"
+     else => "region"
+
+C) If no country match yet:
+   - Try CITY_MAP: if place_text matches a known city, adopt its country_code + admin1 + preferred granularity.
+   - Example: "truro" => GB + Cornwall + county
+             "melbourne" => AU + Victoria + state
+             "new york" => US + New York + state
+
+D) If still unknown and ENABLE_REMOTE_GEOCODE=true:
+   - Call geocodePlace(place_text). If country_code gained, set country from code and admin1 if present. Use default granularity rules.
+
+E) If STILL unknown:
+   - needs_clarification=true and return top 2 guesses based on fuzzy match over COUNTRY_MAP keys and CITY_MAP keys.
+
+F) Business type:
+   - Normalize business_text (lowercase, trim). If missing, needs_clarification=true.
+
+G) Auto-fill rule for single-country inputs:
+   - If user says "India" with no further region: return granularity="country" and region_filter undefined. textQuery should be "X in India" with regionCode "IN".
+   - If user says just "Truro": use CITY_MAP (Cornwall, GB). If not in map, ask: "Is that Truro in United Kingdom (Cornwall)?"
+
+Return confidence:
+   1.0 for exact country match or city_hints hit
+   0.7 for geocoder results
+   <0.5 when fuzzy only (will trigger clarification)
+
+========================================
+5) SLOT-FILLING FSM (server/slotFiller.ts)
+========================================
+- States: START -> HAVE_BUSINESS? -> HAVE_PLACE? -> RESOLVED or ASK_CLARIFY
+- Ask at most ONE question:
+  e.g., “Do you mean Truro in United Kingdom (Cornwall)? I can proceed with GB (county: Cornwall).”
+- If user confirms or says “just India”, finalize slots and proceed.
+- Expose a function ensureSlots(userMessage, prevContext?) that returns either:
+  - { ready: true, slots: {...} } or
+  - { ready: false, question: "…" }
+
+========================================
+6) CHAT INTEGRATION
+========================================
+- In /api/chat handler (or your chat controller), BEFORE calling /api/jobs/create:
+  - Extract rough business_text + place_text (simple regex for "in <place>" or comma-delimited).
+  - Call ensureSlots().
+  - If ensureSlots().ready:
+      Call /api/jobs/create with:
+        { business_type, country, country_code, granularity, region_filter, userEmail }
+    Else:
+      Stream the ONE clarifying question to the user and wait for reply.
+- DO NOT enumerate regions in the prompt; /api/jobs/create will call /api/regions/list as before.
+
+========================================
+7) GOOGLE PLACES NEW COMPLIANCE
+========================================
+- Always send regionCode = country_code (uppercase, trimmed).
+- If granularity="country" and no region_filter, set textQuery to "business_type in <country>".
+- If region_filter present, set textQuery to "business_type in <region_filter>, <country>".
+- Optionally add locationBias rectangle for known countries to avoid cross-country spill (e.g., Vietnam bounds).
+
+========================================
+8) TESTS (console logs on start)
+========================================
+Run and log resolver outputs for these:
+- "find pubs truro" => GB, county, region_filter="Cornwall", confidence>=0.9
+- "ice cream makers in Vietnam" => VN, region (country only), confidence>=0.9
+- "CEO ice cream manufacturer Vietnam" => business="ice cream manufacturer", VN, region (country only)
+- "dentists new york" => US, state, region_filter="New York", confidence>=0.9
+- "bars melbourne" => AU, state, region_filter="Victoria", confidence>=0.9
+If any confidence<0.5, print the one-question clarification that will be asked.
+
+Keep everything else in the app the same; this only replaces fuzzy LLM geography with deterministic resolution + single clarification when necessary.
