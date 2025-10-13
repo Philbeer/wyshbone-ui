@@ -518,10 +518,43 @@ Examples:
           return res.end();
         }
         
-        // All slots filled - clear context and log
+        // All slots filled - clear context and DIRECTLY trigger workflow
         await storage.clearSlotContext(sessionId);
         console.log(`✅ Slots extracted:`, slots);
         console.log(`📍 Will search for: ${slots.query}${slots.position ? ` (${slots.position})` : ''} in ${slots.location || slots.country} (${slots.country_code})`);
+        
+        // Build location string for Bubble
+        const locationForBubble = slots.location 
+          ? `${slots.location}, ${slots.country}` 
+          : (slots.country || 'Unknown');
+        
+        // Generate confirmation preview
+        const roles = slots.position ? [slots.position.toUpperCase()] : ['CEO']; // Default to CEO if not specified
+        
+        const previewText = `📋 **Batch Workflow Preview**\n\n` +
+          `I'll make **1 API call** to the autogen endpoint:\n\n` +
+          `• ${roles[0]} @ ${slots.query} in **${locationForBubble} (${slots.country_code})**\n\n` +
+          `**Parameters:**\n` +
+          `- Delay: 4000ms\n` +
+          `- Smarlead ID: 2354720\n\n` +
+          `✅ Type **"yes"** to confirm or **"no"** to cancel`;
+        
+        // Store for confirmation
+        await storage.setPendingConfirmation(sessionId, {
+          business_types: [slots.query],
+          roles,
+          delay_ms: 4000,
+          number_countiestosearch: 1,
+          smarlead_id: '2354720',
+          counties: [locationForBubble],
+          country: slots.country_code || 'UNKNOWN',
+          timestamp: new Date().toISOString()
+        });
+        
+        appendMessage(sessionId, { role: "assistant", content: previewText });
+        res.write(`data: ${JSON.stringify({ content: previewText })}\n\n`);
+        res.write(`data: [DONE]\n\n`);
+        return res.end();
       }
 
       // Prepare messages array with system prompt (DON'T mutate memoryMessages)
