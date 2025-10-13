@@ -474,28 +474,43 @@ Examples:
         }
       }
 
-      // DETERMINISTIC SLOT FILLING - Check if all required fields are present BEFORE calling OpenAI
+      // DETERMINISTIC SLOT EXTRACTION - Extract slots BEFORE calling OpenAI
+      // Trigger slot extraction for:
+      // 1. Explicit search verbs (find/search/look/get/show/fetch)
+      // 2. Noun + location patterns (e.g., "dentists new york", "pubs in kendal")
+      // 3. Ongoing slot collection (prevSlotContext exists)
       const searchPattern = /\b(find|search|look for|get|show|fetch)\b/i;
-      const isSearchRequest = searchPattern.test(latestUserText);
+      const nounLocationPattern = /\b(ceo|director|manager|owner|head|dentist|pub|restaurant|maker|shop|store|bar|cafe|hotel)\b/i;
+      const hasLocationWords = /\b(in|at|near|around|across)\b/i;
       
-      // Always check slot context (even for non-search messages) in case we're collecting missing info
+      const isSearchRequest = searchPattern.test(latestUserText) || 
+                             (nounLocationPattern.test(latestUserText) && !latestUserText.match(/^(hi|hello|thanks|yes|no|ok)\b/i));
+      
+      // Check for previous slot context (in case we're collecting missing info)
       const prevSlotContext = await storage.getSlotContext(sessionId);
       
       if (isSearchRequest || prevSlotContext) {
-        console.log("🎯 Running slot filler..." + (prevSlotContext ? " (with context)" : ""));
+        console.log("🎯 Running slot extractor..." + (prevSlotContext ? " (with context)" : ""));
         
-        const { ensureSlots } = await import("./slotFiller");
-        const slotResult = await ensureSlots(latestUserText, prevSlotContext || undefined);
+        const { fillSlots, handleClarification } = await import("./slotExtractor");
         
-        if (!slotResult.ready) {
-          // Missing required information - ask clarifying question and save context
-          const question = slotResult.question || "I need more information to help you.";
-          console.log(`❓ Slot filler asking: ${question}`);
+        // Extract slots from message (or handle clarification)
+        let slots;
+        if (prevSlotContext && prevSlotContext.awaiting_country_for) {
+          // This is a clarification response
+          slots = handleClarification(prevSlotContext as any, latestUserText);
+        } else {
+          // Fresh extraction
+          slots = fillSlots(latestUserText, prevSlotContext as any);
+        }
+        
+        if (slots.needs_clarification) {
+          // Missing information - ask clarifying question and save slots
+          const question = slots.question || "I need more information to help you.";
+          console.log(`❓ Slot extractor asking: ${question}`);
           
-          // Save context for next turn
-          if (slotResult.nextContext) {
-            await storage.setSlotContext(sessionId, slotResult.nextContext);
-          }
+          // Save slots for next turn
+          await storage.setSlotContext(sessionId, { ...slots, awaiting_country_for: slots.location } as any);
           
           appendMessage(sessionId, { role: "assistant", content: question });
           res.write(`data: ${JSON.stringify({ content: question })}\n\n`);
@@ -503,10 +518,10 @@ Examples:
           return res.end();
         }
         
-        // All slots filled - clear context and proceed with OpenAI
+        // All slots filled - clear context and log
         await storage.clearSlotContext(sessionId);
-        console.log(`✅ All slots filled:`, slotResult.slots);
-        console.log(`📍 Location resolution: ${slotResult.resolution?.country} (${slotResult.resolution?.country_code}), confidence: ${slotResult.resolution?.confidence}`);
+        console.log(`✅ Slots extracted:`, slots);
+        console.log(`📍 Will search for: ${slots.query}${slots.position ? ` (${slots.position})` : ''} in ${slots.location || slots.country} (${slots.country_code})`);
       }
 
       // Prepare messages array with system prompt (DON'T mutate memoryMessages)

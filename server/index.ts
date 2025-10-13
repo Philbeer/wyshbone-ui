@@ -71,36 +71,14 @@ app.use((req, res, next) => {
   }, async () => {
     log(`serving on port ${port}`);
     
-    // Load country codes and city hints at startup
+    // Load slot extractor at startup
     try {
-      const { loadCountryCodes } = await import('./countryLoader');
-      const { loadCityHints, resolveLocation, formatResolution } = await import('./locationResolver');
+      const { loadCountryCodes, loadCityHints, testSlotExtractor } = await import('./slotExtractor');
       loadCountryCodes();
       loadCityHints();
-      
-      // Test resolver with provided examples
-      console.log('\n🧪 Testing Location Resolver:');
-      const tests = [
-        "find pubs truro",
-        "ice cream makers in Vietnam",
-        "CEO ice cream manufacturer Vietnam",
-        "dentists new york",
-        "bars melbourne"
-      ];
-      
-      for (const test of tests) {
-        const result = await resolveLocation({ raw_message: test });
-        const status = result.confidence >= 0.9 ? '✅' : (result.confidence >= 0.5 ? '⚠️' : '❌');
-        console.log(`   ${status} "${test}"`);
-        console.log(`      → ${formatResolution(result)}`);
-        console.log(`      → Confidence: ${result.confidence}, Granularity: ${result.granularity}`);
-        if (result.needs_clarification) {
-          console.log(`      → Would ask: "${result.note}"`);
-        }
-      }
-      console.log('');
+      testSlotExtractor();
     } catch (err: any) {
-      console.error('❌ Failed to load location data:', err.message);
+      console.error('❌ Failed to load slot extractor:', err.message);
     }
     
     // Print region service documentation
