@@ -311,10 +311,11 @@ Examples:
       if (pendingConfirmation) {
         // Check if user wants to make a correction/modification
         if (correctionPattern.test(latestUserText.trim()) || 
-            /change.*to|make it|switch to|update.*to/i.test(latestUserText.trim())) {
+            /change.*to|make it|switch to|update.*to|do it for|apply.*to|use.*instead/i.test(latestUserText.trim()) ||
+            /can you.*for (all|both|the|these)/i.test(latestUserText.trim())) {
           console.log("🔄 User wants to modify the workflow");
           
-          // Use GPT to extract what they want to change
+          // Use GPT to extract what they want to change, with conversation history for context
           const modificationPrompt = [
             {
               role: "system" as const,
@@ -327,11 +328,16 @@ Possible fields:
 - counties: array of specific locations
 - country: country code or name
 
-Only include fields the user explicitly wants to change. If they say "change to coffee shops", return {"business_types": ["coffee shops"]}. If they say "change location to Dublin", return {"counties": ["Dublin"]}.`
+IMPORTANT: Look at the conversation history to understand references like "all three locations", "those cities", etc.
+
+Examples:
+- "change to coffee shops" → {"business_types": ["coffee shops"]}
+- "change location to Dublin" → {"counties": ["Dublin"]}
+- "can you do it for all three locations" + history mentions Bath, Kendal, London → {"counties": ["Bath", "Kendal", "London"]}`
             },
             {
               role: "user" as const,
-              content: `Current workflow: ${JSON.stringify(pendingConfirmation)}\n\nUser wants to modify: "${latestUserText}"\n\nExtract the modifications:`
+              content: `Recent conversation:\n${memoryMessages.slice(-5).map(m => `${m.role}: ${m.content}`).join('\n')}\n\nCurrent workflow: ${JSON.stringify(pendingConfirmation)}\n\nUser modification request: "${latestUserText}"\n\nExtract the modifications:`
             }
           ];
 
@@ -609,7 +615,7 @@ Be concise, practical, and action-oriented. Focus on UK businesses unless specif
         type: "function" as const,
         function: {
           name: "bubble_run_batch",
-          description: "Trigger Wyshbone backend workflows in batch for business types and roles",
+          description: "Trigger Wyshbone backend workflows in batch for business types and roles. IMPORTANT: Call this function ONCE with ALL locations in the counties array - do NOT make multiple separate calls.",
           parameters: {
             type: "object",
             properties: {
@@ -638,7 +644,7 @@ Be concise, practical, and action-oriented. Focus on UK businesses unless specif
               counties: {
                 type: "array",
                 items: { type: "string" },
-                description: "Specific cities/locations to search. Extract ALL cities mentioned by user. Examples: ['Bath', 'Kendal', 'London'], ['Cork', 'Dublin'], ['Miami', 'Houston']. If no specific cities mentioned, leave empty."
+                description: "CRITICAL: Put ALL cities in this ONE array. Examples: ['Bath', 'Kendal', 'London'], ['Cork', 'Dublin', 'Galway']. If user says 'all three locations' or similar, include ALL locations they mentioned in conversation. NEVER make multiple tool calls - use ONE call with ALL cities in this array."
               },
               country: {
                 type: "string",
