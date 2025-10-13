@@ -91,6 +91,10 @@ const CITY_HINTS: Record<string, { country_code: string; region?: string; confid
   'bristol': { country_code: 'GB', region: 'Bristol', confidence: 0.9 },
   'glasgow': { country_code: 'GB', region: 'Glasgow City', confidence: 0.9 },
   'edinburgh': { country_code: 'GB', region: 'City of Edinburgh', confidence: 0.9 },
+  'chichester': { country_code: 'GB', region: 'West Sussex', confidence: 0.9 },
+  'brighton': { country_code: 'GB', region: 'East Sussex', confidence: 0.9 },
+  'oxford': { country_code: 'GB', region: 'Oxfordshire', confidence: 0.9 },
+  'cambridge': { country_code: 'GB', region: 'Cambridgeshire', confidence: 0.9 },
   
   // US Cities & States
   'new york': { country_code: 'US', region: 'New York', confidence: 0.95 },
@@ -283,12 +287,15 @@ export async function resolveLocation(text: string): Promise<ResolvedLocation> {
   } catch (error: any) {
     console.error(`❌ Failed to resolve location "${text}":`, error.message);
     
-    // Ultimate fallback: return as-is with low confidence
+    // Ultimate fallback: Use text as region filter but set country_code to 'UNKNOWN'
+    // This prevents accidentally creating invalid ISO codes (e.g., "CH" from "Chichester")
     return {
-      country: text,
-      country_code: text.toUpperCase().substring(0, 2),
+      country: 'Unknown',
+      country_code: 'UNKNOWN',
+      region_filter: text,
       granularity: 'region',
-      confidence: 0.3,
+      confidence: 0.2,
+      note: `Could not determine country for location "${text}". Please specify the country.`,
       source: 'local_dictionary'
     };
   }
