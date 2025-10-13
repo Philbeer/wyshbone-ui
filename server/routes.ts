@@ -673,30 +673,14 @@ Be concise, practical, and action-oriented. Focus on UK businesses unless specif
                 confidenceNote = `\n\n*Note: interpreting as ${locationDesc}. Please specify if different.*`;
               }
               
-              // If we have a specific region filter (e.g., "Bavaria", "Kyoto Prefecture")
-              if (resolved.region_filter && resolved.confidence >= 0.7) {
-                // Use the region directly if high confidence
-                selectedCounties = [resolved.region_filter];
-              } else {
-                // Load regions from our hybrid service (local + cache + GeoNames/Google Places)
-                const result = await getRegions(
-                  resolvedCountryCode, 
-                  granularity, 
-                  resolved.region_filter
-                );
-                
-                if (result.regions.length > 0) {
-                  selectedCounties = result.regions.slice(0, numCounties).map(r => r.name);
-                  console.log(`✅ Found ${result.regions.length} ${granularity}(s) for ${resolvedCountryCode} (source: ${result.source})`);
-                } else {
-                  // Ultimate fallback: use the location name itself
-                  const capitalizedRegion = rawCountry.split(' ').map((word: string) => 
-                    word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
-                  ).join(' ');
-                  selectedCounties = [capitalizedRegion];
-                  console.log(`⚠️ No regions found, using location name directly: ${capitalizedRegion}`);
-                }
-              }
+              // IMPORTANT: Always use the user's EXACT location, not the resolved region
+              // The resolver is ONLY used to determine the country code
+              const capitalizedLocation = rawCountry.split(' ').map((word: string) => 
+                word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+              ).join(' ');
+              
+              selectedCounties = [capitalizedLocation];
+              console.log(`✅ Using user's exact location: "${capitalizedLocation}" in ${resolvedCountryCode}`);
             }
 
             // Build preview and store pending confirmation (use ISO country code)
