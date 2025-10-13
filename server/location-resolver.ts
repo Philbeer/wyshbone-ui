@@ -12,6 +12,45 @@ export interface ResolvedLocation {
   source?: 'local_dictionary' | 'city_hints' | 'geocoder';
 }
 
+// Country code to full name mapping
+const COUNTRY_NAMES: Record<string, string> = {
+  'GB': 'United Kingdom',
+  'US': 'United States',
+  'IN': 'India',
+  'AU': 'Australia',
+  'CA': 'Canada',
+  'IE': 'Ireland',
+  'NZ': 'New Zealand',
+  'DE': 'Germany',
+  'FR': 'France',
+  'ES': 'Spain',
+  'IT': 'Italy',
+  'JP': 'Japan',
+  'CN': 'China',
+  'BR': 'Brazil',
+  'MX': 'Mexico',
+  'AR': 'Argentina',
+  'CL': 'Chile',
+  'CO': 'Colombia',
+  'PE': 'Peru',
+  'ZA': 'South Africa',
+  'KE': 'Kenya',
+  'NG': 'Nigeria',
+  'EG': 'Egypt',
+  'SA': 'Saudi Arabia',
+  'AE': 'United Arab Emirates',
+  'TR': 'Turkey',
+  'RU': 'Russia',
+  'PL': 'Poland',
+  'NL': 'Netherlands',
+  'BE': 'Belgium',
+  'SE': 'Sweden',
+  'NO': 'Norway',
+  'DK': 'Denmark',
+  'FI': 'Finland',
+  'SG': 'Singapore',
+};
+
 // Granularity mapping by country
 const GRANULARITY_BY_COUNTRY: Record<string, string> = {
   'GB': 'county',
@@ -251,7 +290,7 @@ export async function resolveLocation(text: string): Promise<ResolvedLocation> {
   if (special) {
     const defaultGranularity = GRANULARITY_BY_COUNTRY[special.country_code] || 'region';
     return {
-      country: special.country_code,
+      country: COUNTRY_NAMES[special.country_code] || special.country_code,
       country_code: special.country_code,
       region_filter: normalized.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' '),
       granularity: special.granularity,
@@ -265,7 +304,7 @@ export async function resolveLocation(text: string): Promise<ResolvedLocation> {
   if (cityHint && cityHint.confidence >= 0.7) {
     const granularity = GRANULARITY_BY_COUNTRY[cityHint.country_code] || 'region';
     return {
-      country: cityHint.country_code,
+      country: COUNTRY_NAMES[cityHint.country_code] || cityHint.country_code,
       country_code: cityHint.country_code,
       region_filter: cityHint.region,
       granularity,
@@ -280,7 +319,7 @@ export async function resolveLocation(text: string): Promise<ResolvedLocation> {
     // Successfully mapped to ISO alpha-2
     const granularity = GRANULARITY_BY_COUNTRY[mappedCode] || 'region';
     return {
-      country: mappedCode,
+      country: COUNTRY_NAMES[mappedCode] || mappedCode,
       country_code: mappedCode,
       granularity,
       confidence: 0.85,
