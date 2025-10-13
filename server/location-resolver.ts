@@ -9,7 +9,7 @@ export interface ResolvedLocation {
   granularity: string;
   confidence: number;
   note?: string;
-  source?: 'local_dictionary' | 'city_hints' | 'geocoder';
+  source?: 'local_dictionary' | 'city_hints' | 'geocoder' | 'explicit_country';
 }
 
 // Country code to full name mapping
@@ -271,24 +271,54 @@ export async function resolveLocation(text: string): Promise<ResolvedLocation> {
     'ca': 'canada'
   };
   
-  // Try to extract city/region with country context
+  // Try to extract city/region with country context (handles "city, UK" or "city UK")
+  let extractedCountry: string | null = null;
+  let extractedPlace: string | null = null;
+  
   for (const [abbrev, fullCountry] of Object.entries(countryAbbrevs)) {
+    // Handle patterns with comma: "Tring, UK"
+    if (normalized.endsWith(`, ${abbrev}`)) {
+      extractedPlace = normalized.slice(0, -(abbrev.length + 2)).trim();
+      extractedCountry = abbrev;
+      break;
+    }
+    if (normalized.endsWith(`, ${fullCountry}`)) {
+      extractedPlace = normalized.slice(0, -(fullCountry.length + 2)).trim();
+      extractedCountry = abbrev;
+      break;
+    }
+    // Handle patterns with space: "Tring UK"
     if (normalized.endsWith(` ${abbrev}`)) {
-      const place = normalized.slice(0, -(abbrev.length + 1)).trim();
-      // Try with just the place name first
-      const testHint = CITY_HINTS[place];
-      if (testHint) {
-        normalized = place; // Use the extracted place
-        break;
-      }
+      extractedPlace = normalized.slice(0, -(abbrev.length + 1)).trim();
+      extractedCountry = abbrev;
+      break;
     }
     if (normalized.endsWith(` ${fullCountry}`)) {
-      const place = normalized.slice(0, -(fullCountry.length + 1)).trim();
-      const testHint = CITY_HINTS[place];
-      if (testHint) {
-        normalized = place;
-        break;
-      }
+      extractedPlace = normalized.slice(0, -(fullCountry.length + 1)).trim();
+      extractedCountry = abbrev;
+      break;
+    }
+  }
+  
+  // If we extracted a place and country, return with high confidence
+  if (extractedPlace && extractedCountry) {
+    // Check if the place is in CITY_HINTS first
+    const testHint = CITY_HINTS[extractedPlace];
+    if (testHint) {
+      normalized = extractedPlace;
+    } else {
+      // Place not in hints, but we know the country - return with medium-high confidence
+      const countryCode = getRegionCode(extractedCountry);
+      const granularity = GRANULARITY_BY_COUNTRY[countryCode] || 'county';
+      
+      return {
+        country_code: countryCode,
+        country: COUNTRY_NAMES[countryCode] || extractedCountry.toUpperCase(),
+        region_filter: extractedPlace.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' '),
+        granularity,
+        confidence: 0.8, // High confidence because country was explicitly stated
+        source: 'explicit_country'
+      };
     }
   }
   
