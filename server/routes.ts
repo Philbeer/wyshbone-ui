@@ -573,7 +573,7 @@ Be concise, practical, and action-oriented. Focus on UK businesses unless specif
               },
               country: {
                 type: "string",
-                description: "Country or region (e.g., 'UK', 'Texas', 'Ireland')"
+                description: "ONLY provide this if user explicitly mentions a COUNTRY or large region like Texas. Do NOT include city names like 'London', 'Kendal', 'Manchester' - leave empty to use default country. Examples: 'UK', 'India', 'Brazil', 'Texas'"
               }
             },
             required: ["business_types"]
