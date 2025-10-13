@@ -71,19 +71,9 @@ app.use((req, res, next) => {
   }, async () => {
     log(`serving on port ${port}`);
     
-    // Load slot extractor at startup
-    try {
-      const { loadCountryCodes, loadCityHints, testSlotExtractor } = await import('./slotExtractor');
-      loadCountryCodes();
-      loadCityHints();
-      testSlotExtractor();
-    } catch (err: any) {
-      console.error('❌ Failed to load slot extractor:', err.message);
-    }
-    
     // Print region service documentation
     console.log('\n' + '='.repeat(80));
-    console.log('📍 DETERMINISTIC LOCATION RESOLVER & SLOT-FILLING PIPELINE');
+    console.log('📍 HYBRID REGION SERVICE - ISO-Safe Country Codes for Google Places');
     console.log('='.repeat(80));
     console.log('\n🔍 Example API Endpoints:');
     console.log(`   GET  http://localhost:${port}/api/regions/list?country=UK&granularity=county`);

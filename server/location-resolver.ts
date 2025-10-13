@@ -9,7 +9,7 @@ export interface ResolvedLocation {
   granularity: string;
   confidence: number;
   note?: string;
-  source?: 'local_dictionary' | 'city_hints' | 'geocoder' | 'explicit_country';
+  source?: 'local_dictionary' | 'city_hints' | 'geocoder';
 }
 
 // Country code to full name mapping
@@ -49,14 +49,6 @@ const COUNTRY_NAMES: Record<string, string> = {
   'DK': 'Denmark',
   'FI': 'Finland',
   'SG': 'Singapore',
-  'VN': 'Vietnam',
-  'TH': 'Thailand',
-  'KR': 'South Korea',
-  'ID': 'Indonesia',
-  'MY': 'Malaysia',
-  'PH': 'Philippines',
-  'PK': 'Pakistan',
-  'BD': 'Bangladesh',
 };
 
 // Granularity mapping by country
@@ -129,7 +121,7 @@ const SPECIAL_GRANULARITY: Record<string, { country_code: string; granularity: s
 
 // City hints for common cities (high confidence local matches)
 const CITY_HINTS: Record<string, { country_code: string; region?: string; confidence: number }> = {
-  // UK Cities & Regions
+  // UK Cities
   'london': { country_code: 'GB', region: 'London', confidence: 0.95 },
   'manchester': { country_code: 'GB', region: 'Greater Manchester', confidence: 0.9 },
   'birmingham': { country_code: 'GB', region: 'West Midlands', confidence: 0.9 },
@@ -138,17 +130,10 @@ const CITY_HINTS: Record<string, { country_code: string; region?: string; confid
   'bristol': { country_code: 'GB', region: 'Bristol', confidence: 0.9 },
   'glasgow': { country_code: 'GB', region: 'Glasgow City', confidence: 0.9 },
   'edinburgh': { country_code: 'GB', region: 'City of Edinburgh', confidence: 0.9 },
-  'aberdeen': { country_code: 'GB', region: 'Aberdeen City', confidence: 0.9 },
   'chichester': { country_code: 'GB', region: 'West Sussex', confidence: 0.9 },
   'brighton': { country_code: 'GB', region: 'East Sussex', confidence: 0.9 },
   'oxford': { country_code: 'GB', region: 'Oxfordshire', confidence: 0.9 },
   'cambridge': { country_code: 'GB', region: 'Cambridgeshire', confidence: 0.9 },
-  'beckington': { country_code: 'GB', region: 'Somerset', confidence: 0.9 },
-  'devizes': { country_code: 'GB', region: 'Wiltshire', confidence: 0.9 },
-  'scotland': { country_code: 'GB', confidence: 0.95 },
-  'wales': { country_code: 'GB', confidence: 0.95 },
-  'northern ireland': { country_code: 'GB', confidence: 0.95 },
-  'england': { country_code: 'GB', confidence: 0.95 },
   
   // US Cities & States
   'new york': { country_code: 'US', region: 'New York', confidence: 0.95 },
@@ -202,13 +187,6 @@ const CITY_HINTS: Record<string, { country_code: string; region?: string; confid
   'bangkok': { country_code: 'TH', region: 'Bangkok', confidence: 0.95 },
   'mumbai': { country_code: 'IN', region: 'Maharashtra', confidence: 0.9 },
   'delhi': { country_code: 'IN', region: 'Delhi', confidence: 0.9 },
-  'hanoi': { country_code: 'VN', region: 'Hanoi', confidence: 0.95 },
-  'ho chi minh': { country_code: 'VN', region: 'Ho Chi Minh City', confidence: 0.95 },
-  'ho chi minh city': { country_code: 'VN', region: 'Ho Chi Minh City', confidence: 0.95 },
-  'saigon': { country_code: 'VN', region: 'Ho Chi Minh City', confidence: 0.95 },
-  'jakarta': { country_code: 'ID', region: 'Jakarta', confidence: 0.95 },
-  'manila': { country_code: 'PH', region: 'Metro Manila', confidence: 0.95 },
-  'kuala lumpur': { country_code: 'MY', region: 'Kuala Lumpur', confidence: 0.95 },
   
   // Latin American Cities
   'mexico city': { country_code: 'MX', region: 'Mexico City', confidence: 0.95 },
@@ -260,15 +238,6 @@ const CITY_HINTS: Record<string, { country_code: string; region?: string; confid
   'austria': { country_code: 'AT', confidence: 0.95 },
   'portugal': { country_code: 'PT', confidence: 0.95 },
   'greece': { country_code: 'GR', confidence: 0.95 },
-  'vietnam': { country_code: 'VN', confidence: 0.95 },
-  'thailand': { country_code: 'TH', confidence: 0.95 },
-  'south korea': { country_code: 'KR', confidence: 0.95 },
-  'korea': { country_code: 'KR', confidence: 0.95 },
-  'indonesia': { country_code: 'ID', confidence: 0.95 },
-  'malaysia': { country_code: 'MY', confidence: 0.95 },
-  'philippines': { country_code: 'PH', confidence: 0.95 },
-  'pakistan': { country_code: 'PK', confidence: 0.95 },
-  'bangladesh': { country_code: 'BD', confidence: 0.95 },
 };
 
 /**
@@ -295,54 +264,24 @@ export async function resolveLocation(text: string): Promise<ResolvedLocation> {
     'ca': 'canada'
   };
   
-  // Try to extract city/region with country context (handles "city, UK" or "city UK")
-  let extractedCountry: string | null = null;
-  let extractedPlace: string | null = null;
-  
+  // Try to extract city/region with country context
   for (const [abbrev, fullCountry] of Object.entries(countryAbbrevs)) {
-    // Handle patterns with comma: "Tring, UK"
-    if (normalized.endsWith(`, ${abbrev}`)) {
-      extractedPlace = normalized.slice(0, -(abbrev.length + 2)).trim();
-      extractedCountry = abbrev;
-      break;
-    }
-    if (normalized.endsWith(`, ${fullCountry}`)) {
-      extractedPlace = normalized.slice(0, -(fullCountry.length + 2)).trim();
-      extractedCountry = abbrev;
-      break;
-    }
-    // Handle patterns with space: "Tring UK"
     if (normalized.endsWith(` ${abbrev}`)) {
-      extractedPlace = normalized.slice(0, -(abbrev.length + 1)).trim();
-      extractedCountry = abbrev;
-      break;
+      const place = normalized.slice(0, -(abbrev.length + 1)).trim();
+      // Try with just the place name first
+      const testHint = CITY_HINTS[place];
+      if (testHint) {
+        normalized = place; // Use the extracted place
+        break;
+      }
     }
     if (normalized.endsWith(` ${fullCountry}`)) {
-      extractedPlace = normalized.slice(0, -(fullCountry.length + 1)).trim();
-      extractedCountry = abbrev;
-      break;
-    }
-  }
-  
-  // If we extracted a place and country, return with high confidence
-  if (extractedPlace && extractedCountry) {
-    // Check if the place is in CITY_HINTS first
-    const testHint = CITY_HINTS[extractedPlace];
-    if (testHint) {
-      normalized = extractedPlace;
-    } else {
-      // Place not in hints, but we know the country - return with medium-high confidence
-      const countryCode = getRegionCode(extractedCountry);
-      const granularity = GRANULARITY_BY_COUNTRY[countryCode] || 'county';
-      
-      return {
-        country_code: countryCode,
-        country: COUNTRY_NAMES[countryCode] || extractedCountry.toUpperCase(),
-        region_filter: extractedPlace.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' '),
-        granularity,
-        confidence: 0.8, // High confidence because country was explicitly stated
-        source: 'explicit_country'
-      };
+      const place = normalized.slice(0, -(fullCountry.length + 1)).trim();
+      const testHint = CITY_HINTS[place];
+      if (testHint) {
+        normalized = place;
+        break;
+      }
     }
   }
   

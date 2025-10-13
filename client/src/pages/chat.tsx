@@ -1,12 +1,11 @@
 import { useState, useRef, useEffect } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Send, User, CheckCircle2, Moon, Sun } from "lucide-react";
 import type { ChatMessage, AddNoteResponse } from "@shared/schema";
 import wyshboneLogo from "@assets/wyshbone-logo_1759667581806.png";
-import { CountrySidebar } from "@/components/CountrySidebar";
 
 type Message = ChatMessage & {
   id: string;
@@ -131,11 +130,6 @@ export default function ChatPage() {
         }
       }
 
-      // Check if this was a country change confirmation and invalidate cache
-      if (accumulatedContent.includes('Default country changed to')) {
-        queryClient.invalidateQueries({ queryKey: ['/api/country/preference'] });
-      }
-
       setIsStreaming(false);
     } catch (error: any) {
       setIsStreaming(false);
@@ -221,14 +215,9 @@ export default function ChatPage() {
   };
 
   return (
-    <div className="flex h-screen bg-background">
-      {/* Country Sidebar */}
-      <CountrySidebar />
-      
-      {/* Main Content */}
-      <div className="flex flex-col flex-1">
-        {/* Header */}
-        <header className="h-16 border-b border-border backdrop-blur-sm bg-background/90 flex items-center justify-between px-6 sticky top-0 z-10">
+    <div className="flex flex-col h-screen bg-background">
+      {/* Header */}
+      <header className="h-16 border-b border-border backdrop-blur-sm bg-background/90 flex items-center justify-between px-6 sticky top-0 z-10">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-md overflow-hidden">
             <img src={wyshboneLogo} alt="Wyshbone" className="w-full h-full object-cover" />
@@ -385,7 +374,6 @@ export default function ChatPage() {
             </Button>
           </div>
         </div>
-      </div>
       </div>
     </div>
   );

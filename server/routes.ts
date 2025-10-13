@@ -474,231 +474,31 @@ Examples:
         }
       }
 
-      // CHECK FOR COUNTRY CHANGE COMMAND
-      const countryChangePattern = /\b(set|change|use|switch)\s+(country|location|region)?\s*(to|as)?\s+([a-zA-Z\s]+)/i;
-      const countryMatch = latestUserText.match(countryChangePattern);
-      
-      if (countryMatch) {
-        // Extract country name from command
-        const countryInput = countryMatch[4].trim();
-        
-        // Try to find matching country
-        const { loadCountryCodes, fillSlots } = await import("./slotExtractor");
-        loadCountryCodes(); // Ensure country codes are loaded
-        
-        // Use fillSlots to parse the country
-        const testSlots = fillSlots(`test ${countryInput}`);
-        
-        if (testSlots.country_code && testSlots.country) {
-          // Valid country found - save preference
-          await storage.setCountryPreference(sessionId, testSlots.country_code, testSlots.country);
-          
-          const confirmMsg = `✅ Default country changed to **${testSlots.country} (${testSlots.country_code})**`;
-          appendMessage(sessionId, { role: "assistant", content: confirmMsg });
-          res.write(`data: ${JSON.stringify({ content: confirmMsg })}\n\n`);
-          res.write(`data: [DONE]\n\n`);
-          return res.end();
-        } else {
-          // Country not recognized
-          const errorMsg = `Sorry, I couldn't recognize "${countryInput}" as a valid country. Please try again with a country name like "United Kingdom", "India", or "Vietnam".`;
-          appendMessage(sessionId, { role: "assistant", content: errorMsg });
-          res.write(`data: ${JSON.stringify({ content: errorMsg })}\n\n`);
-          res.write(`data: [DONE]\n\n`);
-          return res.end();
-        }
-      }
-
-      // DETERMINISTIC SLOT EXTRACTION - Extract slots BEFORE calling OpenAI
-      // Trigger slot extraction for:
-      // 1. Explicit search verbs (find/search/look/get/show/fetch)
-      // 2. Noun + location patterns (e.g., "dentists new york", "pubs in kendal")
-      // 3. Ongoing slot collection (prevSlotContext exists)
-      const searchPattern = /\b(find|search|look for|get|show|fetch)\b/i;
-      const nounLocationPattern = /\b(ceo|director|manager|owner|head|dentists?|pubs?|restaurants?|makers?|shops?|stores?|bars?|cafes?|hotels?)\b/i;
-      const hasLocationWords = /\b(in|at|near|around|across)\b/i;
-      
-      const isSearchRequest = searchPattern.test(latestUserText) || 
-                             (nounLocationPattern.test(latestUserText) && !latestUserText.match(/^(hi|hello|thanks|yes|no|ok)\b/i));
-      
-      // Check for previous slot context (in case we're collecting missing info)
-      const prevSlotContext = await storage.getSlotContext(sessionId);
-      
-      if (isSearchRequest || prevSlotContext) {
-        console.log("🎯 Running slot extractor..." + (prevSlotContext ? " (with context)" : ""));
-        
-        const { fillSlots, handleClarification } = await import("./slotExtractor");
-        
-        // Extract slots from message (or handle clarification)
-        let slots;
-        if (prevSlotContext && prevSlotContext.awaiting_country_for) {
-          // This is a clarification response for country
-          slots = handleClarification(prevSlotContext as any, latestUserText);
-          
-          // If clarification failed and we have a default country, use it
-          if (slots.needs_clarification && !slots.country_code) {
-            let defaultCountry = await storage.getCountryPreference(sessionId);
-            // Default to UK if no preference set
-            if (!defaultCountry) {
-              defaultCountry = { code: 'GB', name: 'United Kingdom' };
-            }
-            slots.country_code = defaultCountry.code;
-            slots.country = defaultCountry.name;
-            slots.granularity = slots.location ? 'city' : 'country';
-            slots.needs_clarification = false;
-            console.log(`📍 Clarification failed, using default country: ${defaultCountry.name} (${defaultCountry.code})`);
-          }
-        } else if (prevSlotContext && (prevSlotContext as any).awaiting_position) {
-          // This is a response for position - extract position from user's answer
-          const positions = ['head of sales', 'ceo', 'director', 'owner', 'manager', 'cfo', 'cto', 'coo', 'founder', 'vp', 'president'];
-          let extractedPosition = latestUserText.toLowerCase().trim();
-          
-          // Try to match known positions
-          for (const pos of positions) {
-            if (extractedPosition.includes(pos)) {
-              extractedPosition = pos;
-              break;
-            }
-          }
-          
-          // Combine with previous slots
-          slots = {
-            ...prevSlotContext,
-            position: extractedPosition,
-            awaiting_position: undefined
-          };
-        } else {
-          // Fresh extraction
-          slots = fillSlots(latestUserText, prevSlotContext as any);
-        }
-        
-        // USE DEFAULT COUNTRY if no country detected (BEFORE checking needs_clarification)
-        console.log(`🔍 Slots state: country_code=${slots.country_code}, query=${slots.query}, needs_clarification=${slots.needs_clarification}`);
-        if (!slots.country_code && slots.query) {
-          let defaultCountry = await storage.getCountryPreference(sessionId);
-          // Default to UK if no preference set (same logic as GET endpoint)
-          if (!defaultCountry) {
-            defaultCountry = { code: 'GB', name: 'United Kingdom' };
-          }
-          console.log(`🔍 Default country:`, defaultCountry);
-          slots.country_code = defaultCountry.code;
-          slots.country = defaultCountry.name;
-          slots.granularity = slots.location ? 'city' : 'country';
-          slots.needs_clarification = false; // Clear clarification flag since we have a default
-          console.log(`📍 Using default country: ${defaultCountry.name} (${defaultCountry.code})`);
-        }
-        
-        if (slots.needs_clarification) {
-          // Missing information - ask clarifying question and save slots
-          const question = slots.question || "I need more information to help you.";
-          console.log(`❓ Slot extractor asking: ${question}`);
-          
-          // Save slots for next turn
-          await storage.setSlotContext(sessionId, { ...slots, awaiting_country_for: slots.location } as any);
-          
-          appendMessage(sessionId, { role: "assistant", content: question });
-          res.write(`data: ${JSON.stringify({ content: question })}\n\n`);
-          res.write(`data: [DONE]\n\n`);
-          return res.end();
-        }
-        
-        // Check if position is missing - ASK for it (don't default to CEO)
-        if (!slots.position) {
-          const posQuestion = "What company position are you targeting? (e.g., CEO, Head of Sales, Director, Manager)";
-          console.log(`❓ Position missing, asking: ${posQuestion}`);
-          
-          // Save slots for next turn
-          await storage.setSlotContext(sessionId, { ...slots, awaiting_position: true } as any);
-          
-          appendMessage(sessionId, { role: "assistant", content: posQuestion });
-          res.write(`data: ${JSON.stringify({ content: posQuestion })}\n\n`);
-          res.write(`data: [DONE]\n\n`);
-          return res.end();
-        }
-        
-        // All slots filled - clear context and DIRECTLY trigger workflow
-        await storage.clearSlotContext(sessionId);
-        console.log(`✅ Slots extracted:`, slots);
-        console.log(`📍 Will search for: ${slots.query} (${slots.position}) in ${slots.location || slots.country} (${slots.country_code})`);
-        
-        // Build location string for Bubble - use country code only
-        const locationForBubble = slots.location 
-          ? `${slots.location}, ${slots.country_code}` 
-          : (slots.country || 'Unknown');
-        
-        // Generate confirmation preview
-        const roles = [slots.position.toUpperCase()]; // Position is required now
-        
-        const previewText = `📋 **Batch Workflow Preview**\n\n` +
-          `I'll make **1 API call** to the autogen endpoint:\n\n` +
-          `• ${roles[0]} @ ${slots.query} in **${locationForBubble} (${slots.country_code})**\n\n` +
-          `**Parameters:**\n` +
-          `- Delay: 4000ms\n` +
-          `- Smarlead ID: 2354720\n\n` +
-          `✅ Type **"yes"** to confirm or **"no"** to cancel`;
-        
-        // Store for confirmation
-        await storage.setPendingConfirmation(sessionId, {
-          business_types: [slots.query],
-          roles,
-          delay_ms: 4000,
-          number_countiestosearch: 1,
-          smarlead_id: '2354720',
-          counties: [locationForBubble],
-          country: slots.country_code || 'UNKNOWN',
-          timestamp: new Date().toISOString()
-        });
-        
-        appendMessage(sessionId, { role: "assistant", content: previewText });
-        res.write(`data: ${JSON.stringify({ content: previewText })}\n\n`);
-        res.write(`data: [DONE]\n\n`);
-        return res.end();
-      }
-
       // Prepare messages array with system prompt (DON'T mutate memoryMessages)
       const systemPrompt = {
         role: "system" as const,
-        content: `You are Wyshbone AI, a global business discovery assistant. You help users discover businesses worldwide and trigger backend workflows.
-
-HOW WYSHBONE WORKS:
-When you help users search for business contacts, here's what happens:
-- Wyshbone AI finds businesses matching the search criteria anywhere in the world
-- For each business, it searches for emails associated with the company position you specify
-- All found emails are ranked by how likely they are to match that position
-- The most relevant emails are sent to Smartlead for outreach campaigns
+        content: `You are a UK-focused AI assistant for Wyshbone. You help users discover businesses and trigger backend workflows.
 
 CRITICAL VALIDATION RULES:
 Before using bubble_run_batch tool, you MUST have ALL of these:
 1. business_types (required) - what businesses to find
 2. roles (required) - target job positions (CEO, Head of Sales, Director, Manager, etc.)
-3. country (required) - location to search (NEVER GUESS - always ask if not provided)
+3. country (required) - location to search
 
 If ANY field is missing, DO NOT call the tool. Instead, ask conversationally for the missing information.
 
-WHEN ASKING FOR MISSING FIELDS:
-- For business_types: Simply ask "What type of businesses are you looking for?"
-- For roles/position: Ask "What company position are you targeting?" and explain: "Wyshbone AI will find and rank emails most likely to be associated with that position, then send them to Smartlead."
-- For location: Ask "What location would you like to search in?"
-
-LOCATION POLICY - NEVER GUESS:
-- NEVER infer or guess locations (e.g., don't assume any country)
-- If location is missing, ALWAYS ask: "What location would you like to search in?"
-- Location must be explicitly stated by the user
-- Support worldwide locations: UK, US, Canada, Australia, Vietnam, Thailand, India, Europe, Asia, Africa, Latin America, etc.
-
 Tool Usage Guidelines:
-- Extract business_types from request (e.g., "pubs", "dentists", "ice cream makers")
+- Extract business_types from request (e.g., "pubs", "dentists", "vets")
 - Extract roles ONLY if explicitly mentioned - DO NOT assume or default
-- Extract location ONLY if explicitly mentioned (e.g., "Chichester", "Texas", "Toronto", "Vietnam", "Hanoi")
-- The system will auto-detect the country code for any worldwide location
+- Extract location (e.g., "Chichester", "Texas", "London")
+- The system will auto-detect the country code
 
 Examples:
 - "find pubs in Chichester for CEOs" → roles: ["CEO"], business_types: ["pubs"], country: "Chichester" ✅
-- "find ice cream makers in Vietnam for CEOs" → roles: ["CEO"], business_types: ["ice cream makers"], country: "Vietnam" ✅
-- "find pubs in Toronto" → MISSING ROLES - Ask: "What company position are you targeting? Wyshbone AI will find and rank emails most likely to be associated with that position, then send them to Smartlead." ❌
-- "find CEOs for dentists" → MISSING LOCATION - Ask: "What location would you like to search in?" ❌
-- "search Head of Sales for restaurants in Bangkok" → roles: ["Head of Sales"], business_types: ["restaurants"], country: "Bangkok" ✅
+- "find pubs in Chichester" → MISSING ROLES - Ask: "What job role are you targeting?" ❌
+- "search Head of Sales for dentists in Texas" → roles: ["Head of Sales"], business_types: ["dentists"], country: "Texas" ✅
 
-Be concise, practical, and action-oriented. Support business searches anywhere in the world.`
+Be concise, practical, and action-oriented. Focus on UK businesses unless specified otherwise.`
       };
 
       
@@ -768,10 +568,10 @@ Be concise, practical, and action-oriented. Support business searches anywhere i
               },
               country: {
                 type: "string",
-                description: "Country or region (e.g., 'UK', 'Texas', 'Ireland'). REQUIRED - never guess, always ask user if not provided."
+                description: "Country or region (e.g., 'UK', 'Texas', 'Ireland')"
               }
             },
-            required: ["business_types", "country"]
+            required: ["business_types"]
           }
         }
       };
@@ -891,127 +691,82 @@ Be concise, practical, and action-oriented. Support business searches anywhere i
               resolvedCountryCode = resolved.country_code;
               granularity = resolved.granularity;
               
-              // CRITICAL: If country is UNKNOWN, STOP and ask user for clarification
-              if (resolvedCountryCode === 'UNKNOWN' || resolvedCountryCode.toUpperCase() === rawCountry.toUpperCase()) {
-                console.log(`❌ Cannot determine country for "${rawCountry}" - asking user for clarification`);
-                aiBuffer = `I couldn't determine which country "${rawCountry}" is in. Could you please specify the country? For example, you could say "UK" or "United States" or "India".`;
-                res.write(`data: ${JSON.stringify({ content: aiBuffer })}\n\n`);
-              } else if (resolved.confidence < 0.4) {
-                // Low confidence: ask for clarification
-                console.log(`❌ Low confidence (${resolved.confidence}) for "${rawCountry}" - asking user for clarification`);
+              // Add note based on confidence level (per spec)
+              if (resolved.confidence >= 0.7) {
+                // High confidence: proceed silently
+                confidenceNote = '';
+              } else if (resolved.confidence >= 0.4) {
+                // Medium confidence: add assumption note
                 const locationDesc = resolved.region_filter 
                   ? `${resolved.region_filter}, ${resolved.country}` 
                   : resolved.country;
-                aiBuffer = `I think "${rawCountry}" might be ${locationDesc}, but I'm not certain. Could you confirm or specify the exact country?`;
-                res.write(`data: ${JSON.stringify({ content: aiBuffer })}\n\n`);
+                confidenceNote = `\n\n*Note: assuming ${locationDesc}*`;
               } else {
-                // Good confidence - proceed with workflow
-                
-                // Add note based on confidence level (per spec)
-                if (resolved.confidence >= 0.7) {
-                  // High confidence: proceed silently
-                  confidenceNote = '';
-                } else if (resolved.confidence >= 0.4) {
-                  // Medium confidence: add assumption note
-                  const locationDesc = resolved.region_filter 
-                    ? `${resolved.region_filter}, ${resolved.country}` 
-                    : resolved.country;
-                  confidenceNote = `\n\n*Note: assuming ${locationDesc}*`;
-                }
-                
-                // IMPORTANT: Determine if user specified a specific location or just a country
-                // If only country specified (no city/region), use "-" as placeholder
-                const isCountryOnly = resolved.country_code === resolved.country || 
-                                     !resolved.region_filter ||
-                                     resolved.region_filter.toLowerCase() === resolved.country.toLowerCase();
-                
-                let locationToUse: string;
-                if (isCountryOnly) {
-                  // Just a country specified (e.g., "India", "Scotland") → use user's input, not resolved country name
-                  const capitalizedCountry = rawCountry.split(' ').map((word: string) => 
-                    word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
-                  ).join(' ');
-                  locationToUse = capitalizedCountry;
-                  console.log(`✅ Country-only search: using user's input "${locationToUse}" for whole country ${resolvedCountryCode}`);
-                } else {
-                  // Specific city/region specified → use exact user input
-                  const capitalizedLocation = rawCountry.split(' ').map((word: string) => 
-                    word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
-                  ).join(' ');
-                  locationToUse = capitalizedLocation;
-                  console.log(`✅ Using user's exact location: "${locationToUse}" in ${resolvedCountryCode}`);
-                }
-                
-                selectedCounties = [locationToUse];
-                
-                // Build preview and store pending confirmation (use ISO country code)
-                await storage.setPendingConfirmation(sessionId, {
-                  business_types: params.business_types,
-                  roles,
-                  delay_ms: delayMs,
-                  number_countiestosearch: selectedCounties.length,
-                  smarlead_id: smarleadId,
-                  counties: selectedCounties,
-                  country: resolvedCountryCode,  // Use resolved ISO alpha-2 code
-                  timestamp: new Date().toISOString()
-                });
-
-                let previewText = `📋 **Batch Workflow Preview**\n\n`;
-                previewText += `I'll make **${selectedCounties.length} API call(s)** to the autogen endpoint:\n\n`;
-                
-                for (const county of selectedCounties) {
-                  for (const businessType of params.business_types) {
-                    for (const role of roles) {
-                      previewText += `• ${role} @ ${businessType} in **${county}, ${resolvedCountryCode}**\n`;  // Use resolved ISO code
-                    }
-                  }
-                }
-                
-                previewText += `\n**Parameters:**\n`;
-                previewText += `- Delay: ${delayMs}ms\n`;
-                previewText += `- Smarlead ID: ${smarleadId}\n`;
-                previewText += `\n✅ Type **"yes"** to confirm or **"no"** to cancel`;
-                
-                // Append confidence note if present
-                if (confidenceNote) {
-                  previewText += confidenceNote;
-                }
-
-                aiBuffer = previewText;
-                res.write(`data: ${JSON.stringify({ content: previewText })}\n\n`);
-              }
-            } else {
-              // Counties were provided, just build preview
-              await storage.setPendingConfirmation(sessionId, {
-                business_types: params.business_types,
-                roles,
-                delay_ms: delayMs,
-                number_countiestosearch: selectedCounties.length,
-                smarlead_id: smarleadId,
-                counties: selectedCounties,
-                country: resolvedCountryCode,
-                timestamp: new Date().toISOString()
-              });
-
-              let previewText = `📋 **Batch Workflow Preview**\n\n`;
-              previewText += `I'll make **${selectedCounties.length} API call(s)** to the autogen endpoint:\n\n`;
-              
-              for (const county of selectedCounties) {
-                for (const businessType of params.business_types) {
-                  for (const role of roles) {
-                    previewText += `• ${role} @ ${businessType} in **${county}, ${resolvedCountryCode}**\n`;
-                  }
-                }
+                // Low confidence: would ask clarifying question, but we'll proceed with note
+                const locationDesc = resolved.region_filter 
+                  ? `${resolved.region_filter}, ${resolved.country}` 
+                  : resolved.country;
+                confidenceNote = `\n\n*Note: interpreting as ${locationDesc}. Please specify if different.*`;
               }
               
-              previewText += `\n**Parameters:**\n`;
-              previewText += `- Delay: ${delayMs}ms\n`;
-              previewText += `- Smarlead ID: ${smarleadId}\n`;
-              previewText += `\n✅ Type **"yes"** to confirm or **"no"** to cancel`;
-
-              aiBuffer = previewText;
-              res.write(`data: ${JSON.stringify({ content: previewText })}\n\n`);
+              // IMPORTANT: Determine if user specified a specific location or just a country
+              // If only country specified (no city/region), use "-" as placeholder
+              const isCountryOnly = resolved.country_code === resolved.country || 
+                                   !resolved.region_filter ||
+                                   resolved.region_filter.toLowerCase() === resolved.country.toLowerCase();
+              
+              let locationToUse: string;
+              if (isCountryOnly) {
+                // Just a country specified (e.g., "India") → use country name
+                locationToUse = resolved.country;
+                console.log(`✅ Country-only search: using "${locationToUse}" for whole country ${resolvedCountryCode}`);
+              } else {
+                // Specific city/region specified → use exact user input
+                const capitalizedLocation = rawCountry.split(' ').map((word: string) => 
+                  word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+                ).join(' ');
+                locationToUse = capitalizedLocation;
+                console.log(`✅ Using user's exact location: "${locationToUse}" in ${resolvedCountryCode}`);
+              }
+              
+              selectedCounties = [locationToUse];
             }
+
+            // Build preview and store pending confirmation (use ISO country code)
+            await storage.setPendingConfirmation(sessionId, {
+              business_types: params.business_types,
+              roles,
+              delay_ms: delayMs,
+              number_countiestosearch: selectedCounties.length,
+              smarlead_id: smarleadId,
+              counties: selectedCounties,
+              country: resolvedCountryCode,  // Use resolved ISO alpha-2 code
+              timestamp: new Date().toISOString()
+            });
+
+            let previewText = `📋 **Batch Workflow Preview**\n\n`;
+            previewText += `I'll make **${selectedCounties.length} API call(s)** to the autogen endpoint:\n\n`;
+            
+            for (const county of selectedCounties) {
+              for (const businessType of params.business_types) {
+                for (const role of roles) {
+                  previewText += `• ${role} @ ${businessType} in **${county}, ${resolvedCountryCode}**\n`;  // Use resolved ISO code
+                }
+              }
+            }
+            
+            previewText += `\n**Parameters:**\n`;
+            previewText += `- Delay: ${delayMs}ms\n`;
+            previewText += `- Smarlead ID: ${smarleadId}\n`;
+            previewText += `\n✅ Type **"yes"** to confirm or **"no"** to cancel`;
+            
+            // Append confidence note if present
+            if (confidenceNote) {
+              previewText += confidenceNote;
+            }
+
+            aiBuffer = previewText;
+            res.write(`data: ${JSON.stringify({ content: previewText })}\n\n`);
             
           } catch (toolErr: any) {
             console.error("❌ Tool execution error:", toolErr.message);
@@ -2262,46 +2017,6 @@ Return structured data with the EXACT placeId provided above: "${placeId}"`;
     } catch (e: any) {
       console.error("regions/clear-cache error:", e);
       return res.status(500).json({ error: e.message || "Failed to clear cache" });
-    }
-  });
-
-  // ===========================
-  // Country Preference Routes
-  // ===========================
-  
-  // GET /api/country/preference
-  app.get("/api/country/preference", async (req, res) => {
-    try {
-      const sessionId = getSessionId(req);
-      const preference = await storage.getCountryPreference(sessionId);
-      
-      // Default to UK if no preference set
-      if (!preference) {
-        return res.json({ code: 'GB', name: 'United Kingdom' });
-      }
-      
-      return res.json(preference);
-    } catch (e: any) {
-      console.error("country/preference GET error:", e);
-      return res.status(500).json({ error: e.message || "Failed to get country preference" });
-    }
-  });
-  
-  // POST /api/country/preference
-  app.post("/api/country/preference", async (req, res) => {
-    try {
-      const sessionId = getSessionId(req);
-      const { code, name } = req.body;
-      
-      if (!code || !name) {
-        return res.status(400).json({ error: "code and name are required" });
-      }
-      
-      await storage.setCountryPreference(sessionId, code, name);
-      return res.json({ success: true, code, name });
-    } catch (e: any) {
-      console.error("country/preference POST error:", e);
-      return res.status(500).json({ error: e.message || "Failed to set country preference" });
     }
   });
 

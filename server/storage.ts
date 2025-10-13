@@ -12,20 +12,6 @@ export interface PendingBatchConfirmation {
   timestamp: string;
 }
 
-// Slots interface matching slotExtractor.ts
-export interface SlotContext {
-  query: string;
-  position?: string;
-  location?: string;
-  country?: string;
-  country_code?: string;
-  granularity?: string;
-  region_filter?: string;
-  needs_clarification?: boolean;
-  question?: string;
-  awaiting_country_for?: string; // For tracking clarification state
-}
-
 export interface IStorage {
   // Job CRUD methods
   createJob(job: Job): Promise<Job>;
@@ -38,22 +24,11 @@ export interface IStorage {
   setPendingConfirmation(sessionId: string, params: PendingBatchConfirmation): Promise<void>;
   getPendingConfirmation(sessionId: string): Promise<PendingBatchConfirmation | null>;
   clearPendingConfirmation(sessionId: string): Promise<void>;
-  
-  // Slot context methods
-  setSlotContext(sessionId: string, context: SlotContext): Promise<void>;
-  getSlotContext(sessionId: string): Promise<SlotContext | null>;
-  clearSlotContext(sessionId: string): Promise<void>;
-  
-  // Country preference methods
-  setCountryPreference(sessionId: string, countryCode: string, countryName: string): Promise<void>;
-  getCountryPreference(sessionId: string): Promise<{ code: string; name: string } | null>;
 }
 
 export class MemStorage implements IStorage {
   private jobs: Map<string, Job> = new Map();
   private pendingConfirmations: Map<string, PendingBatchConfirmation> = new Map();
-  private slotContexts: Map<string, SlotContext> = new Map();
-  private countryPreferences: Map<string, { code: string; name: string }> = new Map();
 
   async createJob(job: Job): Promise<Job> {
     this.jobs.set(job.id, job);
@@ -95,26 +70,6 @@ export class MemStorage implements IStorage {
 
   async clearPendingConfirmation(sessionId: string): Promise<void> {
     this.pendingConfirmations.delete(sessionId);
-  }
-
-  async setSlotContext(sessionId: string, context: SlotContext): Promise<void> {
-    this.slotContexts.set(sessionId, context);
-  }
-
-  async getSlotContext(sessionId: string): Promise<SlotContext | null> {
-    return this.slotContexts.get(sessionId) || null;
-  }
-
-  async clearSlotContext(sessionId: string): Promise<void> {
-    this.slotContexts.delete(sessionId);
-  }
-
-  async setCountryPreference(sessionId: string, countryCode: string, countryName: string): Promise<void> {
-    this.countryPreferences.set(sessionId, { code: countryCode, name: countryName });
-  }
-
-  async getCountryPreference(sessionId: string): Promise<{ code: string; name: string } | null> {
-    return this.countryPreferences.get(sessionId) || null;
   }
 }
 
