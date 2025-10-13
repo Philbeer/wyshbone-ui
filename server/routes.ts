@@ -2202,6 +2202,46 @@ Return structured data with the EXACT placeId provided above: "${placeId}"`;
   });
 
   // ===========================
+  // Country Preference Routes
+  // ===========================
+  
+  // GET /api/country/preference
+  app.get("/api/country/preference", async (req, res) => {
+    try {
+      const sessionId = req.headers['x-session-id'] as string || 'default';
+      const preference = await storage.getCountryPreference(sessionId);
+      
+      // Default to UK if no preference set
+      if (!preference) {
+        return res.json({ code: 'GB', name: 'United Kingdom' });
+      }
+      
+      return res.json(preference);
+    } catch (e: any) {
+      console.error("country/preference GET error:", e);
+      return res.status(500).json({ error: e.message || "Failed to get country preference" });
+    }
+  });
+  
+  // POST /api/country/preference
+  app.post("/api/country/preference", async (req, res) => {
+    try {
+      const sessionId = req.headers['x-session-id'] as string || 'default';
+      const { code, name } = req.body;
+      
+      if (!code || !name) {
+        return res.status(400).json({ error: "code and name are required" });
+      }
+      
+      await storage.setCountryPreference(sessionId, code, name);
+      return res.json({ success: true, code, name });
+    } catch (e: any) {
+      console.error("country/preference POST error:", e);
+      return res.status(500).json({ error: e.message || "Failed to set country preference" });
+    }
+  });
+
+  // ===========================
   // POST /api/jobs/create
   // ===========================
   app.post("/api/jobs/create", async (req, res) => {
