@@ -630,7 +630,28 @@ Be concise, practical, and action-oriented. Focus on UK businesses unless specif
           console.log("📦 Arguments:", toolCallBuffer.arguments);
           
           try {
-            const params = JSON.parse(toolCallBuffer.arguments);
+            // Handle cases where AI sends multiple JSON objects concatenated
+            // Extract only the first valid JSON object
+            let jsonToParse = toolCallBuffer.arguments.trim();
+            
+            // Find the first complete JSON object
+            let braceCount = 0;
+            let firstJsonEnd = -1;
+            for (let i = 0; i < jsonToParse.length; i++) {
+              if (jsonToParse[i] === '{') braceCount++;
+              if (jsonToParse[i] === '}') braceCount--;
+              if (braceCount === 0 && jsonToParse[i] === '}') {
+                firstJsonEnd = i + 1;
+                break;
+              }
+            }
+            
+            if (firstJsonEnd > 0 && firstJsonEnd < jsonToParse.length) {
+              console.log("⚠️  Multiple JSON objects detected, using only the first one");
+              jsonToParse = jsonToParse.substring(0, firstJsonEnd);
+            }
+            
+            const params = JSON.parse(jsonToParse);
             
             // VALIDATION: Check for required fields before proceeding
             const missingFields: string[] = [];
