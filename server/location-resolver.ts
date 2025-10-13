@@ -12,6 +12,33 @@ export interface ResolvedLocation {
   source?: 'local_dictionary' | 'city_hints' | 'geocoder';
 }
 
+// Known UK cities that should NOT be treated as countries
+const UK_CITIES = new Set([
+  'london', 'manchester', 'birmingham', 'liverpool', 'leeds', 'sheffield', 
+  'bristol', 'glasgow', 'edinburgh', 'cardiff', 'belfast', 'newcastle',
+  'nottingham', 'southampton', 'leicester', 'coventry', 'bradford', 'plymouth',
+  'brighton', 'oxford', 'cambridge', 'york', 'bath', 'exeter', 'chester',
+  'kendal', 'carlisle', 'lancaster', 'durham', 'norwich', 'ipswich'
+]);
+
+// Known cities in other countries
+const WORLD_CITIES = new Set([
+  'dublin', 'cork', 'galway', // Ireland
+  'sydney', 'melbourne', 'brisbane', 'perth', 'adelaide', // Australia
+  'toronto', 'vancouver', 'montreal', 'calgary', // Canada
+  'new york', 'los angeles', 'chicago', 'houston', 'miami', // US
+  'paris', 'lyon', 'marseille', // France
+  'berlin', 'munich', 'hamburg', // Germany
+  'madrid', 'barcelona', 'seville', // Spain
+  'rome', 'milan', 'naples', // Italy
+]);
+
+// Check if input is a city (not a country)
+export function isCityName(input: string): boolean {
+  const normalized = input.toLowerCase().trim();
+  return UK_CITIES.has(normalized) || WORLD_CITIES.has(normalized);
+}
+
 // Country code to full name mapping
 const COUNTRY_NAMES: Record<string, string> = {
   'GB': 'United Kingdom',

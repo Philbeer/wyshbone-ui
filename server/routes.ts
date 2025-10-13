@@ -647,6 +647,15 @@ Be concise, practical, and action-oriented. Focus on UK businesses unless specif
             console.log(`🌍 Default country from sidebar: ${defaultCountryFromReq || 'none'}`);
             console.log(`📍 Country from AI: ${params.country || 'none'}`);
             
+            // Import city detection function
+            const { isCityName } = await import("./location-resolver");
+            
+            // Check if AI extracted a city instead of a country
+            if (params.country && isCityName(params.country)) {
+              console.log(`⚠️  "${params.country}" is a city, not a country - using sidebar default instead`);
+              params.country = ''; // Clear it so we use the sidebar default
+            }
+            
             if (!params.country && !defaultCountryFromReq) {
               missingFields.push("location");
             }
