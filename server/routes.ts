@@ -523,9 +523,9 @@ Examples:
         console.log(`✅ Slots extracted:`, slots);
         console.log(`📍 Will search for: ${slots.query}${slots.position ? ` (${slots.position})` : ''} in ${slots.location || slots.country} (${slots.country_code})`);
         
-        // Build location string for Bubble
+        // Build location string for Bubble - use country code only
         const locationForBubble = slots.location 
-          ? `${slots.location}, ${slots.country}` 
+          ? `${slots.location}, ${slots.country_code}` 
           : (slots.country || 'Unknown');
         
         // Generate confirmation preview
