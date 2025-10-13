@@ -481,23 +481,28 @@ Examples:
         role: "system" as const,
         content: `You are a UK-focused AI assistant for Wyshbone. You help users discover businesses and trigger backend workflows.
 
-IMPORTANT: When users ask to find, search, or run businesses (e.g., "find pubs in Chichester", "search for dentists in Texas", "run vets in London"), you MUST use the bubble_run_batch tool.
+CRITICAL VALIDATION RULES:
+Before using bubble_run_batch tool, you MUST have ALL of these:
+1. business_types (required) - what businesses to find
+2. roles (required) - target job positions (CEO, Head of Sales, Director, Manager, etc.)
+3. country (required) - location to search
+
+If ANY field is missing, DO NOT call the tool. Instead, ask conversationally for the missing information.
 
 Tool Usage Guidelines:
-- Use bubble_run_batch when user wants to: find/search/discover businesses, run workflows, get business lists
-- Extract business_types from their request (e.g., "pubs", "dentists", "vets")
-- Extract location if mentioned (e.g., "Chichester", "Texas", "London")
-- Extract roles if mentioned (default: ["CEO"])
-- DO NOT ask clarifying questions unless absolutely necessary
-- The system will auto-detect the country and handle all location resolution
+- Extract business_types from request (e.g., "pubs", "dentists", "vets")
+- Extract roles ONLY if explicitly mentioned - DO NOT assume or default
+- Extract location (e.g., "Chichester", "Texas", "London")
+- The system will auto-detect the country code
 
 Examples:
-- "find pubs Chichester" → Use bubble_run_batch with business_types: ["pubs"], country: "Chichester"
-- "search dentists in Texas" → Use bubble_run_batch with business_types: ["dentists"], country: "Texas"  
-- "run vets across 3 counties" → Use bubble_run_batch with business_types: ["vets"], number_countiestosearch: 3
+- "find pubs in Chichester for CEOs" → roles: ["CEO"], business_types: ["pubs"], country: "Chichester" ✅
+- "find pubs in Chichester" → MISSING ROLES - Ask: "What job role are you targeting?" ❌
+- "search Head of Sales for dentists in Texas" → roles: ["Head of Sales"], business_types: ["dentists"], country: "Texas" ✅
 
 Be concise, practical, and action-oriented. Focus on UK businesses unless specified otherwise.`
       };
+
       
       let chatMessages = [systemPrompt, ...memoryMessages];
       
@@ -623,14 +628,47 @@ Be concise, practical, and action-oriented. Focus on UK businesses unless specif
           
           try {
             const params = JSON.parse(toolCallBuffer.arguments);
+            
+            // VALIDATION: Check for required fields before proceeding
+            const missingFields: string[] = [];
+            
+            if (!params.business_types || params.business_types.length === 0) {
+              missingFields.push("business type");
+            }
+            if (!params.roles || params.roles.length === 0) {
+              missingFields.push("target job role/position");
+            }
+            if (!params.country) {
+              missingFields.push("location");
+            }
+            
+            // If missing required fields, ask conversationally
+            if (missingFields.length > 0) {
+              let clarificationMsg = "";
+              
+              if (missingFields.includes("target job role/position")) {
+                clarificationMsg = "What job role are you targeting for the pubs in Chichester? (e.g., CEO, Head of Sales, Director, Manager)";
+              } else if (missingFields.includes("location")) {
+                clarificationMsg = "Which location would you like to search in?";
+              } else if (missingFields.includes("business type")) {
+                clarificationMsg = "What type of businesses are you looking for?";
+              }
+              
+              console.log(`❓ Missing required fields: ${missingFields.join(', ')}`);
+              appendMessage(sessionId, { role: "assistant", content: clarificationMsg });
+              res.write(`data: ${JSON.stringify({ content: clarificationMsg, done: true })}\n\n`);
+              res.write(`data: [DONE]\n\n`);
+              return res.end();
+            }
+            
             const { bubbleRunBatch } = await import("./bubble");
             const { getRegionCode } = await import("./regions");
             
-            // Apply defaults
-            const roles = params.roles || ['Head of Sales'];
+            // Use provided values (no defaults for required fields)
+            const roles = params.roles;
             const delayMs = params.delay_ms || 4000;
             const smarleadId = params.smarlead_id || '2354720';
-            const rawCountry = params.country || 'UK';
+            const rawCountry = params.country;
             const numCounties = params.number_countiestosearch || 1;
             
             // Normalize country code to ISO alpha-2 (US, GB, IE, AU, CA)
