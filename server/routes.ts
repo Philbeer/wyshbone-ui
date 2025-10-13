@@ -474,6 +474,32 @@ Examples:
         }
       }
 
+      // DETERMINISTIC SLOT FILLING - Check if all required fields are present BEFORE calling OpenAI
+      const searchPattern = /\b(find|search|look for|get|show|fetch)\b/i;
+      const isSearchRequest = searchPattern.test(latestUserText);
+      
+      if (isSearchRequest && !useDirectFetch) {
+        console.log("🎯 Detected search request - running slot filler...");
+        
+        const { ensureSlots } = await import("./slotFiller");
+        const slotResult = await ensureSlots(latestUserText);
+        
+        if (!slotResult.ready) {
+          // Missing required information - ask clarifying question
+          const question = slotResult.question || "I need more information to help you.";
+          console.log(`❓ Slot filler asking: ${question}`);
+          
+          appendMessage(sessionId, { role: "assistant", content: question });
+          res.write(`data: ${JSON.stringify({ content: question })}\n\n`);
+          res.write(`data: [DONE]\n\n`);
+          return res.end();
+        }
+        
+        // All slots filled - log and proceed with OpenAI
+        console.log(`✅ All slots filled:`, slotResult.slots);
+        console.log(`📍 Location resolution: ${slotResult.resolution?.country} (${slotResult.resolution?.country_code}), confidence: ${slotResult.resolution?.confidence}`);
+      }
+
       // Prepare messages array with system prompt (DON'T mutate memoryMessages)
       const systemPrompt = {
         role: "system" as const,
