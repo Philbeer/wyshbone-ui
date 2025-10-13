@@ -557,6 +557,17 @@ Examples:
           slots = fillSlots(latestUserText, prevSlotContext as any);
         }
         
+        // USE DEFAULT COUNTRY if no country detected
+        if (!slots.country_code && slots.query) {
+          const defaultCountry = await storage.getCountryPreference(sessionId);
+          if (defaultCountry) {
+            slots.country_code = defaultCountry.code;
+            slots.country = defaultCountry.name;
+            slots.granularity = slots.location ? 'city' : 'country';
+            console.log(`📍 Using default country: ${defaultCountry.name} (${defaultCountry.code})`);
+          }
+        }
+        
         if (slots.needs_clarification) {
           // Missing information - ask clarifying question and save slots
           const question = slots.question || "I need more information to help you.";
