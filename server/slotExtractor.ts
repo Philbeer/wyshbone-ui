@@ -38,7 +38,11 @@ export function loadCountryCodes() {
     if (country && code) {
       const normalized = country.toLowerCase();
       NAME_TO_CODE.set(normalized, code.toUpperCase());
-      CODE_TO_NAME.set(code.toUpperCase(), country);
+      
+      // Only set CODE_TO_NAME if not already set (prefer first/canonical name)
+      if (!CODE_TO_NAME.has(code.toUpperCase())) {
+        CODE_TO_NAME.set(code.toUpperCase(), country);
+      }
     }
   }
   
