@@ -536,14 +536,16 @@ Examples:
           
           // If clarification failed and we have a default country, use it
           if (slots.needs_clarification && !slots.country_code) {
-            const defaultCountry = await storage.getCountryPreference(sessionId);
-            if (defaultCountry) {
-              slots.country_code = defaultCountry.code;
-              slots.country = defaultCountry.name;
-              slots.granularity = slots.location ? 'city' : 'country';
-              slots.needs_clarification = false;
-              console.log(`📍 Clarification failed, using default country: ${defaultCountry.name} (${defaultCountry.code})`);
+            let defaultCountry = await storage.getCountryPreference(sessionId);
+            // Default to UK if no preference set
+            if (!defaultCountry) {
+              defaultCountry = { code: 'GB', name: 'United Kingdom' };
             }
+            slots.country_code = defaultCountry.code;
+            slots.country = defaultCountry.name;
+            slots.granularity = slots.location ? 'city' : 'country';
+            slots.needs_clarification = false;
+            console.log(`📍 Clarification failed, using default country: ${defaultCountry.name} (${defaultCountry.code})`);
           }
         } else if (prevSlotContext && (prevSlotContext as any).awaiting_position) {
           // This is a response for position - extract position from user's answer
@@ -572,15 +574,17 @@ Examples:
         // USE DEFAULT COUNTRY if no country detected (BEFORE checking needs_clarification)
         console.log(`🔍 Slots state: country_code=${slots.country_code}, query=${slots.query}, needs_clarification=${slots.needs_clarification}`);
         if (!slots.country_code && slots.query) {
-          const defaultCountry = await storage.getCountryPreference(sessionId);
-          console.log(`🔍 Default country from storage:`, defaultCountry);
-          if (defaultCountry) {
-            slots.country_code = defaultCountry.code;
-            slots.country = defaultCountry.name;
-            slots.granularity = slots.location ? 'city' : 'country';
-            slots.needs_clarification = false; // Clear clarification flag since we have a default
-            console.log(`📍 Using default country: ${defaultCountry.name} (${defaultCountry.code})`);
+          let defaultCountry = await storage.getCountryPreference(sessionId);
+          // Default to UK if no preference set (same logic as GET endpoint)
+          if (!defaultCountry) {
+            defaultCountry = { code: 'GB', name: 'United Kingdom' };
           }
+          console.log(`🔍 Default country:`, defaultCountry);
+          slots.country_code = defaultCountry.code;
+          slots.country = defaultCountry.name;
+          slots.granularity = slots.location ? 'city' : 'country';
+          slots.needs_clarification = false; // Clear clarification flag since we have a default
+          console.log(`📍 Using default country: ${defaultCountry.name} (${defaultCountry.code})`);
         }
         
         if (slots.needs_clarification) {
