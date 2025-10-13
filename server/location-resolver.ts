@@ -21,16 +21,16 @@ const UK_CITIES = new Set([
   'kendal', 'carlisle', 'lancaster', 'durham', 'norwich', 'ipswich', 'arundel'
 ]);
 
-// Known cities in other countries
+// Known cities in other countries (with their country codes for reference)
 const WORLD_CITIES = new Set([
-  'dublin', 'cork', 'galway', // Ireland
-  'sydney', 'melbourne', 'brisbane', 'perth', 'adelaide', // Australia
-  'toronto', 'vancouver', 'montreal', 'calgary', // Canada
-  'new york', 'los angeles', 'chicago', 'houston', 'miami', // US
-  'paris', 'lyon', 'marseille', // France
-  'berlin', 'munich', 'hamburg', // Germany
-  'madrid', 'barcelona', 'seville', // Spain
-  'rome', 'milan', 'naples', // Italy
+  'dublin', 'cork', 'galway', 'limerick', 'waterford', // Ireland (IE)
+  'sydney', 'melbourne', 'brisbane', 'perth', 'adelaide', // Australia (AU)
+  'toronto', 'vancouver', 'montreal', 'calgary', 'ottawa', // Canada (CA)
+  'new york', 'los angeles', 'chicago', 'houston', 'miami', // US (US)
+  'paris', 'lyon', 'marseille', // France (FR)
+  'berlin', 'munich', 'hamburg', // Germany (DE)
+  'madrid', 'barcelona', 'seville', // Spain (ES)
+  'rome', 'milan', 'naples', // Italy (IT)
 ]);
 
 // Check if input is a city (not a country)

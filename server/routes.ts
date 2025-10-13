@@ -739,7 +739,24 @@ Be concise, practical, and action-oriented. Focus on UK businesses unless specif
               // For cities: resolve the city name but use the sidebar country code
               const resolved = cityName 
                 ? { 
-                    country: rawCountry === 'GB' ? 'United Kingdom' : rawCountry,
+                    country: (() => {
+                      const codeToName: Record<string, string> = {
+                        'GB': 'United Kingdom',
+                        'IE': 'Ireland',
+                        'US': 'United States',
+                        'AU': 'Australia',
+                        'CA': 'Canada',
+                        'IN': 'India',
+                        'NZ': 'New Zealand',
+                        'DE': 'Germany',
+                        'FR': 'France',
+                        'ES': 'Spain',
+                        'IT': 'Italy',
+                        'JP': 'Japan',
+                        'BR': 'Brazil'
+                      };
+                      return codeToName[countryCode] || rawCountry;
+                    })(),
                     country_code: countryCode,
                     region_filter: cityName,
                     granularity: 'city',

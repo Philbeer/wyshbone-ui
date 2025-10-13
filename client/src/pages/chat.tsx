@@ -51,6 +51,10 @@ export default function ChatPage() {
   const streamChatResponse = async (conversationMessages: ChatMessage[]) => {
     setIsStreaming(true);
     
+    // Get the latest country from localStorage (in case it was just changed in sidebar)
+    const currentCountry = localStorage.getItem('defaultCountry') || 'GB';
+    setDefaultCountry(currentCountry);
+    
     // Create assistant message with empty content
     const assistantMessageId = crypto.randomUUID();
     const assistantMessage: Message = {
@@ -74,7 +78,7 @@ export default function ChatPage() {
         body: JSON.stringify({
           messages: conversationMessages,
           user: { id: "demo-user", email: "demo@wyshbone.com" },
-          defaultCountry,
+          defaultCountry: currentCountry,
         }),
         signal: abortControllerRef.current.signal,
       });
