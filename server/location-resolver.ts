@@ -49,6 +49,14 @@ const COUNTRY_NAMES: Record<string, string> = {
   'DK': 'Denmark',
   'FI': 'Finland',
   'SG': 'Singapore',
+  'VN': 'Vietnam',
+  'TH': 'Thailand',
+  'KR': 'South Korea',
+  'ID': 'Indonesia',
+  'MY': 'Malaysia',
+  'PH': 'Philippines',
+  'PK': 'Pakistan',
+  'BD': 'Bangladesh',
 };
 
 // Granularity mapping by country
@@ -194,6 +202,13 @@ const CITY_HINTS: Record<string, { country_code: string; region?: string; confid
   'bangkok': { country_code: 'TH', region: 'Bangkok', confidence: 0.95 },
   'mumbai': { country_code: 'IN', region: 'Maharashtra', confidence: 0.9 },
   'delhi': { country_code: 'IN', region: 'Delhi', confidence: 0.9 },
+  'hanoi': { country_code: 'VN', region: 'Hanoi', confidence: 0.95 },
+  'ho chi minh': { country_code: 'VN', region: 'Ho Chi Minh City', confidence: 0.95 },
+  'ho chi minh city': { country_code: 'VN', region: 'Ho Chi Minh City', confidence: 0.95 },
+  'saigon': { country_code: 'VN', region: 'Ho Chi Minh City', confidence: 0.95 },
+  'jakarta': { country_code: 'ID', region: 'Jakarta', confidence: 0.95 },
+  'manila': { country_code: 'PH', region: 'Metro Manila', confidence: 0.95 },
+  'kuala lumpur': { country_code: 'MY', region: 'Kuala Lumpur', confidence: 0.95 },
   
   // Latin American Cities
   'mexico city': { country_code: 'MX', region: 'Mexico City', confidence: 0.95 },
@@ -245,6 +260,15 @@ const CITY_HINTS: Record<string, { country_code: string; region?: string; confid
   'austria': { country_code: 'AT', confidence: 0.95 },
   'portugal': { country_code: 'PT', confidence: 0.95 },
   'greece': { country_code: 'GR', confidence: 0.95 },
+  'vietnam': { country_code: 'VN', confidence: 0.95 },
+  'thailand': { country_code: 'TH', confidence: 0.95 },
+  'south korea': { country_code: 'KR', confidence: 0.95 },
+  'korea': { country_code: 'KR', confidence: 0.95 },
+  'indonesia': { country_code: 'ID', confidence: 0.95 },
+  'malaysia': { country_code: 'MY', confidence: 0.95 },
+  'philippines': { country_code: 'PH', confidence: 0.95 },
+  'pakistan': { country_code: 'PK', confidence: 0.95 },
+  'bangladesh': { country_code: 'BD', confidence: 0.95 },
 };
 
 /**
