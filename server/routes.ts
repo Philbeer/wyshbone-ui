@@ -300,8 +300,23 @@ Examples:
       const pendingConfirmation = await storage.getPendingConfirmation(sessionId);
       const confirmationPattern = /^(yes|ok|confirm|proceed|go ahead|execute|send|do it)/i;
       const cancellationPattern = /^(no|cancel|stop|abort|nevermind|don't)/i;
+      const correctionPattern = /^(actually|no,?\s+|i meant|change|correct|fix|instead|it should be)/i;
 
       if (pendingConfirmation) {
+        // Check if user wants to make a correction
+        if (correctionPattern.test(latestUserText.trim())) {
+          console.log("🔄 User wants to correct the workflow, clearing confirmation");
+          await storage.clearPendingConfirmation(sessionId);
+          
+          // Let the AI reprocess the corrected request
+          const responseText = "I've cleared the previous workflow. Please tell me what you'd like to change.";
+          appendMessage(sessionId, { role: "assistant", content: responseText });
+          res.write(`data: ${JSON.stringify({ content: responseText, done: true })}\n\n`);
+          res.write(`data: [DONE]\n\n`);
+          res.end();
+          return;
+        }
+        
         if (confirmationPattern.test(latestUserText.trim())) {
           console.log("✅ User confirmed batch execution");
           await storage.clearPendingConfirmation(sessionId);
