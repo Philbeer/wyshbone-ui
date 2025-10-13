@@ -570,8 +570,10 @@ Examples:
         }
         
         // USE DEFAULT COUNTRY if no country detected (BEFORE checking needs_clarification)
+        console.log(`🔍 Slots state: country_code=${slots.country_code}, query=${slots.query}, needs_clarification=${slots.needs_clarification}`);
         if (!slots.country_code && slots.query) {
           const defaultCountry = await storage.getCountryPreference(sessionId);
+          console.log(`🔍 Default country from storage:`, defaultCountry);
           if (defaultCountry) {
             slots.country_code = defaultCountry.code;
             slots.country = defaultCountry.name;
