@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Send, User, CheckCircle2, Moon, Sun } from "lucide-react";
@@ -129,6 +129,11 @@ export default function ChatPage() {
             }
           }
         }
+      }
+
+      // Check if this was a country change confirmation and invalidate cache
+      if (accumulatedContent.includes('Default country changed to')) {
+        queryClient.invalidateQueries({ queryKey: ['/api/country/preference'] });
       }
 
       setIsStreaming(false);

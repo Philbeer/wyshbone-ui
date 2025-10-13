@@ -14,7 +14,7 @@ export function CountrySidebar() {
   });
 
   return (
-    <aside className="w-64 border-r border-border bg-background flex flex-col p-4">
+    <aside className="w-64 border-r border-border bg-background flex flex-col p-4" data-testid="sidebar-country">
       <div className="mb-4">
         <h2 className="text-sm font-semibold text-muted-foreground mb-3">Search Settings</h2>
         <Card className="p-3">
@@ -23,8 +23,8 @@ export function CountrySidebar() {
             <span className="text-sm font-medium">Default Country</span>
           </div>
           <div className="mt-2">
-            <div className="text-lg font-semibold">{country?.name || "United Kingdom"}</div>
-            <div className="text-xs text-muted-foreground mt-1">
+            <div className="text-lg font-semibold" data-testid="text-country-name">{country?.name || "United Kingdom"}</div>
+            <div className="text-xs text-muted-foreground mt-1" data-testid="text-country-code">
               {country?.code || "GB"}
             </div>
           </div>
