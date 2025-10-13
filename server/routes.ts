@@ -93,12 +93,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
           .json({ error: "Invalid request format", details: validation.error });
       }
 
-      const { messages, user } = validation.data; // 'user' kept in case you use it elsewhere
+      const { messages, user, defaultCountry } = validation.data; // 'user' kept in case you use it elsewhere
       const sessionId = getSessionId(req);
 
       // Grab the latest user message text (last item in the array)
       const latestUserText =
         messages?.length ? String(messages[messages.length - 1].content) : "";
+      
+      // Store default country in session for use in tools
+      if (defaultCountry) {
+        (req as any).defaultCountry = defaultCountry;
+      }
 
       // 1) Store user's new message in memory
       appendMessage(sessionId, { role: "user", content: latestUserText });
@@ -636,7 +641,10 @@ Be concise, practical, and action-oriented. Focus on UK businesses unless specif
             if (!params.roles || params.roles.length === 0) {
               missingFields.push("target job role/position");
             }
-            if (!params.country) {
+            
+            // Use default country if no location specified
+            const defaultCountryFromReq = (req as any).defaultCountry;
+            if (!params.country && !defaultCountryFromReq) {
               missingFields.push("location");
             }
             
@@ -645,7 +653,7 @@ Be concise, practical, and action-oriented. Focus on UK businesses unless specif
               let clarificationMsg = "";
               
               if (missingFields.includes("target job role/position")) {
-                clarificationMsg = "What job role are you targeting for the pubs in Chichester? (e.g., CEO, Head of Sales, Director, Manager)";
+                clarificationMsg = "What job role are you targeting? (e.g., CEO, Head of Sales, Director, Manager)";
               } else if (missingFields.includes("location")) {
                 clarificationMsg = "Which location would you like to search in?";
               } else if (missingFields.includes("business type")) {
@@ -666,7 +674,7 @@ Be concise, practical, and action-oriented. Focus on UK businesses unless specif
             const roles = params.roles;
             const delayMs = params.delay_ms || 4000;
             const smarleadId = params.smarlead_id || '2354720';
-            const rawCountry = params.country;
+            const rawCountry = params.country || defaultCountryFromReq;
             const numCounties = params.number_countiestosearch || 1;
             
             // Normalize country code to ISO alpha-2 (US, GB, IE, AU, CA)

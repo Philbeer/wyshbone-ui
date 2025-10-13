@@ -15,6 +15,7 @@ export const chatRequestSchema = z.object({
     id: z.string(),
     email: z.string().email(),
   }),
+  defaultCountry: z.string().optional(),
 });
 
 export type ChatRequest = z.infer<typeof chatRequestSchema>;

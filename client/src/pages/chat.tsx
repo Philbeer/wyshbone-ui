@@ -3,7 +3,7 @@ import { useMutation } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Send, User, CheckCircle2, Moon, Sun } from "lucide-react";
+import { Send, User, CheckCircle2 } from "lucide-react";
 import type { ChatMessage, AddNoteResponse } from "@shared/schema";
 import wyshboneLogo from "@assets/wyshbone-logo_1759667581806.png";
 
@@ -24,15 +24,21 @@ type DisplayMessage = Message | SystemMessage;
 export default function ChatPage() {
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
   const [input, setInput] = useState("");
-  const [theme, setTheme] = useState<"light" | "dark">("light");
   const [isStreaming, setIsStreaming] = useState(false);
+  const [defaultCountry, setDefaultCountry] = useState<string>(() => {
+    return localStorage.getItem('defaultCountry') || 'GB';
+  });
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
-    document.documentElement.classList.toggle("dark", theme === "dark");
-  }, [theme]);
+    const handleStorageChange = () => {
+      setDefaultCountry(localStorage.getItem('defaultCountry') || 'GB');
+    };
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, []);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -68,6 +74,7 @@ export default function ChatPage() {
         body: JSON.stringify({
           messages: conversationMessages,
           user: { id: "demo-user", email: "demo@wyshbone.com" },
+          defaultCountry,
         }),
         signal: abortControllerRef.current.signal,
       });
@@ -210,46 +217,8 @@ export default function ChatPage() {
     }
   };
 
-  const toggleTheme = () => {
-    setTheme((prev) => (prev === "dark" ? "light" : "dark"));
-  };
-
   return (
-    <div className="flex flex-col h-screen bg-background">
-      {/* Header */}
-      <header className="h-16 border-b border-border backdrop-blur-sm bg-background/90 flex items-center justify-between px-6 sticky top-0 z-10">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-md overflow-hidden">
-            <img src={wyshboneLogo} alt="Wyshbone" className="w-full h-full object-cover" />
-          </div>
-          <h1 className="text-sm md:text-2xl font-bold tracking-tight" style={{ color: '#2c7373' }}>Wyshbone AI</h1>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="icon"
-            className="md:w-auto md:px-3"
-            onClick={() => addNoteMutation.mutate()}
-            disabled={addNoteMutation.isPending}
-            data-testid="button-add-note"
-          >
-            <CheckCircle2 className="w-4 h-4 md:mr-2" />
-            <span className="hidden md:inline">Add Note to Bubble</span>
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={toggleTheme}
-            data-testid="button-theme-toggle"
-          >
-            {theme === "dark" ? (
-              <Sun className="w-5 h-5" />
-            ) : (
-              <Moon className="w-5 h-5" />
-            )}
-          </Button>
-        </div>
-      </header>
+    <div className="flex flex-col h-full bg-background">
 
       {/* Messages Area */}
       <div className="flex-1 overflow-y-auto px-6 py-8">
