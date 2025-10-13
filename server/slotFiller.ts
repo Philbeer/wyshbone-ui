@@ -44,21 +44,24 @@ export async function ensureSlots(
   
   // If we're awaiting country clarification and user just gave a country, combine them
   let messageToResolve = userMessage;
+  let explicitBusinessType = context.business_type; // Preserve business type from context
+  
   if (context.awaiting_country_for) {
     // User was asked about location, now they're providing country
     // Check if current message looks like just a country (no business type)
     const testResolution = await resolveLocation({ raw_message: userMessage });
     if (testResolution.country_code && !testResolution.business_type) {
-      // They just said a country - combine with previous location
-      messageToResolve = `${context.awaiting_country_for}, ${userMessage}`;
-      console.log(`🔗 Combining clarification: "${context.awaiting_country_for}" + "${userMessage}" → "${messageToResolve}"`);
+      // They just said a country - combine with previous location AND business type
+      const businessPrefix = explicitBusinessType ? `${explicitBusinessType} in ` : '';
+      messageToResolve = `${businessPrefix}${context.awaiting_country_for}, ${userMessage}`;
+      console.log(`🔗 Combining clarification: "${explicitBusinessType}" + "${context.awaiting_country_for}" + "${userMessage}" → "${messageToResolve}"`);
     }
   }
   
   // Try to resolve location from current message (or combined message)
   const resolution = await resolveLocation({
     raw_message: messageToResolve,
-    business_text: context.business_type,
+    business_text: explicitBusinessType,
     place_text: context.place_text
   });
   
