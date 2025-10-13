@@ -709,6 +709,13 @@ Be concise, practical, and action-oriented. Focus on UK businesses unless specif
               resolvedCountryCode = resolved.country_code;
               granularity = resolved.granularity;
               
+              // CRITICAL: If country is UNKNOWN, STOP and ask user for clarification
+              if (resolvedCountryCode === 'UNKNOWN' || resolvedCountryCode.toUpperCase() === rawCountry.toUpperCase()) {
+                console.log(`❌ Cannot determine country for "${rawCountry}" - asking user for clarification`);
+                aiBuffer = `I couldn't determine which country "${rawCountry}" is in. Could you please specify the country? For example, you could say "UK" or "United States" or "India".`;
+                return;
+              }
+              
               // Add note based on confidence level (per spec)
               if (resolved.confidence >= 0.7) {
                 // High confidence: proceed silently
@@ -720,11 +727,13 @@ Be concise, practical, and action-oriented. Focus on UK businesses unless specif
                   : resolved.country;
                 confidenceNote = `\n\n*Note: assuming ${locationDesc}*`;
               } else {
-                // Low confidence: would ask clarifying question, but we'll proceed with note
+                // Low confidence: ask for clarification
+                console.log(`❌ Low confidence (${resolved.confidence}) for "${rawCountry}" - asking user for clarification`);
                 const locationDesc = resolved.region_filter 
                   ? `${resolved.region_filter}, ${resolved.country}` 
                   : resolved.country;
-                confidenceNote = `\n\n*Note: interpreting as ${locationDesc}. Please specify if different.*`;
+                aiBuffer = `I think "${rawCountry}" might be ${locationDesc}, but I'm not certain. Could you confirm or specify the exact country?`;
+                return;
               }
               
               // IMPORTANT: Determine if user specified a specific location or just a country
