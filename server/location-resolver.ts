@@ -136,6 +136,7 @@ const CITY_HINTS: Record<string, { country_code: string; region?: string; confid
   'oxford': { country_code: 'GB', region: 'Oxfordshire', confidence: 0.9 },
   'cambridge': { country_code: 'GB', region: 'Cambridgeshire', confidence: 0.9 },
   'beckington': { country_code: 'GB', region: 'Somerset', confidence: 0.9 },
+  'devizes': { country_code: 'GB', region: 'Wiltshire', confidence: 0.9 },
   'scotland': { country_code: 'GB', confidence: 0.95 },
   'wales': { country_code: 'GB', confidence: 0.95 },
   'northern ireland': { country_code: 'GB', confidence: 0.95 },

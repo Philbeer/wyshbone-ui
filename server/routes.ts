@@ -713,90 +713,123 @@ Be concise, practical, and action-oriented. Focus on UK businesses unless specif
               if (resolvedCountryCode === 'UNKNOWN' || resolvedCountryCode.toUpperCase() === rawCountry.toUpperCase()) {
                 console.log(`❌ Cannot determine country for "${rawCountry}" - asking user for clarification`);
                 aiBuffer = `I couldn't determine which country "${rawCountry}" is in. Could you please specify the country? For example, you could say "UK" or "United States" or "India".`;
-                return;
-              }
-              
-              // Add note based on confidence level (per spec)
-              if (resolved.confidence >= 0.7) {
-                // High confidence: proceed silently
-                confidenceNote = '';
-              } else if (resolved.confidence >= 0.4) {
-                // Medium confidence: add assumption note
-                const locationDesc = resolved.region_filter 
-                  ? `${resolved.region_filter}, ${resolved.country}` 
-                  : resolved.country;
-                confidenceNote = `\n\n*Note: assuming ${locationDesc}*`;
-              } else {
+                res.write(`data: ${JSON.stringify({ content: aiBuffer })}\n\n`);
+              } else if (resolved.confidence < 0.4) {
                 // Low confidence: ask for clarification
                 console.log(`❌ Low confidence (${resolved.confidence}) for "${rawCountry}" - asking user for clarification`);
                 const locationDesc = resolved.region_filter 
                   ? `${resolved.region_filter}, ${resolved.country}` 
                   : resolved.country;
                 aiBuffer = `I think "${rawCountry}" might be ${locationDesc}, but I'm not certain. Could you confirm or specify the exact country?`;
-                return;
-              }
-              
-              // IMPORTANT: Determine if user specified a specific location or just a country
-              // If only country specified (no city/region), use "-" as placeholder
-              const isCountryOnly = resolved.country_code === resolved.country || 
-                                   !resolved.region_filter ||
-                                   resolved.region_filter.toLowerCase() === resolved.country.toLowerCase();
-              
-              let locationToUse: string;
-              if (isCountryOnly) {
-                // Just a country specified (e.g., "India", "Scotland") → use user's input, not resolved country name
-                const capitalizedCountry = rawCountry.split(' ').map((word: string) => 
-                  word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
-                ).join(' ');
-                locationToUse = capitalizedCountry;
-                console.log(`✅ Country-only search: using user's input "${locationToUse}" for whole country ${resolvedCountryCode}`);
+                res.write(`data: ${JSON.stringify({ content: aiBuffer })}\n\n`);
               } else {
-                // Specific city/region specified → use exact user input
-                const capitalizedLocation = rawCountry.split(' ').map((word: string) => 
-                  word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
-                ).join(' ');
-                locationToUse = capitalizedLocation;
-                console.log(`✅ Using user's exact location: "${locationToUse}" in ${resolvedCountryCode}`);
+                // Good confidence - proceed with workflow
+                
+                // Add note based on confidence level (per spec)
+                if (resolved.confidence >= 0.7) {
+                  // High confidence: proceed silently
+                  confidenceNote = '';
+                } else if (resolved.confidence >= 0.4) {
+                  // Medium confidence: add assumption note
+                  const locationDesc = resolved.region_filter 
+                    ? `${resolved.region_filter}, ${resolved.country}` 
+                    : resolved.country;
+                  confidenceNote = `\n\n*Note: assuming ${locationDesc}*`;
+                }
+                
+                // IMPORTANT: Determine if user specified a specific location or just a country
+                // If only country specified (no city/region), use "-" as placeholder
+                const isCountryOnly = resolved.country_code === resolved.country || 
+                                     !resolved.region_filter ||
+                                     resolved.region_filter.toLowerCase() === resolved.country.toLowerCase();
+                
+                let locationToUse: string;
+                if (isCountryOnly) {
+                  // Just a country specified (e.g., "India", "Scotland") → use user's input, not resolved country name
+                  const capitalizedCountry = rawCountry.split(' ').map((word: string) => 
+                    word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+                  ).join(' ');
+                  locationToUse = capitalizedCountry;
+                  console.log(`✅ Country-only search: using user's input "${locationToUse}" for whole country ${resolvedCountryCode}`);
+                } else {
+                  // Specific city/region specified → use exact user input
+                  const capitalizedLocation = rawCountry.split(' ').map((word: string) => 
+                    word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+                  ).join(' ');
+                  locationToUse = capitalizedLocation;
+                  console.log(`✅ Using user's exact location: "${locationToUse}" in ${resolvedCountryCode}`);
+                }
+                
+                selectedCounties = [locationToUse];
+                
+                // Build preview and store pending confirmation (use ISO country code)
+                await storage.setPendingConfirmation(sessionId, {
+                  business_types: params.business_types,
+                  roles,
+                  delay_ms: delayMs,
+                  number_countiestosearch: selectedCounties.length,
+                  smarlead_id: smarleadId,
+                  counties: selectedCounties,
+                  country: resolvedCountryCode,  // Use resolved ISO alpha-2 code
+                  timestamp: new Date().toISOString()
+                });
+
+                let previewText = `📋 **Batch Workflow Preview**\n\n`;
+                previewText += `I'll make **${selectedCounties.length} API call(s)** to the autogen endpoint:\n\n`;
+                
+                for (const county of selectedCounties) {
+                  for (const businessType of params.business_types) {
+                    for (const role of roles) {
+                      previewText += `• ${role} @ ${businessType} in **${county}, ${resolvedCountryCode}**\n`;  // Use resolved ISO code
+                    }
+                  }
+                }
+                
+                previewText += `\n**Parameters:**\n`;
+                previewText += `- Delay: ${delayMs}ms\n`;
+                previewText += `- Smarlead ID: ${smarleadId}\n`;
+                previewText += `\n✅ Type **"yes"** to confirm or **"no"** to cancel`;
+                
+                // Append confidence note if present
+                if (confidenceNote) {
+                  previewText += confidenceNote;
+                }
+
+                aiBuffer = previewText;
+                res.write(`data: ${JSON.stringify({ content: previewText })}\n\n`);
               }
+            } else {
+              // Counties were provided, just build preview
+              await storage.setPendingConfirmation(sessionId, {
+                business_types: params.business_types,
+                roles,
+                delay_ms: delayMs,
+                number_countiestosearch: selectedCounties.length,
+                smarlead_id: smarleadId,
+                counties: selectedCounties,
+                country: resolvedCountryCode,
+                timestamp: new Date().toISOString()
+              });
+
+              let previewText = `📋 **Batch Workflow Preview**\n\n`;
+              previewText += `I'll make **${selectedCounties.length} API call(s)** to the autogen endpoint:\n\n`;
               
-              selectedCounties = [locationToUse];
-            }
-
-            // Build preview and store pending confirmation (use ISO country code)
-            await storage.setPendingConfirmation(sessionId, {
-              business_types: params.business_types,
-              roles,
-              delay_ms: delayMs,
-              number_countiestosearch: selectedCounties.length,
-              smarlead_id: smarleadId,
-              counties: selectedCounties,
-              country: resolvedCountryCode,  // Use resolved ISO alpha-2 code
-              timestamp: new Date().toISOString()
-            });
-
-            let previewText = `📋 **Batch Workflow Preview**\n\n`;
-            previewText += `I'll make **${selectedCounties.length} API call(s)** to the autogen endpoint:\n\n`;
-            
-            for (const county of selectedCounties) {
-              for (const businessType of params.business_types) {
-                for (const role of roles) {
-                  previewText += `• ${role} @ ${businessType} in **${county}, ${resolvedCountryCode}**\n`;  // Use resolved ISO code
+              for (const county of selectedCounties) {
+                for (const businessType of params.business_types) {
+                  for (const role of roles) {
+                    previewText += `• ${role} @ ${businessType} in **${county}, ${resolvedCountryCode}**\n`;
+                  }
                 }
               }
-            }
-            
-            previewText += `\n**Parameters:**\n`;
-            previewText += `- Delay: ${delayMs}ms\n`;
-            previewText += `- Smarlead ID: ${smarleadId}\n`;
-            previewText += `\n✅ Type **"yes"** to confirm or **"no"** to cancel`;
-            
-            // Append confidence note if present
-            if (confidenceNote) {
-              previewText += confidenceNote;
-            }
+              
+              previewText += `\n**Parameters:**\n`;
+              previewText += `- Delay: ${delayMs}ms\n`;
+              previewText += `- Smarlead ID: ${smarleadId}\n`;
+              previewText += `\n✅ Type **"yes"** to confirm or **"no"** to cancel`;
 
-            aiBuffer = previewText;
-            res.write(`data: ${JSON.stringify({ content: previewText })}\n\n`);
+              aiBuffer = previewText;
+              res.write(`data: ${JSON.stringify({ content: previewText })}\n\n`);
+            }
             
           } catch (toolErr: any) {
             console.error("❌ Tool execution error:", toolErr.message);
