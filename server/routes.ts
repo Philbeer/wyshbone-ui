@@ -483,19 +483,25 @@ CRITICAL VALIDATION RULES:
 Before using bubble_run_batch tool, you MUST have ALL of these:
 1. business_types (required) - what businesses to find
 2. roles (required) - target job positions (CEO, Head of Sales, Director, Manager, etc.)
-3. country (required) - location to search
+3. country (required) - location to search (NEVER GUESS - always ask if not provided)
 
 If ANY field is missing, DO NOT call the tool. Instead, ask conversationally for the missing information.
+
+LOCATION POLICY - NEVER GUESS:
+- NEVER infer or guess locations (e.g., don't assume Ireland, UK, or any country)
+- If location is missing, ALWAYS ask: "What location would you like to search in?"
+- Location must be explicitly stated by the user
 
 Tool Usage Guidelines:
 - Extract business_types from request (e.g., "pubs", "dentists", "vets")
 - Extract roles ONLY if explicitly mentioned - DO NOT assume or default
-- Extract location (e.g., "Chichester", "Texas", "London")
+- Extract location ONLY if explicitly mentioned (e.g., "Chichester", "Texas", "London")
 - The system will auto-detect the country code
 
 Examples:
 - "find pubs in Chichester for CEOs" → roles: ["CEO"], business_types: ["pubs"], country: "Chichester" ✅
 - "find pubs in Chichester" → MISSING ROLES - Ask: "What job role are you targeting?" ❌
+- "find CEOs for pubs" → MISSING LOCATION - Ask: "What location would you like to search in?" ❌
 - "search Head of Sales for dentists in Texas" → roles: ["Head of Sales"], business_types: ["dentists"], country: "Texas" ✅
 
 Be concise, practical, and action-oriented. Focus on UK businesses unless specified otherwise.`
@@ -568,10 +574,10 @@ Be concise, practical, and action-oriented. Focus on UK businesses unless specif
               },
               country: {
                 type: "string",
-                description: "Country or region (e.g., 'UK', 'Texas', 'Ireland')"
+                description: "Country or region (e.g., 'UK', 'Texas', 'Ireland'). REQUIRED - never guess, always ask user if not provided."
               }
             },
-            required: ["business_types"]
+            required: ["business_types", "country"]
           }
         }
       };
