@@ -921,62 +921,34 @@ Be concise, practical, and action-oriented. Focus on UK businesses unless specif
             const rawCountry = params.country || defaultCountryFromReq;
             const numCounties = params.number_countiestosearch || 1;
             
-            // If we detected cities, use the first one as the location to resolve country
+            // Use location resolver to auto-detect country from city/state names
             const locationToResolve = cityNames.length > 0 ? cityNames[0] : rawCountry;
             
-            console.log(`✅ Using country: ${rawCountry} ${params.country ? '(from user message)' : '(from sidebar default)'}`);
             if (cityNames.length > 0) {
-              console.log(`📍 Using cities as locations: ${cityNames.join(', ')}`);
+              console.log(`📍 Locations provided: ${cityNames.join(', ')} - will auto-detect country`);
+            } else {
+              console.log(`🌍 Country: ${rawCountry} ${params.country ? '(from user)' : '(from sidebar default)'}`);
             }
             
-            // Normalize country code to ISO alpha-2 (US, GB, IE, AU, CA)
-            const countryCode = getRegionCode(rawCountry);
+            // ALWAYS resolve location to get proper country code (even if counties provided)
+            const { getRegions } = await import("./regions");
+            const { resolveLocation } = await import("./location-resolver");
+            
+            // Use intelligent location resolver (local hints + geocoding fallback)
+            // ALWAYS use resolveLocation to auto-detect country from city/state names
+            const resolved = await resolveLocation(locationToResolve);
+            
+            console.log(`📍 Resolved location: ${locationToResolve} → ${resolved.country_code}${resolved.region_filter ? `, ${resolved.region_filter}` : ''} (confidence: ${resolved.confidence}${resolved.source ? `, source: ${resolved.source}` : ''})`);
+            
+            // Set country code and granularity based on resolution
+            let resolvedCountryCode = resolved.country_code;
+            let granularity = resolved.granularity;
+            let confidenceNote = ''; // For confidence-based prompting
             
             // Load regions if not provided based on country
             let selectedCounties = params.counties;
-            let granularity = 'county'; // Default granularity
-            let resolvedCountryCode = countryCode; // Use the resolved code
-            let confidenceNote = ''; // For confidence-based prompting
             
             if (!selectedCounties) {
-              const { getRegions } = await import("./regions");
-              const { resolveLocation } = await import("./location-resolver");
-              
-              // Use intelligent location resolver (local hints + geocoding fallback)
-              // For cities: resolve using the sidebar country code
-              const resolved = cityNames.length > 0
-                ? { 
-                    country: (() => {
-                      const codeToName: Record<string, string> = {
-                        'GB': 'United Kingdom',
-                        'IE': 'Ireland',
-                        'US': 'United States',
-                        'AU': 'Australia',
-                        'CA': 'Canada',
-                        'IN': 'India',
-                        'NZ': 'New Zealand',
-                        'DE': 'Germany',
-                        'FR': 'France',
-                        'ES': 'Spain',
-                        'IT': 'Italy',
-                        'JP': 'Japan',
-                        'BR': 'Brazil'
-                      };
-                      return codeToName[countryCode] || rawCountry;
-                    })(),
-                    country_code: countryCode,
-                    region_filter: cityNames[0], // Use first city for resolved object
-                    granularity: 'city',
-                    confidence: 0.95,
-                    source: 'city_hints' as const
-                  }
-                : await resolveLocation(rawCountry);
-              
-              console.log(`📍 Resolved location: ${locationToResolve} → ${resolved.country_code}${resolved.region_filter ? `, ${resolved.region_filter}` : ''} (confidence: ${resolved.confidence}${resolved.source ? `, source: ${resolved.source}` : ''})`);
-              
-              // Update country code and granularity based on resolution
-              resolvedCountryCode = resolved.country_code;
-              granularity = resolved.granularity;
               
               // Add note based on confidence level (per spec)
               if (resolved.confidence >= 0.7) {
