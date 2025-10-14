@@ -7,6 +7,7 @@ import { Send, User, CheckCircle2 } from "lucide-react";
 import type { ChatMessage, AddNoteResponse } from "@shared/schema";
 import wyshboneLogo from "@assets/wyshbone-logo_1759667581806.png";
 import Welcome from "@/components/Welcome";
+import { LocationSuggestions } from "@/components/LocationSuggestions";
 
 type Message = ChatMessage & {
   id: string;
@@ -27,6 +28,7 @@ export default function ChatPage() {
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
   const [showWelcome, setShowWelcome] = useState(true);
+  const [showLocationSuggestions, setShowLocationSuggestions] = useState(false);
   const [defaultCountry, setDefaultCountry] = useState<string>(() => {
     return localStorage.getItem('defaultCountry') || 'GB';
   });
@@ -222,11 +224,32 @@ export default function ChatPage() {
     streamChatResponse(fullConversation);
   };
 
+  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const newValue = e.target.value;
+    setInput(newValue);
+    
+    // Show location suggestions if user is typing and not streaming
+    if (newValue.length >= 3 && !isStreaming) {
+      setShowLocationSuggestions(true);
+    } else {
+      setShowLocationSuggestions(false);
+    }
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSend();
+      setShowLocationSuggestions(false);
+    } else if (e.key === "Escape") {
+      setShowLocationSuggestions(false);
     }
+  };
+
+  const handleSelectLocation = (newValue: string) => {
+    setInput(newValue);
+    setShowLocationSuggestions(false);
+    textareaRef.current?.focus();
   };
 
   return (
@@ -330,12 +353,22 @@ export default function ChatPage() {
 
       {/* Input Area */}
       <div className="border-t border-border bg-background px-6 py-6">
-        <div className="max-w-4xl mx-auto">
+        <div className="max-w-4xl mx-auto relative">
+          {/* Location Suggestions */}
+          {showLocationSuggestions && (
+            <LocationSuggestions
+              inputValue={input}
+              onSelectLocation={handleSelectLocation}
+              isVisible={showLocationSuggestions}
+              inputRef={textareaRef}
+            />
+          )}
+          
           <div className="bg-card border border-card-border rounded-xl p-2 flex items-end gap-2">
             <Textarea
               ref={textareaRef}
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              onChange={handleInputChange}
               onKeyDown={handleKeyDown}
               placeholder="Type your message..."
               className="resize-none border-0 bg-transparent text-[15px] focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 min-h-[48px] max-h-[200px]"
