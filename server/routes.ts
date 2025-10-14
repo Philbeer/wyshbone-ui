@@ -15,6 +15,9 @@ import {
 import { storage } from "./storage";
 import cors from "cors";
 import * as cheerio from "cheerio";
+import { neon } from "@neondatabase/serverless";
+
+const sql = neon(process.env.DATABASE_URL!);
 
 // Helper to identify each user's session (Bubble should send x-session-id)
 function getSessionId(req: import("express").Request) {
@@ -2545,6 +2548,108 @@ Return structured data with the EXACT placeId provided above: "${placeId}"`;
     } catch (e: any) {
       console.error("regions/list error:", e);
       return res.status(500).json({ error: e.message || "Failed to load regions" });
+    }
+  });
+
+  // ===========================
+  // GET /api/location-hints/search
+  // ===========================
+  app.get("/api/location-hints/search", async (req, res) => {
+    try {
+      const { query, country, limit = '20' } = req.query;
+      
+      if (!query || typeof query !== 'string') {
+        return res.status(400).json({ error: "Missing required parameter: query" });
+      }
+      
+      const searchTerm = `%${query.toLowerCase()}%`;
+      const limitNum = parseInt(limit as string) || 20;
+      
+      let results;
+      if (country && typeof country === 'string') {
+        // Search within specific country
+        results = await sql`
+          SELECT country, geonameid, subcountry, town_city 
+          FROM location_hints 
+          WHERE country = ${country}
+            AND (
+              LOWER(town_city) LIKE ${searchTerm} 
+              OR LOWER(subcountry) LIKE ${searchTerm}
+            )
+          ORDER BY town_city
+          LIMIT ${limitNum}
+        `;
+      } else {
+        // Global search
+        results = await sql`
+          SELECT country, geonameid, subcountry, town_city 
+          FROM location_hints 
+          WHERE LOWER(town_city) LIKE ${searchTerm} 
+            OR LOWER(subcountry) LIKE ${searchTerm}
+            OR LOWER(country) LIKE ${searchTerm}
+          ORDER BY 
+            CASE 
+              WHEN LOWER(town_city) = ${query.toLowerCase()} THEN 1
+              WHEN LOWER(town_city) LIKE ${query.toLowerCase() + '%'} THEN 2
+              WHEN LOWER(subcountry) = ${query.toLowerCase()} THEN 3
+              ELSE 4
+            END,
+            town_city
+          LIMIT ${limitNum}
+        `;
+      }
+      
+      return res.json({ results });
+    } catch (e: any) {
+      console.error("location-hints/search error:", e);
+      return res.status(500).json({ error: e.message || "Failed to search location hints" });
+    }
+  });
+
+  // ===========================
+  // GET /api/location-hints/countries
+  // ===========================
+  app.get("/api/location-hints/countries", async (req, res) => {
+    try {
+      const results = await sql`
+        SELECT country, COUNT(*) as city_count
+        FROM location_hints
+        GROUP BY country
+        ORDER BY country
+      `;
+      
+      return res.json({ countries: results });
+    } catch (e: any) {
+      console.error("location-hints/countries error:", e);
+      return res.status(500).json({ error: e.message || "Failed to get countries" });
+    }
+  });
+
+  // ===========================
+  // GET /api/location-hints/by-country
+  // ===========================
+  app.get("/api/location-hints/by-country", async (req, res) => {
+    try {
+      const { country, limit = '100' } = req.query;
+      
+      if (!country || typeof country !== 'string') {
+        return res.status(400).json({ error: "Missing required parameter: country" });
+      }
+      
+      const limitNum = parseInt(limit as string) || 100;
+      
+      const results = await sql`
+        SELECT country, geonameid, subcountry, town_city 
+        FROM location_hints 
+        WHERE country = ${country}
+        ORDER BY town_city
+        LIMIT ${limitNum}
+      `;
+      
+      return res.json({ results });
+    } catch (e: any) {
+      console.error("location-hints/by-country error:", e);
+      return res.status(500).json({ error: e.message || "Failed to get location hints by country" });
     }
   });
 
