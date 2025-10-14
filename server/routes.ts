@@ -428,8 +428,11 @@ Examples:
             const totalCount = result.results.length;
             const country = pendingConfirmation.country || 'UK';
             
-            let responseText = `✅ Bubble batch workflow completed: ${successCount}/${totalCount} successful\n\n`;
-            responseText += `Results:\n`;
+            // Use standardized batch success message
+            const { WyshboneChatConfig } = await import("../shared/conversationConfig");
+            let responseText = WyshboneChatConfig.batchSuccessMessage(successCount);
+            
+            responseText += `\n\nResults:\n`;
             for (const r of result.results) {
               const countyInfo = r.county ? ` [${r.county}, ${country}]` : '';
               responseText += `- ${r.role} @ ${r.business_type}${countyInfo}: ${r.ok ? '✅' : '❌'} (${r.status})\n`;
