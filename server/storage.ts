@@ -12,6 +12,15 @@ export interface PendingBatchConfirmation {
   timestamp: string;
 }
 
+export interface PartialWorkflow {
+  business_types?: string[];
+  counties?: string[];
+  country?: string;
+  roles?: string[];
+  missing_fields: string[];
+  timestamp: string;
+}
+
 export interface IStorage {
   // Job CRUD methods
   createJob(job: Job): Promise<Job>;
@@ -24,11 +33,17 @@ export interface IStorage {
   setPendingConfirmation(sessionId: string, params: PendingBatchConfirmation): Promise<void>;
   getPendingConfirmation(sessionId: string): Promise<PendingBatchConfirmation | null>;
   clearPendingConfirmation(sessionId: string): Promise<void>;
+  
+  // Partial workflow methods (for gathering missing info)
+  setPartialWorkflow(sessionId: string, params: PartialWorkflow): Promise<void>;
+  getPartialWorkflow(sessionId: string): Promise<PartialWorkflow | null>;
+  clearPartialWorkflow(sessionId: string): Promise<void>;
 }
 
 export class MemStorage implements IStorage {
   private jobs: Map<string, Job> = new Map();
   private pendingConfirmations: Map<string, PendingBatchConfirmation> = new Map();
+  private partialWorkflows: Map<string, PartialWorkflow> = new Map();
 
   async createJob(job: Job): Promise<Job> {
     this.jobs.set(job.id, job);
@@ -70,6 +85,18 @@ export class MemStorage implements IStorage {
 
   async clearPendingConfirmation(sessionId: string): Promise<void> {
     this.pendingConfirmations.delete(sessionId);
+  }
+
+  async setPartialWorkflow(sessionId: string, params: PartialWorkflow): Promise<void> {
+    this.partialWorkflows.set(sessionId, params);
+  }
+
+  async getPartialWorkflow(sessionId: string): Promise<PartialWorkflow | null> {
+    return this.partialWorkflows.get(sessionId) || null;
+  }
+
+  async clearPartialWorkflow(sessionId: string): Promise<void> {
+    this.partialWorkflows.delete(sessionId);
   }
 }
 

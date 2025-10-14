@@ -450,6 +450,70 @@ Examples:
         }
       }
 
+      // Check if we have a partial workflow waiting for completion
+      const partialWorkflow = await storage.getPartialWorkflow(sessionId);
+      if (partialWorkflow && partialWorkflow.missing_fields.length > 0) {
+        console.log("🔄 Completing partial workflow with user response");
+        
+        // Extract the missing fields from the user's response
+        const extractionPrompt = [
+          {
+            role: "system" as const,
+            content: `Extract ${partialWorkflow.missing_fields.join(', ')} from the user's message. Return a JSON object.
+            
+Examples:
+- If missing 'roles' and user says "CEO" → {"roles": ["CEO"]}
+- If missing 'roles' and user says "Head of Sales and Directors" → {"roles": ["Head of Sales", "Directors"]}
+- If missing 'business_types' and user says "pubs" → {"business_types": ["pubs"]}
+
+Only extract fields that are in the missing list: ${partialWorkflow.missing_fields.join(', ')}`
+          },
+          {
+            role: "user" as const,
+            content: `Partial workflow: ${JSON.stringify(partialWorkflow)}\n\nUser said: "${latestUserText}"\n\nExtract missing fields:`
+          }
+        ];
+
+        try {
+          const extractResp = await openai.chat.completions.create({
+            model: "gpt-4o-mini",
+            messages: extractionPrompt,
+            response_format: { type: "json_object" },
+          });
+
+          const extracted = JSON.parse(extractResp.choices[0]?.message?.content || "{}");
+          console.log("📝 Extracted missing fields:", extracted);
+
+          // Merge with partial workflow
+          const completeWorkflow = {
+            ...partialWorkflow,
+            ...extracted,
+            missing_fields: [] // No longer missing
+          };
+
+          // Clear partial workflow
+          await storage.clearPartialWorkflow(sessionId);
+
+          // Now proceed with the completed workflow using tool calling
+          // We'll inject this as a system message to guide the AI
+          const workflowGuidance = {
+            role: "system" as const,
+            content: `User has provided complete workflow information:
+- Business types: ${JSON.stringify(completeWorkflow.business_types)}
+- Roles: ${JSON.stringify(completeWorkflow.roles)}
+- Counties: ${JSON.stringify(completeWorkflow.counties)}
+- Country: ${completeWorkflow.country || 'default'}
+
+Call bubble_run_batch with this EXACT information. Do NOT look at conversation history - use ONLY these values.`
+          };
+
+          memoryMessages.push(workflowGuidance);
+        } catch (err: any) {
+          console.error("❌ Failed to complete partial workflow:", err.message);
+          await storage.clearPartialWorkflow(sessionId);
+        }
+      }
+
       // DISABLED: Old bubble batch detection - now handled by Chat Completions API tool calling
       // This prevents duplicate execution without confirmation
       const isBubbleBatchRequest = false; // Always false - tool calling handles this now
@@ -768,10 +832,35 @@ Be concise, practical, and action-oriented. Focus on UK businesses unless specif
             
             // If missing required fields, ask conversationally
             if (missingFields.length > 0) {
+              // Store partial workflow with what we have so far
+              const partialData: any = {
+                missing_fields: missingFields,
+                timestamp: new Date().toISOString()
+              };
+              
+              if (params.business_types && params.business_types.length > 0) {
+                partialData.business_types = params.business_types;
+              }
+              if (params.roles && params.roles.length > 0) {
+                partialData.roles = params.roles;
+              }
+              if (cityNames.length > 0) {
+                partialData.counties = cityNames;
+              }
+              if (params.country) {
+                partialData.country = params.country;
+              } else if (defaultCountryFromReq) {
+                partialData.country = defaultCountryFromReq;
+              }
+              
+              await storage.setPartialWorkflow(sessionId, partialData);
+              console.log("💾 Stored partial workflow:", partialData);
+              
               let clarificationMsg = "";
               
               if (missingFields.includes("target job role/position")) {
-                clarificationMsg = "What job role are you targeting? (e.g., CEO, Head of Sales, Director, Manager)";
+                const locationStr = partialData.counties ? `for ${partialData.counties.join(', ')}` : '';
+                clarificationMsg = `What job role are you targeting ${locationStr}? (e.g., CEO, Head of Sales, Director, Manager)`;
               } else if (missingFields.includes("location")) {
                 clarificationMsg = "Which location would you like to search in?";
               } else if (missingFields.includes("business type")) {
