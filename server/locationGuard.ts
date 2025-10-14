@@ -17,7 +17,9 @@ export async function guardLocation(params: Params) {
     return { proceed: true, country: defCountry, message: null };
   }
 
+  console.log(`🔍 guardLocation: Checking "${location}" against default "${defCountry}"`);
   const result = await resolveLocationAgainstDefault(location, defCountry);
+  console.log(`📊 guardLocation result:`, result);
 
   // ✅ Case 1: city is found in default country (incl. UK synonyms)
   if (result.action === "use_default") {
