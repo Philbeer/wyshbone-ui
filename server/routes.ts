@@ -307,9 +307,10 @@ Examples:
       const isNewSearch = newSearchPatterns.test(latestUserText);
       
       if (isNewSearch) {
-        console.log("🆕 Detected new search - clearing all pending state");
+        console.log("🆕 Detected new search - clearing all pending state AND conversation memory");
         await storage.clearPendingConfirmation(sessionId);
         await storage.clearPartialWorkflow(sessionId);
+        resetConversation(sessionId); // Clear conversation history to prevent AI confusion
       }
 
       // Check if user is confirming a pending batch workflow
