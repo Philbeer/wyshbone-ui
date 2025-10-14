@@ -235,16 +235,13 @@ export default function ChatPage() {
       {/* Messages Area */}
       <div className="flex-1 overflow-y-auto px-6 py-8">
         <div className="max-w-4xl mx-auto space-y-4">
-          {showWelcome && messages.length === 0 && <Welcome />}
           {messages.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full min-h-[400px] text-center">
               <div className="w-16 h-16 rounded-full overflow-hidden mb-4">
                 <img src={wyshboneLogo} alt="Wyshbone" className="w-full h-full object-cover" />
               </div>
-              <h2 className="text-xl font-semibold mb-2">Welcome to Wyshbone AI</h2>
-              <p className="text-muted-foreground max-w-md">
-                Start a conversation with your AI assistant. Ask questions, get insights, and manage your workflow.
-              </p>
+              <h2 className="text-xl font-semibold mb-6">Welcome to Wyshbone AI</h2>
+              {showWelcome && <Welcome />}
             </div>
           ) : (
             messages
