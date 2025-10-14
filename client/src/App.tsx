@@ -59,8 +59,14 @@ function App() {
               <header className="relative flex items-center justify-between p-2 border-b gap-2">
                 <SidebarTrigger data-testid="button-sidebar-toggle" />
                 
-                {/* Mobile country selector - centered on mobile */}
-                <div className="md:hidden absolute left-1/2 -translate-x-1/2">
+                {/* Mobile country selector - dropdown box centered on mobile */}
+                <div 
+                  className="md:hidden absolute"
+                  style={{
+                    left: '50%',
+                    transform: 'translateX(calc(-50% - 12px))'
+                  }}
+                >
                   <HeaderCountrySelector 
                     defaultCountry={defaultCountry} 
                     onCountryChange={setDefaultCountry} 
