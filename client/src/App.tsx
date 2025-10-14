@@ -56,17 +56,17 @@ function App() {
           <div className="flex h-screen w-full">
             <AppSidebar defaultCountry={defaultCountry} onCountryChange={setDefaultCountry} />
             <div className="flex flex-col flex-1">
-              <header className="flex items-center justify-between p-2 border-b gap-2">
-                <div className="flex items-center gap-2">
-                  <SidebarTrigger data-testid="button-sidebar-toggle" />
-                  {/* Mobile country selector - only visible on mobile */}
-                  <div className="md:hidden">
-                    <HeaderCountrySelector 
-                      defaultCountry={defaultCountry} 
-                      onCountryChange={setDefaultCountry} 
-                    />
-                  </div>
+              <header className="relative flex items-center justify-between p-2 border-b gap-2">
+                <SidebarTrigger data-testid="button-sidebar-toggle" />
+                
+                {/* Mobile country selector - centered on mobile */}
+                <div className="md:hidden absolute left-1/2 -translate-x-1/2">
+                  <HeaderCountrySelector 
+                    defaultCountry={defaultCountry} 
+                    onCountryChange={setDefaultCountry} 
+                  />
                 </div>
+                
                 <Button
                   variant="ghost"
                   size="icon"
