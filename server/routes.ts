@@ -644,11 +644,11 @@ Be concise, practical, and action-oriented. Focus on UK businesses unless specif
               counties: {
                 type: "array",
                 items: { type: "string" },
-                description: "CRITICAL: Put ALL cities in this ONE array. Examples: ['Bath', 'Kendal', 'London'], ['Cork', 'Dublin', 'Galway']. If user says 'all three locations' or similar, include ALL locations they mentioned in conversation. NEVER make multiple tool calls - use ONE call with ALL cities in this array."
+                description: "CRITICAL: Put ALL cities and regions in this ONE array. Examples: ['Bath', 'Kendal', 'London'], ['Wales', 'Scotland'], ['Cork', 'Dublin'], ['Texas']. If user says 'all three locations' or similar, include ALL locations they mentioned in conversation. NEVER make multiple tool calls - use ONE call with ALL cities in this array. Note: Wales, Scotland, England, Northern Ireland are REGIONS and go here, not in country."
               },
               country: {
                 type: "string",
-                description: "ONLY provide this if user explicitly mentions a COUNTRY or large region like Texas. Do NOT include city names like 'London', 'Kendal', 'Manchester' - these go in counties array. Leave empty to use default country. Examples: 'UK', 'India', 'Brazil', 'Texas'"
+                description: "ONLY provide this if user explicitly mentions a standalone COUNTRY. Do NOT include: cities (London, Kendal, Manchester), UK regions (Wales, Scotland, England, Northern Ireland), or US states (Texas, California) - these ALL go in counties array. Leave empty to use default country. Valid examples for this field: 'UK', 'Ireland', 'India', 'Brazil', 'Australia'"
               }
             },
             required: ["business_types"]
