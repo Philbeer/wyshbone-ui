@@ -11,6 +11,58 @@ const UK_SYNONYMS = new Set([
   "united kingdom","uk","great britain","gb","england","scotland","wales","northern ireland"
 ]);
 
+// ISO code to full country name mapping
+const ISO_TO_COUNTRY: Record<string, string> = {
+  "fr": "france",
+  "us": "united states",
+  "gb": "united kingdom",
+  "uk": "united kingdom",
+  "de": "germany",
+  "it": "italy",
+  "es": "spain",
+  "ca": "canada",
+  "au": "australia",
+  "nz": "new zealand",
+  "jp": "japan",
+  "cn": "china",
+  "in": "india",
+  "br": "brazil",
+  "mx": "mexico",
+  "ar": "argentina",
+  "cl": "chile",
+  "co": "colombia",
+  "pe": "peru",
+  "ie": "ireland",
+  "nl": "netherlands",
+  "be": "belgium",
+  "ch": "switzerland",
+  "at": "austria",
+  "se": "sweden",
+  "no": "norway",
+  "dk": "denmark",
+  "fi": "finland",
+  "pl": "poland",
+  "pt": "portugal",
+  "gr": "greece",
+  "tr": "turkey",
+  "ru": "russian federation",
+  "za": "south africa",
+  "eg": "egypt",
+  "ng": "nigeria",
+  "ke": "kenya",
+  "sa": "saudi arabia",
+  "ae": "united arab emirates",
+  "il": "israel",
+  "sg": "singapore",
+  "th": "thailand",
+  "vn": "viet nam",
+  "ph": "philippines",
+  "id": "indonesia",
+  "my": "malaysia",
+  "kr": "korea, republic of",
+  "tw": "taiwan"
+};
+
 function norm(s?: string) {
   return (s || "").trim().toLowerCase();
 }
@@ -19,13 +71,27 @@ function isUK(s: string) {
   return UK_SYNONYMS.has(norm(s));
 }
 
+function normalizeCountry(country: string): string {
+  const normalized = norm(country);
+  // Check if it's an ISO code
+  if (ISO_TO_COUNTRY[normalized]) {
+    return ISO_TO_COUNTRY[normalized];
+  }
+  return normalized;
+}
+
 function matchesDefault(countries: string[], defCountry: string) {
-  const def = norm(defCountry);
-  if (isUK(def)) {
+  const defNormalized = normalizeCountry(defCountry);
+  
+  // Check if default is UK-related
+  if (isUK(defNormalized)) {
     // if any candidate is a UK synonym, treat as default match
     return countries.some(isUK);
   }
-  return countries.map(norm).includes(def);
+  
+  // Normalize all country names (handles ISO codes)
+  const normalizedCountries = countries.map(normalizeCountry);
+  return normalizedCountries.includes(defNormalized);
 }
 
 /**
