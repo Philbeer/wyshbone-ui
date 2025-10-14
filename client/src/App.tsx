@@ -9,6 +9,7 @@ import { Moon, Sun } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import ChatPage from "@/pages/chat";
 import NotFound from "@/pages/not-found";
+import CountryHint from "@/components/CountryHint";
 import { useState, useEffect } from "react";
 
 function Router() {
@@ -70,6 +71,7 @@ function App() {
               </main>
             </div>
           </div>
+          <CountryHint />
         </SidebarProvider>
         <Toaster />
       </TooltipProvider>
