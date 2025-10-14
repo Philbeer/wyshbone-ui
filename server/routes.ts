@@ -871,7 +871,7 @@ Only extract fields that are in the missing list: ${partialWorkflow.missing_fiel
                 country: defaultCountry
               });
               
-              // If we have a message (auto-switch or disambiguation), send it
+              // If we have a message (warning or disambiguation), send it
               if (guard.message) {
                 aiBuffer = guard.message;
                 res.write(`data: ${JSON.stringify({ content: guard.message })}\n\n`);
@@ -884,9 +884,8 @@ Only extract fields that are in the missing list: ${partialWorkflow.missing_fiel
                   return;
                 }
                 
-                // If we can proceed (auto-switch), update params and continue
-                params.country = guard.country;
-                // Continue with updated country...
+                // If we can proceed with a warning, the message was sent
+                // Continue with the default country (DO NOT change params.country)
               }
             }
             
