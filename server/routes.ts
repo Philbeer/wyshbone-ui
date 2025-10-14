@@ -365,6 +365,43 @@ Examples:
             const modifications = JSON.parse(modResp.choices[0]?.message?.content || "{}");
             console.log("📝 Extracted modifications:", modifications);
             
+            // LOCATION AMBIGUITY GUARD FOR MODIFICATIONS
+            // Check if modifications include location changes
+            const defaultCountry = (req as any).defaultCountry || 'United Kingdom';
+            
+            if (modifications.counties && Array.isArray(modifications.counties) && modifications.counties.length > 0) {
+              console.log(`🔍 Checking modified counties/cities for ambiguity: ${modifications.counties.join(', ')}`);
+              
+              const { guardLocation } = await import("./locationGuard");
+              const userId = ((req as any).session)?.userId || (req as any).user?.id || "anonymous";
+              
+              // Check each modified city
+              for (const cityName of modifications.counties) {
+                const guard = await guardLocation({
+                  userId,
+                  location: cityName,
+                  country: defaultCountry
+                });
+                
+                // If we have a message (warning or disambiguation), send it
+                if (guard.message) {
+                  res.write(`data: ${JSON.stringify({ content: guard.message })}\n\n`);
+                  
+                  // If we can't proceed (disambiguation needed), stop here
+                  if (!guard.proceed) {
+                    res.write(`data: [DONE]\n\n`);
+                    res.end();
+                    appendMessage(sessionId, { role: "assistant", content: guard.message });
+                    return;
+                  }
+                  
+                  // If we can proceed with a warning, the message was already sent
+                  // Continue with the modification but user saw the warning
+                  break; // Only warn once if multiple cities
+                }
+              }
+            }
+            
             // Update pending confirmation with modifications
             const updatedConfirmation = {
               ...pendingConfirmation,
