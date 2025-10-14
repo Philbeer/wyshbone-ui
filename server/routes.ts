@@ -822,10 +822,12 @@ Only extract fields that are in the missing list: ${partialWorkflow.missing_fiel
             const defaultCountryCode = getRegionCode(defaultCountry);
             
             // NEW: Use locationGuard to check for ambiguous locations
+            // Check both params.country and params.counties array
+            const { guardLocation } = await import("./locationGuard");
+            const userId = ((req as any).session)?.userId || (req as any).user?.id || "anonymous";
+            
+            // Check params.country if provided
             if (params.country) {
-              const { guardLocation } = await import("./locationGuard");
-              const userId = ((req as any).session)?.userId || (req as any).user?.id || "anonymous";
-              
               const guard = await guardLocation({
                 userId,
                 location: params.country,
@@ -848,6 +850,38 @@ Only extract fields that are in the missing list: ${partialWorkflow.missing_fiel
                 // If we can proceed (auto-switch), update params and continue
                 params.country = guard.country;
                 // Continue with updated country...
+              }
+            }
+            
+            // Also check params.counties array (where AI often puts city names)
+            if (params.counties && Array.isArray(params.counties) && params.counties.length > 0) {
+              console.log(`🔍 Checking counties/cities for ambiguity: ${params.counties.join(', ')}`);
+              
+              // Check each city in the counties array
+              for (const cityName of params.counties) {
+                const guard = await guardLocation({
+                  userId,
+                  location: cityName,
+                  country: defaultCountry
+                });
+                
+                // If we have a message (auto-switch or disambiguation), send it
+                if (guard.message) {
+                  aiBuffer = guard.message;
+                  res.write(`data: ${JSON.stringify({ content: guard.message })}\n\n`);
+                  
+                  // If we can't proceed (disambiguation needed), stop here
+                  if (!guard.proceed) {
+                    res.write(`data: [DONE]\n\n`);
+                    res.end();
+                    appendMessage(sessionId, { role: "assistant", content: guard.message });
+                    return;
+                  }
+                  
+                  // If we can proceed with a warning, continue (message already sent)
+                  // The warning was sent but we'll continue with the default country
+                  break; // Only warn once if multiple cities
+                }
               }
             }
             
