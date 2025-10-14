@@ -42,11 +42,7 @@ export default function ChatPage() {
     return () => window.removeEventListener('storage', handleStorageChange);
   }, []);
 
-  useEffect(() => {
-    // Auto-hide welcome bubble after 6 seconds
-    const timer = setTimeout(() => setShowWelcome(false), 6000);
-    return () => clearTimeout(timer);
-  }, []);
+  // Welcome message will hide automatically when user sends first message (messages.length > 0)
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
