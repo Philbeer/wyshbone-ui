@@ -1,5 +1,4 @@
 import { useState, useEffect } from "react";
-import { X } from "lucide-react";
 
 export default function CountryHint() {
   const [isVisible, setIsVisible] = useState(false);
@@ -61,29 +60,7 @@ export default function CountryHint() {
       />
       
       {/* Hint box */}
-      <div className="bg-primary text-primary-foreground rounded-lg shadow-lg px-4 py-3 max-w-[260px] relative pt-6">
-        {/* Two close buttons */}
-        <div className="absolute -top-1 -right-1 flex gap-1">
-          <button
-            onClick={handleClose}
-            className="w-5 h-5 rounded-full bg-primary-foreground text-primary flex items-center justify-center hover-elevate active-elevate-2 text-[10px] font-bold"
-            data-testid="button-close-hint"
-            aria-label="Close"
-            title="Close"
-          >
-            <X className="w-3 h-3" />
-          </button>
-          <button
-            onClick={handleCloseForever}
-            className="w-5 h-5 rounded-full bg-primary-foreground text-primary flex items-center justify-center hover-elevate active-elevate-2"
-            data-testid="button-dismiss-hint-forever"
-            aria-label="Close forever"
-            title="Close forever"
-          >
-            <X className="w-3 h-3" />
-          </button>
-        </div>
-        
+      <div className="bg-primary text-primary-foreground rounded-lg shadow-lg px-4 py-3 max-w-[260px] relative">
         <div className="text-sm font-medium">
           👈 Choose your search country
         </div>
@@ -91,10 +68,22 @@ export default function CountryHint() {
           This will be used for all searches unless you specify a different location
         </div>
         
-        {/* Button labels */}
-        <div className="flex gap-2 mt-2 text-[10px] opacity-75 justify-end">
-          <span>Close</span>
-          <span>Close forever</span>
+        {/* Clickable text buttons */}
+        <div className="flex gap-3 mt-3 text-xs justify-end border-t border-primary-foreground/20 pt-2">
+          <button
+            onClick={handleClose}
+            className="underline hover-elevate active-elevate-2 px-2 py-1 rounded"
+            data-testid="button-close-hint"
+          >
+            Close
+          </button>
+          <button
+            onClick={handleCloseForever}
+            className="underline hover-elevate active-elevate-2 px-2 py-1 rounded"
+            data-testid="button-dismiss-hint-forever"
+          >
+            Close forever
+          </button>
         </div>
       </div>
     </div>
