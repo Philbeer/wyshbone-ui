@@ -816,11 +816,42 @@ Only extract fields that are in the missing list: ${partialWorkflow.missing_fiel
             
             // TODO: Spell check feature temporarily disabled - will re-implement after fixing try-catch structure
             
-            // COUNTRY MISMATCH DETECTION
+            // LOCATION AMBIGUITY GUARD
             const defaultCountry = (req as any).defaultCountry || 'United Kingdom';
             const { getRegionCode } = await import("./regions");
             const defaultCountryCode = getRegionCode(defaultCountry);
             
+            // NEW: Use locationGuard to check for ambiguous locations
+            if (params.country) {
+              const { guardLocation } = await import("./locationGuard");
+              const userId = ((req as any).session)?.userId || (req as any).user?.id || "anonymous";
+              
+              const guard = await guardLocation({
+                userId,
+                location: params.country,
+                country: defaultCountry
+              });
+              
+              // If we have a message (auto-switch or disambiguation), send it
+              if (guard.message) {
+                aiBuffer = guard.message;
+                res.write(`data: ${JSON.stringify({ content: guard.message })}\n\n`);
+                
+                // If we can't proceed (disambiguation needed), stop here
+                if (!guard.proceed) {
+                  res.write(`data: [DONE]\n\n`);
+                  res.end();
+                  appendMessage(sessionId, { role: "assistant", content: guard.message });
+                  return;
+                }
+                
+                // If we can proceed (auto-switch), update params and continue
+                params.country = guard.country;
+                // Continue with updated country...
+              }
+            }
+            
+            // ORIGINAL COUNTRY MISMATCH DETECTION (for legacy location-resolver flow)
             // Detect the country from the location in params
             if (params.location) {
               const { resolveLocation } = await import("./location-resolver");

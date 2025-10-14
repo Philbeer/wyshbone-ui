@@ -50,6 +50,12 @@ The user interface follows modern Material Design principles, drawing inspiratio
             - `GET /api/location-hints/by-country?country=<name>&limit=<num>` - Get locations for specific country
         - **Data Coverage:** Top countries include United States (3,307 cities), India (2,522), China (1,965), Brazil (1,319), Japan (1,232), Germany (1,117), Russian Federation (1,103), United Kingdom (853), Spain (735), France (669)
         - **Import Script:** `server/load-location-hints.ts` parses CSV and loads data in batches using neon serverless client
+        - **Location Ambiguity Resolver** (`server/locationResolver.ts`, `server/locationGuard.ts`): Intelligent location disambiguation system that queries the 29k cities database to handle ambiguous location names:
+            - **UK Synonym Handling:** Recognizes UK synonyms (United Kingdom, UK, Great Britain, GB, England, Scotland, Wales, Northern Ireland) as equivalent for matching
+            - **Auto-Switch Logic:** If a location exists in exactly one non-default country, automatically switches the default country, informs the user, and proceeds
+            - **Disambiguation Prompt:** If a location exists in multiple non-default countries, asks the user to choose which country (compact single-question format)
+            - **Silent Default Match:** If the location exists in the default country (including UK synonyms), proceeds silently without prompts
+            - **Integration Point:** Wired into `server/routes.ts` bubble_run_batch tool handler - checks params.country before workflow execution
 - **Streaming Responses:** Server-Sent Events (SSE) for real-time AI responses and animated typing indicators.
 - **Error Handling:** Comprehensive error messages as system notifications.
 - **Conversational Planning:** A three-way GPT planner decides whether to "search" (discover new venues), "use_cache" (more results from existing searches), or "respond" (for general conversational questions), preventing unnecessary searches and ensuring venue deduplication.

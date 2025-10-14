@@ -1,0 +1,247 @@
+You are my code assistant. Apply these changes EXACTLY. Do not remove or rename existing routes or logic. Only add what’s described.
+
+GOAL
+When a user provides a location (e.g., “Aberdeen”), check my 29k cities CSV and decide:
+- If the location exists in the default country (including UK synonyms), proceed silently with default.
+- If it exists in exactly one non-default country, auto-switch default country to that, save prefs, inform the user, and proceed.
+- If it exists in multiple non-default countries (and not in default), ask the user which country to use (single compact question).
+- If default is UK and matches include any UK synonym, assume UK silently.
+
+ENV VARS (ensure these exist)
+- CITIES_TABLE_PATH (e.g., ./data/cities.csv)
+- BUBBLE_BASE_URL (already used)
+- BUBBLE_API_TOKEN (optional)
+- DEFAULT_COUNTRY (fallback default, e.g., "United Kingdom")
+
+DEPENDENCY
+Add csv-parse:
+- npm i csv-parse
+
+FILES TO ADD
+
+1) Create: server/locationResolver.ts
+--- server/locationResolver.ts ---
+import fs from "fs";
+import path from "path";
+import { parse } from "csv-parse/sync";
+
+export type LocationCheck = {
+  action: "use_default" | "auto_switch" | "ask_user" | "no_match";
+  chosenCountry?: string;
+  candidates?: string[];
+  note?: string;
+};
+
+const UK_SYNONYMS = new Set([
+  "united kingdom","uk","great britain","gb","england","scotland","wales","northern ireland"
+]);
+
+function norm(s?: string) {
+  return (s || "").trim().toLowerCase();
+}
+
+let CITY_TO_COUNTRIES: Map<string, Set<string>> | null = null;
+
+export function loadCitiesIndex(csvPath: string) {
+  const abs = path.resolve(csvPath);
+  const buf = fs.readFileSync(abs);
+  const records = parse(buf, {
+    columns: true,
+    skip_empty_lines: true
+  }) as Array<Record<string,string>>;
+
+  const cityKeyCandidates = ["city","town","place"];
+  const countryKeyCandidates = ["country","country_name"];
+  const codeKeyCandidates = ["country_code","cc","iso2","iso"];
+
+  function pickKey(r: Record<string,string>, want: string[]) {
+    const keys = Object.keys(r).map(k => k.toLowerCase());
+    const found = want.find(w => keys.includes(w));
+    return found || want[0];
+  }
+
+  const sample = records[0] || {};
+  const cityKey = pickKey(sample, cityKeyCandidates);
+  const countryKey = pickKey(sample, countryKeyCandidates);
+  const codeKey = pickKey(sample, codeKeyCandidates);
+
+  const map = new Map<string, Set<string>>();
+  for (const r of records) {
+    const city = norm(r[cityKey]);
+    const countryName = norm(r[countryKey]);
+    const countryCode = norm(r[codeKey]);
+    if (!city) continue;
+    const country = countryName || countryCode;
+    if (!country) continue;
+    if (!map.has(city)) map.set(city, new Set());
+    map.get(city)!.add(country);
+  }
+  CITY_TO_COUNTRIES = map;
+}
+
+export function ensureIndexLoaded() {
+  if (!CITY_TO_COUNTRIES) {
+    const p = process.env.CITIES_TABLE_PATH || "./data/cities.csv";
+    loadCitiesIndex(p);
+  }
+}
+
+function isUK(s: string) {
+  return UK_SYNONYMS.has(norm(s));
+}
+
+function matchesDefault(countries: string[], defCountry: string) {
+  const def = norm(defCountry);
+  if (isUK(def)) {
+    // if any candidate is a UK synonym, treat as default match
+    return countries.some(isUK);
+  }
+  return countries.includes(def);
+}
+
+/**
+ * Decide what to do with a user-provided location and a default country.
+ * Rules:
+ * - If no matches at all -> no_match
+ * - If matches include default (incl. UK synonyms) -> use_default
+ * - If matches exclude default and length == 1 -> auto_switch to that country
+ * - If matches exclude default and length > 1 -> ask_user with candidates
+ */
+export function resolveLocationAgainstDefault(locationQuery: string, defaultCountry: string): LocationCheck {
+  ensureIndexLoaded();
+  if (!CITY_TO_COUNTRIES) return { action: "no_match", note: "Index not loaded." };
+
+  const cityKey = norm(locationQuery);
+  if (!cityKey) return { action: "no_match" };
+
+  const set = CITY_TO_COUNTRIES.get(cityKey);
+  if (!set || set.size === 0) {
+    return { action: "no_match" };
+  }
+
+  const candidates = Array.from(set);
+  if (matchesDefault(candidates, defaultCountry)) {
+    return { action: "use_default", chosenCountry: defaultCountry, candidates };
+  }
+
+  if (candidates.length === 1) {
+    return { action: "auto_switch", chosenCountry: candidates[0], candidates };
+  }
+
+  // multiple non-default countries, need a quick user pick
+  return { action: "ask_user", candidates };
+}
+--- end ---
+
+2) Update: server/memory.ts (add optional 'country' support; do not break anything)
+--- server/memory.ts (patch) ---
+type Prefs = {
+  userId: string;
+  businessType?: string;
+  location?: string;
+  role?: string;
+  radius?: string;
+  country?: string; // NEW optional
+};
+export async function savePrefs(p: Prefs): Promise<boolean> { /* keep existing body; it will now pass country if present */ }
+--- end ---
+
+3) Create: server/locationGuard.ts
+--- server/locationGuard.ts ---
+import { resolveLocationAgainstDefault } from "./locationResolver";
+import { savePrefs } from "./memory";
+
+export type Params = {
+  userId: string;
+  location?: string;
+  country?: string;       // current default country (from prefs or env)
+};
+
+const FALLBACK_DEFAULT = process.env.DEFAULT_COUNTRY || "United Kingdom";
+
+export async function guardLocation(params: Params) {
+  const location = params.location || "";
+  const defCountry = params.country || FALLBACK_DEFAULT;
+
+  if (!location) {
+    return { proceed: true, country: defCountry, message: null };
+  }
+
+  const result = resolveLocationAgainstDefault(location, defCountry);
+
+  if (result.action === "use_default") {
+    return { proceed: true, country: defCountry, message: null };
+  }
+
+  if (result.action === "auto_switch" && result.chosenCountry) {
+    // Auto-switch default country and inform user; also persist to prefs
+    await savePrefs({ userId: params.userId, country: result.chosenCountry });
+    const msg = `🌍 I noticed “${location}” is in ${titleCase(result.chosenCountry)}, not your default (${defCountry}). I’ve switched your default country so we search in the right place.`;
+    return { proceed: true, country: result.chosenCountry, message: msg };
+  }
+
+  if (result.action === "ask_user" && result.candidates?.length) {
+    const opts = result.candidates.map(titleCase).slice(0, 6).join(", ");
+    const msg = `“${location}” exists in multiple countries (${opts}). Which country should I use for this search?`;
+    return { proceed: false, country: defCountry, message: msg, options: result.candidates.map(titleCase) };
+  }
+
+  // no match – just proceed with default (or you could ask to rephrase)
+  return { proceed: true, country: defCountry, message: null };
+}
+
+function titleCase(s: string) {
+  return s.replace(/\b\w/g, m => m.toUpperCase());
+}
+--- end ---
+
+MODIFICATIONS
+
+A) Wire the guard before running searches.
+- In your agent handler (e.g., server/routes.ts or wherever you orchestrate search), before the search call, add:
+
+--- patch-agent-guard ---
+import { guardLocation } from "./locationGuard";
+// ... inside the handler where you have parsed params:
+const userId = params.userId || session.userId || "anon";
+const location = params.location;
+const currentDefaultCountry =
+  params.country ||
+  userPrefs?.country ||
+  process.env.DEFAULT_COUNTRY ||
+  "United Kingdom";
+
+const guard = await guardLocation({ userId, location, country: currentDefaultCountry });
+
+if (guard.message) {
+  // Send the informational or disambiguation message
+  sendAssistantMessage(guard.message);
+}
+
+if (guard.proceed === false) {
+  // Stop here and wait for the user to pick a country.
+  // The next user reply should set params.country accordingly and retry.
+  return;
+}
+
+// If proceed, set params.country to the chosen/default country and continue
+params.country = guard.country;
+
+// Optionally, if you store location+country together, you may update prefs:
+ // await savePrefs({ userId, location, country: guard.country });
+--- end ---
+
+B) If you support the user responding with a chosen country when we asked:
+- In your NLU/tool routing, accept a quick reply like “use Ireland” and set `params.country = "Ireland"` then re-run the search.
+
+C) DO NOT change any other behavior. Keep all Smartlead/Bubble flows intact.
+
+FINAL CHECKS
+- npm install completes (csv-parse).
+- Set CITIES_TABLE_PATH pointing to the CSV you uploaded.
+- First search after app boot warms the index (lazy-loaded).
+- If default is UK, and location matches UK (incl. England/Scotland/Wales/NI), no prompt.
+- If unique non-default, the assistant auto-switches country, informs the user, and proceeds.
+- If multiple non-default matches, the assistant asks one compact country pick question.
+
+Apply all changes now.
