@@ -2556,50 +2556,74 @@ Return structured data with the EXACT placeId provided above: "${placeId}"`;
   // ===========================
   app.get("/api/location-hints/search", async (req, res) => {
     try {
-      const { query, country, limit = '20' } = req.query;
+      const { query, country, limit = '20', offset = '0' } = req.query;
       
       if (!query || typeof query !== 'string') {
         return res.status(400).json({ error: "Missing required parameter: query" });
       }
       
-      const searchTerm = `%${query.toLowerCase()}%`;
-      const limitNum = parseInt(limit as string) || 20;
+      if (query.length < 2) {
+        return res.status(400).json({ error: "Query must be at least 2 characters long" });
+      }
+      
+      const limitNum = Math.min(parseInt(limit as string) || 20, 100); // Cap at 100
+      const offsetNum = parseInt(offset as string) || 0;
+      const searchQuery = query.toLowerCase();
+      const prefixPattern = `${searchQuery}%`;
+      const containsPattern = `%${searchQuery}%`;
       
       let results;
       if (country && typeof country === 'string') {
-        // Search within specific country
+        // Search within specific country - prefer prefix matches
         results = await sql`
           SELECT country, geonameid, subcountry, town_city 
           FROM location_hints 
           WHERE country = ${country}
             AND (
-              LOWER(town_city) LIKE ${searchTerm} 
-              OR LOWER(subcountry) LIKE ${searchTerm}
+              lower(town_city) LIKE ${prefixPattern}
+              OR lower(subcountry) LIKE ${prefixPattern}
+              OR lower(town_city) LIKE ${containsPattern}
+              OR lower(subcountry) LIKE ${containsPattern}
             )
-          ORDER BY town_city
-          LIMIT ${limitNum}
-        `;
-      } else {
-        // Global search
-        results = await sql`
-          SELECT country, geonameid, subcountry, town_city 
-          FROM location_hints 
-          WHERE LOWER(town_city) LIKE ${searchTerm} 
-            OR LOWER(subcountry) LIKE ${searchTerm}
-            OR LOWER(country) LIKE ${searchTerm}
           ORDER BY 
             CASE 
-              WHEN LOWER(town_city) = ${query.toLowerCase()} THEN 1
-              WHEN LOWER(town_city) LIKE ${query.toLowerCase() + '%'} THEN 2
-              WHEN LOWER(subcountry) = ${query.toLowerCase()} THEN 3
-              ELSE 4
+              WHEN lower(town_city) = ${searchQuery} THEN 1
+              WHEN lower(town_city) LIKE ${prefixPattern} THEN 2
+              WHEN lower(subcountry) = ${searchQuery} THEN 3
+              WHEN lower(subcountry) LIKE ${prefixPattern} THEN 4
+              ELSE 5
             END,
             town_city
-          LIMIT ${limitNum}
+          LIMIT ${limitNum} OFFSET ${offsetNum}
+        `;
+      } else {
+        // Global search - use trigram similarity for better performance
+        results = await sql`
+          SELECT country, geonameid, subcountry, town_city,
+            CASE 
+              WHEN lower(town_city) = ${searchQuery} THEN 1
+              WHEN lower(town_city) LIKE ${prefixPattern} THEN 2
+              WHEN lower(subcountry) = ${searchQuery} THEN 3
+              WHEN lower(subcountry) LIKE ${prefixPattern} THEN 4
+              WHEN lower(country) = ${searchQuery} THEN 5
+              WHEN lower(country) LIKE ${prefixPattern} THEN 6
+              ELSE 7
+            END as rank
+          FROM location_hints 
+          WHERE lower(town_city) LIKE ${containsPattern}
+            OR lower(subcountry) LIKE ${containsPattern}
+            OR lower(country) LIKE ${containsPattern}
+          ORDER BY rank, town_city
+          LIMIT ${limitNum} OFFSET ${offsetNum}
         `;
       }
       
-      return res.json({ results });
+      return res.json({ 
+        results,
+        limit: limitNum,
+        offset: offsetNum,
+        hasMore: results.length === limitNum
+      });
     } catch (e: any) {
       console.error("location-hints/search error:", e);
       return res.status(500).json({ error: e.message || "Failed to search location hints" });
