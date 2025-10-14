@@ -302,6 +302,16 @@ Examples:
         }
       }
 
+      // Detect if user is starting a NEW search (not answering a question)
+      const newSearchPatterns = /\b(find|search|get|show|list|lookup|discover|run|trigger|execute)\b.*\b(in|for|at|across)\b/i;
+      const isNewSearch = newSearchPatterns.test(latestUserText);
+      
+      if (isNewSearch) {
+        console.log("🆕 Detected new search - clearing all pending state");
+        await storage.clearPendingConfirmation(sessionId);
+        await storage.clearPartialWorkflow(sessionId);
+      }
+
       // Check if user is confirming a pending batch workflow
       const pendingConfirmation = await storage.getPendingConfirmation(sessionId);
       const confirmationPattern = /^(yes|ok|confirm|proceed|go ahead|execute|send|do it)/i;
@@ -494,20 +504,45 @@ Only extract fields that are in the missing list: ${partialWorkflow.missing_fiel
           // Clear partial workflow
           await storage.clearPartialWorkflow(sessionId);
 
-          // Now proceed with the completed workflow using tool calling
-          // We'll inject this as a system message to guide the AI
-          const workflowGuidance = {
-            role: "system" as const,
-            content: `User has provided complete workflow information:
-- Business types: ${JSON.stringify(completeWorkflow.business_types)}
-- Roles: ${JSON.stringify(completeWorkflow.roles)}
-- Counties: ${JSON.stringify(completeWorkflow.counties)}
-- Country: ${completeWorkflow.country || 'default'}
+          // DIRECTLY create the batch confirmation instead of relying on AI
+          // This prevents AI from looking at conversation history and getting confused
+          const { getRegionCode } = await import("./regions");
+          const countryCode = getRegionCode(completeWorkflow.country || 'GB');
+          
+          await storage.setPendingConfirmation(sessionId, {
+            business_types: completeWorkflow.business_types || [],
+            roles: completeWorkflow.roles || [],
+            delay_ms: 4000,
+            number_countiestosearch: completeWorkflow.counties?.length || 1,
+            smarlead_id: '2354720',
+            counties: completeWorkflow.counties || [],
+            country: countryCode,
+            timestamp: new Date().toISOString()
+          });
 
-Call bubble_run_batch with this EXACT information. Do NOT look at conversation history - use ONLY these values.`
-          };
-
-          memoryMessages.push(workflowGuidance);
+          // Build preview showing exactly what will run
+          let previewText = `📋 **Batch Workflow Preview**\n\n`;
+          const counties = completeWorkflow.counties || [];
+          previewText += `I'll make **${counties.length} API call(s)** to the autogen endpoint:\n\n`;
+          
+          for (const county of counties) {
+            for (const businessType of completeWorkflow.business_types || []) {
+              for (const role of completeWorkflow.roles || []) {
+                previewText += `• ${role} @ ${businessType} in **${county}, ${countryCode}**\n`;
+              }
+            }
+          }
+          
+          previewText += `\n**Parameters:**\n`;
+          previewText += `- Delay: 4000ms\n`;
+          previewText += `- Smarlead ID: 2354720\n`;
+          previewText += `\n✅ Type **"yes"** to confirm or **"no"** to cancel`;
+          
+          appendMessage(sessionId, { role: "assistant", content: previewText });
+          res.write(`data: ${JSON.stringify({ content: previewText })}\n\n`);
+          res.write(`data: [DONE]\n\n`);
+          res.end();
+          return;
         } catch (err: any) {
           console.error("❌ Failed to complete partial workflow:", err.message);
           await storage.clearPartialWorkflow(sessionId);
