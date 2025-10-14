@@ -13,10 +13,12 @@ import NotFound from "@/pages/not-found";
 import CountryHint from "@/components/CountryHint";
 import { useState, useEffect } from "react";
 
-function Router() {
+function Router({ defaultCountry }: { defaultCountry: string }) {
   return (
     <Switch>
-      <Route path="/" component={ChatPage} />
+      <Route path="/">
+        {() => <ChatPage defaultCountry={defaultCountry} />}
+      </Route>
       <Route component={NotFound} />
     </Switch>
   );
@@ -83,7 +85,7 @@ function App() {
                 </Button>
               </header>
               <main className="flex-1 overflow-hidden">
-                <Router />
+                <Router defaultCountry={defaultCountry} />
               </main>
             </div>
           </div>
