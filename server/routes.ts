@@ -463,13 +463,13 @@ Examples:
       // Check if we have a partial workflow waiting for completion
       const partialWorkflow = await storage.getPartialWorkflow(sessionId);
       if (partialWorkflow && partialWorkflow.missing_fields.length > 0) {
-        console.log("🔄 Completing partial workflow with user response");
-        
-        // Extract the missing fields from the user's response
-        const extractionPrompt = [
-          {
-            role: "system" as const,
-            content: `Extract ${partialWorkflow.missing_fields.join(', ')} from the user's message. Return a JSON object.
+          console.log("🔄 Completing partial workflow with user response");
+          
+          // Extract the missing fields from the user's response
+          const extractionPrompt = [
+            {
+              role: "system" as const,
+              content: `Extract ${partialWorkflow.missing_fields.join(', ')} from the user's message. Return a JSON object.
             
 Examples:
 - If missing 'roles' and user says "CEO" → {"roles": ["CEO"]}
@@ -477,12 +477,12 @@ Examples:
 - If missing 'business_types' and user says "pubs" → {"business_types": ["pubs"]}
 
 Only extract fields that are in the missing list: ${partialWorkflow.missing_fields.join(', ')}`
-          },
-          {
-            role: "user" as const,
-            content: `Partial workflow: ${JSON.stringify(partialWorkflow)}\n\nUser said: "${latestUserText}"\n\nExtract missing fields:`
-          }
-        ];
+            },
+            {
+              role: "user" as const,
+              content: `Partial workflow: ${JSON.stringify(partialWorkflow)}\n\nUser said: "${latestUserText}"\n\nExtract missing fields:`
+            }
+          ];
 
         try {
           const extractResp = await openai.chat.completions.create({
@@ -827,6 +827,8 @@ Be concise, practical, and action-oriented. Focus on UK businesses unless specif
             
             const params = JSON.parse(jsonToParse);
             
+            // TODO: Spell check feature temporarily disabled - will re-implement after fixing try-catch structure
+            
             // VALIDATION: Check for required fields before proceeding
             const missingFields: string[] = [];
             
@@ -1076,7 +1078,8 @@ Be concise, practical, and action-oriented. Focus on UK businesses unless specif
       } catch (err: any) {
         console.error("❌ Chat Completions API error:", err.message);
         console.error("Error details:", JSON.stringify(err, null, 2));
-        throw err;
+        aiBuffer = `Error: ${err.message}`;
+        res.write(`data: ${JSON.stringify({ content: aiBuffer })}\n\n`);
       }
 
       // Save assistant reply to memory
