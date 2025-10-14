@@ -42,6 +42,14 @@ The user interface follows modern Material Design principles, drawing inspiratio
         - **Progress Tracking:** Real-time status updates with processed/failed region tracking and percentage complete
         - **Startup Documentation:** Server prints example API endpoints and dataset statistics on startup
     - **Stub Endpoint:** `/api/tool/add_note` for future Bubble integration.
+    - **Location Hints Database:** PostgreSQL table with 29,483+ worldwide location records (countries, cities, subcountries) sourced from CSV. Features:
+        - **Performance-Optimized Search:** pg_trgm extension with GIN indexes on lower(country), lower(subcountry), lower(town_city) for efficient case-insensitive searches. Composite index on (country, town_city) for common query patterns.
+        - **Search API Endpoints:**
+            - `GET /api/location-hints/search?query=<term>&country=<optional>&limit=<1-100>&offset=<num>` - Smart search with prefix-first ranking, pagination, and 2-character minimum. Returns results with metadata (limit, offset, hasMore).
+            - `GET /api/location-hints/countries` - Lists all countries with city counts
+            - `GET /api/location-hints/by-country?country=<name>&limit=<num>` - Get locations for specific country
+        - **Data Coverage:** Top countries include United States (3,307 cities), India (2,522), China (1,965), Brazil (1,319), Japan (1,232), Germany (1,117), Russian Federation (1,103), United Kingdom (853), Spain (735), France (669)
+        - **Import Script:** `server/load-location-hints.ts` parses CSV and loads data in batches using neon serverless client
 - **Streaming Responses:** Server-Sent Events (SSE) for real-time AI responses and animated typing indicators.
 - **Error Handling:** Comprehensive error messages as system notifications.
 - **Conversational Planning:** A three-way GPT planner decides whether to "search" (discover new venues), "use_cache" (more results from existing searches), or "respond" (for general conversational questions), preventing unnecessary searches and ensuring venue deduplication.
