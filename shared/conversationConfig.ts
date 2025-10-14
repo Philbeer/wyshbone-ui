@@ -41,11 +41,9 @@ Output hygiene:
   <div style="flex:1;">
     <div style="font-weight:700;margin-bottom:6px;">Hi — I'm Wyshbone AI 👋</div>
     <div style="line-height:1.5;">
-      Tell me <strong>what type of business</strong> you want and <strong>where</strong> (e.g., "pubs in Kendal, GB"). 
-      I'll find them and can <strong>queue a Smartlead outreach batch</strong> to the <em>role you choose</em> (owner, landlord, manager, etc.).
-    </div>
-    <div style="margin-top:10px;font-size:13px;color:#666;">
-      Tip: You can add a radius too (e.g., "within 10 miles").
+      I help you <strong>find new leads and businesses</strong> so you know exactly <em>who</em> and <em>where</em> to target.<br><br>
+      Tell me <strong>what type of business</strong> you want and <strong>where</strong> (e.g., "pubs in Kendal, GB").  
+      I'll find them, match <strong>emails for the right role</strong> (director, CEO, manager, etc.), and <strong>export them to your outreach platform</strong> such as Smartlead.
     </div>
   </div>
 </div>
