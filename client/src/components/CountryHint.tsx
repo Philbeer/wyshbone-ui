@@ -2,6 +2,18 @@ import { useState, useEffect } from "react";
 
 export default function CountryHint() {
   const [isVisible, setIsVisible] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+
+  // Detect mobile viewport
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 768); // md breakpoint
+    };
+
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   useEffect(() => {
     // Check if user has permanently dismissed the hint
@@ -25,11 +37,14 @@ export default function CountryHint() {
     localStorage.setItem('countryHintDismissedForever', 'true');
   };
 
-  // Hide when user interacts with the country dropdown
+  // Hide when user interacts with the country dropdown (both mobile and desktop)
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
-      if (target.closest('[data-testid="select-default-country"]')) {
+      if (
+        target.closest('[data-testid="select-default-country"]') ||
+        target.closest('[data-testid="select-default-country-mobile"]')
+      ) {
         handleClose();
       }
     };
@@ -40,6 +55,60 @@ export default function CountryHint() {
 
   if (!isVisible) return null;
 
+  // Mobile positioning: below header, pointing up
+  if (isMobile) {
+    return (
+      <div
+        className="fixed z-50 animate-in fade-in slide-in-from-top-2 duration-500"
+        style={{
+          left: '50%',
+          top: '4.5rem',
+          transform: 'translateX(-50%)',
+        }}
+        data-testid="hint-country-selector"
+      >
+        {/* Arrow pointing up at header */}
+        <div
+          className="absolute -top-2 left-1/2 -translate-x-1/2 w-0 h-0"
+          style={{
+            borderLeft: '8px solid transparent',
+            borderRight: '8px solid transparent',
+            borderBottom: '8px solid hsl(var(--primary))',
+          }}
+        />
+        
+        {/* Hint box */}
+        <div className="bg-primary text-primary-foreground rounded-lg shadow-lg px-4 py-3 max-w-[260px] relative">
+          <div className="text-sm font-medium text-center">
+            ☝️ Choose your search country
+          </div>
+          <div className="text-xs mt-1 opacity-90 text-center">
+            This will be used for all searches unless you specify a different location
+          </div>
+          
+          {/* Clickable text buttons */}
+          <div className="flex gap-3 mt-3 text-xs justify-center border-t border-primary-foreground/20 pt-2">
+            <button
+              onClick={handleClose}
+              className="underline hover-elevate active-elevate-2 px-2 py-1 rounded"
+              data-testid="button-close-hint"
+            >
+              Close
+            </button>
+            <button
+              onClick={handleCloseForever}
+              className="underline hover-elevate active-elevate-2 px-2 py-1 rounded"
+              data-testid="button-dismiss-hint-forever"
+            >
+              Close forever
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Desktop positioning: beside sidebar, pointing left
   return (
     <div
       className="fixed z-50 animate-in fade-in slide-in-from-left-2 duration-500"

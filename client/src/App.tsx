@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
+import { HeaderCountrySelector } from "@/components/HeaderCountrySelector";
 import { Moon, Sun } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import ChatPage from "@/pages/chat";
@@ -55,8 +56,17 @@ function App() {
           <div className="flex h-screen w-full">
             <AppSidebar defaultCountry={defaultCountry} onCountryChange={setDefaultCountry} />
             <div className="flex flex-col flex-1">
-              <header className="flex items-center justify-between p-2 border-b">
-                <SidebarTrigger data-testid="button-sidebar-toggle" />
+              <header className="flex items-center justify-between p-2 border-b gap-2">
+                <div className="flex items-center gap-2">
+                  <SidebarTrigger data-testid="button-sidebar-toggle" />
+                  {/* Mobile country selector - only visible on mobile */}
+                  <div className="md:hidden">
+                    <HeaderCountrySelector 
+                      defaultCountry={defaultCountry} 
+                      onCountryChange={setDefaultCountry} 
+                    />
+                  </div>
+                </div>
                 <Button
                   variant="ghost"
                   size="icon"
