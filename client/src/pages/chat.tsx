@@ -211,14 +211,18 @@ export default function ChatPage() {
       .filter((msg): msg is Message => !("type" in msg))
       .map(({ role, content }) => ({ role, content }));
 
+    // LIMIT TO LAST 6 MESSAGES (3 exchanges) to prevent old context pollution
+    // This prevents the AI from seeing very old searches when starting a new one
+    const recentHistory = conversationHistory.slice(-6);
+
     // Add new user message to the history
-    const fullConversation = [...conversationHistory, { role: userMessage.role, content: userMessage.content }];
+    const fullConversation = [...recentHistory, { role: userMessage.role, content: userMessage.content }];
 
     // Update UI state
     setMessages((prev) => [...prev, userMessage]);
     setInput("");
 
-    // Send the full conversation
+    // Send recent conversation only
     streamChatResponse(fullConversation);
   };
 
