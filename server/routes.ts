@@ -829,6 +829,39 @@ Be concise, practical, and action-oriented. Focus on UK businesses unless specif
             
             // TODO: Spell check feature temporarily disabled - will re-implement after fixing try-catch structure
             
+            // COUNTRY MISMATCH DETECTION
+            const defaultCountry = (req as any).defaultCountry || 'United Kingdom';
+            const { getRegionCode } = await import("./regions");
+            const defaultCountryCode = getRegionCode(defaultCountry);
+            
+            // Detect the country from the location in params
+            if (params.location) {
+              const { resolveLocation } = await import("./location-resolver");
+              const resolved = await resolveLocation(params.location);
+              
+              // Check if detected country differs from default
+              if (resolved.country_code !== defaultCountryCode && resolved.country_code !== 'UNKNOWN') {
+                const detectedCountryName = resolved.country || resolved.country_code;
+                console.log(`⚠️ Country mismatch: User requested ${detectedCountryName} but default is ${defaultCountry}`);
+                
+                const mismatchMsg = `⚠️ **Country Mismatch Detected**\n\n` +
+                  `You're asking for locations in **${detectedCountryName}**, but your default country is set to **${defaultCountry}**.\n\n` +
+                  `Please either:\n` +
+                  `1. **Change your default country** to ${detectedCountryName} using the dropdown at the top of the sidebar, OR\n` +
+                  `2. **Confirm** that "${params.location}" is actually in ${defaultCountry}\n\n` +
+                  `Which would you like to do?`;
+                
+                aiBuffer = mismatchMsg;
+                res.write(`data: ${JSON.stringify({ content: mismatchMsg })}\n\n`);
+                res.write(`data: [DONE]\n\n`);
+                res.end();
+                
+                // Save message to memory
+                appendMessage(sessionId, { role: "assistant", content: mismatchMsg });
+                return;
+              }
+            }
+            
             // VALIDATION: Check for required fields before proceeding
             const missingFields: string[] = [];
             
@@ -912,7 +945,6 @@ Be concise, practical, and action-oriented. Focus on UK businesses unless specif
             }
             
             const { bubbleRunBatch } = await import("./bubble");
-            const { getRegionCode } = await import("./regions");
             
             // Use provided values (no defaults for required fields)
             const roles = params.roles;
