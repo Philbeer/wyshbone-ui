@@ -105,6 +105,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         (req as any).defaultCountry = defaultCountry;
       }
 
+      // DETECT NEW SEARCH FIRST (before contaminating memory with old context)
+      const newSearchPatterns = /\b(find|search|get|show|list|lookup|discover|run|trigger|execute)\b.*\b(in|for|at|across)\b/i;
+      const isNewSearch = newSearchPatterns.test(latestUserText);
+      
+      if (isNewSearch) {
+        console.log("🆕 Detected new search - clearing conversation memory BEFORE adding messages");
+        await storage.clearPendingConfirmation(sessionId);
+        await storage.clearPartialWorkflow(sessionId);
+        resetConversation(sessionId); // Clear OLD conversation history
+      }
+
       // 1) Store user's new message in memory
       appendMessage(sessionId, { role: "user", content: latestUserText });
 
@@ -300,17 +311,6 @@ Examples:
         } catch (error: any) {
           console.error("❌ Job creation error:", error.message);
         }
-      }
-
-      // Detect if user is starting a NEW search (not answering a question)
-      const newSearchPatterns = /\b(find|search|get|show|list|lookup|discover|run|trigger|execute)\b.*\b(in|for|at|across)\b/i;
-      const isNewSearch = newSearchPatterns.test(latestUserText);
-      
-      if (isNewSearch) {
-        console.log("🆕 Detected new search - clearing all pending state AND conversation memory");
-        await storage.clearPendingConfirmation(sessionId);
-        await storage.clearPartialWorkflow(sessionId);
-        resetConversation(sessionId); // Clear conversation history to prevent AI confusion
       }
 
       // Check if user is confirming a pending batch workflow
