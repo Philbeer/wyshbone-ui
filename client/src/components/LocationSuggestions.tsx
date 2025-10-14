@@ -15,13 +15,67 @@ interface LocationSuggestionsProps {
   onSelectLocation: (location: string) => void;
   isVisible: boolean;
   inputRef: React.RefObject<HTMLTextAreaElement>;
+  defaultCountry?: string; // ISO code like "GB", "FR", "US"
 }
+
+// Map ISO codes to full country names (matches database format)
+const ISO_TO_COUNTRY_NAME: Record<string, string> = {
+  "FR": "France",
+  "US": "United States",
+  "GB": "United Kingdom",
+  "UK": "United Kingdom",
+  "DE": "Germany",
+  "IT": "Italy",
+  "ES": "Spain",
+  "CA": "Canada",
+  "AU": "Australia",
+  "NZ": "New Zealand",
+  "JP": "Japan",
+  "CN": "China",
+  "IN": "India",
+  "BR": "Brazil",
+  "MX": "Mexico",
+  "AR": "Argentina",
+  "CL": "Chile",
+  "CO": "Colombia",
+  "PE": "Peru",
+  "IE": "Ireland",
+  "NL": "Netherlands",
+  "BE": "Belgium",
+  "CH": "Switzerland",
+  "AT": "Austria",
+  "SE": "Sweden",
+  "NO": "Norway",
+  "DK": "Denmark",
+  "FI": "Finland",
+  "PL": "Poland",
+  "PT": "Portugal",
+  "GR": "Greece",
+  "TR": "Turkey",
+  "RU": "Russian Federation",
+  "ZA": "South Africa",
+  "EG": "Egypt",
+  "NG": "Nigeria",
+  "KE": "Kenya",
+  "SA": "Saudi Arabia",
+  "AE": "United Arab Emirates",
+  "IL": "Israel",
+  "SG": "Singapore",
+  "TH": "Thailand",
+  "VN": "Viet Nam",
+  "PH": "Philippines",
+  "ID": "Indonesia",
+  "MY": "Malaysia",
+  "KR": "Korea, Republic of",
+  "TW": "Taiwan"
+};
 
 export function LocationSuggestions({
   inputValue,
   onSelectLocation,
   isVisible,
   inputRef,
+  defaultCountry,
 }: LocationSuggestionsProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const debouncedQuery = useDebounce(searchQuery, 300);
@@ -55,14 +109,25 @@ export function LocationSuggestions({
     }
   }, [inputValue, isVisible]);
 
+  // Convert ISO code to full country name for API
+  const countryName = defaultCountry ? ISO_TO_COUNTRY_NAME[defaultCountry.toUpperCase()] : undefined;
+
   const { data, isLoading, error } = useQuery({
-    queryKey: ["/api/location-hints/search", debouncedQuery],
+    queryKey: ["/api/location-hints/search", debouncedQuery, countryName],
     queryFn: async () => {
       if (!debouncedQuery || debouncedQuery.length < 2) return null;
       
-      const response = await fetch(
-        `/api/location-hints/search?query=${encodeURIComponent(debouncedQuery)}&limit=8`
-      );
+      const params = new URLSearchParams({
+        query: debouncedQuery,
+        limit: "8"
+      });
+      
+      // Add country filter if available
+      if (countryName) {
+        params.append("country", countryName);
+      }
+      
+      const response = await fetch(`/api/location-hints/search?${params.toString()}`);
       
       if (!response.ok) {
         throw new Error("Failed to fetch location suggestions");

@@ -364,6 +364,7 @@ export default function ChatPage() {
               onSelectLocation={handleSelectLocation}
               isVisible={showLocationSuggestions}
               inputRef={textareaRef}
+              defaultCountry={defaultCountry}
             />
           )}
           
