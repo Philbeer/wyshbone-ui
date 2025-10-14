@@ -34,8 +34,8 @@ export function LocationSuggestions({
       return;
     }
 
-    // Look for common location trigger words
-    const locationPattern = /(?:in|at|from|near|around)\s+([a-zA-Z\s]+)$/i;
+    // Look for common location trigger words (allow punctuation, numbers, hyphens)
+    const locationPattern = /(?:in|at|from|near|around)\s+([\w\s\-.']+)$/i;
     const match = inputValue.match(locationPattern);
     
     if (match && match[1]) {
@@ -44,10 +44,10 @@ export function LocationSuggestions({
         setSearchQuery(term);
       }
     } else {
-      // Check if the last word might be a location (at least 3 chars)
+      // Check if the last word might be a location (at least 3 chars, allow punctuation)
       const words = inputValue.trim().split(/\s+/);
       const lastWord = words[words.length - 1];
-      if (lastWord && lastWord.length >= 3 && /^[a-zA-Z]+$/.test(lastWord)) {
+      if (lastWord && lastWord.length >= 3 && /^[\w\-.']+$/.test(lastWord)) {
         setSearchQuery(lastWord);
       } else {
         setSearchQuery("");
@@ -55,7 +55,7 @@ export function LocationSuggestions({
     }
   }, [inputValue, isVisible]);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error } = useQuery({
     queryKey: ["/api/location-hints/search", debouncedQuery],
     queryFn: async () => {
       if (!debouncedQuery || debouncedQuery.length < 2) return null;
@@ -76,8 +76,8 @@ export function LocationSuggestions({
 
   const results = data?.results || [];
 
-  // Don't show if no search query or no results
-  if (!debouncedQuery || results.length === 0) {
+  // Don't show if no search query
+  if (!debouncedQuery) {
     return null;
   }
 
@@ -85,7 +85,8 @@ export function LocationSuggestions({
     const locationText = location.town_city || location.subcountry || location.country;
     
     // Replace the last word or location phrase with the selected location
-    const locationPattern = /(?:in|at|from|near|around)\s+([a-zA-Z\s]+)$/i;
+    // Match the same pattern as detection (with punctuation, numbers, hyphens)
+    const locationPattern = /(?:in|at|from|near|around)\s+([\w\s\-.']+)$/i;
     const match = inputValue.match(locationPattern);
     
     if (match) {
@@ -95,7 +96,7 @@ export function LocationSuggestions({
       });
       onSelectLocation(newValue);
     } else {
-      // Replace the last word
+      // Replace the last word (allow punctuation)
       const words = inputValue.trim().split(/\s+/);
       words[words.length - 1] = locationText;
       onSelectLocation(words.join(" "));
@@ -127,6 +128,14 @@ export function LocationSuggestions({
           <div className="px-3 py-3 flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="w-4 h-4 animate-spin" />
             <span>Searching locations...</span>
+          </div>
+        ) : error ? (
+          <div className="px-3 py-3 text-sm text-destructive">
+            Failed to load location suggestions
+          </div>
+        ) : results.length === 0 ? (
+          <div className="px-3 py-3 text-sm text-muted-foreground">
+            No locations found
           </div>
         ) : (
           <div className="max-h-[240px] overflow-y-auto">

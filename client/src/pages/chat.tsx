@@ -197,6 +197,9 @@ export default function ChatPage() {
   const handleSend = () => {
     if (!input.trim() || isStreaming) return;
 
+    // Hide location suggestions
+    setShowLocationSuggestions(false);
+
     const userMessage: Message = {
       id: crypto.randomUUID(),
       role: "user",
