@@ -6,6 +6,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Send, User, CheckCircle2 } from "lucide-react";
 import type { ChatMessage, AddNoteResponse } from "@shared/schema";
 import wyshboneLogo from "@assets/wyshbone-logo_1759667581806.png";
+import Welcome from "@/components/Welcome";
 
 type Message = ChatMessage & {
   id: string;
@@ -25,6 +26,7 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
+  const [showWelcome, setShowWelcome] = useState(true);
   const [defaultCountry, setDefaultCountry] = useState<string>(() => {
     return localStorage.getItem('defaultCountry') || 'GB';
   });
@@ -38,6 +40,12 @@ export default function ChatPage() {
     };
     window.addEventListener('storage', handleStorageChange);
     return () => window.removeEventListener('storage', handleStorageChange);
+  }, []);
+
+  useEffect(() => {
+    // Auto-hide welcome bubble after 6 seconds
+    const timer = setTimeout(() => setShowWelcome(false), 6000);
+    return () => clearTimeout(timer);
   }, []);
 
   const scrollToBottom = () => {
@@ -227,6 +235,7 @@ export default function ChatPage() {
       {/* Messages Area */}
       <div className="flex-1 overflow-y-auto px-6 py-8">
         <div className="max-w-4xl mx-auto space-y-4">
+          {showWelcome && messages.length === 0 && <Welcome />}
           {messages.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full min-h-[400px] text-center">
               <div className="w-16 h-16 rounded-full overflow-hidden mb-4">
