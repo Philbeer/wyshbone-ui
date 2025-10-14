@@ -52,8 +52,9 @@ The user interface follows modern Material Design principles, drawing inspiratio
         - **Import Script:** `server/load-location-hints.ts` parses CSV and loads data in batches using neon serverless client
         - **Location Ambiguity Resolver** (`server/locationResolver.ts`, `server/locationGuard.ts`): Intelligent location disambiguation system that queries the 29k cities database to handle ambiguous location names:
             - **UK Synonym Handling:** Recognizes UK synonyms (United Kingdom, UK, Great Britain, GB, England, Scotland, Wales, Northern Ireland) as equivalent for matching
-            - **Auto-Switch Logic:** If a location exists in exactly one non-default country, automatically switches the default country, informs the user, and proceeds
-            - **Disambiguation Prompt:** If a location exists in multiple non-default countries, asks the user to choose which country (compact single-question format)
+            - **Conservative Warning Logic:** Never auto-switches default country; instead warns users and asks them to manually change the dropdown:
+                - **Single non-default match:** Shows warning message, proceeds with current default
+                - **Multiple non-default matches:** Shows disambiguation message, STOPS and asks user to change dropdown first
             - **Silent Default Match:** If the location exists in the default country (including UK synonyms), proceeds silently without prompts
             - **Integration Point:** Wired into `server/routes.ts` bubble_run_batch tool handler - checks params.country before workflow execution
 - **Streaming Responses:** Server-Sent Events (SSE) for real-time AI responses and animated typing indicators.
