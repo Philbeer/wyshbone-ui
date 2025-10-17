@@ -11,7 +11,7 @@ const LOGIN_EMAIL = process.env.LOGIN_EMAIL || "";
 const LOGIN_PASSWORD = process.env.LOGIN_PASSWORD || "";
 
 if (!BASE) {
-  console.warn("⚠️ Set BUBBLE_BASE_URL in Secrets, e.g. https://wyshbone.bubbleapps.io/version-test");
+  console.warn("⚠️ Set BUBBLE_BASE_URL in Secrets, e.g. https://wyshbone.bubbleapps.io/version-82sf6");
 }
 
 function sleep(ms: number): Promise<void> {
