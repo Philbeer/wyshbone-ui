@@ -23,19 +23,26 @@ type SystemMessage = {
 
 type DisplayMessage = Message | SystemMessage;
 
-interface ChatPageProps {
-  defaultCountry: string;
-}
-
-export default function ChatPage({ defaultCountry }: ChatPageProps) {
+export default function ChatPage() {
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
   const [showWelcome, setShowWelcome] = useState(true);
   const [showLocationSuggestions, setShowLocationSuggestions] = useState(false);
+  const [defaultCountry, setDefaultCountry] = useState<string>(() => {
+    return localStorage.getItem('defaultCountry') || 'GB';
+  });
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    const handleStorageChange = () => {
+      setDefaultCountry(localStorage.getItem('defaultCountry') || 'GB');
+    };
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, []);
 
   // Welcome message will hide automatically when user sends first message (messages.length > 0)
 
@@ -49,6 +56,10 @@ export default function ChatPage({ defaultCountry }: ChatPageProps) {
 
   const streamChatResponse = async (conversationMessages: ChatMessage[]) => {
     setIsStreaming(true);
+    
+    // Get the latest country from localStorage (in case it was just changed in sidebar)
+    const currentCountry = localStorage.getItem('defaultCountry') || 'GB';
+    setDefaultCountry(currentCountry);
     
     // Create assistant message with empty content
     const assistantMessageId = crypto.randomUUID();
@@ -73,7 +84,7 @@ export default function ChatPage({ defaultCountry }: ChatPageProps) {
         body: JSON.stringify({
           messages: conversationMessages,
           user: { id: "demo-user", email: "demo@wyshbone.com" },
-          defaultCountry: defaultCountry,
+          defaultCountry: currentCountry,
         }),
         signal: abortControllerRef.current.signal,
       });
