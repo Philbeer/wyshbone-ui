@@ -26,7 +26,7 @@ function Router({ defaultCountry }: { defaultCountry: string }) {
 
 function App() {
   const [defaultCountry, setDefaultCountry] = useState<string>(() => {
-    return localStorage.getItem('defaultCountry') || 'GB';
+    return localStorage.getItem('defaultCountry') || 'US';
   });
   
   const [theme, setTheme] = useState<"light" | "dark">(() => {

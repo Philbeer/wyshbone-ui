@@ -23,7 +23,7 @@ type SystemMessage = {
 
 type DisplayMessage = Message | SystemMessage;
 
-export default function ChatPage({ defaultCountry = 'GB' }: { defaultCountry?: string }) {
+export default function ChatPage({ defaultCountry = 'US' }: { defaultCountry?: string }) {
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
