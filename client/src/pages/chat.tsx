@@ -9,6 +9,7 @@ import wyshboneLogo from "@assets/wyshbone-logo_1759667581806.png";
 import Welcome from "@/components/Welcome";
 import { LocationSuggestions } from "@/components/LocationSuggestions";
 import WishboneSidebar from "@/components/WishboneSidebar";
+import LeftRunPanel, { type RunItem } from "@/components/LeftRunPanel";
 
 type Message = ChatMessage & {
   id: string;
@@ -23,6 +24,31 @@ type SystemMessage = {
 };
 
 type DisplayMessage = Message | SystemMessage;
+
+// Demo runs data
+const DEMO_RUNS: RunItem[] = [
+  {
+    id: "run_1",
+    label: "Coffee shops in Brooklyn - Owner, Manager",
+    startedAt: new Date(Date.now() - 1000 * 60 * 15).toISOString(),
+    status: "completed",
+    externalUrl: "https://wyshbone.bubbleapps.io",
+  },
+  {
+    id: "run_2",
+    label: "Gyms in Toronto - Operations Manager",
+    startedAt: new Date(Date.now() - 1000 * 60 * 5).toISOString(),
+    status: "running",
+  },
+  {
+    id: "run_3",
+    label: "Tech startups in San Francisco - CTO, CEO",
+    startedAt: new Date(Date.now() - 1000 * 60 * 60 * 24).toISOString(),
+    status: "completed",
+    archived: true,
+    externalUrl: "https://wyshbone.bubbleapps.io",
+  },
+];
 
 export default function ChatPage({ defaultCountry = 'US' }: { defaultCountry?: string }) {
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
@@ -244,8 +270,18 @@ export default function ChatPage({ defaultCountry = 'US' }: { defaultCountry?: s
 
   return (
     <div className="flex h-full bg-background">
+      {/* Left Panel - Runs */}
+      <LeftRunPanel 
+        runs={DEMO_RUNS}
+        onSelect={(id) => console.log("Selected run:", id)}
+        onRetry={(id) => console.log("Retry run:", id)}
+        onDuplicate={(id, newId) => console.log("Duplicate run:", id, "→", newId)}
+        onStop={(id) => console.log("Stop run:", id)}
+        onArchive={(id, archived) => console.log("Archive run:", id, archived)}
+      />
+
       {/* Main Chat Area */}
-      <div className="flex flex-col flex-1">
+      <div className="flex flex-col flex-1 border-l border-r border-border">
 
         {/* Messages Area */}
         <div className="flex-1 overflow-y-auto px-6 py-8">
