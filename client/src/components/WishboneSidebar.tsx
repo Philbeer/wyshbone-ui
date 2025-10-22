@@ -16,38 +16,38 @@ type Example = {
 
 const SALES_EXAMPLES: Example[] = [
   {
-    label: "Find active UK companies in Camden with SIC 86210 and ≥ 25 employees",
+    label: "Coffee shops in Brooklyn, New York, US - Owner contact",
     prompt:
-      "Find active UK companies in Camden with SIC 86210 and at least 25 employees. Return: company name, number, website, key contact (if available), and brief why-this-is-a-fit.",
+      "Find coffee shops in Brooklyn, New York, United States. Include owner or manager contact information.",
   },
   {
-    label: "List companies in Cambridge incorporated after 2022 with equity > £100k",
+    label: "Restaurants in Austin, Texas, US - General Manager",
     prompt:
-      "List companies in Cambridge incorporated after 2022 with equity over £100,000 and assets above £250,000. Summarize in a compact table.",
+      "Find restaurants in Austin, Texas, United States. Get general manager contact details.",
   },
   {
-    label: "Newcastle upon Tyne: profit & loss available, assets > £400k",
+    label: "Marketing agencies in London, UK - Marketing Director",
     prompt:
-      "Show companies in Newcastle upon Tyne that have filed profit and loss and have assets above £400,000. Include company number.",
+      "Find marketing agencies in London, United Kingdom. Look for marketing director contact information.",
   },
   {
-    label: "Scottish Borders: assets > £500k and ≥ 8 employees",
+    label: "Gyms in Toronto, Canada - Operations Manager",
     prompt:
-      "Show companies in the Scottish Borders with assets over £500,000 and at least 8 employees. Include website if you can find it.",
+      "Find gyms and fitness centers in Toronto, Canada. Include operations manager contact details.",
   },
   {
-    label: "Breweries in Yorkshire with owner/manager contact",
+    label: "Bakeries in Melbourne, Australia - Head Baker",
     prompt:
-      "Find breweries in Yorkshire and include owner/manager contact details (email preferred). Return in a table with source links.",
+      "Find bakeries in Melbourne, Australia. Get head baker or owner contact information.",
   },
 ];
 
 const RESEARCH_TIPS = [
-  "Be specific: location, SIC code, headcount, assets/equity thresholds.",
-  "Add evidence: ask for filings context (e.g., most recent accounts date).",
-  "Ask for contact route: email preferred; else website/contact form/LinkedIn.",
-  "For lead gen, request: company number, website, key contact + reason to reach out.",
-  "Use constraints to cut cost: target by county/city instead of UK-wide.",
+  "Specify business type: e.g., 'coffee shops', 'restaurants', 'marketing agencies'",
+  "Include location: city, state/county, and country for best results",
+  "Define target position: owner, manager, director, or specific role",
+  "Request contact info: email preferred; also website, phone, or LinkedIn",
+  "Be specific to save credits: narrow searches to specific areas instead of country-wide",
 ];
 
 const Tip = ({ children }: { children: React.ReactNode }) => (
@@ -67,9 +67,7 @@ export default function WishboneSidebar({ onPrompt }: Props) {
   const handleQuickLookup = () => {
     const trimmed = companyNumber.trim();
     if (!trimmed) return;
-    onPrompt(
-      `Look up company number ${trimmed}. Return: legal name, status, registered address, incorporation date, most recent accounts dates, assets/equity, headcount if present, and a one-line creditworthiness note.`
-    );
+    onPrompt(trimmed);
     setCompanyNumber("");
   };
 
@@ -102,7 +100,7 @@ export default function WishboneSidebar({ onPrompt }: Props) {
           <Card data-testid="card-research-tips">
             <CardHeader className="pb-3">
               <CardTitle className="text-sm font-semibold">
-                Company Research Tips
+                Search Tips
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -114,30 +112,29 @@ export default function WishboneSidebar({ onPrompt }: Props) {
             </CardContent>
           </Card>
 
-          {/* Quick Company Lookup Card */}
-          <Card data-testid="card-company-lookup">
+          {/* Quick Search Card */}
+          <Card data-testid="card-quick-search">
             <CardHeader className="pb-3">
               <CardTitle className="text-sm font-semibold">
-                Quick Company Lookup
+                Quick Search
               </CardTitle>
             </CardHeader>
             <CardContent>
               <div className="flex items-center gap-2">
                 <Input
-                  inputMode="numeric"
-                  placeholder="12345678 or SC123456"
+                  placeholder="e.g., Dentists in Miami, FL"
                   value={companyNumber}
                   onChange={(e) => setCompanyNumber(e.target.value)}
                   onKeyDown={handleKeyDown}
                   className="flex-1"
-                  aria-label="Enter a UK company number"
-                  data-testid="input-company-number"
+                  aria-label="Enter business type and location"
+                  data-testid="input-quick-search"
                 />
                 <Button
                   onClick={handleQuickLookup}
                   size="default"
-                  aria-label="Run company lookup"
-                  data-testid="button-company-lookup"
+                  aria-label="Run quick search"
+                  data-testid="button-quick-search"
                 >
                   Go
                 </Button>
@@ -149,7 +146,7 @@ export default function WishboneSidebar({ onPrompt }: Props) {
           <Card data-testid="card-example-prompts">
             <CardHeader className="pb-3">
               <CardTitle className="text-sm font-semibold">
-                Sales & Prospecting Examples
+                Example Searches
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -182,14 +179,13 @@ export default function WishboneSidebar({ onPrompt }: Props) {
             </CardHeader>
             <CardContent>
               <p className="text-sm text-foreground mb-3">
-                Add constraints to save credits: limit by county/city and set asset/
-                equity/headcount thresholds up-front.
+                Be specific with location and business type to get the most accurate results. The more details you provide, the better the matches.
               </p>
               <p className="text-xs text-muted-foreground">
                 Edit <code className="bg-muted px-1 py-0.5 rounded text-xs">SALES_EXAMPLES</code> and{" "}
                 <code className="bg-muted px-1 py-0.5 rounded text-xs">RESEARCH_TIPS</code> inside{" "}
                 <code className="bg-muted px-1 py-0.5 rounded text-xs">WishboneSidebar.tsx</code> to
-                add or modify examples.
+                customize examples for your use case.
               </p>
             </CardContent>
           </Card>
