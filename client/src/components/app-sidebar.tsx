@@ -295,7 +295,7 @@ const RunRow: React.FC<{
 }> = ({ run, onSelect, actions }) => {
   return (
     <div
-      className="group relative flex flex-col gap-2 rounded-xl border border-border bg-card px-3 py-3 mb-2 cursor-pointer hover-elevate active-elevate-2"
+      className="group relative flex flex-col gap-2 rounded-xl border border-border bg-card px-3 py-4 mb-2 cursor-pointer hover-elevate active-elevate-2 min-h-[120px]"
       onClick={() => onSelect(run.id)}
       role="button"
       aria-label={`Select run ${run.label}`}
@@ -303,8 +303,8 @@ const RunRow: React.FC<{
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 mb-1">
-            <span className="truncate text-[13px] font-medium text-foreground">
+          <div className="flex items-start gap-2 mb-2 flex-wrap">
+            <span className="text-[14px] font-semibold text-foreground leading-snug">
               {run.label}
             </span>
             <Badge status={run.status} />
@@ -316,42 +316,32 @@ const RunRow: React.FC<{
           </div>
           
           {/* Search details */}
-          <div className="space-y-0.5 text-[11px] text-muted-foreground">
+          <div className="space-y-1 text-[12px] text-muted-foreground">
             {run.businessType && (
-              <div className="truncate">
-                <span className="font-medium">Business:</span> {run.businessType}
+              <div className="break-words">
+                <span className="font-medium text-foreground">Business:</span> {run.businessType}
               </div>
             )}
             {run.location && (
-              <div className="truncate">
-                <span className="font-medium">Location:</span> {run.location}
+              <div className="break-words">
+                <span className="font-medium text-foreground">Location:</span> {run.location}
               </div>
             )}
             {run.country && (
-              <div className="truncate">
-                <span className="font-medium">Country:</span> {run.country}
+              <div className="break-words">
+                <span className="font-medium text-foreground">Country:</span> {run.country}
               </div>
             )}
             {run.targetPosition && (
-              <div className="truncate">
-                <span className="font-medium">Target:</span> {run.targetPosition}
+              <div className="break-words">
+                <span className="font-medium text-foreground">Target:</span> {run.targetPosition}
               </div>
             )}
-            <div>Sent {fmtTime(run.startedAt)}</div>
+            <div className="text-[11px] mt-2">Sent {fmtTime(run.startedAt)}</div>
           </div>
         </div>
 
-        <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-          <button
-            className="hidden sm:inline-block text-[12px] rounded-lg border border-destructive px-2 py-1 text-destructive hover-elevate active-elevate-2 focus:outline-none focus:ring-2 focus:ring-ring"
-            onClick={actions.stop}
-            aria-label="Stop workflow"
-            title="Stop workflow"
-            data-testid={`button-stop-${run.id}`}
-          >
-            Stop
-          </button>
-
+        <div className="flex flex-col items-end gap-2 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
@@ -380,6 +370,16 @@ const RunRow: React.FC<{
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+          
+          <button
+            className="text-[11px] rounded-lg border border-destructive px-2 py-1 text-destructive hover-elevate active-elevate-2 focus:outline-none focus:ring-2 focus:ring-ring whitespace-nowrap"
+            onClick={actions.stop}
+            aria-label="Stop workflow"
+            title="Stop workflow"
+            data-testid={`button-stop-${run.id}`}
+          >
+            Stop
+          </button>
         </div>
       </div>
     </div>
