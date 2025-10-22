@@ -4,7 +4,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
-import { AppSidebar } from "@/components/app-sidebar";
+import { AppSidebar, type RunItem } from "@/components/app-sidebar";
 import { HeaderCountrySelector } from "@/components/HeaderCountrySelector";
 import { Moon, Sun } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,31 @@ import ChatPage from "@/pages/chat";
 import NotFound from "@/pages/not-found";
 import CountryHint from "@/components/CountryHint";
 import { useState, useEffect } from "react";
+
+// Demo runs data
+const DEMO_RUNS: RunItem[] = [
+  {
+    id: "run_1",
+    label: "Coffee shops in Brooklyn - Owner, Manager",
+    startedAt: new Date(Date.now() - 1000 * 60 * 15).toISOString(),
+    status: "completed",
+    externalUrl: "https://wyshbone.bubbleapps.io",
+  },
+  {
+    id: "run_2",
+    label: "Gyms in Toronto - Operations Manager",
+    startedAt: new Date(Date.now() - 1000 * 60 * 5).toISOString(),
+    status: "running",
+  },
+  {
+    id: "run_3",
+    label: "Tech startups in San Francisco - CTO, CEO",
+    startedAt: new Date(Date.now() - 1000 * 60 * 60 * 24).toISOString(),
+    status: "completed",
+    archived: true,
+    externalUrl: "https://wyshbone.bubbleapps.io",
+  },
+];
 
 function Router({ defaultCountry }: { defaultCountry: string }) {
   return (
@@ -56,7 +81,16 @@ function App() {
       <TooltipProvider>
         <SidebarProvider style={style as React.CSSProperties}>
           <div className="flex h-screen w-full">
-            <AppSidebar defaultCountry={defaultCountry} onCountryChange={setDefaultCountry} />
+            <AppSidebar 
+              defaultCountry={defaultCountry} 
+              onCountryChange={setDefaultCountry}
+              runs={DEMO_RUNS}
+              onSelectRun={(id) => console.log("Selected run:", id)}
+              onRetryRun={(id) => console.log("Retry run:", id)}
+              onDuplicateRun={(id, newId) => console.log("Duplicate run:", id, "→", newId)}
+              onStopRun={(id) => console.log("Stop run:", id)}
+              onArchiveRun={(id, archived) => console.log("Archive run:", id, archived)}
+            />
             <div className="flex flex-col flex-1">
               <header className="relative flex items-center justify-between p-2 border-b gap-2">
                 <SidebarTrigger data-testid="button-sidebar-toggle" />
