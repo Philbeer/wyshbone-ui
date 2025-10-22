@@ -1,7 +1,5 @@
-import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
 type Props = {
@@ -58,23 +56,8 @@ const Tip = ({ children }: { children: React.ReactNode }) => (
 );
 
 export default function WishboneSidebar({ onPrompt }: Props) {
-  const [companyNumber, setCompanyNumber] = useState("");
-
   const handleExampleClick = (ex: Example) => {
     onPrompt(ex.prompt);
-  };
-
-  const handleQuickLookup = () => {
-    const trimmed = companyNumber.trim();
-    if (!trimmed) return;
-    onPrompt(trimmed);
-    setCompanyNumber("");
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter") {
-      handleQuickLookup();
-    }
   };
 
   return (
@@ -109,36 +92,6 @@ export default function WishboneSidebar({ onPrompt }: Props) {
                   <Tip key={idx}>{t}</Tip>
                 ))}
               </ul>
-            </CardContent>
-          </Card>
-
-          {/* Quick Search Card */}
-          <Card data-testid="card-quick-search">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-semibold">
-                Quick Search
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="flex items-center gap-2">
-                <Input
-                  placeholder="e.g., Dentists in Miami, FL"
-                  value={companyNumber}
-                  onChange={(e) => setCompanyNumber(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  className="flex-1"
-                  aria-label="Enter business type and location"
-                  data-testid="input-quick-search"
-                />
-                <Button
-                  onClick={handleQuickLookup}
-                  size="default"
-                  aria-label="Run quick search"
-                  data-testid="button-quick-search"
-                >
-                  Go
-                </Button>
-              </div>
             </CardContent>
           </Card>
 
