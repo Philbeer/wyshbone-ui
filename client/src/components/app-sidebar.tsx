@@ -357,10 +357,7 @@ const RunRow: React.FC<{
               <DropdownMenuItem onClick={actions.duplicate} data-testid="menu-item-2">
                 Duplicate
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={actions.archiveToggle} data-testid="menu-item-3">
-                {run.archived ? "Unarchive" : "Archive"}
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={actions.stop} data-testid="menu-item-4">
+              <DropdownMenuItem onClick={actions.stop} data-testid="menu-item-3">
                 Stop workflow
               </DropdownMenuItem>
             </DropdownMenuContent>
