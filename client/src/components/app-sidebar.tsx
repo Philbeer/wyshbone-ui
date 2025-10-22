@@ -333,7 +333,11 @@ const RunRow: React.FC<{
               •••
             </button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-56">
+          <DropdownMenuContent 
+            align="end" 
+            className="w-56 bg-popover text-popover-foreground border border-border"
+            sideOffset={4}
+          >
             <DropdownMenuItem onClick={actions.view} data-testid="menu-item-0">
               View in Bubble
             </DropdownMenuItem>
