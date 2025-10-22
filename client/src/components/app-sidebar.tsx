@@ -308,11 +308,6 @@ const RunRow: React.FC<{
               {run.label}
             </span>
             <Badge status={run.status} />
-            {run.archived ? (
-              <span className="text-[10px] px-2 py-0.5 rounded-full bg-muted text-muted-foreground">
-                archived
-              </span>
-            ) : null}
           </div>
           
           {/* Search details */}
