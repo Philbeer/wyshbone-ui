@@ -1,5 +1,5 @@
 import { Globe } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Sidebar,
   SidebarContent,
@@ -16,6 +16,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 export type RunStatus = "queued" | "running" | "completed" | "failed" | "stopped";
 
@@ -271,75 +277,6 @@ const Badge: React.FC<{ status: RunStatus }> = ({ status }) => {
   );
 };
 
-const KebabMenu: React.FC<{
-  onOpen: () => void;
-  open: boolean;
-}> = ({ onOpen, open }) => (
-  <button
-    onClick={(e) => {
-      e.stopPropagation();
-      onOpen();
-    }}
-    aria-haspopup="menu"
-    aria-expanded={open}
-    className="rounded-lg border border-border px-2 py-1 text-[12px] text-foreground hover-elevate active-elevate-2 focus:outline-none focus:ring-2 focus:ring-ring"
-    title="Actions"
-    data-testid="button-run-menu"
-  >
-    •••
-  </button>
-);
-
-const Menu: React.FC<{
-  anchorRef: React.RefObject<HTMLDivElement>;
-  open: boolean;
-  onClose: () => void;
-  items: { label: string; onClick: () => void }[];
-}> = ({ anchorRef, open, onClose, items }) => {
-  const menuRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
-    const onDoc = (e: MouseEvent) => {
-      if (!open) return;
-      const target = e.target as Node;
-      if (
-        menuRef.current &&
-        !menuRef.current.contains(target) &&
-        anchorRef.current &&
-        !anchorRef.current.contains(target)
-      ) {
-        onClose();
-      }
-    };
-    document.addEventListener("mousedown", onDoc);
-    return () => document.removeEventListener("mousedown", onDoc);
-  }, [open, onClose]);
-
-  if (!open) return null;
-  return (
-    <div
-      ref={menuRef}
-      role="menu"
-      className="absolute right-0 z-[9999] mt-1 w-56 rounded-xl border border-border bg-card shadow-lg"
-      data-testid="menu-run-actions"
-    >
-      {items.map((it, i) => (
-        <button
-          key={i}
-          role="menuitem"
-          onClick={(e) => {
-            e.stopPropagation();
-            it.onClick();
-            onClose();
-          }}
-          className="block w-full text-left px-3 py-2 text-[13px] hover-elevate"
-          data-testid={`menu-item-${i}`}
-        >
-          {it.label}
-        </button>
-      ))}
-    </div>
-  );
-};
 
 const RunRow: React.FC<{
   run: RunItem;
@@ -352,9 +289,6 @@ const RunRow: React.FC<{
     archiveToggle: () => void;
   };
 }> = ({ run, onSelect, actions }) => {
-  const menuAnchor = useRef<HTMLDivElement | null>(null);
-  const [menuOpen, setMenuOpen] = useState(false);
-
   return (
     <div
       className="group relative flex items-center justify-between gap-2 rounded-xl border border-border bg-card px-3 py-2 mb-2 cursor-pointer hover-elevate active-elevate-2"
@@ -389,24 +323,34 @@ const RunRow: React.FC<{
           Stop
         </button>
 
-        <div ref={menuAnchor} className="relative">
-          <KebabMenu open={menuOpen} onOpen={() => setMenuOpen((v) => !v)} />
-          <Menu
-            anchorRef={menuAnchor}
-            open={menuOpen}
-            onClose={() => setMenuOpen(false)}
-            items={[
-              { label: "View in Bubble", onClick: actions.view },
-              { label: "Retry", onClick: actions.retry },
-              { label: "Duplicate", onClick: actions.duplicate },
-              {
-                label: run.archived ? "Unarchive" : "Archive",
-                onClick: actions.archiveToggle,
-              },
-              { label: "Stop workflow", onClick: actions.stop },
-            ]}
-          />
-        </div>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              className="rounded-lg border border-border px-2 py-1 text-[12px] text-foreground hover-elevate active-elevate-2 focus:outline-none focus:ring-2 focus:ring-ring"
+              title="Actions"
+              data-testid="button-run-menu"
+            >
+              •••
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuItem onClick={actions.view} data-testid="menu-item-0">
+              View in Bubble
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={actions.retry} data-testid="menu-item-1">
+              Retry
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={actions.duplicate} data-testid="menu-item-2">
+              Duplicate
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={actions.archiveToggle} data-testid="menu-item-3">
+              {run.archived ? "Unarchive" : "Archive"}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={actions.stop} data-testid="menu-item-4">
+              Stop workflow
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </div>
   );
