@@ -319,7 +319,7 @@ const Menu: React.FC<{
     <div
       ref={menuRef}
       role="menu"
-      className="absolute right-0 z-20 mt-1 w-56 rounded-xl border border-border bg-card shadow-lg"
+      className="absolute right-0 z-50 mt-1 w-56 rounded-xl border border-border bg-card shadow-lg"
       data-testid="menu-run-actions"
     >
       {items.map((it, i) => (
