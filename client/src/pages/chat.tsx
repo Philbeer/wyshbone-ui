@@ -8,6 +8,7 @@ import type { ChatMessage, AddNoteResponse } from "@shared/schema";
 import wyshboneLogo from "@assets/wyshbone-logo_1759667581806.png";
 import Welcome from "@/components/Welcome";
 import { LocationSuggestions } from "@/components/LocationSuggestions";
+import WishboneSidebar from "@/components/WishboneSidebar";
 
 type Message = ChatMessage & {
   id: string;
@@ -179,8 +180,9 @@ export default function ChatPage({ defaultCountry = 'US' }: { defaultCountry?: s
     },
   });
 
-  const handleSend = () => {
-    if (!input.trim() || isStreaming) return;
+  const handleSend = (promptOverride?: string) => {
+    const messageContent = promptOverride || input.trim();
+    if (!messageContent || isStreaming) return;
 
     // Hide location suggestions
     setShowLocationSuggestions(false);
@@ -188,7 +190,7 @@ export default function ChatPage({ defaultCountry = 'US' }: { defaultCountry?: s
     const userMessage: Message = {
       id: crypto.randomUUID(),
       role: "user",
-      content: input.trim(),
+      content: messageContent,
       timestamp: new Date(),
     };
 
@@ -241,10 +243,12 @@ export default function ChatPage({ defaultCountry = 'US' }: { defaultCountry?: s
   };
 
   return (
-    <div className="flex flex-col h-full bg-background">
+    <div className="flex h-full bg-background">
+      {/* Main Chat Area */}
+      <div className="flex flex-col flex-1">
 
-      {/* Messages Area */}
-      <div className="flex-1 overflow-y-auto px-6 py-8">
+        {/* Messages Area */}
+        <div className="flex-1 overflow-y-auto px-6 py-8">
         <div className="max-w-4xl mx-auto space-y-4">
           {messages.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full min-h-[400px] text-center">
@@ -365,7 +369,7 @@ export default function ChatPage({ defaultCountry = 'US' }: { defaultCountry?: s
               data-testid="input-message"
             />
             <Button
-              onClick={handleSend}
+              onClick={() => handleSend()}
               disabled={!input.trim() || isStreaming}
               size="icon"
               className="flex-shrink-0 p-0 overflow-hidden"
@@ -376,6 +380,10 @@ export default function ChatPage({ defaultCountry = 'US' }: { defaultCountry?: s
           </div>
         </div>
       </div>
+      </div>
+
+      {/* Right Sidebar */}
+      <WishboneSidebar onPrompt={handleSend} />
     </div>
   );
 }
