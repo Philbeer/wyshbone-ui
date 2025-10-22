@@ -131,14 +131,8 @@ export default function WishboneSidebar({ onPrompt }: Props) {
               <CardTitle className="text-sm font-semibold">Pro tip</CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-sm text-foreground mb-3">
+              <p className="text-sm text-foreground">
                 Be specific with location and business type to get the most accurate results. The more details you provide, the better the matches.
-              </p>
-              <p className="text-xs text-muted-foreground">
-                Edit <code className="bg-muted px-1 py-0.5 rounded text-xs">SALES_EXAMPLES</code> and{" "}
-                <code className="bg-muted px-1 py-0.5 rounded text-xs">RESEARCH_TIPS</code> inside{" "}
-                <code className="bg-muted px-1 py-0.5 rounded text-xs">WishboneSidebar.tsx</code> to
-                customize examples for your use case.
               </p>
             </CardContent>
           </Card>
