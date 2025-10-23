@@ -49,17 +49,17 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage 
     scrollToBottom();
   }, [messages]);
 
-  // Expose system message injection to parent
+  // Expose assistant message injection to parent
   useEffect(() => {
     if (onInjectSystemMessage) {
       const injector = (content: string) => {
-        const systemMsg: SystemMessage = {
+        const assistantMsg: Message = {
           id: crypto.randomUUID(),
-          type: "system",
+          role: "assistant",
           content,
           timestamp: new Date(),
         };
-        setMessages((prev) => [...prev, systemMsg]);
+        setMessages((prev) => [...prev, assistantMsg]);
         setShowWelcome(false);
       };
       onInjectSystemMessage(injector as any);
