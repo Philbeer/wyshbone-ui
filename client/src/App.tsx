@@ -55,7 +55,7 @@ function Router({
   onInjectSystemMessage 
 }: { 
   defaultCountry: string;
-  onInjectSystemMessage: (fn: (userMsg: string, assistantMsg: string) => void) => void;
+  onInjectSystemMessage: (fn: (msg: string) => void) => void;
 }) {
   return (
     <Switch>
@@ -76,7 +76,7 @@ function App() {
     return (localStorage.getItem('theme') as "light" | "dark") || "light";
   });
 
-  const systemMessageInjectorRef = useRef<((userMsg: string, assistantMsg: string) => void) | null>(null);
+  const systemMessageInjectorRef = useRef<((msg: string) => void) | null>(null);
 
   useEffect(() => {
     localStorage.setItem('defaultCountry', defaultCountry);
@@ -98,27 +98,14 @@ function App() {
 
   const handleRunRun = (run: RunItem) => {
     if (!systemMessageInjectorRef.current) {
-      console.error("Message injection function not ready");
+      console.error("Send message function not ready");
       return;
     }
 
-    // User message - simple search query
-    const userMessage = `${run.targetPosition || "Contact"} @ ${run.businessType || "businesses"} in ${run.location || "location"}, ${run.country || "country"}`;
+    // Send the search query to the AI - it will generate the preview via tool calling
+    const message = `${run.targetPosition || "Contact"} @ ${run.businessType || "businesses"} in ${run.location || "location"}, ${run.country || "country"}`;
 
-    // Assistant message - formatted preview
-    const assistantMessage = `📋 **Batch Workflow Preview**
-
-I'll make **1 API call(s)** to the autogen endpoint:
-
-• ${run.targetPosition || "Contact"} @ ${run.businessType || "businesses"} in **${run.location || "location"}, ${run.country || "country"}**
-
-**Parameters:**
-- Delay: 4000ms
-- Smartlead ID: 2354720
-
-✅ Type **"yes"** to confirm or **"no"** to cancel`;
-
-    systemMessageInjectorRef.current(userMessage, assistantMessage);
+    systemMessageInjectorRef.current(message);
   };
 
   return (
@@ -167,7 +154,7 @@ I'll make **1 API call(s)** to the autogen endpoint:
               <main className="flex-1 overflow-hidden">
                 <Router 
                   defaultCountry={defaultCountry} 
-                  onInjectSystemMessage={(fn: (userMsg: string, assistantMsg: string) => void) => {
+                  onInjectSystemMessage={(fn: (msg: string) => void) => {
                     systemMessageInjectorRef.current = fn;
                   }}
                 />
