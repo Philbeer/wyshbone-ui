@@ -18,6 +18,16 @@ function sleep(ms: number): Promise<void> {
   return new Promise(res => setTimeout(res, ms));
 }
 
+// Generate a 20-character lowercase alphanumeric unique ID
+function generateUniqueId(): string {
+  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  let result = '';
+  for (let i = 0; i < 20; i++) {
+    result += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return result;
+}
+
 // Payload for old endpoint (uses IDs)
 function payloadForOldEndpoint(
   businessType: string, 
@@ -59,7 +69,8 @@ function payloadForAutogenEndpoint(
     "Target Email Position": role || "Head of Sales",
     "number_countiestosearch": 1,  // Always 1 for autogen
     "login email": LOGIN_EMAIL,
-    "login password": LOGIN_PASSWORD
+    "login password": LOGIN_PASSWORD,
+    "replit_gen_uniqueid": generateUniqueId()
   };
 }
 
