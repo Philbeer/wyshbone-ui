@@ -152,22 +152,57 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
 
       // After streaming completes, check if this was a successful batch execution
       if (addRun && (accumulatedContent.includes("Batch sent to Smartlead") || accumulatedContent.includes("contact queued"))) {
-        // Extract details from the conversation to create a run item
-        const lastUserMessage = conversationMessages[conversationMessages.length - 1];
+        console.log("Extracting run details from AI response:", accumulatedContent);
         
-        // Try to parse business type, location, target position from context
+        // Extract details from the AI's response which contains the batch preview
+        // Pattern: "- {role} @ {businessType} in {location}, {country}"
         let businessType = "";
         let location = "";
         let targetPosition = "";
         let country = defaultCountry;
         
-        // Look for patterns like "CEO @ pubs in Dallas, US"
-        const match = lastUserMessage.content.match(/([^@]+)@\s*([^in]+)in\s+([^,]+),?\s*([A-Z]{2})?/i);
-        if (match) {
-          targetPosition = match[1].trim();
-          businessType = match[2].trim();
-          location = match[3].trim();
-          country = match[4]?.trim() || defaultCountry;
+        // Primary pattern: Look for bullet points like "- ceo @ pubs in New York, US"
+        const bulletMatch = accumulatedContent.match(/-\s*([^@]+?)\s*@\s*([^in]+?)\s+in\s+\*\*([^,\*]+?)(?:,\s*([A-Z]{2}))?\*\*/i);
+        if (bulletMatch) {
+          targetPosition = bulletMatch[1].trim();
+          businessType = bulletMatch[2].trim();
+          location = bulletMatch[3].trim();
+          country = bulletMatch[4]?.trim() || defaultCountry;
+          console.log("Matched bullet pattern:", { targetPosition, businessType, location, country });
+        } else {
+          // Fallback patterns
+          console.log("Trying fallback patterns...");
+          
+          // Look for business type
+          const businessMatch = accumulatedContent.match(/(?:Business|business_type):\s*([^\n]+)/i) || 
+                               accumulatedContent.match(/@ ([^in]+?)\s+in\s+/i);
+          if (businessMatch) {
+            businessType = businessMatch[1].trim();
+          }
+          
+          // Look for location
+          const locationMatch = accumulatedContent.match(/(?:Location|location):\s*([^\n]+)/i) ||
+                               accumulatedContent.match(/in\s+\*\*([^\*,]+)\*\*/i) ||
+                               accumulatedContent.match(/in\s+([^,\n]+?)(?:,|\s+[A-Z]{2})/i);
+          if (locationMatch) {
+            location = locationMatch[1].trim();
+          }
+          
+          // Look for target position/role
+          const positionMatch = accumulatedContent.match(/(?:Target|target_position|Position|Role):\s*([^\n]+)/i) ||
+                               accumulatedContent.match(/-\s*([^@]+?)\s*@/i);
+          if (positionMatch) {
+            targetPosition = positionMatch[1].trim();
+          }
+          
+          // Look for country code
+          const countryMatch = accumulatedContent.match(/(?:Country|country):\s*([A-Z]{2})/i) ||
+                              accumulatedContent.match(/,\s*([A-Z]{2})\s*\*\*/i);
+          if (countryMatch) {
+            country = countryMatch[1].trim();
+          }
+          
+          console.log("Fallback extraction:", { businessType, location, targetPosition, country });
         }
         
         // Generate unique ID (20 chars lowercase alphanumeric)
@@ -177,8 +212,13 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
           uniqueId += chars.charAt(Math.floor(Math.random() * chars.length));
         }
         
+        // Create a readable label
+        const label = businessType && location 
+          ? `${businessType.charAt(0).toUpperCase() + businessType.slice(1)} in ${location}${targetPosition ? ' - ' + targetPosition.charAt(0).toUpperCase() + targetPosition.slice(1) : ''}`
+          : `${targetPosition || "Contact"} @ ${businessType || "businesses"} in ${location || "location"}`;
+        
         addRun({
-          label: `${targetPosition || "Contact"} @ ${businessType || "businesses"} in ${location || "location"}`,
+          label,
           status: "completed",
           businessType,
           location,
@@ -186,6 +226,8 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
           targetPosition,
           uniqueId,
         });
+        
+        console.log("Added run to history:", { label, businessType, location, country, targetPosition, uniqueId });
       }
       
       setIsStreaming(false);
