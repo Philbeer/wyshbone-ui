@@ -102,8 +102,8 @@ function App() {
       return;
     }
 
-    // Send a message to the AI to run the workflow
-    const message = `Run batch workflow: ${run.targetPosition || "Contact"} @ ${run.businessType || "businesses"} in ${run.location || "location"}, ${run.country || "country"}`;
+    // Send a message to the AI to run the workflow - mark as confirmed to skip location checks
+    const message = `Run this batch workflow (already confirmed, just show preview and ask yes/no): ${run.targetPosition || "Contact"} @ ${run.businessType || "businesses"} in ${run.location || "location"}, ${run.country || "country"}`;
 
     systemMessageInjectorRef.current(message);
   };
