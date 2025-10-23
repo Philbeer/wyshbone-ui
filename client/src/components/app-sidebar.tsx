@@ -369,12 +369,6 @@ const RunRow: React.FC<{
               <DropdownMenuItem onClick={actions.view} data-testid="menu-item-0">
                 View in Bubble
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={actions.retry} data-testid="menu-item-1">
-                Retry
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={actions.duplicate} data-testid="menu-item-2">
-                Duplicate
-              </DropdownMenuItem>
               <DropdownMenuItem onClick={actions.stop} data-testid="menu-item-3">
                 Stop workflow
               </DropdownMenuItem>
