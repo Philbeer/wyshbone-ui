@@ -98,21 +98,12 @@ function App() {
 
   const handleRunRun = (run: RunItem) => {
     if (!systemMessageInjectorRef.current) {
-      console.error("System message injector not ready");
+      console.error("Send message function not ready");
       return;
     }
 
-    const message = `📋 **Batch Workflow Preview**
-
-I'll make **1 API call(s)** to the autogen endpoint:
-
-• ${run.targetPosition || "Contact"} @ ${run.businessType || "businesses"} in **${run.location || "location"}, ${run.country || "country"}**
-
-**Parameters:**
-- Delay: 4000ms
-- Smartlead ID: 2354720
-
-✅ Type **"yes"** to confirm or **"no"** to cancel`;
+    // Send a message to the AI to run the workflow
+    const message = `Run batch workflow: ${run.targetPosition || "Contact"} @ ${run.businessType || "businesses"} in ${run.location || "location"}, ${run.country || "country"}`;
 
     systemMessageInjectorRef.current(message);
   };
