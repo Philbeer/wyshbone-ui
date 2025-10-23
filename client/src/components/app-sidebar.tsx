@@ -246,6 +246,7 @@ interface AppSidebarProps {
   onRetryRun?: (id: string) => void;
   onDuplicateRun?: (id: string, newId: string) => void;
   onOpenExternal?: (url: string, id: string) => void;
+  onRunRun?: (run: RunItem) => void;
 }
 
 const fmtTime = (iso: string) => {
@@ -291,6 +292,7 @@ const RunRow: React.FC<{
     duplicate: () => void;
     stop: () => void;
     archiveToggle: () => void;
+    run: () => void;
   };
 }> = ({ run, onSelect, actions }) => {
   return (
@@ -363,15 +365,27 @@ const RunRow: React.FC<{
             </DropdownMenuContent>
           </DropdownMenu>
           
-          <button
-            className="text-[11px] rounded-lg border border-destructive px-2 py-1 text-destructive hover-elevate active-elevate-2 focus:outline-none focus:ring-2 focus:ring-ring whitespace-nowrap"
-            onClick={actions.stop}
-            aria-label="Stop workflow"
-            title="Stop workflow"
-            data-testid={`button-stop-${run.id}`}
-          >
-            Stop
-          </button>
+          {run.status === "stopped" ? (
+            <button
+              className="text-[11px] rounded-lg border border-primary px-2 py-1 text-primary hover-elevate active-elevate-2 focus:outline-none focus:ring-2 focus:ring-ring whitespace-nowrap"
+              onClick={actions.run}
+              aria-label="Run workflow"
+              title="Run workflow"
+              data-testid={`button-run-${run.id}`}
+            >
+              Run
+            </button>
+          ) : (
+            <button
+              className="text-[11px] rounded-lg border border-destructive px-2 py-1 text-destructive hover-elevate active-elevate-2 focus:outline-none focus:ring-2 focus:ring-ring whitespace-nowrap"
+              onClick={actions.stop}
+              aria-label="Stop workflow"
+              title="Stop workflow"
+              data-testid={`button-stop-${run.id}`}
+            >
+              Stop
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -388,6 +402,7 @@ export function AppSidebar({
   onRetryRun,
   onDuplicateRun,
   onOpenExternal,
+  onRunRun,
 }: AppSidebarProps) {
   const [showArchived, setShowArchived] = useState(false);
   const [localRuns, setLocalRuns] = useState<RunItem[]>(runs);
@@ -455,7 +470,7 @@ export function AppSidebar({
       label: `${ref.label} (copy)`,
       startedAt: new Date().toISOString(),
       finishedAt: null,
-      status: "queued",
+      status: "stopped",
       archived: false,
     };
     mutate((prev) => [newRun, ...prev]);
@@ -471,6 +486,12 @@ export function AppSidebar({
     } else {
       alert("No external link available for this run.");
     }
+  };
+
+  const _run = (id: string) => {
+    const ref = localRuns.find((r) => r.id === id);
+    if (!ref) return;
+    onRunRun?.(ref);
   };
 
   const renderRunSection = (items: RunItem[], title: string) => (
@@ -492,6 +513,7 @@ export function AppSidebar({
               duplicate: () => _duplicate(run.id),
               stop: () => _stop(run.id),
               archiveToggle: () => _archiveToggle(run.id),
+              run: () => _run(run.id),
             }}
           />
         ))

@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import ChatPage from "@/pages/chat";
 import NotFound from "@/pages/not-found";
 import CountryHint from "@/components/CountryHint";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
 // Demo runs data
 const DEMO_RUNS: RunItem[] = [
@@ -21,12 +21,20 @@ const DEMO_RUNS: RunItem[] = [
     startedAt: new Date(Date.now() - 1000 * 60 * 15).toISOString(),
     status: "completed",
     externalUrl: "https://wyshbone.bubbleapps.io",
+    businessType: "Coffee shops",
+    location: "Brooklyn",
+    country: "US",
+    targetPosition: "Owner, Manager",
   },
   {
     id: "run_2",
     label: "Gyms in Toronto - Operations Manager",
     startedAt: new Date(Date.now() - 1000 * 60 * 5).toISOString(),
     status: "running",
+    businessType: "Gyms",
+    location: "Toronto",
+    country: "CA",
+    targetPosition: "Operations Manager",
   },
   {
     id: "run_3",
@@ -35,14 +43,24 @@ const DEMO_RUNS: RunItem[] = [
     status: "completed",
     archived: true,
     externalUrl: "https://wyshbone.bubbleapps.io",
+    businessType: "Tech startups",
+    location: "San Francisco",
+    country: "US",
+    targetPosition: "CTO, CEO",
   },
 ];
 
-function Router({ defaultCountry }: { defaultCountry: string }) {
+function Router({ 
+  defaultCountry, 
+  onInjectSystemMessage 
+}: { 
+  defaultCountry: string;
+  onInjectSystemMessage: (fn: any) => void;
+}) {
   return (
     <Switch>
       <Route path="/">
-        {() => <ChatPage defaultCountry={defaultCountry} />}
+        {() => <ChatPage defaultCountry={defaultCountry} onInjectSystemMessage={onInjectSystemMessage} />}
       </Route>
       <Route component={NotFound} />
     </Switch>
@@ -57,6 +75,8 @@ function App() {
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     return (localStorage.getItem('theme') as "light" | "dark") || "light";
   });
+
+  const systemMessageInjectorRef = useRef<((content: string) => void) | null>(null);
 
   useEffect(() => {
     localStorage.setItem('defaultCountry', defaultCountry);
@@ -76,6 +96,27 @@ function App() {
     "--sidebar-width-icon": "3rem",
   };
 
+  const handleRunRun = (run: RunItem) => {
+    if (!systemMessageInjectorRef.current) {
+      console.error("System message injector not ready");
+      return;
+    }
+
+    const message = `📋 **Batch Workflow Preview**
+
+I'll make **1 API call(s)** to the autogen endpoint:
+
+• ${run.targetPosition || "Contact"} @ ${run.businessType || "businesses"} in **${run.location || "location"}, ${run.country || "country"}**
+
+**Parameters:**
+- Delay: 4000ms
+- Smartlead ID: 2354720
+
+✅ Type **"yes"** to confirm or **"no"** to cancel`;
+
+    systemMessageInjectorRef.current(message);
+  };
+
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
@@ -90,6 +131,7 @@ function App() {
               onDuplicateRun={(id, newId) => console.log("Duplicate run:", id, "→", newId)}
               onStopRun={(id) => console.log("Stop run:", id)}
               onArchiveRun={(id, archived) => console.log("Archive run:", id, archived)}
+              onRunRun={handleRunRun}
             />
             <div className="flex flex-col flex-1">
               <header className="relative flex items-center justify-between p-2 border-b gap-2">
@@ -119,7 +161,12 @@ function App() {
                 </Button>
               </header>
               <main className="flex-1 overflow-hidden">
-                <Router defaultCountry={defaultCountry} />
+                <Router 
+                  defaultCountry={defaultCountry} 
+                  onInjectSystemMessage={(fn: any) => {
+                    systemMessageInjectorRef.current = fn;
+                  }}
+                />
               </main>
             </div>
           </div>

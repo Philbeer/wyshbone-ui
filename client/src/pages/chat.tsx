@@ -24,7 +24,12 @@ type SystemMessage = {
 
 type DisplayMessage = Message | SystemMessage;
 
-export default function ChatPage({ defaultCountry = 'US' }: { defaultCountry?: string }) {
+interface ChatPageProps {
+  defaultCountry?: string;
+  onInjectSystemMessage?: (content: string) => void;
+}
+
+export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage }: ChatPageProps) {
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
@@ -43,6 +48,23 @@ export default function ChatPage({ defaultCountry = 'US' }: { defaultCountry?: s
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  // Expose system message injection to parent
+  useEffect(() => {
+    if (onInjectSystemMessage) {
+      const injector = (content: string) => {
+        const systemMsg: SystemMessage = {
+          id: crypto.randomUUID(),
+          type: "system",
+          content,
+          timestamp: new Date(),
+        };
+        setMessages((prev) => [...prev, systemMsg]);
+        setShowWelcome(false);
+      };
+      onInjectSystemMessage(injector as any);
+    }
+  }, [onInjectSystemMessage]);
 
   const streamChatResponse = async (conversationMessages: ChatMessage[]) => {
     setIsStreaming(true);
