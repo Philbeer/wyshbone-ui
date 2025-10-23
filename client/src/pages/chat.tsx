@@ -27,9 +27,10 @@ type DisplayMessage = Message | SystemMessage;
 interface ChatPageProps {
   defaultCountry?: string;
   onInjectSystemMessage?: (fn: (msg: string) => void) => void;
+  addRun?: (run: any) => string;
 }
 
-export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage }: ChatPageProps) {
+export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage, addRun }: ChatPageProps) {
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
@@ -149,6 +150,44 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage 
         }
       }
 
+      // After streaming completes, check if this was a successful batch execution
+      if (addRun && (accumulatedContent.includes("Batch sent to Smartlead") || accumulatedContent.includes("contact queued"))) {
+        // Extract details from the conversation to create a run item
+        const lastUserMessage = conversationMessages[conversationMessages.length - 1];
+        
+        // Try to parse business type, location, target position from context
+        let businessType = "";
+        let location = "";
+        let targetPosition = "";
+        let country = defaultCountry;
+        
+        // Look for patterns like "CEO @ pubs in Dallas, US"
+        const match = lastUserMessage.content.match(/([^@]+)@\s*([^in]+)in\s+([^,]+),?\s*([A-Z]{2})?/i);
+        if (match) {
+          targetPosition = match[1].trim();
+          businessType = match[2].trim();
+          location = match[3].trim();
+          country = match[4]?.trim() || defaultCountry;
+        }
+        
+        // Generate unique ID (20 chars lowercase alphanumeric)
+        const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+        let uniqueId = '';
+        for (let i = 0; i < 20; i++) {
+          uniqueId += chars.charAt(Math.floor(Math.random() * chars.length));
+        }
+        
+        addRun({
+          label: `${targetPosition || "Contact"} @ ${businessType || "businesses"} in ${location || "location"}`,
+          status: "completed",
+          businessType,
+          location,
+          country,
+          targetPosition,
+          uniqueId,
+        });
+      }
+      
       setIsStreaming(false);
     } catch (error: any) {
       setIsStreaming(false);

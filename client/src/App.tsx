@@ -55,15 +55,17 @@ const DEMO_RUNS: RunItem[] = [
 
 function Router({ 
   defaultCountry, 
-  onInjectSystemMessage 
+  onInjectSystemMessage,
+  onAddRun
 }: { 
   defaultCountry: string;
   onInjectSystemMessage: (fn: (msg: string) => void) => void;
+  onAddRun: () => (run: Partial<RunItem>) => string;
 }) {
   return (
     <Switch>
       <Route path="/">
-        {() => <ChatPage defaultCountry={defaultCountry} onInjectSystemMessage={onInjectSystemMessage} />}
+        {() => <ChatPage defaultCountry={defaultCountry} onInjectSystemMessage={onInjectSystemMessage} addRun={onAddRun()} />}
       </Route>
       <Route component={NotFound} />
     </Switch>
@@ -71,6 +73,8 @@ function Router({
 }
 
 function App() {
+  const [runs, setRuns] = useState<RunItem[]>(DEMO_RUNS);
+  
   const [defaultCountry, setDefaultCountry] = useState<string>(() => {
     return localStorage.getItem('defaultCountry') || 'US';
   });
@@ -80,6 +84,7 @@ function App() {
   });
 
   const systemMessageInjectorRef = useRef<((msg: string) => void) | null>(null);
+  const addRunCallbackRef = useRef<((run: Partial<RunItem>) => string) | null>(null);
 
   useEffect(() => {
     localStorage.setItem('defaultCountry', defaultCountry);
@@ -97,6 +102,30 @@ function App() {
   const style = {
     "--sidebar-width": "20rem",
     "--sidebar-width-icon": "3rem",
+  };
+
+  const addRun = (runData: Partial<RunItem>): string => {
+    const newId = `run_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+    const newRun: RunItem = {
+      id: newId,
+      label: runData.label || "New run",
+      startedAt: new Date().toISOString(),
+      status: runData.status || "running",
+      businessType: runData.businessType,
+      location: runData.location,
+      country: runData.country,
+      targetPosition: runData.targetPosition,
+      uniqueId: runData.uniqueId,
+      ...runData,
+    };
+    
+    setRuns(prev => [newRun, ...prev]);
+    console.log("Added new run to history:", newRun);
+    return newId;
+  };
+
+  const updateRun = (runId: string, updates: Partial<RunItem>) => {
+    setRuns(prev => prev.map(r => r.id === runId ? { ...r, ...updates } : r));
   };
 
   const handleRunRun = (run: RunItem) => {
@@ -119,7 +148,7 @@ function App() {
             <AppSidebar 
               defaultCountry={defaultCountry} 
               onCountryChange={setDefaultCountry}
-              runs={DEMO_RUNS}
+              runs={runs}
               onSelectRun={(id) => console.log("Selected run:", id)}
               onRetryRun={(id) => console.log("Retry run:", id)}
               onDuplicateRun={(id, newId) => console.log("Duplicate run:", id, "→", newId)}
@@ -159,6 +188,10 @@ function App() {
                   defaultCountry={defaultCountry} 
                   onInjectSystemMessage={(fn: (msg: string) => void) => {
                     systemMessageInjectorRef.current = fn;
+                  }}
+                  onAddRun={() => {
+                    // Pass the addRun function to chat page
+                    return addRun;
                   }}
                 />
               </main>
