@@ -28,9 +28,11 @@ interface ChatPageProps {
   defaultCountry?: string;
   onInjectSystemMessage?: (fn: (msg: string) => void) => void;
   addRun?: (run: any) => string;
+  updateRun?: (runId: string, updates: any) => void;
+  getActiveRunId?: () => string | null;
 }
 
-export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage, addRun }: ChatPageProps) {
+export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage, addRun, updateRun, getActiveRunId }: ChatPageProps) {
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
@@ -151,7 +153,7 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
       }
 
       // After streaming completes, check if this was a successful batch execution
-      if (addRun && (accumulatedContent.includes("Batch sent to Smartlead") || accumulatedContent.includes("contact queued"))) {
+      if ((addRun || updateRun) && (accumulatedContent.includes("Batch sent to Smartlead") || accumulatedContent.includes("contact queued"))) {
         console.log("Extracting run details from AI response:", accumulatedContent);
         
         // Extract details from the AI's response which contains the batch preview
@@ -205,29 +207,48 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
           console.log("Fallback extraction:", { businessType, location, targetPosition, country });
         }
         
-        // Generate unique ID (20 chars lowercase alphanumeric)
-        const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
-        let uniqueId = '';
-        for (let i = 0; i < 20; i++) {
-          uniqueId += chars.charAt(Math.floor(Math.random() * chars.length));
-        }
-        
         // Create a readable label
         const label = businessType && location 
           ? `${businessType.charAt(0).toUpperCase() + businessType.slice(1)} in ${location}${targetPosition ? ' - ' + targetPosition.charAt(0).toUpperCase() + targetPosition.slice(1) : ''}`
           : `${targetPosition || "Contact"} @ ${businessType || "businesses"} in ${location || "location"}`;
         
-        addRun({
-          label,
-          status: "completed",
-          businessType,
-          location,
-          country,
-          targetPosition,
-          uniqueId,
-        });
+        // Check if this is updating an existing run (from clicking "Run" button) or creating a new one
+        const activeRunId = getActiveRunId?.();
         
-        console.log("Added run to history:", { label, businessType, location, country, targetPosition, uniqueId });
+        if (activeRunId && updateRun) {
+          // Update existing run - keep the same unique ID
+          console.log("Updating existing run:", activeRunId);
+          updateRun(activeRunId, {
+            label,
+            status: "completed",
+            businessType,
+            location,
+            country,
+            targetPosition,
+            // Don't update uniqueId - it stays the same
+          });
+          console.log("Updated run in history:", { activeRunId, label, businessType, location, country, targetPosition });
+        } else if (addRun) {
+          // Create new run with new unique ID
+          // Generate unique ID (20 chars lowercase alphanumeric)
+          const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+          let uniqueId = '';
+          for (let i = 0; i < 20; i++) {
+            uniqueId += chars.charAt(Math.floor(Math.random() * chars.length));
+          }
+          
+          console.log("Creating new run");
+          addRun({
+            label,
+            status: "completed",
+            businessType,
+            location,
+            country,
+            targetPosition,
+            uniqueId,
+          });
+          console.log("Added run to history:", { label, businessType, location, country, targetPosition, uniqueId });
+        }
       }
       
       setIsStreaming(false);

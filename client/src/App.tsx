@@ -56,16 +56,26 @@ const DEMO_RUNS: RunItem[] = [
 function Router({ 
   defaultCountry, 
   onInjectSystemMessage,
-  onAddRun
+  onAddRun,
+  onUpdateRun,
+  getActiveRunId
 }: { 
   defaultCountry: string;
   onInjectSystemMessage: (fn: (msg: string) => void) => void;
   onAddRun: () => (run: Partial<RunItem>) => string;
+  onUpdateRun: () => (runId: string, updates: Partial<RunItem>) => void;
+  getActiveRunId: () => string | null;
 }) {
   return (
     <Switch>
       <Route path="/">
-        {() => <ChatPage defaultCountry={defaultCountry} onInjectSystemMessage={onInjectSystemMessage} addRun={onAddRun()} />}
+        {() => <ChatPage 
+          defaultCountry={defaultCountry} 
+          onInjectSystemMessage={onInjectSystemMessage} 
+          addRun={onAddRun()} 
+          updateRun={onUpdateRun()}
+          getActiveRunId={getActiveRunId}
+        />}
       </Route>
       <Route component={NotFound} />
     </Switch>
@@ -85,6 +95,7 @@ function App() {
 
   const systemMessageInjectorRef = useRef<((msg: string) => void) | null>(null);
   const addRunCallbackRef = useRef<((run: Partial<RunItem>) => string) | null>(null);
+  const activeRunIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     localStorage.setItem('defaultCountry', defaultCountry);
@@ -133,6 +144,10 @@ function App() {
       console.error("Send message function not ready");
       return;
     }
+
+    // Store the run ID so we can update it when the batch completes
+    activeRunIdRef.current = run.id;
+    console.log("Starting run for ID:", run.id, "with uniqueId:", run.uniqueId);
 
     // Send the search query to the AI - it will generate the preview via tool calling
     const message = `${run.targetPosition || "Contact"} @ ${run.businessType || "businesses"} in ${run.location || "location"}, ${run.country || "country"}`;
@@ -193,6 +208,11 @@ function App() {
                     // Pass the addRun function to chat page
                     return addRun;
                   }}
+                  onUpdateRun={() => {
+                    // Pass the updateRun function to chat page
+                    return updateRun;
+                  }}
+                  getActiveRunId={() => activeRunIdRef.current}
                 />
               </main>
             </div>
