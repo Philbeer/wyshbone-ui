@@ -161,8 +161,8 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
         let targetPosition = "";
         let country = defaultCountry;
         
-        // Primary pattern: Look for bullet points like "- ceo @ pubs in New York, US"
-        const bulletMatch = accumulatedContent.match(/-\s*([^@]+?)\s*@\s*([^in]+?)\s+in\s+\*\*([^,\*]+?)(?:,\s*([A-Z]{2}))?\*\*/i);
+        // Primary pattern: Look for bullet points like "- ceo @ pubs [Atlanta, US]:"
+        const bulletMatch = accumulatedContent.match(/-\s*([^@]+?)\s*@\s*([^\[]+?)\s*\[([^,\]]+?)(?:,\s*([A-Z]{2}))?\]/i);
         if (bulletMatch) {
           targetPosition = bulletMatch[1].trim();
           businessType = bulletMatch[2].trim();
