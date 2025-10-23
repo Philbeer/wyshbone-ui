@@ -26,7 +26,7 @@ type DisplayMessage = Message | SystemMessage;
 
 interface ChatPageProps {
   defaultCountry?: string;
-  onInjectSystemMessage?: (fn: (content: string) => void) => void;
+  onInjectSystemMessage?: (fn: (userMsg: string, assistantMsg: string) => void) => void;
 }
 
 export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage }: ChatPageProps) {
@@ -49,14 +49,30 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage 
     scrollToBottom();
   }, [messages]);
 
-  // Expose send message function to parent
+  // Expose message injection function to parent
   useEffect(() => {
     if (onInjectSystemMessage) {
-      // Create wrapper function that calls handleSend
-      const sendWrapper = (msg: string) => {
-        handleSend(msg);
+      const injectMessages = (userContent: string, assistantContent: string) => {
+        // Add user message (the search query)
+        const userMsg: Message = {
+          id: crypto.randomUUID(),
+          role: "user",
+          content: userContent,
+          timestamp: new Date(),
+        };
+        
+        // Add assistant message (the formatted preview)
+        const assistantMsg: Message = {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content: assistantContent,
+          timestamp: new Date(),
+        };
+        
+        setMessages((prev) => [...prev, userMsg, assistantMsg]);
+        setShowWelcome(false);
       };
-      onInjectSystemMessage(sendWrapper);
+      onInjectSystemMessage(injectMessages);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onInjectSystemMessage]);

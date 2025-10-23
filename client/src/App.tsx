@@ -55,7 +55,7 @@ function Router({
   onInjectSystemMessage 
 }: { 
   defaultCountry: string;
-  onInjectSystemMessage: (fn: any) => void;
+  onInjectSystemMessage: (fn: (userMsg: string, assistantMsg: string) => void) => void;
 }) {
   return (
     <Switch>
@@ -76,7 +76,7 @@ function App() {
     return (localStorage.getItem('theme') as "light" | "dark") || "light";
   });
 
-  const systemMessageInjectorRef = useRef<((content: string) => void) | null>(null);
+  const systemMessageInjectorRef = useRef<((userMsg: string, assistantMsg: string) => void) | null>(null);
 
   useEffect(() => {
     localStorage.setItem('defaultCountry', defaultCountry);
@@ -98,14 +98,27 @@ function App() {
 
   const handleRunRun = (run: RunItem) => {
     if (!systemMessageInjectorRef.current) {
-      console.error("Send message function not ready");
+      console.error("Message injection function not ready");
       return;
     }
 
-    // Send a simple message to trigger the batch workflow
-    const message = `${run.targetPosition || "Contact"} @ ${run.businessType || "businesses"} in ${run.location || "location"}, ${run.country || "country"}`;
+    // User message - simple search query
+    const userMessage = `${run.targetPosition || "Contact"} @ ${run.businessType || "businesses"} in ${run.location || "location"}, ${run.country || "country"}`;
 
-    systemMessageInjectorRef.current(message);
+    // Assistant message - formatted preview
+    const assistantMessage = `📋 **Batch Workflow Preview**
+
+I'll make **1 API call(s)** to the autogen endpoint:
+
+• ${run.targetPosition || "Contact"} @ ${run.businessType || "businesses"} in **${run.location || "location"}, ${run.country || "country"}**
+
+**Parameters:**
+- Delay: 4000ms
+- Smartlead ID: 2354720
+
+✅ Type **"yes"** to confirm or **"no"** to cancel`;
+
+    systemMessageInjectorRef.current(userMessage, assistantMessage);
   };
 
   return (
@@ -154,7 +167,7 @@ function App() {
               <main className="flex-1 overflow-hidden">
                 <Router 
                   defaultCountry={defaultCountry} 
-                  onInjectSystemMessage={(fn: any) => {
+                  onInjectSystemMessage={(fn: (userMsg: string, assistantMsg: string) => void) => {
                     systemMessageInjectorRef.current = fn;
                   }}
                 />
