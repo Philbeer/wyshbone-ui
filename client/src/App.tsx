@@ -25,6 +25,7 @@ const DEMO_RUNS: RunItem[] = [
     location: "Brooklyn",
     country: "US",
     targetPosition: "Owner, Manager",
+    uniqueId: "abcd1234efgh5678ijkl",
   },
   {
     id: "run_2",
@@ -35,6 +36,7 @@ const DEMO_RUNS: RunItem[] = [
     location: "Toronto",
     country: "CA",
     targetPosition: "Operations Manager",
+    uniqueId: "xyz9876mnop5432qrst",
   },
   {
     id: "run_3",
@@ -47,6 +49,7 @@ const DEMO_RUNS: RunItem[] = [
     location: "San Francisco",
     country: "US",
     targetPosition: "CTO, CEO",
+    uniqueId: "uvwx9012stuv3456yzab",
   },
 ];
 

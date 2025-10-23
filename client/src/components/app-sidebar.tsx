@@ -37,7 +37,18 @@ export type RunItem = {
   location?: string;
   country?: string;
   targetPosition?: string;
+  uniqueId?: string;
 };
+
+// Generate a 20-character lowercase alphanumeric unique ID
+function generateUniqueId(): string {
+  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  let result = '';
+  for (let i = 0; i < 20; i++) {
+    result += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return result;
+}
 
 const COUNTRIES = [
   { code: 'AF', name: 'Afghanistan' },
@@ -334,6 +345,11 @@ const RunRow: React.FC<{
                 <span className="font-medium text-foreground">Target:</span> {run.targetPosition}
               </div>
             )}
+            {run.uniqueId && (
+              <div className="break-words text-[11px] text-muted-foreground mt-1">
+                <span className="font-medium text-foreground">ID:</span> {run.uniqueId}
+              </div>
+            )}
             <div className="text-[11px] mt-2">Sent {fmtTime(run.startedAt)}</div>
           </div>
         </div>
@@ -464,14 +480,18 @@ export function AppSidebar({
   const _duplicate = (id: string) => {
     const ref = localRuns.find((r) => r.id === id);
     if (!ref) return;
+    const generatedId = newId();
+    const generatedUniqueId = generateUniqueId();
+    console.log("Duplicate run:", id, "→", generatedId, "| uniqueId:", generatedUniqueId);
     const newRun: RunItem = {
       ...ref,
-      id: newId(),
+      id: generatedId,
       label: `${ref.label} (copy)`,
       startedAt: new Date().toISOString(),
       finishedAt: null,
       status: "stopped",
       archived: false,
+      uniqueId: generatedUniqueId,
     };
     mutate((prev) => [newRun, ...prev]);
     onDuplicateRun?.(id, newRun.id);
