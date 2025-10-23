@@ -217,7 +217,7 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
         
         if (activeRunId && updateRun) {
           // Update existing run - keep the same unique ID
-          console.log("Updating existing run:", activeRunId);
+          console.log("Updating existing run:", activeRunId, "with data:", { label, status: "completed", businessType, location, country, targetPosition });
           updateRun(activeRunId, {
             label,
             status: "completed",
@@ -227,7 +227,7 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
             targetPosition,
             // Don't update uniqueId - it stays the same
           });
-          console.log("Updated run in history:", { activeRunId, label, businessType, location, country, targetPosition });
+          console.log("Updated run in history - UI should now show completed status");
         } else if (addRun) {
           // Create new run with new unique ID
           // Generate unique ID (20 chars lowercase alphanumeric)

@@ -136,7 +136,22 @@ function App() {
   };
 
   const updateRun = (runId: string, updates: Partial<RunItem>) => {
-    setRuns(prev => prev.map(r => r.id === runId ? { ...r, ...updates } : r));
+    console.log("updateRun called for:", runId, "with updates:", updates);
+    setRuns(prev => {
+      const updated = prev.map(r => {
+        if (r.id === runId) {
+          console.log("Found run to update:", r.id, "Current status:", r.status, "New status:", updates.status);
+          return { ...r, ...updates };
+        }
+        return r;
+      });
+      console.log("Updated runs state");
+      return updated;
+    });
+    
+    // Clear the active run ID after updating
+    activeRunIdRef.current = null;
+    console.log("Cleared activeRunIdRef");
   };
 
   const handleRunRun = (run: RunItem) => {
