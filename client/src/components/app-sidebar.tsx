@@ -582,27 +582,8 @@ export function AppSidebar({
               AutoGen API calls you've sent. Click to view. Use Stop to cancel. Menu for more actions.
             </p>
 
-            <div className="flex items-center justify-between mb-3">
-              <label className="text-[12px] text-foreground flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  className="rounded border-border"
-                  checked={showArchived}
-                  onChange={() => setShowArchived((v) => !v)}
-                  data-testid="checkbox-show-archived"
-                />
-                Show archived
-              </label>
-            </div>
-
             {renderRunSection(todays, "Today")}
             {renderRunSection(previous, "Previous")}
-
-            <div className="mt-3 border-t border-border pt-3">
-              <p className="text-[11px] text-muted-foreground">
-                Tip: Retry re-queues the same request. Duplicate creates a copy you can edit before sending (if your app supports it).
-              </p>
-            </div>
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
