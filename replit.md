@@ -63,10 +63,17 @@ The user interface follows modern Material Design principles, drawing inspiratio
 - **Persistent Memory System:** Database-backed conversation history and knowledge accumulation for long-term context and proactive assistance. Features:
     - **Conversation Persistence:** All chat messages saved to PostgreSQL with conversation IDs maintained across sessions
     - **Fact Extraction:** Automatic extraction of user preferences, business requirements, and contextual information after each conversation using GPT-4
-    - **Knowledge Scoring:** Facts rated 0-1 for importance, with high-score facts (≥0.7) automatically included in future AI context
+    - **Intelligent Knowledge Scoring:** Facts rated 0-100 for importance, with prioritized scoring:
+        - Industries/business types (e.g., "coffee shops", "pubs"): 85-95
+        - Locations/places (e.g., "London", "Texas"): 85-95
+        - Subjects/topics of interest (e.g., "deep research"): 80-90
+        - User preferences and working style: 70-80
+        - General conversational context: 50-70
+        - High-score facts (≥70) automatically included in future AI context
     - **ConversationId Round-Trip:** Backend generates conversation IDs and streams them to frontend via SSE; frontend captures and maintains IDs for session continuity
     - **Context Building:** Historical conversations and extracted facts combined to provide personalized, context-aware responses
-    - **Memory Debug View:** Developer interface at `/debug` for inspecting conversations, messages, and extracted facts in real-time with 5-second auto-refresh
+    - **Memory Debug View:** Developer interface at `/debug` for inspecting conversations, messages, and extracted facts in real-time with 5-second auto-refresh. Includes User Profile Summary section highlighting top 5 high-confidence insights.
+    - **New Chat Feature:** Sidebar button that clears the visual conversation thread while preserving all learned facts and context in the database for continuity across sessions
     - **API Endpoints:** 
         - `GET /api/debug/conversations` - List all stored conversations
         - `GET /api/debug/conversations/:id/messages` - View messages in a specific conversation

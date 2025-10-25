@@ -152,6 +152,15 @@ Rules:
 
 Assign each fact a score from 0-100 based on importance and durability.
 
+CRITICAL SCORING GUIDELINES:
+- Industries/business types mentioned (e.g., "coffee shops", "pubs", "dentistry", "veterinary supplies"): Score 85-95
+- Locations/places mentioned (e.g., "London", "Texas", "Manchester", specific cities/regions): Score 85-95
+- Subjects/topics of interest (e.g., "deep research", "marketing agencies", "breweries"): Score 80-90
+- User preferences and working style: Score 70-80
+- General conversational context: Score 50-70
+
+Industries, locations, and subjects are HIGH PRIORITY and should receive the highest scores.
+
 Return strict JSON: {"facts":[{"text":"...", "score": 0-100}, ...]}
 
 Recent exchange:
