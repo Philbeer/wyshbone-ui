@@ -1,10 +1,29 @@
 import type { DeepResearchRun, DeepResearchCreateRequest, DeepResearchRunSummary } from "@shared/schema";
 import { storage } from "./storage";
+import { appendMessage } from "./memory";
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
 const OPENAI_BASE = "https://api.openai.com/v1";
 const OPENAI_MODEL = "gpt-4o";
 const POLL_INTERVAL_MS = 3000; // Poll every 3 seconds for faster status updates
+
+// Send a completion notification to the chat
+async function sendCompletionNotification(sessionId: string, run: DeepResearchRun): Promise<void> {
+  try {
+    const message = `✅ **Deep Research Complete!**\n\n` +
+      `Your research on "${run.label}" has finished.\n\n` +
+      `Click on the research run in the sidebar to view the full report.`;
+    
+    appendMessage(sessionId, {
+      role: "assistant",
+      content: message
+    });
+    
+    console.log(`📬 Sent completion notification for ${run.id} to session ${sessionId}`);
+  } catch (err: any) {
+    console.error(`❌ Failed to send completion notification:`, err.message);
+  }
+}
 
 function generateRunId(): string {
   return "run_" + Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -27,7 +46,8 @@ export function stripLargeOutput(run: DeepResearchRun): DeepResearchRunSummary {
 }
 
 export async function startBackgroundResponsesJob(
-  params: DeepResearchCreateRequest
+  params: DeepResearchCreateRequest,
+  sessionId?: string
 ): Promise<DeepResearchRun> {
   const {
     prompt,
@@ -42,6 +62,7 @@ export async function startBackgroundResponsesJob(
   const id = generateRunId();
   const runData = {
     id,
+    sessionId,
     label: label || suggestDefaultLabel(prompt),
     prompt,
     mode,
@@ -141,6 +162,8 @@ export async function startBackgroundResponsesJob(
 export async function pollOneRun(run: DeepResearchRun): Promise<void> {
   if (!run.responseId || ["completed", "failed", "stopped"].includes(run.status)) return;
   
+  const previousStatus = run.status; // Track previous status for notifications
+  
   try {
     console.log(`📊 Polling research job ${run.id} (responseId: ${run.responseId})`);
     const response = await fetch(`${OPENAI_BASE}/responses/${run.responseId}`, {
@@ -228,6 +251,11 @@ export async function pollOneRun(run: DeepResearchRun): Promise<void> {
         outputText,
       });
       console.log(`✅ Research job ${run.id} completed, output length: ${outputText?.length || 0}`);
+      
+      // Send chat notification if status changed to completed and we have a sessionId
+      if (previousStatus !== "completed" && run.sessionId) {
+        await sendCompletionNotification(run.sessionId, run);
+      }
     } else if (status === "failed") {
       const error = data?.error?.message || "Unknown error";
       await storage.updateDeepResearchRun(run.id, {

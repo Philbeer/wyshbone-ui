@@ -157,6 +157,7 @@ export type JobStatusResponse = z.infer<typeof jobStatusResponseSchema>;
 // Deep Research Drizzle table
 export const deepResearchRuns = pgTable("deep_research_runs", {
   id: text("id").primaryKey(),
+  sessionId: text("session_id"),
   label: text("label").notNull(),
   prompt: text("prompt").notNull(),
   mode: text("mode").notNull().default("report"),
@@ -182,6 +183,7 @@ export const deepResearchRunModeSchema = z.enum(["report", "json"]);
 
 export const deepResearchRunSchema = z.object({
   id: z.string(),
+  sessionId: z.string().optional(),
   label: z.string(),
   prompt: z.string(),
   mode: deepResearchRunModeSchema,

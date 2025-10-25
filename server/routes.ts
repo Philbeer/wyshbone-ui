@@ -3004,7 +3004,9 @@ Return structured data with the EXACT placeId provided above: "${placeId}"`;
         });
       }
 
-      const run = await startBackgroundResponsesJob(validation.data);
+      // Extract sessionId so we can send notifications when research completes
+      const sessionId = getSessionId(req);
+      const run = await startBackgroundResponsesJob(validation.data, sessionId);
       res.json({ run: stripLargeOutput(run) });
     } catch (error: any) {
       console.error("Deep research creation error:", error);
