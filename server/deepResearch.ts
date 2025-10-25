@@ -10,11 +10,11 @@ const POLL_INTERVAL_MS = 3000; // Poll every 3 seconds for faster status updates
 // Post-process research output to ensure beautiful formatting
 async function reformatResearchOutput(rawOutput: string, researchTopic: string): Promise<string> {
   try {
-    // Check if output already has good structure - if so, skip reformatting
+    // Check if output already has good structure with emojis - if so, skip reformatting
     const hasGoodStructure = (
-      rawOutput.includes("## Executive Summary") &&
-      rawOutput.includes("## Key Findings") &&
-      rawOutput.includes("## Sources")
+      (rawOutput.includes("## 🧭 Executive Summary") || rawOutput.includes("## Executive Summary")) &&
+      (rawOutput.includes("## ⭐ Key Findings") || rawOutput.includes("## Key Findings")) &&
+      (rawOutput.includes("## 📚 Sources") || rawOutput.includes("## Sources"))
     );
     
     if (hasGoodStructure) {
@@ -24,61 +24,75 @@ async function reformatResearchOutput(rawOutput: string, researchTopic: string):
     
     console.log("🎨 Reformatting research output for better presentation...");
     
-    const reformatPrompt = `You are a professional research formatter. Take the following research output and reformat it into a beautiful, well-structured markdown document.
+    const reformatPrompt = `You are a professional research formatter. Take the following research output and reformat it into a beautiful, human-readable markdown document with visual appeal.
 
 ORIGINAL RESEARCH OUTPUT:
 ${rawOutput}
 
 RESEARCH TOPIC: ${researchTopic}
 
-Your task is to reformat this into a polished research report with EXACTLY this structure:
+Transform this into a polished, visually engaging report using this EXACT format:
 
-# ${researchTopic}
+# 📊 ${researchTopic}
 
-## Executive Summary
+## 🧭 Executive Summary
 - 3-5 key findings as clear, actionable bullet points
 - Each bullet should be concise and insightful
 
-## Overview
-A brief introduction (2-3 paragraphs) covering:
-- What was researched
-- Scope and methodology
-- Key areas investigated
+## 🔍 Overview
+A brief introduction (2-3 paragraphs) covering what was researched and key areas investigated.
 
-## Key Findings
-Organize the main findings into well-titled subsections:
-### Finding 1: [Descriptive Title]
-- Main point with supporting evidence
-- Specific data points with dates when available
-- Source citations
+## ⭐ Key Findings
+Present the most important findings. Use **markdown tables** when presenting lists of items with multiple attributes:
 
-### Finding 2: [Descriptive Title]
-(Continue pattern for each major finding)
+| Name | Description | Location | Source |
+|------|-------------|----------|--------|
+| Item 1 | Details... | Area | Source link |
+| Item 2 | Details... | Area | Source link |
 
-## Detailed Analysis
-In-depth analysis organized by themes or categories
+For non-tabular findings, use subsections with descriptive titles and bullet points.
 
-## Market Insights
-Relevant market data, trends, or industry context (if applicable to the research topic)
+## 📍 Detailed Analysis
+Break down insights by category or theme. Use tables when comparing multiple items or presenting structured data.
 
-## Conclusion
-Summary of implications and recommendations
+Example table format:
+| Category | Details | Notes |
+|----------|---------|-------|
+| Topic A | Info | Context |
+| Topic B | Info | Context |
 
-## Sources
-Format all sources as a clean list:
-- **[Source Name]** - Brief description ([URL])
-- Include publication dates when available
+## 💡 Market Insights
+Relevant trends and patterns. Use bullet points with emoji bullets for visual appeal:
+• Point 1
+• Point 2
 
-CRITICAL RULES:
-1. Preserve ALL factual information, data, and sources from the original
-2. Use EXACTLY the section names shown above (Executive Summary, Overview, Key Findings, Detailed Analysis, Market Insights, Conclusion, Sources)
-3. Make sources clickable markdown links: [Source Name](URL)
-4. Use bullet points for clarity, paragraphs for context
-5. If the original already has good structure, preserve and enhance it
-6. Do NOT add emojis to section headers
-7. If a section like "Market Insights" isn't applicable, include it but keep it brief
+## ✅ Recommendations
+Actionable next steps or suggestions. Use bullet points clearly labeled:
+• For X: Do Y
+• For Z: Do A
 
-Return ONLY the reformatted markdown report. Do not include any meta-commentary.`;
+## 📚 Sources
+List all sources as clean bullet points:
+• Source Name, Additional context, URL (if available)
+
+CRITICAL FORMATTING RULES:
+1. **Use emojis in ALL section headers** (🧭 🔍 ⭐ 📍 💡 ✅ 📚 etc.)
+2. **Create markdown tables** for lists of items with 3+ attributes (pubs, businesses, locations, etc.)
+3. **Use bullet points** (•) for regular lists, not just dashes
+4. **Preserve ALL factual data** from the original
+5. **Make tables clean and aligned** - use | separators properly
+6. **Keep descriptions concise** in table cells
+7. **Add visual hierarchy** with proper spacing between sections
+8. **Use bold** for emphasis on important terms
+9. **Make sources clickable** when URLs are available: [Source](URL)
+
+EXAMPLE OF GOOD TABLE FORMATTING:
+| Business | Type | Location | Rating | Notes |
+|----------|------|----------|--------|-------|
+| The Skellig | Irish Pub | Knox-Henderson | 4.5★ | Live music, food nights |
+| Sue Ellen's | LGBTQ+ Bar | Oak Lawn | Historic | Opened 1989 |
+
+Return ONLY the reformatted markdown report with no meta-commentary.`;
 
     const response = await fetch(`${OPENAI_BASE}/chat/completions`, {
       method: "POST",
@@ -231,41 +245,44 @@ export async function startBackgroundResponsesJob(
     body.text = { format: { type: "text" } };
     body.instructions += `
 
-Return a professionally formatted markdown research report with the following structure:
+Return a visually appealing markdown research report with emojis and tables:
 
-# [Research Topic]
+# 📊 [Research Topic]
 
-## Executive Summary
-- 3-5 key findings in bullet points
-- Clear, actionable insights
+## 🧭 Executive Summary
+- 3-5 key findings as clear, actionable bullet points
+- Concise and insightful
 
-## Overview
-Brief introduction to the research topic and scope
+## 🔍 Overview
+Brief introduction (2-3 paragraphs) covering what was researched and key areas investigated.
 
-## Key Findings
-### Finding 1: [Descriptive Title]
-- Evidence and details
-- Supporting data with dates
-- Source citations
+## ⭐ Key Findings
+When presenting lists of businesses, locations, or items with multiple attributes, use markdown tables:
 
-### Finding 2: [Descriptive Title]
-(Continue pattern for each major finding)
+| Name | Description | Location | Source |
+|------|-------------|----------|--------|
+| Item 1 | Details | Area | Link |
 
-## Detailed Analysis
-In-depth analysis organized by themes or categories
+For other findings, use subsections with bullet points.
 
-## Market Insights
-Relevant market data, trends, or industry context (if applicable)
+## 📍 Detailed Analysis
+Break down by theme/category. Use tables for structured comparisons.
 
-## Conclusion
-Summary of implications and recommendations
+## 💡 Market Insights
+Relevant trends and patterns with bullet points (• not -)
 
-## Sources
-List all sources with:
-- **[Source Name]** - Brief description of what information was obtained
-- URL with publication date when available
+## ✅ Recommendations
+Actionable suggestions as bullet points
 
-Format all sources as markdown links: [Source Name](URL)
+## 📚 Sources
+• Source Name - Context ([URL])
+
+FORMATTING REQUIREMENTS:
+- Use emojis in section headers (🧭 🔍 ⭐ 📍 💡 ✅ 📚)
+- Create tables for lists of 3+ items with multiple attributes
+- Use • for bullet points
+- Make URLs clickable: [Text](URL)
+- Keep tables clean and aligned
 `;
   }
 
