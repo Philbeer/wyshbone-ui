@@ -141,12 +141,15 @@ export async function pollOneRun(run: DeepResearchRun): Promise<void> {
   if (!run.responseId || ["completed", "failed", "stopped"].includes(run.status)) return;
   
   try {
+    console.log(`📊 Polling research job ${run.id} (responseId: ${run.responseId})`);
     const response = await fetch(`${OPENAI_BASE}/responses/${run.responseId}`, {
       headers: { Authorization: `Bearer ${OPENAI_API_KEY}` },
     });
     
     const data = await response.json();
     const status = data.status || "in_progress";
+    console.log(`📊 Poll result for ${run.id}: status=${status}`);
+    
     run.status = status;
     run.updatedAt = Date.now();
 
@@ -156,10 +159,13 @@ export async function pollOneRun(run: DeepResearchRun): Promise<void> {
         (data.output && data.output[0] && data.output[0].content && data.output[0].content[0] && data.output[0].content[0].text) ??
         JSON.stringify(data.output ?? data, null, 2);
       run.outputText = outputText;
+      console.log(`✅ Research job ${run.id} completed, output length: ${outputText?.length || 0}`);
     } else if (status === "failed") {
       run.error = data?.error?.message || "Unknown error";
+      console.log(`❌ Research job ${run.id} failed: ${run.error}`);
     }
   } catch (err: any) {
+    console.error(`❌ Error polling job ${run.id}:`, err.message);
     run.error = err.message || String(err);
   } finally {
     runs.set(run.id, run);

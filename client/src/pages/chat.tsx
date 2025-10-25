@@ -9,6 +9,8 @@ import wyshboneLogo from "@assets/wyshbone-logo_1759667581806.png";
 import Welcome from "@/components/Welcome";
 import { LocationSuggestions } from "@/components/LocationSuggestions";
 import WishboneSidebar from "@/components/WishboneSidebar";
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 type Message = ChatMessage & {
   id: string;
@@ -571,7 +573,50 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
                           : "bg-card border border-card-border"
                       }`}
                     >
-                      <p className="text-[15px] leading-relaxed whitespace-pre-wrap">{chatMessage.content}</p>
+                      {!isUser && chatMessage.content.includes('# 📊') ? (
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm]}
+                          className="text-[15px] leading-relaxed prose prose-sm dark:prose-invert max-w-none"
+                          components={{
+                            a: ({ node, ...props }) => (
+                              <a {...props} className="text-primary hover:underline" target="_blank" rel="noopener noreferrer" />
+                            ),
+                            ul: ({ node, ...props }) => (
+                              <ul {...props} className="list-disc list-inside my-2 space-y-1" />
+                            ),
+                            ol: ({ node, ...props }) => (
+                              <ol {...props} className="list-decimal list-inside my-2 space-y-1" />
+                            ),
+                            h1: ({ node, ...props }) => (
+                              <h1 {...props} className="text-xl font-bold mt-4 mb-2" />
+                            ),
+                            h2: ({ node, ...props }) => (
+                              <h2 {...props} className="text-lg font-semibold mt-3 mb-2" />
+                            ),
+                            h3: ({ node, ...props }) => (
+                              <h3 {...props} className="text-base font-semibold mt-2 mb-1" />
+                            ),
+                            p: ({ node, ...props }) => (
+                              <p {...props} className="my-2" />
+                            ),
+                            table: ({ node, ...props }) => (
+                              <div className="overflow-x-auto my-2">
+                                <table {...props} className="border-collapse border border-border w-full" />
+                              </div>
+                            ),
+                            th: ({ node, ...props }) => (
+                              <th {...props} className="border border-border px-2 py-1 bg-muted font-semibold text-left" />
+                            ),
+                            td: ({ node, ...props }) => (
+                              <td {...props} className="border border-border px-2 py-1" />
+                            ),
+                          }}
+                        >
+                          {chatMessage.content}
+                        </ReactMarkdown>
+                      ) : (
+                        <p className="text-[15px] leading-relaxed whitespace-pre-wrap">{chatMessage.content}</p>
+                      )}
                     </div>
                     <span className="text-xs text-muted-foreground mt-1">
                       {chatMessage.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
