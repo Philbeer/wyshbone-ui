@@ -99,8 +99,8 @@ export async function startBackgroundResponsesJob(
       },
     };
   } else {
-    body.text = { format: { type: "markdown" } };
-    body.instructions += " Return a clean markdown research report with sections, bullet points, and a 'Sources' list of URLs with short rationales.";
+    body.text = { format: { type: "text" } };
+    body.instructions += " Return a clean markdown-formatted research report with sections, bullet points, and a 'Sources' list of URLs with short rationales.";
   }
 
   try {
