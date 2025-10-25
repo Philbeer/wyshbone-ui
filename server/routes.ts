@@ -665,7 +665,8 @@ Examples:
         const validationPrompt = [
           {
             role: "system" as const,
-            content: `Analyze if the user's message contains enough information to perform meaningful research.
+            content: `Analyze if the user's message contains enough information to perform meaningful research. 
+IMPORTANT: Look at the conversation context to extract the research topic if the current message doesn't contain it.
 
 Return JSON with:
 {
@@ -676,16 +677,21 @@ Return JSON with:
 }
 
 Examples:
-- "can you do a deep dive" → {"has_topic": false, "research_topic": null, "needs_clarification": true, "suggested_question": "What would you like me to research?"}
-- "do a deep dive" → {"has_topic": false, "research_topic": null, "needs_clarification": true, "suggested_question": "What topic would you like me to investigate?"}
-- "research new coffee shops in London" → {"has_topic": true, "research_topic": "new coffee shops in London", "needs_clarification": false, "suggested_question": null}
-- "investigate dental practices that opened in 2024" → {"has_topic": true, "research_topic": "dental practices that opened in 2024", "needs_clarification": false, "suggested_question": null}
+- Current: "can you do a deep dive" + Context: (empty) → {"has_topic": false, "research_topic": null, "needs_clarification": true, "suggested_question": "What would you like me to research?"}
+- Current: "can you do deep research?" + Context: "user: can you find freehouses in west sussex" → {"has_topic": true, "research_topic": "freehouses in west sussex", "needs_clarification": false, "suggested_question": null}
+- Current: "yes" + Context: "assistant: Would you like me to start this research? user: I want to research bakeries in London" → {"has_topic": true, "research_topic": "bakeries in London", "needs_clarification": false, "suggested_question": null}
+- Current: "research new coffee shops in London" + Context: (any) → {"has_topic": true, "research_topic": "new coffee shops in London", "needs_clarification": false, "suggested_question": null}
+- Current: "deep research" + Context: "user: what about dental practices?" → {"has_topic": true, "research_topic": "dental practices", "needs_clarification": false, "suggested_question": null}
 
-IMPORTANT: If the user just asks "can you do X" without specifying WHAT to research, set has_topic to false.`
+CRITICAL RULES:
+1. If current message has the topic → use it
+2. If current message doesn't have topic BUT conversation context does → extract from context
+3. Only set has_topic=false if NEITHER current message NOR context contains a topic
+4. When extracting from context, look for what the user was asking about (business types, locations, research subjects)`
           },
           {
             role: "user" as const,
-            content: `User message: "${latestUserText}"\n\nRecent conversation context:\n${memoryMessages.slice(-3).map(m => `${m.role}: ${m.content}`).join('\n')}\n\nValidate:`
+            content: `User message: "${latestUserText}"\n\nRecent conversation context:\n${memoryMessages.slice(-5).map(m => `${m.role}: ${m.content}`).join('\n')}\n\nValidate:`
           }
         ];
 
