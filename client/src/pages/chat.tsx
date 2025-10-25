@@ -3,8 +3,8 @@ import { useMutation } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Send, User, CheckCircle2 } from "lucide-react";
-import type { ChatMessage, AddNoteResponse } from "@shared/schema";
+import { Send, User, CheckCircle2, Search } from "lucide-react";
+import type { ChatMessage, AddNoteResponse, DeepResearchCreateRequest } from "@shared/schema";
 import wyshboneLogo from "@assets/wyshbone-logo_1759667581806.png";
 import Welcome from "@/components/Welcome";
 import { LocationSuggestions } from "@/components/LocationSuggestions";
@@ -41,6 +41,49 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+
+  const detectDeepResearchIntent = (text: string): boolean => {
+    const lowerText = text.toLowerCase();
+    const researchKeywords = /\b(research|investigate|analyze|study|explore|deep dive|comprehensive|thorough|detailed report|sources|citations|evidence|findings)\b/;
+    const actionKeywords = /\b(find|search|get|show|list|discover|gather|collect)\b/;
+    
+    // Must have both research indicators and action words
+    return researchKeywords.test(lowerText) && actionKeywords.test(lowerText);
+  };
+
+  const startDeepResearch = async (request: DeepResearchCreateRequest) => {
+    try {
+      const response = await fetch("/api/deep-research", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(request),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to start deep research");
+      }
+
+      const data = await response.json();
+      
+      const systemMessage: SystemMessage = {
+        id: crypto.randomUUID(),
+        type: "system",
+        content: `🔬 Deep research started: "${request.label || request.prompt}". Check the sidebar for progress.`,
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, systemMessage]);
+      
+      return data.run;
+    } catch (error: any) {
+      const errorMessage: SystemMessage = {
+        id: crypto.randomUUID(),
+        type: "system",
+        content: `Failed to start deep research: ${error.message}`,
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, errorMessage]);
+    }
+  };
 
   // Welcome message will hide automatically when user sends first message (messages.length > 0)
 
@@ -298,7 +341,7 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
     },
   });
 
-  const handleSend = (promptOverride?: string) => {
+  const handleSend = async (promptOverride?: string) => {
     const messageContent = promptOverride || input.trim();
     if (!messageContent || isStreaming) return;
 
@@ -312,6 +355,38 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
       timestamp: new Date(),
     };
 
+    // Update UI state immediately
+    setMessages((prev) => [...prev, userMessage]);
+    setInput("");
+
+    // Check if this looks like a deep research request
+    if (detectDeepResearchIntent(messageContent)) {
+      const assistantMessage: Message = {
+        id: crypto.randomUUID(),
+        role: "assistant",
+        content: "I can run a deep research dive with web browsing for you. This will take a few minutes and produce a comprehensive report with sources. Would you like me to start this research?",
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, assistantMessage]);
+      
+      // Store the research request for the user to confirm
+      const researchRequest: DeepResearchCreateRequest = {
+        prompt: messageContent,
+        label: messageContent.length > 60 ? messageContent.slice(0, 57) + "…" : messageContent,
+        mode: "report",
+      };
+      
+      // Add confirmation button (we'll do this via a special system message)
+      const confirmMessage: SystemMessage = {
+        id: crypto.randomUUID(),
+        type: "system",
+        content: JSON.stringify({ type: "deep_research_confirm", data: researchRequest }),
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, confirmMessage]);
+      return;
+    }
+
     // Build conversation history BEFORE adding new message to state
     const conversationHistory = messages
       .filter((msg): msg is Message => !("type" in msg))
@@ -323,10 +398,6 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
 
     // Add new user message to the history
     const fullConversation = [...recentHistory, { role: userMessage.role, content: userMessage.content }];
-
-    // Update UI state
-    setMessages((prev) => [...prev, userMessage]);
-    setInput("");
 
     // Send recent conversation only
     streamChatResponse(fullConversation);
@@ -388,6 +459,47 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
               })
               .map((message) => {
               if ("type" in message && message.type === "system") {
+                // Check if this is a deep research confirmation message
+                try {
+                  const parsed = JSON.parse(message.content);
+                  if (parsed.type === "deep_research_confirm") {
+                    return (
+                      <div
+                        key={message.id}
+                        className="flex justify-center gap-2"
+                        data-testid={`message-system-${message.id}`}
+                      >
+                        <Button
+                          variant="default"
+                          size="sm"
+                          onClick={() => {
+                            startDeepResearch(parsed.data);
+                            // Remove this confirmation message
+                            setMessages((prev) => prev.filter((m) => m.id !== message.id));
+                          }}
+                          data-testid="button-start-research"
+                        >
+                          <Search className="w-4 h-4 mr-2" />
+                          Start Deep Research
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            // Remove this confirmation message
+                            setMessages((prev) => prev.filter((m) => m.id !== message.id));
+                          }}
+                          data-testid="button-cancel-research"
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                    );
+                  }
+                } catch (e) {
+                  // Not a JSON message, fall through to regular display
+                }
+                
                 return (
                   <div
                     key={message.id}
