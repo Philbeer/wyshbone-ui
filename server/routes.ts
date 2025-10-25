@@ -593,6 +593,102 @@ Only extract fields that are in the missing list: ${partialWorkflow.missing_fiel
         }
       }
 
+      // ===========================
+      // INTENT CLASSIFICATION
+      // Determine if user wants deep research, bubble workflow, or if unclear
+      // ===========================
+      const intentClassificationPrompt = [
+        {
+          role: "system" as const,
+          content: `You are an intent classifier. Analyze the user's message and determine what they want to do.
+
+Options:
+1. "deep_research" - User wants comprehensive research/investigation on a topic (e.g., "research coffee shops that opened", "deep dive into dental practices", "investigate new bakeries", "find detailed information about")
+2. "bubble_workflow" - User wants to trigger a workflow/batch process to find specific business contacts (e.g., "find head of sales for dentists", "get contacts for veterinary suppliers", "run workflow for farm shops")
+3. "both_possible" - Could be either deep research OR workflow, not clearly one or the other
+4. "general_chat" - Just asking questions, having a conversation, or unclear what they want
+
+Return ONLY a JSON object with:
+{
+  "intent": "deep_research" | "bubble_workflow" | "both_possible" | "general_chat",
+  "confidence": "high" | "medium" | "low",
+  "reasoning": "brief explanation"
+}
+
+Examples:
+- "research coffee shops in London" → {"intent": "deep_research", "confidence": "high", "reasoning": "keyword 'research' indicates deep investigation"}
+- "find head of sales for dentists in Bath" → {"intent": "bubble_workflow", "confidence": "high", "reasoning": "looking for specific contacts/roles"}
+- "find new bakeries in Manchester" → {"intent": "both_possible", "confidence": "medium", "reasoning": "could want research OR contacts"}
+- "what can you do?" → {"intent": "general_chat", "confidence": "high", "reasoning": "asking about capabilities"}
+- "run a deep research dive to find new butchers" → {"intent": "deep_research", "confidence": "high", "reasoning": "explicit 'deep research dive' request"}`
+        },
+        {
+          role: "user" as const,
+          content: latestUserText
+        }
+      ];
+
+      let userIntent: { intent: string; confidence: string; reasoning: string } | null = null;
+      
+      try {
+        const intentResp = await openai.chat.completions.create({
+          model: "gpt-4o-mini",
+          messages: intentClassificationPrompt,
+          response_format: { type: "json_object" },
+        });
+
+        userIntent = JSON.parse(intentResp.choices[0]?.message?.content || "{}");
+        console.log("🎯 Intent classification:", userIntent);
+      } catch (err: any) {
+        console.error("❌ Intent classification error:", err.message);
+        // Continue with normal flow if classification fails
+      }
+
+      // Handle "both_possible" - ask user to clarify
+      if (userIntent?.intent === "both_possible") {
+        const clarificationMsg = `I can help with that in two ways:\n\n` +
+          `1️⃣ **Deep Research** - I'll perform comprehensive research and provide a detailed report with findings, sources, and analysis\n\n` +
+          `2️⃣ **Find Contacts** - I'll trigger a workflow to find specific business contacts (like Head of Sales) for your target businesses\n\n` +
+          `Which would you prefer?`;
+        
+        appendMessage(sessionId, { role: "assistant", content: clarificationMsg });
+        res.write(`data: ${JSON.stringify({ content: clarificationMsg })}\n\n`);
+        res.write(`data: [DONE]\n\n`);
+        return res.end();
+      }
+
+      // Handle clear deep_research intent
+      if (userIntent?.intent === "deep_research" && userIntent.confidence === "high") {
+        console.log("🔬 Triggering deep research based on intent");
+        
+        try {
+          const response = await fetch("http://localhost:5000/api/deep-research", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ prompt: latestUserText }),
+          });
+
+          const data = await response.json();
+          
+          if (response.ok) {
+            const confirmMsg = `🔬 Deep research started!\n\nI'm investigating: "${latestUserText}"\n\nYou can view the progress in the sidebar. I'll notify you when it's complete.`;
+            appendMessage(sessionId, { role: "assistant", content: confirmMsg });
+            res.write(`data: ${JSON.stringify({ content: confirmMsg })}\n\n`);
+            res.write(`data: [DONE]\n\n`);
+            return res.end();
+          } else {
+            throw new Error(data.error || "Failed to start deep research");
+          }
+        } catch (err: any) {
+          console.error("❌ Deep research error:", err.message);
+          const errorMsg = `Sorry, I couldn't start the deep research: ${err.message}`;
+          appendMessage(sessionId, { role: "assistant", content: errorMsg });
+          res.write(`data: ${JSON.stringify({ content: errorMsg })}\n\n`);
+          res.write(`data: [DONE]\n\n`);
+          return res.end();
+        }
+      }
+
       // DISABLED: Old bubble batch detection - now handled by Chat Completions API tool calling
       // This prevents duplicate execution without confirmation
       const isBubbleBatchRequest = false; // Always false - tool calling handles this now
@@ -779,9 +875,25 @@ Only extract fields that are in the missing list: ${partialWorkflow.missing_fiel
         }
       };
 
-      // Note: Chat Completions API doesn't support web_search tool type (only 'function' and 'custom')
-      // For now, only bubble_run_batch tool is available. Web search would need to be a separate function.
-      const tools: any[] = [bubbleTool];
+      const deepResearchTool = {
+        type: "function" as const,
+        function: {
+          name: "deep_research",
+          description: "Perform comprehensive deep research on a topic using web search and AI analysis. Use this when the user wants detailed investigation, research reports, or in-depth information about businesses, industries, or topics.",
+          parameters: {
+            type: "object",
+            properties: {
+              prompt: {
+                type: "string",
+                description: "The research question or topic to investigate (e.g., 'new coffee shops that opened in London in 2024', 'dental practices in Manchester')"
+              }
+            },
+            required: ["prompt"]
+          }
+        }
+      };
+
+      const tools: any[] = [bubbleTool, deepResearchTool];
 
       console.log(`🌐 Calling Chat Completions API with function calling...`);
       
@@ -823,7 +935,46 @@ Only extract fields that are in the missing list: ${partialWorkflow.missing_fiel
         }
 
         // Process tool call if detected
-        if (isToolCall && toolCallBuffer.name === "bubble_run_batch") {
+        if (isToolCall && toolCallBuffer.name === "deep_research") {
+          console.log("🔬 Deep research tool call detected");
+          console.log("📦 Arguments:", toolCallBuffer.arguments);
+          
+          try {
+            const params = JSON.parse(toolCallBuffer.arguments);
+            
+            if (!params.prompt) {
+              throw new Error("Missing prompt parameter");
+            }
+            
+            // Start deep research
+            const response = await fetch("http://localhost:5000/api/deep-research", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ prompt: params.prompt }),
+            });
+
+            const data = await response.json();
+            
+            if (response.ok) {
+              const confirmMsg = `🔬 Deep research started!\n\nI'm investigating: "${params.prompt}"\n\nYou can view the progress in the sidebar. I'll notify you when it's complete.`;
+              aiBuffer = confirmMsg;
+              appendMessage(sessionId, { role: "assistant", content: confirmMsg });
+              res.write(`data: ${JSON.stringify({ content: confirmMsg })}\n\n`);
+              res.write(`data: [DONE]\n\n`);
+              return res.end();
+            } else {
+              throw new Error(data.error || "Failed to start deep research");
+            }
+          } catch (err: any) {
+            console.error("❌ Deep research tool error:", err.message);
+            const errorMsg = `Sorry, I couldn't start the deep research: ${err.message}`;
+            aiBuffer = errorMsg;
+            appendMessage(sessionId, { role: "assistant", content: errorMsg });
+            res.write(`data: ${JSON.stringify({ content: errorMsg })}\n\n`);
+            res.write(`data: [DONE]\n\n`);
+            return res.end();
+          }
+        } else if (isToolCall && toolCallBuffer.name === "bubble_run_batch") {
           console.log("🔧 Tool call detected:", toolCallBuffer.name);
           console.log("📦 Arguments:", toolCallBuffer.arguments);
           
