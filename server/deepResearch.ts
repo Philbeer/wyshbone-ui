@@ -104,6 +104,7 @@ export async function startBackgroundResponsesJob(
   }
 
   try {
+    console.log("🔬 Starting deep research job:", id, "prompt:", prompt.slice(0, 100));
     const response = await fetch(`${OPENAI_BASE}/responses`, {
       method: "POST",
       headers: {
@@ -116,15 +117,18 @@ export async function startBackgroundResponsesJob(
     const data = await response.json();
     
     if (!response.ok) {
+      console.error("❌ OpenAI Responses API error:", data);
       throw new Error(data?.error?.message || "Failed to create research job");
     }
     
+    console.log("✅ Research job created:", data.id, "status:", data.status);
     run.responseId = data.id;
     run.status = data.status ?? "in_progress";
     run.updatedAt = Date.now();
     runs.set(id, run);
     return run;
   } catch (err: any) {
+    console.error("❌ Deep research error:", err.message);
     run.status = "failed";
     run.error = err.message || String(err);
     run.updatedAt = Date.now();
