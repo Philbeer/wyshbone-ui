@@ -463,7 +463,7 @@ export function AppSidebar({
 
   useEffect(() => {
     setLocalRuns(runs);
-  }, [runs.length]);
+  }, [runs]);
 
   const { todays, previous } = useMemo(() => {
     const t: RunItem[] = [];
