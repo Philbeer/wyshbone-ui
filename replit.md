@@ -60,7 +60,18 @@ The user interface follows modern Material Design principles, drawing inspiratio
 - **Streaming Responses:** Server-Sent Events (SSE) for real-time AI responses and animated typing indicators.
 - **Error Handling:** Comprehensive error messages as system notifications.
 - **Conversational Planning:** A three-way GPT planner decides whether to "search" (discover new venues), "use_cache" (more results from existing searches), or "respond" (for general conversational questions), preventing unnecessary searches and ensuring venue deduplication.
-- **Data Models:** Standardized `ChatMessage`, `ChatRequest`, `AddNoteRequest`, `BubbleRunBatchRequest`, and associated response schemas are defined.
+- **Persistent Memory System:** Database-backed conversation history and knowledge accumulation for long-term context and proactive assistance. Features:
+    - **Conversation Persistence:** All chat messages saved to PostgreSQL with conversation IDs maintained across sessions
+    - **Fact Extraction:** Automatic extraction of user preferences, business requirements, and contextual information after each conversation using GPT-4
+    - **Knowledge Scoring:** Facts rated 0-1 for importance, with high-score facts (≥0.7) automatically included in future AI context
+    - **ConversationId Round-Trip:** Backend generates conversation IDs and streams them to frontend via SSE; frontend captures and maintains IDs for session continuity
+    - **Context Building:** Historical conversations and extracted facts combined to provide personalized, context-aware responses
+    - **Memory Debug View:** Developer interface at `/debug` for inspecting conversations, messages, and extracted facts in real-time with 5-second auto-refresh
+    - **API Endpoints:** 
+        - `GET /api/debug/conversations` - List all stored conversations
+        - `GET /api/debug/conversations/:id/messages` - View messages in a specific conversation
+        - `GET /api/debug/facts` - View all extracted facts with scores and metadata
+- **Data Models:** Standardized `ChatMessage`, `ChatRequest`, `AddNoteRequest`, `BubbleRunBatchRequest`, and associated response schemas are defined. Database schemas include `conversations`, `messages`, and `facts` tables.
 - **Backend Validation:** Zod schema validation is used on all endpoints, with CORS enabled.
 
 ## External Dependencies
