@@ -361,20 +361,30 @@ export async function pollOneRun(run: DeepResearchRun): Promise<void> {
         outputText = data.output_text;
         console.log(`🎯 Found output via path 1: output_text`);
       }
-      // Path 2: data.output[0].content[0].text (Assistants API format)
-      else if (data.output && Array.isArray(data.output) && data.output[0]) {
-        const output = data.output[0];
-        if (output.content && Array.isArray(output.content) && output.content[0]) {
-          if (output.content[0].text) {
-            outputText = output.content[0].text;
-            console.log(`🎯 Found output via path 2a: output[0].content[0].text`);
-          } else if (typeof output.content[0] === 'string') {
-            outputText = output.content[0];
-            console.log(`🎯 Found output via path 2b: output[0].content[0] (string)`);
+      // Path 2: data.output[].content[0].text (Responses API format with web_search)
+      // output[0] is often the web_search_call, output[1] is the actual message
+      else if (data.output && Array.isArray(data.output)) {
+        // Try each output item until we find one with content
+        for (let i = 0; i < data.output.length; i++) {
+          const output = data.output[i];
+          // Skip web_search_call items
+          if (output.type === 'web_search_call') continue;
+          
+          if (output.content && Array.isArray(output.content) && output.content[0]) {
+            if (output.content[0].text) {
+              outputText = output.content[0].text;
+              console.log(`🎯 Found output via path 2a: output[${i}].content[0].text`);
+              break;
+            } else if (typeof output.content[0] === 'string') {
+              outputText = output.content[0];
+              console.log(`🎯 Found output via path 2b: output[${i}].content[0] (string)`);
+              break;
+            }
+          } else if (typeof output === 'string') {
+            outputText = output;
+            console.log(`🎯 Found output via path 2c: output[${i}] (string)`);
+            break;
           }
-        } else if (typeof output === 'string') {
-          outputText = output;
-          console.log(`🎯 Found output via path 2c: output[0] (string)`);
         }
       }
       // Path 3: data.text
