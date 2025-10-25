@@ -3188,6 +3188,37 @@ Return structured data with the EXACT placeId provided above: "${placeId}"`;
     }
   });
 
+  // Debug endpoints for viewing persistent memory
+  app.get("/api/debug/conversations", async (_req, res) => {
+    try {
+      const conversations = await storage.listAllConversations();
+      res.json({ conversations });
+    } catch (error: any) {
+      console.error("Debug conversations error:", error);
+      res.status(500).json({ error: error.message || "Failed to fetch conversations" });
+    }
+  });
+
+  app.get("/api/debug/conversations/:id/messages", async (req, res) => {
+    try {
+      const messages = await storage.getConversationMessages(req.params.id);
+      res.json({ messages });
+    } catch (error: any) {
+      console.error("Debug messages error:", error);
+      res.status(500).json({ error: error.message || "Failed to fetch messages" });
+    }
+  });
+
+  app.get("/api/debug/facts", async (_req, res) => {
+    try {
+      const facts = await storage.getAllFacts();
+      res.json({ facts });
+    } catch (error: any) {
+      console.error("Debug facts error:", error);
+      res.status(500).json({ error: error.message || "Failed to fetch facts" });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }

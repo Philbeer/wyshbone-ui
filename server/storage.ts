@@ -65,6 +65,7 @@ export interface IStorage {
   createConversation(conversation: InsertConversation): Promise<SelectConversation>;
   getConversation(id: string): Promise<SelectConversation | null>;
   listConversations(userId: string): Promise<SelectConversation[]>;
+  listAllConversations(): Promise<SelectConversation[]>;
   deleteConversation(id: string): Promise<boolean>;
   
   // Message CRUD methods
@@ -74,7 +75,11 @@ export interface IStorage {
   // Fact CRUD methods
   createFact(fact: InsertFact): Promise<SelectFact>;
   listTopFacts(userId: string, limit?: number): Promise<SelectFact[]>;
+  getAllFacts(): Promise<SelectFact[]>;
   deleteFact(id: string): Promise<boolean>;
+  
+  // Conversation helper methods
+  getConversationMessages(conversationId: string): Promise<SelectMessage[]>;
 }
 
 export class MemStorage implements IStorage {
@@ -189,6 +194,11 @@ export class MemStorage implements IStorage {
       .sort((a, b) => b.createdAt - a.createdAt);
   }
 
+  async listAllConversations(): Promise<SelectConversation[]> {
+    return Array.from(this.conversations.values())
+      .sort((a, b) => b.createdAt - a.createdAt);
+  }
+
   async deleteConversation(id: string): Promise<boolean> {
     return this.conversations.delete(id);
   }
@@ -218,8 +228,17 @@ export class MemStorage implements IStorage {
       .slice(0, limit);
   }
 
+  async getAllFacts(): Promise<SelectFact[]> {
+    return Array.from(this.facts.values())
+      .sort((a, b) => b.createdAt - a.createdAt);
+  }
+
   async deleteFact(id: string): Promise<boolean> {
     return this.facts.delete(id);
+  }
+
+  async getConversationMessages(conversationId: string): Promise<SelectMessage[]> {
+    return this.listMessages(conversationId);
   }
 }
 
@@ -343,6 +362,13 @@ export class DbStorage implements IStorage {
       .orderBy(desc(conversations.createdAt));
   }
 
+  async listAllConversations(): Promise<SelectConversation[]> {
+    return db
+      .select()
+      .from(conversations)
+      .orderBy(desc(conversations.createdAt));
+  }
+
   async deleteConversation(id: string): Promise<boolean> {
     const result = await db.delete(conversations).where(eq(conversations.id, id)).returning();
     return result.length > 0;
@@ -375,9 +401,20 @@ export class DbStorage implements IStorage {
       .limit(limit);
   }
 
+  async getAllFacts(): Promise<SelectFact[]> {
+    return db
+      .select()
+      .from(facts)
+      .orderBy(desc(facts.createdAt));
+  }
+
   async deleteFact(id: string): Promise<boolean> {
     const result = await db.delete(facts).where(eq(facts.id, id)).returning();
     return result.length > 0;
+  }
+
+  async getConversationMessages(conversationId: string): Promise<SelectMessage[]> {
+    return this.listMessages(conversationId);
   }
 }
 

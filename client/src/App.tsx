@@ -9,6 +9,7 @@ import { HeaderCountrySelector } from "@/components/HeaderCountrySelector";
 import { Moon, Sun } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import ChatPage from "@/pages/chat";
+import DebugPage from "@/pages/debug";
 import NotFound from "@/pages/not-found";
 import CountryHint from "@/components/CountryHint";
 import { useState, useEffect, useRef } from "react";
@@ -77,6 +78,7 @@ function Router({
           getActiveRunId={getActiveRunId}
         />}
       </Route>
+      <Route path="/debug" component={DebugPage} />
       <Route component={NotFound} />
     </Switch>
   );

@@ -1,5 +1,6 @@
-import { Globe } from "lucide-react";
+import { Globe, MessageSquare, Bug } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { Link, useLocation } from "wouter";
 import {
   Sidebar,
   SidebarContent,
@@ -8,6 +9,7 @@ import {
   SidebarGroupLabel,
   SidebarMenu,
   SidebarMenuItem,
+  SidebarMenuButton,
 } from "@/components/ui/sidebar";
 import {
   Select,
@@ -626,9 +628,35 @@ export function AppSidebar({
     </div>
   );
 
+  const [location] = useLocation();
+
   return (
     <Sidebar>
       <SidebarContent>
+        <SidebarGroup>
+          <SidebarGroupLabel>Navigation</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={location === "/"} data-testid="link-chat">
+                  <Link href="/">
+                    <MessageSquare className="h-4 w-4" />
+                    <span>Chat</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={location === "/debug"} data-testid="link-debug">
+                  <Link href="/debug">
+                    <Bug className="h-4 w-4" />
+                    <span>Memory Debug</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
         <SidebarGroup>
           <SidebarGroupLabel className="flex items-center gap-2">
             <Globe className="h-4 w-4" />
