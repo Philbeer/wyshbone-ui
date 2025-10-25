@@ -24,8 +24,9 @@ type Message = {
 type Fact = {
   id: string;
   userId: string;
-  content: string;
-  category: string;
+  sourceConversationId: string | null;
+  sourceMessageId: string | null;
+  fact: string;
   score: number;
   createdAt: number;
 };
@@ -177,11 +178,45 @@ export default function DebugPage() {
           </div>
         </TabsContent>
 
-        <TabsContent value="facts" className="h-full">
-          <Card className="h-full flex flex-col">
+        <TabsContent value="facts" className="h-full space-y-4">
+          {/* User Summary Section */}
+          {facts.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>User Profile Summary</CardTitle>
+                <CardDescription>High-confidence insights learned from conversations (score ≥ 70)</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  {facts
+                    .filter(f => f.score >= 70)
+                    .sort((a, b) => b.score - a.score)
+                    .slice(0, 5)
+                    .map((fact) => (
+                      <div key={`summary-${fact.id}`} className="flex items-start gap-3" data-testid={`summary-fact-${fact.id}`}>
+                        <div className="flex-shrink-0 mt-0.5">
+                          <Badge variant={fact.score >= 80 ? "default" : "secondary"}>
+                            {fact.score}
+                          </Badge>
+                        </div>
+                        <p className="text-sm leading-relaxed">{fact.fact}</p>
+                      </div>
+                    ))}
+                  {facts.filter(f => f.score >= 70).length === 0 && (
+                    <p className="text-sm text-muted-foreground">
+                      No high-confidence facts yet. Facts with scores ≥70 will appear here.
+                    </p>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* All Facts Section */}
+          <Card className="flex-1 flex flex-col">
             <CardHeader>
-              <CardTitle>Extracted Facts</CardTitle>
-              <CardDescription>Knowledge accumulated from conversations</CardDescription>
+              <CardTitle>All Extracted Facts ({facts.length})</CardTitle>
+              <CardDescription>Complete knowledge base accumulated from conversations</CardDescription>
             </CardHeader>
             <CardContent className="flex-1 overflow-hidden">
               <ScrollArea className="h-full">
@@ -196,20 +231,28 @@ export default function DebugPage() {
                       <CardHeader className="p-4 space-y-2">
                         <div className="flex items-start justify-between gap-2">
                           <p className="text-sm flex-1" data-testid={`text-fact-content-${fact.id}`}>
-                            {fact.content}
+                            {fact.fact}
                           </p>
-                          <Badge variant="outline" data-testid={`badge-fact-score-${fact.id}`}>
-                            {(fact.score * 100).toFixed(0)}%
+                          <Badge 
+                            variant={fact.score >= 80 ? "default" : fact.score >= 70 ? "secondary" : "outline"} 
+                            data-testid={`badge-fact-score-${fact.id}`}
+                          >
+                            {fact.score}
                           </Badge>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <Badge data-testid={`badge-fact-category-${fact.id}`}>
-                            {fact.category}
-                          </Badge>
-                          <span className="text-xs text-muted-foreground" data-testid={`text-fact-user-${fact.id}`}>
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <span data-testid={`text-fact-user-${fact.id}`}>
                             {fact.userId}
                           </span>
-                          <span className="text-xs text-muted-foreground ml-auto" data-testid={`text-fact-time-${fact.id}`}>
+                          {fact.sourceConversationId && (
+                            <>
+                              <span>•</span>
+                              <code className="text-[10px]" data-testid={`text-fact-conversation-${fact.id}`}>
+                                {fact.sourceConversationId.slice(0, 8)}...
+                              </code>
+                            </>
+                          )}
+                          <span className="ml-auto" data-testid={`text-fact-time-${fact.id}`}>
                             {formatDistanceToNow(fact.createdAt)} ago
                           </span>
                         </div>
