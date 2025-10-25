@@ -345,7 +345,7 @@ const RunRow: React.FC<{
                     Research in progress...
                   </div>
                 )}
-                <div className="text-[11px] mt-2">Started {fmtTime(run.startedAt)}</div>
+                <div className="text-[11px] mt-2">Created {fmtTime(run.startedAt)}</div>
               </>
             ) : (
               <>
