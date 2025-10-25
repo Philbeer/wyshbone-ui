@@ -7,6 +7,115 @@ const OPENAI_BASE = "https://api.openai.com/v1";
 const OPENAI_MODEL = "gpt-4o";
 const POLL_INTERVAL_MS = 3000; // Poll every 3 seconds for faster status updates
 
+// Post-process research output to ensure beautiful formatting
+async function reformatResearchOutput(rawOutput: string, researchTopic: string): Promise<string> {
+  try {
+    // Check if output already has good structure - if so, skip reformatting
+    const hasGoodStructure = (
+      rawOutput.includes("## Executive Summary") &&
+      rawOutput.includes("## Key Findings") &&
+      rawOutput.includes("## Sources")
+    );
+    
+    if (hasGoodStructure) {
+      console.log("✅ Output already has good structure - skipping reformatting");
+      return rawOutput;
+    }
+    
+    console.log("🎨 Reformatting research output for better presentation...");
+    
+    const reformatPrompt = `You are a professional research formatter. Take the following research output and reformat it into a beautiful, well-structured markdown document.
+
+ORIGINAL RESEARCH OUTPUT:
+${rawOutput}
+
+RESEARCH TOPIC: ${researchTopic}
+
+Your task is to reformat this into a polished research report with EXACTLY this structure:
+
+# ${researchTopic}
+
+## Executive Summary
+- 3-5 key findings as clear, actionable bullet points
+- Each bullet should be concise and insightful
+
+## Overview
+A brief introduction (2-3 paragraphs) covering:
+- What was researched
+- Scope and methodology
+- Key areas investigated
+
+## Key Findings
+Organize the main findings into well-titled subsections:
+### Finding 1: [Descriptive Title]
+- Main point with supporting evidence
+- Specific data points with dates when available
+- Source citations
+
+### Finding 2: [Descriptive Title]
+(Continue pattern for each major finding)
+
+## Detailed Analysis
+In-depth analysis organized by themes or categories
+
+## Market Insights
+Relevant market data, trends, or industry context (if applicable to the research topic)
+
+## Conclusion
+Summary of implications and recommendations
+
+## Sources
+Format all sources as a clean list:
+- **[Source Name]** - Brief description ([URL])
+- Include publication dates when available
+
+CRITICAL RULES:
+1. Preserve ALL factual information, data, and sources from the original
+2. Use EXACTLY the section names shown above (Executive Summary, Overview, Key Findings, Detailed Analysis, Market Insights, Conclusion, Sources)
+3. Make sources clickable markdown links: [Source Name](URL)
+4. Use bullet points for clarity, paragraphs for context
+5. If the original already has good structure, preserve and enhance it
+6. Do NOT add emojis to section headers
+7. If a section like "Market Insights" isn't applicable, include it but keep it brief
+
+Return ONLY the reformatted markdown report. Do not include any meta-commentary.`;
+
+    const response = await fetch(`${OPENAI_BASE}/chat/completions`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${OPENAI_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "gpt-4o",
+        messages: [
+          {
+            role: "user",
+            content: reformatPrompt,
+          },
+        ],
+        temperature: 0.3,
+        max_tokens: 8000,
+      }),
+    });
+
+    const data = await response.json();
+    
+    if (!response.ok) {
+      console.error("❌ Reformatting failed:", data);
+      return rawOutput; // Return original if reformatting fails
+    }
+
+    const reformattedOutput = data.choices?.[0]?.message?.content || rawOutput;
+    console.log("✅ Research output successfully reformatted");
+    return reformattedOutput;
+    
+  } catch (err: any) {
+    console.error("❌ Error reformatting output:", err.message);
+    return rawOutput; // Return original on error
+  }
+}
+
 // Send a completion notification to the chat
 async function sendCompletionNotification(sessionId: string, run: DeepResearchRun): Promise<void> {
   try {
@@ -87,7 +196,7 @@ export async function startBackgroundResponsesJob(
   }
 
   const baseInstructions = [
-    "You are Wyshbone Deep Research.",
+    "You are Wyshbone Deep Research, a professional research analyst.",
     "Use the web_search tool to browse thoroughly, follow leads, cross-check facts, and collect dated evidence.",
     "Prefer authoritative sources; include citations and dates.",
     ...scopeHints,
@@ -120,7 +229,44 @@ export async function startBackgroundResponsesJob(
     };
   } else {
     body.text = { format: { type: "text" } };
-    body.instructions += " Return a clean markdown-formatted research report with sections, bullet points, and a 'Sources' list of URLs with short rationales.";
+    body.instructions += `
+
+Return a professionally formatted markdown research report with the following structure:
+
+# [Research Topic]
+
+## Executive Summary
+- 3-5 key findings in bullet points
+- Clear, actionable insights
+
+## Overview
+Brief introduction to the research topic and scope
+
+## Key Findings
+### Finding 1: [Descriptive Title]
+- Evidence and details
+- Supporting data with dates
+- Source citations
+
+### Finding 2: [Descriptive Title]
+(Continue pattern for each major finding)
+
+## Detailed Analysis
+In-depth analysis organized by themes or categories
+
+## Market Insights
+Relevant market data, trends, or industry context (if applicable)
+
+## Conclusion
+Summary of implications and recommendations
+
+## Sources
+List all sources with:
+- **[Source Name]** - Brief description of what information was obtained
+- URL with publication date when available
+
+Format all sources as markdown links: [Source Name](URL)
+`;
   }
 
   try {
@@ -241,14 +387,18 @@ export async function pollOneRun(run: DeepResearchRun): Promise<void> {
         outputText = String(outputText || 'No output available');
       }
       
-      // Always prepend the header for markdown rendering
-      if (!outputText.includes("# 📊")) {
-        outputText = "# 📊 Deep Research Report\n\n" + outputText;
+      // Post-process the output for better formatting
+      const reformattedOutput = await reformatResearchOutput(outputText, run.label || run.prompt);
+      
+      // Always prepend the header for markdown rendering if not present
+      let finalOutput = reformattedOutput;
+      if (!finalOutput.includes("# 📊")) {
+        finalOutput = "# 📊 Deep Research Report\n\n" + finalOutput;
       }
       
       await storage.updateDeepResearchRun(run.id, {
         status,
-        outputText,
+        outputText: finalOutput,
       });
       console.log(`✅ Research job ${run.id} completed, output length: ${outputText?.length || 0}`);
       
