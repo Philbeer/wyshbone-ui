@@ -411,6 +411,8 @@ Examples:
                     res.write(`data: [DONE]\n\n`);
                     res.end();
                     appendMessage(sessionId, { role: "assistant", content: guard.message });
+                    await saveMessage(conversationId, "assistant", guard.message);
+                    console.log("💾 Saved assistant message to database");
                     return;
                   }
                   
@@ -1035,6 +1037,11 @@ CRITICAL RULES:
               const confirmMsg = `🔬 Deep research started!\n\nI'm investigating: "${params.prompt}"\n\nYou can view the progress in the sidebar. I'll notify you when it's complete.`;
               aiBuffer = confirmMsg;
               appendMessage(sessionId, { role: "assistant", content: confirmMsg });
+              
+              // Save assistant message to database before returning
+              await saveMessage(conversationId, "assistant", confirmMsg);
+              console.log("💾 Saved assistant message to database");
+              
               res.write(`data: ${JSON.stringify({ content: confirmMsg })}\n\n`);
               res.write(`data: [DONE]\n\n`);
               return res.end();
@@ -1046,6 +1053,11 @@ CRITICAL RULES:
             const errorMsg = `Sorry, I couldn't start the deep research: ${err.message}`;
             aiBuffer = errorMsg;
             appendMessage(sessionId, { role: "assistant", content: errorMsg });
+            
+            // Save error message to database before returning
+            await saveMessage(conversationId, "assistant", errorMsg);
+            console.log("💾 Saved assistant error message to database");
+            
             res.write(`data: ${JSON.stringify({ content: errorMsg })}\n\n`);
             res.write(`data: [DONE]\n\n`);
             return res.end();
@@ -1108,6 +1120,8 @@ CRITICAL RULES:
                   res.write(`data: [DONE]\n\n`);
                   res.end();
                   appendMessage(sessionId, { role: "assistant", content: guard.message });
+                  await saveMessage(conversationId, "assistant", guard.message);
+                  console.log("💾 Saved assistant message to database");
                   return;
                 }
                 
@@ -1138,6 +1152,8 @@ CRITICAL RULES:
                     res.write(`data: [DONE]\n\n`);
                     res.end();
                     appendMessage(sessionId, { role: "assistant", content: guard.message });
+                    await saveMessage(conversationId, "assistant", guard.message);
+                    console.log("💾 Saved assistant message to database");
                     return;
                   }
                   
@@ -1171,8 +1187,10 @@ CRITICAL RULES:
                 res.write(`data: [DONE]\n\n`);
                 res.end();
                 
-                // Save message to memory
+                // Save message to memory and database
                 appendMessage(sessionId, { role: "assistant", content: mismatchMsg });
+                await saveMessage(conversationId, "assistant", mismatchMsg);
+                console.log("💾 Saved assistant message to database");
                 return;
               }
             }
@@ -1254,6 +1272,8 @@ CRITICAL RULES:
               
               console.log(`❓ Missing required fields: ${missingFields.join(', ')}`);
               appendMessage(sessionId, { role: "assistant", content: clarificationMsg });
+              await saveMessage(conversationId, "assistant", clarificationMsg);
+              console.log("💾 Saved assistant message to database");
               res.write(`data: ${JSON.stringify({ content: clarificationMsg, done: true })}\n\n`);
               res.write(`data: [DONE]\n\n`);
               return res.end();
