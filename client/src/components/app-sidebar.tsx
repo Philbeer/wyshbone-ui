@@ -330,9 +330,19 @@ const RunRow: React.FC<{
           <div className="space-y-1 text-[12px] text-muted-foreground">
             {run.runType === "deep_research" ? (
               <>
-                {run.outputPreview && (
+                {run.outputPreview && run.outputPreview !== "undefined" && (
                   <div className="break-words text-[11px] italic">
                     {run.outputPreview}
+                  </div>
+                )}
+                {(!run.outputPreview || run.outputPreview === "undefined") && run.status === "queued" && (
+                  <div className="break-words text-[11px] italic text-muted-foreground">
+                    Waiting to start...
+                  </div>
+                )}
+                {(!run.outputPreview || run.outputPreview === "undefined") && run.status === "in_progress" && (
+                  <div className="break-words text-[11px] italic text-muted-foreground">
+                    Research in progress...
                   </div>
                 )}
                 <div className="text-[11px] mt-2">Started {fmtTime(run.startedAt)}</div>
