@@ -122,14 +122,20 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
     scrollToBottom();
   }, [messages]);
 
-  // Load conversation history on mount ONLY (not when conversationId changes during active chat)
+  // Load conversation history ONCE on mount from localStorage
   useEffect(() => {
     const loadHistory = async () => {
-      if (!conversationId || hasLoadedHistoryRef.current || messages.length > 0) return;
+      // Only run once on mount
+      if (hasLoadedHistoryRef.current) return;
+      hasLoadedHistoryRef.current = true;
+      
+      // Get conversationId from localStorage
+      const storedConversationId = localStorage.getItem('currentConversationId');
+      if (!storedConversationId) return;
       
       setIsLoadingHistory(true);
       try {
-        const response = await fetch(`/api/debug/conversations/${conversationId}/messages`);
+        const response = await fetch(`/api/debug/conversations/${storedConversationId}/messages`);
         if (response.ok) {
           const data = await response.json();
           const historicalMessages: Message[] = data.messages.map((msg: any) => ({
@@ -138,12 +144,10 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
             content: msg.content,
             timestamp: new Date(msg.createdAt),
           }));
-          // Only load if we got actual historical messages and still have no local messages
-          if (historicalMessages.length > 0 && messages.length === 0) {
+          if (historicalMessages.length > 0) {
             setMessages(historicalMessages);
             setShowWelcome(false);
-            hasLoadedHistoryRef.current = true;
-            console.log(`📜 Loaded ${historicalMessages.length} messages from conversation ${conversationId}`);
+            console.log(`📜 Loaded ${historicalMessages.length} messages from conversation ${storedConversationId}`);
           }
         }
       } catch (error) {
@@ -154,7 +158,7 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
     };
 
     loadHistory();
-  }, [conversationId, messages.length]);
+  }, []); // Empty deps - only run ONCE on mount
 
   // Persist conversationId to localStorage
   useEffect(() => {
