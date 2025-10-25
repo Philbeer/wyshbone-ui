@@ -154,30 +154,49 @@ export async function pollOneRun(run: DeepResearchRun): Promise<void> {
     run.updatedAt = Date.now();
 
     if (status === "completed") {
-      // Extract the actual text from the response
-      let outputText =
-        data.output_text ??
-        (data.output && data.output[0] && data.output[0].content && data.output[0].content[0] && data.output[0].content[0].text) ??
-        "";
+      // Debug: Log the full response structure
+      console.log(`🔍 Full API response for ${run.id}:`, JSON.stringify(data, null, 2));
       
-      // If we still don't have text, try other paths
-      if (!outputText && data.text) {
+      // Extract the actual text from the response - try multiple paths
+      let outputText = "";
+      
+      // Path 1: data.output_text
+      if (data.output_text && typeof data.output_text === 'string') {
+        outputText = data.output_text;
+      }
+      // Path 2: data.output[0].content[0].text (Assistants API format)
+      else if (data.output && Array.isArray(data.output) && data.output[0]) {
+        const output = data.output[0];
+        if (output.content && Array.isArray(output.content) && output.content[0]) {
+          if (output.content[0].text) {
+            outputText = output.content[0].text;
+          } else if (typeof output.content[0] === 'string') {
+            outputText = output.content[0];
+          }
+        }
+      }
+      // Path 3: data.text
+      else if (data.text && typeof data.text === 'string') {
         outputText = data.text;
       }
-      
-      // Ensure outputText is a string
-      if (typeof outputText !== 'string') {
-        outputText = JSON.stringify(outputText, null, 2);
+      // Path 4: data.content (direct content)
+      else if (data.content && typeof data.content === 'string') {
+        outputText = data.content;
+      }
+      // Path 5: data.result
+      else if (data.result && typeof data.result === 'string') {
+        outputText = data.result;
       }
       
-      // Fallback to JSON if we still don't have text
+      // If still no text, stringify the output object
       if (!outputText) {
+        console.log(`⚠️ No text found in standard paths, using fallback for ${run.id}`);
         outputText = JSON.stringify(data.output ?? data, null, 2);
       }
       
       // Final safety check to ensure outputText is a string
       if (typeof outputText !== 'string') {
-        outputText = String(outputText || '');
+        outputText = String(outputText || 'No output available');
       }
       
       // Always prepend the header for markdown rendering
