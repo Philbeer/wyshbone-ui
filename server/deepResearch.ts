@@ -183,22 +183,7 @@ export async function startBackgroundResponsesJob(
   } = params;
 
   const id = generateRunId();
-  const runData = {
-    id,
-    sessionId,
-    label: label || suggestDefaultLabel(prompt),
-    prompt,
-    mode,
-    counties,
-    windowMonths,
-    schemaName,
-    schema,
-    status: "queued",
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-  };
-  const run = await storage.createDeepResearchRun(runData);
-
+  
   const scopeHints: string[] = [];
   if (Array.isArray(counties) && counties.length) {
     scopeHints.push(`Restrict focus to these regions: ${counties.join(", ")}.`);
@@ -305,24 +290,65 @@ FORMATTING REQUIREMENTS:
     }
     
     console.log("✅ Research job created:", data.id, "status:", data.status);
+    
     // Map OpenAI statuses to our statuses
     const apiStatus = data.status ?? "in_progress";
-    const updatedRun = await storage.updateDeepResearchRun(id, {
+    const status = apiStatus === "in_progress" ? "running" : apiStatus;
+    
+    // Only create the run in storage AFTER we successfully got a responseId from OpenAI
+    const runData = {
+      id,
+      sessionId,
+      label: label || suggestDefaultLabel(prompt),
+      prompt,
+      mode,
+      counties,
+      windowMonths,
+      schemaName,
+      schema,
       responseId: data.id,
-      status: apiStatus === "in_progress" ? "running" : apiStatus,
-    });
-    return updatedRun as DeepResearchRun;
+      status,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    const run = await storage.createDeepResearchRun(runData);
+    return run as DeepResearchRun;
+    
   } catch (err: any) {
     console.error("❌ Deep research error:", err.message);
-    const updatedRun = await storage.updateDeepResearchRun(id, {
+    
+    // Only create a failed run if OpenAI call failed
+    const runData = {
+      id,
+      sessionId,
+      label: label || suggestDefaultLabel(prompt),
+      prompt,
+      mode,
+      counties,
+      windowMonths,
+      schemaName,
+      schema,
       status: "failed",
       error: err.message || String(err),
-    });
-    return updatedRun as DeepResearchRun;
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    const run = await storage.createDeepResearchRun(runData);
+    return run as DeepResearchRun;
   }
 }
 
 export async function pollOneRun(run: DeepResearchRun): Promise<void> {
+  // Safety net: If a run is queued but has no responseId, mark it as failed (orphaned run)
+  if (!run.responseId && run.status === "queued") {
+    console.log(`⚠️ Found orphaned queued run ${run.id} without responseId - marking as failed`);
+    await storage.updateDeepResearchRun(run.id, {
+      status: "failed",
+      error: "Run was orphaned (created but never submitted to OpenAI)",
+    });
+    return;
+  }
+  
   if (!run.responseId || ["completed", "failed", "stopped"].includes(run.status)) return;
   
   const previousStatus = run.status; // Track previous status for notifications
