@@ -70,6 +70,12 @@ The user interface follows modern Material Design principles, drawing inspiratio
         - User preferences and working style: 70-80
         - General conversational context: 50-70
         - High-score facts (≥70) automatically included in future AI context
+    - **Recency Boost Algorithm:** Industries, places, and subjects receive time-based priority boosts to ensure most recent interests appear first:
+        - Facts < 1 day old: +20 points
+        - Facts < 7 days old: +15 points
+        - Facts < 30 days old: +10 points
+        - Older facts rely on base score only
+    - **Category Classification:** Each fact is automatically categorized (industry/place/subject/preference/general) during extraction for intelligent filtering and prioritization
     - **ConversationId Round-Trip:** Backend generates conversation IDs and streams them to frontend via SSE; frontend captures and maintains IDs for session continuity
     - **Context Building:** Historical conversations and extracted facts combined to provide personalized, context-aware responses
     - **Memory Debug View:** Developer interface at `/debug` for inspecting conversations, messages, and extracted facts in real-time with 5-second auto-refresh. Includes User Profile Summary section highlighting top 5 high-confidence insights.

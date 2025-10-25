@@ -28,6 +28,7 @@ type Fact = {
   sourceMessageId: string | null;
   fact: string;
   score: number;
+  category: string;
   createdAt: number;
 };
 
@@ -226,19 +227,39 @@ export default function DebugPage() {
                       No facts extracted yet. Facts are automatically extracted after conversations.
                     </p>
                   )}
-                  {facts.map((fact) => (
+                  {facts.map((fact) => {
+                    const getCategoryColor = (category: string) => {
+                      switch (category) {
+                        case 'industry': return 'bg-blue-500/10 text-blue-500 border-blue-500/20';
+                        case 'place': return 'bg-green-500/10 text-green-500 border-green-500/20';
+                        case 'subject': return 'bg-purple-500/10 text-purple-500 border-purple-500/20';
+                        case 'preference': return 'bg-orange-500/10 text-orange-500 border-orange-500/20';
+                        default: return 'bg-gray-500/10 text-gray-500 border-gray-500/20';
+                      }
+                    };
+                    
+                    return (
                     <Card key={fact.id} data-testid={`card-fact-${fact.id}`}>
                       <CardHeader className="p-4 space-y-2">
                         <div className="flex items-start justify-between gap-2">
                           <p className="text-sm flex-1" data-testid={`text-fact-content-${fact.id}`}>
                             {fact.fact}
                           </p>
-                          <Badge 
-                            variant={fact.score >= 80 ? "default" : fact.score >= 70 ? "secondary" : "outline"} 
-                            data-testid={`badge-fact-score-${fact.id}`}
-                          >
-                            {fact.score}
-                          </Badge>
+                          <div className="flex items-center gap-2 flex-shrink-0">
+                            <Badge 
+                              className={getCategoryColor(fact.category || 'general')}
+                              variant="outline"
+                              data-testid={`badge-fact-category-${fact.id}`}
+                            >
+                              {fact.category || 'general'}
+                            </Badge>
+                            <Badge 
+                              variant={fact.score >= 80 ? "default" : fact.score >= 70 ? "secondary" : "outline"} 
+                              data-testid={`badge-fact-score-${fact.id}`}
+                            >
+                              {fact.score}
+                            </Badge>
+                          </div>
                         </div>
                         <div className="flex items-center gap-2 text-xs text-muted-foreground">
                           <span data-testid={`text-fact-user-${fact.id}`}>
@@ -258,7 +279,8 @@ export default function DebugPage() {
                         </div>
                       </CardHeader>
                     </Card>
-                  ))}
+                  );
+                  })}
                 </div>
               </ScrollArea>
             </CardContent>

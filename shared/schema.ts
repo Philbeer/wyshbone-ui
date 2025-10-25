@@ -259,9 +259,11 @@ export const facts = pgTable("facts", {
   sourceMessageId: text("source_message_id"),
   fact: text("fact").notNull(),
   score: integer("score").notNull().default(50),
+  category: text("category").notNull().default("general"),
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
 }, (table) => ({
   userIdScoreIdx: index("facts_user_id_score_idx").on(table.userId, table.score, table.createdAt),
+  categoryIdx: index("facts_category_idx").on(table.category, table.createdAt),
 }));
 
 // Conversation insert/select schemas

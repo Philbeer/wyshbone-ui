@@ -150,18 +150,18 @@ Rules:
 - Keep each fact 1 short sentence
 - If no durable facts exist, return an empty list
 
-Assign each fact a score from 0-100 based on importance and durability.
+Assign each fact a score from 0-100 AND a category based on importance and durability.
 
-CRITICAL SCORING GUIDELINES:
-- Industries/business types mentioned (e.g., "coffee shops", "pubs", "dentistry", "veterinary supplies"): Score 85-95
-- Locations/places mentioned (e.g., "London", "Texas", "Manchester", specific cities/regions): Score 85-95
-- Subjects/topics of interest (e.g., "deep research", "marketing agencies", "breweries"): Score 80-90
-- User preferences and working style: Score 70-80
-- General conversational context: Score 50-70
+CRITICAL SCORING & CATEGORY GUIDELINES:
+- Industries/business types mentioned (e.g., "coffee shops", "pubs", "dentistry", "veterinary supplies"): Score 85-95, category "industry"
+- Locations/places mentioned (e.g., "London", "Texas", "Manchester", specific cities/regions): Score 85-95, category "place"
+- Subjects/topics of interest (e.g., "deep research", "marketing agencies", "breweries"): Score 80-90, category "subject"
+- User preferences and working style: Score 70-80, category "preference"
+- General conversational context: Score 50-70, category "general"
 
 Industries, locations, and subjects are HIGH PRIORITY and should receive the highest scores.
 
-Return strict JSON: {"facts":[{"text":"...", "score": 0-100}, ...]}
+Return strict JSON: {"facts":[{"text":"...", "score": 0-100, "category": "industry"|"place"|"subject"|"preference"|"general"}, ...]}
 
 Recent exchange:
 USER: ${latestUser}
@@ -241,6 +241,9 @@ export async function extractAndSaveFacts(
       if (!f?.text) continue;
       
       const score = Math.max(0, Math.min(100, Math.floor(Number(f.score ?? 50))));
+      const category = ['industry', 'place', 'subject', 'preference', 'general'].includes(f.category) 
+        ? f.category 
+        : 'general';
       
       await storage.createFact({
         id: randomUUID(),
@@ -249,6 +252,7 @@ export async function extractAndSaveFacts(
         sourceMessageId: null,
         fact: String(f.text).slice(0, 400),
         score,
+        category,
         createdAt: Date.now(),
       });
     }
@@ -262,16 +266,46 @@ export async function buildContextWithFacts(
   conversationHistory: ChatMessage[],
   maxFacts: number = 20
 ): Promise<ChatMessage[]> {
-  const facts = await storage.listTopFacts(userId, maxFacts);
+  const allFacts = await storage.listTopFacts(userId, 100);
   
-  const factLines = facts.map((f) => `- ${f.fact} (score ${f.score})`).join('\n');
+  const now = Date.now();
+  const ONE_DAY = 24 * 60 * 60 * 1000;
+  const THIRTY_DAYS = 30 * ONE_DAY;
+  
+  // Apply recency boost to high-priority categories (industry, place, subject)
+  const boostedFacts = allFacts.map(f => {
+    const age = now - f.createdAt;
+    let recencyBoost = 0;
+    
+    // High-priority categories get recency boost
+    if (['industry', 'place', 'subject'].includes(f.category || 'general')) {
+      // Boost: +20 for facts < 1 day, +15 for < 7 days, +10 for < 30 days
+      if (age < ONE_DAY) {
+        recencyBoost = 20;
+      } else if (age < 7 * ONE_DAY) {
+        recencyBoost = 15;
+      } else if (age < THIRTY_DAYS) {
+        recencyBoost = 10;
+      }
+    }
+    
+    const effectiveScore = f.score + recencyBoost;
+    return { ...f, effectiveScore };
+  });
+  
+  // Sort by effective score (with recency boost) and take top N
+  const topFacts = boostedFacts
+    .sort((a, b) => b.effectiveScore - a.effectiveScore || b.createdAt - a.createdAt)
+    .slice(0, maxFacts);
+  
+  const factLines = topFacts.map((f) => `- ${f.fact} (score ${f.score})`).join('\n');
   
   const messages: ChatMessage[] = [SYSTEM_PROMPT];
   
   if (factLines) {
     messages.push({
       role: "system",
-      content: `Durable memory (top ${facts.length} facts):\n${factLines}`
+      content: `Durable memory (top ${topFacts.length} facts):\n${factLines}`
     });
   }
   
