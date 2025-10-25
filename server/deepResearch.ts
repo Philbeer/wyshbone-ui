@@ -10,15 +10,15 @@ const POLL_INTERVAL_MS = 3000; // Poll every 3 seconds for faster status updates
 // Post-process research output to ensure beautiful formatting
 async function reformatResearchOutput(rawOutput: string, researchTopic: string): Promise<string> {
   try {
-    // Check if output already has good structure with emojis - if so, skip reformatting
-    const hasGoodStructure = (
-      (rawOutput.includes("## 🧭 Executive Summary") || rawOutput.includes("## Executive Summary")) &&
-      (rawOutput.includes("## ⭐ Key Findings") || rawOutput.includes("## Key Findings")) &&
-      (rawOutput.includes("## 📚 Sources") || rawOutput.includes("## Sources"))
+    // Check if output already has the EMOJI headers we want - only skip if it does
+    const hasEmojiHeaders = (
+      rawOutput.includes("## 🧭") &&
+      rawOutput.includes("## ⭐") &&
+      rawOutput.includes("## 📚")
     );
     
-    if (hasGoodStructure) {
-      console.log("✅ Output already has good structure - skipping reformatting");
+    if (hasEmojiHeaders) {
+      console.log("✅ Output already has emoji headers - skipping reformatting");
       return rawOutput;
     }
     
