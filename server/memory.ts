@@ -276,6 +276,78 @@ export async function extractAndSaveFacts(
   }
 }
 
+export async function extractFactsFromPrompt(
+  userId: string,
+  prompt: string,
+  openai: OpenAI
+): Promise<void> {
+  try {
+    const extractPrompt = `
+Extract durable facts about the user's interests, goals, or preferences from this research request.
+
+Rules:
+- Only include facts likely true for months
+- Keep each fact 1 short sentence
+- If no durable facts exist, return an empty list
+
+Assign each fact a score from 0-100 AND a category based on importance and durability.
+
+CRITICAL SCORING & CATEGORY GUIDELINES:
+- Industries/business types mentioned (e.g., "coffee shops", "pubs", "dentistry", "veterinary supplies"): Score 85-95, category "industry"
+- Locations/places mentioned (e.g., "London", "Texas", "Manchester", "Hampshire", specific cities/regions): Score 85-95, category "place"
+- Subjects/topics of interest (e.g., "deep research", "marketing agencies", "breweries"): Score 80-90, category "subject"
+- User preferences and working style: Score 70-80, category "preference"
+- General conversational context: Score 50-70, category "general"
+
+Industries, locations, and subjects are HIGH PRIORITY and should receive the highest scores.
+
+Return strict JSON: {"facts":[{"text":"...", "score": 0-100, "category": "industry"|"place"|"subject"|"preference"|"general"}, ...]}
+
+Research request:
+${prompt}
+`;
+
+    const extract = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      temperature: 0.0,
+      messages: [
+        { role: "system", content: "You extract facts in strict JSON format." },
+        { role: "user", content: extractPrompt }
+      ]
+    });
+
+    const raw = extract.choices[0]?.message?.content || '{}';
+    const parsed = JSON.parse(raw);
+    const factsOut = Array.isArray(parsed?.facts) ? parsed.facts : [];
+
+    console.log(`📝 Extracted ${factsOut.length} facts from research prompt`);
+
+    for (const f of factsOut.slice(0, 3)) {
+      if (!f?.text) continue;
+      
+      const score = Math.max(0, Math.min(100, Math.floor(Number(f.score ?? 50))));
+      const category = ['industry', 'place', 'subject', 'preference', 'general'].includes(f.category) 
+        ? f.category 
+        : 'general';
+      
+      await storage.createFact({
+        id: randomUUID(),
+        userId,
+        sourceConversationId: null,
+        sourceMessageId: null,
+        fact: String(f.text).slice(0, 400),
+        score,
+        category,
+        createdAt: Date.now(),
+      });
+      
+      console.log(`   ✓ Saved: "${String(f.text).slice(0, 60)}..." (${category}, score: ${score})`);
+    }
+  } catch (e: any) {
+    console.error('Fact extraction from prompt error:', e?.message);
+  }
+}
+
 export async function buildContextWithFacts(
   userId: string,
   conversationHistory: ChatMessage[],

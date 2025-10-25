@@ -3146,6 +3146,13 @@ Return structured data with the EXACT placeId provided above: "${placeId}"`;
       // Extract sessionId so we can send notifications when research completes
       const sessionId = getSessionId(req);
       const run = await startBackgroundResponsesJob(validation.data, sessionId);
+      
+      // Extract facts from the research prompt in the background (don't await)
+      const { extractFactsFromPrompt } = await import("./memory");
+      extractFactsFromPrompt("demo-user", validation.data.prompt, openai)
+        .then(() => console.log("✅ Facts extracted from research prompt"))
+        .catch((err) => console.error("❌ Fact extraction from prompt failed:", err.message));
+      
       res.json({ run: stripLargeOutput(run) });
     } catch (error: any) {
       console.error("Deep research creation error:", error);

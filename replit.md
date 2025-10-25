@@ -62,7 +62,7 @@ The user interface follows modern Material Design principles, drawing inspiratio
 - **Conversational Planning:** A three-way GPT planner decides whether to "search" (discover new venues), "use_cache" (more results from existing searches), or "respond" (for general conversational questions), preventing unnecessary searches and ensuring venue deduplication.
 - **Persistent Memory System:** Database-backed conversation history and knowledge accumulation for long-term context and proactive assistance. Memory serves as a **background reference layer** - not the main driver of conversations. Features:
     - **Conversation Persistence:** All chat messages saved to PostgreSQL with conversation IDs maintained across sessions
-    - **Fact Extraction:** Automatic extraction of user preferences, business requirements, and contextual information after each conversation using GPT-4
+    - **Fact Extraction:** Automatic extraction of user preferences, business requirements, and contextual information from both conversational exchanges (using GPT-4 after assistant responses) and deep research prompts (extracted directly from research requests to capture interests even when no conversational response is generated)
     - **Intelligent Knowledge Scoring:** Facts rated 0-100 for importance, with prioritized scoring:
         - Industries/business types (e.g., "coffee shops", "pubs"): 85-95
         - Locations/places (e.g., "London", "Texas"): 85-95
