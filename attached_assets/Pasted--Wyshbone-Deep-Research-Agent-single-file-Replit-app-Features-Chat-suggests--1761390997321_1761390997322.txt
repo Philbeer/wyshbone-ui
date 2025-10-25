@@ -1,0 +1,494 @@
+/**
+ * Wyshbone Deep Research Agent — single-file Replit app
+ *
+ * Features:
+ * - Chat suggests/starts a long-running "deep research" job using OpenAI Responses API
+ *   with web browsing (web_search) and background mode (async).
+ * - Left panel shows "In progress" runs; completed runs link to full output (markdown or JSON).
+ *
+ * Setup:
+ * 1) Replit → Secrets → add OPENAI_API_KEY
+ * 2) npm install express axios
+ * 3) Run this file.
+ */
+
+const express = require("express");
+const axios = require("axios");
+
+// --------------------- Config ---------------------
+const PORT = process.env.PORT || 3000;
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
+const OPENAI_BASE = "https://api.openai.com/v1";
+const OPENAI_MODEL = "gpt-4.1";     // change if needed
+const POLL_INTERVAL_MS = 25000;      // 25s polling
+
+if (!OPENAI_API_KEY) {
+  console.warn("WARNING: OPENAI_API_KEY is not set in Replit Secrets.");
+}
+
+// --------------------- Types (JSDoc) ---------------------
+/**
+ * @typedef {"queued"|"in_progress"|"completed"|"failed"|"stopped"} RunStatus
+ * @typedef {"report"|"json"} RunMode
+ */
+
+/**
+ * @typedef {Object} DeepRun
+ * @property {string} id
+ * @property {string} label
+ * @property {string} prompt
+ * @property {RunMode} mode
+ * @property {string[] | undefined} counties
+ * @property {number | undefined} windowMonths
+ * @property {string | undefined} schemaName
+ * @property {any | undefined} schema
+ * @property {string | undefined} responseId
+ * @property {RunStatus} status
+ * @property {number} createdAt
+ * @property {number} updatedAt
+ * @property {string | undefined} outputText
+ * @property {string | undefined} error
+ */
+
+// --------------------- In-memory store ---------------------
+/** @type {Map<string, DeepRun>} */
+const runs = new Map();
+const rid = () => "run_" + Math.random().toString(36).slice(2) + Date.now().toString(36);
+
+// --------------------- OpenAI Helpers ---------------------
+async function startBackgroundResponsesJob(params) {
+  const {
+    prompt,
+    label,
+    mode = "report",
+    counties,
+    windowMonths,
+    schemaName,
+    schema,
+  } = params;
+
+  const id = rid();
+  /** @type {DeepRun} */
+  const run = {
+    id,
+    label: label || suggestDefaultLabel(prompt),
+    prompt,
+    mode,
+    counties,
+    windowMonths,
+    schemaName,
+    schema,
+    status: "queued",
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+  runs.set(id, run);
+
+  const scopeHints = [];
+  if (Array.isArray(counties) && counties.length) {
+    scopeHints.push(`Restrict focus to these regions: ${counties.join(", ")}.`);
+  }
+  if (typeof windowMonths === "number") {
+    scopeHints.push(
+      `Only include items with dated public evidence within the last ${windowMonths} months.`
+    );
+  }
+
+  const baseInstructions = [
+    "You are Wyshbone Deep Research.",
+    "Use the web_search tool to browse thoroughly, follow leads, cross-check facts, and collect dated evidence.",
+    "Prefer authoritative sources; include citations and dates.",
+    ...scopeHints,
+    "Be exhaustive within reasonable limits.",
+  ].join(" ");
+
+  const body = {
+    model: OPENAI_MODEL,
+    background: true,                 // long-running, async
+    tools: [{ type: "web_search" }],  // lets model browse like ChatGPT agent
+    tool_choice: "auto",
+    instructions: baseInstructions,
+    input: [
+      {
+        role: "user",
+        content: [{ type: "input_text", text: prompt }],
+      },
+    ],
+    max_output_tokens: 8000,
+  };
+
+  if (mode === "json" && schema && schemaName) {
+    body.text = {
+      format: {
+        type: "json_schema",
+        name: schemaName,
+        strict: false,  // set true if you want every property to be required
+        schema,
+      },
+    };
+  } else {
+    // default to a clean markdown report
+    body.text = { format: { type: "markdown" } };
+    body.instructions += " Return a clean markdown research report with sections, bullet points, and a 'Sources' list of URLs with short rationales.";
+  }
+
+  try {
+    const { data } = await axios.post(`${OPENAI_BASE}/responses`, body, {
+      headers: {
+        Authorization: `Bearer ${OPENAI_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+    });
+    run.responseId = data.id;
+    run.status = data.status ?? "in_progress";
+    run.updatedAt = Date.now();
+    runs.set(id, run);
+    return run;
+  } catch (err) {
+    run.status = "failed";
+    run.error = err?.response?.data?.error?.message || String(err);
+    run.updatedAt = Date.now();
+    runs.set(id, run);
+    return run;
+  }
+}
+
+async function pollOneRun(run) {
+  if (!run.responseId || ["completed", "failed", "stopped"].includes(run.status)) return;
+  try {
+    const { data } = await axios.get(`${OPENAI_BASE}/responses/${run.responseId}`, {
+      headers: { Authorization: `Bearer ${OPENAI_API_KEY}` },
+    });
+    const status = data.status || "in_progress";
+    run.status = status;
+    run.updatedAt = Date.now();
+
+    if (status === "completed") {
+      const outputText =
+        data.output_text ??
+        (data.output && data.output[0] && data.output[0].content && data.output[0].content[0] && data.output[0].content[0].text) ??
+        JSON.stringify(data.output ?? data, null, 2);
+      run.outputText = outputText;
+    } else if (status === "failed") {
+      run.error = data?.error?.message || "Unknown error";
+    }
+  } catch (err) {
+    // Transient errors shouldn't kill the run; we keep polling
+    run.error = err?.response?.data?.error?.message || String(err);
+  } finally {
+    runs.set(run.id, run);
+  }
+}
+
+// background poller
+setInterval(async () => {
+  const pending = Array.from(runs.values()).filter(r =>
+    r.status === "queued" || r.status === "in_progress"
+  );
+  for (const r of pending) {
+    if (r.status === "stopped") continue;
+    await pollOneRun(r);
+  }
+}, POLL_INTERVAL_MS);
+
+// --------------------- Express App ---------------------
+const app = express();
+app.use(express.json());
+
+// Start a deep dive
+app.post("/api/deep-research", async (req, res) => {
+  const {
+    prompt,
+    label,
+    mode = "report",
+    counties,
+    windowMonths,
+    schemaName,
+    schema,
+  } = req.body || {};
+  if (!prompt || typeof prompt !== "string") {
+    return res.status(400).json({ error: "prompt is required (string)" });
+  }
+  const run = await startBackgroundResponsesJob({
+    prompt,
+    label,
+    mode,
+    counties,
+    windowMonths,
+    schemaName,
+    schema,
+  });
+  res.json({ run: stripLargeOutput(run) });
+});
+
+// List runs
+app.get("/api/runs", (_req, res) => {
+  const list = Array.from(runs.values())
+    .sort((a, b) => b.createdAt - a.createdAt)
+    .map(stripLargeOutput);
+  res.json({ runs: list });
+});
+
+// Get one run (full)
+app.get("/api/runs/:id", (req, res) => {
+  const run = runs.get(req.params.id);
+  if (!run) return res.status(404).json({ error: "not found" });
+  res.json({ run });
+});
+
+// Stop (local stop = stop polling)
+app.post("/api/runs/:id/stop", (req, res) => {
+  const run = runs.get(req.params.id);
+  if (!run) return res.status(404).json({ error: "not found" });
+  run.status = "stopped";
+  run.updatedAt = Date.now();
+  runs.set(run.id, run);
+  res.json({ run: stripLargeOutput(run) });
+});
+
+// Duplicate / Retry
+app.post("/api/runs/:id/duplicate", async (req, res) => {
+  const prev = runs.get(req.params.id);
+  if (!prev) return res.status(404).json({ error: "not found" });
+  const run = await startBackgroundResponsesJob({
+    prompt: prev.prompt,
+    label: prev.label + " (copy)",
+    mode: prev.mode,
+    counties: prev.counties,
+    windowMonths: prev.windowMonths,
+    schemaName: prev.schemaName,
+    schema: prev.schema,
+  });
+  res.json({ run: stripLargeOutput(run) });
+});
+
+// Suggest deep dives from chat text (very simple heuristic)
+app.post("/api/chat-suggest", (req, res) => {
+  const text = (req.body?.text || "").toLowerCase();
+  const looksResearchy =
+    /\b(new|latest|find|research|report|sources?|citations?|open(ed)?|launched)\b/.test(text) ||
+    text.includes("micropubs") ||
+    text.includes("shakespeare");
+
+  if (!looksResearchy) {
+    return res.json({ suggestions: [] });
+  }
+
+  return res.json({
+    suggestions: [
+      {
+        label: "Micropubs in West Sussex (last 6 months)",
+        payload: {
+          prompt:
+            "Find NEW UK micropubs opened within the last 6 months in West Sussex. Include dated evidence and sources. Return a well-structured report.",
+          label: "Micropubs – West Sussex (6m)",
+          mode: "report",
+          counties: ["West Sussex"],
+          windowMonths: 6,
+        },
+      },
+      {
+        label: "Essays about Shakespeare (authoritative sources)",
+        payload: {
+          prompt:
+            "Find authoritative essays about Shakespeare, summarise key arguments, and provide citations with dates.",
+          label: "Shakespeare essays (authoritative)",
+          mode: "report",
+        },
+      },
+    ],
+  });
+});
+
+// --------------------- Minimal UI ---------------------
+app.get("/", (_req, res) => {
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.end(INDEX_HTML);
+});
+
+// --------------------- Utils ---------------------
+function stripLargeOutput(run) {
+  const { outputText, ...rest } = run;
+  return {
+    ...rest,
+    hasOutput: Boolean(outputText && outputText.length),
+    outputPreview:
+      outputText?.slice(0, 240) + (outputText && outputText.length > 240 ? "…" : ""),
+  };
+}
+
+function suggestDefaultLabel(prompt) {
+  const p = (prompt || "").trim();
+  if (p.length <= 60) return p || "Deep Research";
+  return p.slice(0, 57) + "…";
+}
+
+// --------------------- Inline UI (HTML) ---------------------
+const INDEX_HTML = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Wyshbone Deep Research</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    html, body { margin:0; padding:0; height:100%; font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; }
+    .app { display:flex; height:100%; }
+    .left { width:320px; border-right:1px solid #e5e7eb; padding:12px; box-sizing:border-box; overflow:auto; }
+    .right { flex:1; display:flex; flex-direction:column; }
+    .header { padding:12px; border-bottom:1px solid #e5e7eb; font-weight:600; }
+    .runs .run { border:1px solid #e5e7eb; border-radius:12px; padding:10px; margin-bottom:10px; }
+    .badge { font-size:11px; border:1px solid #cbd5e1; border-radius:999px; padding:2px 8px; margin-left:8px; }
+    .controls button { font-size:12px; margin-right:8px; background:none; border:none; text-decoration:underline; cursor:pointer; }
+    .chat { flex:1; padding:12px; overflow:auto; }
+    .bubble { margin-bottom:10px; }
+    .bubble.me { text-align:right; }
+    .bubble .inner { display:inline-block; padding:10px 12px; border-radius:12px; max-width:70%; }
+    .bubble.me .inner { background:#e0f2fe; }
+    .bubble.bot .inner { background:#f8fafc; border:1px solid #e5e7eb; }
+    .composer { display:flex; gap:8px; padding:12px; border-top:1px solid #e5e7eb; }
+    input[type="text"] { flex:1; padding:10px; border:1px solid #cbd5e1; border-radius:10px; }
+    .suggestions { font-size:13px; color:#334155; margin-top:6px; }
+    .suggestions button { margin-right:8px; margin-top:6px; font-size:12px; }
+    pre.output { background:#0b1021; color:#e2e8f0; padding:12px; border-radius:10px; overflow:auto; max-height:40vh; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="left">
+      <div style="font-weight:600; margin-bottom:10px;">Research Runs</div>
+      <div id="runs" class="runs"></div>
+    </div>
+    <div class="right">
+      <div class="header">Chat</div>
+      <div id="chat" class="chat"></div>
+      <div class="composer">
+        <input id="msg" type="text" placeholder="Ask for a deep research (e.g., 'new micropubs West Sussex last 6 months', or 'essays about Shakespeare')" />
+        <button id="send">Send</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const runsEl = document.getElementById("runs");
+    const chatEl = document.getElementById("chat");
+    const msgEl = document.getElementById("msg");
+    const sendBtn = document.getElementById("send");
+
+    function addBubble(who, text, html=false) {
+      const div = document.createElement("div");
+      div.className = "bubble " + who;
+      const inner = document.createElement("div");
+      inner.className = "inner";
+      if (html) inner.innerHTML = text;
+      else inner.textContent = text;
+      div.appendChild(inner);
+      chatEl.appendChild(div);
+      chatEl.scrollTop = chatEl.scrollHeight;
+    }
+
+    async function listRuns() {
+      const res = await fetch("/api/runs");
+      const data = await res.json();
+      runsEl.innerHTML = "";
+      (data.runs || []).forEach(r => {
+        const div = document.createElement("div");
+        div.className = "run";
+        const top = document.createElement("div");
+        top.innerHTML = \`
+          <span style="font-weight:600">\${escapeHtml(r.label)}</span>
+          <span class="badge">\${r.status}</span>
+        \`;
+        const meta = document.createElement("div");
+        meta.style.fontSize = "12px";
+        meta.style.color = "#475569";
+        meta.textContent = new Date(r.createdAt).toLocaleString() + (r.outputPreview ? " • " + r.outputPreview : "");
+        const controls = document.createElement("div");
+        controls.className = "controls";
+        const dup = document.createElement("button");
+        dup.textContent = "Duplicate";
+        dup.onclick = async () => {
+          await fetch("/api/runs/" + r.id + "/duplicate", { method: "POST" });
+          await listRuns();
+        };
+        controls.appendChild(dup);
+        if (r.status === "queued" || r.status === "in_progress") {
+          const stop = document.createElement("button");
+          stop.textContent = "Stop";
+          stop.onclick = async () => {
+            await fetch("/api/runs/" + r.id + "/stop", { method: "POST" });
+            await listRuns();
+          };
+          controls.appendChild(stop);
+        }
+        if (r.hasOutput && r.status === "completed") {
+          const view = document.createElement("a");
+          view.href = "/api/runs/" + r.id;
+          view.target = "_blank";
+          view.textContent = "View full output";
+          view.style.fontSize = "12px";
+          view.style.marginLeft = "8px";
+          controls.appendChild(view);
+        }
+        div.appendChild(top);
+        div.appendChild(meta);
+        div.appendChild(controls);
+        runsEl.appendChild(div);
+      });
+    }
+
+    function escapeHtml(s) {
+      return (s || "").replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+    }
+
+    async function suggestFromChat(text) {
+      const res = await fetch("/api/chat-suggest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text })
+      });
+      const data = await res.json();
+      const suggestions = data.suggestions || [];
+      if (!suggestions.length) return;
+      let html = "<div class='suggestions'><div>I can run a <b>deep research dive</b> with web browsing and send you a full report. Try one:</div>";
+      suggestions.forEach(s => {
+        const payload = encodeURIComponent(JSON.stringify(s.payload));
+        html += \`<button onclick="window.startDeepDive('\${payload}')">\${escapeHtml(s.label)}</button>\`;
+      });
+      html += "</div>";
+      addBubble("bot", html, true);
+    }
+
+    window.startDeepDive = async (payloadEnc) => {
+      const payload = JSON.parse(decodeURIComponent(payloadEnc));
+      await fetch("/api/deep-research", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      addBubble("bot", "Great — I’ve started a deep-dive. It’s now in the left panel under “Research Runs”.");
+      listRuns();
+    };
+
+    sendBtn.onclick = async () => {
+      const text = msgEl.value.trim();
+      if (!text) return;
+      addBubble("me", text);
+      msgEl.value = "";
+
+      // very simple bot reply + suggestions
+      addBubble("bot", "Got it. If you want, I can run a deep research dive and build a full report. I’ll show it in the left panel while it works.");
+      await suggestFromChat(text);
+    };
+
+    // auto-refresh runs every 5s
+    setInterval(listRuns, 5000);
+    listRuns();
+  </script>
+</body>
+</html>
+`;
+
+app.listen(PORT, () => {
+  console.log("Deep Research app running on port", PORT);
+});
