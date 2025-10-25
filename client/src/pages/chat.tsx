@@ -122,10 +122,10 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
     scrollToBottom();
   }, [messages]);
 
-  // Load conversation history on mount
+  // Load conversation history on mount ONLY (not when conversationId changes during active chat)
   useEffect(() => {
     const loadHistory = async () => {
-      if (!conversationId || hasLoadedHistoryRef.current) return;
+      if (!conversationId || hasLoadedHistoryRef.current || messages.length > 0) return;
       
       setIsLoadingHistory(true);
       try {
@@ -138,10 +138,13 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
             content: msg.content,
             timestamp: new Date(msg.createdAt),
           }));
-          setMessages(historicalMessages);
-          setShowWelcome(false);
-          hasLoadedHistoryRef.current = true;
-          console.log(`📜 Loaded ${historicalMessages.length} messages from conversation ${conversationId}`);
+          // Only load if we got actual historical messages and still have no local messages
+          if (historicalMessages.length > 0 && messages.length === 0) {
+            setMessages(historicalMessages);
+            setShowWelcome(false);
+            hasLoadedHistoryRef.current = true;
+            console.log(`📜 Loaded ${historicalMessages.length} messages from conversation ${conversationId}`);
+          }
         }
       } catch (error) {
         console.error('Failed to load conversation history:', error);
@@ -151,7 +154,7 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
     };
 
     loadHistory();
-  }, [conversationId]);
+  }, [conversationId, messages.length]);
 
   // Persist conversationId to localStorage
   useEffect(() => {
