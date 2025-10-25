@@ -659,19 +659,70 @@ Examples:
 
       // Handle clear deep_research intent
       if (userIntent?.intent === "deep_research" && userIntent.confidence === "high") {
-        console.log("🔬 Triggering deep research based on intent");
+        console.log("🔬 Deep research intent detected - validating if we have enough info");
         
+        // VALIDATE: Check if the prompt contains enough information for meaningful research
+        const validationPrompt = [
+          {
+            role: "system" as const,
+            content: `Analyze if the user's message contains enough information to perform meaningful research.
+
+Return JSON with:
+{
+  "has_topic": true/false,
+  "research_topic": "extracted topic" or null,
+  "needs_clarification": true/false,
+  "suggested_question": "question to ask user" or null
+}
+
+Examples:
+- "can you do a deep dive" → {"has_topic": false, "research_topic": null, "needs_clarification": true, "suggested_question": "What would you like me to research?"}
+- "do a deep dive" → {"has_topic": false, "research_topic": null, "needs_clarification": true, "suggested_question": "What topic would you like me to investigate?"}
+- "research new coffee shops in London" → {"has_topic": true, "research_topic": "new coffee shops in London", "needs_clarification": false, "suggested_question": null}
+- "investigate dental practices that opened in 2024" → {"has_topic": true, "research_topic": "dental practices that opened in 2024", "needs_clarification": false, "suggested_question": null}
+
+IMPORTANT: If the user just asks "can you do X" without specifying WHAT to research, set has_topic to false.`
+          },
+          {
+            role: "user" as const,
+            content: `User message: "${latestUserText}"\n\nRecent conversation context:\n${memoryMessages.slice(-3).map(m => `${m.role}: ${m.content}`).join('\n')}\n\nValidate:`
+          }
+        ];
+
         try {
+          const validationResp = await openai.chat.completions.create({
+            model: "gpt-4o-mini",
+            messages: validationPrompt,
+            response_format: { type: "json_object" },
+          });
+
+          const validation = JSON.parse(validationResp.choices[0]?.message?.content || "{}");
+          console.log("✅ Research validation:", validation);
+
+          // If we don't have a clear topic, ask the user
+          if (!validation.has_topic || validation.needs_clarification) {
+            const askMsg = validation.suggested_question || 
+              "I'd be happy to perform a deep research dive! Could you please specify the topic or area you'd like me to investigate?\n\nFor example:\n• \"Research new coffee shops that opened in London in 2024\"\n• \"Investigate dental practices in Manchester\"\n• \"Find information about bakeries that opened recently\"";
+            
+            appendMessage(sessionId, { role: "assistant", content: askMsg });
+            res.write(`data: ${JSON.stringify({ content: askMsg })}\n\n`);
+            res.write(`data: [DONE]\n\n`);
+            return res.end();
+          }
+
+          // We have a valid topic - start the research
+          const researchTopic = validation.research_topic || latestUserText;
+          
           const response = await fetch("http://localhost:5000/api/deep-research", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ prompt: latestUserText }),
+            body: JSON.stringify({ prompt: researchTopic }),
           });
 
           const data = await response.json();
           
           if (response.ok) {
-            const confirmMsg = `🔬 Deep research started!\n\nI'm investigating: "${latestUserText}"\n\nYou can view the progress in the sidebar. I'll notify you when it's complete.`;
+            const confirmMsg = `🔬 Deep research started!\n\nI'm investigating: "${researchTopic}"\n\nYou can view the progress in the sidebar. I'll notify you when it's complete.`;
             appendMessage(sessionId, { role: "assistant", content: confirmMsg });
             res.write(`data: ${JSON.stringify({ content: confirmMsg })}\n\n`);
             res.write(`data: [DONE]\n\n`);
