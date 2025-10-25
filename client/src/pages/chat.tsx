@@ -44,10 +44,16 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
 
   const detectDeepResearchIntent = (text: string): boolean => {
     const lowerText = text.toLowerCase();
-    const researchKeywords = /\b(research|investigate|analyze|study|explore|deep dive|comprehensive|thorough|detailed report|sources|citations|evidence|findings)\b/;
-    const actionKeywords = /\b(find|search|get|show|list|discover|gather|collect)\b/;
+    const researchKeywords = /\b(research|investigate|analyze|study|explore|deep dive|comprehensive|thorough|detailed report|sources|citations|evidence|findings|create.*report|write.*report|compile.*report)\b/;
+    const actionKeywords = /\b(find|search|get|show|list|discover|gather|collect|do|make|create|write|compile|generate|build)\b/;
     
-    // Must have both research indicators and action words
+    // If it has strong research indicators, return true
+    const strongResearchIndicators = /\b(deep dive|detailed report|research.*for me|do.*research|create.*report|write.*report|comprehensive report)\b/;
+    if (strongResearchIndicators.test(lowerText)) {
+      return true;
+    }
+    
+    // Otherwise must have both research keywords and action words
     return researchKeywords.test(lowerText) && actionKeywords.test(lowerText);
   };
 
