@@ -183,12 +183,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 `Failed: ${statusData.failed.length}`;
               
               appendMessage(sessionId, { role: "assistant", content: responseText });
+              await saveMessage(conversationId, "assistant", responseText);
+              console.log("💾 Saved job status message to database");
               res.write(`data: ${JSON.stringify({ done: false, text: responseText })}\n\n`);
               res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
               return res.end();
             } else {
               const errorMsg = `❌ Failed to get job status: ${statusData.error || 'Unknown error'}`;
               appendMessage(sessionId, { role: "assistant", content: errorMsg });
+              await saveMessage(conversationId, "assistant", errorMsg);
+              console.log("💾 Saved job status error message to database");
               res.write(`data: ${JSON.stringify({ done: false, text: errorMsg })}\n\n`);
               res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
               return res.end();
@@ -206,6 +210,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
               : `❌ Failed to pause job: ${stopData.error}`;
             
             appendMessage(sessionId, { role: "assistant", content: responseText });
+            await saveMessage(conversationId, "assistant", responseText);
+            console.log("💾 Saved job pause message to database");
             res.write(`data: ${JSON.stringify({ done: false, text: responseText })}\n\n`);
             res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
             return res.end();
@@ -222,6 +228,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
               : `❌ Failed to resume job: ${startData.error}`;
             
             appendMessage(sessionId, { role: "assistant", content: responseText });
+            await saveMessage(conversationId, "assistant", responseText);
+            console.log("💾 Saved job resume message to database");
             res.write(`data: ${JSON.stringify({ done: false, text: responseText })}\n\n`);
             res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
             return res.end();
@@ -238,6 +246,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
               : `❌ Failed to cancel job: ${stopData.error}`;
             
             appendMessage(sessionId, { role: "assistant", content: responseText });
+            await saveMessage(conversationId, "assistant", responseText);
+            console.log("💾 Saved job cancel message to database");
             res.write(`data: ${JSON.stringify({ done: false, text: responseText })}\n\n`);
             res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
             return res.end();
@@ -246,6 +256,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           console.error("❌ Job command error:", error.message);
           const errorMsg = `Sorry, I couldn't execute that command: ${error.message}`;
           appendMessage(sessionId, { role: "assistant", content: errorMsg });
+          await saveMessage(conversationId, "assistant", errorMsg);
+          console.log("💾 Saved job command error message to database");
           res.write(`data: ${JSON.stringify({ done: false, text: errorMsg })}\n\n`);
           res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
           return res.end();
@@ -317,12 +329,16 @@ Examples:
                 `Use "status job ${jobId}" to check progress.`;
               
               appendMessage(sessionId, { role: "assistant", content: responseText });
+              await saveMessage(conversationId, "assistant", responseText);
+              console.log("💾 Saved job creation message to database");
               res.write(`data: ${JSON.stringify({ done: false, text: responseText })}\n\n`);
               res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
               return res.end();
             } else {
               const errorMsg = `❌ Failed to create job: ${createData.error}`;
               appendMessage(sessionId, { role: "assistant", content: errorMsg });
+              await saveMessage(conversationId, "assistant", errorMsg);
+              console.log("💾 Saved job creation error message to database");
               res.write(`data: ${JSON.stringify({ done: false, text: errorMsg })}\n\n`);
               res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
               return res.end();
@@ -453,6 +469,8 @@ Examples:
             previewText += `\n✅ Type **"yes"** to confirm or **"no"** to cancel`;
             
             appendMessage(sessionId, { role: "assistant", content: previewText });
+            await saveMessage(conversationId, "assistant", previewText);
+            console.log("💾 Saved workflow preview message to database");
             res.write(`data: ${JSON.stringify({ content: previewText })}\n\n`);
             res.write(`data: [DONE]\n\n`);
             res.end();
@@ -463,6 +481,8 @@ Examples:
             await storage.clearPendingConfirmation(sessionId);
             const responseText = "I couldn't understand the change. Please tell me what you'd like to search for.";
             appendMessage(sessionId, { role: "assistant", content: responseText });
+            await saveMessage(conversationId, "assistant", responseText);
+            console.log("💾 Saved workflow modification error message to database");
             res.write(`data: ${JSON.stringify({ content: responseText })}\n\n`);
             res.write(`data: [DONE]\n\n`);
             res.end();
@@ -501,6 +521,8 @@ Examples:
             }
 
             appendMessage(sessionId, { role: "assistant", content: responseText });
+            await saveMessage(conversationId, "assistant", responseText);
+            console.log("💾 Saved batch execution result message to database");
             
             res.write(`data: ${JSON.stringify({ content: responseText })}\n\n`);
             res.write(`data: [DONE]\n\n`);
@@ -509,6 +531,8 @@ Examples:
             console.error("❌ Bubble batch execution error:", error.message);
             const errorMsg = `Sorry, I couldn't trigger the Bubble workflow: ${error.message}`;
             appendMessage(sessionId, { role: "assistant", content: errorMsg });
+            await saveMessage(conversationId, "assistant", errorMsg);
+            console.log("💾 Saved batch execution error message to database");
             res.write(`data: ${JSON.stringify({ content: errorMsg })}\n\n`);
             res.write(`data: [DONE]\n\n`);
             return res.end();
@@ -519,6 +543,8 @@ Examples:
           
           const responseText = "❌ Batch workflow cancelled.";
           appendMessage(sessionId, { role: "assistant", content: responseText });
+          await saveMessage(conversationId, "assistant", responseText);
+          console.log("💾 Saved workflow cancellation message to database");
           res.write(`data: ${JSON.stringify({ content: responseText })}\n\n`);
           res.write(`data: [DONE]\n\n`);
           return res.end();
@@ -604,6 +630,8 @@ Only extract fields that are in the missing list: ${partialWorkflow.missing_fiel
           previewText += `\n✅ Type **"yes"** to confirm or **"no"** to cancel`;
           
           appendMessage(sessionId, { role: "assistant", content: previewText });
+          await saveMessage(conversationId, "assistant", previewText);
+          console.log("💾 Saved partial workflow preview message to database");
           res.write(`data: ${JSON.stringify({ content: previewText })}\n\n`);
           res.write(`data: [DONE]\n\n`);
           res.end();
@@ -673,6 +701,8 @@ Examples:
           `Which would you prefer?`;
         
         appendMessage(sessionId, { role: "assistant", content: clarificationMsg });
+        await saveMessage(conversationId, "assistant", clarificationMsg);
+        console.log("💾 Saved assistant clarification message to database");
         res.write(`data: ${JSON.stringify({ content: clarificationMsg })}\n\n`);
         res.write(`data: [DONE]\n\n`);
         return res.end();
@@ -855,6 +885,8 @@ CRITICAL RULES:
             previewText += `\n✅ Type **"yes"** to confirm or **"no"** to cancel`;
 
             appendMessage(sessionId, { role: "assistant", content: previewText });
+            await saveMessage(conversationId, "assistant", previewText);
+            console.log("💾 Saved batch workflow preview message to database");
             res.write(`data: ${JSON.stringify({ content: previewText })}\n\n`);
             res.write(`data: [DONE]\n\n`);
             return res.end();
