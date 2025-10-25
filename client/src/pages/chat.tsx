@@ -40,15 +40,10 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
   const [isStreaming, setIsStreaming] = useState(false);
   const [showWelcome, setShowWelcome] = useState(true);
   const [showLocationSuggestions, setShowLocationSuggestions] = useState(false);
-  const [conversationId, setConversationId] = useState<string | undefined>(() => {
-    // Load conversationId from localStorage on mount
-    return localStorage.getItem('currentConversationId') || undefined;
-  });
-  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const [conversationId, setConversationId] = useState<string | undefined>(undefined);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
-  const hasLoadedHistoryRef = useRef(false);
 
   const detectDeepResearchIntent = (text: string): boolean => {
     const lowerText = text.toLowerCase();
@@ -122,46 +117,8 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
     scrollToBottom();
   }, [messages]);
 
-  // Load conversation history on mount ONLY (not when conversationId changes during active chat)
-  useEffect(() => {
-    const loadHistory = async () => {
-      if (!conversationId || hasLoadedHistoryRef.current || messages.length > 0) return;
-      
-      setIsLoadingHistory(true);
-      try {
-        const response = await fetch(`/api/debug/conversations/${conversationId}/messages`);
-        if (response.ok) {
-          const data = await response.json();
-          const historicalMessages: Message[] = data.messages.map((msg: any) => ({
-            id: msg.id,
-            role: msg.role,
-            content: msg.content,
-            timestamp: new Date(msg.createdAt),
-          }));
-          // Only load if we got actual historical messages and still have no local messages
-          if (historicalMessages.length > 0 && messages.length === 0) {
-            setMessages(historicalMessages);
-            setShowWelcome(false);
-            hasLoadedHistoryRef.current = true;
-            console.log(`📜 Loaded ${historicalMessages.length} messages from conversation ${conversationId}`);
-          }
-        }
-      } catch (error) {
-        console.error('Failed to load conversation history:', error);
-      } finally {
-        setIsLoadingHistory(false);
-      }
-    };
-
-    loadHistory();
-  }, [conversationId, messages.length]);
-
-  // Persist conversationId to localStorage
-  useEffect(() => {
-    if (conversationId) {
-      localStorage.setItem('currentConversationId', conversationId);
-    }
-  }, [conversationId]);
+  // Note: History loading removed - each page refresh starts a fresh conversation
+  // All conversations are still saved to the database and viewable in the Debug tab
 
   // Expose send message function to parent
   useEffect(() => {
