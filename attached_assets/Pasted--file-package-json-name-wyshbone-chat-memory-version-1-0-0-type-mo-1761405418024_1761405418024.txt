@@ -1,0 +1,500 @@
+# --- file: package.json
+{
+  "name": "wyshbone-chat-memory",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^9.6.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "openai": "^4.56.0",
+    "uuid": "^9.0.1",
+    "zod": "^3.23.8"
+  }
+}
+
+# --- file: .env
+# Replit > Secrets: add these keys (do not commit)
+OPENAI_API_KEY=sk-...
+DEV_TOKEN=change-me-strong-token
+
+# --- file: server.js
+import 'dotenv/config';
+import express from 'express';
+import cors from 'cors';
+import Database from 'better-sqlite3';
+import { v4 as uuid } from 'uuid';
+import { z } from 'zod';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import OpenAI from 'openai';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const app = express();
+app.use(cors());
+app.use(express.json({ limit: '1mb' }));
+
+/** ---------- DB SETUP (SQLite) ---------- **/
+const db = new Database('memory.db');
+db.pragma('journal_mode = WAL');
+
+db.exec(`
+CREATE TABLE IF NOT EXISTS conversations (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  label TEXT DEFAULT 'Conversation',
+  created_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS messages (
+  id TEXT PRIMARY KEY,
+  conversation_id TEXT NOT NULL,
+  role TEXT NOT NULL,           -- "user" | "assistant" | "system"
+  content TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  FOREIGN KEY(conversation_id) REFERENCES conversations(id)
+);
+CREATE TABLE IF NOT EXISTS facts (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  source_conversation_id TEXT,
+  source_message_id TEXT,
+  fact TEXT NOT NULL,
+  score REAL DEFAULT 0.0,       -- relevance/confidence
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_messages_convo ON messages(conversation_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_facts_user ON facts(user_id, score DESC, created_at DESC);
+`);
+
+const insertConversation = db.prepare(`
+  INSERT INTO conversations (id, user_id, label, created_at)
+  VALUES (@id, @user_id, @label, @created_at)
+`);
+const getConversation = db.prepare(`
+  SELECT * FROM conversations WHERE id = ?
+`);
+const listConversationsForUser = db.prepare(`
+  SELECT * FROM conversations WHERE user_id = ? ORDER BY created_at DESC LIMIT 200
+`);
+const insertMessage = db.prepare(`
+  INSERT INTO messages (id, conversation_id, role, content, created_at)
+  VALUES (@id, @conversation_id, @role, @content, @created_at)
+`);
+const listMessagesForConversation = db.prepare(`
+  SELECT * FROM messages WHERE conversation_id = ? ORDER BY created_at ASC
+`);
+const insertFact = db.prepare(`
+  INSERT INTO facts (id, user_id, source_conversation_id, source_message_id, fact, score, created_at)
+  VALUES (@id, @user_id, @source_conversation_id, @source_message_id, @fact, @score, @created_at)
+`);
+const listTopFactsForUser = db.prepare(`
+  SELECT * FROM facts WHERE user_id = ? ORDER BY score DESC, created_at DESC LIMIT ?
+`);
+
+/** ---------- DEV AUTH (for /dev UI & admin APIs) ---------- **/
+const DEV_TOKEN = process.env.DEV_TOKEN || '';
+function requireDev(req, res, next) {
+  const token = req.headers['x-dev-token'] || req.query.token;
+  if (!DEV_TOKEN) return res.status(500).send('DEV_TOKEN not set');
+  if (token !== DEV_TOKEN) return res.status(401).send('Unauthorized');
+  next();
+}
+
+/** ---------- OPENAI CLIENT ---------- **/
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+/** ---------- SCHEMAS ---------- **/
+const ChatBody = z.object({
+  userId: z.string().min(1),
+  message: z.string().min(1),
+  conversationId: z.string().optional().nullable(),
+  // control how much context you want
+  maxContextMessages: z.number().int().min(2).max(50).default(14),
+  maxFacts: z.number().int().min(0).max(100).default(20),
+  model: z.string().default("gpt-4o-mini")
+});
+
+/** ---------- PROMPTS ---------- **/
+const SYSTEM_CORE = `You are Wyshbone AI, a helpful, concise assistant. 
+Use provided "facts" as durable memory if relevant. 
+Stay on-topic. Avoid purple prose. Cite nothing.`;
+
+function buildUserContextBlock({ facts, recentMessages }) {
+  const factLines = facts.map((f, i) => `- ${f.fact} (score ${f.score.toFixed(2)})`).join('\n');
+  const history = recentMessages.map(m => `${m.role.toUpperCase()}: ${m.content}`).join('\n');
+  return [
+    { role: "system", content: SYSTEM_CORE },
+    { role: "system", content: `Durable memory (top ${facts.length} facts):\n${factLines || '(none yet)'}` },
+    // You can also add a "guidelines" system message here if you want strict formatting
+    ...recentMessages.map(m => ({ role: m.role, content: m.content }))
+  ];
+}
+
+const FACT_EXTRACTOR_PROMPT = (latestUser, latestAssistant) => `
+From the most recent exchange, extract up to 3 durable, future-useful facts about the user or their long-term goals, preferences, constraints, or ongoing projects.
+
+Rules:
+- Only include facts likely true for months.
+- Avoid sensitive attributes (health, politics, religion) unless the user explicitly asked to save them.
+- Keep each fact 1 short sentence.
+- If no durable facts exist, return an empty list.
+
+Return strict JSON: {"facts":[{"text":"...", "score": 0-1}, ...]}
+Recent exchange:
+USER: ${latestUser}
+ASSISTANT: ${latestAssistant}
+`;
+
+/** ---------- CHAT ENDPOINT ---------- **/
+app.post('/api/chat', async (req, res) => {
+  try {
+    const body = ChatBody.parse(req.body);
+    const now = Date.now();
+
+    // Create conversation if needed
+    let conversationId = body.conversationId || null;
+    if (!conversationId) {
+      conversationId = uuid();
+      insertConversation.run({
+        id: conversationId,
+        user_id: body.userId,
+        label: 'Conversation',
+        created_at: now
+      });
+    } else {
+      const exists = getConversation.get(conversationId);
+      if (!exists) {
+        insertConversation.run({
+          id: conversationId,
+          user_id: body.userId,
+          label: 'Conversation',
+          created_at: now
+        });
+      }
+    }
+
+    // Save user message
+    const userMsgId = uuid();
+    insertMessage.run({
+      id: userMsgId,
+      conversation_id: conversationId,
+      role: 'user',
+      content: body.message,
+      created_at: now
+    });
+
+    // Gather context: facts + recent messages
+    const facts = listTopFactsForUser.all(body.userId, body.maxFacts);
+    const recent = listMessagesForConversation.all(conversationId);
+    const recentForContext = recent.slice(Math.max(0, recent.length - body.maxContextMessages));
+
+    // Build messages
+    const messages = buildUserContextBlock({
+      facts,
+      recentMessages: recentForContext.map(m => ({ role: m.role, content: m.content }))
+    });
+
+    // Call OpenAI
+    const completion = await openai.chat.completions.create({
+      model: body.model,
+      messages,
+      temperature: 0.3
+    });
+
+    const assistantText = completion.choices[0]?.message?.content?.trim() || '…';
+
+    // Save assistant message
+    const asstMsgId = uuid();
+    insertMessage.run({
+      id: asstMsgId,
+      conversation_id: conversationId,
+      role: 'assistant',
+      content: assistantText,
+      created_at: Date.now()
+    });
+
+    // Extract durable facts from this exchange (background-ish step, but we do it inline here)
+    try {
+      const extract = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        temperature: 0.0,
+        messages: [
+          { role: "system", content: "You extract facts in strict JSON." },
+          { role: "user", content: FACT_EXTRACTOR_PROMPT(body.message, assistantText) }
+        ]
+      });
+      const raw = extract.choices[0]?.message?.content || '{}';
+      const parsed = JSON.parse(raw);
+      const factsOut = Array.isArray(parsed?.facts) ? parsed.facts : [];
+      for (const f of factsOut.slice(0, 3)) {
+        if (!f?.text) continue;
+        insertFact.run({
+          id: uuid(),
+          user_id: body.userId,
+          source_conversation_id: conversationId,
+          source_message_id: asstMsgId,
+          fact: String(f.text).slice(0, 400),
+          score: Math.max(0, Math.min(1, Number(f.score ?? 0.5))),
+          created_at: Date.now()
+        });
+      }
+    } catch (e) {
+      // Swallow fact extractor errors silently to not block chat
+      console.error('Fact extraction error:', e?.message);
+    }
+
+    res.json({
+      conversationId,
+      messageId: asstMsgId,
+      reply: assistantText
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(400).json({ error: String(err?.message || err) });
+  }
+});
+
+/** ---------- CONVERSATION/MEMORY APIS ---------- **/
+app.get('/api/conversations/:userId', (req, res) => {
+  const rows = listConversationsForUser.all(req.params.userId);
+  res.json(rows);
+});
+app.get('/api/conversations/:userId/:conversationId', (req, res) => {
+  const rows = listMessagesForConversation.all(req.params.conversationId);
+  res.json(rows);
+});
+app.get('/api/memory/:userId', (req, res) => {
+  const limit = Number(req.query.limit ?? 100);
+  const rows = listTopFactsForUser.all(req.params.userId, limit);
+  res.json(rows);
+});
+
+/** ---------- DEV DASHBOARD (secured) ---------- **/
+app.get('/dev', requireDev, (req, res) => {
+  res.sendFile(path.join(__dirname, 'dev.html'));
+});
+app.get('/dev/app.js', requireDev, (req, res) => {
+  res.sendFile(path.join(__dirname, 'dev.app.js'));
+});
+app.get('/dev/style.css', requireDev, (req, res) => {
+  res.sendFile(path.join(__dirname, 'dev.style.css'));
+});
+
+/** ---------- STATIC (OPTIONAL: your main chat frontend) ---------- **/
+app.use(express.static('public')); // if you have /public with your chat UI
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log('Server listening on ' + PORT));
+
+# --- file: dev.html
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Wyshbone Dev • Memory</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="/dev/style.css?cachebust=1" />
+</head>
+<body>
+  <header>
+    <h1>Wyshbone • Dev Memory</h1>
+    <div class="right">
+      <input id="devToken" type="password" placeholder="DEV token" />
+      <input id="userId" type="text" placeholder="User ID (e.g., phil@wyshbone)" />
+      <button id="loadBtn">Load</button>
+    </div>
+  </header>
+
+  <main>
+    <nav class="tabs">
+      <button data-tab="convos" class="active">Conversations</button>
+      <button data-tab="messages">Messages</button>
+      <button data-tab="facts">Facts</button>
+    </nav>
+    <section id="convos" class="tab active">
+      <h2>Conversations</h2>
+      <ul id="convoList" class="list"></ul>
+    </section>
+    <section id="messages" class="tab">
+      <h2>Messages <small id="activeConvoLabel"></small></h2>
+      <div id="msgList" class="messages"></div>
+    </section>
+    <section id="facts" class="tab">
+      <h2>Durable Facts</h2>
+      <ul id="factList" class="list"></ul>
+    </section>
+  </main>
+
+  <script src="/dev/app.js?cachebust=1"></script>
+</body>
+</html>
+
+# --- file: dev.style.css
+:root {
+  --bg: #0b0d12; --card:#121621; --muted:#8a94a6; --text:#e7edf7; --acc:#56b2ff; --green:#4ad295;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.4 system-ui,Segoe UI,Roboto,Arial}
+header{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid #1f2533;background:#0e121b;position:sticky;top:0}
+h1{margin:0;font-size:16px;letter-spacing:.3px}
+.right input{background:#0b0f18;border:1px solid #1f2533;color:var(--text);padding:8px 10px;border-radius:8px;margin-right:8px}
+.right button{background:var(--acc);border:none;color:#04101d;padding:8px 12px;border-radius:8px;font-weight:600}
+main{max-width:1100px;margin:24px auto;padding:0 16px}
+.tabs{display:flex;gap:8px;margin-bottom:12px}
+.tabs button{background:#0e1420;border:1px solid #1f2533;color:var(--text);padding:8px 12px;border-radius:10px}
+.tabs button.active{border-color:var(--acc);box-shadow:0 0 0 2px rgba(86,178,255,0.2) inset}
+.tab{display:none;background:var(--card);border:1px solid #1f2533;border-radius:14px;padding:12px}
+.tab.active{display:block}
+.list{list-style:none;margin:0;padding:0}
+.list li{padding:10px 8px;border-bottom:1px solid #1f2533}
+.messages{display:flex;flex-direction:column;gap:8px}
+.msg{padding:10px;border-radius:12px;white-space:pre-wrap}
+.msg.user{background:#0e1726;border:1px solid #1f2533}
+.msg.assistant{background:#131b2c;border:1px solid #23304a}
+small{color:var(--muted)}
+h2{margin:6px 0 12px}
+
+# --- file: dev.app.js
+const $ = sel => document.querySelector(sel);
+const $$ = sel => Array.from(document.querySelectorAll(sel));
+
+const state = {
+  userId: "",
+  devToken: "",
+  conversationId: null
+};
+
+function setActiveTab(name){
+  $$('.tab').forEach(el=>el.classList.remove('active'));
+  $$('.tabs button').forEach(b=>b.classList.remove('active'));
+  document.getElementById(name).classList.add('active');
+  document.querySelector(`.tabs button[data-tab="${name}"]`).classList.add('active');
+}
+
+async function api(path){
+  const u = new URL(path, window.location.origin);
+  if (state.devToken) u.searchParams.set('token', state.devToken);
+  const res = await fetch(u.toString());
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+$('#loadBtn').addEventListener('click', async ()=>{
+  state.userId = $('#userId').value.trim();
+  state.devToken = $('#devToken').value.trim();
+  if (!state.userId || !state.devToken){ alert('Enter userId and dev token'); return; }
+  await loadConversations();
+  await loadFacts();
+});
+
+async function loadConversations(){
+  const rows = await api(`/api/conversations/${encodeURIComponent(state.userId)}`);
+  const ul = $('#convoList'); ul.innerHTML = '';
+  rows.forEach(r=>{
+    const li = document.createElement('li');
+    const dt = new Date(r.created_at).toLocaleString();
+    li.innerHTML = `<b>${r.label}</b> <small>• ${r.id}</small><br/><small>${dt}</small><br/>
+      <button data-id="${r.id}">Open</button>`;
+    ul.appendChild(li);
+    li.querySelector('button').addEventListener('click', ()=>{
+      state.conversationId = r.id;
+      $('#activeConvoLabel').textContent = `(${r.label} – ${r.id})`;
+      setActiveTab('messages');
+      loadMessages();
+    });
+  });
+}
+
+async function loadMessages(){
+  if (!state.conversationId) return;
+  const rows = await api(`/api/conversations/${encodeURIComponent(state.userId)}/${encodeURIComponent(state.conversationId)}`);
+  const wrap = $('#msgList'); wrap.innerHTML = '';
+  rows.forEach(m=>{
+    const div = document.createElement('div');
+    div.className = `msg ${m.role}`;
+    div.innerHTML = `<small>${m.role} • ${new Date(m.created_at).toLocaleString()}</small>\n${m.content}`;
+    wrap.appendChild(div);
+  });
+}
+
+async function loadFacts(){
+  const rows = await api(`/api/memory/${encodeURIComponent(state.userId)}?limit=200`);
+  const ul = $('#factList'); ul.innerHTML = '';
+  rows.forEach(f=>{
+    const li = document.createElement('li');
+    const dt = new Date(f.created_at).toLocaleString();
+    li.innerHTML = `<b>${(f.score ?? 0).toFixed(2)}</b> ${f.fact}<br/><small>${dt} • convo ${f.source_conversation_id}</small>`;
+    ul.appendChild(li);
+  });
+}
+
+$$('.tabs button').forEach(b=>{
+  b.addEventListener('click', ()=> setActiveTab(b.dataset.tab));
+});
+
+# --- file: public/index.html
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>Wyshbone Chat</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <style>
+    body{font:16px system-ui;margin:0;padding:24px;max-width:800px}
+    #log{white-space:pre-wrap;border:1px solid #ddd;border-radius:12px;padding:12px;min-height:240px}
+    input,button{font:inherit;padding:8px 10px}
+    #row{display:flex;gap:8px;margin-top:12px}
+  </style>
+</head>
+<body>
+  <h1>Wyshbone Chat (with memory)</h1>
+  <div>
+    <label>User ID: <input id="userId" placeholder="phil@wyshbone"/></label>
+    <button id="newThread">New Thread</button>
+  </div>
+  <div id="log"></div>
+  <div id="row">
+    <input id="msg" placeholder="Type a message..." style="flex:1"/>
+    <button id="send">Send</button>
+  </div>
+  <script>
+    const log = document.getElementById('log');
+    const msg = document.getElementById('msg');
+    const userIdEl = document.getElementById('userId');
+
+    const KEY = 'wyshbone.conversationId';
+    let conversationId = localStorage.getItem(KEY) || null;
+
+    function append(text){ log.textContent += text + "\\n\\n"; log.scrollTop = log.scrollHeight; }
+
+    document.getElementById('newThread').onclick = ()=>{
+      conversationId = null; localStorage.removeItem(KEY);
+      append('— started new conversation —');
+    };
+
+    document.getElementById('send').onclick = async ()=>{
+      const userId = userIdEl.value.trim() || 'anon';
+      const text = msg.value.trim(); if (!text) return;
+      append('YOU: ' + text);
+      msg.value = '';
+      const res = await fetch('/api/chat', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ userId, message: text, conversationId })
+      });
+      const data = await res.json();
+      if (data.conversationId && !conversationId) {
+        conversationId = data.conversationId;
+        localStorage.setItem(KEY, conversationId);
+      }
+      append('AI: ' + (data.reply || '(no reply)'));
+    };
+  </script>
+</body>
+</html>
