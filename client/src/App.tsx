@@ -269,6 +269,7 @@ function App() {
               onStopRun={(id) => console.log("Stop run:", id)}
               onArchiveRun={(id, archived) => console.log("Archive run:", id, archived)}
               onRunRun={handleRunRun}
+              onNewChat={() => newChatCallbackRef.current?.()}
             />
             <div className="flex flex-col flex-1">
               <header className="relative flex items-center justify-between p-2 border-b gap-2">
@@ -289,15 +290,6 @@ function App() {
                 </div>
                 
                 <div className="flex items-center gap-1">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => newChatCallbackRef.current?.()}
-                    data-testid="button-new-chat"
-                    title="Start new chat"
-                  >
-                    <FilePlus className="h-5 w-5" />
-                  </Button>
                   <Button
                     variant="ghost"
                     size="icon"

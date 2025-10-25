@@ -218,13 +218,6 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
         console.log("🆕 Started new chat - visual thread cleared, context retained");
       };
       onNewChat(handleNewChat);
-      
-      // Cleanup: clear the callback when component unmounts
-      return () => {
-        if (onNewChat) {
-          onNewChat(() => {});
-        }
-      };
     }
   }, [onNewChat]);
 

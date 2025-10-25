@@ -1,4 +1,4 @@
-import { Globe, MessageSquare, Bug } from "lucide-react";
+import { Globe, MessageSquare, Bug, FilePlus } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "wouter";
 import {
@@ -262,6 +262,7 @@ interface AppSidebarProps {
   onDuplicateRun?: (id: string, newId: string) => void;
   onOpenExternal?: (url: string, id: string) => void;
   onRunRun?: (run: RunItem) => void;
+  onNewChat?: () => void;
 }
 
 const fmtTime = (iso: string) => {
@@ -459,6 +460,7 @@ export function AppSidebar({
   onDuplicateRun,
   onOpenExternal,
   onRunRun,
+  onNewChat,
 }: AppSidebarProps) {
   const [showArchived, setShowArchived] = useState(false);
   const [localRuns, setLocalRuns] = useState<RunItem[]>(runs);
@@ -643,6 +645,15 @@ export function AppSidebar({
                     <MessageSquare className="h-4 w-4" />
                     <span>Chat</span>
                   </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton 
+                  onClick={() => onNewChat?.()}
+                  data-testid="button-new-chat"
+                >
+                  <FilePlus className="h-4 w-4" />
+                  <span>New Chat</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>
