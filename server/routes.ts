@@ -717,7 +717,7 @@ Examples:
           {
             role: "system" as const,
             content: `Analyze if the user's message contains enough information to perform meaningful research. 
-IMPORTANT: Look at the conversation context to extract the research topic if the current message doesn't contain it.
+CRITICAL: When the current message is vague (like "deep dive", "yes", "go ahead"), you MUST extract the research topic from earlier conversation context.
 
 Return JSON with:
 {
@@ -729,20 +729,23 @@ Return JSON with:
 
 Examples:
 - Current: "can you do a deep dive" + Context: (empty) → {"has_topic": false, "research_topic": null, "needs_clarification": true, "suggested_question": "What would you like me to research?"}
-- Current: "can you do deep research?" + Context: "user: can you find freehouses in west sussex" → {"has_topic": true, "research_topic": "freehouses in west sussex", "needs_clarification": false, "suggested_question": null}
-- Current: "yes" + Context: "assistant: Would you like me to start this research? user: I want to research bakeries in London" → {"has_topic": true, "research_topic": "bakeries in London", "needs_clarification": false, "suggested_question": null}
+- Current: "deep dive" + Context: "user: pubs in texas" → {"has_topic": true, "research_topic": "pubs in texas", "needs_clarification": false, "suggested_question": null}
+- Current: "yes" + Context: "assistant: Would you like research on bakeries? user: bakeries in London" → {"has_topic": true, "research_topic": "bakeries in London", "needs_clarification": false, "suggested_question": null}
 - Current: "research new coffee shops in London" + Context: (any) → {"has_topic": true, "research_topic": "new coffee shops in London", "needs_clarification": false, "suggested_question": null}
 - Current: "deep research" + Context: "user: what about dental practices?" → {"has_topic": true, "research_topic": "dental practices", "needs_clarification": false, "suggested_question": null}
+- Current: "go ahead" + Context: "user: freehouses in west sussex that need cask ale" → {"has_topic": true, "research_topic": "freehouses in west sussex that need cask ale", "needs_clarification": false, "suggested_question": null}
 
 CRITICAL RULES:
-1. If current message has the topic → use it
-2. If current message doesn't have topic BUT conversation context does → extract from context
-3. Only set has_topic=false if NEITHER current message NOR context contains a topic
-4. When extracting from context, look for what the user was asking about (business types, locations, research subjects)`
+1. If current message has a clear topic (business + location) → use it
+2. If current message is vague ("deep dive", "yes", "go ahead", "start", etc.) → ALWAYS look back in conversation for the topic
+3. Search the ENTIRE conversation context for topic clues - look at all user messages, not just the most recent
+4. Extract business types, locations, and subjects from earlier user messages
+5. Only set has_topic=false if NEITHER current message NOR any conversation context contains a topic
+6. The research_topic should be specific enough to research (include business type AND location when available)`
           },
           {
             role: "user" as const,
-            content: `User message: "${latestUserText}"\n\nRecent conversation context:\n${memoryMessages.slice(-5).map(m => `${m.role}: ${m.content}`).join('\n')}\n\nValidate:`
+            content: `User message: "${latestUserText}"\n\nConversation context (most recent first):\n${memoryMessages.slice(-10).reverse().filter(m => m.role !== 'system').map((m, i) => `[${i}] ${m.role}: ${m.content.substring(0, 200)}`).join('\n')}\n\nExtract the research topic:`
           }
         ];
 

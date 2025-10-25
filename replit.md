@@ -32,6 +32,7 @@ The user interface adheres to modern Material Design principles, inspired by Cha
 - **Streaming Responses:** Utilizes Server-Sent Events (SSE) for real-time AI responses and animated typing indicators.
 - **Error Handling:** Provides comprehensive error messages as system notifications.
 - **Conversational Planning:** A GPT-based planner intelligently decides whether to "search," "use_cache," or "respond" to prevent unnecessary searches and ensure venue deduplication.
+- **Deep Research Context Extraction:** When users use vague follow-up phrases like "deep dive", "yes", or "go ahead", the system intelligently extracts the research topic from earlier conversation context (examines last 10 messages to find the original topic mentioned by the user).
 - **Persistent Memory System:** A database-backed system for conversation history and knowledge accumulation, serving as a background reference layer.
     - **Conversation Persistence:** All chat messages are saved to PostgreSQL with conversation IDs maintained.
     - **Fact Extraction:** Automatically extracts user preferences, business requirements, and contextual information from conversations and research prompts.
