@@ -717,31 +717,30 @@ Examples:
           {
             role: "system" as const,
             content: `Analyze if the user's message contains enough information to perform meaningful research. 
-CRITICAL: When the current message is vague (like "deep dive", "yes", "go ahead"), you MUST extract the research topic from earlier conversation context.
+CRITICAL: Distinguish between EXPLICIT topics (stated in current message) vs INFERRED topics (extracted from context).
 
 Return JSON with:
 {
   "has_topic": true/false,
   "research_topic": "extracted topic" or null,
+  "topic_source": "explicit" | "inferred_from_context" | "no_topic",
   "needs_clarification": true/false,
   "suggested_question": "question to ask user" or null
 }
 
 Examples:
-- Current: "can you do a deep dive" + Context: (empty) → {"has_topic": false, "research_topic": null, "needs_clarification": true, "suggested_question": "What would you like me to research?"}
-- Current: "deep dive" + Context: "user: pubs in texas" → {"has_topic": true, "research_topic": "pubs in texas", "needs_clarification": false, "suggested_question": null}
-- Current: "yes" + Context: "assistant: Would you like research on bakeries? user: bakeries in London" → {"has_topic": true, "research_topic": "bakeries in London", "needs_clarification": false, "suggested_question": null}
-- Current: "research new coffee shops in London" + Context: (any) → {"has_topic": true, "research_topic": "new coffee shops in London", "needs_clarification": false, "suggested_question": null}
-- Current: "deep research" + Context: "user: what about dental practices?" → {"has_topic": true, "research_topic": "dental practices", "needs_clarification": false, "suggested_question": null}
-- Current: "go ahead" + Context: "user: freehouses in west sussex that need cask ale" → {"has_topic": true, "research_topic": "freehouses in west sussex that need cask ale", "needs_clarification": false, "suggested_question": null}
+- Current: "can you do a deep dive" + Context: (empty) → {"has_topic": false, "research_topic": null, "topic_source": "no_topic", "needs_clarification": true, "suggested_question": "What would you like me to research?"}
+- Current: "deep dive" + Context: "user: pubs in texas" → {"has_topic": true, "research_topic": "pubs in texas", "topic_source": "inferred_from_context", "needs_clarification": true, "suggested_question": "Would you like me to research pubs in Texas?"}
+- Current: "I'm looking for pubs" + Context: "earlier: texas" → {"has_topic": true, "research_topic": "pubs in Texas", "topic_source": "inferred_from_context", "needs_clarification": true, "suggested_question": "I see you mentioned pubs, and earlier you were interested in Texas. Would you like me to research pubs in Texas?"}
+- Current: "research new coffee shops in London" + Context: (any) → {"has_topic": true, "research_topic": "new coffee shops in London", "topic_source": "explicit", "needs_clarification": false, "suggested_question": null}
+- Current: "yes" + Context: "assistant: Would you like me to research pubs in Texas?" → {"has_topic": true, "research_topic": "pubs in Texas", "topic_source": "explicit", "needs_clarification": false, "suggested_question": null}
 
 CRITICAL RULES:
-1. If current message has a clear topic (business + location) → use it
-2. If current message is vague ("deep dive", "yes", "go ahead", "start", etc.) → ALWAYS look back in conversation for the topic
-3. Search the ENTIRE conversation context for topic clues - look at all user messages, not just the most recent
-4. Extract business types, locations, and subjects from earlier user messages
-5. Only set has_topic=false if NEITHER current message NOR any conversation context contains a topic
-6. The research_topic should be specific enough to research (include business type AND location when available)`
+1. topic_source = "explicit" ONLY when the current message contains BOTH business type AND location clearly stated
+2. topic_source = "inferred_from_context" when combining current message with earlier context (like "pubs" from current + "Texas" from earlier)
+3. topic_source = "no_topic" when there's not enough information anywhere
+4. When topic_source = "inferred_from_context", ALWAYS set needs_clarification = true and provide a confirmation question
+5. Only auto-start research (needs_clarification = false) when topic_source = "explicit"`
           },
           {
             role: "user" as const,
@@ -765,6 +764,8 @@ CRITICAL RULES:
               "I'd be happy to perform a deep research dive! Could you please specify the topic or area you'd like me to investigate?\n\nFor example:\n• \"Research new coffee shops that opened in London in 2024\"\n• \"Investigate dental practices in Manchester\"\n• \"Find information about bakeries that opened recently\"";
             
             appendMessage(sessionId, { role: "assistant", content: askMsg });
+            await saveMessage(conversationId, "assistant", askMsg);
+            console.log("💾 Saved research clarification message to database");
             res.write(`data: ${JSON.stringify({ content: askMsg })}\n\n`);
             res.write(`data: [DONE]\n\n`);
             return res.end();
@@ -784,6 +785,8 @@ CRITICAL RULES:
           if (response.ok) {
             const confirmMsg = `🔬 Deep research started!\n\nI'm investigating: "${researchTopic}"\n\nYou can view the progress in the sidebar. I'll notify you when it's complete.`;
             appendMessage(sessionId, { role: "assistant", content: confirmMsg });
+            await saveMessage(conversationId, "assistant", confirmMsg);
+            console.log("💾 Saved research start message to database");
             res.write(`data: ${JSON.stringify({ content: confirmMsg })}\n\n`);
             res.write(`data: [DONE]\n\n`);
             return res.end();
@@ -794,6 +797,8 @@ CRITICAL RULES:
           console.error("❌ Deep research error:", err.message);
           const errorMsg = `Sorry, I couldn't start the deep research: ${err.message}`;
           appendMessage(sessionId, { role: "assistant", content: errorMsg });
+          await saveMessage(conversationId, "assistant", errorMsg);
+          console.log("💾 Saved research error message to database");
           res.write(`data: ${JSON.stringify({ content: errorMsg })}\n\n`);
           res.write(`data: [DONE]\n\n`);
           return res.end();
