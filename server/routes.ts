@@ -2812,6 +2812,12 @@ Return structured data with the EXACT placeId provided above: "${placeId}"`;
 
   app.get("/api/deep-research", async (_req, res) => {
     try {
+      // Disable caching and ETags to ensure frontend gets real-time status updates
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+      res.removeHeader('ETag');
+      
       const runs = await getAllRuns();
       res.json({ runs: runs.map(stripLargeOutput) });
     } catch (error: any) {
