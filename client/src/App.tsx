@@ -97,6 +97,46 @@ function App() {
   const addRunCallbackRef = useRef<((run: Partial<RunItem>) => string) | null>(null);
   const activeRunIdRef = useRef<string | null>(null);
 
+  // Poll for deep research runs
+  useEffect(() => {
+    const fetchDeepResearchRuns = async () => {
+      try {
+        const response = await fetch("/api/deep-research");
+        if (response.ok) {
+          const data = await response.json();
+          const researchRuns = data.runs || [];
+          
+          // Convert research runs to RunItem format
+          const convertedRuns: RunItem[] = researchRuns.map((r: any) => ({
+            id: r.id,
+            label: r.label,
+            startedAt: new Date(r.createdAt).toISOString(),
+            finishedAt: r.status === "completed" || r.status === "failed" ? new Date(r.updatedAt).toISOString() : null,
+            status: r.status,
+            runType: "deep_research" as const,
+            outputPreview: r.outputPreview,
+          }));
+          
+          // Merge with existing runs (keep business runs, replace research runs)
+          setRuns((prev) => {
+            const businessRuns = prev.filter((r) => r.runType !== "deep_research");
+            return [...convertedRuns, ...businessRuns];
+          });
+        }
+      } catch (error) {
+        console.error("Failed to fetch deep research runs:", error);
+      }
+    };
+
+    // Initial fetch
+    fetchDeepResearchRuns();
+
+    // Poll every 5 seconds
+    const interval = setInterval(fetchDeepResearchRuns, 5000);
+
+    return () => clearInterval(interval);
+  }, []);
+
   useEffect(() => {
     localStorage.setItem('defaultCountry', defaultCountry);
   }, [defaultCountry]);

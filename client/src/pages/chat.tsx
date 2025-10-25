@@ -64,6 +64,19 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
       }
 
       const data = await response.json();
+      const run = data.run;
+      
+      // Add to sidebar immediately
+      if (addRun) {
+        addRun({
+          id: run.id,
+          label: run.label,
+          startedAt: new Date(run.createdAt).toISOString(),
+          status: run.status,
+          runType: "deep_research",
+          outputPreview: run.outputPreview,
+        });
+      }
       
       const systemMessage: SystemMessage = {
         id: crypto.randomUUID(),
@@ -73,7 +86,7 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
       };
       setMessages((prev) => [...prev, systemMessage]);
       
-      return data.run;
+      return run;
     } catch (error: any) {
       const errorMessage: SystemMessage = {
         id: crypto.randomUUID(),

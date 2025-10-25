@@ -23,7 +23,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
-export type RunStatus = "queued" | "running" | "completed" | "failed" | "stopped";
+export type RunStatus = "queued" | "running" | "completed" | "failed" | "stopped" | "in_progress";
 
 export type RunItem = {
   id: string;
@@ -38,6 +38,8 @@ export type RunItem = {
   country?: string;
   targetPosition?: string;
   uniqueId?: string;
+  runType?: "business_search" | "deep_research";
+  outputPreview?: string;
 };
 
 // Generate a 20-character lowercase alphanumeric unique ID
@@ -282,13 +284,14 @@ const Badge: React.FC<{ status: RunStatus }> = ({ status }) => {
   const map: Record<RunStatus, string> = {
     queued: "bg-muted text-muted-foreground",
     running: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
+    in_progress: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
     completed: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200",
     failed: "bg-rose-100 text-rose-800 dark:bg-rose-900 dark:text-rose-200",
     stopped: "bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200",
   };
   return (
     <span className={`inline-block text-[10px] px-2 py-0.5 rounded-full ${map[status]}`}>
-      {status}
+      {status === "in_progress" ? "in progress" : status}
     </span>
   );
 };
@@ -325,32 +328,45 @@ const RunRow: React.FC<{
           
           {/* Search details */}
           <div className="space-y-1 text-[12px] text-muted-foreground">
-            {run.businessType && (
-              <div className="break-words">
-                <span className="font-medium text-foreground">Business:</span> {run.businessType}
-              </div>
+            {run.runType === "deep_research" ? (
+              <>
+                {run.outputPreview && (
+                  <div className="break-words text-[11px] italic">
+                    {run.outputPreview}
+                  </div>
+                )}
+                <div className="text-[11px] mt-2">Started {fmtTime(run.startedAt)}</div>
+              </>
+            ) : (
+              <>
+                {run.businessType && (
+                  <div className="break-words">
+                    <span className="font-medium text-foreground">Business:</span> {run.businessType}
+                  </div>
+                )}
+                {run.location && (
+                  <div className="break-words">
+                    <span className="font-medium text-foreground">Location:</span> {run.location}
+                  </div>
+                )}
+                {run.country && (
+                  <div className="break-words">
+                    <span className="font-medium text-foreground">Country:</span> {run.country}
+                  </div>
+                )}
+                {run.targetPosition && (
+                  <div className="break-words">
+                    <span className="font-medium text-foreground">Target:</span> {run.targetPosition}
+                  </div>
+                )}
+                {run.uniqueId && (
+                  <div className="break-words text-[11px] text-muted-foreground mt-1">
+                    <span className="font-medium text-foreground">ID:</span> {run.uniqueId}
+                  </div>
+                )}
+                <div className="text-[11px] mt-2">Sent {fmtTime(run.startedAt)}</div>
+              </>
             )}
-            {run.location && (
-              <div className="break-words">
-                <span className="font-medium text-foreground">Location:</span> {run.location}
-              </div>
-            )}
-            {run.country && (
-              <div className="break-words">
-                <span className="font-medium text-foreground">Country:</span> {run.country}
-              </div>
-            )}
-            {run.targetPosition && (
-              <div className="break-words">
-                <span className="font-medium text-foreground">Target:</span> {run.targetPosition}
-              </div>
-            )}
-            {run.uniqueId && (
-              <div className="break-words text-[11px] text-muted-foreground mt-1">
-                <span className="font-medium text-foreground">ID:</span> {run.uniqueId}
-              </div>
-            )}
-            <div className="text-[11px] mt-2">Sent {fmtTime(run.startedAt)}</div>
           </div>
         </div>
 
@@ -366,12 +382,30 @@ const RunRow: React.FC<{
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" alignOffset={-8} className="w-56">
-              <DropdownMenuItem onClick={actions.view} data-testid="menu-item-0">
-                View in Bubble
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={actions.stop} data-testid="menu-item-3">
-                Stop workflow
-              </DropdownMenuItem>
+              {run.runType === "deep_research" ? (
+                <>
+                  {run.status === "completed" && (
+                    <DropdownMenuItem onClick={actions.view} data-testid="menu-item-0">
+                      View Output
+                    </DropdownMenuItem>
+                  )}
+                  <DropdownMenuItem onClick={actions.stop} data-testid="menu-item-3">
+                    Stop Research
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={actions.duplicate} data-testid="menu-item-4">
+                    Duplicate
+                  </DropdownMenuItem>
+                </>
+              ) : (
+                <>
+                  <DropdownMenuItem onClick={actions.view} data-testid="menu-item-0">
+                    View in Bubble
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={actions.stop} data-testid="menu-item-3">
+                    Stop workflow
+                  </DropdownMenuItem>
+                </>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
           
@@ -443,7 +477,27 @@ export function AppSidebar({
     onSelectRun?.(id);
   };
 
-  const _stop = (id: string) => {
+  const _stop = async (id: string) => {
+    const ref = localRuns.find((r) => r.id === id);
+    if (!ref) return;
+    
+    // Handle deep research runs via API
+    if (ref.runType === "deep_research") {
+      try {
+        const response = await fetch(`/api/deep-research/${id}/stop`, {
+          method: "POST",
+        });
+        if (response.ok) {
+          // Update will be picked up by polling
+          mutate((prev) => prev.map((r) => (r.id === id ? { ...r, status: "stopped" as RunStatus, finishedAt: new Date().toISOString() } : r)));
+        }
+      } catch (error) {
+        console.error("Failed to stop deep research:", error);
+      }
+      return;
+    }
+    
+    // Handle business search runs
     mutate((prev) => prev.map((r) => (r.id === id ? { ...r, status: "stopped" as RunStatus, finishedAt: new Date().toISOString() } : r)));
     onStopRun?.(id);
   };
@@ -471,9 +525,28 @@ export function AppSidebar({
     onRetryRun?.(id);
   };
 
-  const _duplicate = (id: string) => {
+  const _duplicate = async (id: string) => {
     const ref = localRuns.find((r) => r.id === id);
     if (!ref) return;
+    
+    // Handle deep research runs via API
+    if (ref.runType === "deep_research") {
+      try {
+        const response = await fetch(`/api/deep-research/${id}/duplicate`, {
+          method: "POST",
+        });
+        if (response.ok) {
+          const data = await response.json();
+          // New run will be picked up by polling
+          console.log("Deep research duplicated:", data.run);
+        }
+      } catch (error) {
+        console.error("Failed to duplicate deep research:", error);
+      }
+      return;
+    }
+    
+    // Handle business search runs
     const generatedId = newId();
     const generatedUniqueId = generateUniqueId();
     console.log("Duplicate run:", id, "→", generatedId, "| uniqueId:", generatedUniqueId);
@@ -494,6 +567,14 @@ export function AppSidebar({
   const _openExternal = (id: string) => {
     const ref = localRuns.find((r) => r.id === id);
     if (!ref) return;
+    
+    // Handle deep research runs
+    if (ref.runType === "deep_research") {
+      window.open(`/api/deep-research/${id}`, "_blank", "noopener,noreferrer");
+      return;
+    }
+    
+    // Handle business search runs
     if (ref.externalUrl) {
       onOpenExternal?.(ref.externalUrl, id);
       if (!onOpenExternal) window.open(ref.externalUrl, "_blank", "noopener,noreferrer");
