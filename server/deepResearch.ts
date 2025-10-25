@@ -175,6 +175,11 @@ export async function pollOneRun(run: DeepResearchRun): Promise<void> {
         outputText = JSON.stringify(data.output ?? data, null, 2);
       }
       
+      // Final safety check to ensure outputText is a string
+      if (typeof outputText !== 'string') {
+        outputText = String(outputText || '');
+      }
+      
       // Always prepend the header for markdown rendering
       if (!outputText.includes("# 📊")) {
         outputText = "# 📊 Deep Research Report\n\n" + outputText;
