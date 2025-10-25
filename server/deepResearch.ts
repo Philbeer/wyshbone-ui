@@ -154,10 +154,27 @@ export async function pollOneRun(run: DeepResearchRun): Promise<void> {
     run.updatedAt = Date.now();
 
     if (status === "completed") {
-      const outputText =
+      // Extract the actual text from the response
+      let outputText =
         data.output_text ??
         (data.output && data.output[0] && data.output[0].content && data.output[0].content[0] && data.output[0].content[0].text) ??
-        JSON.stringify(data.output ?? data, null, 2);
+        "";
+      
+      // If we still don't have text, try other paths
+      if (!outputText && data.text) {
+        outputText = data.text;
+      }
+      
+      // Fallback to JSON if we couldn't extract text
+      if (!outputText) {
+        outputText = JSON.stringify(data.output ?? data, null, 2);
+      }
+      
+      // Always prepend the header for markdown rendering
+      if (!outputText.includes("# 📊")) {
+        outputText = "# 📊 Deep Research Report\n\n" + outputText;
+      }
+      
       run.outputText = outputText;
       console.log(`✅ Research job ${run.id} completed, output length: ${outputText?.length || 0}`);
     } else if (status === "failed") {
