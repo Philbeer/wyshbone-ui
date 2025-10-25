@@ -133,31 +133,16 @@ Return ONLY the reformatted markdown report with no meta-commentary.`;
 // Send a completion notification to the chat
 async function sendCompletionNotification(sessionId: string, run: DeepResearchRun): Promise<void> {
   try {
-    // Fetch the latest run data to get the completed output
-    const completedRun = await storage.getDeepResearchRun(run.id);
+    const message = `✅ **Deep Research Complete!**\n\n` +
+      `Your research on "${run.label}" has finished.\n\n` +
+      `Click on the research run in the sidebar to view the full report.`;
     
-    if (completedRun?.outputText) {
-      // Add the full research report to the chat conversation
-      // This allows users to ask follow-up questions about the report
-      appendMessage(sessionId, {
-        role: "assistant",
-        content: `✅ **Research Complete: ${run.label}**\n\n${completedRun.outputText}`
-      });
-      
-      console.log(`📬 Added research report for "${run.label}" to chat conversation (${completedRun.outputText.length} chars)`);
-    } else {
-      // Fallback: send basic notification if no output available
-      const message = `✅ **Deep Research Complete!**\n\n` +
-        `Your research on "${run.label}" has finished.\n\n` +
-        `Click on the research run in the sidebar to view the full report.`;
-      
-      appendMessage(sessionId, {
-        role: "assistant",
-        content: message
-      });
-      
-      console.log(`📬 Sent basic completion notification for ${run.id} to session ${sessionId}`);
-    }
+    appendMessage(sessionId, {
+      role: "assistant",
+      content: message
+    });
+    
+    console.log(`📬 Sent completion notification for ${run.id} to session ${sessionId}`);
   } catch (err: any) {
     console.error(`❌ Failed to send completion notification:`, err.message);
   }
