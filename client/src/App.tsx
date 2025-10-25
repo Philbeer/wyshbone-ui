@@ -61,7 +61,7 @@ function Router({
   getActiveRunId
 }: { 
   defaultCountry: string;
-  onInjectSystemMessage: (fn: (msg: string) => void) => void;
+  onInjectSystemMessage: (fn: (msg: string, asUser?: boolean) => void) => void;
   onAddRun: () => (run: Partial<RunItem>) => string;
   onUpdateRun: () => (runId: string, updates: Partial<RunItem>) => void;
   getActiveRunId: () => string | null;
@@ -93,7 +93,7 @@ function App() {
     return (localStorage.getItem('theme') as "light" | "dark") || "light";
   });
 
-  const systemMessageInjectorRef = useRef<((msg: string) => void) | null>(null);
+  const systemMessageInjectorRef = useRef<((msg: string, asUser?: boolean) => void) | null>(null);
   const addRunCallbackRef = useRef<((run: Partial<RunItem>) => string) | null>(null);
   const activeRunIdRef = useRef<string | null>(null);
 
@@ -210,6 +210,38 @@ function App() {
     systemMessageInjectorRef.current(message);
   };
 
+  const handleSelectRun = async (id: string) => {
+    const run = runs.find(r => r.id === id);
+    if (!run) {
+      console.log("Run not found:", id);
+      return;
+    }
+
+    // Handle deep research runs - fetch and display output
+    if (run.runType === "deep_research" && run.status === "completed") {
+      try {
+        const response = await fetch(`/api/deep-research/${id}`);
+        if (!response.ok) {
+          throw new Error("Failed to fetch research output");
+        }
+        const data = await response.json();
+        const output = data.run?.outputText || "No output available";
+        
+        // Inject the research output into the chat as assistant message
+        if (systemMessageInjectorRef.current) {
+          const formattedOutput = `# 📊 ${run.label}\n\n${output}`;
+          systemMessageInjectorRef.current(formattedOutput, false);
+        }
+      } catch (error) {
+        console.error("Failed to display research output:", error);
+      }
+      return;
+    }
+
+    // For other runs, just log
+    console.log("Selected run:", id);
+  };
+
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
@@ -219,7 +251,7 @@ function App() {
               defaultCountry={defaultCountry} 
               onCountryChange={setDefaultCountry}
               runs={runs}
-              onSelectRun={(id) => console.log("Selected run:", id)}
+              onSelectRun={handleSelectRun}
               onRetryRun={(id) => console.log("Retry run:", id)}
               onDuplicateRun={(id, newId) => console.log("Duplicate run:", id, "→", newId)}
               onStopRun={(id) => console.log("Stop run:", id)}

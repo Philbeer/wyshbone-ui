@@ -117,10 +117,22 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
   // Expose send message function to parent
   useEffect(() => {
     if (onInjectSystemMessage) {
-      const sendToAI = (userContent: string) => {
-        handleSend(userContent);
+      const injectMessage = (content: string, asUser: boolean = true) => {
+        if (asUser) {
+          // Send to AI
+          handleSend(content);
+        } else {
+          // Add as assistant message directly
+          const message: Message = {
+            id: crypto.randomUUID(),
+            role: "assistant",
+            content,
+            timestamp: new Date(),
+          };
+          setMessages((prev) => [...prev, message]);
+        }
       };
-      onInjectSystemMessage(sendToAI);
+      onInjectSystemMessage(injectMessage);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onInjectSystemMessage]);
