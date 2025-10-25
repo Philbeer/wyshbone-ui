@@ -6,7 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar, type RunItem } from "@/components/app-sidebar";
 import { HeaderCountrySelector } from "@/components/HeaderCountrySelector";
-import { Moon, Sun } from "lucide-react";
+import { Moon, Sun, FilePlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import ChatPage from "@/pages/chat";
 import DebugPage from "@/pages/debug";
@@ -59,13 +59,15 @@ function Router({
   onInjectSystemMessage,
   onAddRun,
   onUpdateRun,
-  getActiveRunId
+  getActiveRunId,
+  onNewChat
 }: { 
   defaultCountry: string;
   onInjectSystemMessage: (fn: (msg: string, asUser?: boolean) => void) => void;
   onAddRun: () => (run: Partial<RunItem>) => string;
   onUpdateRun: () => (runId: string, updates: Partial<RunItem>) => void;
   getActiveRunId: () => string | null;
+  onNewChat: (fn: () => void) => void;
 }) {
   return (
     <Switch>
@@ -76,6 +78,7 @@ function Router({
           addRun={onAddRun()} 
           updateRun={onUpdateRun()}
           getActiveRunId={getActiveRunId}
+          onNewChat={onNewChat}
         />}
       </Route>
       <Route path="/debug" component={DebugPage} />
@@ -98,6 +101,7 @@ function App() {
   const systemMessageInjectorRef = useRef<((msg: string, asUser?: boolean) => void) | null>(null);
   const addRunCallbackRef = useRef<((run: Partial<RunItem>) => string) | null>(null);
   const activeRunIdRef = useRef<string | null>(null);
+  const newChatCallbackRef = useRef<(() => void) | null>(null);
 
   // Poll for deep research runs
   useEffect(() => {
@@ -284,14 +288,25 @@ function App() {
                   />
                 </div>
                 
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={toggleTheme}
-                  data-testid="button-theme-toggle"
-                >
-                  {theme === "light" ? <Moon className="h-5 w-5" /> : <Sun className="h-5 w-5" />}
-                </Button>
+                <div className="flex items-center gap-1">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => newChatCallbackRef.current?.()}
+                    data-testid="button-new-chat"
+                    title="Start new chat"
+                  >
+                    <FilePlus className="h-5 w-5" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={toggleTheme}
+                    data-testid="button-theme-toggle"
+                  >
+                    {theme === "light" ? <Moon className="h-5 w-5" /> : <Sun className="h-5 w-5" />}
+                  </Button>
+                </div>
               </header>
               <main className="flex-1 overflow-hidden">
                 <Router 
@@ -308,6 +323,9 @@ function App() {
                     return updateRun;
                   }}
                   getActiveRunId={() => activeRunIdRef.current}
+                  onNewChat={(fn: () => void) => {
+                    newChatCallbackRef.current = fn;
+                  }}
                 />
               </main>
             </div>

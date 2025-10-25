@@ -32,9 +32,10 @@ interface ChatPageProps {
   addRun?: (run: any) => string;
   updateRun?: (runId: string, updates: any) => void;
   getActiveRunId?: () => string | null;
+  onNewChat?: (fn: () => void) => void;
 }
 
-export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage, addRun, updateRun, getActiveRunId }: ChatPageProps) {
+export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage, addRun, updateRun, getActiveRunId, onNewChat }: ChatPageProps) {
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
@@ -189,6 +190,43 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onInjectSystemMessage]);
+
+  // Expose new chat function to parent
+  useEffect(() => {
+    if (onNewChat) {
+      const handleNewChat = () => {
+        // Abort any active stream first
+        if (abortControllerRef.current) {
+          abortControllerRef.current.abort();
+          abortControllerRef.current = null;
+        }
+        
+        // Clear all state
+        setMessages([]);
+        setShowWelcome(true);
+        setInput("");
+        setIsStreaming(false);
+        setShowLocationSuggestions(false);
+        
+        // Clear conversationId from localStorage
+        localStorage.removeItem('currentConversationId');
+        setConversationId(undefined);
+        
+        // Reset history loading ref so it can load again if needed
+        hasLoadedHistoryRef.current = false;
+        
+        console.log("🆕 Started new chat - visual thread cleared, context retained");
+      };
+      onNewChat(handleNewChat);
+      
+      // Cleanup: clear the callback when component unmounts
+      return () => {
+        if (onNewChat) {
+          onNewChat(() => {});
+        }
+      };
+    }
+  }, [onNewChat]);
 
   const streamChatResponse = async (conversationMessages: ChatMessage[]) => {
     setIsStreaming(true);
