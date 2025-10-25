@@ -2778,6 +2778,87 @@ Return structured data with the EXACT placeId provided above: "${placeId}"`;
     }
   });
 
+  // ===========================
+  // Deep Research API Routes
+  // ===========================
+  const {
+    startBackgroundResponsesJob,
+    getAllRuns,
+    getRun,
+    stopRun,
+    duplicateRun,
+    stripLargeOutput,
+  } = await import("./deepResearch");
+  
+  const { deepResearchCreateRequestSchema } = await import("@shared/schema");
+
+  app.post("/api/deep-research", async (req, res) => {
+    try {
+      const validation = deepResearchCreateRequestSchema.safeParse(req.body);
+      if (!validation.success) {
+        return res.status(400).json({ 
+          error: "Invalid request format", 
+          details: validation.error 
+        });
+      }
+
+      const run = await startBackgroundResponsesJob(validation.data);
+      res.json({ run: stripLargeOutput(run) });
+    } catch (error: any) {
+      console.error("Deep research creation error:", error);
+      res.status(500).json({ error: error.message || "Failed to start research" });
+    }
+  });
+
+  app.get("/api/deep-research", async (_req, res) => {
+    try {
+      const runs = getAllRuns();
+      res.json({ runs: runs.map(stripLargeOutput) });
+    } catch (error: any) {
+      console.error("Deep research list error:", error);
+      res.status(500).json({ error: error.message || "Failed to list research runs" });
+    }
+  });
+
+  app.get("/api/deep-research/:id", async (req, res) => {
+    try {
+      const run = getRun(req.params.id);
+      if (!run) {
+        return res.status(404).json({ error: "Research run not found" });
+      }
+      res.json({ run });
+    } catch (error: any) {
+      console.error("Deep research get error:", error);
+      res.status(500).json({ error: error.message || "Failed to get research run" });
+    }
+  });
+
+  app.post("/api/deep-research/:id/stop", async (req, res) => {
+    try {
+      const run = stopRun(req.params.id);
+      if (!run) {
+        return res.status(404).json({ error: "Research run not found" });
+      }
+      res.json({ run: stripLargeOutput(run) });
+    } catch (error: any) {
+      console.error("Deep research stop error:", error);
+      res.status(500).json({ error: error.message || "Failed to stop research run" });
+    }
+  });
+
+  app.post("/api/deep-research/:id/duplicate", async (req, res) => {
+    try {
+      const run = await duplicateRun(req.params.id);
+      if (!run) {
+        return res.status(404).json({ error: "Research run not found" });
+      }
+      res.json({ run: stripLargeOutput(run) });
+    } catch (error: any) {
+      console.error("Deep research duplicate error:", error);
+      res.status(500).json({ error: error.message || "Failed to duplicate research run" });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }
