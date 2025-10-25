@@ -151,3 +151,45 @@ export const jobStatusResponseSchema = z.object({
 });
 
 export type JobStatusResponse = z.infer<typeof jobStatusResponseSchema>;
+
+// Deep Research schemas
+export const deepResearchRunStatusSchema = z.enum(["queued", "in_progress", "completed", "failed", "stopped"]);
+export const deepResearchRunModeSchema = z.enum(["report", "json"]);
+
+export const deepResearchRunSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  prompt: z.string(),
+  mode: deepResearchRunModeSchema,
+  counties: z.array(z.string()).optional(),
+  windowMonths: z.number().optional(),
+  schemaName: z.string().optional(),
+  schema: z.any().optional(),
+  responseId: z.string().optional(),
+  status: deepResearchRunStatusSchema,
+  createdAt: z.number(),
+  updatedAt: z.number(),
+  outputText: z.string().optional(),
+  error: z.string().optional(),
+});
+
+export type DeepResearchRun = z.infer<typeof deepResearchRunSchema>;
+
+export const deepResearchCreateRequestSchema = z.object({
+  prompt: z.string().min(1, "Prompt is required"),
+  label: z.string().optional(),
+  mode: deepResearchRunModeSchema.optional(),
+  counties: z.array(z.string()).optional(),
+  windowMonths: z.number().optional(),
+  schemaName: z.string().optional(),
+  schema: z.any().optional(),
+});
+
+export type DeepResearchCreateRequest = z.infer<typeof deepResearchCreateRequestSchema>;
+
+export const deepResearchRunSummarySchema = deepResearchRunSchema.extend({
+  hasOutput: z.boolean(),
+  outputPreview: z.string().optional(),
+}).omit({ outputText: true });
+
+export type DeepResearchRunSummary = z.infer<typeof deepResearchRunSummarySchema>;
