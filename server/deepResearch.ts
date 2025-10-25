@@ -123,7 +123,9 @@ export async function startBackgroundResponsesJob(
     
     console.log("✅ Research job created:", data.id, "status:", data.status);
     run.responseId = data.id;
-    run.status = data.status ?? "in_progress";
+    // Map OpenAI statuses to our statuses
+    const apiStatus = data.status ?? "in_progress";
+    run.status = apiStatus === "in_progress" ? "running" : apiStatus;
     run.updatedAt = Date.now();
     runs.set(id, run);
     return run;
@@ -147,8 +149,14 @@ export async function pollOneRun(run: DeepResearchRun): Promise<void> {
     });
     
     const data = await response.json();
-    const status = data.status || "in_progress";
-    console.log(`📊 Poll result for ${run.id}: status=${status}`);
+    const apiStatus = data.status || "in_progress";
+    console.log(`📊 Poll result for ${run.id}: status=${apiStatus}`);
+    
+    // Map OpenAI statuses to our statuses
+    let status = apiStatus;
+    if (apiStatus === "in_progress") {
+      status = "running";
+    }
     
     run.status = status;
     run.updatedAt = Date.now();

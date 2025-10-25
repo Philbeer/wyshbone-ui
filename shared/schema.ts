@@ -153,7 +153,7 @@ export const jobStatusResponseSchema = z.object({
 export type JobStatusResponse = z.infer<typeof jobStatusResponseSchema>;
 
 // Deep Research schemas
-export const deepResearchRunStatusSchema = z.enum(["queued", "in_progress", "completed", "failed", "stopped"]);
+export const deepResearchRunStatusSchema = z.enum(["queued", "in_progress", "running", "completed", "failed", "stopped"]);
 export const deepResearchRunModeSchema = z.enum(["report", "json"]);
 
 export const deepResearchRunSchema = z.object({

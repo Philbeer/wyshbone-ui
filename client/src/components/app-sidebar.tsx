@@ -291,7 +291,7 @@ const Badge: React.FC<{ status: RunStatus }> = ({ status }) => {
   };
   return (
     <span className={`inline-block text-[10px] px-2 py-0.5 rounded-full ${map[status]}`}>
-      {status === "in_progress" ? "in progress" : status}
+      {status}
     </span>
   );
 };
@@ -340,7 +340,7 @@ const RunRow: React.FC<{
                     Waiting to start...
                   </div>
                 )}
-                {(!run.outputPreview || run.outputPreview === "undefined") && run.status === "in_progress" && (
+                {(!run.outputPreview || run.outputPreview === "undefined") && (run.status === "in_progress" || run.status === "running") && (
                   <div className="break-words text-[11px] italic text-muted-foreground">
                     Research in progress...
                   </div>
