@@ -179,112 +179,114 @@ export default function DebugPage() {
           </div>
         </TabsContent>
 
-        <TabsContent value="facts" className="h-full space-y-4">
-          {/* User Summary Section */}
-          {facts.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle>User Profile Summary</CardTitle>
-                <CardDescription>High-confidence insights learned from conversations (score ≥ 70)</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  {facts
-                    .filter(f => f.score >= 70)
-                    .sort((a, b) => b.score - a.score)
-                    .slice(0, 5)
-                    .map((fact) => (
-                      <div key={`summary-${fact.id}`} className="flex items-start gap-3" data-testid={`summary-fact-${fact.id}`}>
-                        <div className="flex-shrink-0 mt-0.5">
-                          <Badge variant={fact.score >= 80 ? "default" : "secondary"}>
-                            {fact.score}
-                          </Badge>
-                        </div>
-                        <p className="text-sm leading-relaxed">{fact.fact}</p>
-                      </div>
-                    ))}
-                  {facts.filter(f => f.score >= 70).length === 0 && (
-                    <p className="text-sm text-muted-foreground">
-                      No high-confidence facts yet. Facts with scores ≥70 will appear here.
-                    </p>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* All Facts Section */}
-          <Card className="flex-1 flex flex-col">
-            <CardHeader>
-              <CardTitle>All Extracted Facts ({facts.length})</CardTitle>
-              <CardDescription>Complete knowledge base accumulated from conversations</CardDescription>
-            </CardHeader>
-            <CardContent className="flex-1 overflow-hidden">
-              <ScrollArea className="h-full">
-                <div className="space-y-3">
-                  {facts.length === 0 && (
-                    <p className="text-sm text-muted-foreground" data-testid="text-no-facts">
-                      No facts extracted yet. Facts are automatically extracted after conversations.
-                    </p>
-                  )}
-                  {facts.map((fact) => {
-                    const getCategoryColor = (category: string) => {
-                      switch (category) {
-                        case 'industry': return 'bg-blue-500/10 text-blue-500 border-blue-500/20';
-                        case 'place': return 'bg-green-500/10 text-green-500 border-green-500/20';
-                        case 'subject': return 'bg-purple-500/10 text-purple-500 border-purple-500/20';
-                        case 'preference': return 'bg-orange-500/10 text-orange-500 border-orange-500/20';
-                        default: return 'bg-gray-500/10 text-gray-500 border-gray-500/20';
-                      }
-                    };
-                    
-                    return (
-                    <Card key={fact.id} data-testid={`card-fact-${fact.id}`}>
-                      <CardHeader className="p-4 space-y-2">
-                        <div className="flex items-start justify-between gap-2">
-                          <p className="text-sm flex-1" data-testid={`text-fact-content-${fact.id}`}>
-                            {fact.fact}
-                          </p>
-                          <div className="flex items-center gap-2 flex-shrink-0">
-                            <Badge 
-                              className={getCategoryColor(fact.category || 'general')}
-                              variant="outline"
-                              data-testid={`badge-fact-category-${fact.id}`}
-                            >
-                              {fact.category || 'general'}
-                            </Badge>
-                            <Badge 
-                              variant={fact.score >= 80 ? "default" : fact.score >= 70 ? "secondary" : "outline"} 
-                              data-testid={`badge-fact-score-${fact.id}`}
-                            >
+        <TabsContent value="facts" className="h-full">
+          <div className="flex flex-col gap-4 h-full">
+            {/* User Summary Section */}
+            {facts.length > 0 && (
+              <Card className="flex-shrink-0">
+                <CardHeader>
+                  <CardTitle>User Profile Summary</CardTitle>
+                  <CardDescription>High-confidence insights learned from conversations (score ≥ 70)</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    {facts
+                      .filter(f => f.score >= 70)
+                      .sort((a, b) => b.score - a.score)
+                      .slice(0, 5)
+                      .map((fact) => (
+                        <div key={`summary-${fact.id}`} className="flex items-start gap-3" data-testid={`summary-fact-${fact.id}`}>
+                          <div className="flex-shrink-0 mt-0.5">
+                            <Badge variant={fact.score >= 80 ? "default" : "secondary"}>
                               {fact.score}
                             </Badge>
                           </div>
+                          <p className="text-sm leading-relaxed">{fact.fact}</p>
                         </div>
-                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                          <span data-testid={`text-fact-user-${fact.id}`}>
-                            {fact.userId}
-                          </span>
-                          {fact.sourceConversationId && (
-                            <>
-                              <span>•</span>
-                              <code className="text-[10px]" data-testid={`text-fact-conversation-${fact.id}`}>
-                                {fact.sourceConversationId.slice(0, 8)}...
-                              </code>
-                            </>
-                          )}
-                          <span className="ml-auto" data-testid={`text-fact-time-${fact.id}`}>
-                            {formatDistanceToNow(fact.createdAt)} ago
-                          </span>
-                        </div>
-                      </CardHeader>
-                    </Card>
-                  );
-                  })}
-                </div>
-              </ScrollArea>
-            </CardContent>
-          </Card>
+                      ))}
+                    {facts.filter(f => f.score >= 70).length === 0 && (
+                      <p className="text-sm text-muted-foreground">
+                        No high-confidence facts yet. Facts with scores ≥70 will appear here.
+                      </p>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* All Facts Section */}
+            <Card className="flex-1 flex flex-col min-h-0">
+              <CardHeader className="flex-shrink-0">
+                <CardTitle>All Extracted Facts ({facts.length})</CardTitle>
+                <CardDescription>Complete knowledge base accumulated from conversations</CardDescription>
+              </CardHeader>
+              <CardContent className="flex-1 min-h-0 overflow-hidden">
+                <ScrollArea className="h-full">
+                  <div className="space-y-3 pr-4">
+                    {facts.length === 0 && (
+                      <p className="text-sm text-muted-foreground" data-testid="text-no-facts">
+                        No facts extracted yet. Facts are automatically extracted after conversations.
+                      </p>
+                    )}
+                    {facts.map((fact) => {
+                      const getCategoryColor = (category: string) => {
+                        switch (category) {
+                          case 'industry': return 'bg-blue-500/10 text-blue-500 border-blue-500/20';
+                          case 'place': return 'bg-green-500/10 text-green-500 border-green-500/20';
+                          case 'subject': return 'bg-purple-500/10 text-purple-500 border-purple-500/20';
+                          case 'preference': return 'bg-orange-500/10 text-orange-500 border-orange-500/20';
+                          default: return 'bg-gray-500/10 text-gray-500 border-gray-500/20';
+                        }
+                      };
+                      
+                      return (
+                      <Card key={fact.id} data-testid={`card-fact-${fact.id}`}>
+                        <CardHeader className="p-4 space-y-2">
+                          <div className="flex items-start justify-between gap-2">
+                            <p className="text-sm flex-1" data-testid={`text-fact-content-${fact.id}`}>
+                              {fact.fact}
+                            </p>
+                            <div className="flex items-center gap-2 flex-shrink-0">
+                              <Badge 
+                                className={getCategoryColor(fact.category || 'general')}
+                                variant="outline"
+                                data-testid={`badge-fact-category-${fact.id}`}
+                              >
+                                {fact.category || 'general'}
+                              </Badge>
+                              <Badge 
+                                variant={fact.score >= 80 ? "default" : fact.score >= 70 ? "secondary" : "outline"} 
+                                data-testid={`badge-fact-score-${fact.id}`}
+                              >
+                                {fact.score}
+                              </Badge>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <span data-testid={`text-fact-user-${fact.id}`}>
+                              {fact.userId}
+                            </span>
+                            {fact.sourceConversationId && (
+                              <>
+                                <span>•</span>
+                                <code className="text-[10px]" data-testid={`text-fact-conversation-${fact.id}`}>
+                                  {fact.sourceConversationId.slice(0, 8)}...
+                                </code>
+                              </>
+                            )}
+                            <span className="ml-auto" data-testid={`text-fact-time-${fact.id}`}>
+                              {formatDistanceToNow(fact.createdAt)} ago
+                            </span>
+                          </div>
+                        </CardHeader>
+                      </Card>
+                    );
+                    })}
+                  </div>
+                </ScrollArea>
+              </CardContent>
+            </Card>
+          </div>
         </TabsContent>
       </Tabs>
     </div>
