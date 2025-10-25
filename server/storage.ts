@@ -1,8 +1,18 @@
 // Storage interface for the Wyshbone Chat Agent
-import type { Job, SelectDeepResearchRun, InsertDeepResearchRun } from "@shared/schema";
+import type { 
+  Job, 
+  SelectDeepResearchRun, 
+  InsertDeepResearchRun,
+  SelectConversation,
+  InsertConversation,
+  SelectMessage,
+  InsertMessage,
+  SelectFact,
+  InsertFact
+} from "@shared/schema";
 import { drizzle } from "drizzle-orm/neon-http";
 import { neon } from "@neondatabase/serverless";
-import { deepResearchRuns } from "@shared/schema";
+import { deepResearchRuns, conversations, messages, facts } from "@shared/schema";
 import { eq, or, desc, asc } from "drizzle-orm";
 
 export interface PendingBatchConfirmation {
@@ -50,6 +60,21 @@ export interface IStorage {
   updateDeepResearchRun(id: string, updates: Partial<InsertDeepResearchRun>): Promise<SelectDeepResearchRun | null>;
   deleteDeepResearchRun(id: string): Promise<boolean>;
   listPendingDeepResearchRuns(): Promise<SelectDeepResearchRun[]>;
+  
+  // Conversation CRUD methods
+  createConversation(conversation: InsertConversation): Promise<SelectConversation>;
+  getConversation(id: string): Promise<SelectConversation | null>;
+  listConversations(userId: string): Promise<SelectConversation[]>;
+  deleteConversation(id: string): Promise<boolean>;
+  
+  // Message CRUD methods
+  createMessage(message: InsertMessage): Promise<SelectMessage>;
+  listMessages(conversationId: string): Promise<SelectMessage[]>;
+  
+  // Fact CRUD methods
+  createFact(fact: InsertFact): Promise<SelectFact>;
+  listTopFacts(userId: string, limit?: number): Promise<SelectFact[]>;
+  deleteFact(id: string): Promise<boolean>;
 }
 
 export class MemStorage implements IStorage {
@@ -57,6 +82,9 @@ export class MemStorage implements IStorage {
   private pendingConfirmations: Map<string, PendingBatchConfirmation> = new Map();
   private partialWorkflows: Map<string, PartialWorkflow> = new Map();
   private deepResearchRuns: Map<string, SelectDeepResearchRun> = new Map();
+  private conversations: Map<string, SelectConversation> = new Map();
+  private messages: Map<string, SelectMessage> = new Map();
+  private facts: Map<string, SelectFact> = new Map();
 
   async createJob(job: Job): Promise<Job> {
     this.jobs.set(job.id, job);
@@ -143,6 +171,55 @@ export class MemStorage implements IStorage {
     return Array.from(this.deepResearchRuns.values())
       .filter(run => run.status === "queued" || run.status === "running")
       .sort((a, b) => a.updatedAt - b.updatedAt);
+  }
+
+  async createConversation(conversation: InsertConversation): Promise<SelectConversation> {
+    const newConv = conversation as SelectConversation;
+    this.conversations.set(newConv.id, newConv);
+    return newConv;
+  }
+
+  async getConversation(id: string): Promise<SelectConversation | null> {
+    return this.conversations.get(id) || null;
+  }
+
+  async listConversations(userId: string): Promise<SelectConversation[]> {
+    return Array.from(this.conversations.values())
+      .filter(conv => conv.userId === userId)
+      .sort((a, b) => b.createdAt - a.createdAt);
+  }
+
+  async deleteConversation(id: string): Promise<boolean> {
+    return this.conversations.delete(id);
+  }
+
+  async createMessage(message: InsertMessage): Promise<SelectMessage> {
+    const newMsg = message as SelectMessage;
+    this.messages.set(newMsg.id, newMsg);
+    return newMsg;
+  }
+
+  async listMessages(conversationId: string): Promise<SelectMessage[]> {
+    return Array.from(this.messages.values())
+      .filter(msg => msg.conversationId === conversationId)
+      .sort((a, b) => a.createdAt - b.createdAt);
+  }
+
+  async createFact(fact: InsertFact): Promise<SelectFact> {
+    const newFact = fact as SelectFact;
+    this.facts.set(newFact.id, newFact);
+    return newFact;
+  }
+
+  async listTopFacts(userId: string, limit: number = 20): Promise<SelectFact[]> {
+    return Array.from(this.facts.values())
+      .filter(fact => fact.userId === userId)
+      .sort((a, b) => b.score - a.score || b.createdAt - a.createdAt)
+      .slice(0, limit);
+  }
+
+  async deleteFact(id: string): Promise<boolean> {
+    return this.facts.delete(id);
   }
 }
 
@@ -246,6 +323,61 @@ export class DbStorage implements IStorage {
       .from(deepResearchRuns)
       .where(or(eq(deepResearchRuns.status, "queued"), eq(deepResearchRuns.status, "running")))
       .orderBy(asc(deepResearchRuns.updatedAt));
+  }
+
+  async createConversation(conversation: InsertConversation): Promise<SelectConversation> {
+    const [newConv] = await db.insert(conversations).values(conversation).returning();
+    return newConv;
+  }
+
+  async getConversation(id: string): Promise<SelectConversation | null> {
+    const [conv] = await db.select().from(conversations).where(eq(conversations.id, id));
+    return conv || null;
+  }
+
+  async listConversations(userId: string): Promise<SelectConversation[]> {
+    return db
+      .select()
+      .from(conversations)
+      .where(eq(conversations.userId, userId))
+      .orderBy(desc(conversations.createdAt));
+  }
+
+  async deleteConversation(id: string): Promise<boolean> {
+    const result = await db.delete(conversations).where(eq(conversations.id, id)).returning();
+    return result.length > 0;
+  }
+
+  async createMessage(message: InsertMessage): Promise<SelectMessage> {
+    const [newMsg] = await db.insert(messages).values(message).returning();
+    return newMsg;
+  }
+
+  async listMessages(conversationId: string): Promise<SelectMessage[]> {
+    return db
+      .select()
+      .from(messages)
+      .where(eq(messages.conversationId, conversationId))
+      .orderBy(asc(messages.createdAt));
+  }
+
+  async createFact(fact: InsertFact): Promise<SelectFact> {
+    const [newFact] = await db.insert(facts).values(fact).returning();
+    return newFact;
+  }
+
+  async listTopFacts(userId: string, limit: number = 20): Promise<SelectFact[]> {
+    return db
+      .select()
+      .from(facts)
+      .where(eq(facts.userId, userId))
+      .orderBy(desc(facts.score), desc(facts.createdAt))
+      .limit(limit);
+  }
+
+  async deleteFact(id: string): Promise<boolean> {
+    const result = await db.delete(facts).where(eq(facts.id, id)).returning();
+    return result.length > 0;
   }
 }
 

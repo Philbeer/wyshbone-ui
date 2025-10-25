@@ -18,6 +18,7 @@ export const chatRequestSchema = z.object({
     email: z.string().email(),
   }),
   defaultCountry: z.string().optional(),
+  conversationId: z.string().optional(),
 });
 
 export type ChatRequest = z.infer<typeof chatRequestSchema>;
@@ -225,3 +226,58 @@ export const insertDeepResearchRunSchema = createInsertSchema(deepResearchRuns);
 export const selectDeepResearchRunSchema = createSelectSchema(deepResearchRuns);
 export type InsertDeepResearchRun = z.infer<typeof insertDeepResearchRunSchema>;
 export type SelectDeepResearchRun = typeof deepResearchRuns.$inferSelect;
+
+// ============= MEMORY SYSTEM TABLES =============
+
+// Conversations table - stores user conversation sessions
+export const conversations = pgTable("conversations", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  label: text("label").notNull().default("Conversation"),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+}, (table) => ({
+  userIdIdx: index("conversations_user_id_idx").on(table.userId),
+  createdAtIdx: index("conversations_created_at_idx").on(table.createdAt),
+}));
+
+// Messages table - stores individual messages in conversations
+export const messages = pgTable("messages", {
+  id: text("id").primaryKey(),
+  conversationId: text("conversation_id").notNull(),
+  role: text("role").notNull(),
+  content: text("content").notNull(),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+}, (table) => ({
+  conversationIdIdx: index("messages_conversation_id_idx").on(table.conversationId, table.createdAt),
+}));
+
+// Facts table - stores extracted durable facts about users
+export const facts = pgTable("facts", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  sourceConversationId: text("source_conversation_id"),
+  sourceMessageId: text("source_message_id"),
+  fact: text("fact").notNull(),
+  score: integer("score").notNull().default(50),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+}, (table) => ({
+  userIdScoreIdx: index("facts_user_id_score_idx").on(table.userId, table.score, table.createdAt),
+}));
+
+// Conversation insert/select schemas
+export const insertConversationSchema = createInsertSchema(conversations);
+export const selectConversationSchema = createSelectSchema(conversations);
+export type InsertConversation = z.infer<typeof insertConversationSchema>;
+export type SelectConversation = typeof conversations.$inferSelect;
+
+// Message insert/select schemas
+export const insertMessageSchema = createInsertSchema(messages);
+export const selectMessageSchema = createSelectSchema(messages);
+export type InsertMessage = z.infer<typeof insertMessageSchema>;
+export type SelectMessage = typeof messages.$inferSelect;
+
+// Fact insert/select schemas
+export const insertFactSchema = createInsertSchema(facts);
+export const selectFactSchema = createSelectSchema(facts);
+export type InsertFact = z.infer<typeof insertFactSchema>;
+export type SelectFact = typeof facts.$inferSelect;

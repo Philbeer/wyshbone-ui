@@ -40,6 +40,7 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
   const [isStreaming, setIsStreaming] = useState(false);
   const [showWelcome, setShowWelcome] = useState(true);
   const [showLocationSuggestions, setShowLocationSuggestions] = useState(false);
+  const [conversationId, setConversationId] = useState<string | undefined>(undefined);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -166,6 +167,7 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
           messages: conversationMessages,
           user: { id: "demo-user", email: "demo@wyshbone.com" },
           defaultCountry: defaultCountry,
+          conversationId: conversationId,
         }),
         signal: abortControllerRef.current.signal,
       });
@@ -203,6 +205,13 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
             
             try {
               const parsed = JSON.parse(data);
+              
+              // Handle conversationId from backend
+              if (parsed.conversationId) {
+                console.log('💬 Received conversationId:', parsed.conversationId);
+                setConversationId(parsed.conversationId);
+              }
+              
               if (parsed.content) {
                 accumulatedContent += parsed.content;
                 

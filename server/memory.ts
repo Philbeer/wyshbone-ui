@@ -1,4 +1,6 @@
 import OpenAI from "openai";
+import { storage } from "./storage";
+import { randomUUID } from "crypto";
 
 export type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
 type Conversation = ChatMessage[];
@@ -137,4 +139,134 @@ export async function maybeSummarize(
     { role: "system", content: "Session summary so far: " + summary },
     ...(lastAssistant ? [lastAssistant] : []),
   ]);
+}
+
+const FACT_EXTRACTOR_PROMPT = (latestUser: string, latestAssistant: string) => `
+From the most recent exchange, extract up to 3 durable, future-useful facts about the user or their long-term goals, preferences, constraints, or ongoing projects.
+
+Rules:
+- Only include facts likely true for months
+- Avoid sensitive attributes unless explicitly stated
+- Keep each fact 1 short sentence
+- If no durable facts exist, return an empty list
+
+Assign each fact a score from 0-100 based on importance and durability.
+
+Return strict JSON: {"facts":[{"text":"...", "score": 0-100}, ...]}
+
+Recent exchange:
+USER: ${latestUser}
+ASSISTANT: ${latestAssistant}
+`;
+
+export async function getOrCreateConversation(
+  userId: string,
+  conversationId?: string
+): Promise<string> {
+  if (conversationId) {
+    const existing = await storage.getConversation(conversationId);
+    if (existing) return conversationId;
+  }
+
+  const newId = randomUUID();
+  await storage.createConversation({
+    id: newId,
+    userId,
+    label: "Conversation",
+    createdAt: Date.now(),
+  });
+
+  return newId;
+}
+
+export async function saveMessage(
+  conversationId: string,
+  role: "user" | "assistant" | "system",
+  content: string
+): Promise<void> {
+  await storage.createMessage({
+    id: randomUUID(),
+    conversationId,
+    role,
+    content,
+    createdAt: Date.now(),
+  });
+}
+
+export async function loadConversationHistory(
+  conversationId: string,
+  maxMessages: number = 14
+): Promise<ChatMessage[]> {
+  const messages = await storage.listMessages(conversationId);
+  
+  const recentMessages = messages.slice(Math.max(0, messages.length - maxMessages));
+  
+  return recentMessages.map(msg => ({
+    role: msg.role as "user" | "assistant" | "system",
+    content: msg.content,
+  }));
+}
+
+export async function extractAndSaveFacts(
+  userId: string,
+  conversationId: string,
+  latestUserMessage: string,
+  latestAssistantMessage: string,
+  openai: OpenAI
+): Promise<void> {
+  try {
+    const extract = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      temperature: 0.0,
+      messages: [
+        { role: "system", content: "You extract facts in strict JSON format." },
+        { role: "user", content: FACT_EXTRACTOR_PROMPT(latestUserMessage, latestAssistantMessage) }
+      ]
+    });
+
+    const raw = extract.choices[0]?.message?.content || '{}';
+    const parsed = JSON.parse(raw);
+    const factsOut = Array.isArray(parsed?.facts) ? parsed.facts : [];
+
+    for (const f of factsOut.slice(0, 3)) {
+      if (!f?.text) continue;
+      
+      const score = Math.max(0, Math.min(100, Math.floor(Number(f.score ?? 50))));
+      
+      await storage.createFact({
+        id: randomUUID(),
+        userId,
+        sourceConversationId: conversationId,
+        sourceMessageId: null,
+        fact: String(f.text).slice(0, 400),
+        score,
+        createdAt: Date.now(),
+      });
+    }
+  } catch (e: any) {
+    console.error('Fact extraction error:', e?.message);
+  }
+}
+
+export async function buildContextWithFacts(
+  userId: string,
+  conversationHistory: ChatMessage[],
+  maxFacts: number = 20
+): Promise<ChatMessage[]> {
+  const facts = await storage.listTopFacts(userId, maxFacts);
+  
+  const factLines = facts.map((f) => `- ${f.fact} (score ${f.score})`).join('\n');
+  
+  const messages: ChatMessage[] = [SYSTEM_PROMPT];
+  
+  if (factLines) {
+    messages.push({
+      role: "system",
+      content: `Durable memory (top ${facts.length} facts):\n${factLines}`
+    });
+  }
+  
+  messages.push(...conversationHistory);
+  
+  return messages;
 }

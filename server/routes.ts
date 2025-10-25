@@ -6,6 +6,11 @@ import {
   appendMessage,
   resetConversation,
   maybeSummarize,
+  getOrCreateConversation,
+  saveMessage,
+  loadConversationHistory,
+  extractAndSaveFacts,
+  buildContextWithFacts,
 } from "./memory";
 import {
   chatRequestSchema,
@@ -96,7 +101,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           .json({ error: "Invalid request format", details: validation.error });
       }
 
-      const { messages, user, defaultCountry } = validation.data; // 'user' kept in case you use it elsewhere
+      const { messages, user, defaultCountry, conversationId: requestedConversationId } = validation.data;
       const sessionId = getSessionId(req);
 
       // Grab the latest user message text (last item in the array)
@@ -108,32 +113,46 @@ export async function registerRoutes(app: Express): Promise<Server> {
         (req as any).defaultCountry = defaultCountry;
       }
 
-      // DETECT NEW SEARCH FIRST (before contaminating memory with old context)
-      const newSearchPatterns = /\b(find|search|get|show|list|lookup|discover|run|trigger|execute)\b.*\b(in|for|at|across)\b/i;
-      const isNewSearch = newSearchPatterns.test(latestUserText);
-      
-      if (isNewSearch) {
-        console.log("🆕 Detected new search - clearing conversation memory BEFORE adding messages");
-        await storage.clearPendingConfirmation(sessionId);
-        await storage.clearPartialWorkflow(sessionId);
-        resetConversation(sessionId); // Clear OLD conversation history
-      }
+      // Get or create persistent conversation
+      const conversationId = await getOrCreateConversation(user.id, requestedConversationId);
+      console.log(`💬 Using conversation ID: ${conversationId}`);
 
-      // 1) Store user's new message in memory
-      appendMessage(sessionId, { role: "user", content: latestUserText });
-
-      // 2) Compact long conversations with a summary when needed
-      await maybeSummarize(sessionId, openai);
-
-      // 3) Pull the memory-backed conversation to send to OpenAI
-      const memoryMessages = getConversation(sessionId);
-
-      // Prepare streaming headers
+      // Prepare streaming headers FIRST (before any writes)
       res.setHeader("Content-Type", "text/event-stream");
       res.setHeader("Cache-Control", "no-cache");
       res.setHeader("Connection", "keep-alive");
       res.setHeader("X-Accel-Buffering", "no");
       res.flushHeaders();
+
+      // Send conversationId to frontend as first event
+      res.write(`data: ${JSON.stringify({ conversationId })}\n\n`);
+
+      // DETECT NEW SEARCH FIRST (before contaminating memory with old context)
+      const newSearchPatterns = /\b(find|search|get|show|list|lookup|discover|run|trigger|execute)\b.*\b(in|for|at|across)\b/i;
+      const isNewSearch = newSearchPatterns.test(latestUserText);
+      
+      if (isNewSearch) {
+        console.log("🆕 Detected new search - clearing session context");
+        await storage.clearPendingConfirmation(sessionId);
+        await storage.clearPartialWorkflow(sessionId);
+        resetConversation(sessionId); // Clear in-memory session cache
+      }
+
+      // 1) Save user's new message to database
+      await saveMessage(conversationId, "user", latestUserText);
+      console.log("💾 Saved user message to database");
+
+      // 2) Load conversation history from database
+      const conversationHistory = await loadConversationHistory(conversationId);
+      console.log(`📚 Loaded ${conversationHistory.length} messages from conversation history`);
+
+      // 3) Build context with facts
+      const memoryMessages = await buildContextWithFacts(user.id, conversationHistory);
+      console.log(`🧠 Built context with facts for user ${user.id}`);
+      
+      // Also keep in-memory conversation for backwards compatibility with existing features
+      appendMessage(sessionId, { role: "user", content: latestUserText });
+      await maybeSummarize(sessionId, openai);
 
       // Stream from OpenAI using Responses API with GPT-5
       let aiBuffer = "";
@@ -1410,8 +1429,17 @@ CRITICAL RULES:
         res.write(`data: ${JSON.stringify({ content: aiBuffer })}\n\n`);
       }
 
-      // Save assistant reply to memory
+      // Save assistant reply to in-memory session (backwards compatibility)
       appendMessage(sessionId, { role: "assistant", content: aiBuffer });
+
+      // Save assistant message to database
+      await saveMessage(conversationId, "assistant", aiBuffer);
+      console.log("💾 Saved assistant message to database");
+
+      // Extract and save facts in background (don't await to avoid blocking response)
+      extractAndSaveFacts(user.id, conversationId, latestUserText, aiBuffer, openai)
+        .then(() => console.log("✅ Facts extracted and saved"))
+        .catch((err) => console.error("❌ Fact extraction failed:", err.message));
 
       // End stream
       res.write(`data: [DONE]\n\n`);
@@ -1428,6 +1456,91 @@ CRITICAL RULES:
     const sessionId = getSessionId(req);
     resetConversation(sessionId);
     res.json({ status: "ok", message: "Conversation reset." });
+  });
+
+  // ===========================
+  // CONVERSATION MANAGEMENT API
+  // ===========================
+  
+  // List conversations for a user
+  app.get("/api/conversations/:userId", async (req, res) => {
+    try {
+      const { userId } = req.params;
+      const conversations = await storage.listConversations(userId);
+      res.json(conversations);
+    } catch (error: any) {
+      console.error("Error listing conversations:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Create a new conversation
+  app.post("/api/conversations", async (req, res) => {
+    try {
+      const { userId, label } = req.body;
+      if (!userId) {
+        return res.status(400).json({ error: "userId is required" });
+      }
+      
+      const conversationId = await getOrCreateConversation(userId);
+      
+      if (label) {
+        const conversation = await storage.getConversation(conversationId);
+        if (conversation) {
+          await storage.createConversation({
+            ...conversation,
+            label,
+          });
+        }
+      }
+      
+      res.json({ conversationId });
+    } catch (error: any) {
+      console.error("Error creating conversation:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Delete a conversation
+  app.delete("/api/conversations/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const success = await storage.deleteConversation(id);
+      
+      if (success) {
+        res.json({ success: true });
+      } else {
+        res.status(404).json({ error: "Conversation not found" });
+      }
+    } catch (error: any) {
+      console.error("Error deleting conversation:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get conversation messages
+  app.get("/api/conversations/:id/messages", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const messages = await storage.listMessages(id);
+      res.json(messages);
+    } catch (error: any) {
+      console.error("Error fetching messages:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get user facts
+  app.get("/api/facts/:userId", async (req, res) => {
+    try {
+      const { userId } = req.params;
+      const limit = parseInt(req.query.limit as string) || 20;
+      const facts = await storage.listTopFacts(userId, limit);
+      res.json(facts);
+    } catch (error: any) {
+      console.error("Error fetching facts:", error);
+      res.status(500).json({ error: error.message });
+    }
   });
 
   // =========================================
