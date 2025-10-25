@@ -3,7 +3,7 @@ import type { DeepResearchRun, DeepResearchCreateRequest, DeepResearchRunSummary
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
 const OPENAI_BASE = "https://api.openai.com/v1";
 const OPENAI_MODEL = "gpt-4o";
-const POLL_INTERVAL_MS = 25000;
+const POLL_INTERVAL_MS = 3000; // Poll every 3 seconds for faster status updates
 
 const runs = new Map<string, DeepResearchRun>();
 
