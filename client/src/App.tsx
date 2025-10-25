@@ -101,7 +101,13 @@ function App() {
   useEffect(() => {
     const fetchDeepResearchRuns = async () => {
       try {
-        const response = await fetch("/api/deep-research");
+        const response = await fetch("/api/deep-research", {
+          cache: 'no-store',
+          headers: {
+            'Cache-Control': 'no-cache',
+            'Pragma': 'no-cache'
+          }
+        });
         if (response.ok) {
           const data = await response.json();
           const researchRuns = data.runs || [];
