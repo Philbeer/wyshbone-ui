@@ -12,7 +12,7 @@ import ChatPage from "@/pages/chat";
 import DebugPage from "@/pages/debug";
 import NotFound from "@/pages/not-found";
 import CountryHint from "@/components/CountryHint";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 
 // Demo runs data
 const DEMO_RUNS: RunItem[] = [
@@ -57,15 +57,15 @@ const DEMO_RUNS: RunItem[] = [
 function Router({ 
   defaultCountry, 
   onInjectSystemMessage,
-  onAddRun,
-  onUpdateRun,
+  addRunFn,
+  updateRunFn,
   getActiveRunId,
   onNewChat
 }: { 
   defaultCountry: string;
   onInjectSystemMessage: (fn: (msg: string, asUser?: boolean) => void) => void;
-  onAddRun: () => (run: Partial<RunItem>) => string;
-  onUpdateRun: () => (runId: string, updates: Partial<RunItem>) => void;
+  addRunFn: (run: Partial<RunItem>) => string;
+  updateRunFn: (runId: string, updates: Partial<RunItem>) => void;
   getActiveRunId: () => string | null;
   onNewChat: (fn: () => void) => void;
 }) {
@@ -75,8 +75,8 @@ function Router({
         {() => <ChatPage 
           defaultCountry={defaultCountry} 
           onInjectSystemMessage={onInjectSystemMessage} 
-          addRun={onAddRun()} 
-          updateRun={onUpdateRun()}
+          addRun={addRunFn} 
+          updateRun={updateRunFn}
           getActiveRunId={getActiveRunId}
           onNewChat={onNewChat}
         />}
@@ -167,7 +167,17 @@ function App() {
     "--sidebar-width-icon": "3rem",
   };
 
-  const addRun = (runData: Partial<RunItem>): string => {
+  const getActiveRunId = useCallback(() => activeRunIdRef.current, []);
+
+  const handleInjectSystemMessage = useCallback((fn: (msg: string, asUser?: boolean) => void) => {
+    systemMessageInjectorRef.current = fn;
+  }, []);
+
+  const handleNewChat = useCallback((fn: () => void) => {
+    newChatCallbackRef.current = fn;
+  }, []);
+
+  const addRun = useCallback((runData: Partial<RunItem>): string => {
     const newId = `run_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
     const newRun: RunItem = {
       id: newId,
@@ -185,9 +195,9 @@ function App() {
     setRuns(prev => [newRun, ...prev]);
     console.log("Added new run to history:", newRun);
     return newId;
-  };
+  }, []);
 
-  const updateRun = (runId: string, updates: Partial<RunItem>) => {
+  const updateRun = useCallback((runId: string, updates: Partial<RunItem>) => {
     console.log("updateRun called for:", runId, "with updates:", updates);
     setRuns(prev => {
       const updated = prev.map(r => {
@@ -204,7 +214,7 @@ function App() {
     // Clear the active run ID after updating
     activeRunIdRef.current = null;
     console.log("Cleared activeRunIdRef");
-  };
+  }, []);
 
   const handleRunRun = (run: RunItem) => {
     if (!systemMessageInjectorRef.current) {
@@ -303,21 +313,11 @@ function App() {
               <main className="flex-1 overflow-hidden">
                 <Router 
                   defaultCountry={defaultCountry} 
-                  onInjectSystemMessage={(fn: (msg: string) => void) => {
-                    systemMessageInjectorRef.current = fn;
-                  }}
-                  onAddRun={() => {
-                    // Pass the addRun function to chat page
-                    return addRun;
-                  }}
-                  onUpdateRun={() => {
-                    // Pass the updateRun function to chat page
-                    return updateRun;
-                  }}
-                  getActiveRunId={() => activeRunIdRef.current}
-                  onNewChat={(fn: () => void) => {
-                    newChatCallbackRef.current = fn;
-                  }}
+                  onInjectSystemMessage={handleInjectSystemMessage}
+                  addRunFn={addRun}
+                  updateRunFn={updateRun}
+                  getActiveRunId={getActiveRunId}
+                  onNewChat={handleNewChat}
                 />
               </main>
             </div>
