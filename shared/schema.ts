@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { pgTable, text, integer, jsonb, bigint, index } from "drizzle-orm/pg-core";
+import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 
 // Chat message schema
 export const chatMessageSchema = z.object({
@@ -152,7 +154,29 @@ export const jobStatusResponseSchema = z.object({
 
 export type JobStatusResponse = z.infer<typeof jobStatusResponseSchema>;
 
-// Deep Research schemas
+// Deep Research Drizzle table
+export const deepResearchRuns = pgTable("deep_research_runs", {
+  id: text("id").primaryKey(),
+  label: text("label").notNull(),
+  prompt: text("prompt").notNull(),
+  mode: text("mode").notNull().default("report"),
+  counties: text("counties").array(),
+  windowMonths: integer("window_months"),
+  schemaName: text("schema_name"),
+  schema: jsonb("schema"),
+  responseId: text("response_id"),
+  status: text("status").notNull().default("queued"),
+  outputText: text("output_text"),
+  error: text("error"),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+}, (table) => ({
+  statusIdx: index("status_idx").on(table.status),
+  updatedAtIdx: index("updated_at_idx").on(table.updatedAt),
+  responseIdIdx: index("response_id_idx").on(table.responseId),
+}));
+
+// Deep Research Zod schemas for validation
 export const deepResearchRunStatusSchema = z.enum(["queued", "in_progress", "running", "completed", "failed", "stopped"]);
 export const deepResearchRunModeSchema = z.enum(["report", "json"]);
 
@@ -193,3 +217,9 @@ export const deepResearchRunSummarySchema = deepResearchRunSchema.extend({
 }).omit({ outputText: true });
 
 export type DeepResearchRunSummary = z.infer<typeof deepResearchRunSummarySchema>;
+
+// Deep Research Drizzle insert/select schemas
+export const insertDeepResearchRunSchema = createInsertSchema(deepResearchRuns);
+export const selectDeepResearchRunSchema = createSelectSchema(deepResearchRuns);
+export type InsertDeepResearchRun = z.infer<typeof insertDeepResearchRunSchema>;
+export type SelectDeepResearchRun = typeof deepResearchRuns.$inferSelect;

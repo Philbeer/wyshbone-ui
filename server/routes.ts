@@ -2812,7 +2812,7 @@ Return structured data with the EXACT placeId provided above: "${placeId}"`;
 
   app.get("/api/deep-research", async (_req, res) => {
     try {
-      const runs = getAllRuns();
+      const runs = await getAllRuns();
       res.json({ runs: runs.map(stripLargeOutput) });
     } catch (error: any) {
       console.error("Deep research list error:", error);
@@ -2822,7 +2822,7 @@ Return structured data with the EXACT placeId provided above: "${placeId}"`;
 
   app.get("/api/deep-research/:id", async (req, res) => {
     try {
-      const run = getRun(req.params.id);
+      const run = await getRun(req.params.id);
       if (!run) {
         return res.status(404).json({ error: "Research run not found" });
       }
@@ -2835,7 +2835,7 @@ Return structured data with the EXACT placeId provided above: "${placeId}"`;
 
   app.post("/api/deep-research/:id/stop", async (req, res) => {
     try {
-      const run = stopRun(req.params.id);
+      const run = await stopRun(req.params.id);
       if (!run) {
         return res.status(404).json({ error: "Research run not found" });
       }

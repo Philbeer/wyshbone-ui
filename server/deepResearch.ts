@@ -1,11 +1,10 @@
 import type { DeepResearchRun, DeepResearchCreateRequest, DeepResearchRunSummary } from "@shared/schema";
+import { storage } from "./storage";
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
 const OPENAI_BASE = "https://api.openai.com/v1";
 const OPENAI_MODEL = "gpt-4o";
 const POLL_INTERVAL_MS = 3000; // Poll every 3 seconds for faster status updates
-
-const runs = new Map<string, DeepResearchRun>();
 
 function generateRunId(): string {
   return "run_" + Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -41,7 +40,7 @@ export async function startBackgroundResponsesJob(
   } = params;
 
   const id = generateRunId();
-  const run: DeepResearchRun = {
+  const runData = {
     id,
     label: label || suggestDefaultLabel(prompt),
     prompt,
@@ -54,7 +53,7 @@ export async function startBackgroundResponsesJob(
     createdAt: Date.now(),
     updatedAt: Date.now(),
   };
-  runs.set(id, run);
+  const run = await storage.createDeepResearchRun(runData);
 
   const scopeHints: string[] = [];
   if (Array.isArray(counties) && counties.length) {
@@ -122,20 +121,20 @@ export async function startBackgroundResponsesJob(
     }
     
     console.log("✅ Research job created:", data.id, "status:", data.status);
-    run.responseId = data.id;
     // Map OpenAI statuses to our statuses
     const apiStatus = data.status ?? "in_progress";
-    run.status = apiStatus === "in_progress" ? "running" : apiStatus;
-    run.updatedAt = Date.now();
-    runs.set(id, run);
-    return run;
+    const updatedRun = await storage.updateDeepResearchRun(id, {
+      responseId: data.id,
+      status: apiStatus === "in_progress" ? "running" : apiStatus,
+    });
+    return updatedRun as DeepResearchRun;
   } catch (err: any) {
     console.error("❌ Deep research error:", err.message);
-    run.status = "failed";
-    run.error = err.message || String(err);
-    run.updatedAt = Date.now();
-    runs.set(id, run);
-    return run;
+    const updatedRun = await storage.updateDeepResearchRun(id, {
+      status: "failed",
+      error: err.message || String(err),
+    });
+    return updatedRun as DeepResearchRun;
   }
 }
 
@@ -157,9 +156,6 @@ export async function pollOneRun(run: DeepResearchRun): Promise<void> {
     if (apiStatus === "in_progress") {
       status = "running";
     }
-    
-    run.status = status;
-    run.updatedAt = Date.now();
 
     if (status === "completed") {
       // Extract the actual text from the response - try multiple paths
@@ -227,60 +223,63 @@ export async function pollOneRun(run: DeepResearchRun): Promise<void> {
         outputText = "# 📊 Deep Research Report\n\n" + outputText;
       }
       
-      run.outputText = outputText;
+      await storage.updateDeepResearchRun(run.id, {
+        status,
+        outputText,
+      });
       console.log(`✅ Research job ${run.id} completed, output length: ${outputText?.length || 0}`);
     } else if (status === "failed") {
-      run.error = data?.error?.message || "Unknown error";
-      console.log(`❌ Research job ${run.id} failed: ${run.error}`);
+      const error = data?.error?.message || "Unknown error";
+      await storage.updateDeepResearchRun(run.id, {
+        status,
+        error,
+      });
+      console.log(`❌ Research job ${run.id} failed: ${error}`);
+    } else {
+      await storage.updateDeepResearchRun(run.id, { status });
     }
   } catch (err: any) {
     console.error(`❌ Error polling job ${run.id}:`, err.message);
-    run.error = err.message || String(err);
-  } finally {
-    runs.set(run.id, run);
+    await storage.updateDeepResearchRun(run.id, {
+      error: err.message || String(err),
+    });
   }
 }
 
-export function getAllRuns(): DeepResearchRun[] {
-  return Array.from(runs.values()).sort((a, b) => b.createdAt - a.createdAt);
+export async function getAllRuns(): Promise<DeepResearchRun[]> {
+  return await storage.listDeepResearchRuns() as DeepResearchRun[];
 }
 
-export function getRun(id: string): DeepResearchRun | undefined {
-  return runs.get(id);
+export async function getRun(id: string): Promise<DeepResearchRun | null> {
+  return await storage.getDeepResearchRun(id) as DeepResearchRun | null;
 }
 
-export function stopRun(id: string): DeepResearchRun | undefined {
-  const run = runs.get(id);
-  if (!run) return undefined;
-  
-  run.status = "stopped";
-  run.updatedAt = Date.now();
-  runs.set(id, run);
-  return run;
+export async function stopRun(id: string): Promise<DeepResearchRun | null> {
+  return await storage.updateDeepResearchRun(id, {
+    status: "stopped",
+  }) as DeepResearchRun | null;
 }
 
 export async function duplicateRun(id: string): Promise<DeepResearchRun | undefined> {
-  const prev = runs.get(id);
+  const prev = await storage.getDeepResearchRun(id);
   if (!prev) return undefined;
   
   return await startBackgroundResponsesJob({
     prompt: prev.prompt,
     label: prev.label + " (copy)",
-    mode: prev.mode,
-    counties: prev.counties,
-    windowMonths: prev.windowMonths,
-    schemaName: prev.schemaName,
-    schema: prev.schema,
+    mode: (prev.mode as "report" | "json") || "report",
+    counties: prev.counties || undefined,
+    windowMonths: prev.windowMonths || undefined,
+    schemaName: prev.schemaName || undefined,
+    schema: prev.schema || undefined,
   });
 }
 
 async function pollAllPendingRuns(): Promise<void> {
-  const pending = Array.from(runs.values()).filter(
-    r => r.status === "queued" || r.status === "in_progress"
-  );
+  const pending = await storage.listPendingDeepResearchRuns();
   for (const r of pending) {
     if (r.status === "stopped") continue;
-    await pollOneRun(r);
+    await pollOneRun(r as DeepResearchRun);
   }
 }
 
