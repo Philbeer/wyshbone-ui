@@ -165,7 +165,12 @@ export async function pollOneRun(run: DeepResearchRun): Promise<void> {
         outputText = data.text;
       }
       
-      // Fallback to JSON if we couldn't extract text
+      // Ensure outputText is a string
+      if (typeof outputText !== 'string') {
+        outputText = JSON.stringify(outputText, null, 2);
+      }
+      
+      // Fallback to JSON if we still don't have text
       if (!outputText) {
         outputText = JSON.stringify(data.output ?? data, null, 2);
       }
