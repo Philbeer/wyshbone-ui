@@ -120,7 +120,17 @@ Return ONLY the reformatted markdown report with no meta-commentary.`;
       return rawOutput; // Return original if reformatting fails
     }
 
-    const reformattedOutput = data.choices?.[0]?.message?.content || rawOutput;
+    let reformattedOutput = data.choices?.[0]?.message?.content || rawOutput;
+    
+    // Strip markdown code fences if present (GPT sometimes wraps output in ```markdown blocks)
+    if (reformattedOutput.startsWith('```markdown')) {
+      reformattedOutput = reformattedOutput.replace(/^```markdown\s*\n/, '').replace(/\n```\s*$/, '');
+      console.log("🔧 Stripped markdown code fences from reformatted output");
+    } else if (reformattedOutput.startsWith('```')) {
+      reformattedOutput = reformattedOutput.replace(/^```\s*\n/, '').replace(/\n```\s*$/, '');
+      console.log("🔧 Stripped code fences from reformatted output");
+    }
+    
     console.log("✅ Research output successfully reformatted");
     return reformattedOutput;
     
