@@ -60,7 +60,7 @@ The user interface follows modern Material Design principles, drawing inspiratio
 - **Streaming Responses:** Server-Sent Events (SSE) for real-time AI responses and animated typing indicators.
 - **Error Handling:** Comprehensive error messages as system notifications.
 - **Conversational Planning:** A three-way GPT planner decides whether to "search" (discover new venues), "use_cache" (more results from existing searches), or "respond" (for general conversational questions), preventing unnecessary searches and ensuring venue deduplication.
-- **Persistent Memory System:** Database-backed conversation history and knowledge accumulation for long-term context and proactive assistance. Features:
+- **Persistent Memory System:** Database-backed conversation history and knowledge accumulation for long-term context and proactive assistance. Memory serves as a **background reference layer** - not the main driver of conversations. Features:
     - **Conversation Persistence:** All chat messages saved to PostgreSQL with conversation IDs maintained across sessions
     - **Fact Extraction:** Automatic extraction of user preferences, business requirements, and contextual information after each conversation using GPT-4
     - **Intelligent Knowledge Scoring:** Facts rated 0-100 for importance, with prioritized scoring:
