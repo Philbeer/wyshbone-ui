@@ -1127,7 +1127,7 @@ RULES:
             const validationPrompt = [
               {
                 role: "system" as const,
-                content: `Analyze if the research prompt was EXPLICITLY stated in the user's current message, or if it was INFERRED by combining current message with historical context/facts.
+                content: `Analyze if the user's current message clearly indicates what they want to research. Only ask for confirmation if genuinely ambiguous.
 
 Return JSON with:
 {
@@ -1137,17 +1137,19 @@ Return JSON with:
 }
 
 Examples:
-- User current: "I'm interested in Texas" → Research prompt: "pubs in Texas" → {"topic_source": "inferred_from_context", "confirmation_needed": true, "confirmation_question": "I see you're interested in Texas. Would you like me to research pubs in Texas?"}
-- User current: "I'm looking for pubs" → Research prompt: "pubs in Texas" (Texas from earlier context) → {"topic_source": "inferred_from_context", "confirmation_needed": true, "confirmation_question": "I see you mentioned pubs, and earlier you were interested in Texas. Would you like me to research pubs in Texas?"}
-- User current: "research pubs in Texas" → Research prompt: "pubs in Texas" → {"topic_source": "explicit", "confirmation_needed": false, "confirmation_question": null}
-- User current: "deep dive into coffee shops in London" → Research prompt: "coffee shops in London" → {"topic_source": "explicit", "confirmation_needed": false, "confirmation_question": null}
-- User current: "yes" after bot asked "Would you like me to research pubs in Texas?" → Research prompt: "pubs in Texas" → {"topic_source": "explicit", "confirmation_needed": false, "confirmation_question": null}
+- User: "I'm interested in Texas" → Prompt: "pubs in Texas" → {"topic_source": "inferred_from_context", "confirmation_needed": true, "confirmation_question": "Would you like me to research pubs in Texas?"}
+- User: "I want deep research for pubs in Texas" → Prompt: "pubs in Texas" → {"topic_source": "explicit", "confirmation_needed": false, "confirmation_question": null}
+- User: "research pubs in Texas" → Prompt: "pubs in Texas" → {"topic_source": "explicit", "confirmation_needed": false, "confirmation_question": null}
+- User: "pubs in Texas" (in context of research) → Prompt: "pubs in Texas" → {"topic_source": "explicit", "confirmation_needed": false, "confirmation_question": null}
+- User: "deep dive" (after discussing pubs in Texas) → Prompt: "pubs in Texas" → {"topic_source": "explicit", "confirmation_needed": false, "confirmation_question": null}
+- User: "yes" after confirmation question → {"topic_source": "explicit", "confirmation_needed": false, "confirmation_question": null}
 
 CRITICAL RULES:
-1. topic_source = "explicit" ONLY if BOTH business type AND location were clearly stated together in the user's current message
-2. topic_source = "inferred_from_context" if ANY part was combined from earlier context (e.g., location from earlier + business from current)
-3. confirmation_needed = true when topic_source = "inferred_from_context"
-4. Create a natural confirmation question that mentions what was inferred`
+1. topic_source = "explicit" if the user's current message (or recent 2-3 messages) clearly mentions BOTH business type AND location
+2. topic_source = "explicit" if user said "yes", "go ahead", "do it" in response to a confirmation question
+3. topic_source = "explicit" if the research prompt matches what was recently discussed (last 2-3 messages)
+4. confirmation_needed = true ONLY when genuinely ambiguous or missing key information
+5. Don't ask for confirmation just because context was used - if the intent is clear, proceed`
               },
               {
                 role: "user" as const,
