@@ -40,6 +40,11 @@ The user interface adheres to modern Material Design principles, inspired by Cha
     5. **Asks for confirmation** when topics are inferred from context
     
     This ensures the AI **always uses conversation context** instead of passing vague phrases literally to the research system.
+- **Auto-Summarize Research Reports:** Automatically summarizes previously viewed deep research reports through natural language commands.
+    1. **Pattern Detection:** Detects summarize requests using a typo-tolerant regex pattern `/\bsumm?ari[sz]e(\s+(it|this|that|the(\s+report)?|the\s+deep\s+(dive|research)))?|tl;?dr\b/i` that handles common misspellings like "sumarise"
+    2. **Last Viewed Tracking:** Tracks the most recently clicked/viewed deep research report per session using IP-based session IDs
+    3. **GPT-4o Summarization:** Automatically generates concise summaries using GPT-4o when users type phrases like "summarize this", "sumarise it", or "tl;dr"
+    4. **Session Continuity:** Uses consistent session tracking across sidebar and chat endpoints via `getSessionId()` (x-session-id header or IP fallback)
 - **Persistent Memory System:** A database-backed system for conversation history and knowledge accumulation, serving as a background reference layer.
     - **Conversation Persistence:** All chat messages are saved to PostgreSQL with conversation IDs maintained.
     - **Fact Extraction:** Automatically extracts user preferences, business requirements, and contextual information from conversations and research prompts.
