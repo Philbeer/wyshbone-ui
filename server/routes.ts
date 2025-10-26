@@ -642,6 +642,82 @@ Only extract fields that are in the missing list: ${partialWorkflow.missing_fiel
         }
       }
 
+      // DETECT SUMMARIZE REQUESTS: Check if user wants to summarize the last viewed report
+      const summarizePatterns = /\b(summariz(e|e it|e this|e that|e the|e the deep dive|e report)|summaris(e|e it|e this|e that|e the|e the deep dive|e report)|tl;?dr)\b/i;
+      const wantsSummary = summarizePatterns.test(latestUserText);
+      
+      if (wantsSummary) {
+        console.log("📊 Summarize request detected - calling summarizer");
+        
+        try {
+          // Get the last viewed run for this session
+          const lastViewedRunId = await storage.getLastViewedRun(sessionId);
+          
+          if (!lastViewedRunId) {
+            throw new Error("No viewed reports found. Please click on a deep research report in the sidebar first.");
+          }
+          
+          // Fetch the run
+          const run = await getRun(lastViewedRunId);
+          if (!run) {
+            throw new Error("Last viewed report no longer exists");
+          }
+          
+          if (run.status !== "completed") {
+            throw new Error(`Cannot summarize: report is ${run.status}. Please wait for it to complete.`);
+          }
+          
+          if (!run.outputText) {
+            throw new Error("Report has no content to summarize");
+          }
+          
+          console.log(`📝 Summarizing last viewed report: ${run.label} (${lastViewedRunId})`);
+          
+          // Call OpenAI to summarize the report
+          const summaryPrompt = `Summarize the following deep-research report into a concise, human-friendly digest focusing strictly on WHO / WHAT / WHERE / WHEN.
+
+Output clean Markdown only. Group into sections if present: 'Openings & Relocations', 'Planned Openings', 'Recognitions & Expansions'.
+
+Under each, bullet list items in the format: '• Name — Town/County — Date — short note'.
+
+Keep it tight: no source lists, no long commentary. If nothing extractable, say 'No extractable items.'
+
+REPORT TO SUMMARIZE:
+${run.outputText}`;
+
+          const summaryResponse = await openai.chat.completions.create({
+            model: "gpt-4o",
+            messages: [
+              { role: "system", content: "You are Wyshbone Summarizer. Create concise summaries of research reports." },
+              { role: "user", content: summaryPrompt }
+            ],
+            max_tokens: 1200,
+            temperature: 0.3,
+          });
+          
+          const summary = summaryResponse.choices[0]?.message?.content || "No summary generated.";
+          const summaryMsg = `## Summary: ${run.label}\n\n${summary}`;
+          
+          aiBuffer = summaryMsg;
+          appendMessage(sessionId, { role: "assistant", content: summaryMsg });
+          await saveMessage(conversationId, "assistant", summaryMsg);
+          
+          res.write(`data: ${JSON.stringify({ content: summaryMsg })}\n\n`);
+          res.write(`data: [DONE]\n\n`);
+          return res.end();
+        } catch (err: any) {
+          console.error("❌ Summarize error:", err.message);
+          const errorMsg = err.message || "Failed to generate summary";
+          aiBuffer = errorMsg;
+          appendMessage(sessionId, { role: "assistant", content: errorMsg });
+          await saveMessage(conversationId, "assistant", errorMsg);
+          
+          res.write(`data: ${JSON.stringify({ content: errorMsg })}\n\n`);
+          res.write(`data: [DONE]\n\n`);
+          return res.end();
+        }
+      }
+
       // ===========================
       // INTENT CLASSIFICATION
       // Determine if user wants deep research, bubble workflow, or if unclear
@@ -3403,6 +3479,96 @@ Return structured data with the EXACT placeId provided above: "${placeId}"`;
     } catch (error: any) {
       console.error("Deep research duplicate error:", error);
       res.status(500).json({ error: error.message || "Failed to duplicate research run" });
+    }
+  });
+
+  // Record when a user views a deep research report (for tracking last viewed)
+  app.post("/api/deep-research/:id/view", async (req, res) => {
+    try {
+      const runId = req.params.id;
+      const sessionId = getSessionId(req);
+      
+      // Verify the run exists
+      const run = await getRun(runId);
+      if (!run) {
+        return res.status(404).json({ error: "Research run not found" });
+      }
+      
+      // Track this as the last viewed run for this session
+      await storage.setLastViewedRun(sessionId, runId);
+      console.log(`📊 Tracked last viewed run for session ${sessionId}: ${runId}`);
+      
+      res.json({ ok: true, runId });
+    } catch (error: any) {
+      console.error("Track view error:", error);
+      res.status(500).json({ error: error.message || "Failed to track view" });
+    }
+  });
+
+  // Summarize the last viewed deep research report
+  app.post("/api/deep-research/summarize-last-viewed", async (req, res) => {
+    try {
+      const sessionId = getSessionId(req);
+      
+      // Get the last viewed run for this session
+      const lastViewedRunId = await storage.getLastViewedRun(sessionId);
+      
+      if (!lastViewedRunId) {
+        return res.status(404).json({ 
+          error: "No viewed reports found. Please click on a deep research report in the sidebar first." 
+        });
+      }
+      
+      // Fetch the run
+      const run = await getRun(lastViewedRunId);
+      if (!run) {
+        return res.status(404).json({ error: "Last viewed report no longer exists" });
+      }
+      
+      if (run.status !== "completed") {
+        return res.status(400).json({ 
+          error: `Cannot summarize: report is ${run.status}. Please wait for it to complete.` 
+        });
+      }
+      
+      if (!run.outputText) {
+        return res.status(400).json({ error: "Report has no content to summarize" });
+      }
+      
+      console.log(`📝 Summarizing last viewed report: ${run.label} (${lastViewedRunId})`);
+      
+      // Call OpenAI to summarize the report
+      const summaryPrompt = `Summarize the following deep-research report into a concise, human-friendly digest focusing strictly on WHO / WHAT / WHERE / WHEN.
+
+Output clean Markdown only. Group into sections if present: 'Openings & Relocations', 'Planned Openings', 'Recognitions & Expansions'.
+
+Under each, bullet list items in the format: '• Name — Town/County — Date — short note'.
+
+Keep it tight: no source lists, no long commentary. If nothing extractable, say 'No extractable items.'
+
+REPORT TO SUMMARIZE:
+${run.outputText}`;
+
+      const summaryResponse = await openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [
+          { role: "system", content: "You are Wyshbone Summarizer. Create concise summaries of research reports." },
+          { role: "user", content: summaryPrompt }
+        ],
+        max_tokens: 1200,
+        temperature: 0.3,
+      });
+      
+      const summary = summaryResponse.choices[0]?.message?.content || "No summary generated.";
+      
+      res.json({ 
+        summary,
+        reportLabel: run.label,
+        reportId: lastViewedRunId,
+      });
+    } catch (error: any) {
+      console.error("Summarize error:", error);
+      res.status(500).json({ error: error.message || "Failed to summarize report" });
     }
   });
 

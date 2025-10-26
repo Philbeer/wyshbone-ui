@@ -500,7 +500,25 @@ export function AppSidebar({
     setLocalRuns((prev) => fn(prev));
   };
 
-  const _select = (id: string) => {
+  const _select = async (id: string) => {
+    const run = localRuns.find((r) => r.id === id);
+    
+    // Track view for deep research runs (for summarization feature)
+    if (run && run.runType === "deep_research") {
+      try {
+        await fetch(`/api/deep-research/${id}/view`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+        });
+        console.log(`📊 Tracked view for deep research run: ${id}`);
+      } catch (error) {
+        console.error("Failed to track view:", error);
+        // Don't block the UI if tracking fails
+      }
+    }
+    
     onSelectRun?.(id);
   };
 

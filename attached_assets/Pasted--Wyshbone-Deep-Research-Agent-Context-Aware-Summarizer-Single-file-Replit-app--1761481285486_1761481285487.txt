@@ -1,0 +1,681 @@
+/**
+ * Wyshbone Deep Research Agent (Context-Aware + Summarizer)
+ * Single-file Replit app.
+ *
+ * New:
+ * - Summarize the most recent completed deep-dive report for a client:
+ *   POST /api/summarize-last  { clientId }
+ * - Client-side chat detects "summarize/summarise" and calls the summarizer instead
+ *   of suggesting a deep dive.
+ *
+ * Setup:
+ *  - Replit Secrets: OPENAI_API_KEY
+ *  - npm i express axios
+ *  - Run this file.
+ */
+
+const express = require("express");
+const axios = require("axios");
+
+// --------------------- Config ---------------------
+const PORT = process.env.PORT || 3000;
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
+const OPENAI_BASE = "https://api.openai.com/v1";
+const OPENAI_MODEL = "gpt-4.1";     // adjust if desired
+const POLL_INTERVAL_MS = 25000;     // 25s
+
+if (!OPENAI_API_KEY) {
+  console.warn("WARNING: OPENAI_API_KEY is not set.");
+}
+
+// --------------------- In-memory stores ---------------------
+/** Runs registry */
+const runs = new Map(); // id -> run
+/** Per-client lightweight context memory */
+const contexts = new Map(); // clientId -> { lastTopic, lastWindowMonths, lastRegions: [] }
+/** Tracks each client's last completed run id (for summarization) */
+const lastCompletedByClient = new Map(); // clientId -> runId
+
+// --------------------- Helpers ---------------------
+const rid = () => "run_" + Math.random().toString(36).slice(2) + Date.now().toString(36);
+
+function stripLargeOutput(run) {
+  const { outputText, ...rest } = run;
+  return {
+    ...rest,
+    hasOutput: Boolean(outputText && outputText.length),
+    outputPreview:
+      outputText?.slice(0, 240) + (outputText && outputText.length > 240 ? "…" : ""),
+  };
+}
+
+function suggestDefaultLabel(prompt) {
+  const p = (prompt || "").trim();
+  if (!p) return "Deep Research";
+  return p.length <= 60 ? p : p.slice(0, 57) + "…";
+}
+
+function isVague(text = "") {
+  const t = text.toLowerCase().trim();
+  if (!t) return true;
+  const short = t.replace(/\W+/g, " ").trim();
+  const vaguePhrases = [
+    "deep dive", "deep research", "yes", "ok", "do it", "go ahead",
+    "sure", "please do", "yep", "start it", "run it", "deep idve"
+  ];
+  if (vaguePhrases.includes(short)) return true;
+  return short.length < 14; // heuristic
+}
+
+function wantsSummary(text = "") {
+  const t = text.toLowerCase();
+  return /\bsummariz(e|e it|e this|e that|e the|e the deep dive|e report)\b/.test(t)
+      || /\bsummaris(e|e it|e this|e that|e the|e the deep dive|e report)\b/.test(t)
+      || /\btl;dr\b/.test(t);
+}
+
+function extractTopicHeuristic(text = "") {
+  return text.trim(); // simple: keep full text (can be upgraded later)
+}
+
+function enhancePromptIfVague(prompt, ctx) {
+  if (!isVague(prompt)) return { prompt, labelSuffix: "" };
+  if (ctx && ctx.lastTopic) {
+    const enhanced =
+      `Deep research on: ${ctx.lastTopic}. ` +
+      `Use web browsing to find dated, authoritative sources. Provide a comprehensive report with citations and dates.`;
+    return { prompt: enhanced, labelSuffix: ` – ${ctx.lastTopic}` };
+  }
+  return { prompt: "", labelSuffix: "" };
+}
+
+// --------------------- OpenAI: Deep Research ---------------------
+async function startBackgroundResponsesJob(params) {
+  const {
+    prompt,
+    label,
+    mode = "report",          // "report" (markdown) or "json"
+    counties,
+    windowMonths,
+    schemaName,
+    schema,
+    clientId
+  } = params;
+
+  const id = rid();
+  const run = {
+    id,
+    clientId,  // NEW: tie run to client
+    label: label || suggestDefaultLabel(prompt),
+    prompt,
+    mode,
+    counties,
+    windowMonths,
+    schemaName,
+    schema,
+    status: "queued",
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+  runs.set(id, run);
+
+  const scopeHints = [];
+  if (Array.isArray(counties) && counties.length) {
+    scopeHints.push(`Restrict focus to these regions: ${counties.join(", ")}.`);
+  }
+  if (typeof windowMonths === "number") {
+    scopeHints.push(`Only include items with dated public evidence within the last ${windowMonths} months.`);
+  }
+
+  const baseInstructions = [
+    "You are Wyshbone Deep Research.",
+    "Use the web_search tool to browse thoroughly, follow leads, cross-check facts, and collect dated evidence.",
+    "Prefer authoritative sources; include citations and dates.",
+    ...scopeHints,
+    "Be exhaustive within reasonable limits."
+  ].join(" ");
+
+  const body = {
+    model: OPENAI_MODEL,
+    background: true,                 // long-running
+    tools: [{ type: "web_search" }],  // browsing like ChatGPT agent
+    tool_choice: "auto",
+    instructions: baseInstructions,
+    input: [
+      {
+        role: "user",
+        content: [{ type: "input_text", text: prompt }],
+      },
+    ],
+    max_output_tokens: 8000,
+  };
+
+  if (mode === "json" && schema && schemaName) {
+    body.text = {
+      format: {
+        type: "json_schema",
+        name: schemaName,
+        strict: false,
+        schema
+      }
+    };
+  } else {
+    body.text = { format: { type: "markdown" } };
+    body.instructions += " Return a clean markdown research report with sections, bullet points, and a 'Sources' list of URLs with short rationales.";
+  }
+
+  try {
+    const { data } = await axios.post(`${OPENAI_BASE}/responses`, body, {
+      headers: {
+        Authorization: `Bearer ${OPENAI_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+    });
+    run.responseId = data.id;
+    run.status = data.status ?? "in_progress";
+    run.updatedAt = Date.now();
+    runs.set(id, run);
+    return run;
+  } catch (err) {
+    run.status = "failed";
+    run.error = err?.response?.data?.error?.message || String(err);
+    run.updatedAt = Date.now();
+    runs.set(id, run);
+    return run;
+  }
+}
+
+async function pollOneRun(run) {
+  if (!run.responseId || ["completed", "failed", "stopped"].includes(run.status)) return;
+  try {
+    const { data } = await axios.get(`${OPENAI_BASE}/responses/${run.responseId}`, {
+      headers: { Authorization: `Bearer ${OPENAI_API_KEY}` },
+    });
+    const status = data.status || "in_progress";
+    run.status = status;
+    run.updatedAt = Date.now();
+
+    if (status === "completed") {
+      const outputText =
+        data.output_text ??
+        (data.output && data.output[0] && data.output[0].content && data.output[0].content[0] && data.output[0].content[0].text) ??
+        JSON.stringify(data.output ?? data, null, 2);
+      run.outputText = outputText;
+
+      // NEW: mark as last completed for this client
+      if (run.clientId) lastCompletedByClient.set(run.clientId, run.id);
+    } else if (status === "failed") {
+      run.error = data?.error?.message || "Unknown error";
+    }
+  } catch (err) {
+    // transient errors → keep polling
+    run.error = err?.response?.data?.error?.message || String(err);
+  } finally {
+    runs.set(run.id, run);
+  }
+}
+
+// background poller
+setInterval(async () => {
+  const pending = Array.from(runs.values()).filter(r =>
+    r.status === "queued" || r.status === "in_progress"
+  );
+  for (const r of pending) {
+    if (r.status === "stopped") continue;
+    await pollOneRun(r);
+  }
+}, POLL_INTERVAL_MS);
+
+// --------------------- OpenAI: Summarizer ---------------------
+async function summarizeReportMarkdown(markdown) {
+  // Synchronous call; quick and cheap compared to deep-dive
+  const body = {
+    model: OPENAI_MODEL,
+    instructions:
+      "You are Wyshbone Summarizer. Summarize the following deep-research report into a concise, human-friendly digest focusing strictly on WHO / WHAT / WHERE / WHEN." +
+      " Output clean Markdown only. Group into sections if present: 'Openings & Relocations', 'Planned Openings', 'Recognitions & Expansions'." +
+      " Under each, bullet list items in the format: '• Name — Town/County — Date — short note'." +
+      " Keep it tight: no source lists, no long commentary. If nothing extractable, say 'No extractable items.'",
+    input: [
+      {
+        role: "user",
+        content: [{ type: "input_text", text: markdown }]
+      }
+    ],
+    text: { format: { type: "markdown" } },
+    max_output_tokens: 1200
+  };
+
+  const { data } = await axios.post(`${OPENAI_BASE}/responses`, body, {
+    headers: {
+      Authorization: `Bearer ${OPENAI_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+  });
+
+  const outputText =
+    data.output_text ??
+    (data.output && data.output[0] && data.output[0].content && data.output[0].content[0] && data.output[0].content[0].text) ??
+    JSON.stringify(data.output ?? data, null, 2);
+
+  return outputText;
+}
+
+// --------------------- Express App ---------------------
+const app = express();
+app.use(express.json());
+
+// Record chat message and update per-client context
+app.post("/api/chat-message", (req, res) => {
+  const { text, clientId } = req.body || {};
+  if (!clientId) return res.status(400).json({ error: "clientId required" });
+
+  const ctx = contexts.get(clientId) || {};
+  // Update context only if message is not vague and not a summary request
+  if (!isVague(text) && !wantsSummary(text)) {
+    const topic = extractTopicHeuristic(text);
+    if (topic) ctx.lastTopic = topic;
+
+    // Extract simple time window hints
+    const win = String(text).match(/\b(last|past)\s+(\d{1,2})\s*(months?|weeks?)\b/i);
+    if (win && /month/i.test(win[3] || "")) ctx.lastWindowMonths = Number(win[2]);
+
+    // Extract very basic region tokens (extend as needed)
+    const countyMatch = String(text).match(/\b(texas|sussex|west sussex|east sussex|kent|yorkshire|london|cornwall|manchester)\b/ig);
+    if (countyMatch) ctx.lastRegions = Array.from(new Set(countyMatch.map(s => s.trim())));
+
+    contexts.set(clientId, ctx);
+  }
+
+  res.json({ ok: true, context: contexts.get(clientId) || {} });
+});
+
+// Suggest deep dives from chat (also updates context if specific)
+app.post("/api/chat-suggest", (req, res) => {
+  const { text = "", clientId } = req.body || {};
+  if (!clientId) return res.status(400).json({ suggestions: [], error: "clientId required" });
+
+  // If it's a summary request, don't suggest a deep dive
+  if (wantsSummary(text)) {
+    return res.json({
+      suggestions: [
+        {
+          label: "Summarize the latest report",
+          payload: { action: "summarize-last" }
+        }
+      ]
+    });
+  }
+
+  const lower = text.toLowerCase();
+  const looksResearchy =
+    /\b(new|latest|find|research|report|sources?|citations?|open(ed)?|launched)\b/.test(lower) ||
+    lower.includes("micropubs") || lower.includes("pubs") || lower.includes("shakespeare");
+
+  // Update context if not vague
+  const ctx = contexts.get(clientId) || {};
+  if (!isVague(text)) {
+    ctx.lastTopic = extractTopicHeuristic(text);
+    const win = text.match(/\b(last|past)\s+(\d{1,2})\s*(months?|weeks?)\b/i);
+    if (win && /month/i.test(win[3] || "")) ctx.lastWindowMonths = Number(win[2]);
+    const countyMatch = text.match(/\b(texas|sussex|west sussex|east sussex|kent|yorkshire|london|cornwall|manchester)\b/ig);
+    if (countyMatch) ctx.lastRegions = Array.from(new Set(countyMatch.map(s => s.trim())));
+    contexts.set(clientId, ctx);
+  }
+
+  if (!looksResearchy) return res.json({ suggestions: [] });
+
+  const contextual = ctx.lastTopic ? [{
+    label: `Deep dive: ${ctx.lastTopic}`,
+    payload: { prompt: "deep dive", label: "Deep dive", mode: "report" } // vague on purpose; server enhances
+  }] : [];
+
+  const generic = [
+    {
+      label: "Micropubs in West Sussex (last 6 months)",
+      payload: {
+        prompt: "Find NEW UK micropubs opened within the last 6 months in West Sussex. Include dated evidence and sources. Return a well-structured report.",
+        label: "Micropubs – West Sussex (6m)",
+        mode: "report",
+        counties: ["West Sussex"],
+        windowMonths: 6
+      }
+    },
+    {
+      label: "Essays about Shakespeare (authoritative sources)",
+      payload: {
+        prompt: "Find authoritative essays about Shakespeare, summarise key arguments, and provide citations with dates.",
+        label: "Shakespeare essays (authoritative)",
+        mode: "report"
+      }
+    }
+  ];
+
+  res.json({ suggestions: [...contextual, ...generic] });
+});
+
+// Start a deep dive (context-aware)
+app.post("/api/deep-research", async (req, res) => {
+  const {
+    prompt,
+    label,
+    mode = "report",
+    counties,
+    windowMonths,
+    schemaName,
+    schema,
+    clientId
+  } = req.body || {};
+
+  if (!clientId) return res.status(400).json({ error: "clientId is required" });
+
+  const ctx = contexts.get(clientId) || {};
+  const { prompt: maybeEnhanced, labelSuffix } = enhancePromptIfVague(prompt || "", ctx);
+
+  if (isVague(prompt) && !maybeEnhanced) {
+    return res.status(400).json({
+      error: "no_topic",
+      message: "Please specify a topic (e.g., 'pubs in Texas, last 6 months')."
+    });
+  }
+
+  const finalPrompt = isVague(prompt) ? maybeEnhanced : prompt;
+  const finalCounties = (Array.isArray(counties) && counties.length) ? counties : (ctx.lastRegions || undefined);
+  const finalWindow = (typeof windowMonths === "number") ? windowMonths : (ctx.lastWindowMonths || undefined);
+
+  const run = await startBackgroundResponsesJob({
+    prompt: finalPrompt,
+    label: (label || suggestDefaultLabel(finalPrompt)) + (labelSuffix || ""),
+    mode,
+    counties: finalCounties,
+    windowMonths: finalWindow,
+    schemaName,
+    schema,
+    clientId
+  });
+  res.json({ run: stripLargeOutput(run) });
+});
+
+// Summarize the most recent completed report for a client
+app.post("/api/summarize-last", async (req, res) => {
+  const { clientId } = req.body || {};
+  if (!clientId) return res.status(400).json({ error: "clientId is required" });
+
+  const lastId = lastCompletedByClient.get(clientId);
+  if (!lastId) {
+    return res.status(404).json({ error: "no_report", message: "No completed report found to summarize yet." });
+  }
+  const run = runs.get(lastId);
+  if (!run || run.status !== "completed" || !run.outputText) {
+    return res.status(404).json({ error: "no_report", message: "No completed report found to summarize yet." });
+  }
+
+  try {
+    const summary = await summarizeReportMarkdown(run.outputText);
+    return res.json({ ok: true, summary });
+  } catch (e) {
+    return res.status(500).json({ error: "summarize_failed", message: String(e?.response?.data?.error?.message || e) });
+  }
+});
+
+// Runs endpoints
+app.get("/api/runs", (_req, res) => {
+  const list = Array.from(runs.values())
+    .sort((a, b) => b.createdAt - a.createdAt)
+    .map(stripLargeOutput);
+  res.json({ runs: list });
+});
+
+app.get("/api/runs/:id", (req, res) => {
+  const run = runs.get(req.params.id);
+  if (!run) return res.status(404).json({ error: "not found" });
+  res.json({ run });
+});
+
+app.post("/api/runs/:id/stop", (req, res) => {
+  const run = runs.get(req.params.id);
+  if (!run) return res.status(404).json({ error: "not found" });
+  run.status = "stopped";
+  run.updatedAt = Date.now();
+  runs.set(run.id, run);
+  res.json({ run: stripLargeOutput(run) });
+});
+
+app.post("/api/runs/:id/duplicate", async (req, res) => {
+  const prev = runs.get(req.params.id);
+  if (!prev) return res.status(404).json({ error: "not found" });
+  const run = await startBackgroundResponsesJob({
+    prompt: prev.prompt,
+    label: prev.label + " (copy)",
+    mode: prev.mode,
+    counties: prev.counties,
+    windowMonths: prev.windowMonths,
+    schemaName: prev.schemaName,
+    schema: prev.schema,
+    clientId: prev.clientId
+  });
+  res.json({ run: stripLargeOutput(run) });
+});
+
+// --------------------- Inline UI ---------------------
+app.get("/", (_req, res) => {
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.end(INDEX_HTML);
+});
+
+// --------------------- Server ---------------------
+const appServer = app.listen(PORT, () => {
+  console.log("Deep Research app (context-aware + summarizer) running on port", PORT);
+});
+
+// --------------------- HTML/Client ---------------------
+const INDEX_HTML = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Wyshbone Deep Research (Context + Summarizer)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    html, body { margin:0; padding:0; height:100%; font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; }
+    .app { display:flex; height:100%; }
+    .left { width:320px; border-right:1px solid #e5e7eb; padding:12px; box-sizing:border-box; overflow:auto; }
+    .right { flex:1; display:flex; flex-direction:column; }
+    .header { padding:12px; border-bottom:1px solid #e5e7eb; font-weight:600; }
+    .runs .run { border:1px solid #e5e7eb; border-radius:12px; padding:10px; margin-bottom:10px; }
+    .badge { font-size:11px; border:1px solid #cbd5e1; border-radius:999px; padding:2px 8px; margin-left:8px; }
+    .controls button { font-size:12px; margin-right:8px; background:none; border:none; text-decoration:underline; cursor:pointer; }
+    .chat { flex:1; padding:12px; overflow:auto; }
+    .bubble { margin-bottom:10px; }
+    .bubble.me { text-align:right; }
+    .bubble .inner { display:inline-block; padding:10px 12px; border-radius:12px; max-width:70%; }
+    .bubble.me .inner { background:#e0f2fe; }
+    .bubble.bot .inner { background:#f8fafc; border:1px solid #e5e7eb; }
+    .composer { display:flex; gap:8px; padding:12px; border-top:1px solid #e5e7eb; }
+    input[type="text"] { flex:1; padding:10px; border:1px solid #cbd5e1; border-radius:10px; }
+    .suggestions { font-size:13px; color:#334155; margin-top:6px; }
+    .suggestions button { margin-right:8px; margin-top:6px; font-size:12px; }
+    pre.output { background:#0b1021; color:#e2e8f0; padding:12px; border-radius:10px; overflow:auto; max-height:40vh; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="left">
+      <div style="font-weight:600; margin-bottom:10px;">Research Runs</div>
+      <div id="runs" class="runs"></div>
+    </div>
+    <div class="right">
+      <div class="header">Chat</div>
+      <div id="chat" class="chat"></div>
+      <div class="composer">
+        <input id="msg" type="text" placeholder="Type 'summarize' to get a concise digest of the last report, or ask for a deep dive (e.g., 'pubs in Texas last 6 months')." />
+        <button id="send">Send</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // --- Per-client identity for context memory ---
+    const CLIENT_ID_KEY = "wy_client_id";
+    const clientId = (localStorage.getItem(CLIENT_ID_KEY) || (() => {
+      const v = "c_" + Math.random().toString(36).slice(2);
+      localStorage.setItem(CLIENT_ID_KEY, v);
+      return v;
+    })());
+
+    const runsEl = document.getElementById("runs");
+    const chatEl = document.getElementById("chat");
+    const msgEl = document.getElementById("msg");
+    const sendBtn = document.getElementById("send");
+
+    function addBubble(who, text, html=false) {
+      const div = document.createElement("div");
+      div.className = "bubble " + who;
+      const inner = document.createElement("div");
+      inner.className = "inner";
+      if (html) inner.innerHTML = text;
+      else inner.textContent = text;
+      div.appendChild(inner);
+      chatEl.appendChild(div);
+      chatEl.scrollTop = chatEl.scrollHeight;
+    }
+
+    function escapeHtml(s) {
+      return (s || "").replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+    }
+
+    function wantsSummary(text="") {
+      const t = text.toLowerCase();
+      return /\bsummariz(e|e it|e this|e that|e the|e the deep dive|e report)\b/.test(t)
+          || /\bsummaris(e|e it|e this|e that|e the|e the deep dive|e report)\b/.test(t)
+          || /\btl;dr\b/.test(t);
+    }
+
+    async function listRuns() {
+      const res = await fetch("/api/runs");
+      const data = await res.json();
+      runsEl.innerHTML = "";
+      (data.runs || []).forEach(r => {
+        const div = document.createElement("div");
+        div.className = "run";
+        const top = document.createElement("div");
+        top.innerHTML = \`
+          <span style="font-weight:600">\${escapeHtml(r.label)}</span>
+          <span class="badge">\${r.status}</span>
+        \`;
+        const meta = document.createElement("div");
+        meta.style.fontSize = "12px";
+        meta.style.color = "#475569";
+        meta.textContent = new Date(r.createdAt).toLocaleString() + (r.outputPreview ? " • " + r.outputPreview : "");
+        const controls = document.createElement("div");
+        controls.className = "controls";
+        const dup = document.createElement("button");
+        dup.textContent = "Duplicate";
+        dup.onclick = async () => {
+          await fetch("/api/runs/" + r.id + "/duplicate", { method: "POST" });
+          await listRuns();
+        };
+        controls.appendChild(dup);
+        if (r.status === "queued" || r.status === "in_progress") {
+          const stop = document.createElement("button");
+          stop.textContent = "Stop";
+          stop.onclick = async () => {
+            await fetch("/api/runs/" + r.id + "/stop", { method: "POST" });
+            await listRuns();
+          };
+          controls.appendChild(stop);
+        }
+        if (r.hasOutput && r.status === "completed") {
+          const view = document.createElement("a");
+          view.href = "/api/runs/" + r.id;
+          view.target = "_blank";
+          view.textContent = "View full output";
+          view.style.fontSize = "12px";
+          view.style.marginLeft = "8px";
+          controls.appendChild(view);
+        }
+        div.appendChild(top);
+        div.appendChild(meta);
+        div.appendChild(controls);
+        runsEl.appendChild(div);
+      });
+    }
+
+    async function suggestFromChat(text) {
+      const res = await fetch("/api/chat-suggest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text, clientId })
+      });
+      const data = await res.json();
+      const suggestions = data.suggestions || [];
+      if (!suggestions.length) return;
+      let html = "<div class='suggestions'><div>Actions you can take:</div>";
+      suggestions.forEach(s => {
+        if (s.payload && s.payload.action === "summarize-last") {
+          html += \`<button onclick="window.summarizeLast()">\${escapeHtml(s.label)}</button>\`;
+        } else {
+          const payload = encodeURIComponent(JSON.stringify(s.payload));
+          html += \`<button onclick="window.startDeepDive('\${payload}')">\${escapeHtml(s.label)}</button>\`;
+        }
+      });
+      html += "</div>";
+      addBubble("bot", html, true);
+    }
+
+    window.startDeepDive = async (payloadEnc) => {
+      const payload = JSON.parse(decodeURIComponent(payloadEnc));
+      await fetch("/api/deep-research", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...payload, clientId })
+      });
+      addBubble("bot", "Great — I’ve started a deep-dive. It’s now in the left panel under “Research Runs”.");
+      listRuns();
+    };
+
+    window.summarizeLast = async () => {
+      addBubble("bot", "Summarizing your latest report…");
+      const res = await fetch("/api/summarize-last", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clientId })
+      });
+      const data = await res.json();
+      if (data && data.summary) {
+        addBubble("bot", data.summary, true);
+      } else {
+        addBubble("bot", data?.message || "I couldn't find a completed report to summarize yet.");
+      }
+    };
+
+    document.getElementById("send").onclick = async () => {
+      const text = msgEl.value.trim();
+      if (!text) return;
+      addBubble("me", text);
+      msgEl.value = "";
+
+      // store message for context
+      await fetch("/api/chat-message", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text, clientId })
+      });
+
+      // If the user asked to summarize, do that instead of suggesting deep dive
+      if (wantsSummary(text)) {
+        await window.summarizeLast();
+        return;
+      }
+
+      // Otherwise behave as before
+      addBubble("bot", "Got it. If you want, I can run a deep research dive and build a full report. I’ll show it in the left panel while it works.");
+      await suggestFromChat(text);
+    };
+
+    setInterval(listRuns, 5000);
+    listRuns();
+  </script>
+</body>
+</html>
+`;

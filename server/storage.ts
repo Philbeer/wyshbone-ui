@@ -80,6 +80,10 @@ export interface IStorage {
   
   // Conversation helper methods
   getConversationMessages(conversationId: string): Promise<SelectMessage[]>;
+  
+  // Last viewed run tracking (for summarization)
+  setLastViewedRun(sessionId: string, runId: string): Promise<void>;
+  getLastViewedRun(sessionId: string): Promise<string | null>;
 }
 
 export class MemStorage implements IStorage {
@@ -90,6 +94,7 @@ export class MemStorage implements IStorage {
   private conversations: Map<string, SelectConversation> = new Map();
   private messages: Map<string, SelectMessage> = new Map();
   private facts: Map<string, SelectFact> = new Map();
+  private lastViewedRuns: Map<string, string> = new Map();
 
   async createJob(job: Job): Promise<Job> {
     this.jobs.set(job.id, job);
@@ -240,6 +245,14 @@ export class MemStorage implements IStorage {
   async getConversationMessages(conversationId: string): Promise<SelectMessage[]> {
     return this.listMessages(conversationId);
   }
+  
+  async setLastViewedRun(sessionId: string, runId: string): Promise<void> {
+    this.lastViewedRuns.set(sessionId, runId);
+  }
+  
+  async getLastViewedRun(sessionId: string): Promise<string | null> {
+    return this.lastViewedRuns.get(sessionId) || null;
+  }
 }
 
 // Database connection
@@ -251,6 +264,7 @@ export class DbStorage implements IStorage {
   private jobs: Map<string, Job> = new Map();
   private pendingConfirmations: Map<string, PendingBatchConfirmation> = new Map();
   private partialWorkflows: Map<string, PartialWorkflow> = new Map();
+  private lastViewedRuns: Map<string, string> = new Map();
 
   async createJob(job: Job): Promise<Job> {
     this.jobs.set(job.id, job);
@@ -415,6 +429,14 @@ export class DbStorage implements IStorage {
 
   async getConversationMessages(conversationId: string): Promise<SelectMessage[]> {
     return this.listMessages(conversationId);
+  }
+  
+  async setLastViewedRun(sessionId: string, runId: string): Promise<void> {
+    this.lastViewedRuns.set(sessionId, runId);
+  }
+  
+  async getLastViewedRun(sessionId: string): Promise<string | null> {
+    return this.lastViewedRuns.get(sessionId) || null;
   }
 }
 
