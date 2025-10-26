@@ -312,9 +312,14 @@ const RunRow: React.FC<{
     run: () => void;
   };
 }> = ({ run, onSelect, actions }) => {
+  const isDeepResearch = run.runType === "deep_research";
+  const cardBgClass = isDeepResearch 
+    ? "bg-purple-50 dark:bg-purple-950/20" 
+    : "bg-blue-50 dark:bg-blue-950/20";
+  
   return (
     <div
-      className="group relative flex flex-col gap-2 rounded-xl border border-border bg-card px-3 py-4 mb-2 cursor-pointer hover-elevate active-elevate-2 min-h-[120px]"
+      className={`group relative flex flex-col gap-2 rounded-xl border border-border ${cardBgClass} px-3 py-4 mb-2 cursor-pointer hover-elevate active-elevate-2 min-h-[120px]`}
       onClick={() => onSelect(run.id)}
       role="button"
       aria-label={`Select run ${run.label}`}
@@ -323,9 +328,14 @@ const RunRow: React.FC<{
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
           <div className="flex items-start gap-2 mb-2 flex-wrap">
-            <span className="text-[14px] font-semibold text-foreground leading-snug">
-              {run.label}
-            </span>
+            <div className="flex items-center gap-2">
+              <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${isDeepResearch ? 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200' : 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200'}`}>
+                {isDeepResearch ? 'Deep Dive' : 'Find Contacts'}
+              </span>
+              <span className="text-[14px] font-semibold text-foreground leading-snug">
+                {run.label}
+              </span>
+            </div>
             <Badge status={run.status} />
           </div>
           
