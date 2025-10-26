@@ -1064,6 +1064,61 @@ CRITICAL RULES:
               throw new Error("Missing prompt parameter");
             }
             
+            // ENHANCE VAGUE PROMPTS: If prompt is vague, extract actual topic from conversation
+            const vaguePhrases = ['deep dive', 'yes', 'do it', 'go ahead', 'sure', 'okay', 'please', 'start', 'begin'];
+            const isVaguePrompt = vaguePhrases.some(phrase => 
+              params.prompt.toLowerCase().trim() === phrase || 
+              params.prompt.toLowerCase().includes(phrase) && params.prompt.split(' ').length <= 3
+            );
+            
+            if (isVaguePrompt) {
+              console.log(`🔍 Vague prompt detected: "${params.prompt}" - extracting topic from conversation...`);
+              
+              // Extract actual topic from conversation history
+              const extractionPrompt = [
+                {
+                  role: "system" as const,
+                  content: `Extract the research topic from the conversation. The user said a vague phrase like "${params.prompt}", but there should be a clear topic/business type and location mentioned in recent messages.
+
+Return JSON with ONLY the extracted topic:
+{
+  "extracted_topic": "business type in location" or null
+}
+
+Examples:
+- Recent messages show "pubs in Kendal" → {"extracted_topic": "pubs in Kendal"}
+- Recent messages show "coffee shops" and "London" → {"extracted_topic": "coffee shops in London"}
+- Recent messages show "dentists" and "Manchester" → {"extracted_topic": "dentists in Manchester"}
+- No clear topic found → {"extracted_topic": null}
+
+RULES:
+1. Extract BOTH business type AND location from recent messages
+2. Combine them naturally: "[business] in [location]"
+3. Return null only if you genuinely cannot find a topic`
+                },
+                {
+                  role: "user" as const,
+                  content: `User said: "${latestUserText}"\n\nRecent conversation (most recent first):\n${memoryMessages.slice(-8).reverse().filter(m => m.role !== 'system').map((m, i) => `[${i}] ${m.role}: ${m.content.substring(0, 300)}`).join('\n')}\n\nExtract the research topic:`
+                }
+              ];
+              
+              const extractionResp = await openai.chat.completions.create({
+                model: "gpt-4o-mini",
+                messages: extractionPrompt,
+                response_format: { type: "json_object" },
+              });
+              
+              const extraction = JSON.parse(extractionResp.choices[0]?.message?.content || "{}");
+              console.log("📍 Topic extraction result:", extraction);
+              
+              if (extraction.extracted_topic) {
+                console.log(`✅ Enhanced prompt: "${params.prompt}" → "${extraction.extracted_topic}"`);
+                params.prompt = extraction.extracted_topic;
+              } else {
+                console.log("⚠️ Could not extract topic from conversation");
+              }
+            }
+            
             // VALIDATE: Check if the prompt was inferred from context vs. explicitly stated
             const validationPrompt = [
               {
