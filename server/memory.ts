@@ -207,11 +207,32 @@ export async function getOrCreateConversation(
   await storage.createConversation({
     id: newId,
     userId,
-    label: "Conversation",
+    label: "New Chat",
     createdAt: Date.now(),
   });
 
   return newId;
+}
+
+export async function updateConversationLabel(
+  conversationId: string,
+  firstUserMessage: string
+): Promise<void> {
+  const truncated = firstUserMessage.slice(0, 50).trim();
+  const label = firstUserMessage.length > 50 
+    ? (truncated.lastIndexOf(' ') > 20 
+        ? truncated.slice(0, truncated.lastIndexOf(' ')) + '...'
+        : truncated)
+    : truncated;
+  
+  const conversation = await storage.getConversation(conversationId);
+  if (conversation && conversation.label === "New Chat") {
+    await storage.createConversation({
+      ...conversation,
+      label,
+    });
+    console.log(`📝 Updated conversation label to: "${label}"`);
+  }
 }
 
 export async function saveMessage(

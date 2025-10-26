@@ -11,6 +11,7 @@ import {
   loadConversationHistory,
   extractAndSaveFacts,
   buildContextWithFacts,
+  updateConversationLabel,
 } from "./memory";
 import {
   chatRequestSchema,
@@ -34,6 +35,22 @@ function extractUrls(text: string): string[] {
   const urlRegex = /https?:\/\/[^\s]+/g;
   const matches = text.match(urlRegex);
   return matches || [];
+}
+
+// Helper to generate a conversation label from first user message
+function generateConversationLabel(firstMessage: string): string {
+  // Truncate to max 50 characters
+  const truncated = firstMessage.slice(0, 50).trim();
+  
+  // If it ends mid-word, find the last complete word
+  if (firstMessage.length > 50) {
+    const lastSpace = truncated.lastIndexOf(' ');
+    if (lastSpace > 20) {
+      return truncated.slice(0, lastSpace) + '...';
+    }
+  }
+  
+  return truncated;
 }
 
 // Helper to fetch and extract text content from a URL
@@ -141,6 +158,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // 1) Save user's new message to database
       await saveMessage(conversationId, "user", latestUserText);
       console.log("💾 Saved user message to database");
+
+      // Update conversation label if this is the first user message
+      await updateConversationLabel(conversationId, latestUserText);
 
       // 2) Load conversation history from database
       const conversationHistory = await loadConversationHistory(conversationId);
