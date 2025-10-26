@@ -676,13 +676,17 @@ Only extract fields that are in the missing list: ${partialWorkflow.missing_fiel
           console.log(`📝 Summarizing last viewed report: ${run.label} (${lastViewedRunId})`);
           
           // Call OpenAI to summarize the report
-          const summaryPrompt = `Summarize the following deep-research report into a concise, human-friendly digest focusing strictly on WHO / WHAT / WHERE / WHEN.
+          const summaryPrompt = `Create a concise, executive summary of this deep-research report. Focus on the most important and actionable information.
 
-Output clean Markdown only. Group into sections if present: 'Openings & Relocations', 'Planned Openings', 'Recognitions & Expansions'.
+Structure your summary as follows:
 
-Under each, bullet list items in the format: '• Name — Town/County — Date — short note'.
+1. **Overview** (2-3 sentences): What was researched and what's the overall landscape?
 
-Keep it tight: no source lists, no long commentary. If nothing extractable, say 'No extractable items.'
+2. **Key Findings** (bullet points): Highlight 3-5 most important discoveries, trends, or insights from the report.
+
+3. **Notable Examples** (if applicable): Mention 2-3 specific businesses/organizations that stand out, with brief details (name, location, what makes them notable).
+
+Keep it practical and UK-focused where relevant. Use clear, professional language. Avoid listing sources or URLs.
 
 REPORT TO SUMMARIZE:
 ${run.outputText}`;
@@ -690,11 +694,11 @@ ${run.outputText}`;
           const summaryResponse = await openai.chat.completions.create({
             model: "gpt-4o",
             messages: [
-              { role: "system", content: "You are Wyshbone Summarizer. Create concise summaries of research reports." },
+              { role: "system", content: "You are an expert research analyst who creates clear, actionable summaries. Focus on practical insights and key information that business professionals need." },
               { role: "user", content: summaryPrompt }
             ],
-            max_tokens: 1200,
-            temperature: 0.3,
+            max_tokens: 1500,
+            temperature: 0.4,
           });
           
           const summary = summaryResponse.choices[0]?.message?.content || "No summary generated.";
@@ -3540,13 +3544,17 @@ Return structured data with the EXACT placeId provided above: "${placeId}"`;
       console.log(`📝 Summarizing last viewed report: ${run.label} (${lastViewedRunId})`);
       
       // Call OpenAI to summarize the report
-      const summaryPrompt = `Summarize the following deep-research report into a concise, human-friendly digest focusing strictly on WHO / WHAT / WHERE / WHEN.
+      const summaryPrompt = `Create a concise, executive summary of this deep-research report. Focus on the most important and actionable information.
 
-Output clean Markdown only. Group into sections if present: 'Openings & Relocations', 'Planned Openings', 'Recognitions & Expansions'.
+Structure your summary as follows:
 
-Under each, bullet list items in the format: '• Name — Town/County — Date — short note'.
+1. **Overview** (2-3 sentences): What was researched and what's the overall landscape?
 
-Keep it tight: no source lists, no long commentary. If nothing extractable, say 'No extractable items.'
+2. **Key Findings** (bullet points): Highlight 3-5 most important discoveries, trends, or insights from the report.
+
+3. **Notable Examples** (if applicable): Mention 2-3 specific businesses/organizations that stand out, with brief details (name, location, what makes them notable).
+
+Keep it practical and UK-focused where relevant. Use clear, professional language. Avoid listing sources or URLs.
 
 REPORT TO SUMMARIZE:
 ${run.outputText}`;
@@ -3554,11 +3562,11 @@ ${run.outputText}`;
       const summaryResponse = await openai.chat.completions.create({
         model: "gpt-4o",
         messages: [
-          { role: "system", content: "You are Wyshbone Summarizer. Create concise summaries of research reports." },
+          { role: "system", content: "You are an expert research analyst who creates clear, actionable summaries. Focus on practical insights and key information that business professionals need." },
           { role: "user", content: summaryPrompt }
         ],
-        max_tokens: 1200,
-        temperature: 0.3,
+        max_tokens: 1500,
+        temperature: 0.4,
       });
       
       const summary = summaryResponse.choices[0]?.message?.content || "No summary generated.";
