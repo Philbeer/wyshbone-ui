@@ -1,4 +1,4 @@
-import { Globe, MessageSquare, Bug, FilePlus } from "lucide-react";
+import { Globe, MessageSquare, Bug, FilePlus, MessagesSquare } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "wouter";
 import {
@@ -251,11 +251,20 @@ const COUNTRIES = [
   { code: 'ZW', name: 'Zimbabwe' },
 ];
 
+export type ConversationItem = {
+  id: string;
+  userId: string;
+  label: string;
+  createdAt: number;
+};
+
 interface AppSidebarProps {
   defaultCountry: string;
   onCountryChange: (country: string) => void;
   runs?: RunItem[];
+  conversations?: ConversationItem[];
   onSelectRun?: (id: string) => void;
+  onSelectConversation?: (id: string) => void;
   onStopRun?: (id: string) => void;
   onArchiveRun?: (id: string, archived: boolean) => void;
   onRetryRun?: (id: string) => void;
@@ -466,7 +475,9 @@ export function AppSidebar({
   defaultCountry, 
   onCountryChange,
   runs = [],
+  conversations = [],
   onSelectRun,
+  onSelectConversation,
   onStopRun,
   onArchiveRun,
   onRetryRun,
@@ -733,6 +744,34 @@ export function AppSidebar({
             <p className="text-sm text-muted-foreground">
               This country will be used for all searches unless you specify a different location in your message.
             </p>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        <SidebarGroup>
+          <SidebarGroupLabel className="flex items-center gap-2">
+            <MessagesSquare className="h-4 w-4" />
+            Chat History
+          </SidebarGroupLabel>
+          <SidebarGroupContent className="px-3">
+            {conversations.length === 0 ? (
+              <p className="text-xs text-muted-foreground mb-3">No previous chats</p>
+            ) : (
+              <div className="space-y-1">
+                {conversations.slice(0, 10).map((conversation) => (
+                  <button
+                    key={conversation.id}
+                    onClick={() => onSelectConversation?.(conversation.id)}
+                    className="w-full text-left px-3 py-2 rounded-md text-sm hover-elevate active-elevate-2 border border-border"
+                    data-testid={`button-conversation-${conversation.id}`}
+                  >
+                    <div className="truncate text-foreground">{conversation.label}</div>
+                    <div className="text-xs text-muted-foreground mt-1">
+                      {new Date(conversation.createdAt).toLocaleDateString()}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
           </SidebarGroupContent>
         </SidebarGroup>
 

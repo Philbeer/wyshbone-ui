@@ -60,7 +60,8 @@ function Router({
   addRunFn,
   updateRunFn,
   getActiveRunId,
-  onNewChat
+  onNewChat,
+  onLoadConversation
 }: { 
   defaultCountry: string;
   onInjectSystemMessage: (fn: (msg: string, asUser?: boolean) => void) => void;
@@ -68,6 +69,7 @@ function Router({
   updateRunFn: (runId: string, updates: Partial<RunItem>) => void;
   getActiveRunId: () => string | null;
   onNewChat: (fn: () => void) => void;
+  onLoadConversation: (fn: (conversationId: string) => void) => void;
 }) {
   return (
     <Switch>
@@ -79,6 +81,7 @@ function Router({
           updateRun={updateRunFn}
           getActiveRunId={getActiveRunId}
           onNewChat={onNewChat}
+          onLoadConversation={onLoadConversation}
         />}
       </Route>
       <Route path="/debug" component={DebugPage} />
@@ -87,8 +90,16 @@ function Router({
   );
 }
 
+export type ConversationItem = {
+  id: string;
+  userId: string;
+  label: string;
+  createdAt: number;
+};
+
 function App() {
   const [runs, setRuns] = useState<RunItem[]>(DEMO_RUNS);
+  const [conversations, setConversations] = useState<ConversationItem[]>([]);
   
   const [defaultCountry, setDefaultCountry] = useState<string>(() => {
     return localStorage.getItem('defaultCountry') || 'US';
@@ -102,6 +113,28 @@ function App() {
   const addRunCallbackRef = useRef<((run: Partial<RunItem>) => string) | null>(null);
   const activeRunIdRef = useRef<string | null>(null);
   const newChatCallbackRef = useRef<(() => void) | null>(null);
+  const loadConversationCallbackRef = useRef<((conversationId: string) => void) | null>(null);
+
+  // Fetch conversations
+  useEffect(() => {
+    const fetchConversations = async () => {
+      try {
+        const response = await fetch("/api/conversations/demo-user");
+        if (response.ok) {
+          const data = await response.json();
+          setConversations(data);
+        }
+      } catch (error) {
+        console.error("Failed to fetch conversations:", error);
+      }
+    };
+
+    fetchConversations();
+    
+    // Refresh conversations every 10 seconds
+    const interval = setInterval(fetchConversations, 10000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Poll for deep research runs
   useEffect(() => {
@@ -175,6 +208,14 @@ function App() {
 
   const handleNewChat = useCallback((fn: () => void) => {
     newChatCallbackRef.current = fn;
+  }, []);
+
+  const handleLoadConversation = useCallback((fn: (conversationId: string) => void) => {
+    loadConversationCallbackRef.current = fn;
+  }, []);
+
+  const handleSelectConversation = useCallback((conversationId: string) => {
+    loadConversationCallbackRef.current?.(conversationId);
   }, []);
 
   const addRun = useCallback((runData: Partial<RunItem>): string => {
@@ -273,7 +314,9 @@ function App() {
               defaultCountry={defaultCountry} 
               onCountryChange={setDefaultCountry}
               runs={runs}
+              conversations={conversations}
               onSelectRun={handleSelectRun}
+              onSelectConversation={handleSelectConversation}
               onRetryRun={(id) => console.log("Retry run:", id)}
               onDuplicateRun={(id, newId) => console.log("Duplicate run:", id, "→", newId)}
               onStopRun={(id) => console.log("Stop run:", id)}
@@ -318,6 +361,7 @@ function App() {
                   updateRunFn={updateRun}
                   getActiveRunId={getActiveRunId}
                   onNewChat={handleNewChat}
+                  onLoadConversation={handleLoadConversation}
                 />
               </main>
             </div>
