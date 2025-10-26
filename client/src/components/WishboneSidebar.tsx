@@ -1,6 +1,9 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { useState, useEffect } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { X } from "lucide-react";
 
 type Props = {
   onPrompt: (prompt: string) => void;
@@ -56,28 +59,60 @@ const Tip = ({ children }: { children: React.ReactNode }) => (
 );
 
 export default function WishboneSidebar({ onPrompt }: Props) {
+  const [isVisible, setIsVisible] = useState(false);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setIsVisible(true);
+    }, 2000);
+
+    return () => clearTimeout(timer);
+  }, []);
+
   const handleExampleClick = (ex: Example) => {
     onPrompt(ex.prompt);
   };
 
+  const handleHide = () => {
+    setIsVisible(false);
+  };
+
   return (
-    <aside
-      className="w-[320px] xl:w-[360px] border-l border-border bg-background"
-      aria-label="Research Tips and Examples"
-      data-testid="sidebar-research"
-    >
-      <ScrollArea className="h-full">
-        <div className="p-4 space-y-4">
-          {/* Header */}
-          <div className="pb-2">
-            <h2 className="text-base font-semibold text-foreground">
-              Research Tips
-            </h2>
-            <p className="text-xs text-muted-foreground mt-1">
-              Click an example to auto-fill and send. Or type your own prompt in
-              chat.
-            </p>
-          </div>
+    <AnimatePresence>
+      {isVisible && (
+        <motion.aside
+          initial={{ x: "100%", opacity: 0 }}
+          animate={{ x: 0, opacity: 1 }}
+          exit={{ x: "100%", opacity: 0 }}
+          transition={{ type: "spring", damping: 25, stiffness: 200 }}
+          className="w-[320px] xl:w-[360px] border-l border-border bg-background"
+          aria-label="Research Tips and Examples"
+          data-testid="sidebar-research"
+        >
+          <ScrollArea className="h-full">
+            <div className="p-4 space-y-4">
+              {/* Header */}
+              <div className="pb-2 flex items-start justify-between gap-2">
+                <div className="flex-1">
+                  <h2 className="text-base font-semibold text-foreground">
+                    Research Tips
+                  </h2>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Click an example to auto-fill and send. Or type your own prompt in
+                    chat.
+                  </p>
+                </div>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={handleHide}
+                  className="flex-shrink-0"
+                  data-testid="button-hide-sidebar"
+                  aria-label="Hide sidebar"
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
 
           {/* Research Tips Card */}
           <Card data-testid="card-research-tips">
@@ -136,8 +171,10 @@ export default function WishboneSidebar({ onPrompt }: Props) {
               </p>
             </CardContent>
           </Card>
-        </div>
-      </ScrollArea>
-    </aside>
+            </div>
+          </ScrollArea>
+        </motion.aside>
+      )}
+    </AnimatePresence>
   );
 }
