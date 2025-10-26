@@ -39,7 +39,8 @@ The user interface adheres to modern Material Design principles, inspired by Cha
     - **Intelligent Knowledge Scoring:** Facts are scored for importance (0-100), with higher scores for industries, places, and subjects. A recency boost algorithm prioritizes recent facts.
     - **Category Classification:** Facts are categorized (industry/place/subject/preference/general) for filtering and prioritization.
     - **ConversationId Round-Trip:** Backend generates and streams conversation IDs to the frontend for session continuity.
-    - **Context Building:** Combines historical conversations and extracted facts for personalized responses.
+    - **CRITICAL Message Priority Architecture:** The system enforces strict message ordering where current conversation (last 5-10 messages) takes ABSOLUTE PRIORITY over stored facts. Messages are ordered: System prompt → Conversation history (PRIORITY) → Durable memory (FALLBACK). When users use vague phrases ("deep dive", "yes", "go ahead"), the AI must first check current conversation for context before falling back to stored memory.
+    - **Context Building:** Combines historical conversations and extracted facts for personalized responses, with current conversation always prioritized over durable memory.
     - **Memory Debug View:** A developer interface at `/debug` to inspect conversations, messages, and facts, including a User Profile Summary.
     - **New Chat Feature:** Clears the visual conversation thread while preserving learned facts in the database.
 - **Data Models:** Standardized schemas for `ChatMessage`, `ChatRequest`, `AddNoteRequest`, `BubbleRunBatchRequest`, and database tables (`conversations`, `messages`, `facts`).

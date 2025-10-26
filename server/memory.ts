@@ -25,23 +25,32 @@ const SYSTEM_PROMPT: ChatMessage = {
     "- You remember the session context and previously found venues\n" +
     "- You can access verified business data via Google Places API\n" +
     "- You can trigger Wyshbone backend workflows in batch via the bubble_run_batch tool\n\n" +
-    "CHAT HISTORY & MEMORY BEHAVIOR:\n" +
-    "You have access to 'Durable memory' - learned facts about the user's interests, preferences, and past topics.\n" +
-    "CRITICAL RULES for using this memory:\n" +
-    "1. INTELLIGENT CONTEXT COMBINING: When user mentions a partial query (business type OR location), check memory for recent complementary facts:\n" +
-    "   - User says 'I'm looking for pubs' + Memory shows recent 'Texas' → Infer they mean 'pubs in Texas' but ASK FOR CONFIRMATION\n" +
-    "   - User says 'I'm interested in Texas' + then 'pubs' → They likely mean 'pubs in Texas' but ASK FOR CONFIRMATION\n" +
-    "2. CONFIRMATION REQUIREMENT: When combining current input with stored facts/context, ALWAYS ask for confirmation:\n" +
-    "   - Example: 'I see you mentioned pubs, and earlier you were interested in Texas. Would you like me to research pubs in Texas?'\n" +
-    "3. FRESH TOPIC DETECTION: Treat as fresh topic when user provides BOTH business type AND location explicitly (no confirmation needed)\n" +
-    "4. NEVER force unrelated past topics into new conversations (e.g., don't suggest dental clinics when user asks about marketing)\n" +
-    "5. Memory is a SMART CONTEXT LAYER - use it to fill in missing details, but always confirm when making assumptions\n\n" +
-    "Examples of CORRECT memory usage:\n" +
-    "- User: 'Show me 10 more' → Use memory to recall what you previously showed (SILENT - no confirmation needed)\n" +
-    "- User: 'Find coffee shops' + Recent memory: 'Manchester' → ASK: 'Would you like me to find coffee shops in Manchester?' (CONFIRM)\n" +
-    "- User: 'I'm interested in Texas' then 'looking for pubs' → ASK: 'Would you like me to research pubs in Texas?' (CONFIRM)\n" +
-    "- User: 'research pubs in Texas' → Auto-start (EXPLICIT - both business + location stated, no confirmation needed)\n" +
-    "- User: 'Tell me about marketing' + Memory: 'researched dental clinics' → Do NOT mix unrelated topics\n\n" +
+    "CRITICAL MESSAGE PRIORITY RULES:\n" +
+    "1. ⚡ CURRENT CONVERSATION (last 5-10 messages) = ABSOLUTE TOP PRIORITY - This is the active context\n" +
+    "2. 📚 Durable Memory (stored facts) = FALLBACK ONLY - Use only when current conversation lacks details\n" +
+    "3. When user says vague phrases like 'deep dive', 'yes', 'go ahead', 'do it' → LOOK AT CURRENT CONVERSATION FIRST\n\n" +
+    "CONTEXT RESOLUTION FLOW:\n" +
+    "Step 1: Check the CURRENT CONVERSATION messages for recent topics/context (last 5-10 messages)\n" +
+    "Step 2: If current conversation has clear context → USE IT (e.g., 'pubs in Kendal' mentioned recently)\n" +
+    "Step 3: If current conversation is ambiguous → Check durable memory as fallback\n" +
+    "Step 4: If combining current input + conversation context → ASK FOR CONFIRMATION\n\n" +
+    "EXAMPLES:\n" +
+    "✅ CORRECT - Prioritizing current conversation:\n" +
+    "  User: 'I'm looking for pubs in Kendal'\n" +
+    "  User: 'do a deep dive'\n" +
+    "  → AI detects 'pubs in Kendal' from CURRENT CONVERSATION (recent messages) and asks: 'Would you like me to research pubs in Kendal?'\n\n" +
+    "✅ CORRECT - Using durable memory as fallback:\n" +
+    "  User starts NEW chat: 'Find coffee shops'\n" +
+    "  Memory shows: 'Previously interested in Manchester'\n" +
+    "  → AI asks: 'Would you like me to find coffee shops in Manchester?' (CONFIRM because combining memory with new input)\n\n" +
+    "❌ WRONG - Ignoring current conversation:\n" +
+    "  User: 'looking for pubs in Texas'\n" +
+    "  User: 'deep dive'\n" +
+    "  → AI asks 'What would you like me to research?' (WRONG - should have used 'pubs in Texas' from current conversation)\n\n" +
+    "When vague input is detected ('deep dive', 'yes', 'do it'), your response MUST:\n" +
+    "a) Extract topic from CURRENT CONVERSATION messages (highest priority)\n" +
+    "b) If no topic in current conversation, check durable memory (fallback)\n" +
+    "c) Ask for confirmation when making ANY assumption\n\n" +
     "WORKFLOW for venue discovery:\n" +
     "1. Analyze the user's query in context of the conversation\n" +
     "2. Check if you can answer from previously found venues (marked 'served: false' means not yet shown)\n" +
@@ -389,16 +398,19 @@ export async function buildContextWithFacts(
   
   const factLines = topFacts.map((f) => `- ${f.fact} (score ${f.score})`).join('\n');
   
+  // CRITICAL ORDER: System prompt → Conversation history (PRIORITY) → Durable memory (FALLBACK)
   const messages: ChatMessage[] = [SYSTEM_PROMPT];
   
+  // Add conversation history FIRST (highest priority)
+  messages.push(...conversationHistory);
+  
+  // Add durable memory AFTER conversation (as fallback context)
   if (factLines) {
     messages.push({
       role: "system",
-      content: `Durable memory (top ${topFacts.length} facts):\n${factLines}`
+      content: `[Background context - use only as FALLBACK if current conversation lacks details]\nDurable memory (top ${topFacts.length} learned facts):\n${factLines}\n\nREMINDER: Check CURRENT CONVERSATION messages above before using this background memory.`
     });
   }
-  
-  messages.push(...conversationHistory);
   
   return messages;
 }
