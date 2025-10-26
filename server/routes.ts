@@ -645,6 +645,7 @@ Only extract fields that are in the missing list: ${partialWorkflow.missing_fiel
       // DETECT SUMMARIZE REQUESTS: Check if user wants to summarize the last viewed report
       const summarizePatterns = /\b(summari[sz]e(\s+(it|this|that|the(\s+report)?|the\s+deep\s+(dive|research)))?|tl;?dr)\b/i;
       const wantsSummary = summarizePatterns.test(latestUserText);
+      console.log(`🔍 Summarize detection: text="${latestUserText}", matches=${wantsSummary}`);
       
       if (wantsSummary) {
         console.log("📊 Summarize request detected - calling summarizer");
