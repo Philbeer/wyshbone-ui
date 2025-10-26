@@ -1751,6 +1751,36 @@ CRITICAL RULES:
     }
   });
 
+  // Regenerate labels for all conversations with default labels
+  app.post("/api/conversations/regenerate-labels", async (req, res) => {
+    try {
+      const { userId } = req.body;
+      if (!userId) {
+        return res.status(400).json({ error: "userId required" });
+      }
+
+      const conversations = await storage.listConversations(userId);
+      let updated = 0;
+
+      for (const conversation of conversations) {
+        if (conversation.label === "Conversation" || conversation.label === "New Chat") {
+          const messages = await storage.listMessages(conversation.id);
+          const firstUserMessage = messages.find(m => m.role === "user");
+          
+          if (firstUserMessage) {
+            await updateConversationLabel(conversation.id, firstUserMessage.content);
+            updated++;
+          }
+        }
+      }
+
+      res.json({ success: true, updated });
+    } catch (error: any) {
+      console.error("Error regenerating labels:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // Create a new conversation
   app.post("/api/conversations", async (req, res) => {
     try {

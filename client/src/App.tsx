@@ -129,7 +129,33 @@ function App() {
       }
     };
 
-    fetchConversations();
+    // Regenerate labels on first load (one-time)
+    const regenerateLabels = async () => {
+      try {
+        const response = await fetch("/api/conversations/regenerate-labels", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userId: "demo-user" })
+        });
+        if (response.ok) {
+          const data = await response.json();
+          console.log(`📝 Regenerated ${data.updated} conversation labels`);
+        }
+      } catch (error) {
+        console.error("Failed to regenerate labels:", error);
+      }
+    };
+
+    // Only regenerate once
+    const hasRegenerated = sessionStorage.getItem("labelsRegenerated");
+    if (!hasRegenerated) {
+      regenerateLabels().then(() => {
+        sessionStorage.setItem("labelsRegenerated", "true");
+        fetchConversations();
+      });
+    } else {
+      fetchConversations();
+    }
     
     // Refresh conversations every 10 seconds
     const interval = setInterval(fetchConversations, 10000);

@@ -1,4 +1,4 @@
-import { Globe, MessageSquare, Bug, FilePlus, MessagesSquare } from "lucide-react";
+import { Globe, MessageSquare, Bug, FilePlus, MessagesSquare, ChevronDown, ChevronRight } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "wouter";
 import {
@@ -24,6 +24,11 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 
 export type RunStatus = "queued" | "running" | "completed" | "failed" | "stopped" | "in_progress";
 
@@ -488,6 +493,7 @@ export function AppSidebar({
 }: AppSidebarProps) {
   const [showArchived, setShowArchived] = useState(false);
   const [localRuns, setLocalRuns] = useState<RunItem[]>(runs);
+  const [showPreviousChats, setShowPreviousChats] = useState(false);
 
   useEffect(() => {
     setLocalRuns(runs);
@@ -678,6 +684,35 @@ export function AppSidebar({
     <Sidebar>
       <SidebarContent>
         <SidebarGroup>
+          <SidebarGroupLabel className="flex items-center gap-2">
+            <Globe className="h-4 w-4" />
+            Default Country
+          </SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <Select value={defaultCountry} onValueChange={onCountryChange}>
+                  <SelectTrigger data-testid="select-default-country" className="w-full">
+                    <SelectValue placeholder="Select country" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {COUNTRIES.map((country) => (
+                      <SelectItem 
+                        key={country.code} 
+                        value={country.code}
+                        data-testid={`option-country-${country.code}`}
+                      >
+                        {country.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        <SidebarGroup>
           <SidebarGroupLabel>Navigation</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
@@ -706,72 +741,39 @@ export function AppSidebar({
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-
-        <SidebarGroup>
-          <SidebarGroupLabel className="flex items-center gap-2">
-            <Globe className="h-4 w-4" />
-            Default Country
-          </SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
               <SidebarMenuItem>
-                <Select value={defaultCountry} onValueChange={onCountryChange}>
-                  <SelectTrigger data-testid="select-default-country" className="w-full">
-                    <SelectValue placeholder="Select country" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {COUNTRIES.map((country) => (
-                      <SelectItem 
-                        key={country.code} 
-                        value={country.code}
-                        data-testid={`option-country-${country.code}`}
-                      >
-                        {country.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Collapsible open={showPreviousChats} onOpenChange={setShowPreviousChats}>
+                  <CollapsibleTrigger asChild>
+                    <SidebarMenuButton data-testid="button-toggle-previous-chats">
+                      {showPreviousChats ? (
+                        <ChevronDown className="h-4 w-4" />
+                      ) : (
+                        <ChevronRight className="h-4 w-4" />
+                      )}
+                      <span>{showPreviousChats ? "Hide previous chats" : "Previous Chats"}</span>
+                    </SidebarMenuButton>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="mt-2">
+                    {conversations.length === 0 ? (
+                      <p className="text-xs text-muted-foreground px-3 py-2">No previous chats</p>
+                    ) : (
+                      <div className="space-y-1 px-3">
+                        {conversations.slice(0, 10).map((conversation) => (
+                          <button
+                            key={conversation.id}
+                            onClick={() => onSelectConversation?.(conversation.id)}
+                            className="w-full text-left px-3 py-2 rounded-md text-sm hover-elevate active-elevate-2 border border-border truncate"
+                            data-testid={`button-conversation-${conversation.id}`}
+                          >
+                            {conversation.label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </CollapsibleContent>
+                </Collapsible>
               </SidebarMenuItem>
             </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-        
-        <SidebarGroup>
-          <SidebarGroupContent className="px-4 py-2">
-            <p className="text-sm text-muted-foreground">
-              This country will be used for all searches unless you specify a different location in your message.
-            </p>
-          </SidebarGroupContent>
-        </SidebarGroup>
-
-        <SidebarGroup>
-          <SidebarGroupLabel className="flex items-center gap-2">
-            <MessagesSquare className="h-4 w-4" />
-            Chat History
-          </SidebarGroupLabel>
-          <SidebarGroupContent className="px-3">
-            {conversations.length === 0 ? (
-              <p className="text-xs text-muted-foreground mb-3">No previous chats</p>
-            ) : (
-              <div className="space-y-1">
-                {conversations.slice(0, 10).map((conversation) => (
-                  <button
-                    key={conversation.id}
-                    onClick={() => onSelectConversation?.(conversation.id)}
-                    className="w-full text-left px-3 py-2 rounded-md text-sm hover-elevate active-elevate-2 border border-border"
-                    data-testid={`button-conversation-${conversation.id}`}
-                  >
-                    <div className="truncate text-foreground">{conversation.label}</div>
-                    <div className="text-xs text-muted-foreground mt-1">
-                      {new Date(conversation.createdAt).toLocaleDateString()}
-                    </div>
-                  </button>
-                ))}
-              </div>
-            )}
           </SidebarGroupContent>
         </SidebarGroup>
 

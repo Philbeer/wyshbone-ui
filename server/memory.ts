@@ -226,7 +226,7 @@ export async function updateConversationLabel(
     : truncated;
   
   const conversation = await storage.getConversation(conversationId);
-  if (conversation && conversation.label === "New Chat") {
+  if (conversation && (conversation.label === "New Chat" || conversation.label === "Conversation")) {
     await storage.createConversation({
       ...conversation,
       label,
