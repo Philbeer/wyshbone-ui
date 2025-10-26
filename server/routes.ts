@@ -1003,7 +1003,7 @@ CRITICAL RULES:
             properties: {
               prompt: {
                 type: "string",
-                description: "The research question or topic to investigate (e.g., 'new coffee shops that opened in London in 2024', 'dental practices in Manchester')"
+                description: "CRITICAL: Extract the FULL research topic from conversation context. If user says vague phrases like 'deep dive', 'yes', 'do it', 'go ahead', you MUST extract the specific topic from the CURRENT CONVERSATION messages (last 5-10 messages). Examples: User says 'I'm looking for pubs in Kendal' then 'deep dive' → prompt should be 'pubs in Kendal', NOT just 'deep dive'. User says 'research coffee shops in London' → prompt should be 'coffee shops in London'. NEVER use vague prompts like 'deep dive' alone - always include the actual business type and location from context."
               }
             },
             required: ["prompt"]
