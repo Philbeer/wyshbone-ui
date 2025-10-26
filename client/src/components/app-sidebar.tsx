@@ -402,9 +402,11 @@ const RunRow: React.FC<{
                       View Output
                     </DropdownMenuItem>
                   )}
-                  <DropdownMenuItem onClick={actions.stop} data-testid="menu-item-3">
-                    Stop Research
-                  </DropdownMenuItem>
+                  {(run.status === "queued" || run.status === "in_progress" || run.status === "running") && (
+                    <DropdownMenuItem onClick={actions.stop} data-testid="menu-item-3">
+                      Stop Research
+                    </DropdownMenuItem>
+                  )}
                   <DropdownMenuItem onClick={actions.duplicate} data-testid="menu-item-4">
                     Duplicate
                   </DropdownMenuItem>
@@ -432,7 +434,7 @@ const RunRow: React.FC<{
             >
               Run
             </button>
-          ) : (
+          ) : (run.status === "queued" || run.status === "in_progress" || run.status === "running") ? (
             <button
               className="text-[11px] rounded-lg border border-destructive px-2 py-1 text-destructive hover-elevate active-elevate-2 focus:outline-none focus:ring-2 focus:ring-ring whitespace-nowrap"
               onClick={actions.stop}
@@ -442,7 +444,7 @@ const RunRow: React.FC<{
             >
               Stop
             </button>
-          )}
+          ) : null}
         </div>
       </div>
     </div>
