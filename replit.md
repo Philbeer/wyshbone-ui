@@ -32,7 +32,14 @@ The user interface adheres to modern Material Design principles, inspired by Cha
 - **Streaming Responses:** Utilizes Server-Sent Events (SSE) for real-time AI responses and animated typing indicators.
 - **Error Handling:** Provides comprehensive error messages as system notifications.
 - **Conversational Planning:** A GPT-based planner intelligently decides whether to "search," "use_cache," or "respond" to prevent unnecessary searches and ensure venue deduplication.
-- **Deep Research Context Extraction:** When users use vague follow-up phrases like "deep dive", "yes", or "go ahead", the system intelligently extracts the research topic from earlier conversation context (examines last 10 messages to find the original topic mentioned by the user). The `deep_research` tool description explicitly instructs OpenAI to extract the full topic from CURRENT CONVERSATION messages, not just pass vague phrases. The system distinguishes between explicit topics (clearly stated in current message) vs. inferred topics (combined from current input + historical facts/context), and always asks for confirmation when topics are inferred.
+- **Deep Research Context Extraction:** When users use vague follow-up phrases like "deep dive", "yes", or "go ahead", the system uses a **server-side prompt enhancement layer** that:
+    1. **Detects vague prompts** using pattern matching (checks against: 'deep dive', 'yes', 'do it', 'go ahead', 'sure', 'okay', 'please', 'start', 'begin')
+    2. **Extracts actual topic** from recent conversation history (last 8 messages) using GPT-4o-mini
+    3. **Replaces vague prompt** with the extracted topic before validation (e.g., "deep dive" → "pubs in Kendal")
+    4. **Validates topic source** to distinguish explicit vs. inferred topics
+    5. **Asks for confirmation** when topics are inferred from context
+    
+    This ensures the AI **always uses conversation context** instead of passing vague phrases literally to the research system.
 - **Persistent Memory System:** A database-backed system for conversation history and knowledge accumulation, serving as a background reference layer.
     - **Conversation Persistence:** All chat messages are saved to PostgreSQL with conversation IDs maintained.
     - **Fact Extraction:** Automatically extracts user preferences, business requirements, and contextual information from conversations and research prompts.
