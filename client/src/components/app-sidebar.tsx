@@ -327,7 +327,10 @@ const RunRow: React.FC<{
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
-          <span className={`inline-block text-[10px] px-2 py-0.5 rounded-full font-medium mb-2 ${isDeepResearch ? 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200' : 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200'}`}>
+          <span 
+            className={`inline-block text-[10px] px-2 py-0.5 rounded-full font-medium mb-2 ${isDeepResearch ? 'text-teal-900 dark:text-teal-100' : 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200'}`}
+            style={isDeepResearch ? { backgroundColor: '#cfe6e6' } : undefined}
+          >
             {isDeepResearch ? 'Deep Dive' : 'Find Contacts'}
           </span>
           <div className="flex items-start gap-2 mb-2 flex-wrap">
