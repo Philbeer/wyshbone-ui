@@ -1064,7 +1064,61 @@ CRITICAL RULES:
               throw new Error("Missing prompt parameter");
             }
             
-            // Start deep research
+            // VALIDATE: Check if the prompt was inferred from context vs. explicitly stated
+            const validationPrompt = [
+              {
+                role: "system" as const,
+                content: `Analyze if the research prompt was EXPLICITLY stated in the user's current message, or if it was INFERRED by combining current message with historical context/facts.
+
+Return JSON with:
+{
+  "topic_source": "explicit" | "inferred_from_context",
+  "confirmation_needed": true/false,
+  "confirmation_question": "question to ask" or null
+}
+
+Examples:
+- User current: "I'm interested in Texas" → Research prompt: "pubs in Texas" → {"topic_source": "inferred_from_context", "confirmation_needed": true, "confirmation_question": "I see you're interested in Texas. Would you like me to research pubs in Texas?"}
+- User current: "I'm looking for pubs" → Research prompt: "pubs in Texas" (Texas from earlier context) → {"topic_source": "inferred_from_context", "confirmation_needed": true, "confirmation_question": "I see you mentioned pubs, and earlier you were interested in Texas. Would you like me to research pubs in Texas?"}
+- User current: "research pubs in Texas" → Research prompt: "pubs in Texas" → {"topic_source": "explicit", "confirmation_needed": false, "confirmation_question": null}
+- User current: "deep dive into coffee shops in London" → Research prompt: "coffee shops in London" → {"topic_source": "explicit", "confirmation_needed": false, "confirmation_question": null}
+- User current: "yes" after bot asked "Would you like me to research pubs in Texas?" → Research prompt: "pubs in Texas" → {"topic_source": "explicit", "confirmation_needed": false, "confirmation_question": null}
+
+CRITICAL RULES:
+1. topic_source = "explicit" ONLY if BOTH business type AND location were clearly stated together in the user's current message
+2. topic_source = "inferred_from_context" if ANY part was combined from earlier context (e.g., location from earlier + business from current)
+3. confirmation_needed = true when topic_source = "inferred_from_context"
+4. Create a natural confirmation question that mentions what was inferred`
+              },
+              {
+                role: "user" as const,
+                content: `User's current message: "${latestUserText}"\n\nResearch prompt AI wants to use: "${params.prompt}"\n\nConversation context (recent messages):\n${memoryMessages.slice(-10).reverse().filter(m => m.role !== 'system').map((m, i) => `[${i}] ${m.role}: ${m.content.substring(0, 200)}`).join('\n')}\n\nDetermine if confirmation is needed:`
+              }
+            ];
+
+            const validationResp = await openai.chat.completions.create({
+              model: "gpt-4o-mini",
+              messages: validationPrompt,
+              response_format: { type: "json_object" },
+            });
+
+            const validation = JSON.parse(validationResp.choices[0]?.message?.content || "{}");
+            console.log("✅ Deep research validation:", validation);
+
+            // If confirmation needed, ask the user instead of auto-starting
+            if (validation.confirmation_needed && validation.confirmation_question) {
+              const askMsg = validation.confirmation_question;
+              aiBuffer = askMsg;
+              appendMessage(sessionId, { role: "assistant", content: askMsg });
+              await saveMessage(conversationId, "assistant", askMsg);
+              console.log("💾 Saved confirmation question to database");
+              
+              res.write(`data: ${JSON.stringify({ content: askMsg })}\n\n`);
+              res.write(`data: [DONE]\n\n`);
+              return res.end();
+            }
+            
+            // Confirmed or explicit - start deep research
             const response = await fetch("http://localhost:5000/api/deep-research", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
