@@ -27,7 +27,7 @@ The user interface adheres to modern Material Design principles, inspired by Cha
         - **Background Worker:** Processes regions sequentially, passing ISO alpha-2 country codes to Bubble's workflow.
         - **Progress Tracking:** Offers real-time status updates for jobs.
     - **Stub Endpoint:** `/api/tool/add_note` for future Bubble integration.
-    - **Location Hints Database:** A PostgreSQL table with 29,483+ worldwide location records, optimized for performance with `pg_trgm` and GIN indexes. Includes a smart search API with pagination and country filtering.
+    - **Location Hints Database:** A PostgreSQL table (`location_hints`) with 29,483 worldwide location records across 200+ countries. Features smart search API with pagination, country filtering, and prefix/contains matching. Supports autocomplete and location disambiguation.
     - **Location Ambiguity Resolver:** Intelligently disambiguates location names using the location hints database, handling UK synonyms and providing conservative warning logic to the user without auto-switching the default country.
 - **Streaming Responses:** Utilizes Server-Sent Events (SSE) for real-time AI responses and animated typing indicators.
 - **Error Handling:** Provides comprehensive error messages as system notifications.

@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { pgTable, text, integer, jsonb, bigint, index } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, jsonb, bigint, index, serial } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 
 // Chat message schema
@@ -154,6 +155,26 @@ export const jobStatusResponseSchema = z.object({
 });
 
 export type JobStatusResponse = z.infer<typeof jobStatusResponseSchema>;
+
+// ============= LOCATION HINTS TABLE =============
+
+// Location Hints table - stores worldwide location data for smart search
+export const locationHints = pgTable("location_hints", {
+  id: serial("id").primaryKey(),
+  country: text("country").notNull(),
+  geonameid: text("geonameid"),
+  subcountry: text("subcountry"),
+  townCity: text("town_city"),
+}, (table) => ({
+  countryIdx: index("location_hints_country_idx").on(table.country),
+  townCityIdx: index("location_hints_town_city_idx").on(table.townCity),
+}));
+
+// Location Hints insert/select schemas
+export const insertLocationHintSchema = createInsertSchema(locationHints);
+export const selectLocationHintSchema = createSelectSchema(locationHints);
+export type InsertLocationHint = z.infer<typeof insertLocationHintSchema>;
+export type SelectLocationHint = typeof locationHints.$inferSelect;
 
 // Deep Research Drizzle table
 export const deepResearchRuns = pgTable("deep_research_runs", {
