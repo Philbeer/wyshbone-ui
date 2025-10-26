@@ -71,7 +71,11 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
       const response = await fetch("/api/deep-research", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(request),
+        body: JSON.stringify({
+          ...request,
+          conversationId, // Pass conversationId for context-aware prompts
+          userId: "demo-user" // TODO: Replace with actual user ID when auth is implemented
+        }),
       });
 
       if (!response.ok) {

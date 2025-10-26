@@ -210,6 +210,8 @@ export const deepResearchCreateRequestSchema = z.object({
   windowMonths: z.number().optional(),
   schemaName: z.string().optional(),
   schema: z.any().optional(),
+  conversationId: z.string().optional(), // For context-aware vague prompt enhancement
+  userId: z.string().optional(), // For context-aware vague prompt enhancement
 });
 
 export type DeepResearchCreateRequest = z.infer<typeof deepResearchCreateRequestSchema>;

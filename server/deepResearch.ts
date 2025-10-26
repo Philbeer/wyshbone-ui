@@ -1,11 +1,168 @@
 import type { DeepResearchRun, DeepResearchCreateRequest, DeepResearchRunSummary } from "@shared/schema";
 import { storage } from "./storage";
-import { appendMessage } from "./memory";
+import { appendMessage, loadConversationHistory } from "./memory";
+import { openai } from "./openai";
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
 const OPENAI_BASE = "https://api.openai.com/v1";
 const OPENAI_MODEL = "gpt-4o";
 const POLL_INTERVAL_MS = 3000; // Poll every 3 seconds for faster status updates
+
+// ===========================
+// Context Extraction for Vague Prompts
+// ===========================
+
+export interface ResearchContext {
+  topic?: string;
+  regions?: string[];
+  windowMonths?: number;
+  isInferred: boolean;
+}
+
+function isVaguePrompt(text: string): boolean {
+  const t = text.toLowerCase().trim();
+  if (!t) return true;
+  
+  // Remove punctuation and normalize whitespace
+  const normalized = t.replace(/\W+/g, " ").trim();
+  
+  // Curated list of genuinely vague phrases
+  const vaguePhrases = [
+    "deep dive", "deep research", "yes", "ok", "okay", "do it", "go ahead",
+    "sure", "please do", "yep", "start it", "run it", "begin", "start",
+    "please", "lets do it", "sounds good", "perfect", "great", "alright"
+  ];
+  
+  // Only flag as vague if it exactly matches a known vague phrase
+  return vaguePhrases.includes(normalized);
+}
+
+async function extractResearchContext(
+  conversationId: string,
+  userId: string
+): Promise<ResearchContext> {
+  try {
+    // Load recent conversation history (last 8 messages)
+    const recentMessages = await loadConversationHistory(conversationId, 8);
+    
+    if (recentMessages.length === 0) {
+      return { isInferred: false };
+    }
+    
+    // Build conversation context string
+    const conversationText = recentMessages
+      .filter(m => m.role === "user" || m.role === "assistant")
+      .map(m => `${m.role.toUpperCase()}: ${m.content}`)
+      .join("\n");
+    
+    console.log("🔍 Extracting research context from conversation...");
+    
+    // Use GPT to extract research topic and parameters
+    const extractionPrompt = `Analyze this conversation and extract the research topic that the user likely wants to investigate.
+
+Conversation:
+${conversationText}
+
+Extract:
+1. The main research topic/subject (e.g., "pubs in Texas", "micropubs in West Sussex", "coffee shops in London")
+2. Any mentioned regions/locations (as an array)
+3. Any time window mentioned (e.g., "last 6 months" → 6)
+
+Return strict JSON:
+{
+  "topic": "the specific research topic or null if none",
+  "regions": ["array", "of", "regions"] or null,
+  "windowMonths": number or null
+}
+
+Rules:
+- Only extract if there's a CLEAR topic in the conversation
+- The topic should be something researchable (business types, subjects, locations)
+- If ambiguous or unclear, return null for topic
+- Be conservative - better to return null than guess`;
+
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      temperature: 0.0,
+      messages: [
+        { role: "system", content: "You extract research context in strict JSON format." },
+        { role: "user", content: extractionPrompt }
+      ]
+    });
+
+    const raw = response.choices[0]?.message?.content || '{}';
+    const parsed = JSON.parse(raw);
+    
+    console.log("📊 Extracted context:", parsed);
+    
+    return {
+      topic: parsed.topic || undefined,
+      regions: Array.isArray(parsed.regions) ? parsed.regions : undefined,
+      windowMonths: typeof parsed.windowMonths === 'number' ? parsed.windowMonths : undefined,
+      isInferred: true
+    };
+  } catch (error: any) {
+    console.error("❌ Error extracting research context:", error.message);
+    return { isInferred: false };
+  }
+}
+
+export async function enhancePromptWithContext(
+  prompt: string,
+  conversationId?: string,
+  userId?: string
+): Promise<{ 
+  enhancedPrompt: string; 
+  context: ResearchContext;
+  needsConfirmation: boolean;
+}> {
+  // If prompt is not vague, return as-is
+  if (!isVaguePrompt(prompt)) {
+    return { 
+      enhancedPrompt: prompt, 
+      context: { isInferred: false },
+      needsConfirmation: false
+    };
+  }
+  
+  console.log("🔍 Vague prompt detected:", prompt);
+  
+  // If no conversation context available, fall back to original prompt
+  if (!conversationId || !userId) {
+    console.log("⚠️ No conversationId/userId - falling back to original prompt");
+    return { 
+      enhancedPrompt: prompt, // CRITICAL: Always return original prompt as fallback
+      context: { isInferred: false },
+      needsConfirmation: false
+    };
+  }
+  
+  // Extract context from conversation
+  const context = await extractResearchContext(conversationId, userId);
+  
+  // If no topic found, fall back to original prompt
+  if (!context.topic) {
+    console.log("⚠️ No topic extracted from conversation - falling back to original prompt");
+    return { 
+      enhancedPrompt: prompt, // CRITICAL: Always return original prompt as fallback
+      context,
+      needsConfirmation: false
+    };
+  }
+  
+  // Build enhanced prompt
+  let enhanced = `Deep research on: ${context.topic}. `;
+  enhanced += "Use web browsing to find dated, authoritative sources. ";
+  enhanced += "Provide a comprehensive report with citations and dates.";
+  
+  console.log("✨ Enhanced prompt from context:", enhanced);
+  
+  return {
+    enhancedPrompt: enhanced,
+    context,
+    needsConfirmation: true // Always confirm when using inferred context
+  };
+}
 
 // Post-process research output to ensure beautiful formatting
 async function reformatResearchOutput(rawOutput: string, researchTopic: string): Promise<string> {
