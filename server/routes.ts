@@ -3294,11 +3294,76 @@ Return structured data with the EXACT placeId provided above: "${placeId}"`;
 
       // Extract sessionId so we can send notifications when research completes
       const sessionId = getSessionId(req);
-      const run = await startBackgroundResponsesJob(validation.data, sessionId);
+      
+      // ENHANCE VAGUE PROMPTS: If prompt is vague, extract actual topic from conversation
+      let enhancedPrompt = validation.data.prompt;
+      const vaguePhrases = ['deep dive', 'yes', 'do it', 'go ahead', 'sure', 'okay', 'please', 'start', 'begin'];
+      const isVaguePrompt = vaguePhrases.some(phrase => 
+        enhancedPrompt.toLowerCase().trim() === phrase || 
+        enhancedPrompt.toLowerCase().includes(phrase) && enhancedPrompt.split(' ').length <= 3
+      );
+      
+      if (isVaguePrompt) {
+        console.log(`🔍 Vague prompt detected in POST: "${enhancedPrompt}" - extracting topic from conversation...`);
+        
+        // Get conversation messages for context
+        const messages = getConversation(sessionId);
+        
+        // Extract actual topic from conversation history
+        const extractionPrompt = [
+          {
+            role: "system" as const,
+            content: `Extract the research topic from the conversation. The user said a vague phrase like "${enhancedPrompt}", but there should be a clear topic/business type and location mentioned in recent messages.
+
+Return JSON with ONLY the extracted topic:
+{
+  "extracted_topic": "business type in location" or null
+}
+
+Examples:
+- Recent messages show "pubs in Kendal" → {"extracted_topic": "pubs in Kendal"}
+- Recent messages show "coffee shops" and "London" → {"extracted_topic": "coffee shops in London"}
+- Recent messages show "dentists" and "Manchester" → {"extracted_topic": "dentists in Manchester"}
+- Recent messages show "manufacturing" and "west sussex" → {"extracted_topic": "manufacturing in west sussex"}
+- No clear topic found → {"extracted_topic": null}
+
+RULES:
+1. Extract BOTH business type AND location from recent messages
+2. Combine them naturally: "[business] in [location]"
+3. Return null only if you genuinely cannot find a topic`
+          },
+          {
+            role: "user" as const,
+            content: `User wants to research: "${enhancedPrompt}"\n\nRecent conversation (most recent first):\n${messages.slice(-10).reverse().filter((m: any) => m.role !== 'system').map((m: any, i: number) => `[${i}] ${m.role}: ${m.content?.substring(0, 300) || ''}`).join('\n')}\n\nExtract the research topic:`
+          }
+        ];
+        
+        try {
+          const extractionResp = await openai.chat.completions.create({
+            model: "gpt-4o-mini",
+            messages: extractionPrompt,
+            response_format: { type: "json_object" },
+          });
+          
+          const extraction = JSON.parse(extractionResp.choices[0]?.message?.content || "{}");
+          console.log("📍 POST Topic extraction result:", extraction);
+          
+          if (extraction.extracted_topic) {
+            console.log(`✅ POST Enhanced prompt: "${enhancedPrompt}" → "${extraction.extracted_topic}"`);
+            enhancedPrompt = extraction.extracted_topic;
+          } else {
+            console.log("⚠️ Could not extract topic from conversation");
+          }
+        } catch (err: any) {
+          console.error("❌ Topic extraction failed:", err.message);
+        }
+      }
+      
+      const run = await startBackgroundResponsesJob({ prompt: enhancedPrompt }, sessionId);
       
       // Extract facts from the research prompt in the background (don't await)
       const { extractFactsFromPrompt } = await import("./memory");
-      extractFactsFromPrompt("demo-user", validation.data.prompt, openai)
+      extractFactsFromPrompt("demo-user", enhancedPrompt, openai)
         .then(() => console.log("✅ Facts extracted from research prompt"))
         .catch((err) => console.error("❌ Fact extraction from prompt failed:", err.message));
       
