@@ -33,9 +33,10 @@ interface ChatPageProps {
   updateRun?: (runId: string, updates: any) => void;
   getActiveRunId?: () => string | null;
   onNewChat?: (fn: () => void) => void;
+  onLoadConversation?: (fn: (conversationId: string) => void) => void;
 }
 
-export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage, addRun, updateRun, getActiveRunId, onNewChat }: ChatPageProps) {
+export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage, addRun, updateRun, getActiveRunId, onNewChat, onLoadConversation }: ChatPageProps) {
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
@@ -224,6 +225,52 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
       onNewChat(handleNewChat);
     }
   }, [onNewChat]);
+
+  // Expose load conversation function to parent
+  useEffect(() => {
+    if (onLoadConversation) {
+      const handleLoadConversation = async (newConversationId: string) => {
+        // Abort any active stream first
+        if (abortControllerRef.current) {
+          abortControllerRef.current.abort();
+          abortControllerRef.current = null;
+        }
+
+        setIsStreaming(false);
+        setInput("");
+        setShowWelcome(false);
+        setShowLocationSuggestions(false);
+        
+        // Update conversationId
+        setConversationId(newConversationId);
+        localStorage.setItem('currentConversationId', newConversationId);
+        
+        // Load conversation messages
+        setIsLoadingHistory(true);
+        try {
+          const response = await fetch(`/api/chat/history/${newConversationId}`);
+          if (response.ok) {
+            const data = await response.json();
+            const loadedMessages: DisplayMessage[] = data.messages.map((msg: ChatMessage) => ({
+              ...msg,
+              id: crypto.randomUUID(),
+              timestamp: new Date(msg.timestamp),
+            }));
+            setMessages(loadedMessages);
+            hasLoadedHistoryRef.current = true;
+            console.log(`📜 Loaded conversation ${newConversationId} with ${loadedMessages.length} messages`);
+          } else {
+            console.error("Failed to load conversation history");
+          }
+        } catch (error) {
+          console.error("Error loading conversation:", error);
+        } finally {
+          setIsLoadingHistory(false);
+        }
+      };
+      onLoadConversation(handleLoadConversation);
+    }
+  }, [onLoadConversation]);
 
   const streamChatResponse = async (conversationMessages: ChatMessage[]) => {
     setIsStreaming(true);
