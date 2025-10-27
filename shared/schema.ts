@@ -187,6 +187,7 @@ export const deepResearchRuns = pgTable("deep_research_runs", {
   windowMonths: integer("window_months"),
   schemaName: text("schema_name"),
   schema: jsonb("schema"),
+  intensity: text("intensity").notNull().default("standard"),
   responseId: text("response_id"),
   status: text("status").notNull().default("queued"),
   outputText: text("output_text"),
@@ -202,6 +203,7 @@ export const deepResearchRuns = pgTable("deep_research_runs", {
 // Deep Research Zod schemas for validation
 export const deepResearchRunStatusSchema = z.enum(["queued", "in_progress", "running", "completed", "failed", "stopped"]);
 export const deepResearchRunModeSchema = z.enum(["report", "json"]);
+export const deepResearchIntensitySchema = z.enum(["standard", "ultra"]);
 
 export const deepResearchRunSchema = z.object({
   id: z.string(),
@@ -213,6 +215,7 @@ export const deepResearchRunSchema = z.object({
   windowMonths: z.number().optional(),
   schemaName: z.string().optional(),
   schema: z.any().optional(),
+  intensity: deepResearchIntensitySchema.optional(),
   responseId: z.string().optional(),
   status: deepResearchRunStatusSchema,
   createdAt: z.number(),
@@ -231,6 +234,7 @@ export const deepResearchCreateRequestSchema = z.object({
   windowMonths: z.number().optional(),
   schemaName: z.string().optional(),
   schema: z.any().optional(),
+  intensity: deepResearchIntensitySchema.optional(),
   conversationId: z.string().optional(), // For context-aware vague prompt enhancement
   userId: z.string().optional(), // For context-aware vague prompt enhancement
 });

@@ -9,6 +9,54 @@ const OPENAI_MODEL = "gpt-4o";
 const POLL_INTERVAL_MS = 3000; // Poll every 3 seconds for faster status updates
 
 // ===========================
+// Depth Guidelines based on Intensity
+// ===========================
+
+interface DepthGuidelines {
+  minSources: number;
+  planFirst: boolean;
+  requirePrimary: boolean;
+  addQuotes: boolean;
+  maxTokens: number;
+  angles: string[];
+  notes: string;
+}
+
+function getDepthGuidelines(intensity: "standard" | "ultra" = "standard"): DepthGuidelines {
+  if (intensity === "ultra") {
+    return {
+      minSources: 3,
+      planFirst: true,
+      requirePrimary: true,
+      addQuotes: true,
+      maxTokens: 16000,
+      angles: [
+        "local news",
+        "official websites",
+        "social media (Facebook/Instagram)",
+        "Google Business updates",
+        "planning portals",
+        "business registries",
+        "local forums/Reddit",
+        "review platforms"
+      ],
+      notes: "Be exhaustive within reasonable limits. If evidence is weak, mark confidence=low and add to 'Unverified leads'."
+    };
+  }
+  
+  // standard
+  return {
+    minSources: 1,
+    planFirst: false,
+    requirePrimary: false,
+    addQuotes: false,
+    maxTokens: 8000,
+    angles: [],
+    notes: "Be thorough and include dated evidence; prefer authoritative sources."
+  };
+}
+
+// ===========================
 // Context Extraction for Vague Prompts
 // ===========================
 
@@ -347,19 +395,26 @@ export async function startBackgroundResponsesJob(
     windowMonths,
     schemaName,
     schema,
+    intensity = "standard",
   } = params;
 
+  // Get depth guidelines based on intensity
+  const depthConfig = getDepthGuidelines(intensity);
+
   const id = generateRunId();
+  const finalLabel = (label || suggestDefaultLabel(prompt)) + (intensity === "ultra" ? " (Very Deep Dive)" : "");
+  
   const runData = {
     id,
     sessionId,
-    label: label || suggestDefaultLabel(prompt),
+    label: finalLabel,
     prompt,
     mode,
     counties,
     windowMonths,
     schemaName,
     schema,
+    intensity,
     status: "queued",
     createdAt: Date.now(),
     updatedAt: Date.now(),
@@ -376,12 +431,22 @@ export async function startBackgroundResponsesJob(
     );
   }
 
+  // Build coverage requirements based on depth guidelines
+  const coverage = `Each item must have ≥${depthConfig.minSources} dated sources.` +
+    (depthConfig.requirePrimary ? " At least one must be local/primary." : "") +
+    (depthConfig.addQuotes ? " Include a short quote + date for each source." : "");
+
+  const angles = depthConfig.angles.length ? ` Check: ${depthConfig.angles.join(", ")}.` : "";
+  const plan = depthConfig.planFirst ? " PHASE 1 (PLAN): Brief bullet search plan listing sub-queries and target sources. PHASE 2 (EXECUTE): Execute iteratively with web_search." : "";
+
   const baseInstructions = [
     "You are Wyshbone Deep Research, a professional research analyst.",
+    plan,
     "Use the web_search tool to browse thoroughly, follow leads, cross-check facts, and collect dated evidence.",
-    "Prefer authoritative sources; include citations and dates.",
+    angles,
+    coverage,
+    depthConfig.notes,
     ...scopeHints,
-    "Be exhaustive within reasonable limits.",
   ].join(" ");
 
   const body: any = {
@@ -396,7 +461,7 @@ export async function startBackgroundResponsesJob(
         content: [{ type: "input_text", text: prompt }],
       },
     ],
-    max_output_tokens: 8000,
+    max_output_tokens: depthConfig.maxTokens,
   };
 
   if (mode === "json" && schema && schemaName) {
