@@ -3434,6 +3434,9 @@ Return structured data with the EXACT placeId provided above: "${placeId}"`;
       // Extract sessionId so we can send notifications when research completes
       const sessionId = getSessionId(req);
       
+      // Log what intensity we received
+      console.log(`🔬 Received intensity: ${validation.data.intensity || 'undefined (will default to standard)'}`);
+      
       // ENHANCE VAGUE PROMPTS using conversation context
       const { conversationId, userId } = validation.data;
       const enhancement = await enhancePromptWithContext(
