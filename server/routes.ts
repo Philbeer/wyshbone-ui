@@ -3417,6 +3417,9 @@ Return structured data with the EXACT placeId provided above: "${placeId}"`;
     duplicateRun,
     stripLargeOutput,
     enhancePromptWithContext,
+    startVeryDeepProgram,
+    getProgram,
+    getAllPrograms,
   } = await import("./deepResearch");
   
   const { deepResearchCreateRequestSchema } = await import("@shared/schema");
@@ -3562,6 +3565,72 @@ Return structured data with the EXACT placeId provided above: "${placeId}"`;
     } catch (error: any) {
       console.error("Track view error:", error);
       res.status(500).json({ error: error.message || "Failed to track view" });
+    }
+  });
+
+  // Very Deep Program (multi-iteration research)
+  app.post("/api/very-deep-program", async (req, res) => {
+    try {
+      const validation = deepResearchCreateRequestSchema.safeParse(req.body);
+      if (!validation.success) {
+        return res.status(400).json({ 
+          error: "Invalid request format", 
+          details: validation.error 
+        });
+      }
+
+      const sessionId = getSessionId(req);
+      
+      // Log what we're starting
+      console.log(`🚀 Starting Very Deep Program for: "${validation.data.prompt}"`);
+      
+      // ENHANCE VAGUE PROMPTS using conversation context
+      const { conversationId, userId } = validation.data;
+      const enhancement = await enhancePromptWithContext(
+        validation.data.prompt,
+        conversationId,
+        userId
+      );
+      
+      const finalPrompt = enhancement.enhancedPrompt;
+      
+      if (!finalPrompt || finalPrompt.trim().length === 0) {
+        return res.status(400).json({ 
+          error: "Please specify a research topic." 
+        });
+      }
+      
+      const finalCounties = validation.data.counties || enhancement.context.regions;
+      const finalWindowMonths = validation.data.windowMonths ?? enhancement.context.windowMonths;
+      
+      console.log(`📝 Very Deep Program - Original: "${validation.data.prompt}", Final: "${finalPrompt}"`);
+      
+      const program = await startVeryDeepProgram({
+        prompt: finalPrompt,
+        label: validation.data.label,
+        mode: validation.data.mode,
+        counties: finalCounties,
+        windowMonths: finalWindowMonths,
+      }, sessionId);
+      
+      res.json({ program });
+    } catch (error: any) {
+      console.error("Very Deep Program creation error:", error);
+      res.status(500).json({ error: error.message || "Failed to start very deep program" });
+    }
+  });
+
+  // Get program status
+  app.get("/api/very-deep-program/:id", async (req, res) => {
+    try {
+      const program = getProgram(req.params.id);
+      if (!program) {
+        return res.status(404).json({ error: "Program not found" });
+      }
+      res.json({ program });
+    } catch (error: any) {
+      console.error("Get program error:", error);
+      res.status(500).json({ error: error.message || "Failed to get program" });
     }
   });
 

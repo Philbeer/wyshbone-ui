@@ -660,10 +660,37 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
                           variant="default"
                           size="sm"
                           className="bg-gradient-to-r from-primary to-chart-2 hover:from-primary/90 hover:to-chart-2/90"
-                          onClick={() => {
-                            startDeepResearch({ ...parsed.data, intensity: "ultra" });
-                            // Remove this confirmation message
-                            setMessages((prev) => prev.filter((m) => m.id !== message.id));
+                          onClick={async () => {
+                            // Start Very Deep Program (multi-iteration)
+                            try {
+                              const response = await fetch("/api/very-deep-program", {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({
+                                  ...parsed.data,
+                                  conversationId,
+                                  userId: "demo-user"
+                                }),
+                              });
+                              
+                              if (!response.ok) {
+                                throw new Error("Failed to start Very Deep Program");
+                              }
+                              
+                              // Remove confirmation message and show notification
+                              setMessages((prev) => prev.filter((m) => m.id !== message.id));
+                              
+                              toast({
+                                title: "Very Deep Dive Started",
+                                description: "Running 3 sequential research passes. This will take several minutes...",
+                              });
+                            } catch (error) {
+                              toast({
+                                title: "Error",
+                                description: "Failed to start Very Deep Dive. Please try again.",
+                                variant: "destructive",
+                              });
+                            }
                           }}
                           data-testid="button-very-deep-dive"
                         >

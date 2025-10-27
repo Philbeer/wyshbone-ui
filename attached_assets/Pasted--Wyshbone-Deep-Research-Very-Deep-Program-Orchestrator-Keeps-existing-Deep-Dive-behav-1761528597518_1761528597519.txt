@@ -1,0 +1,582 @@
+/**
+ * Wyshbone Deep Research (Very Deep Program Orchestrator)
+ * - Keeps existing Deep Dive behaviour as-is.
+ * - "Very Deep Dive" now triggers a multi-iteration controller that launches
+ *   several background Responses jobs (ultra intensity), merges results, and
+ *   only stops when thresholds are met or max iterations is reached.
+ *
+ * Setup:
+ *  - Replit Secrets: OPENAI_API_KEY
+ *  - npm i express axios
+ *  - Run this file.
+ */
+
+const express = require("express");
+const axios = require("axios");
+
+// --------------------- Config ---------------------
+const PORT = process.env.PORT || 3000;
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
+const OPENAI_BASE = "https://api.openai.com/v1";
+const OPENAI_MODEL = "gpt-4.1";
+const POLL_INTERVAL_MS = 25000;
+
+if (!OPENAI_API_KEY) console.warn("WARNING: OPENAI_API_KEY is not set.");
+
+// --------------------- In-memory stores ---------------------
+const runs = new Map();       // id -> run (single Responses job)
+const contexts = new Map();   // clientId -> { lastTopic, lastWindowMonths, lastRegions: [] }
+const programs = new Map();   // programId -> { ...multi-iteration controller state... }
+
+const rid = () => "run_" + Math.random().toString(36).slice(2) + Date.now().toString(36);
+const pid = () => "prog_" + Math.random().toString(36).slice(2) + Date.now().toString(36);
+
+function stripLargeOutput(run) {
+  const { outputText, ...rest } = run;
+  return {
+    ...rest,
+    hasOutput: Boolean(outputText && outputText.length),
+    outputPreview:
+      outputText?.slice(0, 240) + (outputText && outputText.length > 240 ? "…" : ""),
+  };
+}
+
+function suggestDefaultLabel(prompt) {
+  const p = (prompt || "").trim();
+  if (!p) return "Deep Research";
+  return p.length <= 60 ? p : p.slice(0, 57) + "…";
+}
+
+function isVague(text = "") {
+  const t = text.toLowerCase().trim();
+  if (!t) return true;
+  const short = t.replace(/\W+/g, " ").trim();
+  const vaguePhrases = [
+    "deep dive","deep research","very deep dive","yes","ok","do it","go ahead",
+    "sure","please do","yep","start it","run it","deep idve"
+  ];
+  if (vaguePhrases.includes(short)) return true;
+  return short.length < 14;
+}
+
+function extractTopicHeuristic(text = "") { return text.trim(); }
+
+function enhancePromptIfVague(prompt, ctx, labelTag="") {
+  if (!isVague(prompt)) return { prompt, labelSuffix: "" };
+  if (ctx && ctx.lastTopic) {
+    const enhanced =
+      `Deep research on: ${ctx.lastTopic}. Use web browsing to find dated, authoritative sources. ` +
+      `Provide a comprehensive report with citations and dates.`;
+    return { prompt: enhanced, labelSuffix: labelTag ? ` – ${labelTag} – ${ctx.lastTopic}` : ` – ${ctx.lastTopic}` };
+  }
+  return { prompt: "", labelSuffix: "" };
+}
+
+// --------------------- Depth presets ---------------------
+function depthGuidelines(intensity = "standard") {
+  if (intensity === "ultra") {
+    return {
+      name: "Very Deep Dive",
+      minSources: 3,
+      planFirst: true,
+      requirePrimary: true,
+      addQuotes: true,
+      maxTokens: 16000,
+      angles: [
+        "local news","CAMRA branches","venue FB/IG","Google Business updates",
+        "local planning portals","Companies House","local forums/Reddit"
+      ],
+      stopRule: "Find at least 10 fully verified items per region or exhaust credible leads."
+    };
+  }
+  if (intensity === "deep") {
+    return {
+      name: "Deep Dive",
+      minSources: 2,
+      planFirst: true,
+      requirePrimary: false,
+      addQuotes: true,
+      maxTokens: 12000,
+      angles: ["local news","CAMRA","venue FB/IG","Google Business"],
+      stopRule: "Find at least 6 verified items per region or exhaust credible leads."
+    };
+  }
+  return { name:"Deep Dive", minSources:1, planFirst:false, requirePrimary:false, addQuotes:false, maxTokens:8000, angles:[], stopRule:"Reasonable coverage." };
+}
+
+// --------------------- OpenAI single-run helpers ---------------------
+async function startBackgroundResponsesJob(params) {
+  const {
+    prompt, label, mode="report", counties, windowMonths,
+    schemaName, schema, clientId, intensity="standard",
+    continueContext   // optional: carry prior findings to force "keep searching"
+  } = params;
+
+  const d = depthGuidelines(intensity);
+
+  const id = rid();
+  const run = {
+    id, clientId, label: (label || suggestDefaultLabel(prompt)) + (intensity==="ultra"?" – Very Deep":""),
+    prompt, mode, counties, windowMonths, schemaName, schema, intensity,
+    status:"queued", createdAt:Date.now(), updatedAt:Date.now(), parentProgramId: params.parentProgramId, iteration: params.iteration
+  };
+  runs.set(id, run);
+
+  const scopeHints = [];
+  if (Array.isArray(counties) && counties.length) scopeHints.push(`Restrict focus to these regions: ${counties.join(", ")}.`);
+  if (typeof windowMonths === "number") scopeHints.push(`Only include items with dated public evidence within the last ${windowMonths} months.`);
+
+  const coverage = `Each item must have ≥${d.minSources} dated sources.${d.requirePrimary ? " At least one must be local/primary." : ""}${d.addQuotes ? " Include a short quote + date for each source." : ""}`;
+  const angles   = d.angles.length ? ` Check: ${d.angles.join(", ")}.` : "";
+  const plan     = d.planFirst ? " PHASE 1 (PLAN): List sub-queries and target sources. PHASE 2 (EXECUTE): Execute with web_search iteratively." : "";
+  const carry    = continueContext ? ` CONTEXT: Prior findings are included below. Only add NEW items not already listed, and pursue new leads that extend coverage.\n\n${continueContext}\n\n` : "";
+
+  let instructions = [
+    `You are Wyshbone Research – ${d.name}.`,
+    plan, angles, coverage,
+    `Stop rule: ${d.stopRule}`,
+    "GUARDRAILS: Exclude items without dated evidence; if evidence is weak, mark confidence=low and list under 'Unverified leads'.",
+    carry,
+    "OUTPUT (Markdown): 1) Executive Summary (counts by region), 2) Openings & Relocations (• Name — Town/County — Date — one-line note), 3) Planned Openings, 4) Recognitions & Expansions, 5) Unverified leads, 6) Sources with URLs and dates. No filler text."
+  ].join(" ");
+
+  const body = {
+    model: OPENAI_MODEL,
+    background: true,
+    tools: [{ type: "web_search" }],
+    tool_choice: "auto",
+    instructions,
+    input: [{ role: "user", content: [{ type:"input_text", text: prompt }] }],
+    max_output_tokens: d.maxTokens,
+    text: { format: { type:"markdown" } }
+  };
+
+  if (mode === "json" && schema && schemaName) {
+    body.text = { format: { type:"json_schema", name:schemaName, strict:false, schema } };
+    body.instructions = [
+      `You are Wyshbone Research – ${d.name}.`, plan, angles, coverage,
+      `Stop rule: ${d.stopRule}`,
+      "OUTPUT (JSON): Return STRICT JSON per schema. Exclude items without dated evidence.",
+      carry
+    ].join(" ");
+  }
+
+  try {
+    const { data } = await axios.post(`${OPENAI_BASE}/responses`, body, {
+      headers: { Authorization: `Bearer ${OPENAI_API_KEY}`, "Content-Type":"application/json" }
+    });
+    run.responseId = data.id;
+    run.status = data.status ?? "in_progress";
+    run.updatedAt = Date.now();
+    runs.set(id, run);
+    return run;
+  } catch (err) {
+    run.status = "failed";
+    run.error  = err?.response?.data?.error?.message || String(err);
+    run.updatedAt = Date.now();
+    runs.set(id, run);
+    return run;
+  }
+}
+
+async function pollOneRun(run) {
+  if (!run.responseId || ["completed","failed","stopped"].includes(run.status)) return;
+  try {
+    const { data } = await axios.get(`${OPENAI_BASE}/responses/${run.responseId}`, {
+      headers: { Authorization: `Bearer ${OPENAI_API_KEY}` }
+    });
+    const status = data.status || "in_progress";
+    run.status = status; run.updatedAt = Date.now();
+
+    if (status === "completed") {
+      const outputText =
+        data.output_text ??
+        (data.output?.[0]?.content?.[0]?.text) ??
+        JSON.stringify(data.output ?? data, null, 2);
+      run.outputText = outputText;
+
+      // If this run belongs to a program, notify the controller
+      if (run.parentProgramId) {
+        const prog = programs.get(run.parentProgramId);
+        if (prog) prog.completedRuns.push(run.id);
+      }
+    } else if (status === "failed") {
+      run.error = data?.error?.message || "Unknown error";
+    }
+  } catch (err) {
+    run.error = err?.response?.data?.error?.message || String(err);
+  } finally {
+    runs.set(run.id, run);
+  }
+}
+
+// background poller
+setInterval(async () => {
+  const pending = Array.from(runs.values()).filter(r => r.status==="queued" || r.status==="in_progress");
+  for (const r of pending) {
+    if (r.status === "stopped") continue;
+    await pollOneRun(r);
+  }
+  // also tick programs
+  for (const prog of programs.values()) await maybeAdvanceProgram(prog);
+}, POLL_INTERVAL_MS);
+
+// --------------------- Program controller (multi-iteration) ---------------------
+async function maybeAdvanceProgram(prog) {
+  if (prog.status !== "running") return;
+
+  // If current child run finished, decide whether to continue
+  const latestRunId = prog.childRunIds[prog.childRunIds.length - 1];
+  const latestRun   = runs.get(latestRunId);
+  if (!latestRun || latestRun.status === "in_progress" || latestRun.status === "queued") return;
+
+  // Append output
+  if (latestRun.status === "completed" && latestRun.outputText) {
+    prog.aggregateMarkdown += `\n\n---\n\n### Pass ${prog.iteration} Results\n\n${latestRun.outputText}`;
+    prog.newFindingsCount += (latestRun.outputText.match(/• /g) || []).length; // naive count of bullets
+  }
+
+  // Stop conditions
+  const moreIterationsAvailable = prog.iteration < prog.maxIterations;
+  const gotEnough = prog.newFindingsCount >= prog.targetBullets; // threshold
+  if (!moreIterationsAvailable || gotEnough) {
+    prog.status = "completed";
+    // Save a final synthesized report run for convenience
+    const finalId = rid();
+    runs.set(finalId, {
+      id: finalId,
+      clientId: prog.clientId,
+      label: `${prog.label} (synthesized)`,
+      prompt: prog.prompt,
+      mode: "report",
+      intensity: "ultra",
+      status: "completed",
+      createdAt: prog.createdAt,
+      updatedAt: Date.now(),
+      outputText: `# ${prog.label}\n\n**Iterations:** ${prog.iteration}/${prog.maxIterations}\n**Estimated new items:** ${prog.newFindingsCount}\n\n${prog.aggregateMarkdown}`
+    });
+    prog.finalRunId = finalId;
+    return;
+  }
+
+  // Continue: launch next iteration with "continueContext"
+  prog.iteration += 1;
+  const continueContext = summarizeForCarry(prog.aggregateMarkdown);
+  const next = await startBackgroundResponsesJob({
+    prompt: prog.prompt,
+    label: `${prog.label} – pass ${prog.iteration}`,
+    mode: "report",
+    counties: prog.counties,
+    windowMonths: prog.windowMonths,
+    clientId: prog.clientId,
+    intensity: "ultra",
+    continueContext,
+    parentProgramId: prog.id,
+    iteration: prog.iteration
+  });
+  prog.childRunIds.push(next.id);
+  programs.set(prog.id, prog);
+}
+
+function summarizeForCarry(markdown) {
+  // Keep it simple: pass back the last 12k chars so the model knows what we already found
+  const max = 12000;
+  const s = markdown || "";
+  return s.length > max ? s.slice(-max) : s;
+}
+
+// --------------------- Express App ---------------------
+const app = express();
+app.use(express.json());
+
+// Record chat and update context
+app.post("/api/chat-message", (req, res) => {
+  const { text, clientId } = req.body || {};
+  if (!clientId) return res.status(400).json({ error: "clientId required" });
+
+  const ctx = contexts.get(clientId) || {};
+  if (!isVague(text)) {
+    const topic = extractTopicHeuristic(text);
+    if (topic) ctx.lastTopic = topic;
+    const win = String(text).match(/\b(last|past)\s+(\d{1,2})\s*(months?|weeks?)\b/i);
+    if (win && /month/i.test(win[3] || "")) ctx.lastWindowMonths = Number(win[2]);
+    const countyMatch = String(text).match(/\b(texas|sussex|west sussex|east sussex|kent|yorkshire|london|cornwall|manchester)\b/ig);
+    if (countyMatch) ctx.lastRegions = Array.from(new Set(countyMatch.map(s => s.trim())));
+    contexts.set(clientId, ctx);
+  }
+
+  res.json({ ok: true, context: contexts.get(clientId) || {} });
+});
+
+// Suggestions (kept simple)
+app.post("/api/chat-suggest", (req, res) => {
+  const { text = "", clientId } = req.body || {};
+  if (!clientId) return res.status(400).json({ suggestions: [], error: "clientId required" });
+
+  const lower = text.toLowerCase();
+  const looksResearchy =
+    /\b(new|latest|find|research|report|sources?|citations?|open(ed)?|launched)\b/.test(lower) ||
+    lower.includes("micropubs") || lower.includes("pubs") || lower.includes("shakespeare");
+
+  const ctx = contexts.get(clientId) || {};
+  if (!looksResearchy) return res.json({ suggestions: [] });
+
+  const contextual = ctx.lastTopic ? [{
+    label: `Deep dive: ${ctx.lastTopic}`,
+    payload: { prompt: "deep dive", label: "Deep dive", mode: "report", intensity: "deep" }
+  }] : [];
+
+  const generic = [
+    {
+      label: "Very Deep Dive (use my last topic)",
+      payload: { action: "very-deep-program" }
+    }
+  ];
+
+  res.json({ suggestions: [...contextual, ...generic] });
+});
+
+// Existing single-run deep research
+app.post("/api/deep-research", async (req, res) => {
+  const {
+    prompt, label, mode="report", counties, windowMonths,
+    schemaName, schema, clientId, intensity="standard"
+  } = req.body || {};
+  if (!clientId) return res.status(400).json({ error: "clientId is required" });
+
+  const ctx = contexts.get(clientId) || {};
+  const tag = intensity==="ultra" ? "Very Deep Dive" : intensity==="deep" ? "Deep Dive" : "Deep Dive";
+  const { prompt: maybeEnhanced, labelSuffix } = enhancePromptIfVague(prompt || "", ctx, tag);
+
+  if (isVague(prompt) && !maybeEnhanced) {
+    return res.status(400).json({ error:"no_topic", message:"Please specify a topic (e.g., 'pubs in Texas, last 6 months')." });
+  }
+
+  const finalPrompt   = isVague(prompt) ? maybeEnhanced : prompt;
+  const finalCounties = (Array.isArray(counties)&&counties.length) ? counties : (ctx.lastRegions || undefined);
+  const finalWindow   = (typeof windowMonths === "number") ? windowMonths : (ctx.lastWindowMonths || undefined);
+
+  const run = await startBackgroundResponsesJob({
+    prompt: finalPrompt, label:(label || suggestDefaultLabel(finalPrompt)) + (labelSuffix || ""),
+    mode, counties:finalCounties, windowMonths:finalWindow,
+    schemaName, schema, clientId, intensity
+  });
+  res.json({ run: stripLargeOutput(run) });
+});
+
+// NEW: Very Deep Program endpoint (multi-iteration orchestrator)
+app.post("/api/very-deep-program", async (req, res) => {
+  const { clientId, prompt, counties, windowMonths, maxIterations=3, targetBullets=18 } = req.body || {};
+  if (!clientId) return res.status(400).json({ error:"clientId required" });
+
+  const ctx = contexts.get(clientId) || {};
+  const { prompt: maybeEnhanced } = enhancePromptIfVague(prompt || "very deep dive", ctx, "Very Deep Dive");
+  if (!maybeEnhanced) return res.status(400).json({ error:"no_topic", message:"Please specify a topic or mention it in chat first." });
+
+  const prog = {
+    id: pid(),
+    clientId,
+    label: "Very Deep Dive (program)",
+    prompt: maybeEnhanced,
+    counties: counties || ctx.lastRegions,
+    windowMonths: typeof windowMonths==="number" ? windowMonths : ctx.lastWindowMonths,
+    iteration: 1,
+    maxIterations: Math.max(1, Math.min(5, Number(maxIterations))),
+    targetBullets: Math.max(6, Number(targetBullets)), // naive coverage threshold
+    status: "running",
+    createdAt: Date.now(),
+    aggregateMarkdown: "",
+    newFindingsCount: 0,
+    childRunIds: [],
+    completedRuns: []
+  };
+  programs.set(prog.id, prog);
+
+  // Kick first pass
+  const first = await startBackgroundResponsesJob({
+    prompt: prog.prompt,
+    label: `${prog.label} – pass 1`,
+    mode: "report",
+    counties: prog.counties,
+    windowMonths: prog.windowMonths,
+    clientId: prog.clientId,
+    intensity: "ultra",
+    parentProgramId: prog.id,
+    iteration: 1
+  });
+  prog.childRunIds.push(first.id);
+  programs.set(prog.id, prog);
+
+  res.json({ program: { id: prog.id, status: prog.status, iteration: prog.iteration, maxIterations: prog.maxIterations } });
+});
+
+// List runs (parent + children + synthesized final will all appear)
+app.get("/api/runs", (_req, res) => {
+  const list = Array.from(runs.values()).sort((a,b)=>b.createdAt - a.createdAt).map(stripLargeOutput);
+  res.json({ runs: list });
+});
+
+// Inspect one run
+app.get("/api/runs/:id", (req, res) => {
+  const run = runs.get(req.params.id);
+  if (!run) return res.status(404).json({ error:"not found" });
+  res.json({ run });
+});
+
+app.post("/api/runs/:id/stop", (req, res) => {
+  const run = runs.get(req.params.id);
+  if (!run) return res.status(404).json({ error:"not found" });
+  run.status = "stopped"; run.updatedAt = Date.now();
+  runs.set(run.id, run);
+  res.json({ run: stripLargeOutput(run) });
+});
+
+app.post("/api/runs/:id/duplicate", async (req, res) => {
+  const prev = runs.get(req.params.id);
+  if (!prev) return res.status(404).json({ error:"not found" });
+  const run = await startBackgroundResponsesJob({
+    prompt: prev.prompt, label: prev.label+" (copy)", mode: prev.mode,
+    counties: prev.counties, windowMonths: prev.windowMonths,
+    schemaName: prev.schemaName, schema: prev.schema,
+    clientId: prev.clientId, intensity: prev.intensity || "standard"
+  });
+  res.json({ run: stripLargeOutput(run) });
+});
+
+// --------------------- Inline UI ---------------------
+app.get("/", (_req, res) => {
+  res.setHeader("Content-Type","text/html; charset=utf-8");
+  res.end(INDEX_HTML);
+});
+
+// --------------------- Server ---------------------
+const appServer = app.listen(PORT, () => {
+  console.log("Deep Research app (Very Deep Program) running on port", PORT);
+});
+
+// --------------------- HTML/Client ---------------------
+const INDEX_HTML = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Wyshbone Deep Research (Very Deep Program)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    html, body { margin:0; padding:0; height:100%; font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; }
+    .app { display:flex; height:100%; }
+    .left { width:320px; border-right:1px solid #e5e7eb; padding:12px; box-sizing:border-box; overflow:auto; }
+    .right { flex:1; display:flex; flex-direction:column; }
+    .header { display:flex; align-items:center; gap:8px; padding:12px; border-bottom:1px solid #e5e7eb; font-weight:600; }
+    .btn { font-size:12px; padding:6px 10px; border:1px solid #cbd5e1; border-radius:8px; background:#f8fafc; cursor:pointer; }
+    .btn:hover { background:#eef2f7; }
+    .runs .run { border:1px solid #e5e7eb; border-radius:12px; padding:10px; margin-bottom:10px; }
+    .badge { font-size:11px; border:1px solid #cbd5e1; border-radius:999px; padding:2px 8px; margin-left:8px; }
+    .controls button { font-size:12px; margin-right:8px; background:none; border:none; text-decoration:underline; cursor:pointer; }
+    .chat { flex:1; padding:12px; overflow:auto; }
+    .bubble { margin-bottom:10px; }
+    .bubble.me { text-align:right; }
+    .bubble .inner { display:inline-block; padding:10px 12px; border-radius:12px; max-width:70%; }
+    .bubble.me .inner { background:#e0f2fe; }
+    .bubble.bot .inner { background:#f8fafc; border:1px solid #e5e7eb; }
+    .composer { display:flex; gap:8px; padding:12px; border-top:1px solid #e5e7eb; }
+    input[type="text"] { flex:1; padding:10px; border:1px solid #cbd5e1; border-radius:10px; }
+    .suggestions { font-size:13px; color:#334155; margin-top:6px; }
+    .suggestions button { margin-right:8px; margin-top:6px; font-size:12px; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="left">
+      <div style="font-weight:600; margin-bottom:10px;">Research Runs</div>
+      <div id="runs" class="runs"></div>
+    </div>
+    <div class="right">
+      <div class="header">
+        <div style="flex:1">Chat</div>
+        <button class="btn" id="veryDeepBtn" title="Run a multi-iteration Very Deep Dive using your last topic">Very Deep Dive</button>
+      </div>
+      <div id="chat" class="chat"></div>
+      <div class="composer">
+        <input id="msg" type="text" placeholder="e.g., 'pubs in Texas last 6 months' or 'essays about Shakespeare'." />
+        <button id="send" class="btn">Send</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const CLIENT_ID_KEY = "wy_client_id";
+    const clientId = (localStorage.getItem(CLIENT_ID_KEY) || (() => { const v="c_"+Math.random().toString(36).slice(2); localStorage.setItem(CLIENT_ID_KEY, v); return v; })());
+
+    const runsEl = document.getElementById("runs");
+    const chatEl = document.getElementById("chat");
+    const msgEl  = document.getElementById("msg");
+    const sendBtn= document.getElementById("send");
+    const veryBtn= document.getElementById("veryDeepBtn");
+
+    function addBubble(who, text, html=false) {
+      const div = document.createElement("div");
+      div.className = "bubble " + who;
+      const inner = document.createElement("div");
+      inner.className = "inner";
+      if (html) inner.innerHTML = text; else inner.textContent = text;
+      div.appendChild(inner); chatEl.appendChild(div); chatEl.scrollTop = chatEl.scrollHeight;
+    }
+    function escapeHtml(s){ return (s||"").replace(/[&<>\"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
+
+    async function listRuns(){
+      const res = await fetch("/api/runs"); const data = await res.json();
+      runsEl.innerHTML=""; (data.runs||[]).forEach(r=>{
+        const div = document.createElement("div"); div.className="run";
+        const top = document.createElement("div");
+        top.innerHTML = \`<span style="font-weight:600">\${escapeHtml(r.label)}</span> <span class="badge">\${r.status}</span>\`;
+        const meta = document.createElement("div"); meta.style.fontSize="12px"; meta.style.color="#475569";
+        meta.textContent = new Date(r.createdAt).toLocaleString() + (r.outputPreview ? " • " + r.outputPreview : "");
+        const controls = document.createElement("div"); controls.className="controls";
+        const dup=document.createElement("button"); dup.textContent="Duplicate"; dup.onclick=async()=>{await fetch("/api/runs/"+r.id+"/duplicate",{method:"POST"}); await listRuns();}; controls.appendChild(dup);
+        if(r.status==="queued"||r.status==="in_progress"){ const stop=document.createElement("button"); stop.textContent="Stop"; stop.onclick=async()=>{await fetch("/api/runs/"+r.id+"/stop",{method:"POST"}); await listRuns();}; controls.appendChild(stop); }
+        if(r.hasOutput && r.status==="completed"){ const view=document.createElement("a"); view.href="/api/runs/"+r.id; view.target="_blank"; view.textContent="View full output"; view.style.fontSize="12px"; view.style.marginLeft="8px"; controls.appendChild(view); }
+        div.appendChild(top); div.appendChild(meta); div.appendChild(controls); runsEl.appendChild(div);
+      });
+    }
+
+    async function suggestFromChat(text){
+      const res = await fetch("/api/chat-suggest",{method:"POST",headers:{ "Content-Type":"application/json" },body:JSON.stringify({ text, clientId })});
+      const data = await res.json(); const suggestions=(data && data.suggestions)||[]; if(!suggestions.length) return;
+      let html="<div class='suggestions'><div>Actions you can take:</div>";
+      suggestions.forEach(s=>{ const payload=encodeURIComponent(JSON.stringify(s.payload)); html+=\`<button class="btn" onclick="window.launchPayload('\${payload}')">\${s.label}</button>\`; });
+      html+="</div>"; addBubble("bot", html, true);
+    }
+
+    window.launchPayload = async (payloadEnc)=>{
+      const payload = JSON.parse(decodeURIComponent(payloadEnc));
+      if(payload && payload.action === "very-deep-program"){
+        addBubble("bot","Starting a multi-iteration Very Deep Dive using your last topic …");
+        await fetch("/api/very-deep-program",{method:"POST",headers:{ "Content-Type":"application/json" },body:JSON.stringify({ clientId })});
+      }else{
+        await fetch("/api/deep-research",{method:"POST",headers:{ "Content-Type":"application/json" },body:JSON.stringify({ ...payload, clientId })});
+        addBubble("bot","Great — I’ve started a deep-dive. Progress will appear on the left.");
+      }
+      listRuns();
+    };
+
+    // Top-right button triggers the program too
+    veryBtn.onclick = async ()=>{
+      addBubble("bot","Starting a multi-iteration Very Deep Dive using your last topic …");
+      await fetch("/api/very-deep-program",{method:"POST",headers:{ "Content-Type":"application/json" },body:JSON.stringify({ clientId })});
+      listRuns();
+    };
+
+    sendBtn.onclick = async ()=>{
+      const text = msgEl.value.trim(); if(!text) return;
+      addBubble("me", text); msgEl.value="";
+      await fetch("/api/chat-message",{method:"POST",headers:{ "Content-Type":"application/json" },body:JSON.stringify({ text, clientId })});
+      addBubble("bot","Got it. I can run a deep research dive and show progress on the left. Or click “Very Deep Dive” for a multi-pass search.");
+      await suggestFromChat(text);
+    };
+
+    setInterval(listRuns, 5000); listRuns();
+  </script>
+</body>
+</html>
+`;

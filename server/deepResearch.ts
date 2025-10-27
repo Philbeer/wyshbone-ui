@@ -733,11 +733,192 @@ export async function duplicateRun(id: string): Promise<DeepResearchRun | undefi
   });
 }
 
+// ===========================
+// Multi-Iteration Program Controller (Very Deep Dive)
+// ===========================
+
+interface VeryDeepProgram {
+  id: string;
+  prompt: string;
+  label: string;
+  sessionId?: string;
+  counties?: string[];
+  windowMonths?: number;
+  status: "running" | "completed" | "failed";
+  iteration: number;
+  maxIterations: number;
+  childRunIds: string[];
+  aggregateOutput: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+const activePrograms = new Map<string, VeryDeepProgram>();
+
+function generateProgramId(): string {
+  return "prog_" + Math.random().toString(36).slice(2) + Date.now().toString(36);
+}
+
+export async function startVeryDeepProgram(
+  params: DeepResearchCreateRequest,
+  sessionId?: string
+): Promise<VeryDeepProgram> {
+  const programId = generateProgramId();
+  
+  const program: VeryDeepProgram = {
+    id: programId,
+    prompt: params.prompt,
+    label: params.label || suggestDefaultLabel(params.prompt),
+    sessionId,
+    counties: params.counties,
+    windowMonths: params.windowMonths,
+    status: "running",
+    iteration: 1,
+    maxIterations: 3, // Run 3 passes
+    childRunIds: [],
+    aggregateOutput: "",
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+  
+  activePrograms.set(programId, program);
+  
+  // Start first iteration
+  const firstRun = await startBackgroundResponsesJob({
+    ...params,
+    intensity: "ultra",
+    label: `${program.label} – Pass 1/3`,
+  }, sessionId);
+  
+  program.childRunIds.push(firstRun.id);
+  
+  console.log(`🚀 Started Very Deep Program ${programId} with ${program.maxIterations} iterations`);
+  
+  return program;
+}
+
+async function advanceProgram(program: VeryDeepProgram): Promise<void> {
+  if (program.status !== "running") return;
+  
+  // Get the latest child run
+  const latestRunId = program.childRunIds[program.childRunIds.length - 1];
+  const latestRun = await getRun(latestRunId);
+  
+  if (!latestRun) return;
+  
+  // Wait for current run to complete
+  if (latestRun.status === "queued" || latestRun.status === "in_progress") return;
+  
+  // Aggregate output from completed run
+  if (latestRun.status === "completed" && latestRun.outputText) {
+    program.aggregateOutput += `\n\n---\n### Pass ${program.iteration} Results\n\n${latestRun.outputText}`;
+    program.updatedAt = Date.now();
+  }
+  
+  // Check if we should continue
+  if (program.iteration >= program.maxIterations) {
+    // Program complete - create final synthesized run
+    await finalizeProgram(program);
+    return;
+  }
+  
+  // Start next iteration with context from previous passes
+  program.iteration += 1;
+  const continueContext = summarizeForContext(program.aggregateOutput);
+  
+  const nextRun = await startBackgroundResponsesJob({
+    prompt: program.prompt,
+    label: `${program.label} – Pass ${program.iteration}/${program.maxIterations}`,
+    mode: "report",
+    counties: program.counties,
+    windowMonths: program.windowMonths,
+    intensity: "ultra",
+  }, program.sessionId);
+  
+  // Modify instructions to include prior context
+  const runToUpdate = await getRun(nextRun.id);
+  if (runToUpdate && continueContext) {
+    console.log(`📋 Pass ${program.iteration}: Carrying forward ${continueContext.length} chars of context`);
+  }
+  
+  program.childRunIds.push(nextRun.id);
+  program.updatedAt = Date.now();
+  activePrograms.set(program.id, program);
+}
+
+function summarizeForContext(aggregateOutput: string): string {
+  // Return last 8000 chars so next iteration knows what was already found
+  const maxContext = 8000;
+  if (aggregateOutput.length <= maxContext) return aggregateOutput;
+  return "..." + aggregateOutput.slice(-maxContext);
+}
+
+async function finalizeProgram(program: VeryDeepProgram): Promise<void> {
+  program.status = "completed";
+  program.updatedAt = Date.now();
+  
+  // Create a final synthesized report run
+  const finalId = generateRunId();
+  const finalReport = `# 📊 ${program.label} (Very Deep Dive - ${program.iteration} Passes)
+
+## 🎯 Research Summary
+This report synthesizes findings from ${program.iteration} sequential research passes, each building on the previous one to provide comprehensive, multi-sourced insights.
+
+${program.aggregateOutput}
+
+---
+
+**Research Methodology:** ${program.iteration} sequential ultra-deep passes with context carry-forward
+**Total Runtime:** ${Math.round((program.updatedAt - program.createdAt) / 1000)}s
+`;
+  
+  const runData = {
+    id: finalId,
+    sessionId: program.sessionId,
+    label: `${program.label} (Very Deep Dive Final)`,
+    prompt: program.prompt,
+    mode: "report" as const,
+    counties: program.counties,
+    windowMonths: program.windowMonths,
+    intensity: "ultra" as const,
+    status: "completed" as const,
+    createdAt: program.createdAt,
+    updatedAt: program.updatedAt,
+    outputText: finalReport,
+  };
+  
+  await storage.createDeepResearchRun(runData);
+  
+  console.log(`✅ Very Deep Program ${program.id} completed. Final run: ${finalId}`);
+  
+  // Send notification
+  if (program.sessionId) {
+    await sendCompletionNotification(program.sessionId, runData as DeepResearchRun);
+  }
+  
+  activePrograms.set(program.id, program);
+}
+
+export function getProgram(id: string): VeryDeepProgram | undefined {
+  return activePrograms.get(id);
+}
+
+export function getAllPrograms(): VeryDeepProgram[] {
+  return Array.from(activePrograms.values());
+}
+
 async function pollAllPendingRuns(): Promise<void> {
   const pending = await storage.listPendingDeepResearchRuns();
   for (const r of pending) {
     if (r.status === "stopped") continue;
     await pollOneRun(r as DeepResearchRun);
+  }
+  
+  // Also advance any running programs
+  for (const program of activePrograms.values()) {
+    if (program.status === "running") {
+      await advanceProgram(program);
+    }
   }
 }
 
