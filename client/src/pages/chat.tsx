@@ -657,6 +657,20 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
                           Start Deep Research
                         </Button>
                         <Button
+                          variant="default"
+                          size="sm"
+                          className="bg-gradient-to-r from-primary to-chart-2 hover:from-primary/90 hover:to-chart-2/90"
+                          onClick={() => {
+                            startDeepResearch({ ...parsed.data, intensity: "ultra" });
+                            // Remove this confirmation message
+                            setMessages((prev) => prev.filter((m) => m.id !== message.id));
+                          }}
+                          data-testid="button-very-deep-dive"
+                        >
+                          <Search className="w-4 h-4 mr-2" />
+                          Very Deep Dive
+                        </Button>
+                        <Button
                           variant="outline"
                           size="sm"
                           onClick={() => {
