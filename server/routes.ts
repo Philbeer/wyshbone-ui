@@ -3463,6 +3463,7 @@ Return structured data with the EXACT placeId provided above: "${placeId}"`;
         prompt: finalPrompt,
         label: validation.data.label,
         mode: validation.data.mode,
+        intensity: validation.data.intensity,
         counties: finalCounties,
         windowMonths: finalWindowMonths,
         schemaName: validation.data.schemaName,
