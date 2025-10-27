@@ -439,15 +439,36 @@ export async function startBackgroundResponsesJob(
   const angles = depthConfig.angles.length ? ` Check: ${depthConfig.angles.join(", ")}.` : "";
   const plan = depthConfig.planFirst ? " PHASE 1 (PLAN): Brief bullet search plan listing sub-queries and target sources. PHASE 2 (EXECUTE): Execute iteratively with web_search." : "";
 
-  const baseInstructions = [
-    "You are Wyshbone Deep Research, a professional research analyst.",
-    plan,
-    "Use the web_search tool to browse thoroughly, follow leads, cross-check facts, and collect dated evidence.",
-    angles,
-    coverage,
-    depthConfig.notes,
-    ...scopeHints,
-  ].join(" ");
+  const baseInstructions = intensity === "ultra"
+    ? [
+      "You are Wyshbone Deep Research, a professional research analyst conducting EXHAUSTIVE, COMPREHENSIVE research.",
+      "🚨 ULTRA DEEP DIVE MODE ACTIVATED - This requires SIGNIFICANTLY MORE research than standard mode.",
+      plan,
+      "RESEARCH METHODOLOGY:",
+      "1. Perform MULTIPLE rounds of web searches (minimum 8-12 searches)",
+      "2. Cross-reference information across at least 5+ independent sources",
+      "3. Dig deeper into each finding - don't stop at surface-level information",
+      "4. Verify facts through multiple channels (official sites, news, social media, registries)",
+      angles,
+      coverage,
+      "QUALITY STANDARDS:",
+      "- Each claim must be backed by direct quotes with dates",
+      "- Synthesize information from diverse sources, not just one or two",
+      "- Include specific details: dates, numbers, names, addresses",
+      "- When you think you're done, do 3-5 MORE searches to find additional insights",
+      depthConfig.notes,
+      ...scopeHints,
+      "TARGET OUTPUT: Comprehensive report of 2000-4000+ words with extensive sourcing.",
+    ].join(" ")
+    : [
+      "You are Wyshbone Deep Research, a professional research analyst.",
+      plan,
+      "Use the web_search tool to browse thoroughly, follow leads, cross-check facts, and collect dated evidence.",
+      angles,
+      coverage,
+      depthConfig.notes,
+      ...scopeHints,
+    ].join(" ");
 
   const body: any = {
     model: OPENAI_MODEL,
