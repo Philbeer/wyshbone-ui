@@ -11,6 +11,7 @@ import { LocationSuggestions } from "@/components/LocationSuggestions";
 import WishboneSidebar from "@/components/WishboneSidebar";
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { useToast } from "@/hooks/use-toast";
 
 type Message = ChatMessage & {
   id: string;
@@ -37,6 +38,7 @@ interface ChatPageProps {
 }
 
 export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage, addRun, updateRun, getActiveRunId, onNewChat, onLoadConversation }: ChatPageProps) {
+  const { toast } = useToast();
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
