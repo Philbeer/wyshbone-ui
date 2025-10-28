@@ -227,10 +227,7 @@ export async function updateConversationLabel(
   
   const conversation = await storage.getConversation(conversationId);
   if (conversation && (conversation.label === "New Chat" || conversation.label === "Conversation")) {
-    await storage.createConversation({
-      ...conversation,
-      label,
-    });
+    await storage.updateConversation(conversationId, { label });
     console.log(`📝 Updated conversation label to: "${label}"`);
   }
 }

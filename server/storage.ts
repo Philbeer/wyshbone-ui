@@ -64,6 +64,7 @@ export interface IStorage {
   // Conversation CRUD methods
   createConversation(conversation: InsertConversation): Promise<SelectConversation>;
   getConversation(id: string): Promise<SelectConversation | null>;
+  updateConversation(id: string, updates: Partial<InsertConversation>): Promise<SelectConversation | null>;
   listConversations(userId: string): Promise<SelectConversation[]>;
   listAllConversations(): Promise<SelectConversation[]>;
   deleteConversation(id: string): Promise<boolean>;
@@ -191,6 +192,15 @@ export class MemStorage implements IStorage {
 
   async getConversation(id: string): Promise<SelectConversation | null> {
     return this.conversations.get(id) || null;
+  }
+
+  async updateConversation(id: string, updates: Partial<InsertConversation>): Promise<SelectConversation | null> {
+    const conv = this.conversations.get(id);
+    if (!conv) return null;
+    
+    const updated = { ...conv, ...updates };
+    this.conversations.set(id, updated);
+    return updated;
   }
 
   async listConversations(userId: string): Promise<SelectConversation[]> {
@@ -366,6 +376,15 @@ export class DbStorage implements IStorage {
   async getConversation(id: string): Promise<SelectConversation | null> {
     const [conv] = await db.select().from(conversations).where(eq(conversations.id, id));
     return conv || null;
+  }
+
+  async updateConversation(id: string, updates: Partial<InsertConversation>): Promise<SelectConversation | null> {
+    const [updated] = await db
+      .update(conversations)
+      .set(updates)
+      .where(eq(conversations.id, id))
+      .returning();
+    return updated || null;
   }
 
   async listConversations(userId: string): Promise<SelectConversation[]> {
