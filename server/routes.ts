@@ -1117,7 +1117,33 @@ CRITICAL RULES:
         }
       };
 
-      const tools: any[] = [bubbleTool, deepResearchTool];
+      const googlePlacesSearchTool = {
+        type: "function" as const,
+        function: {
+          name: "search_google_places",
+          description: "Search for businesses using Google Places API. Returns structured results with Place IDs, names, addresses, phone numbers, websites, ratings, and coordinates. Use this when user wants to find specific businesses, get business listings, or needs Place IDs. Returns up to 60 results with pagination.",
+          parameters: {
+            type: "object",
+            properties: {
+              query: {
+                type: "string",
+                description: "The search query combining business type and location (e.g., 'pubs in Texas', 'coffee shops Austin', 'dentists Manchester UK')"
+              },
+              locationText: {
+                type: "string",
+                description: "Optional: Specific location to bias the search (e.g., 'Austin, Texas', 'Manchester, UK'). If not provided, location is inferred from query."
+              },
+              maxResults: {
+                type: "number",
+                description: "Maximum number of results to return (default: 30, max: 60)"
+              }
+            },
+            required: ["query"]
+          }
+        }
+      };
+
+      const tools: any[] = [bubbleTool, deepResearchTool, googlePlacesSearchTool];
 
       console.log(`🌐 Calling Chat Completions API with function calling...`);
       
@@ -1691,6 +1717,81 @@ CRITICAL RULES:
             console.error("❌ Tool execution error:", toolErr.message);
             aiBuffer = `Error processing workflow: ${toolErr.message}`;
             res.write(`data: ${JSON.stringify({ content: aiBuffer })}\n\n`);
+          }
+        } else if (isToolCall && toolCallBuffer.name === "search_google_places") {
+          console.log("🔍 Google Places search tool call detected");
+          console.log("📦 Arguments:", toolCallBuffer.arguments);
+          
+          try {
+            const params = JSON.parse(toolCallBuffer.arguments);
+            
+            if (!params.query) {
+              throw new Error("Missing query parameter");
+            }
+            
+            // Call the searchPlaces function
+            const { searchPlaces } = await import("./googlePlaces");
+            const results = await searchPlaces({
+              query: params.query,
+              locationText: params.locationText,
+              maxResults: params.maxResults || 30,
+            });
+            
+            // Format results as a nice markdown response
+            let responseText = `🔍 **Google Places Search Results**\n\n`;
+            responseText += `Found **${results.length} businesses** for "${params.query}"\n\n`;
+            
+            if (results.length === 0) {
+              responseText += `No results found. Try a different search query or location.`;
+            } else {
+              responseText += `---\n\n`;
+              
+              // Show first 10 results in detail, then summarize the rest
+              const detailedResults = results.slice(0, 10);
+              const remainingCount = results.length - 10;
+              
+              for (let i = 0; i < detailedResults.length; i++) {
+                const place = detailedResults[i];
+                responseText += `**${i + 1}. ${place.name}**\n`;
+                responseText += `📍 ${place.address}\n`;
+                responseText += `🆔 Place ID: \`${place.placeId}\`\n`;
+                
+                if (place.phone) {
+                  responseText += `📞 ${place.phone}\n`;
+                }
+                if (place.website) {
+                  responseText += `🌐 ${place.website}\n`;
+                }
+                if (place.rating) {
+                  responseText += `⭐ ${place.rating} (${place.userRatingCount} reviews)\n`;
+                }
+                
+                responseText += `\n`;
+              }
+              
+              if (remainingCount > 0) {
+                responseText += `\n*...and ${remainingCount} more results*\n\n`;
+                responseText += `**All ${results.length} Place IDs:**\n`;
+                responseText += results.map(r => r.placeId).join(', ');
+              }
+            }
+            
+            aiBuffer = responseText;
+            res.write(`data: ${JSON.stringify({ content: responseText })}\n\n`);
+            
+            // Save the results to conversation
+            appendMessage(sessionId, { role: "assistant", content: responseText });
+            await saveMessage(conversationId, "assistant", responseText);
+            console.log("💾 Saved Google Places results to database");
+            
+          } catch (toolErr: any) {
+            console.error("❌ Google Places search error:", toolErr.message);
+            aiBuffer = `Error searching Google Places: ${toolErr.message}`;
+            res.write(`data: ${JSON.stringify({ content: aiBuffer })}\n\n`);
+            
+            appendMessage(sessionId, { role: "assistant", content: aiBuffer });
+            await saveMessage(conversationId, "assistant", aiBuffer);
+            console.log("💾 Saved error message to database");
           }
         }
         
