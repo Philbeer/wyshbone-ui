@@ -797,9 +797,10 @@ Examples:
 
       // Handle "both_possible" - ask user to clarify
       if (userIntent?.intent === "both_possible") {
-        const clarificationMsg = `I can help with that in two ways:\n\n` +
-          `1️⃣ **Deep Research** - I'll perform comprehensive research and provide a detailed report with findings, sources, and analysis\n\n` +
-          `2️⃣ **Find Contacts** - I'll trigger a workflow to find specific business contacts (like Head of Sales) for your target businesses\n\n` +
+        const clarificationMsg = `I can help with that in three ways:\n\n` +
+          `📊 **Deep Research** - I'll perform comprehensive research and provide a detailed report with findings, sources, and analysis\n\n` +
+          `📧 **Find Contacts** - I'll trigger a workflow to find specific business contacts (like Head of Sales) for your target businesses\n\n` +
+          `🔍 **Google Places Search** - I'll search Google Places and return a quick list of businesses with Place IDs, phone numbers, addresses, and websites\n\n` +
           `Which would you prefer?`;
         
         appendMessage(sessionId, { role: "assistant", content: clarificationMsg });
