@@ -1,7 +1,7 @@
 # Wyshbone Chat Agent
 
 ## Overview
-The Wyshbone Chat Agent is an AI-powered chat assistant designed to provide a clean, professional, and practical chat experience with a focus on UK-centric responses. It integrates with OpenAI's GPT-5 to facilitate business discovery, lead enrichment, and the triggering of Bubble workflows, aiming to streamline prospecting and lead management for Wyshbone.
+The Wyshbone Chat Agent is an AI-powered chat assistant with three core capabilities: (1) Deep Research for comprehensive analysis, (2) Contact Finding via Bubble workflows for lead generation, and (3) Google Places Search for quick business listings. The system intelligently offers all three options when user intent is ambiguous, ensuring users can choose the best approach for their needs.
 
 ## User Preferences
 I want the agent to focus on practical, UK-focused responses. I want to ensure that any contact information discovered is public and verifiable, with no guessing of private details. I prefer a workflow that prioritizes Google Places as the authoritative source for business discovery. The agent should be able to intelligently decide when to search for new venues versus using cached information and support conversational queries without triggering unnecessary searches. I want the agent to auto-detect and execute Bubble batch workflows based on natural language commands. **CRITICAL: The AI must ALWAYS ask for confirmation when making assumptions or combining current input with historical facts/context - chat history and facts serve as background reference, not primary drivers.**
