@@ -4038,8 +4038,23 @@ ${run.outputText}`;
         
         let nextRun = new Date(now);
         
-        // Parse time if provided
-        if (scheduleTime) {
+        // Handle "once" schedule - runs once at specified time today
+        if (schedule === 'once') {
+          if (scheduleTime) {
+            const [hours, minutes] = scheduleTime.split(':').map(Number);
+            nextRun.setHours(hours, minutes, 0, 0);
+            
+            // If time has already passed today, it won't run (user can change the time)
+            if (nextRun <= now) {
+              console.warn(`⚠️ "Once" schedule time ${scheduleTime} has already passed today`);
+            }
+          } else {
+            // If no time specified for "once", run in 5 minutes
+            nextRun = new Date(now.getTime() + 5 * 60 * 1000);
+          }
+        }
+        // Parse time if provided for recurring schedules
+        else if (scheduleTime) {
           const [hours, minutes] = scheduleTime.split(':').map(Number);
           nextRun.setHours(hours, minutes, 0, 0);
           

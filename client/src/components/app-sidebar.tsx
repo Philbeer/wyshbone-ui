@@ -835,7 +835,7 @@ function ScheduledMonitorsSection({ userId }: { userId: string }) {
   const [editForm, setEditForm] = useState({ 
     label: '', 
     description: '',
-    schedule: 'weekly' as 'daily' | 'weekly' | 'biweekly' | 'monthly',
+    schedule: 'weekly' as 'once' | 'daily' | 'weekly' | 'biweekly' | 'monthly',
     scheduleDay: undefined as 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday' | undefined,
     scheduleTime: '',
     emailNotifications: false
@@ -964,12 +964,13 @@ function ScheduledMonitorsSection({ userId }: { userId: string }) {
               <Label htmlFor="edit-schedule">Schedule</Label>
               <Select 
                 value={editForm.schedule} 
-                onValueChange={(value: 'daily' | 'weekly' | 'biweekly' | 'monthly') => setEditForm({ ...editForm, schedule: value })}
+                onValueChange={(value: 'once' | 'daily' | 'weekly' | 'biweekly' | 'monthly') => setEditForm({ ...editForm, schedule: value })}
               >
                 <SelectTrigger id="edit-schedule" data-testid="select-edit-schedule">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="once">Once (for testing)</SelectItem>
                   <SelectItem value="daily">Daily</SelectItem>
                   <SelectItem value="weekly">Weekly</SelectItem>
                   <SelectItem value="biweekly">Biweekly</SelectItem>
@@ -1000,7 +1001,9 @@ function ScheduledMonitorsSection({ userId }: { userId: string }) {
               </div>
             )}
             <div className="space-y-2">
-              <Label htmlFor="edit-time">Time (optional, e.g., 09:00)</Label>
+              <Label htmlFor="edit-time">
+                {editForm.schedule === 'once' ? 'Time (required for once, e.g., 12:20)' : 'Time (optional, e.g., 09:00)'}
+              </Label>
               <Input
                 id="edit-time"
                 value={editForm.scheduleTime}
@@ -1008,6 +1011,11 @@ function ScheduledMonitorsSection({ userId }: { userId: string }) {
                 placeholder="HH:MM"
                 data-testid="input-edit-time"
               />
+              {editForm.schedule === 'once' && (
+                <p className="text-xs text-muted-foreground">
+                  Set a time for today to test the monitor. It will run once and then become inactive.
+                </p>
+              )}
             </div>
             <div className="flex items-center justify-between p-3 rounded-md border border-border">
               <div className="space-y-0.5">
