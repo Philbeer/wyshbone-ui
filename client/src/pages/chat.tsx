@@ -250,17 +250,18 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
         // Load conversation messages
         setIsLoadingHistory(true);
         try {
-          const response = await fetch(`/api/chat/history/${newConversationId}`);
+          const response = await fetch(`/api/conversations/${newConversationId}/messages`);
           if (response.ok) {
-            const data = await response.json();
-            const loadedMessages: DisplayMessage[] = data.messages.map((msg: ChatMessage) => ({
-              ...msg,
-              id: crypto.randomUUID(),
-              timestamp: new Date(msg.timestamp),
+            const messages = await response.json();
+            const loadedMessages: DisplayMessage[] = messages.map((msg: any) => ({
+              id: msg.id,
+              role: msg.role as "user" | "assistant" | "system",
+              content: msg.content,
+              timestamp: new Date(msg.createdAt),
             }));
             setMessages(loadedMessages);
             hasLoadedHistoryRef.current = true;
-            console.log(`📜 Loaded conversation ${newConversationId} with ${loadedMessages.length} messages`);
+            console.log(`📜 Loaded ${loadedMessages.length} messages from conversation ${newConversationId}`);
           } else {
             console.error("Failed to load conversation history");
           }
