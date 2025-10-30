@@ -830,6 +830,7 @@ export function AppSidebar({
 
 // Scheduled Monitors Section Component
 function ScheduledMonitorsSection({ userId }: { userId: string }) {
+  const [, setLocation] = useLocation();
   const [editingMonitor, setEditingMonitor] = useState<any>(null);
   const [deletingMonitor, setDeletingMonitor] = useState<any>(null);
   const [editForm, setEditForm] = useState({ 
@@ -1133,7 +1134,7 @@ function ScheduledMonitorsSection({ userId }: { userId: string }) {
           <div
             key={monitor.id}
             className={`p-3 rounded-md border border-border bg-card ${hasConversation ? 'cursor-pointer hover-elevate active-elevate-2' : ''}`}
-            onClick={() => { if (hasConversation) window.location.href = `/?conversation=${monitor.conversationId}` }}
+            onClick={() => { if (hasConversation) setLocation(`/?conversation=${monitor.conversationId}`) }}
             data-testid={`monitor-${monitor.id}`}
           >
             <div className="flex items-start justify-between gap-2 mb-2">
