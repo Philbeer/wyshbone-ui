@@ -217,6 +217,20 @@ function App() {
     localStorage.setItem('theme', theme);
   }, [theme]);
 
+  // Handle URL query parameters to load specific conversation
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const conversationParam = params.get('conversation');
+    
+    if (conversationParam && loadConversationCallbackRef.current) {
+      // Load the conversation from URL parameter
+      loadConversationCallbackRef.current(conversationParam);
+      
+      // Clean up the URL parameter (optional - makes URL cleaner)
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, []);
+
   const toggleTheme = () => {
     setTheme(prev => prev === "light" ? "dark" : "light");
   };

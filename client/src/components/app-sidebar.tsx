@@ -1096,11 +1096,13 @@ function ScheduledMonitorsSection({ userId }: { userId: string }) {
         {Array.isArray(monitors) && monitors.map((monitor: any) => {
         const isActive = monitor.isActive === 1;
         const nextRun = monitor.nextRunAt ? new Date(monitor.nextRunAt) : null;
+        const hasConversation = !!monitor.conversationId;
         
         return (
           <div
             key={monitor.id}
-            className="p-3 rounded-md border border-border bg-card"
+            className={`p-3 rounded-md border border-border bg-card ${hasConversation ? 'cursor-pointer hover-elevate active-elevate-2' : ''}`}
+            onClick={() => { if (hasConversation) window.location.href = `/?conversation=${monitor.conversationId}` }}
             data-testid={`monitor-${monitor.id}`}
           >
             <div className="flex items-start justify-between gap-2 mb-2">
