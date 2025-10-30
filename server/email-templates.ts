@@ -54,16 +54,20 @@ export function formatMonitorResultEmail(result: MonitorResult): { subject: stri
       overflow: hidden;
       box-shadow: 0 2px 8px rgba(0,0,0,0.1);
     }
-    .branding {
-      background-color: #ffffff;
-      padding: 30px 20px 20px 20px;
+    .header {
+      background: linear-gradient(135deg, #2b7a78 0%, #1f5b5a 100%);
+      color: #ffffff;
+      padding: 30px 20px;
       text-align: center;
-      border-bottom: 1px solid #e8e8e8;
     }
     .logo {
-      width: 80px;
-      height: 80px;
+      width: 64px;
+      height: 64px;
+      background-color: #ffffff;
+      border-radius: 50%;
       margin: 0 auto 16px;
+      padding: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
     }
     .logo img {
       width: 100%;
@@ -71,17 +75,10 @@ export function formatMonitorResultEmail(result: MonitorResult): { subject: stri
       display: block;
     }
     .brand-name {
-      font-size: 18px;
-      font-weight: 700;
-      color: #2b7a78;
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 20px;
       letter-spacing: 0.5px;
-      margin: 0;
-    }
-    .header {
-      background: linear-gradient(135deg, #2b7a78 0%, #1f5b5a 100%);
-      color: #ffffff;
-      padding: 30px 20px;
-      text-align: center;
     }
     .header h1 {
       margin: 0;
