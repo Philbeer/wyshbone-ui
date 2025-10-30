@@ -860,7 +860,7 @@ function ScheduledMonitorsSection({ userId }: { userId: string }) {
               
               {nextRun && (
                 <div className="text-xs text-muted-foreground">
-                  Next: {nextRun.toLocaleDateString()} {nextRun.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  Next: {nextRun.toLocaleDateString('en-GB')} {nextRun.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false })}
                 </div>
               )}
               
