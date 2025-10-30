@@ -11,13 +11,16 @@ export interface ScheduledMonitor {
   config?: any;
 }
 
-export async function executeMonitorAndNotify(monitor: ScheduledMonitor, userEmail: string): Promise<void> {
+export async function executeMonitorAndNotify(monitor: ScheduledMonitor, userEmail?: string): Promise<void> {
   console.log(`📊 Executing monitor: ${monitor.label} (${monitor.id})`);
   
   const results = await executeMonitor(monitor);
   
-  if (monitor.emailNotifications === 1 && userEmail) {
-    await sendMonitorResultEmail(monitor, userEmail, results);
+  // For testing, use hardcoded email - replace with actual user email in production
+  const recipientEmail = userEmail || 'phil@listersbrewery.com';
+  
+  if (monitor.emailNotifications === 1) {
+    await sendMonitorResultEmail(monitor, recipientEmail, results);
   }
 }
 

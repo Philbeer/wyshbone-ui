@@ -1018,13 +1018,18 @@ function ScheduledMonitorsSection({ userId }: { userId: string }) {
               )}
             </div>
             <div className="flex items-center justify-between p-3 rounded-md border border-border">
-              <div className="space-y-0.5">
+              <div className="space-y-0.5 flex-1">
                 <Label htmlFor="edit-email" className="text-sm font-medium">
                   Email Notifications
                 </Label>
                 <p className="text-xs text-muted-foreground">
                   Send results to your email when this monitor runs
                 </p>
+                {editForm.emailNotifications && (
+                  <p className="text-xs font-medium text-primary mt-1">
+                    📧 Will send to: phil@listersbrewery.com
+                  </p>
+                )}
               </div>
               <Switch
                 id="edit-email"
