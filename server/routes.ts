@@ -1921,7 +1921,7 @@ CRITICAL RULES:
             responseText += `🎯 Your monitor will run automatically according to the schedule. You can view and manage it in the sidebar under "Scheduled Monitors".\n\n`;
             
             const nextRunDate = new Date(nextRunAt);
-            responseText += `⏭️ **Next run:** ${nextRunDate.toLocaleDateString()} at ${nextRunDate.toLocaleTimeString()}`;
+            responseText += `⏭️ **Next run:** ${nextRunDate.toLocaleDateString('en-GB')} at ${nextRunDate.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false })}`;
             
             aiBuffer = responseText;
             res.write(`data: ${JSON.stringify({ content: responseText })}\n\n`);

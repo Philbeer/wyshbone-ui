@@ -1,4 +1,4 @@
-import { Globe, MessageSquare, Bug, FilePlus, MessagesSquare, ChevronDown, ChevronRight, Clock } from "lucide-react";
+import { Globe, MessageSquare, Bug, FilePlus, MessagesSquare, ChevronDown, ChevronRight, Clock, Edit2, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
@@ -30,6 +30,16 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 export type RunStatus = "queued" | "running" | "completed" | "failed" | "stopped" | "in_progress";
 
@@ -809,9 +819,70 @@ export function AppSidebar({
 
 // Scheduled Monitors Section Component
 function ScheduledMonitorsSection({ userId }: { userId: string }) {
-  const { data: monitors, isLoading, isError, error } = useQuery({
+  const [editingMonitor, setEditingMonitor] = useState<any>(null);
+  const [editForm, setEditForm] = useState({ label: '', description: '' });
+  const [isSaving, setIsSaving] = useState(false);
+  
+  const { data: monitors, isLoading, isError, error, refetch } = useQuery({
     queryKey: [`/api/scheduled-monitors/${userId}`],
   });
+
+  const handleDelete = async (monitorId: string) => {
+    if (!confirm('Are you sure you want to delete this monitor?')) {
+      return;
+    }
+    
+    try {
+      const response = await fetch(`/api/scheduled-monitors/${monitorId}`, {
+        method: 'DELETE',
+      });
+      
+      if (response.ok) {
+        refetch();
+      } else {
+        alert('Failed to delete monitor');
+      }
+    } catch (error) {
+      console.error('Failed to delete monitor:', error);
+      alert('Failed to delete monitor');
+    }
+  };
+  
+  const handleEdit = (monitor: any) => {
+    setEditingMonitor(monitor);
+    setEditForm({ label: monitor.label, description: monitor.description });
+  };
+  
+  const handleSaveEdit = async () => {
+    if (!editingMonitor || !editForm.label.trim() || !editForm.description.trim()) {
+      alert('Label and description are required');
+      return;
+    }
+    
+    setIsSaving(true);
+    try {
+      const response = await fetch(`/api/scheduled-monitors/${editingMonitor.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          label: editForm.label,
+          description: editForm.description,
+        }),
+      });
+      
+      if (response.ok) {
+        setEditingMonitor(null);
+        refetch();
+      } else {
+        alert('Failed to update monitor');
+      }
+    } catch (error) {
+      console.error('Failed to update monitor:', error);
+      alert('Failed to update monitor');
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   if (isLoading) {
     return <p className="text-xs text-muted-foreground">Loading...</p>;
@@ -826,8 +897,59 @@ function ScheduledMonitorsSection({ userId }: { userId: string }) {
   }
 
   return (
-    <div className="space-y-2">
-      {Array.isArray(monitors) && monitors.map((monitor: any) => {
+    <>
+      <Dialog open={!!editingMonitor} onOpenChange={(open) => !open && setEditingMonitor(null)}>
+        <DialogContent data-testid="dialog-edit-monitor">
+          <DialogHeader>
+            <DialogTitle>Edit Monitor</DialogTitle>
+            <DialogDescription>
+              Update the label and description for this scheduled monitor.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="edit-label">Label</Label>
+              <Input
+                id="edit-label"
+                value={editForm.label}
+                onChange={(e) => setEditForm({ ...editForm, label: e.target.value })}
+                placeholder="Enter monitor label"
+                data-testid="input-edit-label"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-description">Description</Label>
+              <Input
+                id="edit-description"
+                value={editForm.description}
+                onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
+                placeholder="Enter monitor description"
+                data-testid="input-edit-description"
+              />
+            </div>
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setEditingMonitor(null)}
+              disabled={isSaving}
+              data-testid="button-cancel-edit"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSaveEdit}
+              disabled={isSaving}
+              data-testid="button-save-edit"
+            >
+              {isSaving ? 'Saving...' : 'Save Changes'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+      
+      <div className="space-y-2">
+        {Array.isArray(monitors) && monitors.map((monitor: any) => {
         const isActive = monitor.isActive === 1;
         const nextRun = monitor.nextRunAt ? new Date(monitor.nextRunAt) : null;
         
@@ -864,15 +986,41 @@ function ScheduledMonitorsSection({ userId }: { userId: string }) {
                 </div>
               )}
               
-              <div className="text-xs">
-                <span className="px-2 py-0.5 rounded-full bg-primary/10 text-primary">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary">
                   {monitor.monitorType === 'deep_research' ? 'Research' : monitor.monitorType === 'business_search' ? 'Contacts' : 'Places'}
                 </span>
+                
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleEdit(monitor);
+                    }}
+                    className="p-1 rounded hover-elevate active-elevate-2"
+                    data-testid={`button-edit-monitor-${monitor.id}`}
+                    title="Edit monitor"
+                  >
+                    <Edit2 className="h-3 w-3 text-muted-foreground" />
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDelete(monitor.id);
+                    }}
+                    className="p-1 rounded hover-elevate active-elevate-2"
+                    data-testid={`button-delete-monitor-${monitor.id}`}
+                    title="Delete monitor"
+                  >
+                    <Trash2 className="h-3 w-3 text-destructive" />
+                  </button>
+                </div>
               </div>
             </div>
           </div>
         );
       })}
-    </div>
+      </div>
+    </>
   );
 }
