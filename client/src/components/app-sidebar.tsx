@@ -891,6 +891,19 @@ function ScheduledMonitorsSection({ userId }: { userId: string }) {
       return;
     }
     
+    if (editForm.emailNotifications && !editForm.emailAddress.trim()) {
+      alert('Email address is required when notifications are enabled');
+      return;
+    }
+    
+    if (editForm.emailNotifications && editForm.emailAddress.trim()) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(editForm.emailAddress.trim())) {
+        alert('Please enter a valid email address');
+        return;
+      }
+    }
+    
     setIsSaving(true);
     try {
       const response = await fetch(`/api/scheduled-monitors/${editingMonitor.id}`, {

@@ -4048,6 +4048,17 @@ ${run.outputText}`;
       const { id } = req.params;
       const updates = req.body;
       
+      // Validate email when notifications are enabled
+      if (updates.emailNotifications === 1) {
+        if (!updates.emailAddress || !updates.emailAddress.trim()) {
+          return res.status(400).json({ error: "Email address is required when notifications are enabled" });
+        }
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(updates.emailAddress.trim())) {
+          return res.status(400).json({ error: "Invalid email address format" });
+        }
+      }
+      
       // If schedule is being updated, recalculate nextRunAt and reactivate
       if (updates.schedule || updates.scheduleTime !== undefined || updates.scheduleDay !== undefined) {
         // Get current monitor to access all fields
