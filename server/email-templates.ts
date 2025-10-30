@@ -6,10 +6,11 @@ export interface MonitorResult {
   results?: any;
   summary?: string;
   totalResults?: number;
+  conversationId?: string;
 }
 
 export function formatMonitorResultEmail(result: MonitorResult): { subject: string; html: string } {
-  const { monitorLabel, monitorType, description, runDate, summary, totalResults } = result;
+  const { monitorLabel, monitorType, description, runDate, summary, totalResults, conversationId } = result;
   
   const typeLabel = monitorType === 'deep_research' ? 'Deep Research' 
     : monitorType === 'business_search' ? 'Business Search' 

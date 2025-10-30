@@ -2,10 +2,13 @@ import { getUncachableResendClient } from './resend-client';
 import { formatMonitorResultEmail, type MonitorResult } from './email-templates';
 import { startBackgroundResponsesJob } from './deepResearch';
 import { storage } from './storage';
+import { getOrCreateConversation } from './memory';
+import crypto from 'crypto';
 
 export interface ScheduledMonitor {
   id: string;
   userId: string;
+  conversationId?: string | null;
   label: string;
   description: string;
   monitorType: 'deep_research' | 'business_search' | 'google_places';
@@ -16,21 +19,37 @@ export interface ScheduledMonitor {
 export async function executeMonitorAndNotify(monitor: ScheduledMonitor, userEmail?: string): Promise<void> {
   console.log(`📊 Executing monitor: ${monitor.label} (${monitor.id})`);
   
-  const results = await executeMonitor(monitor);
+  // Create or reuse conversation for this monitor
+  let conversationId = monitor.conversationId;
+  if (!conversationId) {
+    // First run - create new conversation
+    conversationId = await getOrCreateConversation(monitor.userId);
+    console.log(`📝 Created new conversation for monitor: ${conversationId}`);
+    
+    // Update monitor with conversationId
+    await storage.updateScheduledMonitor(monitor.id, {
+      conversationId,
+      updatedAt: Date.now(),
+    });
+  } else {
+    console.log(`📝 Reusing existing conversation: ${conversationId}`);
+  }
+  
+  const results = await executeMonitor(monitor, conversationId);
   
   // For testing, use hardcoded email - replace with actual user email in production
   const recipientEmail = userEmail || 'phil@listersbrewery.com';
   
   if (monitor.emailNotifications === 1) {
-    await sendMonitorResultEmail(monitor, recipientEmail, results);
+    await sendMonitorResultEmail(monitor, recipientEmail, results, conversationId);
   }
 }
 
-async function executeMonitor(monitor: ScheduledMonitor): Promise<any> {
+async function executeMonitor(monitor: ScheduledMonitor, conversationId: string): Promise<any> {
   console.log(`🔍 Executing ${monitor.monitorType} monitor...`);
   
   if (monitor.monitorType === 'deep_research') {
-    return await executeDeepResearch(monitor);
+    return await executeDeepResearch(monitor, conversationId);
   }
   
   // Other monitor types not yet implemented
@@ -40,7 +59,7 @@ async function executeMonitor(monitor: ScheduledMonitor): Promise<any> {
   };
 }
 
-async function executeDeepResearch(monitor: ScheduledMonitor): Promise<any> {
+async function executeDeepResearch(monitor: ScheduledMonitor, conversationId: string): Promise<any> {
   try {
     console.log(`🔬 Starting deep research for: ${monitor.description}`);
     
@@ -74,11 +93,31 @@ async function executeDeepResearch(monitor: ScheduledMonitor): Promise<any> {
         
         // Extract summary/teaser from the results
         const teaser = extractTeaser(updatedRun.outputText || '');
+        const fullOutput = updatedRun.outputText || '';
+        
+        // Save research results to conversation
+        await storage.createMessage({
+          id: crypto.randomUUID(),
+          conversationId,
+          role: 'user',
+          content: `🔍 Scheduled Monitor: ${monitor.label}\n\n${monitor.description}`,
+          createdAt: Date.now(),
+        });
+        
+        await storage.createMessage({
+          id: crypto.randomUUID(),
+          conversationId,
+          role: 'assistant',
+          content: fullOutput,
+          createdAt: Date.now() + 1,
+        });
+        
+        console.log(`💾 Saved monitor results to conversation ${conversationId}`);
         
         return {
-          totalResults: countResults(updatedRun.outputText || ''),
+          totalResults: countResults(fullOutput),
           summary: teaser,
-          fullOutput: updatedRun.outputText,
+          fullOutput,
           runId: updatedRun.id,
         };
       }
@@ -149,14 +188,11 @@ function countResults(output: string): number {
 async function sendMonitorResultEmail(
   monitor: ScheduledMonitor, 
   userEmail: string, 
-  results: any
+  results: any,
+  conversationId: string
 ): Promise<void> {
   try {
-    const { client, fromEmail } = await getUncachableResendClient();
-    
-    // Use onboarding@resend.dev for testing since custom domain may not be verified
-    // In production, you'd use a verified domain email
-    const testFrom = 'onboarding@resend.dev';
+    const { client } = await getUncachableResendClient();
     
     const monitorResult: MonitorResult = {
       monitorLabel: monitor.label,
@@ -165,14 +201,16 @@ async function sendMonitorResultEmail(
       runDate: new Date(),
       totalResults: results.totalResults,
       summary: results.summary,
+      conversationId,
     };
     
     const { subject, html } = formatMonitorResultEmail(monitorResult);
     
-    console.log(`📧 Sending email to ${userEmail} from ${testFrom}`);
+    const fromEmail = 'monitor@wyshboneai.com';
+    console.log(`📧 Sending email to ${userEmail} from ${fromEmail}`);
     
     const response = await client.emails.send({
-      from: testFrom,
+      from: fromEmail,
       to: userEmail,
       subject: subject,
       html: html,
