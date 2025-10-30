@@ -10,9 +10,17 @@ async function checkAndExecuteMonitors() {
     // Get all monitors for demo-user (in production, you'd query all users)
     const monitors = await storage.listScheduledMonitors('demo-user');
     
+    console.log(`🔍 Checking ${monitors.length} monitors at ${new Date(now).toLocaleTimeString('en-GB')}`);
+    
     for (const monitor of monitors) {
+      const isActive = monitor.isActive === 1;
+      const hasNextRun = monitor.nextRunAt !== null && monitor.nextRunAt !== undefined;
+      const isTimeToRun = hasNextRun && monitor.nextRunAt <= now;
+      
+      console.log(`  📊 ${monitor.label}: active=${isActive}, nextRun=${hasNextRun ? new Date(monitor.nextRunAt!).toLocaleString('en-GB') : 'none'}, ready=${isTimeToRun}`);
+      
       // Check if monitor is active and it's time to run
-      if (monitor.isActive === 1 && monitor.nextRunAt && monitor.nextRunAt <= now) {
+      if (isActive && hasNextRun && isTimeToRun) {
         console.log(`⏰ Time to run monitor: ${monitor.label} (${monitor.id})`);
         
         try {

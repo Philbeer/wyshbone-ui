@@ -4023,7 +4023,7 @@ ${run.outputText}`;
       const { id } = req.params;
       const updates = req.body;
       
-      // If schedule is being updated, recalculate nextRunAt
+      // If schedule is being updated, recalculate nextRunAt and reactivate
       if (updates.schedule || updates.scheduleTime !== undefined || updates.scheduleDay !== undefined) {
         // Get current monitor to access all fields
         const currentMonitor = await storage.getScheduledMonitor(id);
@@ -4040,6 +4040,9 @@ ${run.outputText}`;
         
         // Handle "once" schedule - runs once at specified time today
         if (schedule === 'once') {
+          // Reactivate the monitor when editing a "once" schedule
+          updates.isActive = 1;
+          
           if (scheduleTime) {
             const [hours, minutes] = scheduleTime.split(':').map(Number);
             nextRun.setHours(hours, minutes, 0, 0);
