@@ -1148,7 +1148,7 @@ CRITICAL RULES:
         type: "function" as const,
         function: {
           name: "create_scheduled_monitor",
-          description: "Create a recurring scheduled monitoring task that runs automatically. Use this when user wants to automate regular monitoring, checks, or searches (e.g., 'check for new dental practices every Monday', 'monitor coffee shops weekly', 'schedule weekly report on gyms').",
+          description: "Create a recurring scheduled monitoring task that runs automatically. Use this when user wants to automate regular monitoring, checks, or searches (e.g., 'check for new dental practices every Monday', 'monitor coffee shops weekly', 'schedule weekly report on gyms'). IMPORTANT: Always use 'deep_research' as the monitorType unless explicitly told otherwise.",
           parameters: {
             type: "object",
             properties: {
@@ -1176,8 +1176,8 @@ CRITICAL RULES:
               },
               monitorType: {
                 type: "string",
-                enum: ["deep_research", "business_search", "google_places"],
-                description: "What type of monitoring to perform. DEFAULT to 'deep_research' for most use cases as it provides comprehensive research reports. Use 'business_search' only if specifically looking for contact details, 'google_places' for simple location listings."
+                enum: ["deep_research"],
+                description: "MUST be 'deep_research' - this performs comprehensive AI research and sends results via email. Do not use any other value."
               },
               config: {
                 type: "object",
