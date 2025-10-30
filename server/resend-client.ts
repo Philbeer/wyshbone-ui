@@ -27,7 +27,13 @@ async function getCredentials() {
   if (!connectionSettings || (!connectionSettings.settings.api_key)) {
     throw new Error('Resend not connected');
   }
-  return {apiKey: connectionSettings.settings.api_key, fromEmail: connectionSettings.settings.from_email};
+  
+  const apiKey = connectionSettings.settings.api_key;
+  const fromEmail = connectionSettings.settings.from_email;
+  
+  console.log(`🔑 Retrieved Resend credentials - API key starts with: ${apiKey.substring(0, 10)}..., fromEmail: ${fromEmail}`);
+  
+  return {apiKey, fromEmail};
 }
 
 export async function getUncachableResendClient() {
