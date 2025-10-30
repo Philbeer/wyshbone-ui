@@ -206,7 +206,7 @@ async function sendMonitorResultEmail(
     
     const { subject, html } = formatMonitorResultEmail(monitorResult);
     
-    const fromEmail = 'monitor@wyshboneai.com';
+    const fromEmail = 'onboarding@resend.dev';
     console.log(`📧 Sending email to ${userEmail} from ${fromEmail}`);
     
     const response = await client.emails.send({
