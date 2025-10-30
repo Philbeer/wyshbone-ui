@@ -4024,23 +4024,52 @@ ${run.outputText}`;
       const updates = req.body;
       
       // If schedule is being updated, recalculate nextRunAt
-      if (updates.schedule) {
-        const now = Date.now();
-        let nextRunAt = now;
-        
-        // Calculate next run based on schedule
-        if (updates.schedule === 'daily') {
-          nextRunAt = now + (24 * 60 * 60 * 1000); // 24 hours
-        } else if (updates.schedule === 'weekly') {
-          nextRunAt = now + (7 * 24 * 60 * 60 * 1000); // 7 days
-        } else if (updates.schedule === 'biweekly') {
-          nextRunAt = now + (14 * 24 * 60 * 60 * 1000); // 14 days
-        } else if (updates.schedule === 'monthly') {
-          nextRunAt = now + (30 * 24 * 60 * 60 * 1000); // 30 days
+      if (updates.schedule || updates.scheduleTime !== undefined || updates.scheduleDay !== undefined) {
+        // Get current monitor to access all fields
+        const currentMonitor = await storage.getScheduledMonitor(id);
+        if (!currentMonitor) {
+          return res.status(404).json({ error: "Monitor not found" });
         }
         
-        updates.nextRunAt = nextRunAt;
-        updates.updatedAt = now;
+        const now = new Date();
+        const schedule = updates.schedule || currentMonitor.schedule;
+        const scheduleTime = updates.scheduleTime !== undefined ? updates.scheduleTime : currentMonitor.scheduleTime;
+        const scheduleDay = updates.scheduleDay !== undefined ? updates.scheduleDay : currentMonitor.scheduleDay;
+        
+        let nextRun = new Date(now);
+        
+        // Parse time if provided
+        if (scheduleTime) {
+          const [hours, minutes] = scheduleTime.split(':').map(Number);
+          nextRun.setHours(hours, minutes, 0, 0);
+          
+          // If time has passed today, move to next occurrence
+          if (nextRun <= now) {
+            if (schedule === 'daily') {
+              nextRun.setDate(nextRun.getDate() + 1);
+            } else if (schedule === 'weekly') {
+              nextRun.setDate(nextRun.getDate() + 7);
+            } else if (schedule === 'biweekly') {
+              nextRun.setDate(nextRun.getDate() + 14);
+            } else if (schedule === 'monthly') {
+              nextRun.setMonth(nextRun.getMonth() + 1);
+            }
+          }
+        } else {
+          // No specific time, use interval from now
+          if (schedule === 'daily') {
+            nextRun.setDate(nextRun.getDate() + 1);
+          } else if (schedule === 'weekly') {
+            nextRun.setDate(nextRun.getDate() + 7);
+          } else if (schedule === 'biweekly') {
+            nextRun.setDate(nextRun.getDate() + 14);
+          } else if (schedule === 'monthly') {
+            nextRun.setMonth(nextRun.getMonth() + 1);
+          }
+        }
+        
+        updates.nextRunAt = nextRun.getTime();
+        updates.updatedAt = Date.now();
       }
       
       const monitor = await storage.updateScheduledMonitor(id, updates);
