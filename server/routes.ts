@@ -1021,36 +1021,37 @@ CRITICAL RULES:
       // Prepare messages array with system prompt (DON'T mutate memoryMessages)
       const { WyshboneChatConfig } = await import("../shared/conversationConfig");
       
-      // Fetch existing ACTIVE monitors for duplicate detection
-      const existingMonitors = await storage.listScheduledMonitors(user.id);
-      const activeMonitors = existingMonitors.filter(m => m.isActive === 1);
-      
-      let systemContent = WyshboneChatConfig.systemPrompt;
-      
-      // Add existing active monitors to system context for duplicate detection
-      if (activeMonitors.length > 0) {
-        systemContent += `\n\n**CRITICAL: CURRENT ACTIVE MONITORS (IGNORE CONVERSATION HISTORY)**\n`;
-        systemContent += `The user currently has ${activeMonitors.length} active monitor(s):\n`;
-        activeMonitors.forEach(m => {
-          systemContent += `- "${m.label}" (${m.schedule}) - ${m.description}\n`;
-        });
-        systemContent += `\n**IMPORTANT RULES:**\n`;
-        systemContent += `1. ONLY consider monitors in the list above as existing - IGNORE any monitors mentioned earlier in the conversation\n`;
-        systemContent += `2. If user requests a monitor, check if it's similar to the CURRENT active monitors above\n`;
-        systemContent += `3. If similar, ask: "You already have a similar monitor called '[name]' that runs [schedule]. Would you like to create this new one anyway?"\n`;
-        systemContent += `4. If user confirms, proceed with creation\n`;
-        systemContent += `5. Monitors deleted/inactive do NOT count as duplicates - user can recreate them without confirmation\n`;
-      } else {
-        systemContent += `\n\n**CURRENT ACTIVE MONITORS:** None (user has no active monitors - ignore any monitors mentioned in conversation history)\n`;
-      }
-      
       const systemPrompt = {
         role: "system" as const,
-        content: systemContent
+        content: WyshboneChatConfig.systemPrompt
       };
 
       
       let chatMessages = [systemPrompt, ...memoryMessages];
+      
+      // Fetch existing ACTIVE monitors and inject as LATEST system message (after conversation history)
+      // This ensures the AI sees current state, not historical conversation
+      const existingMonitors = await storage.listScheduledMonitors(user.id);
+      const activeMonitors = existingMonitors.filter(m => m.isActive === 1);
+      
+      let monitorStateMessage = '';
+      if (activeMonitors.length > 0) {
+        monitorStateMessage = `**CURRENT DATABASE STATE - ACTIVE MONITORS:**\n`;
+        monitorStateMessage += `The user has ${activeMonitors.length} active monitor(s):\n`;
+        activeMonitors.forEach(m => {
+          monitorStateMessage += `- "${m.label}" (${m.schedule}) - ${m.description}\n`;
+        });
+        monitorStateMessage += `\n**CRITICAL:** These are the ONLY active monitors. Any monitors mentioned earlier in conversation that are NOT in this list have been DELETED and should NOT be considered duplicates.\n`;
+      } else {
+        monitorStateMessage = `**CURRENT DATABASE STATE - ACTIVE MONITORS:** ZERO\n\nThe user has NO active monitors. Any monitors mentioned in earlier conversation have been deleted. User can create ANY monitor without duplicate warnings.\n`;
+      }
+      
+      // Inject monitor state as the LAST system message (freshest context)
+      const monitorStateSystemMessage = {
+        role: "system" as const,
+        content: monitorStateMessage
+      };
+      chatMessages = [...chatMessages, monitorStateSystemMessage];
       
       // If URLs detected, fetch and inject content WITHOUT mutating stored conversation
       if (useDirectFetch) {
