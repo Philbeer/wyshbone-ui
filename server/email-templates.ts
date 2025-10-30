@@ -28,7 +28,7 @@ export function formatMonitorResultEmail(result: MonitorResult): { subject: stri
     hour12: false 
   });
   
-  const subject = `Monitor Results: ${monitorLabel} - ${formattedDate}`;
+  const subject = `Wyshbone AI Monitor Results: ${monitorLabel} - ${formattedDate}`;
   
   const html = `
 <!DOCTYPE html>
@@ -59,6 +59,40 @@ export function formatMonitorResultEmail(result: MonitorResult): { subject: stri
       color: #ffffff;
       padding: 30px 20px;
       text-align: center;
+    }
+    .logo {
+      width: 48px;
+      height: 48px;
+      background-color: rgba(255,255,255,0.95);
+      border-radius: 50%;
+      margin: 0 auto 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .logo-circle {
+      width: 32px;
+      height: 32px;
+      background: linear-gradient(135deg, #2b7a78 0%, #1f5b5a 100%);
+      border-radius: 50%;
+      position: relative;
+    }
+    .logo-circle::after {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 16px;
+      height: 16px;
+      background-color: rgba(255,255,255,0.9);
+      border-radius: 50%;
+    }
+    .brand-name {
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 20px;
+      letter-spacing: 0.5px;
     }
     .header h1 {
       margin: 0;
@@ -139,18 +173,25 @@ export function formatMonitorResultEmail(result: MonitorResult): { subject: stri
     .button {
       display: inline-block;
       background-color: #2b7a78;
-      color: #ffffff;
+      color: #ffffff !important;
       padding: 12px 24px;
       text-decoration: none;
       border-radius: 6px;
       margin: 20px 0;
       font-weight: 500;
     }
+    .button:visited {
+      color: #ffffff !important;
+    }
   </style>
 </head>
 <body>
   <div class="container">
     <div class="header">
+      <div class="logo">
+        <div class="logo-circle"></div>
+      </div>
+      <div class="brand-name">Wyshbone AI</div>
       <h1>${monitorLabel}</h1>
       <span class="badge">${typeLabel}</span>
     </div>
