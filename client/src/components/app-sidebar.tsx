@@ -838,8 +838,7 @@ function ScheduledMonitorsSection({ userId }: { userId: string }) {
     schedule: 'weekly' as 'once' | 'daily' | 'weekly' | 'biweekly' | 'monthly',
     scheduleDay: undefined as 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday' | undefined,
     scheduleTime: '',
-    emailNotifications: false,
-    emailTo: ''
+    emailNotifications: false
   });
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -880,8 +879,7 @@ function ScheduledMonitorsSection({ userId }: { userId: string }) {
       schedule: monitor.schedule,
       scheduleDay: monitor.scheduleDay || undefined,
       scheduleTime: monitor.scheduleTime || '',
-      emailNotifications: monitor.emailNotifications === 1,
-      emailTo: monitor.emailTo || ''
+      emailNotifications: monitor.emailNotifications === 1
     });
   };
   
@@ -902,7 +900,6 @@ function ScheduledMonitorsSection({ userId }: { userId: string }) {
           scheduleDay: editForm.scheduleDay || null,
           scheduleTime: editForm.scheduleTime || null,
           emailNotifications: editForm.emailNotifications ? 1 : 0,
-          emailTo: editForm.emailTo || null,
         }),
       });
       
@@ -1021,36 +1018,26 @@ function ScheduledMonitorsSection({ userId }: { userId: string }) {
                 </p>
               )}
             </div>
-            <div className="space-y-3">
-              <div className="flex items-center justify-between p-3 rounded-md border border-border">
-                <div className="space-y-0.5 flex-1">
-                  <Label htmlFor="edit-email" className="text-sm font-medium">
-                    Email Notifications
-                  </Label>
-                  <p className="text-xs text-muted-foreground">
-                    Send results to your email when this monitor runs
+            <div className="flex items-center justify-between p-3 rounded-md border border-border">
+              <div className="space-y-0.5 flex-1">
+                <Label htmlFor="edit-email" className="text-sm font-medium">
+                  Email Notifications
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  Send results to your email when this monitor runs
+                </p>
+                {editForm.emailNotifications && (
+                  <p className="text-xs font-medium text-primary mt-1">
+                    📧 Will send to: phil@listersbrewery.com
                   </p>
-                </div>
-                <Switch
-                  id="edit-email"
-                  checked={editForm.emailNotifications}
-                  onCheckedChange={(checked) => setEditForm({ ...editForm, emailNotifications: checked })}
-                  data-testid="switch-email-notifications"
-                />
+                )}
               </div>
-              {editForm.emailNotifications && (
-                <div className="space-y-2">
-                  <Label htmlFor="edit-email-to">Email Address</Label>
-                  <Input
-                    id="edit-email-to"
-                    type="email"
-                    value={editForm.emailTo}
-                    onChange={(e) => setEditForm({ ...editForm, emailTo: e.target.value })}
-                    placeholder="your.email@example.com"
-                    data-testid="input-email-to"
-                  />
-                </div>
-              )}
+              <Switch
+                id="edit-email"
+                checked={editForm.emailNotifications}
+                onCheckedChange={(checked) => setEditForm({ ...editForm, emailNotifications: checked })}
+                data-testid="switch-email-notifications"
+              />
             </div>
           </div>
           <div className="flex justify-end gap-2">

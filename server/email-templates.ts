@@ -56,7 +56,8 @@ export function formatMonitorResultEmail(result: MonitorResult): { subject: stri
     }
     .header {
       background: linear-gradient(135deg, #2b7a78 0%, #1f5b5a 100%);
-      padding: 20px;
+      color: #ffffff;
+      padding: 30px 20px;
       text-align: center;
     }
     .logo {
@@ -64,7 +65,7 @@ export function formatMonitorResultEmail(result: MonitorResult): { subject: stri
       height: 64px;
       background-color: #ffffff;
       border-radius: 50%;
-      margin: 0 auto;
+      margin: 0 auto 16px;
       padding: 12px;
       box-shadow: 0 2px 8px rgba(0,0,0,0.1);
     }
@@ -73,30 +74,16 @@ export function formatMonitorResultEmail(result: MonitorResult): { subject: stri
       height: 100%;
       display: block;
     }
-    .brand-section {
-      background-color: #ffffff;
-      padding: 16px 20px;
-      text-align: center;
-      border-bottom: 1px solid #e0e0e0;
-    }
     .brand-name {
-      font-size: 18px;
+      font-size: 16px;
       font-weight: 600;
-      color: #000000;
-      margin: 0;
+      margin-bottom: 20px;
       letter-spacing: 0.5px;
     }
-    .monitor-header {
-      background-color: #ffffff;
-      padding: 20px;
-      text-align: center;
-      border-bottom: 1px solid #e0e0e0;
-    }
-    .monitor-header h1 {
-      margin: 0 0 8px 0;
+    .header h1 {
+      margin: 0;
       font-size: 24px;
       font-weight: 600;
-      color: #333;
     }
     .badge {
       display: inline-block;
