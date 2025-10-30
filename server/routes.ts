@@ -1177,7 +1177,7 @@ CRITICAL RULES:
               monitorType: {
                 type: "string",
                 enum: ["deep_research", "business_search", "google_places"],
-                description: "What type of monitoring to perform: 'deep_research' for comprehensive research, 'business_search' for finding contacts, 'google_places' for quick business listings"
+                description: "What type of monitoring to perform. DEFAULT to 'deep_research' for most use cases as it provides comprehensive research reports. Use 'business_search' only if specifically looking for contact details, 'google_places' for simple location listings."
               },
               config: {
                 type: "object",
