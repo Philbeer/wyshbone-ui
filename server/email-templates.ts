@@ -55,7 +55,7 @@ export function formatMonitorResultEmail(result: MonitorResult): { subject: stri
       box-shadow: 0 2px 8px rgba(0,0,0,0.1);
     }
     .header {
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      background: linear-gradient(135deg, #2b7a78 0%, #1f5b5a 100%);
       color: #ffffff;
       padding: 30px 20px;
       text-align: center;
@@ -79,7 +79,7 @@ export function formatMonitorResultEmail(result: MonitorResult): { subject: stri
     }
     .info-box {
       background-color: #f8f9fa;
-      border-left: 4px solid #667eea;
+      border-left: 4px solid #2b7a78;
       padding: 15px;
       margin: 20px 0;
       border-radius: 4px;
@@ -87,7 +87,7 @@ export function formatMonitorResultEmail(result: MonitorResult): { subject: stri
     .info-box h3 {
       margin: 0 0 10px 0;
       font-size: 14px;
-      color: #667eea;
+      color: #2b7a78;
       text-transform: uppercase;
       letter-spacing: 0.5px;
     }
@@ -109,7 +109,7 @@ export function formatMonitorResultEmail(result: MonitorResult): { subject: stri
     .stat-value {
       font-size: 32px;
       font-weight: bold;
-      color: #667eea;
+      color: #2b7a78;
     }
     .stat-label {
       font-size: 12px;
@@ -138,7 +138,7 @@ export function formatMonitorResultEmail(result: MonitorResult): { subject: stri
     }
     .button {
       display: inline-block;
-      background-color: #667eea;
+      background-color: #2b7a78;
       color: #ffffff;
       padding: 12px 24px;
       text-decoration: none;
@@ -178,14 +178,14 @@ export function formatMonitorResultEmail(result: MonitorResult): { subject: stri
       <div class="summary">
         <h3>🔍 Research Preview</h3>
         <p style="color: #555; font-size: 15px; line-height: 1.8;">${summary}</p>
-        <p style="margin-top: 15px; padding: 12px; background-color: #f0f4ff; border-left: 3px solid #667eea; font-size: 13px; color: #667eea;">
+        <p style="margin-top: 15px; padding: 12px; background-color: #e8f4f3; border-left: 3px solid #2b7a78; font-size: 13px; color: #2b7a78;">
           <strong>💡 Want to see more?</strong> Click below to view the complete research report with all findings, sources, and detailed analysis.
         </p>
       </div>
       ` : ''}
       
       <div style="text-align: center; margin-top: 30px;">
-        <a href="${process.env.REPLIT_DEPLOYMENT_URL || 'https://your-app.replit.app'}" class="button" style="font-size: 16px; padding: 14px 32px;">📊 View Full Report</a>
+        <a href="${process.env.REPLIT_DEPLOYMENT_URL || 'https://your-app.replit.app'}${conversationId ? `?conversation=${conversationId}` : ''}" class="button" style="font-size: 16px; padding: 14px 32px;">📊 View Full Report</a>
         <p style="margin-top: 10px; font-size: 12px; color: #999;">Click to see complete findings in your Wyshbone dashboard</p>
       </div>
     </div>
