@@ -880,8 +880,8 @@ function ScheduledMonitorsSection({ userId }: { userId: string }) {
   };
   
   const handleSaveEdit = async () => {
-    if (!editingMonitor || !editForm.label.trim() || !editForm.description.trim()) {
-      alert('Label and description are required');
+    if (!editingMonitor || !editForm.label.trim()) {
+      alert('Label is required');
       return;
     }
     
@@ -892,7 +892,6 @@ function ScheduledMonitorsSection({ userId }: { userId: string }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           label: editForm.label,
-          description: editForm.description,
           schedule: editForm.schedule,
           scheduleDay: editForm.scheduleDay || null,
           scheduleTime: editForm.scheduleTime || null,
@@ -930,12 +929,22 @@ function ScheduledMonitorsSection({ userId }: { userId: string }) {
       <Dialog open={!!editingMonitor} onOpenChange={(open) => !open && setEditingMonitor(null)}>
         <DialogContent data-testid="dialog-edit-monitor">
           <DialogHeader>
-            <DialogTitle>Edit Monitor</DialogTitle>
+            <DialogTitle>Edit Monitor Schedule</DialogTitle>
             <DialogDescription>
-              Update the label and description for this scheduled monitor.
+              Change when this monitor runs. To change what it searches for, create a new monitor.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
+            {editingMonitor && (
+              <div className="p-3 rounded-md bg-muted/50 space-y-1">
+                <div className="text-xs text-muted-foreground">{editingMonitor.description}</div>
+                <div className="text-xs">
+                  <span className="px-2 py-0.5 rounded-full bg-primary/10 text-primary">
+                    {editingMonitor.monitorType === 'deep_research' ? 'Research' : editingMonitor.monitorType === 'business_search' ? 'Contacts' : 'Places'}
+                  </span>
+                </div>
+              </div>
+            )}
             <div className="space-y-2">
               <Label htmlFor="edit-label">Label</Label>
               <Input
@@ -945,17 +954,7 @@ function ScheduledMonitorsSection({ userId }: { userId: string }) {
                 placeholder="Enter monitor label"
                 data-testid="input-edit-label"
               />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="edit-description">Description</Label>
-              <Input
-                id="edit-description"
-                value={editForm.description}
-                onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
-                placeholder="Enter monitor description"
-                data-testid="input-edit-description"
-              />
-              <p className="text-xs text-muted-foreground">Note: Changing the description only updates the label. To change what gets searched, you'll need to create a new monitor.</p>
+              <p className="text-xs text-muted-foreground">Give this monitor a custom name for easy identification</p>
             </div>
             <div className="space-y-2">
               <Label htmlFor="edit-schedule">Schedule</Label>
