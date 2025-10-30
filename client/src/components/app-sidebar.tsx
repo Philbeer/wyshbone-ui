@@ -831,7 +831,13 @@ export function AppSidebar({
 function ScheduledMonitorsSection({ userId }: { userId: string }) {
   const [editingMonitor, setEditingMonitor] = useState<any>(null);
   const [deletingMonitor, setDeletingMonitor] = useState<any>(null);
-  const [editForm, setEditForm] = useState({ label: '', description: '' });
+  const [editForm, setEditForm] = useState({ 
+    label: '', 
+    description: '',
+    schedule: 'weekly' as 'daily' | 'weekly' | 'biweekly' | 'monthly',
+    scheduleDay: undefined as 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday' | undefined,
+    scheduleTime: ''
+  });
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   
@@ -864,7 +870,13 @@ function ScheduledMonitorsSection({ userId }: { userId: string }) {
   
   const handleEdit = (monitor: any) => {
     setEditingMonitor(monitor);
-    setEditForm({ label: monitor.label, description: monitor.description });
+    setEditForm({ 
+      label: monitor.label, 
+      description: monitor.description,
+      schedule: monitor.schedule,
+      scheduleDay: monitor.scheduleDay || undefined,
+      scheduleTime: monitor.scheduleTime || ''
+    });
   };
   
   const handleSaveEdit = async () => {
@@ -881,6 +893,9 @@ function ScheduledMonitorsSection({ userId }: { userId: string }) {
         body: JSON.stringify({
           label: editForm.label,
           description: editForm.description,
+          schedule: editForm.schedule,
+          scheduleDay: editForm.scheduleDay || null,
+          scheduleTime: editForm.scheduleTime || null,
         }),
       });
       
@@ -939,6 +954,56 @@ function ScheduledMonitorsSection({ userId }: { userId: string }) {
                 onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
                 placeholder="Enter monitor description"
                 data-testid="input-edit-description"
+              />
+              <p className="text-xs text-muted-foreground">Note: Changing the description only updates the label. To change what gets searched, you'll need to create a new monitor.</p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-schedule">Schedule</Label>
+              <Select 
+                value={editForm.schedule} 
+                onValueChange={(value: 'daily' | 'weekly' | 'biweekly' | 'monthly') => setEditForm({ ...editForm, schedule: value })}
+              >
+                <SelectTrigger id="edit-schedule" data-testid="select-edit-schedule">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="daily">Daily</SelectItem>
+                  <SelectItem value="weekly">Weekly</SelectItem>
+                  <SelectItem value="biweekly">Biweekly</SelectItem>
+                  <SelectItem value="monthly">Monthly</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {(editForm.schedule === 'weekly' || editForm.schedule === 'biweekly') && (
+              <div className="space-y-2">
+                <Label htmlFor="edit-day">Day of Week</Label>
+                <Select 
+                  value={editForm.scheduleDay || ''} 
+                  onValueChange={(value: 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday') => setEditForm({ ...editForm, scheduleDay: value })}
+                >
+                  <SelectTrigger id="edit-day" data-testid="select-edit-day">
+                    <SelectValue placeholder="Select a day" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="monday">Monday</SelectItem>
+                    <SelectItem value="tuesday">Tuesday</SelectItem>
+                    <SelectItem value="wednesday">Wednesday</SelectItem>
+                    <SelectItem value="thursday">Thursday</SelectItem>
+                    <SelectItem value="friday">Friday</SelectItem>
+                    <SelectItem value="saturday">Saturday</SelectItem>
+                    <SelectItem value="sunday">Sunday</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            <div className="space-y-2">
+              <Label htmlFor="edit-time">Time (optional, e.g., 09:00)</Label>
+              <Input
+                id="edit-time"
+                value={editForm.scheduleTime}
+                onChange={(e) => setEditForm({ ...editForm, scheduleTime: e.target.value })}
+                placeholder="HH:MM"
+                data-testid="input-edit-time"
               />
             </div>
           </div>
