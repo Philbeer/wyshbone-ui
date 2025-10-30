@@ -193,7 +193,7 @@ async function sendMonitorResultEmail(
   conversationId: string
 ): Promise<void> {
   try {
-    const { client } = await getUncachableResendClient();
+    const { client, fromEmail } = await getUncachableResendClient();
     
     const monitorResult: MonitorResult = {
       monitorLabel: monitor.label,
@@ -207,7 +207,6 @@ async function sendMonitorResultEmail(
     
     const { subject, html } = formatMonitorResultEmail(monitorResult);
     
-    const fromEmail = 'onboarding@resend.dev';
     console.log(`📧 Sending email to ${userEmail} from ${fromEmail}`);
     
     const response = await client.emails.send({
