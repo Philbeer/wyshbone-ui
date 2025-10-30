@@ -37,6 +37,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -820,24 +830,26 @@ export function AppSidebar({
 // Scheduled Monitors Section Component
 function ScheduledMonitorsSection({ userId }: { userId: string }) {
   const [editingMonitor, setEditingMonitor] = useState<any>(null);
+  const [deletingMonitor, setDeletingMonitor] = useState<any>(null);
   const [editForm, setEditForm] = useState({ label: '', description: '' });
   const [isSaving, setIsSaving] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   
   const { data: monitors, isLoading, isError, error, refetch } = useQuery({
     queryKey: [`/api/scheduled-monitors/${userId}`],
   });
 
-  const handleDelete = async (monitorId: string) => {
-    if (!confirm('Are you sure you want to delete this monitor?')) {
-      return;
-    }
+  const handleDeleteConfirm = async () => {
+    if (!deletingMonitor) return;
     
+    setIsDeleting(true);
     try {
-      const response = await fetch(`/api/scheduled-monitors/${monitorId}`, {
+      const response = await fetch(`/api/scheduled-monitors/${deletingMonitor.id}`, {
         method: 'DELETE',
       });
       
       if (response.ok) {
+        setDeletingMonitor(null);
         refetch();
       } else {
         alert('Failed to delete monitor');
@@ -845,6 +857,8 @@ function ScheduledMonitorsSection({ userId }: { userId: string }) {
     } catch (error) {
       console.error('Failed to delete monitor:', error);
       alert('Failed to delete monitor');
+    } finally {
+      setIsDeleting(false);
     }
   };
   
@@ -948,6 +962,38 @@ function ScheduledMonitorsSection({ userId }: { userId: string }) {
         </DialogContent>
       </Dialog>
       
+      <AlertDialog open={!!deletingMonitor} onOpenChange={(open) => !open && setDeletingMonitor(null)}>
+        <AlertDialogContent data-testid="dialog-delete-monitor">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Monitor</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this monitor? This action cannot be undone.
+              {deletingMonitor && (
+                <div className="mt-2 font-medium text-foreground">
+                  "{deletingMonitor.label}"
+                </div>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting} data-testid="button-cancel-delete">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                handleDeleteConfirm();
+              }}
+              disabled={isDeleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              data-testid="button-confirm-delete"
+            >
+              {isDeleting ? 'Deleting...' : 'Delete'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      
       <div className="space-y-2">
         {Array.isArray(monitors) && monitors.map((monitor: any) => {
         const isActive = monitor.isActive === 1;
@@ -1006,7 +1052,7 @@ function ScheduledMonitorsSection({ userId }: { userId: string }) {
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      handleDelete(monitor.id);
+                      setDeletingMonitor(monitor);
                     }}
                     className="p-1 rounded hover-elevate active-elevate-2"
                     data-testid={`button-delete-monitor-${monitor.id}`}
