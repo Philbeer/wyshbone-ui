@@ -310,3 +310,68 @@ export const insertFactSchema = createInsertSchema(facts);
 export const selectFactSchema = createSelectSchema(facts);
 export type InsertFact = z.infer<typeof insertFactSchema>;
 export type SelectFact = typeof facts.$inferSelect;
+
+// ============= SCHEDULED MONITORS TABLE =============
+
+// Scheduled Monitors table - stores recurring monitoring tasks
+export const scheduledMonitors = pgTable("scheduled_monitors", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  label: text("label").notNull(),
+  description: text("description").notNull(),
+  schedule: text("schedule").notNull(),
+  scheduleDay: text("schedule_day"),
+  scheduleTime: text("schedule_time"),
+  monitorType: text("monitor_type").notNull(),
+  config: jsonb("config"),
+  isActive: integer("is_active").notNull().default(1),
+  lastRunAt: bigint("last_run_at", { mode: "number" }),
+  nextRunAt: bigint("next_run_at", { mode: "number" }),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+}, (table) => ({
+  userIdIdx: index("scheduled_monitors_user_id_idx").on(table.userId),
+  isActiveIdx: index("scheduled_monitors_is_active_idx").on(table.isActive, table.nextRunAt),
+}));
+
+// Scheduled Monitor Zod schemas for validation
+export const scheduledMonitorScheduleSchema = z.enum(["daily", "weekly", "biweekly", "monthly"]);
+export const scheduledMonitorTypeSchema = z.enum(["business_search", "deep_research", "google_places"]);
+export const scheduledMonitorDaySchema = z.enum(["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]);
+
+export const scheduledMonitorSchema = z.object({
+  id: z.string(),
+  userId: z.string(),
+  label: z.string(),
+  description: z.string(),
+  schedule: scheduledMonitorScheduleSchema,
+  scheduleDay: scheduledMonitorDaySchema.optional(),
+  scheduleTime: z.string().optional(),
+  monitorType: scheduledMonitorTypeSchema,
+  config: z.any().optional(),
+  isActive: z.number(),
+  lastRunAt: z.number().optional(),
+  nextRunAt: z.number().optional(),
+  createdAt: z.number(),
+  updatedAt: z.number(),
+});
+
+export type ScheduledMonitor = z.infer<typeof scheduledMonitorSchema>;
+
+export const scheduledMonitorCreateRequestSchema = z.object({
+  label: z.string().min(1, "Label is required"),
+  description: z.string().min(1, "Description is required"),
+  schedule: scheduledMonitorScheduleSchema,
+  scheduleDay: scheduledMonitorDaySchema.optional(),
+  scheduleTime: z.string().optional(),
+  monitorType: scheduledMonitorTypeSchema,
+  config: z.any().optional(),
+});
+
+export type ScheduledMonitorCreateRequest = z.infer<typeof scheduledMonitorCreateRequestSchema>;
+
+// Scheduled Monitor Drizzle insert/select schemas
+export const insertScheduledMonitorSchema = createInsertSchema(scheduledMonitors);
+export const selectScheduledMonitorSchema = createSelectSchema(scheduledMonitors);
+export type InsertScheduledMonitor = z.infer<typeof insertScheduledMonitorSchema>;
+export type SelectScheduledMonitor = typeof scheduledMonitors.$inferSelect;

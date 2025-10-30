@@ -8,11 +8,13 @@ import type {
   SelectMessage,
   InsertMessage,
   SelectFact,
-  InsertFact
+  InsertFact,
+  SelectScheduledMonitor,
+  InsertScheduledMonitor
 } from "@shared/schema";
 import { drizzle } from "drizzle-orm/neon-http";
 import { neon } from "@neondatabase/serverless";
-import { deepResearchRuns, conversations, messages, facts } from "@shared/schema";
+import { deepResearchRuns, conversations, messages, facts, scheduledMonitors } from "@shared/schema";
 import { eq, or, desc, asc } from "drizzle-orm";
 
 export interface PendingBatchConfirmation {
@@ -85,6 +87,14 @@ export interface IStorage {
   // Last viewed run tracking (for summarization)
   setLastViewedRun(sessionId: string, runId: string): Promise<void>;
   getLastViewedRun(sessionId: string): Promise<string | null>;
+  
+  // Scheduled Monitor CRUD methods
+  createScheduledMonitor(monitor: InsertScheduledMonitor): Promise<SelectScheduledMonitor>;
+  getScheduledMonitor(id: string): Promise<SelectScheduledMonitor | null>;
+  listScheduledMonitors(userId: string): Promise<SelectScheduledMonitor[]>;
+  listActiveScheduledMonitors(): Promise<SelectScheduledMonitor[]>;
+  updateScheduledMonitor(id: string, updates: Partial<InsertScheduledMonitor>): Promise<SelectScheduledMonitor | null>;
+  deleteScheduledMonitor(id: string): Promise<boolean>;
 }
 
 export class MemStorage implements IStorage {
@@ -96,6 +106,7 @@ export class MemStorage implements IStorage {
   private messages: Map<string, SelectMessage> = new Map();
   private facts: Map<string, SelectFact> = new Map();
   private lastViewedRuns: Map<string, string> = new Map();
+  private scheduledMonitors: Map<string, SelectScheduledMonitor> = new Map();
 
   async createJob(job: Job): Promise<Job> {
     this.jobs.set(job.id, job);
@@ -262,6 +273,41 @@ export class MemStorage implements IStorage {
   
   async getLastViewedRun(sessionId: string): Promise<string | null> {
     return this.lastViewedRuns.get(sessionId) || null;
+  }
+  
+  async createScheduledMonitor(monitor: InsertScheduledMonitor): Promise<SelectScheduledMonitor> {
+    const newMonitor = monitor as SelectScheduledMonitor;
+    this.scheduledMonitors.set(newMonitor.id, newMonitor);
+    return newMonitor;
+  }
+
+  async getScheduledMonitor(id: string): Promise<SelectScheduledMonitor | null> {
+    return this.scheduledMonitors.get(id) || null;
+  }
+
+  async listScheduledMonitors(userId: string): Promise<SelectScheduledMonitor[]> {
+    return Array.from(this.scheduledMonitors.values())
+      .filter(monitor => monitor.userId === userId)
+      .sort((a, b) => b.createdAt - a.createdAt);
+  }
+
+  async listActiveScheduledMonitors(): Promise<SelectScheduledMonitor[]> {
+    return Array.from(this.scheduledMonitors.values())
+      .filter(monitor => monitor.isActive === 1)
+      .sort((a, b) => (a.nextRunAt || 0) - (b.nextRunAt || 0));
+  }
+
+  async updateScheduledMonitor(id: string, updates: Partial<InsertScheduledMonitor>): Promise<SelectScheduledMonitor | null> {
+    const monitor = this.scheduledMonitors.get(id);
+    if (!monitor) return null;
+    
+    const updated = { ...monitor, ...updates, updatedAt: Date.now() };
+    this.scheduledMonitors.set(id, updated);
+    return updated;
+  }
+
+  async deleteScheduledMonitor(id: string): Promise<boolean> {
+    return this.scheduledMonitors.delete(id);
   }
 }
 
@@ -456,6 +502,47 @@ export class DbStorage implements IStorage {
   
   async getLastViewedRun(sessionId: string): Promise<string | null> {
     return this.lastViewedRuns.get(sessionId) || null;
+  }
+  
+  async createScheduledMonitor(monitor: InsertScheduledMonitor): Promise<SelectScheduledMonitor> {
+    const [newMonitor] = await db.insert(scheduledMonitors).values(monitor).returning();
+    return newMonitor;
+  }
+
+  async getScheduledMonitor(id: string): Promise<SelectScheduledMonitor | null> {
+    const [monitor] = await db.select().from(scheduledMonitors).where(eq(scheduledMonitors.id, id));
+    return monitor || null;
+  }
+
+  async listScheduledMonitors(userId: string): Promise<SelectScheduledMonitor[]> {
+    return db
+      .select()
+      .from(scheduledMonitors)
+      .where(eq(scheduledMonitors.userId, userId))
+      .orderBy(desc(scheduledMonitors.createdAt));
+  }
+
+  async listActiveScheduledMonitors(): Promise<SelectScheduledMonitor[]> {
+    return db
+      .select()
+      .from(scheduledMonitors)
+      .where(eq(scheduledMonitors.isActive, 1))
+      .orderBy(asc(scheduledMonitors.nextRunAt));
+  }
+
+  async updateScheduledMonitor(id: string, updates: Partial<InsertScheduledMonitor>): Promise<SelectScheduledMonitor | null> {
+    const updateData = { ...updates, updatedAt: Date.now() };
+    const [updated] = await db
+      .update(scheduledMonitors)
+      .set(updateData)
+      .where(eq(scheduledMonitors.id, id))
+      .returning();
+    return updated || null;
+  }
+
+  async deleteScheduledMonitor(id: string): Promise<boolean> {
+    const result = await db.delete(scheduledMonitors).where(eq(scheduledMonitors.id, id)).returning();
+    return result.length > 0;
   }
 }
 

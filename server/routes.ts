@@ -1144,7 +1144,52 @@ CRITICAL RULES:
         }
       };
 
-      const tools: any[] = [bubbleTool, deepResearchTool, googlePlacesSearchTool];
+      const createScheduledMonitorTool = {
+        type: "function" as const,
+        function: {
+          name: "create_scheduled_monitor",
+          description: "Create a recurring scheduled monitoring task that runs automatically. Use this when user wants to automate regular monitoring, checks, or searches (e.g., 'check for new dental practices every Monday', 'monitor coffee shops weekly', 'schedule weekly report on gyms').",
+          parameters: {
+            type: "object",
+            properties: {
+              label: {
+                type: "string",
+                description: "A short, descriptive name for the monitor (e.g., 'Weekly dental practices check', 'Monthly coffee shop report')"
+              },
+              description: {
+                type: "string",
+                description: "Full description of what to monitor, including business type and location (e.g., 'Check for new dental practices in Manchester', 'Monitor coffee shops in Brooklyn')"
+              },
+              schedule: {
+                type: "string",
+                enum: ["daily", "weekly", "biweekly", "monthly"],
+                description: "How often to run the monitor"
+              },
+              scheduleDay: {
+                type: "string",
+                enum: ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"],
+                description: "Optional: For weekly/biweekly schedules, which day to run (e.g., 'monday')"
+              },
+              scheduleTime: {
+                type: "string",
+                description: "Optional: Time to run in HH:MM format (e.g., '09:00', '14:30')"
+              },
+              monitorType: {
+                type: "string",
+                enum: ["deep_research", "business_search", "google_places"],
+                description: "What type of monitoring to perform: 'deep_research' for comprehensive research, 'business_search' for finding contacts, 'google_places' for quick business listings"
+              },
+              config: {
+                type: "object",
+                description: "Configuration specific to the monitor type (e.g., for business_search: {business_types: ['dentists'], location: 'Manchester', roles: ['owner']})"
+              }
+            },
+            required: ["label", "description", "schedule", "monitorType"]
+          }
+        }
+      };
+
+      const tools: any[] = [bubbleTool, deepResearchTool, googlePlacesSearchTool, createScheduledMonitorTool];
 
       console.log(`🌐 Calling Chat Completions API with function calling...`);
       
@@ -1809,6 +1854,86 @@ CRITICAL RULES:
           } catch (toolErr: any) {
             console.error("❌ Google Places search error:", toolErr.message);
             aiBuffer = `Error searching Google Places: ${toolErr.message}`;
+            res.write(`data: ${JSON.stringify({ content: aiBuffer })}\n\n`);
+            
+            appendMessage(sessionId, { role: "assistant", content: aiBuffer });
+            await saveMessage(conversationId, "assistant", aiBuffer);
+            console.log("💾 Saved error message to database");
+          }
+        } else if (isToolCall && toolCallBuffer.name === "create_scheduled_monitor") {
+          console.log("⏰ Scheduled monitor tool call detected");
+          console.log("📦 Arguments:", toolCallBuffer.arguments);
+          
+          try {
+            const params = JSON.parse(toolCallBuffer.arguments);
+            
+            if (!params.label || !params.description || !params.schedule || !params.monitorType) {
+              throw new Error("Missing required parameters for scheduled monitor");
+            }
+            
+            // Calculate next run time
+            const now = Date.now();
+            let nextRunAt = now;
+            
+            // Calculate next run based on schedule
+            if (params.schedule === 'daily') {
+              nextRunAt = now + (24 * 60 * 60 * 1000); // 24 hours
+            } else if (params.schedule === 'weekly') {
+              nextRunAt = now + (7 * 24 * 60 * 60 * 1000); // 7 days
+            } else if (params.schedule === 'biweekly') {
+              nextRunAt = now + (14 * 24 * 60 * 60 * 1000); // 14 days
+            } else if (params.schedule === 'monthly') {
+              nextRunAt = now + (30 * 24 * 60 * 60 * 1000); // 30 days
+            }
+            
+            // Create the scheduled monitor
+            const monitor = await storage.createScheduledMonitor({
+              id: `monitor_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+              userId: user.id,
+              label: params.label,
+              description: params.description,
+              schedule: params.schedule,
+              scheduleDay: params.scheduleDay || null,
+              scheduleTime: params.scheduleTime || null,
+              monitorType: params.monitorType,
+              config: params.config || null,
+              isActive: 1,
+              nextRunAt,
+              createdAt: now,
+              updatedAt: now,
+            });
+            
+            // Format response
+            let responseText = `⏰ **Scheduled Monitor Created**\n\n`;
+            responseText += `✅ **${params.label}**\n\n`;
+            responseText += `📋 ${params.description}\n\n`;
+            responseText += `🔄 **Schedule:** ${params.schedule.charAt(0).toUpperCase() + params.schedule.slice(1)}`;
+            
+            if (params.scheduleDay) {
+              responseText += ` on ${params.scheduleDay.charAt(0).toUpperCase() + params.scheduleDay.slice(1)}s`;
+            }
+            if (params.scheduleTime) {
+              responseText += ` at ${params.scheduleTime}`;
+            }
+            responseText += `\n\n`;
+            
+            responseText += `📊 **Type:** ${params.monitorType === 'deep_research' ? 'Deep Research' : params.monitorType === 'business_search' ? 'Business Search' : 'Google Places'}\n\n`;
+            responseText += `🎯 Your monitor will run automatically according to the schedule. You can view and manage it in the sidebar under "Scheduled Monitors".\n\n`;
+            
+            const nextRunDate = new Date(nextRunAt);
+            responseText += `⏭️ **Next run:** ${nextRunDate.toLocaleDateString()} at ${nextRunDate.toLocaleTimeString()}`;
+            
+            aiBuffer = responseText;
+            res.write(`data: ${JSON.stringify({ content: responseText })}\n\n`);
+            
+            // Save to conversation
+            appendMessage(sessionId, { role: "assistant", content: responseText });
+            await saveMessage(conversationId, "assistant", responseText);
+            console.log("💾 Saved scheduled monitor creation to database");
+            
+          } catch (toolErr: any) {
+            console.error("❌ Scheduled monitor creation error:", toolErr.message);
+            aiBuffer = `Error creating scheduled monitor: ${toolErr.message}`;
             res.write(`data: ${JSON.stringify({ content: aiBuffer })}\n\n`);
             
             appendMessage(sessionId, { role: "assistant", content: aiBuffer });
@@ -3825,6 +3950,105 @@ ${run.outputText}`;
     } catch (error: any) {
       console.error("Summarize error:", error);
       res.status(500).json({ error: error.message || "Failed to summarize report" });
+    }
+  });
+
+  // ===========================
+  // SCHEDULED MONITORS API
+  // ===========================
+  
+  // Create a new scheduled monitor
+  app.post("/api/scheduled-monitors", async (req, res) => {
+    try {
+      const { userId, label, description, schedule, scheduleDay, scheduleTime, monitorType, config } = req.body;
+      
+      if (!userId || !label || !description || !schedule || !monitorType) {
+        return res.status(400).json({ error: "Missing required fields" });
+      }
+      
+      const now = Date.now();
+      const monitor = await storage.createScheduledMonitor({
+        id: `monitor_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+        userId,
+        label,
+        description,
+        schedule,
+        scheduleDay,
+        scheduleTime,
+        monitorType,
+        config: config || null,
+        isActive: 1,
+        nextRunAt: now + (schedule === 'daily' ? 86400000 : 604800000), // Basic calculation
+        createdAt: now,
+        updatedAt: now,
+      });
+      
+      res.json(monitor);
+    } catch (error: any) {
+      console.error("Error creating scheduled monitor:", error);
+      res.status(500).json({ error: error.message || "Failed to create scheduled monitor" });
+    }
+  });
+  
+  // List scheduled monitors for a user
+  app.get("/api/scheduled-monitors/:userId", async (req, res) => {
+    try {
+      const { userId } = req.params;
+      const monitors = await storage.listScheduledMonitors(userId);
+      res.json(monitors);
+    } catch (error: any) {
+      console.error("Error listing scheduled monitors:", error);
+      res.status(500).json({ error: error.message || "Failed to list scheduled monitors" });
+    }
+  });
+  
+  // Get a single scheduled monitor
+  app.get("/api/scheduled-monitors/detail/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const monitor = await storage.getScheduledMonitor(id);
+      if (!monitor) {
+        return res.status(404).json({ error: "Monitor not found" });
+      }
+      res.json(monitor);
+    } catch (error: any) {
+      console.error("Error getting scheduled monitor:", error);
+      res.status(500).json({ error: error.message || "Failed to get scheduled monitor" });
+    }
+  });
+  
+  // Update a scheduled monitor
+  app.patch("/api/scheduled-monitors/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const updates = req.body;
+      
+      const monitor = await storage.updateScheduledMonitor(id, updates);
+      if (!monitor) {
+        return res.status(404).json({ error: "Monitor not found" });
+      }
+      
+      res.json(monitor);
+    } catch (error: any) {
+      console.error("Error updating scheduled monitor:", error);
+      res.status(500).json({ error: error.message || "Failed to update scheduled monitor" });
+    }
+  });
+  
+  // Delete a scheduled monitor
+  app.delete("/api/scheduled-monitors/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const success = await storage.deleteScheduledMonitor(id);
+      
+      if (!success) {
+        return res.status(404).json({ error: "Monitor not found" });
+      }
+      
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error deleting scheduled monitor:", error);
+      res.status(500).json({ error: error.message || "Failed to delete scheduled monitor" });
     }
   });
 

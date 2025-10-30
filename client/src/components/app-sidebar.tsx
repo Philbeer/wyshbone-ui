@@ -1,6 +1,7 @@
-import { Globe, MessageSquare, Bug, FilePlus, MessagesSquare, ChevronDown, ChevronRight } from "lucide-react";
+import { Globe, MessageSquare, Bug, FilePlus, MessagesSquare, ChevronDown, ChevronRight, Clock } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "wouter";
+import { useQuery } from "@tanstack/react-query";
 import {
   Sidebar,
   SidebarContent,
@@ -778,6 +779,19 @@ export function AppSidebar({
         </SidebarGroup>
 
         <SidebarGroup>
+          <SidebarGroupLabel className="flex items-center gap-2">
+            <Clock className="h-4 w-4" />
+            Scheduled Monitors
+          </SidebarGroupLabel>
+          <SidebarGroupContent className="px-3">
+            <p className="text-xs text-muted-foreground mb-3">
+              Automated tasks that run on a schedule
+            </p>
+            <ScheduledMonitorsSection userId="demo-user" />
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        <SidebarGroup>
           <SidebarGroupLabel>Runs</SidebarGroupLabel>
           <SidebarGroupContent className="px-3">
             <p className="text-xs text-muted-foreground mb-3">
@@ -790,5 +804,75 @@ export function AppSidebar({
         </SidebarGroup>
       </SidebarContent>
     </Sidebar>
+  );
+}
+
+// Scheduled Monitors Section Component
+function ScheduledMonitorsSection({ userId }: { userId: string }) {
+  const { data: monitors, isLoading, isError, error } = useQuery({
+    queryKey: [`/api/scheduled-monitors/${userId}`],
+  });
+
+  if (isLoading) {
+    return <p className="text-xs text-muted-foreground">Loading...</p>;
+  }
+
+  if (isError) {
+    return <p className="text-xs text-destructive">Failed to load monitors: {error instanceof Error ? error.message : 'Unknown error'}</p>;
+  }
+
+  if (!monitors || (Array.isArray(monitors) && monitors.length === 0)) {
+    return <p className="text-xs text-muted-foreground">No scheduled monitors yet</p>;
+  }
+
+  return (
+    <div className="space-y-2">
+      {Array.isArray(monitors) && monitors.map((monitor: any) => {
+        const isActive = monitor.isActive === 1;
+        const nextRun = monitor.nextRunAt ? new Date(monitor.nextRunAt) : null;
+        
+        return (
+          <div
+            key={monitor.id}
+            className="p-3 rounded-md border border-border bg-card"
+            data-testid={`monitor-${monitor.id}`}
+          >
+            <div className="flex items-start justify-between gap-2 mb-2">
+              <div className="flex-1">
+                <div className="font-medium text-sm truncate" data-testid={`text-monitor-label-${monitor.id}`}>
+                  {monitor.label}
+                </div>
+                <div className="text-xs text-muted-foreground mt-1" data-testid={`text-monitor-description-${monitor.id}`}>
+                  {monitor.description}
+                </div>
+              </div>
+              <div className={`h-2 w-2 rounded-full ${isActive ? 'bg-green-500' : 'bg-gray-400'}`} />
+            </div>
+            
+            <div className="space-y-1 mt-2">
+              <div className="text-xs text-muted-foreground flex items-center gap-1">
+                <Clock className="h-3 w-3" />
+                <span>
+                  {monitor.schedule.charAt(0).toUpperCase() + monitor.schedule.slice(1)}
+                  {monitor.scheduleDay && ` on ${monitor.scheduleDay.charAt(0).toUpperCase() + monitor.scheduleDay.slice(1)}s`}
+                </span>
+              </div>
+              
+              {nextRun && (
+                <div className="text-xs text-muted-foreground">
+                  Next: {nextRun.toLocaleDateString()} {nextRun.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </div>
+              )}
+              
+              <div className="text-xs">
+                <span className="px-2 py-0.5 rounded-full bg-primary/10 text-primary">
+                  {monitor.monitorType === 'deep_research' ? 'Research' : monitor.monitorType === 'business_search' ? 'Contacts' : 'Places'}
+                </span>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
   );
 }
