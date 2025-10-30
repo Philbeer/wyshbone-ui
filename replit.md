@@ -55,11 +55,31 @@ The user interface adheres to modern Material Design principles, inspired by Cha
     - **Context Building:** Combines historical conversations and extracted facts for personalized responses, with current conversation always prioritized over durable memory.
     - **Memory Debug View:** A developer interface at `/debug` to inspect conversations, messages, and facts, including a User Profile Summary.
     - **New Chat Feature:** Clears the visual conversation thread while preserving learned facts in the database.
-- **Data Models:** Standardized schemas for `ChatMessage`, `ChatRequest`, `AddNoteRequest`, `BubbleRunBatchRequest`, and database tables (`conversations`, `messages`, `facts`).
+- **Data Models:** Standardized schemas for `ChatMessage`, `ChatRequest`, `AddNoteRequest`, `BubbleRunBatchRequest`, and database tables (`conversations`, `messages`, `facts`, `scheduled_monitors`).
 - **Backend Validation:** Zod schema validation is used on all endpoints, with CORS enabled.
+- **Scheduled Monitors:** Agentic monitoring system that allows users to create recurring tasks through natural conversation or manual configuration.
+    - **AI-Powered Creation:** Chat interface suggests and creates monitors using the `create_scheduled_monitor` tool
+    - **Full CRUD Operations:** Create, read, update, and delete monitors via `/api/scheduled-monitors` endpoints
+    - **Flexible Scheduling:** Daily, weekly, biweekly, and monthly frequencies with optional day-of-week and time specification
+    - **Monitor Types:** Supports deep_research, business_search, and google_places monitoring
+    - **Smart Time Calculation:** PATCH endpoint properly handles scheduleTime changes, calculating next run date/time correctly accounting for UK timezone and user-specified execution times
+    - **Email Notifications:** Integrated with Resend API to send professional HTML email reports when monitors complete
+        - Toggle email notifications on/off per monitor via UI switch
+        - Beautiful responsive email templates with monitor results summary
+        - Automatic credential management via Replit Resend connector
+        - Email includes run details, result counts, and direct link back to application
+    - **Sidebar Management UI:** Collapsible section showing all monitors with:
+        - Live status indicators (active/inactive)
+        - Next run date/time in UK format (DD/MM/YYYY, 24-hour time)
+        - Monitor type badges (Research/Contacts/Places)
+        - Email notification icon when enabled
+        - Edit and delete actions with confirmation dialogs
+    - **Edit Dialog Features:** Allows changing monitor label, schedule frequency, day, time, and email notification preference (description read-only to prevent changing search intent)
+    - **UK Date/Time Formatting:** All dates displayed in DD/MM/YYYY format with 24-hour time throughout the application
 
 ## External Dependencies
 - **OpenAI GPT-5:** For AI chat responses, prospect enrichment, and web search.
 - **Google Places API (New v1):** For business discovery and location-based searches.
 - **GeoNames API:** For worldwide administrative region discovery and geocoding.
 - **Bubble:** External platform for backend workflows, integrated via dedicated API endpoints.
+- **Resend API:** For sending transactional email notifications when scheduled monitors complete.
