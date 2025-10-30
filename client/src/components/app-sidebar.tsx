@@ -1,4 +1,4 @@
-import { Globe, MessageSquare, Bug, FilePlus, MessagesSquare, ChevronDown, ChevronRight, Clock, Edit2, Trash2 } from "lucide-react";
+import { Globe, MessageSquare, Bug, FilePlus, MessagesSquare, ChevronDown, ChevronRight, Clock, Edit2, Trash2, Mail } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
@@ -50,6 +50,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 
 export type RunStatus = "queued" | "running" | "completed" | "failed" | "stopped" | "in_progress";
 
@@ -836,7 +837,8 @@ function ScheduledMonitorsSection({ userId }: { userId: string }) {
     description: '',
     schedule: 'weekly' as 'daily' | 'weekly' | 'biweekly' | 'monthly',
     scheduleDay: undefined as 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday' | undefined,
-    scheduleTime: ''
+    scheduleTime: '',
+    emailNotifications: false
   });
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -875,7 +877,8 @@ function ScheduledMonitorsSection({ userId }: { userId: string }) {
       description: monitor.description,
       schedule: monitor.schedule,
       scheduleDay: monitor.scheduleDay || undefined,
-      scheduleTime: monitor.scheduleTime || ''
+      scheduleTime: monitor.scheduleTime || '',
+      emailNotifications: monitor.emailNotifications === 1
     });
   };
   
@@ -895,6 +898,7 @@ function ScheduledMonitorsSection({ userId }: { userId: string }) {
           schedule: editForm.schedule,
           scheduleDay: editForm.scheduleDay || null,
           scheduleTime: editForm.scheduleTime || null,
+          emailNotifications: editForm.emailNotifications ? 1 : 0,
         }),
       });
       
@@ -1005,6 +1009,22 @@ function ScheduledMonitorsSection({ userId }: { userId: string }) {
                 data-testid="input-edit-time"
               />
             </div>
+            <div className="flex items-center justify-between p-3 rounded-md border border-border">
+              <div className="space-y-0.5">
+                <Label htmlFor="edit-email" className="text-sm font-medium">
+                  Email Notifications
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  Send results to your email when this monitor runs
+                </p>
+              </div>
+              <Switch
+                id="edit-email"
+                checked={editForm.emailNotifications}
+                onCheckedChange={(checked) => setEditForm({ ...editForm, emailNotifications: checked })}
+                data-testid="switch-email-notifications"
+              />
+            </div>
           </div>
           <div className="flex justify-end gap-2">
             <Button
@@ -1097,9 +1117,14 @@ function ScheduledMonitorsSection({ userId }: { userId: string }) {
               )}
               
               <div className="flex items-center justify-between gap-2">
-                <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary">
-                  {monitor.monitorType === 'deep_research' ? 'Research' : monitor.monitorType === 'business_search' ? 'Contacts' : 'Places'}
-                </span>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary">
+                    {monitor.monitorType === 'deep_research' ? 'Research' : monitor.monitorType === 'business_search' ? 'Contacts' : 'Places'}
+                  </span>
+                  {monitor.emailNotifications === 1 && (
+                    <Mail className="h-3 w-3 text-muted-foreground" title="Email notifications enabled" />
+                  )}
+                </div>
                 
                 <div className="flex items-center gap-1">
                   <button
