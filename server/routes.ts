@@ -4023,6 +4023,26 @@ ${run.outputText}`;
       const { id } = req.params;
       const updates = req.body;
       
+      // If schedule is being updated, recalculate nextRunAt
+      if (updates.schedule) {
+        const now = Date.now();
+        let nextRunAt = now;
+        
+        // Calculate next run based on schedule
+        if (updates.schedule === 'daily') {
+          nextRunAt = now + (24 * 60 * 60 * 1000); // 24 hours
+        } else if (updates.schedule === 'weekly') {
+          nextRunAt = now + (7 * 24 * 60 * 60 * 1000); // 7 days
+        } else if (updates.schedule === 'biweekly') {
+          nextRunAt = now + (14 * 24 * 60 * 60 * 1000); // 14 days
+        } else if (updates.schedule === 'monthly') {
+          nextRunAt = now + (30 * 24 * 60 * 60 * 1000); // 30 days
+        }
+        
+        updates.nextRunAt = nextRunAt;
+        updates.updatedAt = now;
+      }
+      
       const monitor = await storage.updateScheduledMonitor(id, updates);
       if (!monitor) {
         return res.status(404).json({ error: "Monitor not found" });
