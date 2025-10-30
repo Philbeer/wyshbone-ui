@@ -13,6 +13,7 @@ export interface ScheduledMonitor {
   description: string;
   monitorType: 'deep_research' | 'business_search' | 'google_places';
   emailNotifications: number;
+  emailAddress?: string | null;
   config?: any;
 }
 
@@ -37,8 +38,8 @@ export async function executeMonitorAndNotify(monitor: ScheduledMonitor, userEma
   
   const results = await executeMonitor(monitor, conversationId);
   
-  // For testing, use hardcoded email - replace with actual user email in production
-  const recipientEmail = userEmail || 'phil@listersbrewery.com';
+  // Use saved email address from monitor, fallback to userEmail param, then hardcoded email for testing
+  const recipientEmail = monitor.emailAddress || userEmail || 'phil@listersbrewery.com';
   
   if (monitor.emailNotifications === 1) {
     await sendMonitorResultEmail(monitor, recipientEmail, results, conversationId);
