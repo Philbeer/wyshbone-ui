@@ -175,13 +175,17 @@ export function formatMonitorResultEmail(result: MonitorResult): { subject: stri
       
       ${summary ? `
       <div class="summary">
-        <h3>Summary</h3>
-        <p>${summary}</p>
+        <h3>🔍 Research Preview</h3>
+        <p style="color: #555; font-size: 15px; line-height: 1.8;">${summary}</p>
+        <p style="margin-top: 15px; padding: 12px; background-color: #f0f4ff; border-left: 3px solid #667eea; font-size: 13px; color: #667eea;">
+          <strong>💡 Want to see more?</strong> Click below to view the complete research report with all findings, sources, and detailed analysis.
+        </p>
       </div>
       ` : ''}
       
-      <div style="text-align: center;">
-        <a href="${process.env.REPLIT_DEPLOYMENT_URL || 'https://your-app.replit.app'}" class="button">View Full Results</a>
+      <div style="text-align: center; margin-top: 30px;">
+        <a href="${process.env.REPLIT_DEPLOYMENT_URL || 'https://your-app.replit.app'}" class="button" style="font-size: 16px; padding: 14px 32px;">📊 View Full Report</a>
+        <p style="margin-top: 10px; font-size: 12px; color: #999;">Click to see complete findings in your Wyshbone dashboard</p>
       </div>
     </div>
     
