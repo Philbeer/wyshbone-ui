@@ -3,7 +3,7 @@ import { Resend } from 'resend';
 async function getCredentials() {
   // Use environment variables directly (set via Replit Secrets)
   const apiKey = process.env.RESEND_API_KEY;
-  const fromEmail = process.env.RESEND_FROM_EMAIL || 'monitor@wyshboneai.com';
+  const fromEmail = process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev';
 
   if (!apiKey) {
     throw new Error('RESEND_API_KEY environment variable not set');
