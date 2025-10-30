@@ -71,6 +71,10 @@ app.use((req, res, next) => {
   }, async () => {
     log(`serving on port ${port}`);
     
+    // Start monitor background worker
+    const { startMonitorWorker } = await import('./monitor-worker');
+    startMonitorWorker();
+    
     // Print region service documentation
     console.log('\n' + '='.repeat(80));
     console.log('📍 HYBRID REGION SERVICE - ISO-Safe Country Codes for Google Places');

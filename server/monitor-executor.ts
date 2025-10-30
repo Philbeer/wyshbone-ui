@@ -41,6 +41,10 @@ async function sendMonitorResultEmail(
   try {
     const { client, fromEmail } = await getUncachableResendClient();
     
+    // Use onboarding@resend.dev for testing since custom domain may not be verified
+    // In production, you'd use a verified domain email
+    const testFrom = 'onboarding@resend.dev';
+    
     const monitorResult: MonitorResult = {
       monitorLabel: monitor.label,
       monitorType: monitor.monitorType,
@@ -52,10 +56,10 @@ async function sendMonitorResultEmail(
     
     const { subject, html } = formatMonitorResultEmail(monitorResult);
     
-    console.log(`📧 Sending email to ${userEmail} from ${fromEmail}`);
+    console.log(`📧 Sending email to ${userEmail} from ${testFrom}`);
     
     const response = await client.emails.send({
-      from: fromEmail,
+      from: testFrom,
       to: userEmail,
       subject: subject,
       html: html,
