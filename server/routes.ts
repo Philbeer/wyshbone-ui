@@ -1029,12 +1029,19 @@ CRITICAL RULES:
       
       // Add existing active monitors to system context for duplicate detection
       if (activeMonitors.length > 0) {
-        systemContent += `\n\n**IMPORTANT: EXISTING ACTIVE MONITORS**\n`;
+        systemContent += `\n\n**CRITICAL: CURRENT ACTIVE MONITORS (IGNORE CONVERSATION HISTORY)**\n`;
         systemContent += `The user currently has ${activeMonitors.length} active monitor(s):\n`;
         activeMonitors.forEach(m => {
           systemContent += `- "${m.label}" (${m.schedule}) - ${m.description}\n`;
         });
-        systemContent += `\nBefore creating a new monitor, CHECK if it's similar to existing ones. If similar, ask the user: "You already have a similar monitor called '[name]' that runs [schedule]. Would you like to create this new one anyway?" If user confirms, proceed with creation.\n`;
+        systemContent += `\n**IMPORTANT RULES:**\n`;
+        systemContent += `1. ONLY consider monitors in the list above as existing - IGNORE any monitors mentioned earlier in the conversation\n`;
+        systemContent += `2. If user requests a monitor, check if it's similar to the CURRENT active monitors above\n`;
+        systemContent += `3. If similar, ask: "You already have a similar monitor called '[name]' that runs [schedule]. Would you like to create this new one anyway?"\n`;
+        systemContent += `4. If user confirms, proceed with creation\n`;
+        systemContent += `5. Monitors deleted/inactive do NOT count as duplicates - user can recreate them without confirmation\n`;
+      } else {
+        systemContent += `\n\n**CURRENT ACTIVE MONITORS:** None (user has no active monitors - ignore any monitors mentioned in conversation history)\n`;
       }
       
       const systemPrompt = {
