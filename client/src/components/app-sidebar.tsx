@@ -845,6 +845,7 @@ function ScheduledMonitorsSection({ userId }: { userId: string }) {
   
   const { data: monitors, isLoading, isError, error, refetch } = useQuery({
     queryKey: [`/api/scheduled-monitors/${userId}`],
+    refetchInterval: 5000, // Refetch every 5 seconds to pick up monitors created via chat
   });
 
   const handleDeleteConfirm = async () => {
