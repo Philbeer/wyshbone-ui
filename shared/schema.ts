@@ -317,6 +317,7 @@ export type SelectFact = typeof facts.$inferSelect;
 export const scheduledMonitors = pgTable("scheduled_monitors", {
   id: text("id").primaryKey(),
   userId: text("user_id").notNull(),
+  conversationId: text("conversation_id"),
   label: text("label").notNull(),
   description: text("description").notNull(),
   schedule: text("schedule").notNull(),
@@ -333,6 +334,7 @@ export const scheduledMonitors = pgTable("scheduled_monitors", {
 }, (table) => ({
   userIdIdx: index("scheduled_monitors_user_id_idx").on(table.userId),
   isActiveIdx: index("scheduled_monitors_is_active_idx").on(table.isActive, table.nextRunAt),
+  conversationIdIdx: index("scheduled_monitors_conversation_id_idx").on(table.conversationId),
 }));
 
 // Scheduled Monitor Zod schemas for validation
@@ -343,6 +345,7 @@ export const scheduledMonitorDaySchema = z.enum(["monday", "tuesday", "wednesday
 export const scheduledMonitorSchema = z.object({
   id: z.string(),
   userId: z.string(),
+  conversationId: z.string().optional().nullable(),
   label: z.string(),
   description: z.string(),
   schedule: scheduledMonitorScheduleSchema,
