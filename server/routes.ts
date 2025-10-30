@@ -1020,9 +1020,26 @@ CRITICAL RULES:
 
       // Prepare messages array with system prompt (DON'T mutate memoryMessages)
       const { WyshboneChatConfig } = await import("../shared/conversationConfig");
+      
+      // Fetch existing ACTIVE monitors for duplicate detection
+      const existingMonitors = await storage.listScheduledMonitors(user.id);
+      const activeMonitors = existingMonitors.filter(m => m.isActive === 1);
+      
+      let systemContent = WyshboneChatConfig.systemPrompt;
+      
+      // Add existing active monitors to system context for duplicate detection
+      if (activeMonitors.length > 0) {
+        systemContent += `\n\n**IMPORTANT: EXISTING ACTIVE MONITORS**\n`;
+        systemContent += `The user currently has ${activeMonitors.length} active monitor(s):\n`;
+        activeMonitors.forEach(m => {
+          systemContent += `- "${m.label}" (${m.schedule}) - ${m.description}\n`;
+        });
+        systemContent += `\nBefore creating a new monitor, CHECK if it's similar to existing ones. If similar, ask the user: "You already have a similar monitor called '[name]' that runs [schedule]. Would you like to create this new one anyway?" If user confirms, proceed with creation.\n`;
+      }
+      
       const systemPrompt = {
         role: "system" as const,
-        content: WyshboneChatConfig.systemPrompt
+        content: systemContent
       };
 
       
