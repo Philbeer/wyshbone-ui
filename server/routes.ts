@@ -4343,7 +4343,14 @@ ${run.outputText}`;
       }
       
       const monitors = await storage.listScheduledMonitors(auth.userId);
-      res.json(monitors);
+      
+      // Transform to camelCase for frontend compatibility
+      const transformedMonitors = monitors.map((m: any) => ({
+        ...m,
+        conversationId: m.conversation_id || m.conversationId,
+      }));
+      
+      res.json(transformedMonitors);
     } catch (error: any) {
       console.error("Error listing scheduled monitors:", error);
       res.status(500).json({ error: error.message || "Failed to list scheduled monitors" });
