@@ -242,6 +242,7 @@ async function sendMonitorResultEmail(
       description: monitor.description,
       runDate: new Date(),
       totalResults: results.totalResults,
+      newResults: results.newResults,
       summary: results.summary,
       conversationId,
     };

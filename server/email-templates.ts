@@ -8,6 +8,7 @@ export interface MonitorResult {
   results?: any;
   summary?: string;
   totalResults?: number;
+  newResults?: number;
   conversationId?: string;
 }
 
@@ -21,6 +22,7 @@ export function formatMonitorResultEmail(
     runDate,
     summary,
     totalResults,
+    newResults,
     conversationId,
   } = result;
 
@@ -125,6 +127,15 @@ export function formatMonitorResultEmail(
                 <div class="stat-value">${totalResults}</div>
                 <div class="stat-label">Results Found</div>
               </div>
+              ${
+                typeof newResults === 'number' && newResults > 0
+                  ? `
+              <div class="stat">
+                <div class="stat-value" style="color: #16a34a;">🆕 ${newResults}</div>
+                <div class="stat-label">New Since Last Run</div>
+              </div>`
+                  : ''
+              }
             </div>`
                 : ''
             }
