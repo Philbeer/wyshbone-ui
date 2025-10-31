@@ -16,45 +16,8 @@ import { LoginDialog } from "@/components/LoginDialog";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { UserProvider, useUser } from "@/contexts/UserContext";
 
-// Demo runs data
-const DEMO_RUNS: RunItem[] = [
-  {
-    id: "run_1",
-    label: "Coffee shops in Brooklyn - Owner, Manager",
-    startedAt: new Date(Date.now() - 1000 * 60 * 15).toISOString(),
-    status: "completed",
-    externalUrl: "https://wyshbone.bubbleapps.io",
-    businessType: "Coffee shops",
-    location: "Brooklyn",
-    country: "US",
-    targetPosition: "Owner, Manager",
-    uniqueId: "abcd1234efgh5678ijkl",
-  },
-  {
-    id: "run_2",
-    label: "Gyms in Toronto - Operations Manager",
-    startedAt: new Date(Date.now() - 1000 * 60 * 5).toISOString(),
-    status: "running",
-    businessType: "Gyms",
-    location: "Toronto",
-    country: "CA",
-    targetPosition: "Operations Manager",
-    uniqueId: "xyz9876mnop5432qrst",
-  },
-  {
-    id: "run_3",
-    label: "Tech startups in San Francisco - CTO, CEO",
-    startedAt: new Date(Date.now() - 1000 * 60 * 60 * 24).toISOString(),
-    status: "completed",
-    archived: true,
-    externalUrl: "https://wyshbone.bubbleapps.io",
-    businessType: "Tech startups",
-    location: "San Francisco",
-    country: "US",
-    targetPosition: "CTO, CEO",
-    uniqueId: "uvwx9012stuv3456yzab",
-  },
-];
+// No demo runs - users only see their own data
+const DEMO_RUNS: RunItem[] = [];
 
 function Router({ 
   defaultCountry, 
