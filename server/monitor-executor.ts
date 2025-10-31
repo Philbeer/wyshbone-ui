@@ -96,23 +96,31 @@ async function executeDeepResearch(monitor: ScheduledMonitor, conversationId: st
         const teaser = extractTeaser(updatedRun.outputText || '');
         const fullOutput = updatedRun.outputText || '';
         
-        // Count current results
-        const currentResultCount = countResults(fullOutput);
+        // Extract current venue names
+        const currentVenues = extractVenueNames(fullOutput);
+        const currentResultCount = currentVenues.length;
         
-        // Get previous result count from monitor config for trend detection
-        const previousResultCount = monitor.config?.previousResultCount;
+        // Get previous venue list from monitor config for trend detection
+        const previousVenues: string[] = monitor.config?.previousVenues || [];
         let newResults = 0;
         
-        if (previousResultCount !== undefined && previousResultCount !== null) {
-          newResults = Math.max(0, currentResultCount - previousResultCount);
-          console.log(`📊 Trend Detection: Previous=${previousResultCount}, Current=${currentResultCount}, New=${newResults}`);
+        if (previousVenues.length > 0) {
+          // Find venues that are in current but not in previous (genuinely new)
+          const previousVenueSet = new Set(previousVenues.map(v => v.toLowerCase().trim()));
+          const newVenues = currentVenues.filter(v => !previousVenueSet.has(v.toLowerCase().trim()));
+          newResults = newVenues.length;
+          
+          console.log(`📊 Trend Detection: Previous=${previousVenues.length} venues, Current=${currentResultCount} venues, New=${newResults} venues`);
+          if (newResults > 0) {
+            console.log(`🆕 New venues: ${newVenues.join(', ')}`);
+          }
         }
         
-        // Update monitor config with current count for next comparison
+        // Update monitor config with current venue list for next comparison
         await storage.updateScheduledMonitor(monitor.id, {
           config: {
             ...(monitor.config ?? {}),
-            previousResultCount: currentResultCount,
+            previousVenues: currentVenues,
           },
           updatedAt: Date.now(),
         });
@@ -192,39 +200,50 @@ function extractTeaser(output: string): string {
   return teaser || 'View full results in the app for detailed findings.';
 }
 
-function countResults(output: string): number {
-  if (!output) return 0;
+function extractVenueNames(output: string): string[] {
+  if (!output) return [];
   
-  // First, try to count markdown table rows (most accurate for research results)
-  const tableRows = output.split('\n').filter(line => {
+  const venues: string[] = [];
+  const lines = output.split('\n');
+  let inTable = false;
+  let headerSkipped = false;
+  
+  for (const line of lines) {
     const trimmed = line.trim();
-    // Match lines that look like table rows (start and end with |)
+    
+    // Check if this is a table row
     if (trimmed.startsWith('|') && trimmed.endsWith('|')) {
-      // Exclude separator rows (contain only |, -, :, and spaces)
+      // Skip separator rows (contain only |, -, :, and spaces)
       if (/^\|[\s\-\:\|]+\|$/.test(trimmed)) {
-        return false;
+        inTable = true;
+        continue;
       }
-      return true;
+      
+      // Skip header row (first row in table)
+      if (!headerSkipped && !inTable) {
+        headerSkipped = true;
+        continue;
+      }
+      
+      if (inTable) {
+        // Extract first column (venue name)
+        const columns = trimmed.split('|').map(col => col.trim()).filter(col => col);
+        if (columns.length > 0 && columns[0]) {
+          // Clean up markdown links [Name](url) -> Name
+          const venueName = columns[0].replace(/\[([^\]]+)\]\([^\)]+\)/g, '$1').trim();
+          if (venueName) {
+            venues.push(venueName);
+          }
+        }
+      }
     }
-    return false;
-  });
-  
-  // If we found table rows, subtract 1 for the header row
-  if (tableRows.length > 1) {
-    return tableRows.length - 1;
   }
   
-  // Fallback: Count markdown list items (- or * at start of line)
-  const listItems = output.match(/^[\-\*]\s/gm);
-  if (listItems) return listItems.length;
-  
-  // Fallback: Count numbered items (1. 2. etc)
-  const numberedItems = output.match(/^\d+\.\s/gm);
-  if (numberedItems) return numberedItems.length;
-  
-  // Fallback: Count paragraphs
-  const paragraphs = output.split('\n\n').filter(p => p.trim().length > 50);
-  return Math.max(paragraphs.length, 1);
+  return venues;
+}
+
+function countResults(output: string): number {
+  return extractVenueNames(output).length;
 }
 
 async function sendMonitorResultEmail(
