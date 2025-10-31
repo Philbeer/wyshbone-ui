@@ -900,7 +900,8 @@ function ScheduledMonitorsSection({ userId }: { userId: string }) {
     
     setIsDeleting(true);
     try {
-      const response = await fetch(`/api/scheduled-monitors/${deletingMonitor.id}`, {
+      const url = addDevAuthParams(`/api/scheduled-monitors/${deletingMonitor.id}`);
+      const response = await fetch(url, {
         method: 'DELETE',
       });
       
@@ -952,7 +953,8 @@ function ScheduledMonitorsSection({ userId }: { userId: string }) {
     
     setIsSaving(true);
     try {
-      const response = await fetch(`/api/scheduled-monitors/${editingMonitor.id}`, {
+      const url = addDevAuthParams(`/api/scheduled-monitors/${editingMonitor.id}`);
+      const response = await fetch(url, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
