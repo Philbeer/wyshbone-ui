@@ -1102,7 +1102,7 @@ function ScheduledMonitorsSection({ userId }: { userId: string }) {
                     type="email"
                     value={editForm.emailAddress}
                     onChange={(e) => setEditForm({ ...editForm, emailAddress: e.target.value })}
-                    placeholder="Enter email address"
+                    placeholder="phil@listersbrewery.com"
                     data-testid="input-email-address"
                   />
                   <p className="text-xs text-muted-foreground">
