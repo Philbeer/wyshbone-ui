@@ -979,7 +979,15 @@ function ScheduledMonitorsSection({ userId }: { userId: string }) {
   }
 
   if (isError) {
-    return <p className="text-xs text-destructive">Failed to load monitors: {error instanceof Error ? error.message : 'Unknown error'}</p>;
+    // Check if it's an authentication error (401)
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const isAuthError = errorMessage.includes('401') || errorMessage.toLowerCase().includes('unauthorized');
+    
+    if (isAuthError) {
+      return <p className="text-xs text-muted-foreground">Sign in to view monitors</p>;
+    }
+    
+    return <p className="text-xs text-destructive">Failed to load monitors: {errorMessage}</p>;
   }
 
   if (!monitors || (Array.isArray(monitors) && monitors.length === 0)) {

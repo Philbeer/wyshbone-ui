@@ -106,6 +106,9 @@ function AppContent() {
         if (response.ok) {
           const data = await response.json();
           console.log(`📝 Regenerated ${data.updated} conversation labels`);
+        } else if (response.status === 401) {
+          // Silently ignore auth errors - user needs to authenticate
+          return;
         }
       } catch (error) {
         console.error("Failed to regenerate labels:", error);
@@ -159,6 +162,9 @@ function AppContent() {
             const businessRuns = prev.filter((r) => r.runType !== "deep_research");
             return [...convertedRuns, ...businessRuns];
           });
+        } else if (response.status === 401) {
+          // Silently ignore auth errors - user needs to authenticate
+          return;
         }
       } catch (error) {
         console.error("Failed to fetch deep research runs:", error);
