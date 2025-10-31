@@ -12,6 +12,7 @@ import WishboneSidebar from "@/components/WishboneSidebar";
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useToast } from "@/hooks/use-toast";
+import { useUser } from "@/contexts/UserContext";
 
 type Message = ChatMessage & {
   id: string;
@@ -38,6 +39,7 @@ interface ChatPageProps {
 }
 
 export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage, addRun, updateRun, getActiveRunId, onNewChat, onLoadConversation }: ChatPageProps) {
+  const { user } = useUser();
   const { toast } = useToast();
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
   const [input, setInput] = useState("");
@@ -76,8 +78,8 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...request,
-          conversationId, // Pass conversationId for context-aware prompts
-          userId: "demo-user" // TODO: Replace with actual user ID when auth is implemented
+          conversationId,
+          userId: user.id
         }),
       });
 
@@ -300,7 +302,7 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
         },
         body: JSON.stringify({
           messages: conversationMessages,
-          user: { id: "demo-user", email: "demo@wyshbone.com" },
+          user: { id: user.id, email: user.email },
           defaultCountry: defaultCountry,
           conversationId: conversationId,
         }),
@@ -672,7 +674,7 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
                                 body: JSON.stringify({
                                   ...parsed.data,
                                   conversationId,
-                                  userId: "demo-user"
+                                  userId: user.id
                                 }),
                               });
                               
