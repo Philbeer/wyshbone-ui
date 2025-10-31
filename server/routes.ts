@@ -251,26 +251,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // POST /api/chat – streaming + MEMORY
   // ===========================
   app.post("/api/chat", async (req, res) => {
+    console.log('🎯 POST /api/chat received', { query: req.query, hasBody: !!req.body });
     try {
       // Validate request body against your existing schema
       const validation = chatRequestSchema.safeParse(req.body);
       if (!validation.success) {
+        console.log('❌ Validation failed:', validation.error);
         return res
           .status(400)
           .json({ error: "Invalid request format", details: validation.error });
       }
 
       const { messages, user, defaultCountry, conversationId: requestedConversationId } = validation.data;
+      console.log('📝 Chat request from user:', user.id, user.email);
       
       // SECURITY: Validate authenticated user matches the user in request
       const auth = await getAuthenticatedUserId(req);
+      console.log('🔐 Auth result:', auth);
       if (!auth) {
+        console.log('❌ No auth - returning 401');
         return res.status(401).json({ error: "Unauthorized" });
       }
       if (user.id !== auth.userId) {
         console.warn(`🚫 User ${auth.userEmail} attempted to chat as ${user.id}`);
         return res.status(403).json({ error: "Forbidden: Cannot chat as another user" });
       }
+      console.log('✅ Authentication passed for:', auth.userEmail);
       
       const sessionId = getSessionId(req);
 
