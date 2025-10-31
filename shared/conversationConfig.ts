@@ -94,7 +94,7 @@ Output hygiene:
       I can help you in four ways:<br><br>
       <strong>🔬 Deep Research</strong> — Comprehensive web research with detailed reports on any topic<br><br>
       <strong>📧 Contact Finding</strong> — Find businesses and their contacts for outreach via Smartlead<br><br>
-      <strong>🔍 Wyshbone Global Database</strong> — Quick business listings with Place IDs, phone numbers, and addresses<br><br>
+      <strong>🔍 Wyshbone Global Database</strong> — Quick business listings from billions of businesses worldwide with Place IDs, phone numbers, and addresses<br><br>
       <strong>⏰ Scheduled Monitoring</strong> — Set up recurring tasks that run automatically on your schedule<br><br>
       Just tell me what you need!
     </div>
