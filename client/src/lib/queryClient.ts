@@ -7,12 +7,44 @@ async function throwIfResNotOk(res: Response) {
   }
 }
 
+// Helper to get current user from localStorage for development auth
+function getUserFromStorage() {
+  try {
+    const userJson = localStorage.getItem('wyshbone_user');
+    if (userJson) {
+      return JSON.parse(userJson);
+    }
+  } catch (e) {
+    console.error('Failed to parse user from localStorage:', e);
+  }
+  return null;
+}
+
+// Helper to add development auth parameters to URL (exported for use in components)
+export function addDevAuthParams(url: string): string {
+  // Only add auth params in development mode
+  if (import.meta.env.MODE !== 'development') {
+    return url;
+  }
+  
+  const user = getUserFromStorage();
+  if (!user?.id || !user?.email) {
+    return url;
+  }
+  
+  const separator = url.includes('?') ? '&' : '?';
+  return `${url}${separator}user_id=${encodeURIComponent(user.id)}&user_email=${encodeURIComponent(user.email)}`;
+}
+
 export async function apiRequest(
   method: string,
   url: string,
   data?: unknown | undefined,
 ): Promise<Response> {
-  const res = await fetch(url, {
+  // Add development auth parameters
+  const authedUrl = addDevAuthParams(url);
+  
+  const res = await fetch(authedUrl, {
     method,
     headers: data ? { "Content-Type": "application/json" } : {},
     body: data ? JSON.stringify(data) : undefined,
@@ -29,7 +61,10 @@ export const getQueryFn: <T>(options: {
 }) => QueryFunction<T> =
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
-    const res = await fetch(queryKey.join("/") as string, {
+    // Add development auth parameters
+    const url = addDevAuthParams(queryKey.join("/") as string);
+    
+    const res = await fetch(url, {
       credentials: "include",
     });
 

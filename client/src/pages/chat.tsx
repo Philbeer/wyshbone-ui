@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, addDevAuthParams } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Send, User, CheckCircle2, Search } from "lucide-react";
@@ -73,7 +73,7 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
 
   const startDeepResearch = async (request: DeepResearchCreateRequest) => {
     try {
-      const response = await fetch("/api/deep-research", {
+      const response = await fetch(addDevAuthParams("/api/deep-research"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -295,7 +295,7 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
       abortControllerRef.current = new AbortController();
 
       // Send conversation to /api/chat endpoint (GPT-5 with web search)
-      const response = await fetch("/api/chat", {
+      const response = await fetch(addDevAuthParams("/api/chat"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -668,7 +668,7 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
                           onClick={async () => {
                             // Start Very Deep Program (multi-iteration)
                             try {
-                              const response = await fetch("/api/very-deep-program", {
+                              const response = await fetch(addDevAuthParams("/api/very-deep-program"), {
                                 method: "POST",
                                 headers: { "Content-Type": "application/json" },
                                 body: JSON.stringify({
