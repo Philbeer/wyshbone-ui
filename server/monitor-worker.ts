@@ -7,8 +7,8 @@ async function checkAndExecuteMonitors() {
   try {
     const now = Date.now();
     
-    // Get all monitors for demo-user (in production, you'd query all users)
-    const monitors = await storage.listScheduledMonitors('demo-user');
+    // Get all active monitors across all users
+    const monitors = await storage.listActiveScheduledMonitors();
     
     console.log(`🔍 Checking ${monitors.length} monitors at ${new Date(now).toLocaleTimeString('en-GB')}`);
     
