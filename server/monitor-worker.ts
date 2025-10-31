@@ -20,12 +20,12 @@ async function checkAndExecuteMonitors() {
       console.log(`  📊 ${monitor.label}: active=${isActive}, nextRun=${hasNextRun ? new Date(monitor.nextRunAt!).toLocaleString('en-GB') : 'none'}, ready=${isTimeToRun}`);
       
       // Check if monitor is active and it's time to run
-      if (isActive && hasNextRun && isTimeToRun) {
+      if (isActive && hasNextRun && isTimeToRun && monitor.nextRunAt) {
         console.log(`⏰ Time to run monitor: ${monitor.label} (${monitor.id})`);
         
         try {
           // Execute the monitor and send email if enabled
-          await executeMonitorAndNotify(monitor);
+          await executeMonitorAndNotify(monitor as any);
           
           // Update monitor after execution
           const updates: any = {
