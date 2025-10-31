@@ -779,8 +779,8 @@ export function AppSidebar({
                     {conversations.length === 0 ? (
                       <p className="text-xs text-muted-foreground px-3 py-2">No previous chats</p>
                     ) : (
-                      <div className="space-y-1 px-3">
-                        {conversations.slice(0, 10).map((conversation) => (
+                      <div className="max-h-[400px] overflow-y-auto px-3 space-y-1">
+                        {conversations.map((conversation) => (
                           <button
                             key={conversation.id}
                             onClick={() => onSelectConversation?.(conversation.id)}
