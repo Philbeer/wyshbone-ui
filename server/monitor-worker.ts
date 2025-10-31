@@ -1,7 +1,7 @@
 import { storage } from './storage';
 import { executeMonitorAndNotify } from './monitor-executor';
 
-const POLL_INTERVAL = 60 * 1000; // Check every minute
+const POLL_INTERVAL = 15 * 1000; // Check every 15 seconds
 
 async function checkAndExecuteMonitors() {
   try {
@@ -85,11 +85,11 @@ function calculateNextRunTime(monitor: any): number {
 }
 
 export function startMonitorWorker() {
-  console.log('🔄 Starting monitor background worker (checking every 60 seconds)');
+  console.log('🔄 Starting monitor background worker (checking every 15 seconds)');
   
   // Run immediately on startup
   checkAndExecuteMonitors();
   
-  // Then poll every minute
+  // Then poll every 15 seconds
   setInterval(checkAndExecuteMonitors, POLL_INTERVAL);
 }
