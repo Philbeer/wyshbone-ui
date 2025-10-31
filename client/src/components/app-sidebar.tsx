@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { useUser } from "@/contexts/UserContext";
+import { addDevAuthParams } from "@/lib/queryClient";
 import {
   Sidebar,
   SidebarContent,
@@ -675,7 +676,8 @@ export function AppSidebar({
     
     // Handle deep research runs
     if (ref.runType === "deep_research") {
-      window.open(`/api/deep-research/${id}`, "_blank", "noopener,noreferrer");
+      const url = addDevAuthParams(`/api/deep-research/${id}`);
+      window.open(url, "_blank", "noopener,noreferrer");
       return;
     }
     
