@@ -3,6 +3,13 @@
 ## Overview
 The Wyshbone Chat Agent is an AI-powered chat assistant with three core capabilities: (1) Deep Research for comprehensive analysis, (2) Contact Finding via Bubble workflows for lead generation, and (3) Google Places Search for quick business listings. The system intelligently offers all three options when user intent is ambiguous, ensuring users can choose the best approach for their needs.
 
+## Multi-Tenant Architecture
+The system implements multi-tenant user isolation where each user (identified by email and ID from Bubble) has completely separate data:
+- **Authentication Method**: URL parameters (`?user_email=` and `?user_id=`) for Bubble integration
+- **Data Isolation**: All database tables include userId/created_by_email fields to ensure users only see their own data
+- **Security Note**: ⚠️ **DEVELOPMENT ONLY** - Current URL parameter approach is not secure for production. Production deployment MUST implement token-based authentication with signature verification before going live.
+- **Fallback Behavior**: When no URL parameters provided, system defaults to "demo-user" for local testing
+
 ## User Preferences
 I want the agent to focus on practical, UK-focused responses. I want to ensure that any contact information discovered is public and verifiable, with no guessing of private details. I prefer a workflow that prioritizes Google Places as the authoritative source for business discovery. The agent should be able to intelligently decide when to search for new venues versus using cached information and support conversational queries without triggering unnecessary searches. I want the agent to auto-detect and execute Bubble batch workflows based on natural language commands. **CRITICAL: The AI must ALWAYS ask for confirmation when making assumptions or combining current input with historical facts/context - chat history and facts serve as background reference, not primary drivers.**
 
