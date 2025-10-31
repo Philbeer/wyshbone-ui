@@ -55,15 +55,11 @@ export function formatMonitorResultEmail(
     conversationId ? `?conversation=${encodeURIComponent(conversationId)}` : ''
   }`;
 
-  let INLINE_LOGO_BASE64 = '';
+  // Use a publicly accessible logo URL
+  // For production, upload your logo to a CDN or image hosting service
+  const logoUrl = 'https://i.imgur.com/your-logo-url.png'; // Replace with your hosted logo URL
   
-  try {
-    const logoPath = 'attached_assets/wyshbone-logo_1761839337577.png';
-    const logoBuffer = fs.readFileSync(logoPath);
-    INLINE_LOGO_BASE64 = logoBuffer.toString('base64');
-  } catch (error) {
-    console.error('Failed to load logo:', error);
-  }
+  console.log(`📷 Using logo from URL: ${logoUrl}`);
 
   const html = `
 <!DOCTYPE html>
@@ -103,11 +99,9 @@ export function formatMonitorResultEmail(
     <tr>
       <td align="center" style="padding: 16px;">
         <div class="container">
-          ${INLINE_LOGO_BASE64 ? `
           <div class="logo-section">
-            <img class="brand-logo" src="data:image/png;base64,${INLINE_LOGO_BASE64}" width="96" height="96" alt="Wyshbone AI Logo" />
+            <img class="brand-logo" src="${logoUrl}" width="96" height="96" alt="Wyshbone AI Logo" />
           </div>
-          ` : ''}
 
           <div class="monitor-header">
             <h1>${escapeHtml(monitorLabel)}</h1>
