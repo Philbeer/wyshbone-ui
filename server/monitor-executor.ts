@@ -173,15 +173,34 @@ function extractTeaser(output: string): string {
 function countResults(output: string): number {
   if (!output) return 0;
   
-  // Count markdown list items (- or * at start of line)
+  // First, try to count markdown table rows (most accurate for research results)
+  const tableRows = output.split('\n').filter(line => {
+    const trimmed = line.trim();
+    // Match lines that look like table rows (start and end with |)
+    if (trimmed.startsWith('|') && trimmed.endsWith('|')) {
+      // Exclude separator rows (contain only |, -, :, and spaces)
+      if (/^\|[\s\-\:\|]+\|$/.test(trimmed)) {
+        return false;
+      }
+      return true;
+    }
+    return false;
+  });
+  
+  // If we found table rows, subtract 1 for the header row
+  if (tableRows.length > 1) {
+    return tableRows.length - 1;
+  }
+  
+  // Fallback: Count markdown list items (- or * at start of line)
   const listItems = output.match(/^[\-\*]\s/gm);
   if (listItems) return listItems.length;
   
-  // Count numbered items (1. 2. etc)
+  // Fallback: Count numbered items (1. 2. etc)
   const numberedItems = output.match(/^\d+\.\s/gm);
   if (numberedItems) return numberedItems.length;
   
-  // Count paragraphs as fallback
+  // Fallback: Count paragraphs
   const paragraphs = output.split('\n\n').filter(p => p.trim().length > 50);
   return Math.max(paragraphs.length, 1);
 }
