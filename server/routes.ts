@@ -1479,7 +1479,11 @@ CRITICAL RULES:
             const response = await fetch("http://localhost:5000/api/deep-research", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ prompt: params.prompt }),
+              body: JSON.stringify({ 
+                prompt: params.prompt,
+                conversationId,
+                userId: user.id
+              }),
             });
 
             const data = await response.json();
