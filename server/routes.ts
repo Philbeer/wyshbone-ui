@@ -2175,12 +2175,13 @@ CRITICAL RULES:
   // Regenerate labels for all conversations with default labels
   app.post("/api/conversations/regenerate-labels", async (req, res) => {
     try {
-      const { userId } = req.body;
-      if (!userId) {
-        return res.status(400).json({ error: "userId required" });
+      // SECURITY: Validate authenticated user
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
       }
 
-      const conversations = await storage.listConversations(userId);
+      const conversations = await storage.listConversations(auth.userId);
       let updated = 0;
 
       for (const conversation of conversations) {
@@ -2205,12 +2206,14 @@ CRITICAL RULES:
   // Create a new conversation
   app.post("/api/conversations", async (req, res) => {
     try {
-      const { userId, label } = req.body;
-      if (!userId) {
-        return res.status(400).json({ error: "userId is required" });
+      // SECURITY: Validate authenticated user
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
       }
       
-      const conversationId = await getOrCreateConversation(userId);
+      const { label } = req.body;
+      const conversationId = await getOrCreateConversation(auth.userId);
       
       if (label) {
         const conversation = await storage.getConversation(conversationId);
@@ -2261,9 +2264,21 @@ CRITICAL RULES:
   // Get user facts
   app.get("/api/facts/:userId", async (req, res) => {
     try {
-      const { userId } = req.params;
+      // SECURITY: Validate authenticated user
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      // SECURITY: Only allow users to access their own facts
+      const requestedUserId = req.params.userId;
+      if (requestedUserId !== auth.userId) {
+        console.warn(`🚫 User ${auth.userEmail} attempted to access facts for ${requestedUserId}`);
+        return res.status(403).json({ error: "Forbidden: Cannot access other users' data" });
+      }
+      
       const limit = parseInt(req.query.limit as string) || 20;
-      const facts = await storage.listTopFacts(userId, limit);
+      const facts = await storage.listTopFacts(auth.userId, limit);
       res.json(facts);
     } catch (error: any) {
       console.error("Error fetching facts:", error);
@@ -4140,16 +4155,22 @@ ${run.outputText}`;
   // Create a new scheduled monitor
   app.post("/api/scheduled-monitors", async (req, res) => {
     try {
-      const { userId, label, description, schedule, scheduleDay, scheduleTime, monitorType, config } = req.body;
+      // SECURITY: Validate authenticated user
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
       
-      if (!userId || !label || !description || !schedule || !monitorType) {
+      const { label, description, schedule, scheduleDay, scheduleTime, monitorType, config } = req.body;
+      
+      if (!label || !description || !schedule || !monitorType) {
         return res.status(400).json({ error: "Missing required fields" });
       }
       
       const now = Date.now();
       const monitor = await storage.createScheduledMonitor({
         id: `monitor_${Date.now()}_${Math.random().toString(36).substring(7)}`,
-        userId,
+        userId: auth.userId,
         label,
         description,
         schedule,
@@ -4212,8 +4233,24 @@ ${run.outputText}`;
   // Update a scheduled monitor
   app.patch("/api/scheduled-monitors/:id", async (req, res) => {
     try {
+      // SECURITY: Validate authenticated user
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
       const { id } = req.params;
       const updates = req.body;
+      
+      // SECURITY: Verify the monitor belongs to the authenticated user
+      const existingMonitor = await storage.getScheduledMonitor(id);
+      if (!existingMonitor) {
+        return res.status(404).json({ error: "Monitor not found" });
+      }
+      if (existingMonitor.userId !== auth.userId) {
+        console.warn(`🚫 User ${auth.userEmail} attempted to update monitor ${id} owned by ${existingMonitor.userId}`);
+        return res.status(403).json({ error: "Forbidden: Cannot modify other users' monitors" });
+      }
       
       // Validate email when notifications are enabled
       if (updates.emailNotifications === 1) {
@@ -4308,7 +4345,24 @@ ${run.outputText}`;
   // Delete a scheduled monitor
   app.delete("/api/scheduled-monitors/:id", async (req, res) => {
     try {
+      // SECURITY: Validate authenticated user
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
       const { id } = req.params;
+      
+      // SECURITY: Verify the monitor belongs to the authenticated user
+      const existingMonitor = await storage.getScheduledMonitor(id);
+      if (!existingMonitor) {
+        return res.status(404).json({ error: "Monitor not found" });
+      }
+      if (existingMonitor.userId !== auth.userId) {
+        console.warn(`🚫 User ${auth.userEmail} attempted to delete monitor ${id} owned by ${existingMonitor.userId}`);
+        return res.status(403).json({ error: "Forbidden: Cannot delete other users' monitors" });
+      }
+      
       const success = await storage.deleteScheduledMonitor(id);
       
       if (!success) {
