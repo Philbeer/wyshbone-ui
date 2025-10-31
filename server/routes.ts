@@ -34,8 +34,17 @@ function getSessionId(req: import("express").Request) {
 // SECURITY: Authentication middleware to validate session and extract userId
 async function getAuthenticatedUserId(req: import("express").Request): Promise<{ userId: string; userEmail: string } | null> {
   // Development fallback: allow URL parameters for testing ONLY
-  const urlUserId = (req.params.userId || req.query.userId) as string | undefined;
+  const urlUserId = (req.params.userId || req.query.userId || req.query.user_id) as string | undefined;
   const urlUserEmail = req.query.user_email as string | undefined;
+  
+  // Debug logging
+  console.log('🔍 Auth check:', {
+    env: process.env.NODE_ENV,
+    urlUserId,
+    urlUserEmail,
+    query: req.query,
+    hasSessionHeader: !!req.headers["x-session-id"]
+  });
   
   // If development mode and URL params present, allow (but warn)
   if (process.env.NODE_ENV === 'development' && urlUserId && urlUserEmail) {
@@ -46,6 +55,7 @@ async function getAuthenticatedUserId(req: import("express").Request): Promise<{
   // Production path: validate session
   const sessionId = req.headers["x-session-id"] as string | undefined;
   if (!sessionId) {
+    console.log('❌ No session ID and no valid dev auth params');
     return null;
   }
   
