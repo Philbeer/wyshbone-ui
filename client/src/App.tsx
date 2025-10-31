@@ -12,6 +12,7 @@ import ChatPage from "@/pages/chat";
 import DebugPage from "@/pages/debug";
 import NotFound from "@/pages/not-found";
 import CountryHint from "@/components/CountryHint";
+import { LoginDialog } from "@/components/LoginDialog";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { UserProvider, useUser } from "@/contexts/UserContext";
 
@@ -385,6 +386,7 @@ function AppContent() {
                 </div>
                 
                 <div className="flex items-center gap-1">
+                  <LoginDialog />
                   <Button
                     variant="ghost"
                     size="icon"
