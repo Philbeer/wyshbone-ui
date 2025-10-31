@@ -567,7 +567,8 @@ export function AppSidebar({
     // Track view for deep research runs (for summarization feature)
     if (run && run.runType === "deep_research") {
       try {
-        await fetch(`/api/deep-research/${id}/view`, {
+        const url = addDevAuthParams(`/api/deep-research/${id}/view`);
+        await fetch(url, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -590,7 +591,8 @@ export function AppSidebar({
     // Handle deep research runs via API
     if (ref.runType === "deep_research") {
       try {
-        const response = await fetch(`/api/deep-research/${id}/stop`, {
+        const url = addDevAuthParams(`/api/deep-research/${id}/stop`);
+        const response = await fetch(url, {
           method: "POST",
         });
         if (response.ok) {
@@ -638,7 +640,8 @@ export function AppSidebar({
     // Handle deep research runs via API
     if (ref.runType === "deep_research") {
       try {
-        const response = await fetch(`/api/deep-research/${id}/duplicate`, {
+        const url = addDevAuthParams(`/api/deep-research/${id}/duplicate`);
+        const response = await fetch(url, {
           method: "POST",
         });
         if (response.ok) {

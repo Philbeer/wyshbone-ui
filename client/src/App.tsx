@@ -296,7 +296,8 @@ function AppContent() {
     // Handle deep research runs - fetch and display output
     if (run.runType === "deep_research" && run.status === "completed") {
       try {
-        const response = await fetch(`/api/deep-research/${id}`);
+        const url = addDevAuthParams(`/api/deep-research/${id}`);
+        const response = await fetch(url);
         if (!response.ok) {
           throw new Error("Failed to fetch research output");
         }
