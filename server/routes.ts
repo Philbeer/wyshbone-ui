@@ -4186,6 +4186,24 @@ ${run.outputText}`;
     }
   });
 
+  // Serve logo for email templates
+  app.get("/assets/logo.png", async (_req, res) => {
+    try {
+      const fs = await import('fs');
+      const path = await import('path');
+      const logoPath = path.resolve('attached_assets/wyshbone-logo_1761839337577.png');
+      
+      res.setHeader('Content-Type', 'image/png');
+      res.setHeader('Cache-Control', 'public, max-age=31536000');
+      
+      const logoBuffer = fs.readFileSync(logoPath);
+      res.send(logoBuffer);
+    } catch (error: any) {
+      console.error("Error serving logo:", error);
+      res.status(404).send('Logo not found');
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }

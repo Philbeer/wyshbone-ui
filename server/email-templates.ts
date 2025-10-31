@@ -55,9 +55,8 @@ export function formatMonitorResultEmail(
     conversationId ? `?conversation=${encodeURIComponent(conversationId)}` : ''
   }`;
 
-  // Use a publicly accessible logo URL
-  // For production, upload your logo to a CDN or image hosting service
-  const logoUrl = 'https://i.imgur.com/your-logo-url.png'; // Replace with your hosted logo URL
+  // Use logo served from this Replit app
+  const logoUrl = `${baseUrl}/assets/logo.png`;
   
   console.log(`📷 Using logo from URL: ${logoUrl}`);
 
