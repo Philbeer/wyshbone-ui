@@ -111,7 +111,7 @@ async function executeDeepResearch(monitor: ScheduledMonitor, conversationId: st
         // Update monitor config with current count for next comparison
         await storage.updateScheduledMonitor(monitor.id, {
           config: {
-            ...monitor.config,
+            ...(monitor.config ?? {}),
             previousResultCount: currentResultCount,
           },
           updatedAt: Date.now(),
