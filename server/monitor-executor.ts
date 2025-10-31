@@ -96,34 +96,49 @@ async function executeDeepResearch(monitor: ScheduledMonitor, conversationId: st
         const teaser = extractTeaser(updatedRun.outputText || '');
         const fullOutput = updatedRun.outputText || '';
         
+        console.log(`🔍 DEBUG: Output length=${fullOutput.length}, first 200 chars: ${fullOutput.substring(0, 200)}`);
+        
         // Extract current venue names
         const currentVenues = extractVenueNames(fullOutput);
         const currentResultCount = currentVenues.length;
+        
+        console.log(`🔍 DEBUG: Extracted ${currentResultCount} venues from output:`, currentVenues.slice(0, 5));
         
         // Get previous venue list from monitor config for trend detection
         const previousVenues: string[] = monitor.config?.previousVenues || [];
         let newResults = 0;
         
+        console.log(`🔍 DEBUG: Previous venues count=${previousVenues.length}`);
+        
         if (previousVenues.length > 0) {
-          // Find venues that are in current but not in previous (genuinely new)
+          // Find venues that are in current but NOT in ALL previous runs (genuinely new discoveries)
           const previousVenueSet = new Set(previousVenues.map(v => v.toLowerCase().trim()));
           const newVenues = currentVenues.filter(v => !previousVenueSet.has(v.toLowerCase().trim()));
           newResults = newVenues.length;
           
-          console.log(`📊 Trend Detection: Previous=${previousVenues.length} venues, Current=${currentResultCount} venues, New=${newResults} venues`);
+          console.log(`📊 Trend Detection: Historical=${previousVenues.length} total venues across all runs, Current=${currentResultCount} venues, New=${newResults} venues`);
           if (newResults > 0) {
-            console.log(`🆕 New venues: ${newVenues.join(', ')}`);
+            console.log(`🆕 New venues (not in any previous run): ${newVenues.join(', ')}`);
+          } else {
+            console.log(`ℹ️ No new venues found (all ${currentResultCount} venues were already discovered in previous runs)`);
           }
+        } else {
+          console.log(`ℹ️ First run - no previous venues to compare against. Storing ${currentResultCount} venues for next comparison.`);
         }
         
-        // Update monitor config with current venue list for next comparison
+        // **CRITICAL: Accumulate ALL historical venues, don't overwrite**
+        // This ensures we compare against ALL previous runs, not just the most recent one
+        const allHistoricalVenues = [...new Set([...previousVenues, ...currentVenues])];
+        
         await storage.updateScheduledMonitor(monitor.id, {
           config: {
             ...(monitor.config ?? {}),
-            previousVenues: currentVenues,
+            previousVenues: allHistoricalVenues, // Store ALL unique venues ever discovered
           },
           updatedAt: Date.now(),
         });
+        
+        console.log(`💾 Updated monitor config: added ${currentVenues.length} current venues, total historical venues: ${allHistoricalVenues.length}`);
         
         // Save research results to conversation
         await storage.createMessage({

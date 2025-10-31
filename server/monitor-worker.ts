@@ -24,27 +24,35 @@ async function checkAndExecuteMonitors() {
         console.log(`⏰ Time to run monitor: ${monitor.label} (${monitor.id})`);
         
         try {
-          // Execute the monitor and send email if enabled
-          await executeMonitorAndNotify(monitor as any);
-          
-          // Update monitor after execution
+          // **FIX: Update nextRunAt IMMEDIATELY to prevent race condition**
+          // Without this, the worker can start the same monitor multiple times
+          // while the first execution is still running (which takes 30+ seconds)
           const updates: any = {
             lastRunAt: now,
           };
           
-          // If schedule is "once", deactivate after running
+          // If schedule is "once", deactivate before running
           if (monitor.schedule === 'once') {
             updates.isActive = 0;
             updates.nextRunAt = null;
-            console.log(`✅ Monitor "${monitor.label}" ran once and is now inactive`);
           } else {
             // Calculate next run time for recurring schedules
             const nextRun = calculateNextRunTime(monitor);
             updates.nextRunAt = nextRun;
-            console.log(`✅ Monitor "${monitor.label}" executed. Next run: ${new Date(nextRun).toLocaleString('en-GB')}`);
           }
           
+          // Update BEFORE executing to prevent duplicate runs
           await storage.updateScheduledMonitor(monitor.id, updates);
+          console.log(`🔒 Monitor locked for execution. Next run: ${updates.nextRunAt ? new Date(updates.nextRunAt).toLocaleString('en-GB') : 'none'}`);
+          
+          // Now execute the monitor (this can take 30+ seconds)
+          await executeMonitorAndNotify(monitor as any);
+          
+          if (monitor.schedule === 'once') {
+            console.log(`✅ Monitor "${monitor.label}" ran once and is now inactive`);
+          } else {
+            console.log(`✅ Monitor "${monitor.label}" executed successfully. Next run: ${new Date(updates.nextRunAt).toLocaleString('en-GB')}`);
+          }
         } catch (error) {
           console.error(`❌ Error executing monitor ${monitor.id}:`, error);
         }
