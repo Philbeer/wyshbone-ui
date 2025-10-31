@@ -325,4 +325,28 @@
   .border.hover-elevate:not(.no-hover-interaction-elevate)::after {
     inset: -1px;
   }
+
+  /* Flash animation for new tickets/runs in sidebar */
+  @keyframes flash-border {
+    0%, 100% {
+      border-color: hsl(var(--border));
+      box-shadow: 0 0 0 0 hsl(var(--primary) / 0);
+    }
+    25% {
+      border-color: hsl(var(--primary));
+      box-shadow: 0 0 0 3px hsl(var(--primary) / 0.2);
+    }
+    50% {
+      border-color: hsl(var(--border));
+      box-shadow: 0 0 0 0 hsl(var(--primary) / 0);
+    }
+    75% {
+      border-color: hsl(var(--primary));
+      box-shadow: 0 0 0 3px hsl(var(--primary) / 0.2);
+    }
+  }
+
+  .animate-flash-border {
+    animation: flash-border 2s ease-in-out;
+  }
 }

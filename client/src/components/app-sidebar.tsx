@@ -339,6 +339,7 @@ const Badge: React.FC<{ status: RunStatus }> = ({ status }) => {
 const RunRow: React.FC<{
   run: RunItem;
   onSelect: (id: string) => void;
+  isNew?: boolean;
   actions: {
     view: () => void;
     retry: () => void;
@@ -347,7 +348,7 @@ const RunRow: React.FC<{
     archiveToggle: () => void;
     run: () => void;
   };
-}> = ({ run, onSelect, actions }) => {
+}> = ({ run, onSelect, isNew, actions }) => {
   const isDeepResearch = run.runType === "deep_research";
   const cardBgClass = isDeepResearch 
     ? "bg-purple-50 dark:bg-purple-950/20" 
@@ -355,7 +356,7 @@ const RunRow: React.FC<{
   
   return (
     <div
-      className={`group relative flex flex-col gap-2 rounded-xl border border-border ${cardBgClass} px-3 py-4 mb-2 cursor-pointer hover-elevate active-elevate-2 min-h-[120px]`}
+      className={`group relative flex flex-col gap-2 rounded-xl border border-border ${cardBgClass} px-3 py-4 mb-2 cursor-pointer hover-elevate active-elevate-2 min-h-[120px] ${isNew ? 'animate-flash-border' : ''}`}
       onClick={() => onSelect(run.id)}
       role="button"
       aria-label={`Select run ${run.label}`}
@@ -517,8 +518,25 @@ export function AppSidebar({
   const [localRuns, setLocalRuns] = useState<RunItem[]>(runs);
   const [showPreviousChats, setShowPreviousChats] = useState(false);
   const [showScheduledMonitors, setShowScheduledMonitors] = useState(false);
+  const [newRunIds, setNewRunIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
+    // Detect newly added runs
+    const prevIds = new Set(localRuns.map(r => r.id));
+    const currentIds = new Set(runs.map(r => r.id));
+    const addedIds = runs.filter(r => !prevIds.has(r.id)).map(r => r.id);
+    
+    if (addedIds.length > 0) {
+      setNewRunIds(new Set(addedIds));
+      
+      // Remove flash after 3 seconds
+      const timer = setTimeout(() => {
+        setNewRunIds(new Set());
+      }, 3000);
+      
+      return () => clearTimeout(timer);
+    }
+    
     setLocalRuns(runs);
   }, [runs]);
 
@@ -687,6 +705,7 @@ export function AppSidebar({
             key={run.id}
             run={run}
             onSelect={_select}
+            isNew={newRunIds.has(run.id)}
             actions={{
               view: () => _openExternal(run.id),
               retry: () => _retry(run.id),
