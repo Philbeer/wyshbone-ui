@@ -96,6 +96,27 @@ async function executeDeepResearch(monitor: ScheduledMonitor, conversationId: st
         const teaser = extractTeaser(updatedRun.outputText || '');
         const fullOutput = updatedRun.outputText || '';
         
+        // Count current results
+        const currentResultCount = countResults(fullOutput);
+        
+        // Get previous result count from monitor config for trend detection
+        const previousResultCount = monitor.config?.previousResultCount;
+        let newResults = 0;
+        
+        if (previousResultCount !== undefined && previousResultCount !== null) {
+          newResults = Math.max(0, currentResultCount - previousResultCount);
+          console.log(`📊 Trend Detection: Previous=${previousResultCount}, Current=${currentResultCount}, New=${newResults}`);
+        }
+        
+        // Update monitor config with current count for next comparison
+        await storage.updateScheduledMonitor(monitor.id, {
+          config: {
+            ...monitor.config,
+            previousResultCount: currentResultCount,
+          },
+          updatedAt: Date.now(),
+        });
+        
         // Save research results to conversation
         await storage.createMessage({
           id: crypto.randomUUID(),
@@ -116,7 +137,8 @@ async function executeDeepResearch(monitor: ScheduledMonitor, conversationId: st
         console.log(`💾 Saved monitor results to conversation ${conversationId}`);
         
         return {
-          totalResults: countResults(fullOutput),
+          totalResults: currentResultCount,
+          newResults,
           summary: teaser,
           fullOutput,
           runId: updatedRun.id,
