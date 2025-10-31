@@ -3747,7 +3747,7 @@ Return structured data with the EXACT placeId provided above: "${placeId}"`;
         windowMonths: finalWindowMonths,
         schemaName: validation.data.schemaName,
         schema: validation.data.schema,
-      }, sessionId);
+      }, sessionId, userId);
       
       // Extract facts from the research prompt in the background (don't await)
       const { extractFactsFromPrompt } = await import("./memory");
@@ -3763,7 +3763,7 @@ Return structured data with the EXACT placeId provided above: "${placeId}"`;
     }
   });
 
-  app.get("/api/deep-research", async (_req, res) => {
+  app.get("/api/deep-research", async (req, res) => {
     try {
       // Disable caching and ETags to ensure frontend gets real-time status updates
       res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
@@ -3771,7 +3771,8 @@ Return structured data with the EXACT placeId provided above: "${placeId}"`;
       res.setHeader('Expires', '0');
       res.removeHeader('ETag');
       
-      const runs = await getAllRuns();
+      const userId = req.query.userId as string | undefined;
+      const runs = await getAllRuns(userId);
       res.json({ runs: runs.map(stripLargeOutput) });
     } catch (error: any) {
       console.error("Deep research list error:", error);
@@ -3884,7 +3885,7 @@ Return structured data with the EXACT placeId provided above: "${placeId}"`;
         mode: validation.data.mode,
         counties: finalCounties,
         windowMonths: finalWindowMonths,
-      }, sessionId);
+      }, sessionId, userId);
       
       res.json({ program });
     } catch (error: any) {

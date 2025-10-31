@@ -168,7 +168,7 @@ function AppContent() {
   useEffect(() => {
     const fetchDeepResearchRuns = async () => {
       try {
-        const response = await fetch("/api/deep-research", {
+        const response = await fetch(`/api/deep-research?userId=${encodeURIComponent(user.id)}`, {
           cache: 'no-store',
           headers: {
             'Cache-Control': 'no-cache',
@@ -208,7 +208,7 @@ function AppContent() {
     const interval = setInterval(fetchDeepResearchRuns, 5000);
 
     return () => clearInterval(interval);
-  }, []);
+  }, [user.id]);
 
   useEffect(() => {
     localStorage.setItem('defaultCountry', defaultCountry);

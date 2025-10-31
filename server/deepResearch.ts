@@ -385,7 +385,8 @@ export function stripLargeOutput(run: DeepResearchRun): DeepResearchRunSummary {
 
 export async function startBackgroundResponsesJob(
   params: DeepResearchCreateRequest,
-  sessionId?: string
+  sessionId?: string,
+  userId?: string
 ): Promise<DeepResearchRun> {
   const {
     prompt,
@@ -406,6 +407,7 @@ export async function startBackgroundResponsesJob(
   
   const runData = {
     id,
+    userId: userId || "demo-user",
     sessionId,
     label: finalLabel,
     prompt,
@@ -704,8 +706,8 @@ export async function pollOneRun(run: DeepResearchRun): Promise<void> {
   }
 }
 
-export async function getAllRuns(): Promise<DeepResearchRun[]> {
-  return await storage.listDeepResearchRuns() as DeepResearchRun[];
+export async function getAllRuns(userId?: string): Promise<DeepResearchRun[]> {
+  return await storage.listDeepResearchRuns(userId) as DeepResearchRun[];
 }
 
 export async function getRun(id: string): Promise<DeepResearchRun | null> {
@@ -739,6 +741,7 @@ export async function duplicateRun(id: string): Promise<DeepResearchRun | undefi
 
 interface VeryDeepProgram {
   id: string;
+  userId?: string;
   prompt: string;
   label: string;
   sessionId?: string;
@@ -761,12 +764,14 @@ function generateProgramId(): string {
 
 export async function startVeryDeepProgram(
   params: DeepResearchCreateRequest,
-  sessionId?: string
+  sessionId?: string,
+  userId?: string
 ): Promise<VeryDeepProgram> {
   const programId = generateProgramId();
   
   const program: VeryDeepProgram = {
     id: programId,
+    userId,
     prompt: params.prompt,
     label: params.label || suggestDefaultLabel(params.prompt),
     sessionId,
@@ -788,7 +793,7 @@ export async function startVeryDeepProgram(
     ...params,
     intensity: "ultra",
     label: `${program.label} – Pass 1/3`,
-  }, sessionId);
+  }, sessionId, userId);
   
   program.childRunIds.push(firstRun.id);
   
@@ -833,7 +838,7 @@ async function advanceProgram(program: VeryDeepProgram): Promise<void> {
     counties: program.counties,
     windowMonths: program.windowMonths,
     intensity: "ultra",
-  }, program.sessionId);
+  }, program.sessionId, program.userId);
   
   // Modify instructions to include prior context
   const runToUpdate = await getRun(nextRun.id);
@@ -874,6 +879,7 @@ ${program.aggregateOutput}
   
   const runData = {
     id: finalId,
+    userId: program.userId || "demo-user",
     sessionId: program.sessionId,
     label: `${program.label} (Very Deep Dive Final)`,
     prompt: program.prompt,
