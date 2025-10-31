@@ -252,7 +252,8 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
         // Load conversation messages
         setIsLoadingHistory(true);
         try {
-          const response = await fetch(`/api/conversations/${newConversationId}/messages`);
+          const url = addDevAuthParams(`/api/conversations/${newConversationId}/messages`);
+          const response = await fetch(url);
           if (response.ok) {
             const messages = await response.json();
             const loadedMessages: DisplayMessage[] = messages.map((msg: any) => ({
