@@ -31,6 +31,41 @@ function getSessionId(req: import("express").Request) {
   return (req.headers["x-session-id"] as string) || req.ip || "anon";
 }
 
+// SECURITY: Authentication middleware to validate session and extract userId
+async function getAuthenticatedUserId(req: import("express").Request): Promise<{ userId: string; userEmail: string } | null> {
+  // Development fallback: allow URL parameters for testing ONLY
+  const urlUserId = (req.params.userId || req.query.userId) as string | undefined;
+  const urlUserEmail = req.query.user_email as string | undefined;
+  
+  // If development mode and URL params present, allow (but warn)
+  if (process.env.NODE_ENV === 'development' && urlUserId && urlUserEmail) {
+    console.warn(`⚠️ DEV MODE: Using URL auth for ${urlUserEmail} - DISABLE IN PRODUCTION`);
+    return { userId: urlUserId, userEmail: urlUserEmail };
+  }
+  
+  // Production path: validate session
+  const sessionId = req.headers["x-session-id"] as string | undefined;
+  if (!sessionId) {
+    return null;
+  }
+  
+  try {
+    // Validate session and get user info
+    const session = await storage.validateSession(sessionId);
+    if (!session) {
+      return null;
+    }
+    
+    return {
+      userId: session.userId,
+      userEmail: session.userEmail
+    };
+  } catch (error) {
+    console.error("Session validation error:", error);
+    return null;
+  }
+}
+
 // Helper to detect URLs in text
 function extractUrls(text: string): string[] {
   const urlRegex = /https?:\/\/[^\s]+/g;
@@ -2116,8 +2151,20 @@ CRITICAL RULES:
   // List conversations for a user
   app.get("/api/conversations/:userId", async (req, res) => {
     try {
-      const { userId } = req.params;
-      const conversations = await storage.listConversations(userId);
+      // SECURITY: Validate authenticated user
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      // SECURITY: Only allow users to access their own conversations
+      const requestedUserId = req.params.userId;
+      if (requestedUserId !== auth.userId) {
+        console.warn(`🚫 User ${auth.userEmail} attempted to access conversations for ${requestedUserId}`);
+        return res.status(403).json({ error: "Forbidden: Cannot access other users' data" });
+      }
+      
+      const conversations = await storage.listConversations(auth.userId);
       res.json(conversations);
     } catch (error: any) {
       console.error("Error listing conversations:", error);
@@ -3872,8 +3919,14 @@ Return structured data with the EXACT placeId provided above: "${placeId}"`;
       res.setHeader('Expires', '0');
       res.removeHeader('ETag');
       
-      const userId = req.query.userId as string | undefined;
-      const runs = await getAllRuns(userId);
+      // SECURITY: Validate authenticated user
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      // SECURITY: Only allow users to access their own runs
+      const runs = await getAllRuns(auth.userId);
       res.json({ runs: runs.map(stripLargeOutput) });
     } catch (error: any) {
       console.error("Deep research list error:", error);
@@ -4120,8 +4173,20 @@ ${run.outputText}`;
   // List scheduled monitors for a user
   app.get("/api/scheduled-monitors/:userId", async (req, res) => {
     try {
-      const { userId } = req.params;
-      const monitors = await storage.listScheduledMonitors(userId);
+      // SECURITY: Validate authenticated user
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      // SECURITY: Only allow users to access their own monitors
+      const requestedUserId = req.params.userId;
+      if (requestedUserId !== auth.userId) {
+        console.warn(`🚫 User ${auth.userEmail} attempted to access monitors for ${requestedUserId}`);
+        return res.status(403).json({ error: "Forbidden: Cannot access other users' data" });
+      }
+      
+      const monitors = await storage.listScheduledMonitors(auth.userId);
       res.json(monitors);
     } catch (error: any) {
       console.error("Error listing scheduled monitors:", error);
