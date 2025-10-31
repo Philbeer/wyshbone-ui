@@ -13,6 +13,7 @@ import DebugPage from "@/pages/debug";
 import NotFound from "@/pages/not-found";
 import CountryHint from "@/components/CountryHint";
 import { useState, useEffect, useRef, useCallback } from "react";
+import { UserProvider, useUser } from "@/contexts/UserContext";
 
 // Demo runs data
 const DEMO_RUNS: RunItem[] = [
@@ -97,7 +98,8 @@ export type ConversationItem = {
   createdAt: number;
 };
 
-function App() {
+function AppContent() {
+  const { user } = useUser();
   const [runs, setRuns] = useState<RunItem[]>(DEMO_RUNS);
   const [conversations, setConversations] = useState<ConversationItem[]>([]);
   
@@ -119,7 +121,7 @@ function App() {
   useEffect(() => {
     const fetchConversations = async () => {
       try {
-        const response = await fetch("/api/conversations/demo-user");
+        const response = await fetch(`/api/conversations/${user.id}`);
         if (response.ok) {
           const data = await response.json();
           setConversations(data);
@@ -135,7 +137,7 @@ function App() {
         const response = await fetch("/api/conversations/regenerate-labels", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ userId: "demo-user" })
+          body: JSON.stringify({ userId: user.id })
         });
         if (response.ok) {
           const data = await response.json();
@@ -146,11 +148,11 @@ function App() {
       }
     };
 
-    // Only regenerate once
-    const hasRegenerated = sessionStorage.getItem("labelsRegenerated");
+    // Only regenerate once per user
+    const hasRegenerated = sessionStorage.getItem(`labelsRegenerated_${user.id}`);
     if (!hasRegenerated) {
       regenerateLabels().then(() => {
-        sessionStorage.setItem("labelsRegenerated", "true");
+        sessionStorage.setItem(`labelsRegenerated_${user.id}`, "true");
         fetchConversations();
       });
     } else {
@@ -160,7 +162,7 @@ function App() {
     // Refresh conversations every 10 seconds
     const interval = setInterval(fetchConversations, 10000);
     return () => clearInterval(interval);
-  }, []);
+  }, [user.id]);
 
   // Poll for deep research runs
   useEffect(() => {
@@ -411,6 +413,14 @@ function App() {
         <Toaster />
       </TooltipProvider>
     </QueryClientProvider>
+  );
+}
+
+function App() {
+  return (
+    <UserProvider>
+      <AppContent />
+    </UserProvider>
   );
 }
 
