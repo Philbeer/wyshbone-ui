@@ -1138,15 +1138,15 @@ function ScheduledMonitorsSection({ userId }: { userId: string }) {
             data-testid={`monitor-${monitor.id}`}
           >
             <div className="flex items-start justify-between gap-2 mb-2">
-              <div className="flex-1">
+              <div className="flex-1 min-w-0">
                 <div className="font-medium text-sm truncate" data-testid={`text-monitor-label-${monitor.id}`}>
                   {monitor.label}
                 </div>
-                <div className="text-xs text-muted-foreground mt-1" data-testid={`text-monitor-description-${monitor.id}`}>
+                <div className="text-xs text-muted-foreground mt-1 truncate" data-testid={`text-monitor-description-${monitor.id}`}>
                   {monitor.description}
                 </div>
               </div>
-              <div className={`h-2 w-2 rounded-full ${isActive ? 'bg-green-500' : 'bg-gray-400'}`} />
+              <div className={`h-2 w-2 rounded-full flex-shrink-0 ${isActive ? 'bg-green-500' : 'bg-gray-400'}`} />
             </div>
             
             <div className="space-y-1 mt-2">
@@ -1170,7 +1170,9 @@ function ScheduledMonitorsSection({ userId }: { userId: string }) {
                     {monitor.monitorType === 'deep_research' ? 'Research' : monitor.monitorType === 'business_search' ? 'Contacts' : 'Places'}
                   </span>
                   {monitor.emailNotifications === 1 && (
-                    <Mail className="h-3 w-3 text-muted-foreground" title="Email notifications enabled" />
+                    <span title="Email notifications enabled">
+                      <Mail className="h-3 w-3 text-muted-foreground" />
+                    </span>
                   )}
                 </div>
                 
