@@ -24,16 +24,20 @@ function getUserFromStorage() {
 export function addDevAuthParams(url: string): string {
   // Only add auth params in development mode
   if (import.meta.env.MODE !== 'development') {
+    console.log('🔒 Production mode - not adding dev auth params');
     return url;
   }
   
   const user = getUserFromStorage();
   if (!user?.id || !user?.email) {
+    console.warn('⚠️ No user in localStorage - cannot add auth params');
     return url;
   }
   
   const separator = url.includes('?') ? '&' : '?';
-  return `${url}${separator}user_id=${encodeURIComponent(user.id)}&user_email=${encodeURIComponent(user.email)}`;
+  const authedUrl = `${url}${separator}user_id=${encodeURIComponent(user.id)}&user_email=${encodeURIComponent(user.email)}`;
+  console.log('✅ Added dev auth params:', authedUrl);
+  return authedUrl;
 }
 
 export async function apiRequest(
