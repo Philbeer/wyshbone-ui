@@ -5,10 +5,27 @@ The Wyshbone Chat Agent is an AI-powered chat assistant with three core capabili
 
 ## Multi-Tenant Architecture
 The system implements multi-tenant user isolation where each user (identified by email and ID from Bubble) has completely separate data:
-- **Authentication Method**: URL parameters (`?user_email=` and `?user_id=`) for Bubble integration
-- **Data Isolation**: All database tables include userId/created_by_email fields to ensure users only see their own data
-- **Security Note**: ⚠️ **DEVELOPMENT ONLY** - Current URL parameter approach is not secure for production. Production deployment MUST implement token-based authentication with signature verification before going live.
-- **Fallback Behavior**: When no URL parameters provided, system defaults to "demo-user" for local testing
+
+### Session-Based Authentication (✅ PRODUCTION-READY)
+- **Primary Method**: Secure session-based authentication via `?sid=` URL parameter
+  1. Bubble calls `POST /api/create-session` with user credentials and shared secret in Authorization header
+  2. Replit validates the secret, generates a session ID (30-minute expiry), stores in database
+  3. Bubble embeds iframe with `?sid=<session_id>`
+  4. Frontend validates session via `GET /api/validate-session/:sessionId` and loads user data
+  5. All subsequent API calls are scoped to the authenticated user
+- **Shared Secret**: `BUBBLE_SHARED_SECRET` environment variable must be configured in Replit secrets
+- **Session Storage**: Sessions stored in `user_sessions` PostgreSQL table with automatic expiry checking
+- **Session Expiry**: 30 minutes from creation, automatically cleaned up on validation attempts
+
+### Alternative Authentication Methods (Development/Testing)
+- **URL Parameters**: `?user_email=` and `?user_id=` for direct authentication (less secure, development only)
+- **Manual Login**: LoginDialog component allows creating/switching test user profiles
+- **Fallback Behavior**: When no authentication provided, system defaults to "demo-user" for local testing
+
+### Data Isolation
+- All database tables include `userId`/`created_by_email` fields to ensure users only see their own data
+- API endpoints filter all queries by authenticated userId
+- Frontend components use `useUser()` hook to access authenticated user context
 
 ## User Preferences
 I want the agent to focus on practical, UK-focused responses. I want to ensure that any contact information discovered is public and verifiable, with no guessing of private details. I prefer a workflow that prioritizes Google Places as the authoritative source for business discovery. The agent should be able to intelligently decide when to search for new venues versus using cached information and support conversational queries without triggering unnecessary searches. I want the agent to auto-detect and execute Bubble batch workflows based on natural language commands. **CRITICAL: The AI must ALWAYS ask for confirmation when making assumptions or combining current input with historical facts/context - chat history and facts serve as background reference, not primary drivers.**

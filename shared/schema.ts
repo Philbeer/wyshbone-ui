@@ -385,3 +385,30 @@ export const insertScheduledMonitorSchema = createInsertSchema(scheduledMonitors
 export const selectScheduledMonitorSchema = createSelectSchema(scheduledMonitors);
 export type InsertScheduledMonitor = z.infer<typeof insertScheduledMonitorSchema>;
 export type SelectScheduledMonitor = typeof scheduledMonitors.$inferSelect;
+
+// User Sessions table for secure multi-tenant authentication
+export const userSessions = pgTable("user_sessions", {
+  sessionId: text("session_id").primaryKey(),
+  userId: text("user_id").notNull(),
+  userEmail: text("user_email").notNull(),
+  expiresAt: bigint("expires_at", { mode: "number" }).notNull(),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+}, (table) => ({
+  userIdIdx: index("user_sessions_user_id_idx").on(table.userId),
+  expiresAtIdx: index("user_sessions_expires_at_idx").on(table.expiresAt),
+}));
+
+// User Session Zod schemas
+export const createSessionRequestSchema = z.object({
+  userId: z.string().min(1, "User ID is required"),
+  userEmail: z.string().email("Valid email is required"),
+});
+
+export const createSessionResponseSchema = z.object({
+  sessionId: z.string(),
+  expiresAt: z.number(),
+});
+
+export type CreateSessionRequest = z.infer<typeof createSessionRequestSchema>;
+export type CreateSessionResponse = z.infer<typeof createSessionResponseSchema>;
+export type SelectUserSession = typeof userSessions.$inferSelect;

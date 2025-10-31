@@ -10,12 +10,13 @@ import type {
   SelectFact,
   InsertFact,
   SelectScheduledMonitor,
-  InsertScheduledMonitor
+  InsertScheduledMonitor,
+  SelectUserSession
 } from "@shared/schema";
 import { drizzle } from "drizzle-orm/neon-http";
 import { neon } from "@neondatabase/serverless";
-import { deepResearchRuns, conversations, messages, facts, scheduledMonitors } from "@shared/schema";
-import { eq, or, desc, asc } from "drizzle-orm";
+import { deepResearchRuns, conversations, messages, facts, scheduledMonitors, userSessions } from "@shared/schema";
+import { eq, or, desc, asc, lt } from "drizzle-orm";
 
 export interface PendingBatchConfirmation {
   business_types: string[];
@@ -95,6 +96,12 @@ export interface IStorage {
   listActiveScheduledMonitors(): Promise<SelectScheduledMonitor[]>;
   updateScheduledMonitor(id: string, updates: Partial<InsertScheduledMonitor>): Promise<SelectScheduledMonitor | null>;
   deleteScheduledMonitor(id: string): Promise<boolean>;
+  
+  // Session management methods
+  createSession(sessionId: string, userId: string, userEmail: string, expiresAt: number): Promise<SelectUserSession>;
+  getSession(sessionId: string): Promise<SelectUserSession | null>;
+  deleteSession(sessionId: string): Promise<boolean>;
+  deleteExpiredSessions(): Promise<number>;
 }
 
 export class MemStorage implements IStorage {
@@ -310,6 +317,49 @@ export class MemStorage implements IStorage {
 
   async deleteScheduledMonitor(id: string): Promise<boolean> {
     return this.scheduledMonitors.delete(id);
+  }
+  
+  private sessions: Map<string, SelectUserSession> = new Map();
+  
+  async createSession(sessionId: string, userId: string, userEmail: string, expiresAt: number): Promise<SelectUserSession> {
+    const session: SelectUserSession = {
+      sessionId,
+      userId,
+      userEmail,
+      expiresAt,
+      createdAt: Date.now()
+    };
+    this.sessions.set(sessionId, session);
+    return session;
+  }
+
+  async getSession(sessionId: string): Promise<SelectUserSession | null> {
+    const session = this.sessions.get(sessionId);
+    if (!session) return null;
+    
+    // Check if session is expired
+    if (session.expiresAt < Date.now()) {
+      this.deleteSession(sessionId);
+      return null;
+    }
+    
+    return session;
+  }
+
+  async deleteSession(sessionId: string): Promise<boolean> {
+    return this.sessions.delete(sessionId);
+  }
+
+  async deleteExpiredSessions(): Promise<number> {
+    const now = Date.now();
+    let count = 0;
+    for (const [sessionId, session] of this.sessions.entries()) {
+      if (session.expiresAt < now) {
+        this.sessions.delete(sessionId);
+        count++;
+      }
+    }
+    return count;
   }
 }
 
@@ -548,6 +598,45 @@ export class DbStorage implements IStorage {
   async deleteScheduledMonitor(id: string): Promise<boolean> {
     const result = await db.delete(scheduledMonitors).where(eq(scheduledMonitors.id, id)).returning();
     return result.length > 0;
+  }
+  
+  async createSession(sessionId: string, userId: string, userEmail: string, expiresAt: number): Promise<SelectUserSession> {
+    const [newSession] = await db.insert(userSessions).values({
+      sessionId,
+      userId,
+      userEmail,
+      expiresAt,
+      createdAt: Date.now()
+    }).returning();
+    return newSession;
+  }
+
+  async getSession(sessionId: string): Promise<SelectUserSession | null> {
+    const [session] = await db
+      .select()
+      .from(userSessions)
+      .where(eq(userSessions.sessionId, sessionId));
+    
+    if (!session) return null;
+    
+    // Check if session is expired
+    if (session.expiresAt < Date.now()) {
+      await this.deleteSession(sessionId);
+      return null;
+    }
+    
+    return session;
+  }
+
+  async deleteSession(sessionId: string): Promise<boolean> {
+    const result = await db.delete(userSessions).where(eq(userSessions.sessionId, sessionId)).returning();
+    return result.length > 0;
+  }
+
+  async deleteExpiredSessions(): Promise<number> {
+    const now = Date.now();
+    const result = await db.delete(userSessions).where(lt(userSessions.expiresAt, now)).returning();
+    return result.length;
   }
 }
 

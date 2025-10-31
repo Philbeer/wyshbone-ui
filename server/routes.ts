@@ -17,6 +17,7 @@ import {
   chatRequestSchema,
   addNoteRequestSchema,
   searchRequestSchema,
+  createSessionRequestSchema,
 } from "@shared/schema";
 import { storage } from "./storage";
 import cors from "cors";
@@ -104,6 +105,102 @@ async function fetchUrlContent(url: string): Promise<string> {
 export async function registerRoutes(app: Express): Promise<Server> {
   // Enable CORS for all routes
   app.use(cors());
+
+  // ===========================
+  // POST /api/create-session – Secure session creation for Bubble integration
+  // ===========================
+  app.post("/api/create-session", async (req, res) => {
+    try {
+      // Validate shared secret from Authorization header
+      const authHeader = req.headers.authorization;
+      const sharedSecret = process.env.BUBBLE_SHARED_SECRET;
+      
+      if (!sharedSecret) {
+        console.error("❌ BUBBLE_SHARED_SECRET not configured");
+        return res.status(500).json({ 
+          error: "Server configuration error - shared secret not set" 
+        });
+      }
+      
+      if (!authHeader || !authHeader.startsWith("Bearer ")) {
+        return res.status(401).json({ 
+          error: "Missing or invalid Authorization header" 
+        });
+      }
+      
+      const providedSecret = authHeader.substring(7); // Remove "Bearer " prefix
+      if (providedSecret !== sharedSecret) {
+        console.warn("⚠️ Invalid shared secret attempt");
+        return res.status(401).json({ 
+          error: "Invalid credentials" 
+        });
+      }
+      
+      // Validate request body
+      const validation = createSessionRequestSchema.safeParse(req.body);
+      if (!validation.success) {
+        return res.status(400).json({ 
+          error: "Invalid request format", 
+          details: validation.error 
+        });
+      }
+      
+      const { userId, userEmail } = validation.data;
+      
+      // Generate cryptographically secure session ID and expiry (30 minutes from now)
+      const sessionId = crypto.randomUUID();
+      const expiresAt = Date.now() + (30 * 60 * 1000); // 30 minutes
+      
+      // Store session in database
+      const session = await storage.createSession(sessionId, userId, userEmail, expiresAt);
+      
+      console.log(`✅ Created session for user ${userEmail} (${userId}), expires at ${new Date(expiresAt).toISOString()}`);
+      
+      return res.json({
+        sessionId: session.sessionId,
+        expiresAt: session.expiresAt,
+      });
+    } catch (error: any) {
+      console.error("❌ Session creation error:", error);
+      return res.status(500).json({ 
+        error: "Failed to create session", 
+        details: error.message 
+      });
+    }
+  });
+
+  // ===========================
+  // GET /api/validate-session – Validate session and return user info
+  // ===========================
+  app.get("/api/validate-session/:sessionId", async (req, res) => {
+    try {
+      const { sessionId } = req.params;
+      
+      if (!sessionId) {
+        return res.status(400).json({ error: "Session ID required" });
+      }
+      
+      const session = await storage.getSession(sessionId);
+      
+      if (!session) {
+        return res.status(401).json({ error: "Invalid or expired session" });
+      }
+      
+      console.log(`✅ Validated session for user ${session.userEmail} (${session.userId})`);
+      
+      return res.json({
+        userId: session.userId,
+        userEmail: session.userEmail,
+        expiresAt: session.expiresAt,
+      });
+    } catch (error: any) {
+      console.error("❌ Session validation error:", error);
+      return res.status(500).json({ 
+        error: "Failed to validate session", 
+        details: error.message 
+      });
+    }
+  });
 
   // ===========================
   // POST /api/chat – streaming + MEMORY

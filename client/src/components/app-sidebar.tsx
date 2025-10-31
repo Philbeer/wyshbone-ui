@@ -2,6 +2,7 @@ import { Globe, MessageSquare, Bug, FilePlus, MessagesSquare, ChevronDown, Chevr
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
+import { useUser } from "@/contexts/UserContext";
 import {
   Sidebar,
   SidebarContent,
@@ -514,6 +515,7 @@ export function AppSidebar({
   onRunRun,
   onNewChat,
 }: AppSidebarProps) {
+  const { user } = useUser();
   const [showArchived, setShowArchived] = useState(false);
   const [localRuns, setLocalRuns] = useState<RunItem[]>(runs);
   const [showPreviousChats, setShowPreviousChats] = useState(false);
@@ -841,7 +843,7 @@ export function AppSidebar({
                       <p className="text-xs text-muted-foreground mb-3">
                         Automated tasks that run on a schedule
                       </p>
-                      <ScheduledMonitorsSection userId="demo-user" />
+                      <ScheduledMonitorsSection userId={user.id} />
                     </div>
                   </CollapsibleContent>
                 </Collapsible>
