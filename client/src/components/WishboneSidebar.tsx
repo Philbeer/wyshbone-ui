@@ -25,8 +25,8 @@ const SALES_EXAMPLES: Example[] = [
     prompt: "Find new restaurants in Manchester with owner contact details",
   },
   {
-    label: "Quick Google Places search for cafes in Bristol",
-    prompt: "Search Google Places for cafes in Bristol",
+    label: "Quick search of Wyshbone Global Database for cafes in Bristol",
+    prompt: "Search the Wyshbone Global Database for cafes in Bristol",
   },
   {
     label: "Schedule weekly monitor for new breweries in Kent",
@@ -39,7 +39,7 @@ const SALES_EXAMPLES: Example[] = [
 ];
 
 const RESEARCH_TIPS = [
-  "Choose your search type: 'Deep Research' for comprehensive analysis, 'Find Contacts' for verified business info, or 'Google Places' for quick listings",
+  "Choose your search type: 'Deep Research' for comprehensive analysis, 'Find Contacts' for verified business info, or 'Wyshbone Global Database' for quick listings",
   "Include location details: city, county, and country (defaults to UK if not specified)",
   "Set up monitors: Ask to create scheduled searches that run daily/weekly and email you results",
   "Use natural language: Just describe what you need - the AI will determine the best approach",

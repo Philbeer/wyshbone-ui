@@ -11,7 +11,7 @@ export interface ScheduledMonitor {
   conversationId?: string | null;
   label: string;
   description: string;
-  monitorType: 'deep_research' | 'business_search' | 'google_places';
+  monitorType: 'deep_research' | 'business_search' | 'wyshbone_database';
   emailNotifications: number;
   emailAddress?: string | null;
   config?: any;

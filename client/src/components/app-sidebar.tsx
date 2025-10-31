@@ -981,7 +981,7 @@ function ScheduledMonitorsSection({ userId }: { userId: string }) {
                 <div className="text-xs text-muted-foreground">{editingMonitor.description}</div>
                 <div className="text-xs">
                   <span className="px-2 py-0.5 rounded-full bg-primary/10 text-primary">
-                    {editingMonitor.monitorType === 'deep_research' ? 'Research' : editingMonitor.monitorType === 'business_search' ? 'Contacts' : 'Places'}
+                    {editingMonitor.monitorType === 'deep_research' ? 'Research' : editingMonitor.monitorType === 'business_search' ? 'Contacts' : 'Database'}
                   </span>
                 </div>
               </div>
@@ -1186,7 +1186,7 @@ function ScheduledMonitorsSection({ userId }: { userId: string }) {
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-1.5">
                   <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary">
-                    {monitor.monitorType === 'deep_research' ? 'Research' : monitor.monitorType === 'business_search' ? 'Contacts' : 'Places'}
+                    {monitor.monitorType === 'deep_research' ? 'Research' : monitor.monitorType === 'business_search' ? 'Contacts' : 'Database'}
                   </span>
                   {monitor.emailNotifications === 1 && (
                     <span title="Email notifications enabled">

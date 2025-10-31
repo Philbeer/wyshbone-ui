@@ -340,7 +340,7 @@ export const scheduledMonitors = pgTable("scheduled_monitors", {
 
 // Scheduled Monitor Zod schemas for validation
 export const scheduledMonitorScheduleSchema = z.enum(["once", "daily", "weekly", "biweekly", "monthly"]);
-export const scheduledMonitorTypeSchema = z.enum(["business_search", "deep_research", "google_places"]);
+export const scheduledMonitorTypeSchema = z.enum(["business_search", "deep_research", "wyshbone_database"]);
 export const scheduledMonitorDaySchema = z.enum(["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]);
 
 export const scheduledMonitorSchema = z.object({

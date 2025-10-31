@@ -2,7 +2,7 @@ import fs from 'fs';
 
 export interface MonitorResult {
   monitorLabel: string;
-  monitorType: 'deep_research' | 'business_search' | 'google_places';
+  monitorType: 'deep_research' | 'business_search' | 'wyshbone_database';
   description: string;
   runDate: Date;
   results?: any;
@@ -31,7 +31,7 @@ export function formatMonitorResultEmail(
       ? 'Deep Research'
       : monitorType === 'business_search'
       ? 'Business Search'
-      : 'Google Places';
+      : 'Wyshbone Database';
 
   const formattedDate = runDate.toLocaleDateString('en-GB', {
     day: '2-digit',
