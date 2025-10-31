@@ -98,11 +98,15 @@ async function executeDeepResearch(monitor: ScheduledMonitor, conversationId: st
         
         console.log(`🔍 DEBUG: Output length=${fullOutput.length}, first 200 chars: ${fullOutput.substring(0, 200)}`);
         
-        // Extract current venue names
-        const currentVenues = extractVenueNames(fullOutput);
+        // Extract current venue names and deduplicate
+        const extractedVenues = extractVenueNames(fullOutput);
+        const currentVenues = Array.from(new Set(extractedVenues.map(v => v.trim()))); // Deduplicate
         const currentResultCount = currentVenues.length;
         
-        console.log(`🔍 DEBUG: Extracted ${currentResultCount} venues from output:`, currentVenues.slice(0, 5));
+        if (extractedVenues.length !== currentResultCount) {
+          console.log(`🔍 DEBUG: Removed ${extractedVenues.length - currentResultCount} duplicate venue entries`);
+        }
+        console.log(`🔍 DEBUG: Extracted ${currentResultCount} unique venues from output:`, currentVenues.slice(0, 5));
         
         // Get previous venue list from monitor config for trend detection
         const previousVenues: string[] = monitor.config?.previousVenues || [];
@@ -133,7 +137,7 @@ async function executeDeepResearch(monitor: ScheduledMonitor, conversationId: st
         
         // **CRITICAL: Accumulate ALL historical venues, don't overwrite**
         // This ensures we compare against ALL previous runs, not just the most recent one
-        const allHistoricalVenues = [...new Set([...previousVenues, ...currentVenues])];
+        const allHistoricalVenues = Array.from(new Set([...previousVenues, ...currentVenues]));
         
         await storage.updateScheduledMonitor(monitor.id, {
           config: {
