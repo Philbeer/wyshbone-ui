@@ -123,7 +123,12 @@ async function executeDeepResearch(monitor: ScheduledMonitor, conversationId: st
             console.log(`ℹ️ No new venues found (all ${currentResultCount} venues were already discovered in previous runs)`);
           }
         } else {
-          console.log(`ℹ️ First run - no previous venues to compare against. Storing ${currentResultCount} venues for next comparison.`);
+          // **FIRST RUN: All results are "new" since there's nothing to compare against**
+          newResults = currentResultCount;
+          console.log(`ℹ️ First run - all ${currentResultCount} venues are new. Storing for next comparison.`);
+          if (newResults > 0) {
+            console.log(`🆕 New venues (first run): ${currentVenues.join(', ')}`);
+          }
         }
         
         // **CRITICAL: Accumulate ALL historical venues, don't overwrite**
