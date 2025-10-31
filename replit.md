@@ -22,10 +22,25 @@ The system implements multi-tenant user isolation where each user (identified by
 - **Manual Login**: LoginDialog component allows creating/switching test user profiles
 - **Fallback Behavior**: When no authentication provided, system defaults to "demo-user" for local testing
 
-### Data Isolation
+### Data Isolation & Security
 - All database tables include `userId`/`created_by_email` fields to ensure users only see their own data
 - API endpoints filter all queries by authenticated userId
 - Frontend components use `useUser()` hook to access authenticated user context
+
+### Endpoint Security (✅ PRODUCTION-READY)
+- **Authentication Middleware**: `getAuthenticatedUserId()` validates `x-session-id` header and extracts userId from database session
+- **Development Fallback**: URL parameters (`?user_email=` and `?user_id=`) allowed only when `NODE_ENV=development`
+- **17 Protected Endpoints**: All user-scoped endpoints validate session and verify resource ownership:
+  - Conversations: GET/POST/DELETE list, create, delete; GET messages (ownership verified)
+  - Facts: GET user facts
+  - Chat: POST chat (validates user.id matches authenticated userId)
+  - Deep Research: GET/POST list, create (validates userId); GET/POST/:id view, stop, duplicate (ownership verified)
+  - Scheduled Monitors: GET/POST/PATCH/DELETE list, create, update, delete (ownership verified)
+- **Security Controls**:
+  - Returns 401 Unauthorized for unauthenticated requests
+  - Returns 403 Forbidden for cross-tenant access attempts
+  - Logs all unauthorized access attempts with warning messages
+  - Validates resource ownership before allowing modifications or deletions
 
 ## User Preferences
 I want the agent to focus on practical, UK-focused responses. I want to ensure that any contact information discovered is public and verifiable, with no guessing of private details. I prefer a workflow that prioritizes Google Places as the authoritative source for business discovery. The agent should be able to intelligently decide when to search for new venues versus using cached information and support conversational queries without triggering unnecessary searches. I want the agent to auto-detect and execute Bubble batch workflows based on natural language commands. **CRITICAL: The AI must ALWAYS ask for confirmation when making assumptions or combining current input with historical facts/context - chat history and facts serve as background reference, not primary drivers.**
