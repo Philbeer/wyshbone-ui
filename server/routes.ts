@@ -1036,7 +1036,13 @@ CRITICAL RULES:
           // We have a valid topic - start the research
           const researchTopic = validation.research_topic || latestUserText;
           
-          const response = await fetch("http://localhost:5000/api/deep-research", {
+          // Add auth params for development mode
+          const authParams = new URLSearchParams({
+            user_id: user.id,
+            user_email: user.email
+          });
+          
+          const response = await fetch(`http://localhost:5000/api/deep-research?${authParams}`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ 
@@ -1538,7 +1544,13 @@ CRITICAL RULES:
             }
             
             // Confirmed or explicit - start deep research
-            const response = await fetch("http://localhost:5000/api/deep-research", {
+            // Add auth params for development mode
+            const authParams = new URLSearchParams({
+              user_id: user.id,
+              user_email: user.email
+            });
+            
+            const response = await fetch(`http://localhost:5000/api/deep-research?${authParams}`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ 
