@@ -98,15 +98,11 @@ async function executeDeepResearch(monitor: ScheduledMonitor, conversationId: st
         
         console.log(`🔍 DEBUG: Output length=${fullOutput.length}, first 200 chars: ${fullOutput.substring(0, 200)}`);
         
-        // Extract current venue names and deduplicate
-        const extractedVenues = extractVenueNames(fullOutput);
-        const currentVenues = Array.from(new Set(extractedVenues.map(v => v.trim()))); // Deduplicate
+        // Extract current venue names (already deduplicated and filtered)
+        const currentVenues = extractVenueNames(fullOutput);
         const currentResultCount = currentVenues.length;
         
-        if (extractedVenues.length !== currentResultCount) {
-          console.log(`🔍 DEBUG: Removed ${extractedVenues.length - currentResultCount} duplicate venue entries`);
-        }
-        console.log(`🔍 DEBUG: Extracted ${currentResultCount} unique venues from output:`, currentVenues.slice(0, 5));
+        console.log(`🔍 DEBUG: Extracted ${currentResultCount} unique active venues from output:`, currentVenues.slice(0, 5));
         
         // Get previous venue list from monitor config for trend detection
         const previousVenues: string[] = monitor.config?.previousVenues || [];
@@ -285,7 +281,9 @@ function extractVenueNames(output: string): string[] {
         if (columns.length > 0 && columns[0]) {
           // Clean up markdown links [Name](url) -> Name
           const venueName = columns[0].replace(/\[([^\]]+)\]\([^\)]+\)/g, '$1').trim();
-          if (venueName) {
+          
+          // Skip venues marked as closed/closure
+          if (venueName && !/\(closure\)/i.test(venueName)) {
             venues.push(venueName);
           }
         }
@@ -293,7 +291,8 @@ function extractVenueNames(output: string): string[] {
     }
   }
   
-  return venues;
+  // Deduplicate immediately after extraction
+  return Array.from(new Set(venues.map(v => v.trim())));
 }
 
 function countResults(output: string): number {
