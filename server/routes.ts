@@ -251,6 +251,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const { messages, user, defaultCountry, conversationId: requestedConversationId } = validation.data;
+      
+      // SECURITY: Validate authenticated user matches the user in request
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      if (user.id !== auth.userId) {
+        console.warn(`🚫 User ${auth.userEmail} attempted to chat as ${user.id}`);
+        return res.status(403).json({ error: "Forbidden: Cannot chat as another user" });
+      }
+      
       const sessionId = getSessionId(req);
 
       // Grab the latest user message text (last item in the array)
@@ -2235,7 +2246,24 @@ CRITICAL RULES:
   // Delete a conversation
   app.delete("/api/conversations/:id", async (req, res) => {
     try {
+      // SECURITY: Validate authenticated user
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
       const { id } = req.params;
+      
+      // SECURITY: Verify the conversation belongs to the authenticated user
+      const conversation = await storage.getConversation(id);
+      if (!conversation) {
+        return res.status(404).json({ error: "Conversation not found" });
+      }
+      if (conversation.userId !== auth.userId) {
+        console.warn(`🚫 User ${auth.userEmail} attempted to delete conversation ${id} owned by ${conversation.userId}`);
+        return res.status(403).json({ error: "Forbidden: Cannot delete other users' conversations" });
+      }
+      
       const success = await storage.deleteConversation(id);
       
       if (success) {
@@ -2252,7 +2280,24 @@ CRITICAL RULES:
   // Get conversation messages
   app.get("/api/conversations/:id/messages", async (req, res) => {
     try {
+      // SECURITY: Validate authenticated user
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
       const { id } = req.params;
+      
+      // SECURITY: Verify the conversation belongs to the authenticated user
+      const conversation = await storage.getConversation(id);
+      if (!conversation) {
+        return res.status(404).json({ error: "Conversation not found" });
+      }
+      if (conversation.userId !== auth.userId) {
+        console.warn(`🚫 User ${auth.userEmail} attempted to access messages for conversation ${id} owned by ${conversation.userId}`);
+        return res.status(403).json({ error: "Forbidden: Cannot access other users' conversations" });
+      }
+      
       const messages = await storage.listMessages(id);
       res.json(messages);
     } catch (error: any) {
@@ -3870,6 +3915,18 @@ Return structured data with the EXACT placeId provided above: "${placeId}"`;
         });
       }
 
+      // SECURITY: Validate authenticated user
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      // SECURITY: Verify userId in request matches authenticated user
+      if (validation.data.userId && validation.data.userId !== auth.userId) {
+        console.warn(`🚫 User ${auth.userEmail} attempted to create research for ${validation.data.userId}`);
+        return res.status(403).json({ error: "Forbidden: Cannot create research for another user" });
+      }
+
       // Extract sessionId so we can send notifications when research completes
       const sessionId = getSessionId(req);
       
@@ -3877,7 +3934,8 @@ Return structured data with the EXACT placeId provided above: "${placeId}"`;
       console.log(`🔬 Received intensity: ${validation.data.intensity || 'undefined (will default to standard)'}`);
       
       // ENHANCE VAGUE PROMPTS using conversation context
-      const { conversationId, userId } = validation.data;
+      const { conversationId } = validation.data;
+      const userId = auth.userId; // Use authenticated userId instead of trusting client
       const enhancement = await enhancePromptWithContext(
         validation.data.prompt,
         conversationId,
@@ -3951,10 +4009,23 @@ Return structured data with the EXACT placeId provided above: "${placeId}"`;
 
   app.get("/api/deep-research/:id", async (req, res) => {
     try {
+      // SECURITY: Validate authenticated user
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
       const run = await getRun(req.params.id);
       if (!run) {
         return res.status(404).json({ error: "Research run not found" });
       }
+      
+      // SECURITY: Verify the research run belongs to the authenticated user
+      if (run.userId !== auth.userId) {
+        console.warn(`🚫 User ${auth.userEmail} attempted to access research run ${req.params.id} owned by ${run.userId}`);
+        return res.status(403).json({ error: "Forbidden: Cannot access other users' research runs" });
+      }
+      
       res.json({ run });
     } catch (error: any) {
       console.error("Deep research get error:", error);
@@ -3964,6 +4035,24 @@ Return structured data with the EXACT placeId provided above: "${placeId}"`;
 
   app.post("/api/deep-research/:id/stop", async (req, res) => {
     try {
+      // SECURITY: Validate authenticated user
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      // First check if run exists and get ownership info
+      const existingRun = await getRun(req.params.id);
+      if (!existingRun) {
+        return res.status(404).json({ error: "Research run not found" });
+      }
+      
+      // SECURITY: Verify the research run belongs to the authenticated user
+      if (existingRun.userId !== auth.userId) {
+        console.warn(`🚫 User ${auth.userEmail} attempted to stop research run ${req.params.id} owned by ${existingRun.userId}`);
+        return res.status(403).json({ error: "Forbidden: Cannot stop other users' research runs" });
+      }
+      
       const run = await stopRun(req.params.id);
       if (!run) {
         return res.status(404).json({ error: "Research run not found" });
@@ -3977,6 +4066,24 @@ Return structured data with the EXACT placeId provided above: "${placeId}"`;
 
   app.post("/api/deep-research/:id/duplicate", async (req, res) => {
     try {
+      // SECURITY: Validate authenticated user
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      // First check if run exists and get ownership info
+      const existingRun = await getRun(req.params.id);
+      if (!existingRun) {
+        return res.status(404).json({ error: "Research run not found" });
+      }
+      
+      // SECURITY: Verify the research run belongs to the authenticated user
+      if (existingRun.userId !== auth.userId) {
+        console.warn(`🚫 User ${auth.userEmail} attempted to duplicate research run ${req.params.id} owned by ${existingRun.userId}`);
+        return res.status(403).json({ error: "Forbidden: Cannot duplicate other users' research runs" });
+      }
+      
       const run = await duplicateRun(req.params.id);
       if (!run) {
         return res.status(404).json({ error: "Research run not found" });
@@ -4218,11 +4325,24 @@ ${run.outputText}`;
   // Get a single scheduled monitor
   app.get("/api/scheduled-monitors/detail/:id", async (req, res) => {
     try {
+      // SECURITY: Validate authenticated user
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
       const { id } = req.params;
       const monitor = await storage.getScheduledMonitor(id);
       if (!monitor) {
         return res.status(404).json({ error: "Monitor not found" });
       }
+      
+      // SECURITY: Verify the monitor belongs to the authenticated user
+      if (monitor.userId !== auth.userId) {
+        console.warn(`🚫 User ${auth.userEmail} attempted to access monitor ${id} owned by ${monitor.userId}`);
+        return res.status(403).json({ error: "Forbidden: Cannot access other users' monitors" });
+      }
+      
       res.json(monitor);
     } catch (error: any) {
       console.error("Error getting scheduled monitor:", error);
