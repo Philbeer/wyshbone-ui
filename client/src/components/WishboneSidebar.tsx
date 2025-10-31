@@ -17,38 +17,33 @@ type Example = {
 
 const SALES_EXAMPLES: Example[] = [
   {
-    label: "Coffee shops in Brooklyn, New York, US - Owner contact",
-    prompt:
-      "Find coffee shops in Brooklyn, New York, United States. Include owner or manager contact information.",
+    label: "Deep research on micropubs in Cornwall",
+    prompt: "Research micropubs in Cornwall",
   },
   {
-    label: "Restaurants in Austin, Texas, US - General Manager",
-    prompt:
-      "Find restaurants in Austin, Texas, United States. Get general manager contact details.",
+    label: "Find new restaurants in Manchester - Contact info",
+    prompt: "Find new restaurants in Manchester with owner contact details",
   },
   {
-    label: "Marketing agencies in London, UK - Marketing Director",
-    prompt:
-      "Find marketing agencies in London, United Kingdom. Look for marketing director contact information.",
+    label: "Quick Google Places search for cafes in Bristol",
+    prompt: "Search Google Places for cafes in Bristol",
   },
   {
-    label: "Gyms in Toronto, Canada - Operations Manager",
-    prompt:
-      "Find gyms and fitness centers in Toronto, Canada. Include operations manager contact details.",
+    label: "Schedule weekly monitor for new breweries in Kent",
+    prompt: "Create a weekly monitor for new breweries in Kent and email me results",
   },
   {
-    label: "Bakeries in Melbourne, Australia - Head Baker",
-    prompt:
-      "Find bakeries in Melbourne, Australia. Get head baker or owner contact information.",
+    label: "Deep dive into craft beer venues in Yorkshire",
+    prompt: "Deep research on craft beer venues in Yorkshire",
   },
 ];
 
 const RESEARCH_TIPS = [
-  "Specify business type: e.g., 'coffee shops', 'restaurants', 'marketing agencies'",
-  "Include location: city, state/county, and country for best results",
-  "Define target position: owner, manager, director, or specific role",
-  "Request contact info: email preferred; also website, phone, or LinkedIn",
-  "Be specific to save credits: narrow searches to specific areas instead of country-wide",
+  "Choose your search type: 'Deep Research' for comprehensive analysis, 'Find Contacts' for verified business info, or 'Google Places' for quick listings",
+  "Include location details: city, county, and country (defaults to UK if not specified)",
+  "Set up monitors: Ask to create scheduled searches that run daily/weekly and email you results",
+  "Use natural language: Just describe what you need - the AI will determine the best approach",
+  "Follow-up questions work: Say 'deep dive' or 'get contacts' after a search to explore further",
 ];
 
 const Tip = ({ children }: { children: React.ReactNode }) => (
@@ -85,7 +80,7 @@ export default function WishboneSidebar({ onPrompt }: Props) {
           animate={{ x: 0, opacity: 1 }}
           exit={{ x: "100%", opacity: 0 }}
           transition={{ type: "spring", damping: 25, stiffness: 200 }}
-          className="w-[320px] xl:w-[360px] border-l border-border bg-background"
+          className="hidden lg:block w-[320px] xl:w-[360px] border-l border-border bg-background"
           aria-label="Research Tips and Examples"
           data-testid="sidebar-research"
         >
@@ -167,7 +162,7 @@ export default function WishboneSidebar({ onPrompt }: Props) {
             </CardHeader>
             <CardContent>
               <p className="text-sm text-foreground">
-                Be specific with location and business type to get the most accurate results. The more details you provide, the better the matches.
+                The AI intelligently offers all three search options when your request is ambiguous. You can also create scheduled monitors that run automatically and email you when new venues are discovered.
               </p>
             </CardContent>
           </Card>
