@@ -116,8 +116,9 @@ async function executeDeepResearch(monitor: ScheduledMonitor, conversationId: st
         
         if (previousVenues.length > 0) {
           // Find venues that are in current but NOT in ALL previous runs (genuinely new discoveries)
-          const previousVenueSet = new Set(previousVenues.map(v => v.toLowerCase().trim()));
-          const newVenues = currentVenues.filter(v => !previousVenueSet.has(v.toLowerCase().trim()));
+          // Use normalized names for comparison to handle variations like "Wendy's" vs "Wendy's (drive-thru)"
+          const previousVenueSet = new Set(previousVenues.map(v => normalizeVenueName(v)));
+          const newVenues = currentVenues.filter(v => !previousVenueSet.has(normalizeVenueName(v)));
           newResults = newVenues.length;
           
           console.log(`📊 Trend Detection: Historical=${previousVenues.length} total venues across all runs, Current=${currentResultCount} venues, New=${newResults} venues`);
@@ -137,7 +138,26 @@ async function executeDeepResearch(monitor: ScheduledMonitor, conversationId: st
         
         // **CRITICAL: Accumulate ALL historical venues, don't overwrite**
         // This ensures we compare against ALL previous runs, not just the most recent one
-        const allHistoricalVenues = Array.from(new Set([...previousVenues, ...currentVenues]));
+        // Deduplicate based on normalized names but keep the most detailed version
+        const venueMap = new Map<string, string>();
+        
+        // Add previous venues first
+        for (const venue of previousVenues) {
+          const normalized = normalizeVenueName(venue);
+          if (!venueMap.has(normalized) || venue.length > (venueMap.get(normalized)?.length || 0)) {
+            venueMap.set(normalized, venue);
+          }
+        }
+        
+        // Add current venues, preferring longer (more detailed) versions
+        for (const venue of currentVenues) {
+          const normalized = normalizeVenueName(venue);
+          if (!venueMap.has(normalized) || venue.length > (venueMap.get(normalized)?.length || 0)) {
+            venueMap.set(normalized, venue);
+          }
+        }
+        
+        const allHistoricalVenues = Array.from(venueMap.values());
         
         await storage.updateScheduledMonitor(monitor.id, {
           config: {
@@ -191,6 +211,16 @@ async function executeDeepResearch(monitor: ScheduledMonitor, conversationId: st
       summary: `Research failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
     };
   }
+}
+
+function normalizeVenueName(name: string): string {
+  // Remove parenthetical details like "(drive-thru)", "(closure)", "(unverified)", etc.
+  // Also normalize whitespace and case for comparison
+  return name
+    .replace(/\s*\([^)]*\)/g, '') // Remove anything in parentheses
+    .replace(/\s+/g, ' ') // Normalize whitespace
+    .trim()
+    .toLowerCase();
 }
 
 function extractTeaser(output: string): string {
