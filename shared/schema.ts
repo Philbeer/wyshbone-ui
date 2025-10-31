@@ -179,6 +179,7 @@ export type SelectLocationHint = typeof locationHints.$inferSelect;
 // Deep Research Drizzle table
 export const deepResearchRuns = pgTable("deep_research_runs", {
   id: text("id").primaryKey(),
+  userId: text("user_id").notNull(),
   sessionId: text("session_id"),
   label: text("label").notNull(),
   prompt: text("prompt").notNull(),
@@ -195,6 +196,7 @@ export const deepResearchRuns = pgTable("deep_research_runs", {
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
   updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
 }, (table) => ({
+  userIdIdx: index("deep_research_runs_user_id_idx").on(table.userId),
   statusIdx: index("status_idx").on(table.status),
   updatedAtIdx: index("updated_at_idx").on(table.updatedAt),
   responseIdIdx: index("response_id_idx").on(table.responseId),
@@ -207,6 +209,7 @@ export const deepResearchIntensitySchema = z.enum(["standard", "ultra"]);
 
 export const deepResearchRunSchema = z.object({
   id: z.string(),
+  userId: z.string(),
   sessionId: z.string().optional(),
   label: z.string(),
   prompt: z.string(),
