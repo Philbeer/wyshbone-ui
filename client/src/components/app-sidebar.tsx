@@ -516,6 +516,7 @@ export function AppSidebar({
   const [showArchived, setShowArchived] = useState(false);
   const [localRuns, setLocalRuns] = useState<RunItem[]>(runs);
   const [showPreviousChats, setShowPreviousChats] = useState(false);
+  const [showScheduledMonitors, setShowScheduledMonitors] = useState(false);
 
   useEffect(() => {
     setLocalRuns(runs);
@@ -800,15 +801,33 @@ export function AppSidebar({
         </SidebarGroup>
 
         <SidebarGroup>
-          <SidebarGroupLabel className="flex items-center gap-2">
-            <Clock className="h-4 w-4" />
-            Scheduled Monitors
-          </SidebarGroupLabel>
-          <SidebarGroupContent className="px-3">
-            <p className="text-xs text-muted-foreground mb-3">
-              Automated tasks that run on a schedule
-            </p>
-            <ScheduledMonitorsSection userId="demo-user" />
+          <SidebarGroupLabel>Monitors</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <Collapsible open={showScheduledMonitors} onOpenChange={setShowScheduledMonitors}>
+                  <CollapsibleTrigger asChild>
+                    <SidebarMenuButton data-testid="button-toggle-scheduled-monitors">
+                      {showScheduledMonitors ? (
+                        <ChevronDown className="h-4 w-4" />
+                      ) : (
+                        <ChevronRight className="h-4 w-4" />
+                      )}
+                      <Clock className="h-4 w-4" />
+                      <span>Scheduled Monitors</span>
+                    </SidebarMenuButton>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="mt-2">
+                    <div className="px-3">
+                      <p className="text-xs text-muted-foreground mb-3">
+                        Automated tasks that run on a schedule
+                      </p>
+                      <ScheduledMonitorsSection userId="demo-user" />
+                    </div>
+                  </CollapsibleContent>
+                </Collapsible>
+              </SidebarMenuItem>
+            </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
 
