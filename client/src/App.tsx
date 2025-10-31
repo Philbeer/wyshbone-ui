@@ -1,4 +1,4 @@
-import { Switch, Route } from "wouter";
+import { Switch, Route, useLocation } from "wouter";
 import { queryClient, addDevAuthParams } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -64,6 +64,7 @@ export type ConversationItem = {
 
 function AppContent() {
   const { user } = useUser();
+  const [location] = useLocation();
   const [runs, setRuns] = useState<RunItem[]>(DEMO_RUNS);
   const [conversations, setConversations] = useState<ConversationItem[]>([]);
   
@@ -196,13 +197,14 @@ function AppContent() {
     const conversationParam = params.get('conversation');
     
     if (conversationParam && loadConversationCallbackRef.current) {
+      console.log("🔗 Loading conversation from URL:", conversationParam);
       // Load the conversation from URL parameter
       loadConversationCallbackRef.current(conversationParam);
       
       // Clean up the URL parameter (optional - makes URL cleaner)
       window.history.replaceState({}, '', window.location.pathname);
     }
-  }, []);
+  }, [location]); // Re-run when location changes
 
   const toggleTheme = () => {
     setTheme(prev => prev === "light" ? "dark" : "light");
