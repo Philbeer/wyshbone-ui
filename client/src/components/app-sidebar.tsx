@@ -523,9 +523,11 @@ export function AppSidebar({
   const [newRunIds, setNewRunIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
-    // Detect newly added runs
+    // Always update localRuns first
+    setLocalRuns(runs);
+    
+    // Then detect newly added runs for flash animation
     const prevIds = new Set(localRuns.map(r => r.id));
-    const currentIds = new Set(runs.map(r => r.id));
     const addedIds = runs.filter(r => !prevIds.has(r.id)).map(r => r.id);
     
     if (addedIds.length > 0) {
@@ -538,9 +540,7 @@ export function AppSidebar({
       
       return () => clearTimeout(timer);
     }
-    
-    setLocalRuns(runs);
-  }, [runs]);
+  }, [runs, localRuns]);
 
   const { todays, previous } = useMemo(() => {
     const t: RunItem[] = [];
