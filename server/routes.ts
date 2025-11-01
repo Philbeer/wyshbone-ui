@@ -2090,6 +2090,7 @@ CRITICAL RULES:
             const monitor = await storage.createScheduledMonitor({
               id: `monitor_${Date.now()}_${Math.random().toString(36).substring(7)}`,
               userId: user.id,
+              conversationId: conversationId, // Link to current conversation
               label: params.label,
               description: params.description,
               schedule: params.schedule,
