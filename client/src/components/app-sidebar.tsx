@@ -1189,7 +1189,13 @@ function ScheduledMonitorsSection({ userId }: { userId: string }) {
           <div
             key={monitor.id}
             className={`p-3 rounded-md border border-border bg-card ${hasConversation ? 'cursor-pointer hover-elevate active-elevate-2' : ''}`}
-            onClick={() => { if (hasConversation) setLocation(`/?conversation=${monitor.conversationId}`) }}
+            onClick={() => { 
+              console.log('🖱️ Monitor clicked, conversationId:', monitor.conversationId, 'hasConversation:', hasConversation);
+              if (hasConversation) {
+                console.log('✅ Navigating to conversation:', monitor.conversationId);
+                setLocation(`/?conversation=${monitor.conversationId}`);
+              }
+            }}
             data-testid={`monitor-${monitor.id}`}
           >
             <div className="flex items-start justify-between gap-2 mb-2">
