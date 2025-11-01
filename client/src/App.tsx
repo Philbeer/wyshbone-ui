@@ -87,7 +87,8 @@ function AppContent() {
   useEffect(() => {
     const fetchConversations = async () => {
       try {
-        const response = await fetch(`/api/conversations/${user.id}`);
+        const url = addDevAuthParams(`/api/conversations/${user.id}`);
+        const response = await fetch(url);
         if (response.ok) {
           const data = await response.json();
           setConversations(data);
@@ -100,7 +101,8 @@ function AppContent() {
     // Regenerate labels on first load (one-time)
     const regenerateLabels = async () => {
       try {
-        const response = await fetch("/api/conversations/regenerate-labels", {
+        const url = addDevAuthParams("/api/conversations/regenerate-labels");
+        const response = await fetch(url, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ userId: user.id })
