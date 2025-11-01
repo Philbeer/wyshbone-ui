@@ -75,6 +75,7 @@ function AppContent() {
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     return (localStorage.getItem('theme') as "light" | "dark") || "light";
   });
+  const [searchParams, setSearchParams] = useState(window.location.search);
 
   const systemMessageInjectorRef = useRef<((msg: string, asUser?: boolean) => void) | null>(null);
   const addRunCallbackRef = useRef<((run: Partial<RunItem>) => string) | null>(null);
@@ -191,9 +192,14 @@ function AppContent() {
     localStorage.setItem('theme', theme);
   }, [theme]);
 
+  // Update search params when location changes
+  useEffect(() => {
+    setSearchParams(window.location.search);
+  }, [location]);
+
   // Handle URL query parameters to load specific conversation
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
+    const params = new URLSearchParams(searchParams);
     const conversationParam = params.get('conversation');
     
     if (conversationParam && loadConversationCallbackRef.current) {
@@ -203,8 +209,9 @@ function AppContent() {
       
       // Clean up the URL parameter (optional - makes URL cleaner)
       window.history.replaceState({}, '', window.location.pathname);
+      setSearchParams(''); // Clear search params after loading
     }
-  }, [location]); // Re-run when location changes
+  }, [searchParams]); // Re-run when search params change
 
   const toggleTheme = () => {
     setTheme(prev => prev === "light" ? "dark" : "light");
