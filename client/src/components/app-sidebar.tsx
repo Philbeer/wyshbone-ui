@@ -848,7 +848,7 @@ export function AppSidebar({
                       <p className="text-xs text-muted-foreground mb-3">
                         Automated tasks that run on a schedule
                       </p>
-                      <ScheduledMonitorsSection userId={user.id} />
+                      <ScheduledMonitorsSection userId={user.id} onSelectConversation={onSelectConversation} />
                     </div>
                   </CollapsibleContent>
                 </Collapsible>
@@ -874,7 +874,7 @@ export function AppSidebar({
 }
 
 // Scheduled Monitors Section Component
-function ScheduledMonitorsSection({ userId }: { userId: string }) {
+function ScheduledMonitorsSection({ userId, onSelectConversation }: { userId: string; onSelectConversation?: (conversationId: string) => void }) {
   const [, setLocation] = useLocation();
   const [editingMonitor, setEditingMonitor] = useState<any>(null);
   const [deletingMonitor, setDeletingMonitor] = useState<any>(null);
@@ -1191,9 +1191,9 @@ function ScheduledMonitorsSection({ userId }: { userId: string }) {
             className={`p-3 rounded-md border border-border bg-card ${hasConversation ? 'cursor-pointer hover-elevate active-elevate-2' : ''}`}
             onClick={() => { 
               console.log('🖱️ Monitor clicked, conversationId:', monitor.conversationId, 'hasConversation:', hasConversation);
-              if (hasConversation) {
-                console.log('✅ Navigating to conversation:', monitor.conversationId);
-                setLocation(`/?conversation=${monitor.conversationId}`);
+              if (hasConversation && onSelectConversation) {
+                console.log('✅ Loading conversation directly:', monitor.conversationId);
+                onSelectConversation(monitor.conversationId);
               }
             }}
             data-testid={`monitor-${monitor.id}`}
