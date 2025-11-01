@@ -264,10 +264,14 @@ export const conversations = pgTable("conversations", {
   id: text("id").primaryKey(),
   userId: text("user_id").notNull(),
   label: text("label").notNull().default("Conversation"),
+  type: text("type").notNull().default("chat"), // "chat" or "monitor_run"
+  monitorId: text("monitor_id"), // Link to scheduled monitor if type=monitor_run
+  runSequence: integer("run_sequence"), // Sequential number for monitor runs (1, 2, 3...)
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
 }, (table) => ({
   userIdIdx: index("conversations_user_id_idx").on(table.userId),
   createdAtIdx: index("conversations_created_at_idx").on(table.createdAt),
+  monitorIdIdx: index("conversations_monitor_id_idx").on(table.monitorId, table.runSequence),
 }));
 
 // Messages table - stores individual messages in conversations
