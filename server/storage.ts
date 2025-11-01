@@ -16,7 +16,7 @@ import type {
 import { drizzle } from "drizzle-orm/neon-http";
 import { neon } from "@neondatabase/serverless";
 import { deepResearchRuns, conversations, messages, facts, scheduledMonitors, userSessions } from "@shared/schema";
-import { eq, or, desc, asc, lt } from "drizzle-orm";
+import { eq, or, and, desc, asc, lt } from "drizzle-orm";
 
 export interface PendingBatchConfirmation {
   business_types: string[];
@@ -70,6 +70,7 @@ export interface IStorage {
   updateConversation(id: string, updates: Partial<InsertConversation>): Promise<SelectConversation | null>;
   listConversations(userId: string): Promise<SelectConversation[]>;
   listAllConversations(): Promise<SelectConversation[]>;
+  listMonitorRunConversations(monitorId: string): Promise<SelectConversation[]>;
   deleteConversation(id: string): Promise<boolean>;
   
   // Message CRUD methods
@@ -232,6 +233,12 @@ export class MemStorage implements IStorage {
   async listAllConversations(): Promise<SelectConversation[]> {
     return Array.from(this.conversations.values())
       .sort((a, b) => b.createdAt - a.createdAt);
+  }
+
+  async listMonitorRunConversations(monitorId: string): Promise<SelectConversation[]> {
+    return Array.from(this.conversations.values())
+      .filter(conv => conv.type === "monitor_run" && conv.monitorId === monitorId)
+      .sort((a, b) => (b.runSequence || 0) - (a.runSequence || 0));
   }
 
   async deleteConversation(id: string): Promise<boolean> {
@@ -501,6 +508,14 @@ export class DbStorage implements IStorage {
       .select()
       .from(conversations)
       .orderBy(desc(conversations.createdAt));
+  }
+
+  async listMonitorRunConversations(monitorId: string): Promise<SelectConversation[]> {
+    return db
+      .select()
+      .from(conversations)
+      .where(and(eq(conversations.type, "monitor_run"), eq(conversations.monitorId, monitorId)))
+      .orderBy(desc(conversations.runSequence));
   }
 
   async deleteConversation(id: string): Promise<boolean> {

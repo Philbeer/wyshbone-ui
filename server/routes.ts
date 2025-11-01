@@ -2335,6 +2335,36 @@ CRITICAL RULES:
     }
   });
 
+  // Get all monitor run conversations for a specific monitor
+  app.get("/api/monitors/:monitorId/runs", async (req, res) => {
+    try {
+      // SECURITY: Validate authenticated user
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { monitorId } = req.params;
+      
+      // SECURITY: Verify the monitor belongs to the authenticated user
+      const monitor = await storage.getScheduledMonitor(monitorId);
+      if (!monitor) {
+        return res.status(404).json({ error: "Monitor not found" });
+      }
+      if (monitor.userId !== auth.userId) {
+        console.warn(`🚫 User ${auth.userEmail} attempted to access monitor runs for ${monitorId} owned by ${monitor.userId}`);
+        return res.status(403).json({ error: "Forbidden: Cannot access other users' monitors" });
+      }
+      
+      // Fetch all monitor run conversations for this monitor
+      const runs = await storage.listMonitorRunConversations(monitorId);
+      res.json(runs);
+    } catch (error: any) {
+      console.error("Error fetching monitor runs:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // Get user facts
   app.get("/api/facts/:userId", async (req, res) => {
     try {

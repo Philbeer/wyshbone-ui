@@ -1183,19 +1183,41 @@ function ScheduledMonitorsSection({ userId, onSelectConversation }: { userId: st
         {Array.isArray(monitors) && monitors.map((monitor: any) => {
         const isActive = monitor.isActive === 1;
         const nextRun = monitor.nextRunAt ? new Date(monitor.nextRunAt) : null;
-        const hasConversation = !!monitor.conversationId;
+        
+        const handleMonitorClick = async () => {
+          if (!onSelectConversation) return;
+          
+          try {
+            // Fetch all run conversations for this monitor
+            const url = addDevAuthParams(`/api/monitors/${monitor.id}/runs`);
+            const response = await fetch(url);
+            
+            if (!response.ok) {
+              console.error('Failed to fetch monitor runs');
+              return;
+            }
+            
+            const runs = await response.json();
+            
+            if (runs.length === 0) {
+              console.log('No runs yet for this monitor');
+              return;
+            }
+            
+            // Load the LATEST run (first in the array, sorted by runSequence desc)
+            const latestRun = runs[0];
+            console.log('✅ Loading latest run conversation:', latestRun.id, 'Run #' + latestRun.runSequence);
+            onSelectConversation(latestRun.id);
+          } catch (error) {
+            console.error('Error loading monitor run:', error);
+          }
+        };
         
         return (
           <div
             key={monitor.id}
-            className={`p-3 rounded-md border border-border bg-card ${hasConversation ? 'cursor-pointer hover-elevate active-elevate-2' : ''}`}
-            onClick={() => { 
-              console.log('🖱️ Monitor clicked, conversationId:', monitor.conversationId, 'hasConversation:', hasConversation);
-              if (hasConversation && onSelectConversation) {
-                console.log('✅ Loading conversation directly:', monitor.conversationId);
-                onSelectConversation(monitor.conversationId);
-              }
-            }}
+            className="p-3 rounded-md border border-border bg-card cursor-pointer hover-elevate active-elevate-2"
+            onClick={handleMonitorClick}
             data-testid={`monitor-${monitor.id}`}
           >
             <div className="flex items-start justify-between gap-2 mb-2">

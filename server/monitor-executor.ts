@@ -20,21 +20,25 @@ export interface ScheduledMonitor {
 export async function executeMonitorAndNotify(monitor: ScheduledMonitor, userEmail?: string): Promise<void> {
   console.log(`📊 Executing monitor: ${monitor.label} (${monitor.id})`);
   
-  // Create or reuse conversation for this monitor
-  let conversationId = monitor.conversationId;
-  if (!conversationId) {
-    // First run - create new conversation
-    conversationId = await getOrCreateConversation(monitor.userId);
-    console.log(`📝 Created new conversation for monitor: ${conversationId}`);
-    
-    // Update monitor with conversationId
-    await storage.updateScheduledMonitor(monitor.id, {
-      conversationId,
-      updatedAt: Date.now(),
-    });
-  } else {
-    console.log(`📝 Reusing existing conversation: ${conversationId}`);
-  }
+  // Get all previous runs to determine the next sequence number
+  const previousRuns = await storage.listMonitorRunConversations(monitor.id);
+  const nextSequence = previousRuns.length + 1;
+  
+  // Create a NEW conversation for THIS run
+  const conversationId = crypto.randomUUID();
+  const runTitle = `${monitor.label} - Run #${nextSequence}`;
+  
+  await storage.createConversation({
+    id: conversationId,
+    userId: monitor.userId,
+    label: runTitle,
+    type: 'monitor_run',
+    monitorId: monitor.id,
+    runSequence: nextSequence,
+    createdAt: Date.now(),
+  });
+  
+  console.log(`📝 Created new monitor run conversation: ${conversationId} (Run #${nextSequence})`);
   
   const results = await executeMonitor(monitor, conversationId);
   
