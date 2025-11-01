@@ -36,7 +36,7 @@ Production-ready multi-tenant AI-powered chat and research platform designed for
 - **Duplicate Prevention**: Intelligent report tracking and reuse
 
 ### 2.2 Contact Finding & Lead Generation
-- **Google Places API (v1)**: Verified business discovery with operational status filtering
+- **Wyshbone Global Database**: Verified business discovery with operational status filtering
 - **Prospect Enrichment**: AI-powered extraction of domains, emails, social links, classification
 - **Lead Scoring**: Automated scoring system for prospect qualification
 - **Public Contact Discovery**: Strict verification with source URL validation
@@ -58,7 +58,7 @@ Production-ready multi-tenant AI-powered chat and research platform designed for
 - **AI-Powered Creation**: Natural language monitor setup via chat interface
 - **Full CRUD Operations**: Complete lifecycle management via API
 - **Flexible Scheduling**: Daily, weekly, biweekly, monthly with day/time specification
-- **Monitor Types**: Deep research, business search, Google Places queries
+- **Monitor Types**: Deep research, business search, Wyshbone Global Database queries
 - **UK Timezone Support**: Smart date/time calculation with proper timezone handling
 - **Conversation Linking**: Each monitor creates/links to dedicated conversation threads
 
@@ -221,7 +221,7 @@ Production-ready multi-tenant AI-powered chat and research platform designed for
 ### 9.1 Contact Discovery Standards
 - **Public Data Only**: No guessing of private contact information
 - **Source URL Verification**: Strict validation of contact info sources
-- **Google Places Priority**: Authoritative source for business discovery
+- **Wyshbone Global Database Priority**: Authoritative source for business discovery
 - **Operational Status Filtering**: Only active/operational businesses
 - **Lead Score Validation**: AI-based qualification scoring
 
@@ -243,7 +243,7 @@ Production-ready multi-tenant AI-powered chat and research platform designed for
 - **Web Search**: Real-time information via OpenAI API
 - **Streaming Support**: Server-Sent Events for live responses
 
-### 10.2 Google Places API (New v1)
+### 10.2 Wyshbone Global Database
 - **Business Discovery**: Verified business listings with operational status
 - **Place IDs**: Unique identifiers for business entities
 - **Location-Based Search**: Geographic area searches with filters
@@ -345,7 +345,7 @@ Production-ready multi-tenant AI-powered chat and research platform designed for
 - Global coverage across 200+ countries
 - Job automation for multi-region searches
 - Location disambiguation for accurate targeting
-- Integration with Google Places for verified data
+- Integration with Wyshbone Global Database for verified data
 
 ### Customer Support & Intelligence
 - Persistent memory learns customer preferences over time
@@ -363,8 +363,8 @@ Production-ready multi-tenant AI-powered chat and research platform designed for
 - **30-Minute Session Expiry** with automatic cleanup
 - **7 Database Tables** with complete user isolation
 - **3 AI Models** (GPT-5, GPT-4o, GPT-4o-mini) for specialized tasks
-- **4 External APIs** (OpenAI, Google Places, GeoNames, Resend)
-- **4 Monitor Types** (Deep Research, Business Search, Google Places, Custom)
+- **4 External APIs** (OpenAI, Wyshbone Global Database, GeoNames, Resend)
+- **4 Monitor Types** (Deep Research, Business Search, Wyshbone Global Database, Custom)
 - **5 Schedule Frequencies** (Daily, Weekly, Biweekly, Monthly, Custom)
 - **6 Fact Categories** (Industry, Place, Subject, Preference, General, System)
 

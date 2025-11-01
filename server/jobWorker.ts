@@ -32,7 +32,7 @@ async function callBubbleForRegion(params: {
         business_type: params.business_type,
         country: params.country,
         region_id: params.region_id,
-        region_code: params.region_code, // ISO country code for Google Places
+        region_code: params.region_code, // ISO country code for Wyshbone Global Database
       })
     });
 
@@ -101,7 +101,7 @@ export async function runJob(jobId: string): Promise<void> {
       country: job.country,
       region_id: regionId,
       region_name: region.name,
-      region_code: region.country_code, // ISO country code for Google Places
+      region_code: region.country_code, // ISO country code for Wyshbone Global Database
     });
 
     // Update job progress

@@ -77,7 +77,7 @@ app.use((req, res, next) => {
     
     // Print region service documentation
     console.log('\n' + '='.repeat(80));
-    console.log('📍 HYBRID REGION SERVICE - ISO-Safe Country Codes for Google Places');
+    console.log('📍 HYBRID REGION SERVICE - ISO-Safe Country Codes for Wyshbone Global Database');
     console.log('='.repeat(80));
     console.log('\n🔍 Example API Endpoints:');
     console.log(`   GET  http://localhost:${port}/api/regions/list?country=UK&granularity=county`);
@@ -107,16 +107,16 @@ app.use((req, res, next) => {
     console.log('\n🌐 Dynamic Region Lookup:');
     const hasGoogleKey = !!process.env.GOOGLE_API_KEY_DEFAULT;
     if (hasGoogleKey) {
-      console.log('   ✅ Google Places API enabled for dynamic region discovery');
-      console.log('   📍 Automatic fallback: Unknown regions will be fetched from Google Places');
+      console.log('   ✅ Wyshbone Global Database enabled for dynamic region discovery');
+      console.log('   📍 Automatic fallback: Unknown regions will be fetched from Wyshbone Global Database');
       console.log('   🔄 Results cached for 24 hours');
     } else {
-      console.log('   ⚠️  Google Places API key not set (GOOGLE_API_KEY_DEFAULT)');
+      console.log('   ⚠️  Wyshbone Global Database API key not set (GOOGLE_API_KEY_DEFAULT)');
       console.log('   📍 Only local datasets available (no dynamic region discovery)');
     }
     
-    console.log('\n🌐 Google Places Integration:');
-    console.log('   Jobs will pass regionCode (ISO alpha-2) to Google Places API');
+    console.log('\n🌐 Wyshbone Global Database Integration:');
+    console.log('   Jobs will pass regionCode (ISO alpha-2) to Wyshbone Global Database');
     console.log('   Example: UK regions → regionCode: "GB", US regions → regionCode: "US"');
     console.log('\n' + '='.repeat(80) + '\n');
   });

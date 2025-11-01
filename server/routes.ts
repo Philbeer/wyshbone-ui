@@ -959,7 +959,7 @@ Examples:
         const clarificationMsg = `I can help with that in three ways:\n\n` +
           `📊 **Deep Research** - I'll perform comprehensive research and provide a detailed report with findings, sources, and analysis\n\n` +
           `📧 **Find Contacts** - I'll trigger a workflow to find specific business contacts (like Head of Sales) for your target businesses\n\n` +
-          `🔍 **Google Places Search** - I'll search Google Places and return a quick list of businesses with Place IDs, phone numbers, addresses, and websites\n\n` +
+          `🔍 **Wyshbone Global Database** - I'll search our global database and return a quick list of businesses with Place IDs, phone numbers, addresses, and websites\n\n` +
           `Which would you prefer?`;
         
         appendMessage(sessionId, { role: "assistant", content: clarificationMsg });
@@ -1311,8 +1311,8 @@ CRITICAL RULES:
       const googlePlacesSearchTool = {
         type: "function" as const,
         function: {
-          name: "search_google_places",
-          description: "Search for businesses using Google Places API. Returns structured results with Place IDs, names, addresses, phone numbers, websites, ratings, and coordinates. Use this when user wants to find specific businesses, get business listings, or needs Place IDs. Returns up to 60 results with pagination.",
+          name: "search_wyshbone_database",
+          description: "Search for businesses using Wyshbone Global Database. Returns structured results with Place IDs, names, addresses, phone numbers, websites, ratings, and coordinates. Use this when user wants to find specific businesses, get business listings, or needs Place IDs. Returns up to 60 results with pagination.",
           parameters: {
             type: "object",
             properties: {
@@ -1964,8 +1964,8 @@ CRITICAL RULES:
             aiBuffer = `Error processing workflow: ${toolErr.message}`;
             res.write(`data: ${JSON.stringify({ content: aiBuffer })}\n\n`);
           }
-        } else if (isToolCall && toolCallBuffer.name === "search_google_places") {
-          console.log("🔍 Google Places search tool call detected");
+        } else if (isToolCall && toolCallBuffer.name === "search_wyshbone_database") {
+          console.log("🔍 Wyshbone Global Database search tool call detected");
           console.log("📦 Arguments:", toolCallBuffer.arguments);
           
           try {
@@ -2005,7 +2005,7 @@ CRITICAL RULES:
             });
             
             // Format results as a nice markdown response
-            let responseText = `🔍 **Google Places Search Results**\n\n`;
+            let responseText = `🔍 **Wyshbone Global Database Results**\n\n`;
             responseText += `Found **${results.length} businesses** for "${params.query}"\n\n`;
             
             if (results.length === 0) {
@@ -2049,11 +2049,11 @@ CRITICAL RULES:
             // Save the results to conversation
             appendMessage(sessionId, { role: "assistant", content: responseText });
             await saveMessage(conversationId, "assistant", responseText);
-            console.log("💾 Saved Google Places results to database");
+            console.log("💾 Saved Wyshbone Global Database results to database");
             
           } catch (toolErr: any) {
-            console.error("❌ Google Places search error:", toolErr.message);
-            aiBuffer = `Error searching Google Places: ${toolErr.message}`;
+            console.error("❌ Wyshbone Global Database search error:", toolErr.message);
+            aiBuffer = `Error searching Wyshbone Global Database: ${toolErr.message}`;
             res.write(`data: ${JSON.stringify({ content: aiBuffer })}\n\n`);
             
             appendMessage(sessionId, { role: "assistant", content: aiBuffer });
@@ -2118,7 +2118,7 @@ CRITICAL RULES:
             }
             responseText += `\n\n`;
             
-            responseText += `📊 **Type:** ${params.monitorType === 'deep_research' ? 'Deep Research' : params.monitorType === 'business_search' ? 'Business Search' : 'Google Places'}\n\n`;
+            responseText += `📊 **Type:** ${params.monitorType === 'deep_research' ? 'Deep Research' : params.monitorType === 'business_search' ? 'Business Search' : 'Wyshbone Global Database'}\n\n`;
             responseText += `🎯 Your monitor will run automatically according to the schedule. You can view and manage it in the sidebar under "Scheduled Monitors".\n\n`;
             
             const nextRunDate = new Date(nextRunAt);
@@ -2472,7 +2472,7 @@ Response format:
 
       let newVenues: any[] = [];
 
-      // STEP 3: If planner says "search", call Google Places FIRST as primary source
+      // STEP 3: If planner says "search", call Wyshbone Global Database FIRST as primary source
       if (plan.action === "search") {
         const { searchPlaces } = await import("./googlePlaces");
         
@@ -2486,7 +2486,7 @@ Response format:
           locationText = locationMatch[1].trim();
         }
 
-        // Call Google Places API directly as primary source
+        // Call Wyshbone Global Database directly as primary source
         // Always fetch 60 results (3 pages of 20) to build a large cache
         const placesResults = await searchPlaces({
           query: plan.query || latestUserMessage,
@@ -2494,9 +2494,9 @@ Response format:
           maxResults: 60, // Fetch up to 60 results across 3 pages
         });
 
-        console.log(`📍 Google Places found ${placesResults.length} venues`);
+        console.log(`📍 Wyshbone Global Database found ${placesResults.length} venues`);
 
-        // Add Google Places results to cache with all fields
+        // Add Wyshbone Global Database results to cache with all fields
         if (placesResults.length > 0) {
           addVenuesToCache(
             sessionId,

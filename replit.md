@@ -1,7 +1,7 @@
 # Wyshbone Chat Agent
 
 ## Overview
-The Wyshbone Chat Agent is an AI-powered chat assistant with three core capabilities: (1) Deep Research for comprehensive analysis, (2) Contact Finding via Bubble workflows for lead generation, and (3) Google Places Search for quick business listings. The system intelligently offers all three options when user intent is ambiguous, ensuring users can choose the best approach for their needs.
+The Wyshbone Chat Agent is an AI-powered chat assistant with three core capabilities: (1) Deep Research for comprehensive analysis, (2) Contact Finding via Bubble workflows for lead generation, and (3) Wyshbone Global Database for quick business listings. The system intelligently offers all three options when user intent is ambiguous, ensuring users can choose the best approach for their needs.
 
 ## Multi-Tenant Architecture
 The system implements multi-tenant user isolation where each user (identified by email and ID from Bubble) has completely separate data:
@@ -43,7 +43,7 @@ The system implements multi-tenant user isolation where each user (identified by
   - Validates resource ownership before allowing modifications or deletions
 
 ## User Preferences
-I want the agent to focus on practical, UK-focused responses. I want to ensure that any contact information discovered is public and verifiable, with no guessing of private details. I prefer a workflow that prioritizes Google Places as the authoritative source for business discovery. The agent should be able to intelligently decide when to search for new venues versus using cached information and support conversational queries without triggering unnecessary searches. I want the agent to auto-detect and execute Bubble batch workflows based on natural language commands. **CRITICAL: The AI must ALWAYS ask for confirmation when making assumptions or combining current input with historical facts/context - chat history and facts serve as background reference, not primary drivers.**
+I want the agent to focus on practical, UK-focused responses. I want to ensure that any contact information discovered is public and verifiable, with no guessing of private details. I prefer a workflow that prioritizes Wyshbone Global Database as the authoritative source for business discovery. The agent should be able to intelligently decide when to search for new venues versus using cached information and support conversational queries without triggering unnecessary searches. I want the agent to auto-detect and execute Bubble batch workflows based on natural language commands. **CRITICAL: The AI must ALWAYS ask for confirmation when making assumptions or combining current input with historical facts/context - chat history and facts serve as background reference, not primary drivers.**
 
 ## System Architecture
 The application utilizes a modern web stack, featuring Node.js/Express for the backend and React with TypeScript, Tailwind CSS, and shadcn/ui for the frontend. TanStack Query manages API state. Core AI interactions leverage OpenAI's GPT-5 via its Chat Completions API, supporting web search for real-time information.
@@ -54,7 +54,7 @@ The user interface adheres to modern Material Design principles, inspired by Cha
 **Technical Implementations & Feature Specifications:**
 - **AI Chat Interface:** Provides real-time conversations with a GPT-5 assistant, enforcing a concise, practical, and UK-focused AI personality via the system prompt.
 - **Tool Integration:**
-    - **Google Places API (New v1):** Used for verified business discovery and prospect search/enrichment, filtering for operational businesses and returning Google Place IDs.
+    - **Wyshbone Global Database:** Used for verified business discovery and prospect search/enrichment, filtering for operational businesses and returning Place IDs.
     - **OpenAI GPT-5 for Enrichment:** Enriches prospects with domain, contact email, social links, business classification, summary, and lead score. Includes optional public contact discovery with strict verification of source URLs.
     - **Bubble Workflow Integration:** Supports triggering Bubble backend workflows in batch based on natural language input, with configurable delays and dynamic parameter mapping. Features multi-country support, automatic location detection, country mismatch detection, and a mandatory user confirmation flow for all batch requests.
     - **Job Management & Worldwide Location Coverage:** A background job system for running searches across geographic areas globally.
@@ -100,7 +100,7 @@ The user interface adheres to modern Material Design principles, inspired by Cha
     - **AI-Powered Creation:** Chat interface suggests and creates monitors using the `create_scheduled_monitor` tool
     - **Full CRUD Operations:** Create, read, update, and delete monitors via `/api/scheduled-monitors` endpoints
     - **Flexible Scheduling:** Daily, weekly, biweekly, and monthly frequencies with optional day-of-week and time specification
-    - **Monitor Types:** Supports deep_research, business_search, and google_places monitoring
+    - **Monitor Types:** Supports deep_research, business_search, and wyshbone_database monitoring
     - **Smart Time Calculation:** PATCH endpoint properly handles scheduleTime changes, calculating next run date/time correctly accounting for UK timezone and user-specified execution times
     - **Email Notifications:** Integrated with Resend API to send professional HTML email reports when monitors complete
         - Toggle email notifications on/off per monitor via UI switch
@@ -118,7 +118,7 @@ The user interface adheres to modern Material Design principles, inspired by Cha
 
 ## External Dependencies
 - **OpenAI GPT-5:** For AI chat responses, prospect enrichment, and web search.
-- **Google Places API (New v1):** For business discovery and location-based searches.
+- **Wyshbone Global Database:** For business discovery and location-based searches.
 - **GeoNames API:** For worldwide administrative region discovery and geocoding.
 - **Bubble:** External platform for backend workflows, integrated via dedicated API endpoints.
 - **Resend API:** For sending transactional email notifications when scheduled monitors complete.

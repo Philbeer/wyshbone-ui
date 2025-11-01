@@ -1,4 +1,4 @@
-// Hybrid Region Service with ISO-safe country codes for Google Places
+// Hybrid Region Service with ISO-safe country codes for Wyshbone Global Database
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as crypto from 'crypto';
@@ -191,7 +191,7 @@ export function getRegionCode(countryText: string): string {
   return fallback;
 }
 
-// Dynamic region lookup using Google Places API Text Search
+// Dynamic region lookup using Wyshbone Global Database API Text Search
 export async function fetchRegionsDynamically(
   countryCode: string,
   granularity: string,
@@ -223,13 +223,13 @@ export async function fetchRegionsDynamically(
 
     const url = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(query)}&type=administrative_area_level_2&key=${GOOGLE_API_KEY}`;
     
-    console.log(`🌐 Fetching regions dynamically from Google Places API: "${query}"`);
+    console.log(`🌐 Fetching regions dynamically from Wyshbone Global Database: "${query}"`);
     
     const response = await fetch(url);
     const data = await response.json();
 
     if (data.status !== 'OK' && data.status !== 'ZERO_RESULTS') {
-      console.warn(`⚠️ Google Places API returned status: ${data.status}`);
+      console.warn(`⚠️ Wyshbone Global Database returned status: ${data.status}`);
       return [];
     }
 
@@ -238,7 +238,7 @@ export async function fetchRegionsDynamically(
       return [];
     }
 
-    // Extract region names from Google Places results
+    // Extract region names from Wyshbone Global Database results
     const regions: Region[] = data.results.map((place: any, index: number) => {
       const name = place.name || place.formatted_address?.split(',')[0] || `Region ${index + 1}`;
       return {
@@ -248,7 +248,7 @@ export async function fetchRegionsDynamically(
       };
     });
 
-    console.log(`✅ Found ${regions.length} regions dynamically from Google Places API`);
+    console.log(`✅ Found ${regions.length} regions dynamically from Wyshbone Global Database`);
     return regions;
   } catch (error: any) {
     console.error(`❌ Error fetching regions dynamically:`, error.message);
@@ -374,10 +374,10 @@ export async function fetchRemoteRegions(
       return geoNamesRegions as Region[];
     }
   } catch (error: any) {
-    console.warn(`⚠️ GeoNames lookup failed, falling back to Google Places:`, error.message);
+    console.warn(`⚠️ GeoNames lookup failed, falling back to Wyshbone Global Database:`, error.message);
   }
   
-  // Fallback to Google Places API for dynamic region discovery
+  // Fallback to Wyshbone Global Database for dynamic region discovery
   return await fetchRegionsDynamically(country_code, granularity, regionFilter);
 }
 
