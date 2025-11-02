@@ -72,6 +72,15 @@ function AppContent() {
     return localStorage.getItem('defaultCountry') || 'US';
   });
   
+  // Update defaultCountry when user changes (e.g., after session validation)
+  useEffect(() => {
+    const storedCountry = localStorage.getItem('defaultCountry');
+    if (storedCountry && storedCountry !== defaultCountry) {
+      console.log(`🌍 Updating default country from localStorage: ${storedCountry}`);
+      setDefaultCountry(storedCountry);
+    }
+  }, [user.id]); // Re-run when user changes
+  
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     return (localStorage.getItem('theme') as "light" | "dark") || "light";
   });
