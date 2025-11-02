@@ -69,17 +69,20 @@ function AppContent() {
   const [conversations, setConversations] = useState<ConversationItem[]>([]);
   
   const [defaultCountry, setDefaultCountry] = useState<string>(() => {
-    return localStorage.getItem('defaultCountry') || 'US';
+    const stored = localStorage.getItem('defaultCountry') || 'US';
+    console.log(`🌍 Initializing default country: ${stored}`);
+    return stored;
   });
   
   // Update defaultCountry when user changes (e.g., after session validation)
   useEffect(() => {
     const storedCountry = localStorage.getItem('defaultCountry');
+    console.log(`🔍 Checking country update - stored: ${storedCountry}, current: ${defaultCountry}`);
     if (storedCountry && storedCountry !== defaultCountry) {
       console.log(`🌍 Updating default country from localStorage: ${storedCountry}`);
       setDefaultCountry(storedCountry);
     }
-  }, [user.id]); // Re-run when user changes
+  }, [user.id, defaultCountry]); // Re-run when user changes
   
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     return (localStorage.getItem('theme') as "light" | "dark") || "light";
