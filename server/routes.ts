@@ -206,6 +206,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.json({
         sessionId: session.sessionId,
         expiresAt: session.expiresAt,
+        defaultCountry: session.defaultCountry,
       });
     } catch (error: any) {
       console.error("❌ Session creation error:", error);
