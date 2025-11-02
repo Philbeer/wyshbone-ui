@@ -192,6 +192,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       const { userId, userEmail, default_country } = validation.data;
       
+      console.log('📥 Session creation request:', { userId, userEmail, default_country });
+      
       // Generate cryptographically secure session ID and expiry (30 minutes from now)
       const sessionId = crypto.randomUUID();
       const expiresAt = Date.now() + (30 * 60 * 1000); // 30 minutes
@@ -199,7 +201,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Store session in database
       const session = await storage.createSession(sessionId, userId, userEmail, expiresAt, default_country);
       
-      console.log(`✅ Created session for user ${userEmail} (${userId}), expires at ${new Date(expiresAt).toISOString()}`);
+      console.log(`✅ Created session for user ${userEmail} (${userId})${default_country ? `, country: ${default_country}` : ''}, expires at ${new Date(expiresAt).toISOString()}`);
       
       return res.json({
         sessionId: session.sessionId,
