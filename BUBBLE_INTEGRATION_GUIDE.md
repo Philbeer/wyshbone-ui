@@ -245,14 +245,25 @@ Set up a scheduled workflow in Bubble that:
 ```
 POST /api/create-session
 Headers: Authorization: Bearer <BUBBLE_SHARED_SECRET>
-Body: { "userId": "...", "userEmail": "..." }
+Body: { 
+  "userId": "...", 
+  "userEmail": "...",
+  "default_country": "US" (optional - ISO country code like "US", "GB", "FR", etc.)
+}
 Response: { "sessionId": "...", "expiresAt": 123456789 }
 ```
+
+**Note:** The `default_country` field is optional. When provided, it sets the default country for location-based searches in the chat.
 
 ### Validate Session
 ```
 GET /api/validate-session/:sessionId
-Response: { "userId": "...", "userEmail": "...", "expiresAt": 123456789 }
+Response: { 
+  "userId": "...", 
+  "userEmail": "...", 
+  "defaultCountry": "US" (if provided during session creation),
+  "expiresAt": 123456789 
+}
 ```
 
 ### All Protected Endpoints

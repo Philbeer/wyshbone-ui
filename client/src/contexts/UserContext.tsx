@@ -47,6 +47,13 @@ export function UserProvider({ children }: { children: ReactNode }) {
             };
             console.log(`✅ Session validated for user: ${sessionData.userEmail}`);
             localStorage.setItem("wyshbone_user", JSON.stringify(sessionUser));
+            
+            // Store default country if provided
+            if (sessionData.defaultCountry) {
+              console.log(`🌍 Setting default country from session: ${sessionData.defaultCountry}`);
+              localStorage.setItem("defaultCountry", sessionData.defaultCountry);
+            }
+            
             setUserInternal(sessionUser);
             setIsValidatingSession(false);
             return;

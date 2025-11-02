@@ -99,7 +99,7 @@ export interface IStorage {
   deleteScheduledMonitor(id: string): Promise<boolean>;
   
   // Session management methods
-  createSession(sessionId: string, userId: string, userEmail: string, expiresAt: number): Promise<SelectUserSession>;
+  createSession(sessionId: string, userId: string, userEmail: string, expiresAt: number, defaultCountry?: string): Promise<SelectUserSession>;
   getSession(sessionId: string): Promise<SelectUserSession | null>;
   deleteSession(sessionId: string): Promise<boolean>;
   deleteExpiredSessions(): Promise<number>;
@@ -328,11 +328,12 @@ export class MemStorage implements IStorage {
   
   private sessions: Map<string, SelectUserSession> = new Map();
   
-  async createSession(sessionId: string, userId: string, userEmail: string, expiresAt: number): Promise<SelectUserSession> {
+  async createSession(sessionId: string, userId: string, userEmail: string, expiresAt: number, defaultCountry?: string): Promise<SelectUserSession> {
     const session: SelectUserSession = {
       sessionId,
       userId,
       userEmail,
+      defaultCountry: defaultCountry || null,
       expiresAt,
       createdAt: Date.now()
     };
@@ -360,7 +361,7 @@ export class MemStorage implements IStorage {
   async deleteExpiredSessions(): Promise<number> {
     const now = Date.now();
     let count = 0;
-    for (const [sessionId, session] of this.sessions.entries()) {
+    for (const [sessionId, session] of Array.from(this.sessions.entries())) {
       if (session.expiresAt < now) {
         this.sessions.delete(sessionId);
         count++;
@@ -615,11 +616,12 @@ export class DbStorage implements IStorage {
     return result.length > 0;
   }
   
-  async createSession(sessionId: string, userId: string, userEmail: string, expiresAt: number): Promise<SelectUserSession> {
+  async createSession(sessionId: string, userId: string, userEmail: string, expiresAt: number, defaultCountry?: string): Promise<SelectUserSession> {
     const [newSession] = await db.insert(userSessions).values({
       sessionId,
       userId,
       userEmail,
+      defaultCountry: defaultCountry || null,
       expiresAt,
       createdAt: Date.now()
     }).returning();

@@ -395,6 +395,7 @@ export const userSessions = pgTable("user_sessions", {
   sessionId: text("session_id").primaryKey(),
   userId: text("user_id").notNull(),
   userEmail: text("user_email").notNull(),
+  defaultCountry: text("default_country"),
   expiresAt: bigint("expires_at", { mode: "number" }).notNull(),
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
 }, (table) => ({
@@ -406,6 +407,7 @@ export const userSessions = pgTable("user_sessions", {
 export const createSessionRequestSchema = z.object({
   userId: z.string().min(1, "User ID is required"),
   userEmail: z.string().email("Valid email is required"),
+  default_country: z.string().optional(),
 });
 
 export const createSessionResponseSchema = z.object({
