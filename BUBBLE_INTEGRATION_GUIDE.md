@@ -100,11 +100,31 @@ You need a Bubble **Backend Workflow** that creates a session when a user opens 
     // Update iframe src when session is ready
     if (event.data && event.data.type === 'wyshbone_session') {
       var iframe = document.getElementById('wyshbone-chat');
-      iframe.src = 'https://YOUR_REPLIT_URL.replit.app?sid=' + event.data.sessionId;
+      // IMPORTANT: Always add reset=1 to clear old cached sessions
+      iframe.src = 'https://YOUR_REPLIT_URL.replit.app?sid=' + event.data.sessionId + '&reset=1';
     }
   });
 </script>
 ```
+
+---
+
+## Important: Session Reset for User Switching
+
+**Why the `reset=1` parameter is critical:**
+
+When users log out and a different user logs into Bubble, the chat iframe may still have cached data from the previous user. The `reset=1` parameter ensures:
+
+1. **localStorage is cleared** - Removes all cached user data
+2. **sessionStorage is cleared** - Removes temporary session data
+3. **Fresh session validation** - Forces a new authentication check
+
+**Always include `&reset=1` in your iframe URL:**
+```
+https://YOUR_REPLIT_URL.replit.app?sid=SESSION_ID&reset=1
+```
+
+This guarantees that each user sees only their own chat history and data, even if multiple users access the chat from the same browser.
 
 ---
 

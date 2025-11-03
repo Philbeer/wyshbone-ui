@@ -28,44 +28,31 @@ export function UserProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     async function initializeAuth() {
-      // Check for session ID in URL (priority 1: Bubble iframe with ?sid=)
       const urlParams = new URLSearchParams(window.location.search);
-      const sessionId = urlParams.get("sid");
       
-      if (sessionId) {
-        try {
-          console.log("🔐 Validating session ID from URL...");
-          const response = await fetch(`/api/validate-session/${sessionId}`);
-          
-          if (response.ok) {
-            const sessionData = await response.json();
-            const userName = sessionData.userEmail.split("@")[0];
-            const sessionUser = {
-              id: sessionData.userId,
-              email: sessionData.userEmail,
-              name: userName.charAt(0).toUpperCase() + userName.slice(1)
-            };
-            console.log(`✅ Session validated for user: ${sessionData.userEmail}`);
-            localStorage.setItem("wyshbone_user", JSON.stringify(sessionUser));
-            
-            // Store default country if provided
-            if (sessionData.defaultCountry) {
-              console.log(`🌍 Setting default country from session: ${sessionData.defaultCountry}`);
-              localStorage.setItem("defaultCountry", sessionData.defaultCountry);
-            }
-            
-            setUserInternal(sessionUser);
+      // Priority 1: Check if session was already validated in bootstrap (main.tsx)
+      // This happens when Bubble passes ?sid=SESSION_ID
+      const sessionId = urlParams.get("sid");
+      const storedSessionId = localStorage.getItem("wyshbone_sid");
+      
+      if (sessionId && sessionId === storedSessionId) {
+        // Session was already validated in main.tsx before React rendered
+        const stored = localStorage.getItem("wyshbone_user");
+        if (stored) {
+          try {
+            const parsed = JSON.parse(stored);
+            console.log(`✅ Using pre-validated session for: ${parsed.email}`);
+            setUserInternal(parsed);
             setIsValidatingSession(false);
             return;
-          } else {
-            console.warn("⚠️ Session validation failed, falling back to other auth methods");
+          } catch (e) {
+            console.error("Failed to parse pre-validated user", e);
           }
-        } catch (error) {
-          console.error("❌ Session validation error:", error);
         }
       }
       
-      // Check for direct URL parameters (priority 2: ?user_id= and ?user_email=)
+      // Priority 2: Check for direct URL parameters (?user_id= and ?user_email=)
+      // This is used for dev mode when not using session IDs
       const userId = urlParams.get("user_id");
       const userEmail = urlParams.get("user_email");
       
@@ -83,7 +70,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
         return;
       }
       
-      // Check localStorage (priority 3: manual login)
+      // Priority 3: Check localStorage (for returning users or manual login)
       const stored = localStorage.getItem("wyshbone_user");
       if (stored) {
         try {
