@@ -689,7 +689,8 @@ Examples:
               number_countiestosearch: pendingConfirmation.number_countiestosearch,
               smarlead_id: pendingConfirmation.smarlead_id,
               counties: pendingConfirmation.counties,  // Pass exact counties from preview
-              country: pendingConfirmation.country  // Pass country/state
+              country: pendingConfirmation.country,  // Pass country/state
+              userEmail: auth.userEmail  // Pass current user's email
             });
 
             const successCount = result.results.filter(r => r.ok).length;

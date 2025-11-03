@@ -56,7 +56,8 @@ function payloadForAutogenEndpoint(
   role: string,
   county: string,
   country: string,
-  smarleadId?: string
+  smarleadId?: string,
+  userEmail?: string
 ) {
   return {
     "Input Google Value": "",
@@ -68,7 +69,7 @@ function payloadForAutogenEndpoint(
     "Schedule ID 2": smarleadId || "2354720",
     "Target Email Position": role || "Head of Sales",
     "number_countiestosearch": 1,  // Always 1 for autogen
-    "login email": LOGIN_EMAIL,
+    "login email": userEmail || LOGIN_EMAIL, // Use current user's email or fallback to env
     "login password": LOGIN_PASSWORD,
     "replit_gen_uniqueid": generateUniqueId(),
     "call_source": "replit"
@@ -81,7 +82,8 @@ async function callBubbleAutogen(
   role: string,
   county: string,
   country: string,
-  smarleadId?: string
+  smarleadId?: string,
+  userEmail?: string
 ) {
   if (!BASE) {
     throw new Error("BUBBLE_BASE_URL is not configured. Please set it in Replit Secrets.");
@@ -93,7 +95,7 @@ async function callBubbleAutogen(
     headers["Authorization"] = `Bearer ${TOKEN}`;
   }
 
-  const payload = payloadForAutogenEndpoint(businessType, role, county, country, smarleadId);
+  const payload = payloadForAutogenEndpoint(businessType, role, county, country, smarleadId, userEmail);
   
   console.log(`🔄 Calling Bubble autogen workflow for: ${role} @ ${businessType} in ${county}, ${country}`);
   console.log(`📦 Autogen payload (STRICTLY 3 FIELDS):`, {
@@ -124,7 +126,7 @@ async function callBubbleAutogen(
 }
 
 export async function bubbleRunBatch(params: BubbleRunBatchRequest): Promise<BubbleRunBatchResponse> {
-  const { business_types, roles, delay_ms, number_countiestosearch, smarlead_id, counties: explicitCounties, country: requestCountry } = params;
+  const { business_types, roles, delay_ms, number_countiestosearch, smarlead_id, counties: explicitCounties, country: requestCountry, userEmail } = params;
 
   const bt = business_types.map(s => String(s).trim()).filter(Boolean);
   if (!bt.length) {
@@ -166,6 +168,7 @@ export async function bubbleRunBatch(params: BubbleRunBatchRequest): Promise<Bub
     counties: countyCount > 1 ? counties : ['N/A - single call mode'],
     country,
     smarlead_id: smarlead_id || "2354720 (default)",
+    userEmail: userEmail || `${LOGIN_EMAIL} (fallback)`,
     total_calls: totalCalls
   });
 
@@ -178,7 +181,7 @@ export async function bubbleRunBatch(params: BubbleRunBatchRequest): Promise<Bub
         for (const b of bt) {
           try {
             console.log(`📍 Calling autogen endpoint for county: ${county}`);
-            const r = await callBubbleAutogen(b, role, county, country, smarlead_id);
+            const r = await callBubbleAutogen(b, role, county, country, smarlead_id, userEmail);
             results.push({ 
               business_type: b, 
               role, 
@@ -217,7 +220,7 @@ export async function bubbleRunBatch(params: BubbleRunBatchRequest): Promise<Bub
       for (const b of bt) {
         try {
           console.log(`🔄 Calling Bubble autogen workflow for: ${role} @ ${b} in ${singleCounty}, ${country}`);
-          const r = await callBubbleAutogen(b, role, singleCounty, country, smarlead_id);
+          const r = await callBubbleAutogen(b, role, singleCounty, country, smarlead_id, userEmail);
           results.push({ 
             business_type: b, 
             role, 
