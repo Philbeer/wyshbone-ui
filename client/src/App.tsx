@@ -3,7 +3,7 @@ import { queryClient, addDevAuthParams } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
+import { SidebarProvider, SidebarTrigger, useSidebar } from "@/components/ui/sidebar";
 import { AppSidebar, type RunItem } from "@/components/app-sidebar";
 import { HeaderCountrySelector } from "@/components/HeaderCountrySelector";
 import { Moon, Sun, FilePlus } from "lucide-react";
@@ -346,70 +346,115 @@ function AppContent() {
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <SidebarProvider style={style as React.CSSProperties}>
-          <div className="flex h-screen w-full">
-            <AppSidebar 
-              defaultCountry={defaultCountry} 
-              onCountryChange={setDefaultCountry}
-              runs={runs}
-              conversations={conversations}
-              onSelectRun={handleSelectRun}
-              onSelectConversation={handleSelectConversation}
-              onRetryRun={(id) => console.log("Retry run:", id)}
-              onDuplicateRun={(id, newId) => console.log("Duplicate run:", id, "→", newId)}
-              onStopRun={(id) => console.log("Stop run:", id)}
-              onArchiveRun={(id, archived) => console.log("Archive run:", id, archived)}
-              onRunRun={handleRunRun}
-              onNewChat={() => newChatCallbackRef.current?.()}
-            />
-            <div className="flex flex-col flex-1">
-              <header className="relative flex items-center p-2 border-b gap-2">
-                <SidebarTrigger data-testid="button-sidebar-toggle" className="hidden sidebar:flex" />
-                
-                {/* Mobile: toggle + country selector centered */}
-                <div 
-                  className="sidebar:hidden absolute flex items-center gap-2"
-                  style={{
-                    left: '50%',
-                    transform: 'translateX(-50%)'
-                  }}
-                >
-                  <SidebarTrigger data-testid="button-sidebar-toggle-mobile" />
-                  <HeaderCountrySelector 
-                    defaultCountry={defaultCountry} 
-                    onCountryChange={setDefaultCountry} 
-                  />
-                </div>
-                
-                <div className="flex items-center gap-1 ml-auto">
-                  <LoginDialog />
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={toggleTheme}
-                    data-testid="button-theme-toggle"
-                  >
-                    {theme === "light" ? <Moon className="h-5 w-5" /> : <Sun className="h-5 w-5" />}
-                  </Button>
-                </div>
-              </header>
-              <main className="flex-1 overflow-hidden">
-                <Router 
-                  defaultCountry={defaultCountry} 
-                  onInjectSystemMessage={handleInjectSystemMessage}
-                  addRunFn={addRun}
-                  updateRunFn={updateRun}
-                  getActiveRunId={getActiveRunId}
-                  onNewChat={handleNewChat}
-                  onLoadConversation={handleLoadConversation}
-                />
-              </main>
-            </div>
-          </div>
+          <AppLayout
+            defaultCountry={defaultCountry}
+            setDefaultCountry={setDefaultCountry}
+            runs={runs}
+            conversations={conversations}
+            handleSelectRun={handleSelectRun}
+            handleSelectConversation={handleSelectConversation}
+            handleRunRun={handleRunRun}
+            newChatCallbackRef={newChatCallbackRef}
+            theme={theme}
+            toggleTheme={toggleTheme}
+            handleInjectSystemMessage={handleInjectSystemMessage}
+            addRun={addRun}
+            updateRun={updateRun}
+            getActiveRunId={getActiveRunId}
+            handleNewChat={handleNewChat}
+            handleLoadConversation={handleLoadConversation}
+          />
           <CountryHint />
         </SidebarProvider>
         <Toaster />
       </TooltipProvider>
     </QueryClientProvider>
+  );
+}
+
+function AppLayout({
+  defaultCountry,
+  setDefaultCountry,
+  runs,
+  conversations,
+  handleSelectRun,
+  handleSelectConversation,
+  handleRunRun,
+  newChatCallbackRef,
+  theme,
+  toggleTheme,
+  handleInjectSystemMessage,
+  addRun,
+  updateRun,
+  getActiveRunId,
+  handleNewChat,
+  handleLoadConversation
+}: any) {
+  const { state } = useSidebar();
+
+  return (
+    <div className="flex h-screen w-full">
+      <AppSidebar 
+        defaultCountry={defaultCountry} 
+        onCountryChange={setDefaultCountry}
+        runs={runs}
+        conversations={conversations}
+        onSelectRun={handleSelectRun}
+        onSelectConversation={handleSelectConversation}
+        onRetryRun={(id: string) => console.log("Retry run:", id)}
+        onDuplicateRun={(id: string, newId: string) => console.log("Duplicate run:", id, "→", newId)}
+        onStopRun={(id: string) => console.log("Stop run:", id)}
+        onArchiveRun={(id: string, archived: boolean) => console.log("Archive run:", id, archived)}
+        onRunRun={handleRunRun}
+        onNewChat={() => newChatCallbackRef.current?.()}
+      />
+      <div className="flex flex-col flex-1">
+        <header className="relative flex items-center p-2 border-b gap-2">
+          <SidebarTrigger data-testid="button-sidebar-toggle" className="hidden sidebar:flex" />
+          
+          {/* Mobile: toggle + country selector centered */}
+          <div 
+            className="sidebar:hidden absolute flex items-center gap-2"
+            style={{
+              left: '50%',
+              transform: 'translateX(-50%)'
+            }}
+          >
+            <SidebarTrigger 
+              data-testid="button-sidebar-toggle-mobile" 
+              className={state === "expanded" ? "font-bold" : "font-normal"}
+            />
+            <HeaderCountrySelector 
+              defaultCountry={defaultCountry} 
+              onCountryChange={setDefaultCountry} 
+            />
+          </div>
+          
+          <div className="flex items-center gap-1 ml-auto">
+            <LoginDialog />
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={toggleTheme}
+              data-testid="button-theme-toggle"
+            >
+              {theme === "light" ? <Moon className="h-5 w-5" /> : <Sun className="h-5 w-5" />}
+            </Button>
+          </div>
+        </header>
+        <main className="flex-1 overflow-hidden">
+          <Router 
+            defaultCountry={defaultCountry} 
+            onInjectSystemMessage={handleInjectSystemMessage}
+            addRunFn={addRun}
+            updateRunFn={updateRun}
+            getActiveRunId={getActiveRunId}
+            onNewChat={handleNewChat}
+            onLoadConversation={handleLoadConversation}
+          />
+        </main>
+      </div>
+    </div>
   );
 }
 
