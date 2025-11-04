@@ -409,7 +409,7 @@ function AppLayout({
     const updateMargin = () => {
       const width = window.innerWidth;
       if (width >= 500 && width < 925) {
-        setUserMenuMargin('160px');
+        setUserMenuMargin('80px');
       } else {
         setUserMenuMargin('0px');
       }
