@@ -428,7 +428,7 @@ function AppLayout({
           <div 
             className="sidebar:hidden absolute flex items-center gap-1.5 max-w-[50%]"
             style={{
-              left: '50%',
+              left: 'calc(50% - 20px)',
               transform: 'translateX(-50%)'
             }}
           >
