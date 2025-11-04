@@ -362,7 +362,7 @@ function AppContent() {
               onNewChat={() => newChatCallbackRef.current?.()}
             />
             <div className="flex flex-col flex-1">
-              <header className="relative flex items-center justify-between p-2 border-b gap-2">
+              <header className="relative flex items-center p-2 border-b gap-2">
                 <SidebarTrigger data-testid="button-sidebar-toggle" className="hidden md:flex" />
                 
                 {/* Mobile country selector - dropdown box centered on mobile */}
@@ -379,7 +379,7 @@ function AppContent() {
                   />
                 </div>
                 
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-1 ml-auto">
                   <LoginDialog />
                   <Button
                     variant="ghost"
