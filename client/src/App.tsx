@@ -6,7 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { SidebarProvider, SidebarTrigger, useSidebar } from "@/components/ui/sidebar";
 import { AppSidebar, type RunItem } from "@/components/app-sidebar";
 import { HeaderCountrySelector } from "@/components/HeaderCountrySelector";
-import { Moon, Sun, FilePlus } from "lucide-react";
+import { Moon, Sun, FilePlus, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import ChatPage from "@/pages/chat";
 import DebugPage from "@/pages/debug";
@@ -404,14 +404,17 @@ function AppLayout({
 }: any) {
   const { state } = useSidebar();
   const [userMenuMargin, setUserMenuMargin] = useState('0px');
+  const [showNewTabButton, setShowNewTabButton] = useState(false);
 
   useEffect(() => {
     const updateMargin = () => {
       const width = window.innerWidth;
       if (width >= 500 && width < 925) {
         setUserMenuMargin('80px');
+        setShowNewTabButton(true);
       } else {
         setUserMenuMargin('0px');
+        setShowNewTabButton(false);
       }
     };
 
@@ -419,6 +422,10 @@ function AppLayout({
     window.addEventListener('resize', updateMargin);
     return () => window.removeEventListener('resize', updateMargin);
   }, []);
+
+  const handleOpenInNewTab = () => {
+    window.open(window.location.href, '_blank');
+  };
 
   return (
     <div className="flex h-screen w-full">
@@ -462,6 +469,17 @@ function AppLayout({
             className="flex items-center gap-0.5 sidebar:gap-1 ml-auto"
             style={{ marginRight: userMenuMargin }}
           >
+            {showNewTabButton && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={handleOpenInNewTab}
+                data-testid="button-open-new-tab"
+                title="Open in new tab"
+              >
+                <ExternalLink className="h-4 w-4" />
+              </Button>
+            )}
             <LoginDialog />
             <Button
               variant="ghost"
