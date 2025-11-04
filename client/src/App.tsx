@@ -67,12 +67,25 @@ function AppContent() {
   const [location] = useLocation();
   const [runs, setRuns] = useState<RunItem[]>(DEMO_RUNS);
   const [conversations, setConversations] = useState<ConversationItem[]>([]);
+  const prevUserIdRef = useRef<string>(user.id);
   
   const [defaultCountry, setDefaultCountry] = useState<string>(() => {
     const stored = localStorage.getItem('defaultCountry') || 'US';
     console.log(`🌍 Initializing default country: ${stored}`);
     return stored;
   });
+  
+  // Clear React Query cache when user changes
+  useEffect(() => {
+    if (prevUserIdRef.current !== user.id && prevUserIdRef.current !== "demo-user") {
+      console.log(`🧹 USER CHANGED: Clearing React Query cache (${prevUserIdRef.current} → ${user.id})`);
+      queryClient.clear();
+      // Also clear local state
+      setRuns([]);
+      setConversations([]);
+    }
+    prevUserIdRef.current = user.id;
+  }, [user.id]);
   
   // Update defaultCountry when user changes (e.g., after session validation)
   useEffect(() => {
