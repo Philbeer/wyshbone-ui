@@ -938,19 +938,6 @@ function ScheduledMonitorsSection({ userId, onSelectConversation }: { userId: st
       return;
     }
     
-    if (editForm.emailNotifications && !editForm.emailAddress.trim()) {
-      alert('Email address is required when notifications are enabled');
-      return;
-    }
-    
-    if (editForm.emailNotifications && editForm.emailAddress.trim()) {
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(editForm.emailAddress.trim())) {
-        alert('Please enter a valid email address');
-        return;
-      }
-    }
-    
     setIsSaving(true);
     try {
       const url = addDevAuthParams(`/api/scheduled-monitors/${editingMonitor.id}`);
@@ -963,7 +950,6 @@ function ScheduledMonitorsSection({ userId, onSelectConversation }: { userId: st
           scheduleDay: editForm.scheduleDay || null,
           scheduleTime: editForm.scheduleTime || null,
           emailNotifications: editForm.emailNotifications ? 1 : 0,
-          emailAddress: editForm.emailAddress || null,
         }),
       });
       
@@ -1097,7 +1083,7 @@ function ScheduledMonitorsSection({ userId, onSelectConversation }: { userId: st
                     Email Notifications
                   </Label>
                   <p className="text-xs text-muted-foreground">
-                    Send results to your email when this monitor runs
+                    Results will be sent to your login email
                   </p>
                 </div>
                 <Switch
@@ -1107,24 +1093,6 @@ function ScheduledMonitorsSection({ userId, onSelectConversation }: { userId: st
                   data-testid="switch-email-notifications"
                 />
               </div>
-              {editForm.emailNotifications && (
-                <div className="space-y-2">
-                  <Label htmlFor="edit-email-address" className="text-sm">
-                    Email Address
-                  </Label>
-                  <Input
-                    id="edit-email-address"
-                    type="email"
-                    value={editForm.emailAddress}
-                    onChange={(e) => setEditForm({ ...editForm, emailAddress: e.target.value })}
-                    placeholder="phil@listersbrewery.com"
-                    data-testid="input-email-address"
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Monitor results will be sent to this email address
-                  </p>
-                </div>
-              )}
             </div>
           </div>
           <div className="flex justify-end gap-2">

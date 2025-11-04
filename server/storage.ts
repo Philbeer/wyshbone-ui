@@ -16,7 +16,7 @@ import type {
 import { drizzle } from "drizzle-orm/neon-http";
 import { neon } from "@neondatabase/serverless";
 import { deepResearchRuns, conversations, messages, facts, scheduledMonitors, userSessions } from "@shared/schema";
-import { eq, or, and, desc, asc, lt } from "drizzle-orm";
+import { eq, or, and, desc, asc, lt, gt } from "drizzle-orm";
 
 export interface PendingBatchConfirmation {
   business_types: string[];
@@ -103,6 +103,7 @@ export interface IStorage {
   getSession(sessionId: string): Promise<SelectUserSession | null>;
   deleteSession(sessionId: string): Promise<boolean>;
   deleteExpiredSessions(): Promise<number>;
+  getUserEmail(userId: string): Promise<string | null>;
 }
 
 export class MemStorage implements IStorage {
@@ -368,6 +369,17 @@ export class MemStorage implements IStorage {
       }
     }
     return count;
+  }
+
+  async getUserEmail(userId: string): Promise<string | null> {
+    const now = Date.now();
+    const sessions = Array.from(this.sessions.values());
+    for (const session of sessions) {
+      if (session.userId === userId && session.expiresAt > now) {
+        return session.userEmail;
+      }
+    }
+    return null;
   }
 }
 
@@ -654,6 +666,19 @@ export class DbStorage implements IStorage {
     const now = Date.now();
     const result = await db.delete(userSessions).where(lt(userSessions.expiresAt, now)).returning();
     return result.length;
+  }
+
+  async getUserEmail(userId: string): Promise<string | null> {
+    const now = Date.now();
+    const sessions = await db.select()
+      .from(userSessions)
+      .where(and(
+        eq(userSessions.userId, userId),
+        gt(userSessions.expiresAt, now)
+      ))
+      .limit(1);
+    
+    return sessions.length > 0 ? sessions[0].userEmail : null;
   }
 }
 

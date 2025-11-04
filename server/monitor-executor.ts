@@ -42,11 +42,12 @@ export async function executeMonitorAndNotify(monitor: ScheduledMonitor, userEma
   
   const results = await executeMonitor(monitor, conversationId);
   
-  // Use saved email address from monitor, fallback to userEmail param, then hardcoded email for testing
-  const recipientEmail = monitor.emailAddress || userEmail || 'phil@listersbrewery.com';
+  // Get user's login email from their active session
+  const loginEmail = await storage.getUserEmail(monitor.userId);
+  const recipientEmail = loginEmail || 'phil@listersbrewery.com';
   
   if (monitor.emailNotifications === 1) {
-    await sendMonitorResultEmail(monitor, recipientEmail, results, conversationId);
+    await sendMonitorResultEmail(monitor, recipientEmail, results, conversationId, monitor.userId);
   }
 }
 
@@ -307,7 +308,8 @@ async function sendMonitorResultEmail(
   monitor: ScheduledMonitor, 
   userEmail: string, 
   results: any,
-  conversationId: string
+  conversationId: string,
+  userId: string
 ): Promise<void> {
   try {
     const { client, fromEmail } = await getUncachableResendClient();
@@ -321,6 +323,7 @@ async function sendMonitorResultEmail(
       newResults: results.newResults,
       summary: results.summary,
       conversationId,
+      userId,
     };
     
     const { subject, html } = formatMonitorResultEmail(monitorResult);

@@ -10,6 +10,7 @@ export interface MonitorResult {
   totalResults?: number;
   newResults?: number;
   conversationId?: string;
+  userId?: string;
 }
 
 export function formatMonitorResultEmail(
@@ -24,6 +25,7 @@ export function formatMonitorResultEmail(
     totalResults,
     newResults,
     conversationId,
+    userId,
   } = result;
 
   const typeLabel =
@@ -53,9 +55,16 @@ export function formatMonitorResultEmail(
     'your-app.replit.app'
   }`;
 
-  const reportHref = `${baseUrl}${
-    conversationId ? `?conversation=${encodeURIComponent(conversationId)}` : ''
-  }`;
+  // Build authenticated link with userId (dev mode only - production uses Bubble auth)
+  const params = new URLSearchParams();
+  if (conversationId) {
+    params.set('conversation', conversationId);
+  }
+  if (userId && process.env.NODE_ENV !== 'production') {
+    params.set('userId', userId);
+  }
+  
+  const reportHref = `${baseUrl}${params.toString() ? `?${params.toString()}` : ''}`;
 
   // Use logo served from this Replit app
   const logoUrl = `${baseUrl}/assets/logo.png`;
