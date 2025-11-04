@@ -90,12 +90,11 @@ function AppContent() {
   // Update defaultCountry when user changes (e.g., after session validation)
   useEffect(() => {
     const storedCountry = localStorage.getItem('defaultCountry');
-    console.log(`🔍 Checking country update - stored: ${storedCountry}, current: ${defaultCountry}`);
-    if (storedCountry && storedCountry !== defaultCountry) {
-      console.log(`🌍 Updating default country from localStorage: ${storedCountry}`);
+    if (storedCountry) {
+      console.log(`🌍 Loading default country from localStorage: ${storedCountry}`);
       setDefaultCountry(storedCountry);
     }
-  }, [user.id, defaultCountry]); // Re-run when user changes
+  }, [user.id]); // Only re-run when user changes (removed defaultCountry to prevent loop)
   
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     return (localStorage.getItem('theme') as "light" | "dark") || "light";
