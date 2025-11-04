@@ -4446,15 +4446,9 @@ ${run.outputText}`;
         return res.status(403).json({ error: "Forbidden: Cannot modify other users' monitors" });
       }
       
-      // Validate email when notifications are enabled
+      // Automatically use user's login email for notifications
       if (updates.emailNotifications === 1) {
-        if (!updates.emailAddress || !updates.emailAddress.trim()) {
-          return res.status(400).json({ error: "Email address is required when notifications are enabled" });
-        }
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        if (!emailRegex.test(updates.emailAddress.trim())) {
-          return res.status(400).json({ error: "Invalid email address format" });
-        }
+        updates.emailAddress = auth.userEmail;
       }
       
       // If schedule is being updated, recalculate nextRunAt and reactivate
