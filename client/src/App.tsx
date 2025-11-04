@@ -469,6 +469,7 @@ function AppLayout({
             className="flex items-center gap-0.5 sidebar:gap-1 ml-auto"
             style={{ marginRight: userMenuMargin }}
           >
+            <LoginDialog />
             {showNewTabButton && (
               <Button
                 variant="ghost"
@@ -480,7 +481,6 @@ function AppLayout({
                 <ExternalLink className="h-4 w-4" />
               </Button>
             )}
-            <LoginDialog />
             <Button
               variant="ghost"
               size="icon"
