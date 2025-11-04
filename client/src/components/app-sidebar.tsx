@@ -732,8 +732,8 @@ export function AppSidebar({
   return (
     <Sidebar>
       <SidebarContent>
-        <SidebarGroup>
-          <SidebarGroupLabel className="flex items-center gap-2">
+        <SidebarGroup className="mt-5">
+          <SidebarGroupLabel className="flex items-center gap-2 ml-5">
             <Globe className="h-4 w-4" />
             Default Country
           </SidebarGroupLabel>
