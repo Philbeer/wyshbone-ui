@@ -363,7 +363,7 @@ function AppContent() {
             />
             <div className="flex flex-col flex-1">
               <header className="relative flex items-center justify-between p-2 border-b gap-2">
-                <SidebarTrigger data-testid="button-sidebar-toggle" />
+                <SidebarTrigger data-testid="button-sidebar-toggle" className="hidden lg:inline-flex" />
                 
                 {/* Mobile country selector - dropdown box centered on mobile */}
                 <div 
