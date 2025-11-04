@@ -424,7 +424,19 @@ function AppLayout({
   }, []);
 
   const handleOpenInNewTab = () => {
-    window.open(window.location.href, '_blank');
+    // Get current conversation ID from localStorage
+    const currentConversationId = localStorage.getItem('currentConversationId');
+    
+    // Build URL with conversation parameter if available
+    const baseUrl = window.location.origin + window.location.pathname;
+    const params = new URLSearchParams(window.location.search);
+    
+    if (currentConversationId) {
+      params.set('conversation', currentConversationId);
+    }
+    
+    const newUrl = params.toString() ? `${baseUrl}?${params.toString()}` : baseUrl;
+    window.open(newUrl, '_blank');
   };
 
   return (
