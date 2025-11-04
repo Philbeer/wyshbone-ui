@@ -403,6 +403,22 @@ function AppLayout({
   handleLoadConversation
 }: any) {
   const { state } = useSidebar();
+  const [userMenuMargin, setUserMenuMargin] = useState('0px');
+
+  useEffect(() => {
+    const updateMargin = () => {
+      const width = window.innerWidth;
+      if (width >= 640 && width < 925) {
+        setUserMenuMargin('160px');
+      } else {
+        setUserMenuMargin('0px');
+      }
+    };
+
+    updateMargin();
+    window.addEventListener('resize', updateMargin);
+    return () => window.removeEventListener('resize', updateMargin);
+  }, []);
 
   return (
     <div className="flex h-screen w-full">
@@ -442,7 +458,10 @@ function AppLayout({
             />
           </div>
           
-          <div className="flex items-center gap-0.5 sidebar:gap-1 ml-auto mr-0 sm:mr-32">
+          <div 
+            className="flex items-center gap-0.5 sidebar:gap-1 ml-auto"
+            style={{ marginRight: userMenuMargin }}
+          >
             <LoginDialog />
             <Button
               variant="ghost"
