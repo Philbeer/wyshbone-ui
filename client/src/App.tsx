@@ -365,14 +365,15 @@ function AppContent() {
               <header className="relative flex items-center p-2 border-b gap-2">
                 <SidebarTrigger data-testid="button-sidebar-toggle" className="hidden sidebar:flex" />
                 
-                {/* Mobile country selector - dropdown box centered on mobile */}
+                {/* Mobile: toggle + country selector centered */}
                 <div 
-                  className="sidebar:hidden absolute"
+                  className="sidebar:hidden absolute flex items-center gap-2"
                   style={{
                     left: '50%',
-                    transform: 'translateX(calc(-50% - 12px))'
+                    transform: 'translateX(-50%)'
                   }}
                 >
+                  <SidebarTrigger data-testid="button-sidebar-toggle-mobile" />
                   <HeaderCountrySelector 
                     defaultCountry={defaultCountry} 
                     onCountryChange={setDefaultCountry} 
