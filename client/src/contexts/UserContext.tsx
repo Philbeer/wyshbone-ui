@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from "react";
+import { queryClient } from "@/lib/queryClient";
 
 export interface User {
   id: string;
@@ -42,6 +43,14 @@ export function UserProvider({ children }: { children: ReactNode }) {
           try {
             const parsed = JSON.parse(stored);
             console.log(`✅ Using pre-validated session for: ${parsed.email}`);
+            
+            // Check if this is a different user than the current state
+            // This handles cases where user switches accounts in Bubble
+            if (user.id !== parsed.id && user.id !== "demo-user") {
+              console.log("🧹 Clearing React Query cache - user changed from session validation");
+              queryClient.clear();
+            }
+            
             setUserInternal(parsed);
             setIsValidatingSession(false);
             return;
@@ -57,6 +66,18 @@ export function UserProvider({ children }: { children: ReactNode }) {
       const userEmail = urlParams.get("user_email");
       
       if (userId && userEmail) {
+        // Check if this is a different user than what's in localStorage
+        const storedUserJson = localStorage.getItem("wyshbone_user");
+        let isDifferentUser = true;
+        if (storedUserJson) {
+          try {
+            const storedUser = JSON.parse(storedUserJson);
+            isDifferentUser = storedUser.id !== userId;
+          } catch (e) {
+            // If parsing fails, treat as different user
+          }
+        }
+        
         const userName = userEmail.split("@")[0];
         const urlUser = {
           id: userId,
@@ -65,6 +86,13 @@ export function UserProvider({ children }: { children: ReactNode }) {
         };
         console.log("🔐 User authenticated from URL parameters:", { userId, userEmail });
         localStorage.setItem("wyshbone_user", JSON.stringify(urlUser));
+        
+        // Clear React Query cache if switching to a different user
+        if (isDifferentUser) {
+          console.log("🧹 Clearing React Query cache for new user");
+          queryClient.clear();
+        }
+        
         setUserInternal(urlUser);
         setIsValidatingSession(false);
         return;
