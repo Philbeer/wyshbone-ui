@@ -444,6 +444,15 @@ function AppLayout({
           
           <div className="flex items-center gap-0.5 sidebar:gap-1 ml-auto">
             <LoginDialog />
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={toggleTheme}
+              data-testid="button-theme-toggle"
+              className="hidden sidebar:flex"
+            >
+              {theme === "light" ? <Moon className="h-5 w-5" /> : <Sun className="h-5 w-5" />}
+            </Button>
           </div>
         </header>
         <main className="flex-1 overflow-hidden">
