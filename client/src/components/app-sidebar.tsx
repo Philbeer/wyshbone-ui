@@ -739,7 +739,7 @@ export function AppSidebar({
           <SidebarGroupLabel className="flex items-center gap-2 ml-5">
             <SidebarTrigger 
               data-testid="button-sidebar-toggle-mobile" 
-              className={`md:hidden mr-2 ${state === "expanded" ? "font-bold" : "font-normal"}`}
+              className={`sidebar:hidden mr-2 ${state === "expanded" ? "font-bold" : "font-normal"}`}
             />
             <Globe className="h-4 w-4" />
             Default Country

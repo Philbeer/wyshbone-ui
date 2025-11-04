@@ -363,11 +363,11 @@ function AppContent() {
             />
             <div className="flex flex-col flex-1">
               <header className="relative flex items-center p-2 border-b gap-2">
-                <SidebarTrigger data-testid="button-sidebar-toggle" className="hidden md:flex" />
+                <SidebarTrigger data-testid="button-sidebar-toggle" className="hidden sidebar:flex" />
                 
                 {/* Mobile country selector - dropdown box centered on mobile */}
                 <div 
-                  className="md:hidden absolute"
+                  className="sidebar:hidden absolute"
                   style={{
                     left: '50%',
                     transform: 'translateX(calc(-50% - 12px))'
