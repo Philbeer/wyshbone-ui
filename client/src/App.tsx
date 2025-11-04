@@ -442,7 +442,7 @@ function AppLayout({
             />
           </div>
           
-          <div className="flex items-center gap-0.5 sidebar:gap-1 ml-auto mr-0 sm:mr-20">
+          <div className="flex items-center gap-0.5 sidebar:gap-1 ml-auto mr-0 sm:mr-32">
             <LoginDialog />
             <Button
               variant="ghost"
