@@ -20,13 +20,37 @@ if (params.get("reset") === "1") {
 // Check if we have a session ID from Bubble
 const sid = params.get("sid");
 
+// Check for direct URL authentication (email links in development)
+const userId = params.get("user_id");
+const userEmail = params.get("user_email");
+
 // Function to render the app
 function renderApp() {
   createRoot(document.getElementById("root")!).render(<App />);
 }
 
+// If we have URL authentication params (email links), store them BEFORE rendering
+if (userId && userEmail && !sid) {
+  console.log("🔐 Email link authentication detected, storing user before app loads");
+  const userName = userEmail.split("@")[0];
+  const user = {
+    id: userId,
+    email: userEmail,
+    name: userName.charAt(0).toUpperCase() + userName.slice(1)
+  };
+  
+  try {
+    localStorage.setItem("wyshbone_user", JSON.stringify(user));
+    console.log("✅ User stored from URL params:", userEmail);
+  } catch (e) {
+    console.warn("Failed to write user to localStorage:", e);
+  }
+  
+  // Now render the app with the user already in localStorage
+  renderApp();
+}
 // If we have a session ID, validate it BEFORE rendering
-if (sid) {
+else if (sid) {
   console.log("🔐 Validating session ID before app render...");
   
   fetch(`/api/validate-session/${sid}`, { credentials: "include" })
