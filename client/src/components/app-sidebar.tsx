@@ -1,4 +1,4 @@
-import { Globe, MessageSquare, Bug, FilePlus, MessagesSquare, ChevronDown, ChevronRight, Clock, Edit2, Trash2, Mail } from "lucide-react";
+import { Globe, MessageSquare, Bug, FilePlus, MessagesSquare, ChevronDown, ChevronRight, Clock, Edit2, Trash2, Mail, Menu } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
@@ -13,6 +13,8 @@ import {
   SidebarMenu,
   SidebarMenuItem,
   SidebarMenuButton,
+  SidebarTrigger,
+  useSidebar,
 } from "@/components/ui/sidebar";
 import {
   Select,
@@ -728,12 +730,17 @@ export function AppSidebar({
   );
 
   const [location] = useLocation();
+  const { state } = useSidebar();
 
   return (
     <Sidebar>
       <SidebarContent>
         <SidebarGroup className="mt-[30px]">
           <SidebarGroupLabel className="flex items-center gap-2 ml-5">
+            <SidebarTrigger 
+              data-testid="button-sidebar-toggle-mobile" 
+              className={`md:hidden mr-2 ${state === "expanded" ? "font-bold" : "font-normal"}`}
+            />
             <Globe className="h-4 w-4" />
             Default Country
           </SidebarGroupLabel>
