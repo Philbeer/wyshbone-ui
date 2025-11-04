@@ -44,11 +44,11 @@ export function LoginDialog() {
         <Button 
           variant="ghost" 
           size="sm"
-          className="gap-2"
+          className="gap-1.5 sidebar:gap-2"
           data-testid="button-user-menu"
         >
-          <UserCircle className="h-4 w-4" />
-          <span className="text-xs">{user.name}</span>
+          <UserCircle className="h-4 w-4 shrink-0" />
+          <span className="text-xs truncate max-w-[80px] sidebar:max-w-none">{user.name}</span>
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-md" data-testid="dialog-login">

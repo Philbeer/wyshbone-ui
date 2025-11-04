@@ -426,7 +426,7 @@ function AppLayout({
           
           {/* Mobile: toggle + country selector centered */}
           <div 
-            className="sidebar:hidden absolute flex items-center gap-2"
+            className="sidebar:hidden absolute flex items-center gap-1.5 max-w-[50%]"
             style={{
               left: '50%',
               transform: 'translateX(-50%)'
@@ -442,7 +442,7 @@ function AppLayout({
             />
           </div>
           
-          <div className="flex items-center gap-1 ml-auto">
+          <div className="flex items-center gap-0.5 sidebar:gap-1 ml-auto">
             <LoginDialog />
             <Button
               variant="ghost"
