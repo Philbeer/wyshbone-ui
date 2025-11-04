@@ -324,6 +324,7 @@ async function sendMonitorResultEmail(
       summary: results.summary,
       conversationId,
       userId,
+      userEmail,
     };
     
     const { subject, html } = formatMonitorResultEmail(monitorResult);

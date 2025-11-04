@@ -11,6 +11,7 @@ export interface MonitorResult {
   newResults?: number;
   conversationId?: string;
   userId?: string;
+  userEmail?: string;
 }
 
 export function formatMonitorResultEmail(
@@ -26,6 +27,7 @@ export function formatMonitorResultEmail(
     newResults,
     conversationId,
     userId,
+    userEmail,
   } = result;
 
   const typeLabel =
@@ -55,13 +57,14 @@ export function formatMonitorResultEmail(
     'your-app.replit.app'
   }`;
 
-  // Build authenticated link with userId (dev mode only - production uses Bubble auth)
+  // Build authenticated link with user_id and user_email for automatic authentication
   const params = new URLSearchParams();
   if (conversationId) {
     params.set('conversation', conversationId);
   }
-  if (userId && process.env.NODE_ENV !== 'production') {
-    params.set('userId', userId);
+  if (userId && userEmail && process.env.NODE_ENV !== 'production') {
+    params.set('user_id', userId);
+    params.set('user_email', userEmail);
   }
   
   const reportHref = `${baseUrl}${params.toString() ? `?${params.toString()}` : ''}`;
