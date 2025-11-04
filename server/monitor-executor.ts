@@ -24,23 +24,29 @@ export async function executeMonitorAndNotify(monitor: ScheduledMonitor, userEma
   const previousRuns = await storage.listMonitorRunConversations(monitor.id);
   const nextSequence = previousRuns.length + 1;
   
-  // Create a NEW conversation for THIS run
-  const conversationId = crypto.randomUUID();
-  const runTitle = `${monitor.label} - Run #${nextSequence}`;
+  // Find or create a SINGLE conversation for this monitor
+  let conversationId: string;
   
-  await storage.createConversation({
-    id: conversationId,
-    userId: monitor.userId,
-    label: runTitle,
-    type: 'monitor_run',
-    monitorId: monitor.id,
-    runSequence: nextSequence,
-    createdAt: Date.now(),
-  });
+  if (previousRuns.length > 0) {
+    // Use the existing monitor conversation
+    conversationId = previousRuns[0].id;
+    console.log(`📝 Using existing monitor conversation: ${conversationId} (Run #${nextSequence})`);
+  } else {
+    // First run - create a new conversation
+    conversationId = crypto.randomUUID();
+    await storage.createConversation({
+      id: conversationId,
+      userId: monitor.userId,
+      label: monitor.label,
+      type: 'monitor_run',
+      monitorId: monitor.id,
+      runSequence: 1,
+      createdAt: Date.now(),
+    });
+    console.log(`📝 Created new monitor conversation: ${conversationId} (First run)`);
+  }
   
-  console.log(`📝 Created new monitor run conversation: ${conversationId} (Run #${nextSequence})`);
-  
-  const results = await executeMonitor(monitor, conversationId);
+  const results = await executeMonitor(monitor, conversationId, nextSequence);
   
   // Get user's login email from their active session
   const loginEmail = await storage.getUserEmail(monitor.userId);
@@ -51,11 +57,11 @@ export async function executeMonitorAndNotify(monitor: ScheduledMonitor, userEma
   }
 }
 
-async function executeMonitor(monitor: ScheduledMonitor, conversationId: string): Promise<any> {
+async function executeMonitor(monitor: ScheduledMonitor, conversationId: string, runSequence: number): Promise<any> {
   console.log(`🔍 Executing ${monitor.monitorType} monitor...`);
   
   if (monitor.monitorType === 'deep_research') {
-    return await executeDeepResearch(monitor, conversationId);
+    return await executeDeepResearch(monitor, conversationId, runSequence);
   }
   
   // Other monitor types not yet implemented
@@ -65,7 +71,7 @@ async function executeMonitor(monitor: ScheduledMonitor, conversationId: string)
   };
 }
 
-async function executeDeepResearch(monitor: ScheduledMonitor, conversationId: string): Promise<any> {
+async function executeDeepResearch(monitor: ScheduledMonitor, conversationId: string, runSequence: number): Promise<any> {
   try {
     console.log(`🔬 Starting deep research for: ${monitor.description}`);
     
@@ -170,12 +176,18 @@ async function executeDeepResearch(monitor: ScheduledMonitor, conversationId: st
         
         console.log(`💾 Updated monitor config: added ${currentVenues.length} current venues, total historical venues: ${allHistoricalVenues.length}`);
         
-        // Save research results to conversation
+        // Save research results to conversation (with run number separator)
+        const runDate = new Date().toLocaleDateString('en-GB', { 
+          day: 'numeric', 
+          month: 'short', 
+          year: 'numeric' 
+        });
+        
         await storage.createMessage({
           id: crypto.randomUUID(),
           conversationId,
           role: 'user',
-          content: `🔍 Scheduled Monitor: ${monitor.label}\n\n${monitor.description}`,
+          content: `🔍 **Monitor Run #${runSequence}** - ${runDate}\n\n${monitor.description}`,
           createdAt: Date.now(),
         });
         
@@ -187,7 +199,7 @@ async function executeDeepResearch(monitor: ScheduledMonitor, conversationId: st
           createdAt: Date.now() + 1,
         });
         
-        console.log(`💾 Saved monitor results to conversation ${conversationId}`);
+        console.log(`💾 Saved monitor run #${runSequence} results to conversation ${conversationId}`);
         
         return {
           totalResults: currentResultCount,
