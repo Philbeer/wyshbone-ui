@@ -408,7 +408,7 @@ function AppLayout({
   useEffect(() => {
     const updateMargin = () => {
       const width = window.innerWidth;
-      if (width >= 640 && width < 925) {
+      if (width >= 500 && width < 925) {
         setUserMenuMargin('160px');
       } else {
         setUserMenuMargin('0px');
