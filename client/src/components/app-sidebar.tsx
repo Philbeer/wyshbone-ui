@@ -1330,7 +1330,8 @@ function IntegrationsSection({ userId }: { userId: string }) {
   const handleConnect = async (provider: string) => {
     setIsConnecting(provider);
     try {
-      const { Nango } = await import('@nangohq/frontend');
+      const nangoModule = await import('@nangohq/frontend');
+      const Nango = nangoModule.default || nangoModule.Nango || nangoModule;
       
       const NANGO_PUBLIC_KEY = import.meta.env.VITE_NANGO_PUBLIC_KEY || import.meta.env.VITE_NANGO_SECRET_KEY;
       if (!NANGO_PUBLIC_KEY) {
@@ -1375,7 +1376,7 @@ function IntegrationsSection({ userId }: { userId: string }) {
       }
     } catch (error: any) {
       console.error('OAuth flow error:', error);
-      if (error.message !== 'User closed the popup') {
+      if (error?.message && error.message !== 'User closed the popup') {
         alert(`Failed to connect: ${error.message}`);
       }
     } finally {
