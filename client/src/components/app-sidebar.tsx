@@ -1330,87 +1330,56 @@ function IntegrationsSection({ userId }: { userId: string }) {
   const handleConnect = async (provider: string) => {
     setIsConnecting(provider);
     try {
-      // Get authorization URL from backend
-      const url = addDevAuthParams('/api/integrations/authorization-url');
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ provider }),
-      });
+      const { Nango } = await import('@nangohq/frontend');
       
-      if (!response.ok) {
-        const errorData = await response.json();
-        alert(errorData.error || 'Failed to initiate connection');
+      const NANGO_PUBLIC_KEY = import.meta.env.VITE_NANGO_PUBLIC_KEY || import.meta.env.VITE_NANGO_SECRET_KEY;
+      if (!NANGO_PUBLIC_KEY) {
+        alert('Nango configuration missing - contact administrator');
         setIsConnecting(null);
         return;
       }
       
-      const data = await response.json();
+      const nango = new Nango({ publicKey: NANGO_PUBLIC_KEY });
       
-      if (data.authorizationUrl) {
-        // Open OAuth flow in popup
-        const popup = window.open(
-          data.authorizationUrl,
-          'OAuth',
-          'width=600,height=700,left=100,top=100'
-        );
+      console.log(`🔗 Starting OAuth flow for ${provider}...`);
+      
+      // Get user ID from current user context
+      const userId = 'demo-user'; // In production, use actual user ID
+      
+      // Trigger OAuth flow
+      const result = await nango.auth(provider, userId);
+      
+      if (result) {
+        console.log('✅ OAuth completed successfully:', result);
         
-        if (popup) {
-          // Listen for OAuth success message from popup
-          const handleMessage = async (event: MessageEvent) => {
-            if (event.data.type === 'oauth-success' && event.data.provider === provider) {
-              console.log('✅ OAuth success received for:', provider);
-              window.removeEventListener('message', handleMessage);
-              
-              // Wait a moment for Nango to finalize the connection
-              await new Promise(resolve => setTimeout(resolve, 2000));
-              
-              // Verify and sync connection
-              try {
-                const verifyUrl = addDevAuthParams(`/api/integrations/verify/${provider}`);
-                const verifyResponse = await fetch(verifyUrl);
-                const verifyData = await verifyResponse.json();
-                
-                if (verifyData.connected) {
-                  console.log('✅ Connection verified and saved:', provider);
-                } else {
-                  console.warn('⚠️ Connection not found after OAuth');
-                }
-              } catch (error) {
-                console.error('Failed to verify connection:', error);
-              }
-              
-              // Refresh integration list
-              refetch();
-              setIsConnecting(null);
-            }
-          };
+        // Wait a moment for Nango to finalize
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
+        // Verify and sync connection
+        try {
+          const verifyUrl = addDevAuthParams(`/api/integrations/verify/${provider}`);
+          const verifyResponse = await fetch(verifyUrl);
+          const verifyData = await verifyResponse.json();
           
-          window.addEventListener('message', handleMessage);
-          
-          // Fallback: poll for popup closure
-          const interval = setInterval(() => {
-            if (popup.closed) {
-              clearInterval(interval);
-              window.removeEventListener('message', handleMessage);
-              if (isConnecting) {
-                console.log('Popup closed, refreshing integrations');
-                refetch();
-                setIsConnecting(null);
-              }
-            }
-          }, 1000);
-        } else {
-          alert('Please allow popups for this site to connect integrations');
-          setIsConnecting(null);
+          if (verifyData.connected) {
+            console.log('✅ Connection verified and saved:', provider);
+          } else {
+            console.warn('⚠️ Connection not found after OAuth');
+          }
+        } catch (error) {
+          console.error('Failed to verify connection:', error);
         }
-        return;
+        
+        // Refresh integration list
+        refetch();
       }
-    } catch (error) {
-      console.error('Failed to connect:', error);
-      alert('Failed to initiate connection. Please try again.');
+    } catch (error: any) {
+      console.error('OAuth flow error:', error);
+      if (error.message !== 'User closed the popup') {
+        alert(`Failed to connect: ${error.message}`);
+      }
     } finally {
-      if (!isConnecting) setIsConnecting(null);
+      setIsConnecting(null);
     }
   };
   
