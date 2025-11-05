@@ -88,10 +88,20 @@ const router = Router();
 // Environment variables
 const XERO_CLIENT_ID = process.env.XERO_CLIENT_ID;
 const XERO_CLIENT_SECRET = process.env.XERO_CLIENT_SECRET;
-const BASE_URL = process.env.REPL_SLUG 
-  ? `https://${process.env.REPL_SLUG}.${process.env.REPL_OWNER}.repl.co`
-  : "http://localhost:5000";
+
+// Calculate base URL for OAuth redirects
+const BASE_URL = process.env.REPLIT_DOMAINS 
+  ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}`
+  : (process.env.REPL_SLUG 
+    ? `https://${process.env.REPL_SLUG}.${process.env.REPL_OWNER}.repl.co`
+    : "http://localhost:5000");
+
 const REDIRECT_URI = `${BASE_URL}/api/integrations/xero/callback`;
+
+// Log the redirect URI for debugging
+console.log("🔗 Xero OAuth Configuration:");
+console.log(`   Redirect URI: ${REDIRECT_URI}`);
+console.log(`   Base URL: ${BASE_URL}`);
 
 // Xero OAuth endpoints
 const XERO_AUTH_URL = "https://login.xero.com/identity/connect/authorize";
