@@ -430,3 +430,47 @@ export const createSessionResponseSchema = z.object({
 export type CreateSessionRequest = z.infer<typeof createSessionRequestSchema>;
 export type CreateSessionResponse = z.infer<typeof createSessionResponseSchema>;
 export type SelectUserSession = typeof userSessions.$inferSelect;
+
+// Integrations table for CRM/accounting connections via Nango.dev
+export const integrations = pgTable("integrations", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  provider: text("provider").notNull(), // 'salesforce', 'xero', 'microsoft-business-central', 'google-sheets'
+  connectionId: text("connection_id").notNull(), // Nango connection ID
+  metadata: jsonb("metadata"), // OAuth tokens, refresh tokens, etc. (stored by Nango)
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+}, (table) => ({
+  userIdIdx: index("integrations_user_id_idx").on(table.userId),
+  providerIdx: index("integrations_provider_idx").on(table.provider),
+}));
+
+// Integration Zod schemas
+export const integrationProviderSchema = z.enum([
+  "salesforce",
+  "xero",
+  "microsoft-business-central",
+  "google-sheets",
+]);
+
+export const integrationSchema = z.object({
+  id: z.string(),
+  userId: z.string(),
+  provider: integrationProviderSchema,
+  connectionId: z.string(),
+  metadata: z.any().optional(),
+  createdAt: z.number(),
+});
+
+export type Integration = z.infer<typeof integrationSchema>;
+
+export const createIntegrationRequestSchema = z.object({
+  provider: integrationProviderSchema,
+});
+
+export type CreateIntegrationRequest = z.infer<typeof createIntegrationRequestSchema>;
+
+// Integration Drizzle insert/select schemas
+export const insertIntegrationSchema = createInsertSchema(integrations);
+export const selectIntegrationSchema = createSelectSchema(integrations);
+export type InsertIntegration = z.infer<typeof insertIntegrationSchema>;
+export type SelectIntegration = typeof integrations.$inferSelect;

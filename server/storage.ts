@@ -11,11 +11,13 @@ import type {
   InsertFact,
   SelectScheduledMonitor,
   InsertScheduledMonitor,
-  SelectUserSession
+  SelectUserSession,
+  InsertIntegration,
+  SelectIntegration
 } from "@shared/schema";
 import { drizzle } from "drizzle-orm/neon-http";
 import { neon } from "@neondatabase/serverless";
-import { deepResearchRuns, conversations, messages, facts, scheduledMonitors, userSessions } from "@shared/schema";
+import { deepResearchRuns, conversations, messages, facts, scheduledMonitors, userSessions, integrations } from "@shared/schema";
 import { eq, or, and, desc, asc, lt, gt } from "drizzle-orm";
 
 export interface PendingBatchConfirmation {
@@ -110,6 +112,12 @@ export interface IStorage {
   deleteSession(sessionId: string): Promise<boolean>;
   deleteExpiredSessions(): Promise<number>;
   getUserEmail(userId: string): Promise<string | null>;
+  
+  // Integration CRUD methods (for CRM/accounting connections via Nango.dev)
+  createIntegration(integration: InsertIntegration): Promise<SelectIntegration>;
+  listIntegrations(userId: string): Promise<SelectIntegration[]>;
+  getIntegration(id: string): Promise<SelectIntegration | null>;
+  deleteIntegration(id: string): Promise<boolean>;
 }
 
 export class MemStorage implements IStorage {
@@ -122,6 +130,7 @@ export class MemStorage implements IStorage {
   private facts: Map<string, SelectFact> = new Map();
   private lastViewedRuns: Map<string, string> = new Map();
   private scheduledMonitors: Map<string, SelectScheduledMonitor> = new Map();
+  private integrations: Map<string, SelectIntegration> = new Map();
 
   async createJob(job: Job): Promise<Job> {
     this.jobs.set(job.id, job);
@@ -413,6 +422,26 @@ export class MemStorage implements IStorage {
       }
     }
     return null;
+  }
+
+  // Integration CRUD methods
+  async createIntegration(integration: InsertIntegration): Promise<SelectIntegration> {
+    this.integrations.set(integration.id, integration as SelectIntegration);
+    return integration as SelectIntegration;
+  }
+
+  async listIntegrations(userId: string): Promise<SelectIntegration[]> {
+    return Array.from(this.integrations.values())
+      .filter(i => i.userId === userId)
+      .sort((a, b) => b.createdAt - a.createdAt);
+  }
+
+  async getIntegration(id: string): Promise<SelectIntegration | null> {
+    return this.integrations.get(id) || null;
+  }
+
+  async deleteIntegration(id: string): Promise<boolean> {
+    return this.integrations.delete(id);
   }
 }
 
@@ -757,6 +786,32 @@ export class DbStorage implements IStorage {
       .limit(1);
     
     return sessions.length > 0 ? sessions[0].userEmail : null;
+  }
+
+  // Integration CRUD methods - using database
+  async createIntegration(integration: InsertIntegration): Promise<SelectIntegration> {
+    const [newIntegration] = await db.insert(integrations).values(integration).returning();
+    return newIntegration;
+  }
+
+  async listIntegrations(userId: string): Promise<SelectIntegration[]> {
+    return await db.select()
+      .from(integrations)
+      .where(eq(integrations.userId, userId))
+      .orderBy(desc(integrations.createdAt));
+  }
+
+  async getIntegration(id: string): Promise<SelectIntegration | null> {
+    const [integration] = await db.select()
+      .from(integrations)
+      .where(eq(integrations.id, id));
+    return integration || null;
+  }
+
+  async deleteIntegration(id: string): Promise<boolean> {
+    const result = await db.delete(integrations)
+      .where(eq(integrations.id, id));
+    return result.rowCount !== null && result.rowCount > 0;
   }
 }
 
