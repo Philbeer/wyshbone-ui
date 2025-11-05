@@ -1308,7 +1308,7 @@ function ScheduledMonitorsSection({ userId, onSelectConversation }: { userId: st
 function IntegrationsSection({ userId }: { userId: string }) {
   const [isConnecting, setIsConnecting] = useState<string | null>(null);
   
-  const { data: integrations, isLoading, refetch } = useQuery({
+  const { data: integrationsData, isLoading, refetch } = useQuery<{ integrations: any[] }>({
     queryKey: ['/api/integrations'],
     refetchInterval: 5000,
   });
@@ -1320,8 +1320,10 @@ function IntegrationsSection({ userId }: { userId: string }) {
     { key: 'google-sheets', label: 'Google Sheets', icon: '📗' },
   ];
   
+  const integrations = integrationsData?.integrations || [];
+  
   const connectedProviders = new Set(
-    (integrations?.integrations || []).map((i: any) => i.provider)
+    integrations.map((i: any) => i.provider)
   );
   
   const handleConnect = async (provider: string) => {
@@ -1379,7 +1381,7 @@ function IntegrationsSection({ userId }: { userId: string }) {
     <div className="space-y-2">
       {providers.map((provider) => {
         const isConnected = connectedProviders.has(provider.key);
-        const integration = (integrations?.integrations || []).find((i: any) => i.provider === provider.key);
+        const integration = integrations.find((i: any) => i.provider === provider.key);
         
         return (
           <div
