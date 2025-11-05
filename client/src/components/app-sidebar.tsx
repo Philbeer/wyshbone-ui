@@ -1348,16 +1348,30 @@ function IntegrationsSection({ userId }: { userId: string }) {
       const data = await response.json();
       
       if (data.token) {
-        // Initialize Nango and open Connect UI
-        const nango = new Nango();
+        // Open Nango Connect UI in a popup
+        const connectUrl = `https://connect.nango.dev/?session_token=${data.token}`;
         
-        const result = await nango.auth(provider, data.token);
+        const popup = window.open(
+          connectUrl,
+          'Nango OAuth',
+          'width=600,height=700,left=100,top=100'
+        );
         
-        if (result && result.connectionId) {
-          console.log('✅ Connected:', result.connectionId);
-          // Refresh integrations list
-          refetch();
+        if (popup) {
+          // Poll for completion
+          const interval = setInterval(() => {
+            if (popup.closed) {
+              clearInterval(interval);
+              console.log('✅ OAuth window closed - refreshing integrations');
+              refetch();
+              setIsConnecting(null);
+            }
+          }, 1000);
+        } else {
+          alert('Please allow popups for this site to connect integrations');
+          setIsConnecting(null);
         }
+        return;
       }
     } catch (error) {
       console.error('Failed to connect:', error);
