@@ -2111,7 +2111,7 @@ CRITICAL RULES:
               suggestedBy: 'user', // Created by user action
               suggestedReason: null,
               suggestionMetadata: null,
-              emailNotifications: 0,
+              emailNotifications: 1, // Default to enabled
               emailAddress: null,
               nextRunAt,
               lastRunAt: null,
@@ -4365,7 +4365,7 @@ ${run.outputText}`;
         suggestedBy: 'user', // Created by user action
         suggestedReason: null,
         suggestionMetadata: null,
-        emailNotifications: 0,
+        emailNotifications: 1, // Default to enabled
         emailAddress: emailAddress || null,
         nextRunAt: now + (schedule === 'daily' ? 86400000 : 604800000), // Basic calculation
         lastRunAt: null,

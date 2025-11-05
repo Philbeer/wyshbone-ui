@@ -927,7 +927,8 @@ function ScheduledMonitorsSection({ userId, onSelectConversation }: { userId: st
       schedule: monitor.schedule,
       scheduleDay: monitor.scheduleDay || undefined,
       scheduleTime: monitor.scheduleTime || '',
-      emailNotifications: monitor.emailNotifications === 1,
+      // Default to true if not explicitly set, otherwise use monitor's current setting
+      emailNotifications: monitor.emailNotifications !== undefined ? monitor.emailNotifications === 1 : true,
       emailAddress: monitor.emailAddress || ''
     });
   };
