@@ -14,7 +14,7 @@ export interface MonitorResult {
   userEmail?: string;
   agenticAnalysis?: {
     significance: 'high' | 'medium' | 'low';
-    urgency: 'immediate' | 'normal' | 'batched';
+    urgency: 'immediate' | 'normal';
     reasoning: string;
     keyFindings: string[];
     requiresDeepDive: boolean;
@@ -196,7 +196,7 @@ export function formatMonitorResultEmail(
                   <div style="border-left: 1px solid rgba(255,255,255,0.3); padding-left: 12px;">
                     <strong style="font-size: 11px; opacity: 0.9; text-transform: uppercase; letter-spacing: 0.5px;">Urgency</strong>
                     <div style="font-size: 16px; font-weight: 700; margin-top: 2px;">
-                      ${agenticAnalysis.urgency === 'immediate' ? '⚡ IMMEDIATE' : agenticAnalysis.urgency === 'normal' ? '📧 NORMAL' : '📋 BATCHED'}
+                      ${agenticAnalysis.urgency === 'immediate' ? '⚡ IMMEDIATE' : '📧 NORMAL'}
                     </div>
                   </div>
                 </div>

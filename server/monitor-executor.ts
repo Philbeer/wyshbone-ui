@@ -54,19 +54,12 @@ export async function executeMonitorAndNotify(monitor: ScheduledMonitor, userEma
   const recipientEmail = loginEmail || 'phil@listersbrewery.com';
   
   // 🤖 AGENTIC URGENCY HANDLING
-  // Check if agentic analysis recommends sending an email
-  const shouldSendEmail = monitor.emailNotifications === 1 && (
-    !results.agenticAnalysis || // Always send if no analysis (backward compat)
-    results.agenticAnalysis.urgency === 'immediate' || // Send immediately for high urgency
-    results.agenticAnalysis.urgency === 'normal' // Send normally for normal urgency
-    // 'batched' urgency will skip email, allowing batch summaries in future
-  );
-  
-  if (shouldSendEmail) {
-    console.log(`📧 Sending email notification (urgency: ${results.agenticAnalysis?.urgency || 'default'})`);
+  // Send email if monitor has notifications enabled
+  // Agentic analysis determines urgency level (immediate or normal)
+  if (monitor.emailNotifications === 1) {
+    const urgency = results.agenticAnalysis?.urgency || 'normal';
+    console.log(`📧 Sending email notification (urgency: ${urgency})`);
     await sendMonitorResultEmail(monitor, recipientEmail, results, conversationId, monitor.userId);
-  } else if (results.agenticAnalysis?.urgency === 'batched') {
-    console.log(`📋 [AGENTIC] Batching notification - findings not urgent enough for immediate email`);
   }
 }
 
@@ -179,15 +172,8 @@ async function executeDeepResearch(monitor: ScheduledMonitor, conversationId: st
         
         const allHistoricalVenues = Array.from(venueMap.values());
         
-        await storage.updateScheduledMonitor(monitor.id, {
-          config: {
-            ...(monitor.config ?? {}),
-            previousVenues: allHistoricalVenues, // Store ALL unique venues ever discovered
-          },
-          updatedAt: Date.now(),
-        });
-        
-        console.log(`💾 Updated monitor config: added ${currentVenues.length} current venues, total historical venues: ${allHistoricalVenues.length}`);
+        // Store updated venues in a variable for later batch config update
+        console.log(`📊 Prepared venue update: added ${currentVenues.length} current venues, total historical venues: ${allHistoricalVenues.length}`);
         
         // Save research results to conversation (with run number separator)
         const runDate = new Date().toLocaleDateString('en-GB', { 
@@ -255,21 +241,36 @@ ${agenticAnalysis.requiresDeepDive ? `**🔍 Autonomous Action Triggered:**\nIni
           );
         }
         
-        // Adapt monitor for next run if AI suggested improvements
+        // BATCH ALL CONFIG UPDATES: Refetch latest config to avoid overwriting concurrent changes
+        const latestMonitor = await storage.getScheduledMonitor(monitor.id);
+        const latestConfig = (latestMonitor?.config as any) || {};
+        
+        // Build merged config with all updates
+        const mergedConfig = {
+          ...latestConfig,
+          previousVenues: allHistoricalVenues, // Update from venue tracking above
+        };
+        
+        // Add AI's suggested prompt refinement if present (stored for user review, NOT auto-applied)
         if (agenticAnalysis.suggestedNextPrompt) {
-          console.log(`🤖 [AGENTIC] AI suggested adapting monitor prompt for next run`);
-          await storage.updateScheduledMonitor(monitor.id, {
-            description: agenticAnalysis.suggestedNextPrompt,
-            config: {
-              ...(monitor.config ?? {}),
-              originalPrompt: monitor.description, // Keep original for reference
-              adaptedByAI: true,
-              adaptedAt: Date.now(),
-            },
-            updatedAt: Date.now(),
-          });
-          console.log(`💾 Updated monitor with AI-adapted prompt`);
+          console.log(`🤖 [AGENTIC] AI suggested prompt refinement (stored for user review, not auto-applied)`);
+          mergedConfig.suggestedPrompt = agenticAnalysis.suggestedNextPrompt;
+          mergedConfig.suggestionDate = Date.now();
         }
+        
+        // Add deep dive counter if present (managed by agentic-analysis.ts)
+        if (deepDiveResult && latestConfig.autonomousDeepDiveCount !== undefined) {
+          mergedConfig.autonomousDeepDiveCount = latestConfig.autonomousDeepDiveCount;
+          mergedConfig.deepDiveCountResetDate = latestConfig.deepDiveCountResetDate;
+        }
+        
+        // Single atomic config update with all changes
+        await storage.updateScheduledMonitor(monitor.id, {
+          config: mergedConfig,
+          updatedAt: Date.now(),
+        });
+        
+        console.log(`💾 Updated monitor config with all changes (venues, AI suggestions, counters)`);
         
         return {
           totalResults: currentResultCount,
