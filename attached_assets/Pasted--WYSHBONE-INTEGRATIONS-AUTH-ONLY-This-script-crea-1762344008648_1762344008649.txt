@@ -1,0 +1,177 @@
+/**
+ * WYSHBONE INTEGRATIONS (AUTH-ONLY)
+ * ---------------------------------
+ * This script creates "Connect" buttons for Salesforce, Xero,
+ * Microsoft Business Central, and Google Sheets using Nango.dev.
+ *
+ * ✅ It handles OAuth (Connect)
+ * ✅ It receives Nango webhook calls (to save connection info)
+ * ❌ It does NOT yet push leads or data — you’ll add that later.
+ *
+ * SETUP:
+ * 1. In Replit > Secrets, add:
+ *    NANGO_SECRET_KEY=sk_...
+ *    NANGO_HOST=https://api.nango.dev
+ *    APP_BASE_URL=https://<your-replit-URL>
+ *
+ * 2. In your Nango dashboard, create provider configs named exactly:
+ *      - salesforce
+ *      - xero
+ *      - microsoft-business-central
+ *      - google-sheets
+ *    And add a webhook pointing to:
+ *      POST {APP_BASE_URL}/api/integrations/nango-webhook
+ *
+ * 3. Run this file, open the repl URL, and click “Connect”.
+ */
+
+import express from "express";
+import axios from "axios";
+import cors from "cors";
+import bodyParser from "body-parser";
+
+const app = express();
+app.use(cors());
+app.use(bodyParser.json());
+
+// ---- ENVIRONMENT VARIABLES ----
+const {
+  NANGO_HOST = "https://api.nango.dev",
+  NANGO_SECRET_KEY,
+  APP_BASE_URL,
+} = process.env;
+
+if (!NANGO_SECRET_KEY || !APP_BASE_URL) {
+  console.error("❌ Missing required env vars (NANGO_SECRET_KEY / APP_BASE_URL)");
+}
+
+// ---- SIMPLE IN-MEMORY DB (use Supabase later) ----
+const connectionsStore = new Map(); // key=userId → [{provider, connectionId, meta}]
+
+// ---- PROVIDERS TO DISPLAY ----
+const PROVIDERS = [
+  { key: "salesforce", label: "Salesforce" },
+  { key: "xero", label: "Xero" },
+  { key: "microsoft-business-central", label: "Microsoft Business Central" },
+  { key: "google-sheets", label: "Google Sheets" },
+];
+
+// ---- FRONTEND PAGE ----
+app.get("/", (req, res) => {
+  res.type("html").send(`
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8"/>
+<title>Wyshbone Integrations (Auth-only)</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<style>
+body{font-family:system-ui,sans-serif;margin:40px;}
+h1{margin-bottom:10px;}
+button{padding:10px 16px;margin:4px;border:1px solid #ccc;border-radius:8px;cursor:pointer;}
+button:hover{background:#f5f5f5;}
+pre{background:#f9f9f9;padding:10px;border-radius:8px;border:1px solid #eee;}
+.card{border:1px solid #ddd;border-radius:12px;padding:16px;margin-top:20px;}
+</style>
+</head>
+<body>
+<h1>Wyshbone Integrations</h1>
+<p>This connects Wyshbone to your apps via Nango (auth only).</p>
+
+<div class="card">
+<h3>Connect</h3>
+<div>
+  ${PROVIDERS.map(p=>`<button onclick="connect('${p.key}')">Connect ${p.label}</button>`).join("")}
+</div>
+<div style="margin-top:10px;">
+User ID: <input id="uid" value="demo-user-1" style="padding:6px;border-radius:6px;border:1px solid #ccc"/>
+</div>
+</div>
+
+<div class="card">
+<h3>My Connections</h3>
+<button onclick="refresh()">Refresh</button>
+<pre id="list">(none)</pre>
+</div>
+
+<script>
+async function connect(provider){
+  const uid=document.getElementById('uid').value||'demo-user-1';
+  const r=await fetch('/api/integrations/connect-session',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({userId:uid,provider})
+  });
+  const j=await r.json();
+  if(j.error){alert(j.error);return;}
+  window.open(j.authorize_url,'_blank','width=500,height=700');
+}
+async function refresh(){
+  const uid=document.getElementById('uid').value||'demo-user-1';
+  const r=await fetch('/api/integrations/list?userId='+encodeURIComponent(uid));
+  const j=await r.json();
+  document.getElementById('list').textContent=JSON.stringify(j,null,2);
+}
+refresh();
+</script>
+</body></html>
+  `);
+});
+
+// ---- API: create Nango Connect Session ----
+app.post("/api/integrations/connect-session", async (req, res) => {
+  try {
+    const { userId, provider } = req.body || {};
+    if (!userId || !provider) return res.json({ error: "Missing userId/provider" });
+
+    const payload = {
+      provider_config_key: provider,
+      connection_id: `${userId}__${provider}`,
+      success_redirect_url: `${APP_BASE_URL}/?connected=${provider}`,
+      metadata: { userId, provider }
+    };
+
+    const resp = await axios.post(`${NANGO_HOST}/connect/sessions`, payload, {
+      headers: { Authorization: \`Bearer \${NANGO_SECRET_KEY}\` },
+    });
+
+    return res.json({ authorize_url: resp.data?.authorize_url });
+  } catch (e) {
+    console.error("connect-session error", e.response?.data || e.message);
+    res.json({ error: "Failed to create Nango connect session" });
+  }
+});
+
+// ---- API: webhook (Nango -> Wyshbone) ----
+app.post("/api/integrations/nango-webhook", (req, res) => {
+  try {
+    const evt = req.body?.event;
+    const data = req.body?.data || {};
+    if (!evt || !data.connection_id) return res.status(400).json({ ok: false });
+
+    const provider = data.provider_config_key;
+    const userId = data.metadata?.userId || "unknown";
+    const connectionId = data.connection_id;
+
+    const prev = connectionsStore.get(userId) || [];
+    const updated = [
+      ...prev.filter(x => !(x.provider === provider && x.connectionId === connectionId)),
+      { provider, connectionId, createdAt: new Date().toISOString(), raw: data },
+    ];
+    connectionsStore.set(userId, updated);
+    console.log("✅ Connected", provider, "for", userId);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("webhook error", err);
+    res.status(500).json({ ok: false });
+  }
+});
+
+// ---- API: list current connections ----
+app.get("/api/integrations/list", (req, res) => {
+  const uid = req.query.userId || "demo-user-1";
+  res.json({ userId: uid, connections: connectionsStore.get(uid) || [], providers: PROVIDERS });
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(\`✅ Wyshbone Integrations running on port \${PORT}\`));
