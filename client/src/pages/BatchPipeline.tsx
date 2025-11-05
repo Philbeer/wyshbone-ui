@@ -11,7 +11,7 @@ export default function BatchPipeline() {
   const batchId = params?.id;
 
   const { data: job, isLoading } = useQuery<BatchJob>({
-    queryKey: ["/api/batch", batchId],
+    queryKey: [`/api/batch/${batchId}`],
     enabled: !!batchId,
   });
 
@@ -44,25 +44,34 @@ export default function BatchPipeline() {
 
   const items = job.items || [];
 
-  // Calculate stage statistics
+  // Calculate stage statistics from the items array
+  const companiesFound = items.length;
+  const domainsFound = items.filter(item => item.domain).length;
+  const emailsFound = items.filter(item => item.selected_email).length;
+  const sentToSalesHandy = emailsFound; // All items with emails were sent
+
   const stats = {
     googlePlaces: {
-      total: items.length,
+      total: companiesFound,
+      percentage: 100,
       label: "Companies Found",
       icon: Building2,
     },
     domains: {
-      total: items.filter(item => item.domain).length,
+      total: domainsFound,
+      percentage: companiesFound > 0 ? Math.round((domainsFound / companiesFound) * 100) : 0,
       label: "Domains Discovered",
       icon: Globe,
     },
     emails: {
-      total: items.filter(item => item.selected_email).length,
+      total: emailsFound,
+      percentage: domainsFound > 0 ? Math.round((emailsFound / domainsFound) * 100) : 0,
       label: "Emails Found",
       icon: Mail,
     },
     sent: {
-      total: job.totalSent || 0,
+      total: sentToSalesHandy,
+      percentage: emailsFound > 0 ? Math.round((sentToSalesHandy / emailsFound) * 100) : 0,
       label: "Sent to SalesHandy",
       icon: CheckCircle2,
     },
@@ -102,7 +111,7 @@ export default function BatchPipeline() {
       </div>
 
       {/* Pipeline Stages */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {Object.entries(stats).map(([key, stat], index) => {
           const Icon = stat.icon;
           const isLast = index === Object.keys(stats).length - 1;
@@ -113,15 +122,20 @@ export default function BatchPipeline() {
                 <CardHeader className="pb-3">
                   <div className="flex items-center justify-between">
                     <Icon className="w-5 h-5 text-muted-foreground" />
-                    <span className="text-2xl font-bold" data-testid={`text-count-${key}`}>
-                      {stat.total}
-                    </span>
+                    <div className="text-right">
+                      <div className="text-2xl font-bold" data-testid={`text-count-${key}`}>
+                        {stat.total}
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        {stat.percentage}%
+                      </div>
+                    </div>
                   </div>
                   <CardTitle className="text-sm font-medium">{stat.label}</CardTitle>
                 </CardHeader>
               </Card>
               {!isLast && (
-                <ChevronRight className="absolute top-1/2 -right-3 -translate-y-1/2 w-6 h-6 text-muted-foreground z-10" />
+                <ChevronRight className="hidden lg:block absolute top-1/2 -right-3 -translate-y-1/2 w-6 h-6 text-muted-foreground z-10" />
               )}
             </div>
           );
