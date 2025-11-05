@@ -1,0 +1,243 @@
+# --- WYSHBONE: One-shot setup (paste everything below into the Replit Shell) ---
+
+# 1) server.js — NEW cost-optimised function reusing existing batch interaction
+cat > server.js <<'EOF'
+/**
+ * Wyshbone Batch v2 — Reuses existing "batch send" interaction
+ * -------------------------------------------------------------------------
+ * CONTEXT:
+ *  • The Bubble app already sends batches to your Replit API containing:
+ *      { query, location, country, position_type }
+ *    This workflow is identical from the user's perspective.
+ *  • In your current setup, another function uses Google Places New + Place Details
+ *    to populate rich data for the database (phone, address, etc.).
+ *  • THIS new function is lighter: it uses Google Places New (Text Search)
+ *    **only to get the name** (and optionally address) of up to 60 outlets.
+ *    It does NOT call Place Details — that keeps API costs low.
+ *
+ * FLOW:
+ *  1️⃣  Reuse existing batch send → query/location/country/position_type.
+ *  2️⃣  Google Places New → get names only (no details).
+ *  3️⃣  For each name, call Hunter.io → find domain + list of emails.
+ *  4️⃣  Rank all emails against requested position_type (Head of Sales, CEO, etc.).
+ *  5️⃣  Take best match → re-verify via Hunter.io email-verifier.
+ *  6️⃣  If verified, push contact + AI personal line to SalesHandy campaign.
+ *  7️⃣  If not valid, continue to next ranked contact.
+ *
+ * ENV (Replit Secrets)
+ *  GOOGLE_PLACES_API_KEY, OPENAI_API_KEY,
+ *  HUNTER_API_KEY,
+ *  SALES_HANDY_API_TOKEN, SALES_HANDY_CAMPAIGN_ID,
+ *  SALES_HANDY_SENDER_ID (optional), SALES_HANDY_BASE_URL (optional)
+ */
+
+import 'dotenv/config';
+import express from "express";
+import axios from "axios";
+import PQueue from "p-queue";
+import crypto from "crypto";
+
+const app = express();
+app.use(express.json({ limit: "3mb" }));
+
+/* ---------- ENV ---------- */
+const GOOGLE_KEY  = process.env.GOOGLE_PLACES_API_KEY || "";
+const OPENAI_KEY  = process.env.OPENAI_API_KEY || "";
+const HUNTER_KEY  = process.env.HUNTER_API_KEY || "";
+const SH_TOKEN    = process.env.SALES_HANDY_API_TOKEN || "";
+const SH_CAMP_ID  = process.env.SALES_HANDY_CAMPAIGN_ID || "";
+const SH_SENDER   = process.env.SALES_HANDY_SENDER_ID || "";
+const SH_BASE     = process.env.SALES_HANDY_BASE_URL || "https://api.saleshandy.com";
+
+if (!GOOGLE_KEY) console.warn("⚠️ Missing GOOGLE_PLACES_API_KEY");
+if (!HUNTER_KEY) console.warn("⚠️ Missing HUNTER_API_KEY");
+if (!SH_TOKEN)   console.warn("⚠️ Missing SALES_HANDY_API_TOKEN");
+if (!SH_CAMP_ID) console.warn("⚠️ Missing SALES_HANDY_CAMPAIGN_ID");
+
+/* ---------- SIMPLE MEMORY STORE ---------- */
+const batches = new Map();
+const outlets = new Map();
+
+/* ---------- HELPERS ---------- */
+const sha  = (s) => crypto.createHash("sha256").update(s).digest("hex");
+const wait = (ms) => new Promise(r => setTimeout(r, ms));
+
+/* ---------- 1️⃣ GOOGLE PLACES NEW: NAME-ONLY BATCH ---------- */
+async function placesTextSearchLite(query) {
+  const url = `https://maps.googleapis.com/maps/api/place/textsearch/json`;
+  const params = { query, key: GOOGLE_KEY, region: "uk" };
+  const results = [];
+  let pagetoken;
+
+  for (let i = 0; i < 3; i++) {
+    const r = await axios.get(url, { params: pagetoken ? { ...params, pagetoken } : params });
+    if (r.data?.results?.length) results.push(...r.data.results);
+    pagetoken = r.data.next_page_token;
+    if (!pagetoken) break;
+    await wait(2000);
+  }
+  return results.map(x => ({
+    place_id: x.place_id,
+    name: x.name || "",
+    address: x.formatted_address || ""
+  }));
+}
+
+/* ---------- 2️⃣ HUNTER.IO ---------- */
+async function hunterFindDomainAndEmails(company, country) {
+  const url = `https://api.hunter.io/v2/domain-search`;
+  const params = { company, api_key: HUNTER_KEY };
+  if (country) params.country = country;
+  const r = await axios.get(url, { params });
+  const data = r.data?.data || {};
+  return {
+    domain: data.domain || "",
+    emails: Array.isArray(data.emails) ? data.emails : []
+  };
+}
+
+async function hunterVerify(email) {
+  const url = `https://api.hunter.io/v2/email-verifier`;
+  const params = { email, api_key: HUNTER_KEY };
+  const r = await axios.get(url, { params });
+  return r.data?.data || {};
+}
+
+/* ---------- 3️⃣ CONTACT RANKING ---------- */
+function scoreContact(target, c) {
+  const role = target.toLowerCase();
+  const pos  = (c.position || "").toLowerCase();
+  const dept = (c.department || "").toLowerCase();
+  const email= (c.value || c.email || "").toLowerCase();
+  let s = 0;
+  if (pos === role) s += 100;
+  if (pos.includes(role)) s += 60;
+  if (dept.includes("sales")) s += 20;
+  if (/(head|director|vp|chief|lead)/.test(pos)) s += 18;
+  if (/manager/.test(pos)) s += 10;
+  if (/(assistant|intern)/.test(pos)) s -= 6;
+  if (/^info@|^hello@|^sales@/.test(email)) s -= 8;
+  s += Math.round((c.confidence || 0) / 10);
+  return s;
+}
+function rankContacts(role, arr=[]) {
+  return arr.sort((a,b)=>scoreContact(role,b)-scoreContact(role,a));
+}
+
+/* ---------- 4️⃣ AI PERSONAL LINE (optional) ---------- */
+async function personalLine({ company, domain, location, query }) {
+  if (!OPENAI_KEY) return "";
+  const prompt = `Write ONE short opener (<=18 words) for ${company}${domain ? ` (${domain})` : ""} in ${location}.
+They work in "${query}". Reference a plausible buyer or use-case. UK tone. No flattery.`;
+  const r = await axios.post("https://api.openai.com/v1/chat/completions", {
+    model: "gpt-4o-mini",
+    messages: [{ role: "user", content: prompt }],
+    temperature: 0.3,
+    max_tokens: 60
+  }, { headers: { Authorization: `Bearer ${OPENAI_KEY}` }});
+  return r.data?.choices?.[0]?.message?.content?.trim() || "";
+}
+
+/* ---------- 5️⃣ SALES HANDY ---------- */
+async function shUpsertProspect(p, auth) {
+  const r = await axios.post(`${SH_BASE}/v3/prospects`, p, auth);
+  return r.data?.id || r.data?.prospectId || r.data?.data?.id;
+}
+async function shAddToCampaign(pid, cid, auth) {
+  return axios.post(`${SH_BASE}/v3/campaigns/${cid}/prospects`, { prospectId: pid, senderId: SH_SENDER || undefined }, auth);
+}
+
+/* ---------- 6️⃣ END-TO-END PIPELINE ---------- */
+app.post("/batch/create", async (req,res)=>{
+  try {
+    const { query, location, country, target_role="Head of Sales", limit=60, personalize=true, campaignId } = req.body || {};
+    if (!query||!location||!country) return res.status(400).json({error:"query, location, country required"});
+    if (!HUNTER_KEY) return res.status(400).json({error:"Missing HUNTER_API_KEY"});
+    if (!SH_TOKEN||!SH_CAMP_ID) return res.status(400).json({error:"SalesHandy not configured"});
+
+    const batchId = sha(`${query}|${location}|${Date.now()}`).slice(0,12);
+    batches.set(batchId,{status:"running",items:[],meta:{query,location,country,target_role}});
+
+    // (a) Get 60 names only
+    const raw = await placesTextSearchLite(`${query} in ${location} ${country}`);
+    const items = raw.slice(0,limit).map(x=>({...x,query,location,country}));
+
+    // (b) Optional AI first line
+    if (personalize && OPENAI_KEY) {
+      const pq = new PQueue({ concurrency:4 });
+      await Promise.all(items.map(o=>pq.add(async()=>{ o.personal_line = await personalLine(o); })));
+    }
+
+    // (c) For each: domain + emails + verify
+    const q = new PQueue({ concurrency:3, interval:1000, intervalCap:9 });
+    await Promise.all(items.map(o=>q.add(async()=>{
+      const {domain,emails} = await hunterFindDomainAndEmails(o.name,o.country);
+      o.domain = domain;
+      const ranked = rankContacts(target_role,emails);
+      for (const c of ranked) {
+        const email = c.email || c.value;
+        if (!email) continue;
+        const ver = await hunterVerify(email);
+        if ((ver.status||"").toLowerCase()==="valid") {
+          o.selected_email=email;
+          o.selected_status="valid";
+          o.first_name=c.first_name||guessFirst(email);
+          o.last_name=c.last_name||"";
+          o.position=c.position||"";
+          break;
+        }
+      }
+    })));
+
+    // (d) Deliver verified to SalesHandy
+    const auth={headers:{Authorization:`Bearer ${SH_TOKEN}`}};
+    const created=[],skipped=[];
+    for(const o of items){
+      if(!o.selected_email){skipped.push(o);continue;}
+      const p={
+        name:o.first_name?`${o.first_name} ${o.last_name||""}`.trim():o.name,
+        email:o.selected_email,
+        company:o.name,
+        website:o.domain?`https://${o.domain}`:"",
+        customFields:{query:o.query,location:o.location,country:o.country,personal_line:o.personal_line||""}
+      };
+      const pid=await shUpsertProspect(p,auth);
+      await shAddToCampaign(pid,campaignId||SH_CAMP_ID,auth);
+      created.push(o);
+    }
+
+    batches.set(batchId,{status:"done",items,meta:{query,location,country,target_role},delivery:{created,skipped}});
+    res.json({batchId,total:items.length,sent:created.length,skipped:skipped.length});
+  }catch(e){console.error(e);res.status(500).json({error:String(e)})}
+});
+
+function guessFirst(email=""){const local=email.split("@")[0];const m=local.match(/^([a-z]+)/i);return m?m[1].charAt(0).toUpperCase()+m[1].slice(1):"";}
+
+app.get("/batch/:id",(req,res)=>{const b=batches.get(req.params.id);if(!b)return res.status(404).json({error:"Not found"});res.json(b);});
+
+app.listen(3000,()=>console.log("✅ Wyshbone Lite Batch running on :3000 (uses existing Bubble interaction: query/location/country/position_type)"));
+EOF
+
+# 2) package.json
+cat > package.json <<'EOF'
+{
+  "name": "wyshbone-lite-batch",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "axios": "^1.7.7",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "p-queue": "^7.4.1"
+  }
+}
+EOF
+
+# 3) install and run once
+npm i
+npm run start
+# --- end one-shot setup ---
