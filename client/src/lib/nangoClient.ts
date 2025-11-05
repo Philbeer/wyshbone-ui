@@ -19,13 +19,24 @@ export async function startNangoConnect(opts: {
   }
 
   const url = addDevAuthParams("/api/nango/create-session");
+  console.log("📤 Requesting Nango session from:", url);
+  
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(requestBody)
   });
+  
+  console.log("📥 Nango session response status:", res.status);
   const data = await res.json();
-  if (!res.ok || !data?.token) throw new Error(data?.error || "Failed to obtain Nango session token");
+  console.log("📥 Nango session data:", data);
+  
+  if (!res.ok || !data?.token) {
+    console.error("❌ Failed to get Nango session:", data);
+    throw new Error(data?.error || "Failed to obtain Nango session token");
+  }
+  
+  console.log("✅ Got Nango session token:", data.token.substring(0, 20) + "...");
 
   const nango = new Nango({ connectSessionToken: data.token });
 
