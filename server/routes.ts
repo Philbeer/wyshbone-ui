@@ -4738,7 +4738,7 @@ ${run.outputText}`;
       console.log('✅ Nango session response:', JSON.stringify(response.data, null, 2));
       
       res.json({ 
-        token: response.data?.token,
+        token: response.data?.data?.token,
         provider 
       });
     } catch (error: any) {
