@@ -413,10 +413,6 @@ export async function executeBatchJob(params: {
       "Last Name": item.last_name || "",
       Company: item.name,
       Website: item.domain ? `https://${item.domain}` : "",
-      "Custom Field 1": query,
-      "Custom Field 2": location,
-      "Custom Field 3": country,
-      "Custom Field 4": item.personal_line || "",
     };
 
     prospectsToSend.push(prospectFields);
