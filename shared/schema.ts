@@ -334,6 +334,10 @@ export const scheduledMonitors = pgTable("scheduled_monitors", {
   monitorType: text("monitor_type").notNull(),
   config: jsonb("config"),
   isActive: integer("is_active").notNull().default(1),
+  status: text("status").notNull().default("active"), // 'active'|'paused'|'suggested'
+  suggestedBy: text("suggested_by"), // 'ai'|'user'
+  suggestedReason: text("suggested_reason"), // AI's reasoning for suggestion
+  suggestionMetadata: jsonb("suggestion_metadata"), // Additional context for suggestions
   emailNotifications: integer("email_notifications").notNull().default(0),
   emailAddress: text("email_address"),
   lastRunAt: bigint("last_run_at", { mode: "number" }),
@@ -343,6 +347,7 @@ export const scheduledMonitors = pgTable("scheduled_monitors", {
 }, (table) => ({
   userIdIdx: index("scheduled_monitors_user_id_idx").on(table.userId),
   isActiveIdx: index("scheduled_monitors_is_active_idx").on(table.isActive, table.nextRunAt),
+  statusIdx: index("scheduled_monitors_status_idx").on(table.status),
   conversationIdIdx: index("scheduled_monitors_conversation_id_idx").on(table.conversationId),
 }));
 
@@ -350,6 +355,8 @@ export const scheduledMonitors = pgTable("scheduled_monitors", {
 export const scheduledMonitorScheduleSchema = z.enum(["once", "daily", "weekly", "biweekly", "monthly"]);
 export const scheduledMonitorTypeSchema = z.enum(["business_search", "deep_research", "wyshbone_database"]);
 export const scheduledMonitorDaySchema = z.enum(["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]);
+export const scheduledMonitorStatusSchema = z.enum(["active", "paused", "suggested"]);
+export const suggestedBySchema = z.enum(["ai", "user"]);
 
 export const scheduledMonitorSchema = z.object({
   id: z.string(),
@@ -363,6 +370,10 @@ export const scheduledMonitorSchema = z.object({
   monitorType: scheduledMonitorTypeSchema,
   config: z.any().optional(),
   isActive: z.number(),
+  status: scheduledMonitorStatusSchema,
+  suggestedBy: suggestedBySchema.optional().nullable(),
+  suggestedReason: z.string().optional().nullable(),
+  suggestionMetadata: z.any().optional().nullable(),
   emailNotifications: z.number(),
   emailAddress: z.string().optional().nullable(),
   lastRunAt: z.number().optional().nullable(),

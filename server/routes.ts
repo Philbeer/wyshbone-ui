@@ -2107,7 +2107,14 @@ CRITICAL RULES:
               monitorType: params.monitorType,
               config: params.config || null,
               isActive: 1,
+              status: 'active', // User-created monitors are active by default
+              suggestedBy: 'user', // Created by user action
+              suggestedReason: null,
+              suggestionMetadata: null,
+              emailNotifications: 0,
+              emailAddress: null,
               nextRunAt,
+              lastRunAt: null,
               createdAt: now,
               updatedAt: now,
             });
@@ -4335,7 +4342,7 @@ ${run.outputText}`;
         return res.status(401).json({ error: "Unauthorized" });
       }
       
-      const { label, description, schedule, scheduleDay, scheduleTime, monitorType, config } = req.body;
+      const { label, description, schedule, scheduleDay, scheduleTime, monitorType, config, emailAddress } = req.body;
       
       if (!label || !description || !schedule || !monitorType) {
         return res.status(400).json({ error: "Missing required fields" });
@@ -4345,15 +4352,23 @@ ${run.outputText}`;
       const monitor = await storage.createScheduledMonitor({
         id: `monitor_${Date.now()}_${Math.random().toString(36).substring(7)}`,
         userId: auth.userId,
+        conversationId: null,
         label,
         description,
         schedule,
-        scheduleDay,
-        scheduleTime,
+        scheduleDay: scheduleDay || null,
+        scheduleTime: scheduleTime || null,
         monitorType,
         config: config || null,
         isActive: 1,
+        status: 'active', // User-created monitors are active by default
+        suggestedBy: 'user', // Created by user action
+        suggestedReason: null,
+        suggestionMetadata: null,
+        emailNotifications: 0,
+        emailAddress: emailAddress || null,
         nextRunAt: now + (schedule === 'daily' ? 86400000 : 604800000), // Basic calculation
+        lastRunAt: null,
         createdAt: now,
         updatedAt: now,
       });
@@ -4561,6 +4576,83 @@ ${run.outputText}`;
     } catch (error: any) {
       console.error("Error deleting scheduled monitor:", error);
       res.status(500).json({ error: error.message || "Failed to delete scheduled monitor" });
+    }
+  });
+
+  // ============= SUGGESTED MONITORS (Agentic Proactive Suggestions) =============
+  
+  // List suggested monitors for a user
+  app.get("/api/suggested-monitors/:userId", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const requestedUserId = req.params.userId;
+      if (requestedUserId !== auth.userId) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+      
+      const suggestions = await storage.listSuggestedMonitors(auth.userId);
+      res.json({ suggestions });
+    } catch (error: any) {
+      console.error("Error listing suggested monitors:", error);
+      res.status(500).json({ error: error.message || "Failed to list suggested monitors" });
+    }
+  });
+  
+  // Approve a suggested monitor (convert to active)
+  app.post("/api/suggested-monitors/:id/approve", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { id } = req.params;
+      
+      // Verify ownership
+      const suggestion = await storage.getScheduledMonitor(id);
+      if (!suggestion || suggestion.userId !== auth.userId) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+      
+      const approved = await storage.approveSuggestedMonitor(id);
+      if (!approved) {
+        return res.status(404).json({ error: "Suggestion not found" });
+      }
+      
+      console.log(`✅ User ${auth.userEmail} approved suggested monitor: ${approved.label}`);
+      res.json({ monitor: approved });
+    } catch (error: any) {
+      console.error("Error approving suggested monitor:", error);
+      res.status(500).json({ error: error.message || "Failed to approve suggestion" });
+    }
+  });
+  
+  // Reject a suggested monitor (delete it)
+  app.post("/api/suggested-monitors/:id/reject", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { id } = req.params;
+      
+      // Verify ownership
+      const suggestion = await storage.getScheduledMonitor(id);
+      if (!suggestion || suggestion.userId !== auth.userId) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+      
+      const rejected = await storage.rejectSuggestedMonitor(id);
+      console.log(`❌ User ${auth.userEmail} rejected suggested monitor: ${suggestion.label}`);
+      res.json({ success: rejected });
+    } catch (error: any) {
+      console.error("Error rejecting suggested monitor:", error);
+      res.status(500).json({ error: error.message || "Failed to reject suggestion" });
     }
   });
 

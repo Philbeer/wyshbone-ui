@@ -98,6 +98,12 @@ export interface IStorage {
   updateScheduledMonitor(id: string, updates: Partial<InsertScheduledMonitor>): Promise<SelectScheduledMonitor | null>;
   deleteScheduledMonitor(id: string): Promise<boolean>;
   
+  // Suggested Monitor methods (for proactive agentic suggestions)
+  listSuggestedMonitors(userId: string): Promise<SelectScheduledMonitor[]>;
+  approveSuggestedMonitor(id: string): Promise<SelectScheduledMonitor | null>;
+  rejectSuggestedMonitor(id: string): Promise<boolean>;
+  countActiveSuggestions(userId: string): Promise<number>;
+  
   // Session management methods
   createSession(sessionId: string, userId: string, userEmail: string, expiresAt: number, defaultCountry?: string): Promise<SelectUserSession>;
   getSession(sessionId: string): Promise<SelectUserSession | null>;
@@ -325,6 +331,33 @@ export class MemStorage implements IStorage {
 
   async deleteScheduledMonitor(id: string): Promise<boolean> {
     return this.scheduledMonitors.delete(id);
+  }
+  
+  async listSuggestedMonitors(userId: string): Promise<SelectScheduledMonitor[]> {
+    return Array.from(this.scheduledMonitors.values())
+      .filter(monitor => monitor.userId === userId && monitor.status === 'suggested')
+      .sort((a, b) => b.createdAt - a.createdAt);
+  }
+  
+  async approveSuggestedMonitor(id: string): Promise<SelectScheduledMonitor | null> {
+    const monitor = this.scheduledMonitors.get(id);
+    if (!monitor || monitor.status !== 'suggested') return null;
+    
+    const updated = { ...monitor, status: 'active' as const, updatedAt: Date.now() };
+    this.scheduledMonitors.set(id, updated);
+    return updated;
+  }
+  
+  async rejectSuggestedMonitor(id: string): Promise<boolean> {
+    const monitor = this.scheduledMonitors.get(id);
+    if (!monitor || monitor.status !== 'suggested') return false;
+    return this.scheduledMonitors.delete(id);
+  }
+  
+  async countActiveSuggestions(userId: string): Promise<number> {
+    return Array.from(this.scheduledMonitors.values())
+      .filter(monitor => monitor.userId === userId && monitor.status === 'suggested')
+      .length;
   }
   
   private sessions: Map<string, SelectUserSession> = new Map();
@@ -626,6 +659,51 @@ export class DbStorage implements IStorage {
   async deleteScheduledMonitor(id: string): Promise<boolean> {
     const result = await db.delete(scheduledMonitors).where(eq(scheduledMonitors.id, id)).returning();
     return result.length > 0;
+  }
+  
+  async listSuggestedMonitors(userId: string): Promise<SelectScheduledMonitor[]> {
+    return db
+      .select()
+      .from(scheduledMonitors)
+      .where(and(
+        eq(scheduledMonitors.userId, userId),
+        eq(scheduledMonitors.status, 'suggested')
+      ))
+      .orderBy(desc(scheduledMonitors.createdAt));
+  }
+  
+  async approveSuggestedMonitor(id: string): Promise<SelectScheduledMonitor | null> {
+    const [updated] = await db
+      .update(scheduledMonitors)
+      .set({ status: 'active', updatedAt: Date.now() })
+      .where(and(
+        eq(scheduledMonitors.id, id),
+        eq(scheduledMonitors.status, 'suggested')
+      ))
+      .returning();
+    return updated || null;
+  }
+  
+  async rejectSuggestedMonitor(id: string): Promise<boolean> {
+    const result = await db
+      .delete(scheduledMonitors)
+      .where(and(
+        eq(scheduledMonitors.id, id),
+        eq(scheduledMonitors.status, 'suggested')
+      ))
+      .returning();
+    return result.length > 0;
+  }
+  
+  async countActiveSuggestions(userId: string): Promise<number> {
+    const results = await db
+      .select()
+      .from(scheduledMonitors)
+      .where(and(
+        eq(scheduledMonitors.userId, userId),
+        eq(scheduledMonitors.status, 'suggested')
+      ));
+    return results.length;
   }
   
   async createSession(sessionId: string, userId: string, userEmail: string, expiresAt: number, defaultCountry?: string): Promise<SelectUserSession> {
