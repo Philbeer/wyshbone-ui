@@ -1,6 +1,52 @@
 import { Router, type Request } from "express";
-import { randomBytes } from "crypto";
+import { randomBytes, createHmac } from "crypto";
 import type { IStorage } from "../storage";
+
+// Secret for signing OAuth state tokens (REQUIRED in production)
+const STATE_SECRET = process.env.OAUTH_STATE_SECRET || (() => {
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error("OAUTH_STATE_SECRET environment variable is required in production");
+  }
+  console.warn("⚠️ WARNING: Using default OAuth state secret in development mode - DO NOT USE IN PRODUCTION");
+  return "default-dev-secret-for-testing-only";
+})();
+
+// Sign OAuth state payload
+function signState(payload: string): string {
+  const hmac = createHmac("sha256", STATE_SECRET);
+  hmac.update(payload);
+  return hmac.digest("hex");
+}
+
+// Verify and decode OAuth state
+function verifyState(signedState: string): { userId: string; userEmail: string; timestamp: number } | null {
+  try {
+    const [payload, signature] = signedState.split(".");
+    if (!payload || !signature) return null;
+    
+    // Verify signature
+    const expectedSignature = signState(payload);
+    if (signature !== expectedSignature) {
+      console.error("Invalid OAuth state signature");
+      return null;
+    }
+    
+    // Decode payload
+    const decoded = JSON.parse(Buffer.from(payload, "base64").toString("utf-8"));
+    
+    // Check expiry (10 minutes)
+    const tenMinutesAgo = Date.now() - 10 * 60 * 1000;
+    if (decoded.timestamp < tenMinutesAgo) {
+      console.error("OAuth state expired");
+      return null;
+    }
+    
+    return decoded;
+  } catch (error) {
+    console.error("Error verifying OAuth state:", error);
+    return null;
+  }
+}
 
 // SECURITY: Authentication middleware to validate session and extract userId
 async function getAuthenticatedUserId(req: Request, storage: IStorage): Promise<{ userId: string; userEmail: string } | null> {
@@ -52,19 +98,13 @@ const XERO_AUTH_URL = "https://login.xero.com/identity/connect/authorize";
 const XERO_TOKEN_URL = "https://identity.xero.com/connect/token";
 const XERO_CONNECTIONS_URL = "https://api.xero.com/connections";
 
-// Temporary state storage (in production, use Redis or database)
-const oauthStates = new Map<string, { userId: string; userEmail: string; timestamp: number; sessionId?: string }>();
+// Replay protection: track used state tokens
+const usedStates = new Set<string>();
 
-// Clean up old states every 5 minutes
+// Clean up used states every 15 minutes
 setInterval(() => {
-  const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
-  const entries = Array.from(oauthStates.entries());
-  for (const [state, data] of entries) {
-    if (data.timestamp < fiveMinutesAgo) {
-      oauthStates.delete(state);
-    }
-  }
-}, 5 * 60 * 1000);
+  usedStates.clear();
+}, 15 * 60 * 1000);
 
 export function createXeroOAuthRouter(storage: IStorage) {
   // Initiate Xero OAuth flow
@@ -79,15 +119,16 @@ export function createXeroOAuthRouter(storage: IStorage) {
       return res.status(500).json({ error: "Xero OAuth not configured" });
     }
 
-    // Generate random state for CSRF protection and store session info
-    const state = randomBytes(32).toString("hex");
-    const sessionId = req.headers["x-session-id"] as string | undefined;
-    oauthStates.set(state, { 
-      userId: auth.userId, 
-      userEmail: auth.userEmail, 
+    // Generate signed state token with user identity
+    const statePayload = {
+      userId: auth.userId,
+      userEmail: auth.userEmail,
       timestamp: Date.now(),
-      sessionId: sessionId || undefined
-    });
+      nonce: randomBytes(16).toString("hex")
+    };
+    const payload = Buffer.from(JSON.stringify(statePayload)).toString("base64");
+    const signature = signState(payload);
+    const state = `${payload}.${signature}`;
 
     // Build authorization URL
     const params = new URLSearchParams({
@@ -117,13 +158,20 @@ export function createXeroOAuthRouter(storage: IStorage) {
       return res.redirect("/?error=missing_code_or_state");
     }
 
-    // Verify state
-    const stateData = oauthStates.get(state);
+    // Verify and decode signed state
+    const stateData = verifyState(state);
     if (!stateData) {
       return res.redirect("/?error=invalid_state");
     }
 
-    oauthStates.delete(state);
+    // Check for replay attacks
+    if (usedStates.has(state)) {
+      console.error("OAuth state replay detected!");
+      return res.redirect("/?error=state_replay");
+    }
+
+    // Mark state as used
+    usedStates.add(state);
 
     try {
       // Exchange code for tokens

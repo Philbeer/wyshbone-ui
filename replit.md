@@ -29,6 +29,7 @@ The user interface follows Material Design principles, inspired by ChatGPT, Line
 - **Data Models:** Standardized schemas for chat messages, requests, and database tables (`conversations`, `messages`, `facts`, `scheduled_monitors`).
 - **Backend Validation:** Zod schema validation on all endpoints, with CORS enabled.
 - **Scheduled Monitors:** An agentic monitoring system for recurring tasks (deep_research, business_search, wyshbone_database) created via chat or manual configuration. It offers full CRUD operations, flexible scheduling (once, hourly, daily, weekly, biweekly, monthly), and business-context-aware intelligence to analyze results, pull user facts from memory, prioritize customer opportunities, and provide personalized reasoning. Email notifications are sent via Resend API and default to enabled. Hourly scheduling enables rapid testing of agentic features within a single day. The UI includes a sidebar management interface with edit and delete actions. **Smart Summary Mode:** Monitor runs create concise, actionable summaries in chat (not overwhelming full reports), showing only new results, AI key findings, and significance level, while full reports are sent via email.
+- **Xero OAuth Integration:** Direct OAuth 2.0 integration for securely connecting Xero accounting accounts. Features HMAC-signed state tokens with user identity preservation, 10-minute expiry protection, replay attack prevention, and session-based authentication. Supports token exchange, refresh, and secure storage of access/refresh tokens with tenant information. Production deployment requires XERO_CLIENT_ID, XERO_CLIENT_SECRET, and OAUTH_STATE_SECRET environment variables. The integration replaces paid third-party services with a native OAuth implementation.
 
 ## External Dependencies
 - **OpenAI GPT-5:** For AI chat responses, prospect enrichment, and web search.
@@ -36,3 +37,16 @@ The user interface follows Material Design principles, inspired by ChatGPT, Line
 - **GeoNames API:** For worldwide administrative region discovery and geocoding.
 - **Bubble:** External platform for backend workflows.
 - **Resend API:** For sending transactional email notifications.
+- **Xero:** Accounting platform integration via OAuth 2.0 for secure account connections.
+
+## Production Deployment Requirements
+- **Required Environment Variables:**
+  - `XERO_CLIENT_ID`: OAuth client ID from Xero Developer Portal
+  - `XERO_CLIENT_SECRET`: OAuth client secret from Xero Developer Portal
+  - `OAUTH_STATE_SECRET`: Strong random secret (32+ characters) for signing OAuth state tokens
+  - `OAUTH_STATE_SECRET` must be rotated periodically for security hygiene
+- **Security Notes:**
+  - The application uses header-based authentication (x-session-id) for API calls
+  - OAuth flows preserve user identity through HMAC-signed state tokens
+  - State tokens expire after 10 minutes and include replay protection
+  - Development mode allows query parameter authentication with warnings (disabled in production)
