@@ -213,7 +213,7 @@ export async function salesHandyBatchImport(
   sequenceId: string,
   apiToken: string,
   baseUrl: string = "https://open-api.saleshandy.com"
-): Promise<boolean> {
+): Promise<{ success: boolean; requestId?: string }> {
   try {
     const payload = {
       prospectList: prospects,
@@ -237,13 +237,41 @@ export async function salesHandyBatchImport(
     );
 
     console.log("✅ SalesHandy batch import response:", response.data);
-    return response.status === 200 || response.status === 201;
+    const requestId = response.data?.payload?.requestId;
+    return { 
+      success: response.status === 200 || response.status === 201,
+      requestId 
+    };
   } catch (error: any) {
     console.error("❌ SalesHandy API Error:");
     console.error("Status:", error.response?.status);
     console.error("Data:", JSON.stringify(error.response?.data, null, 2));
     console.error("Headers:", error.response?.headers);
-    return false;
+    return { success: false };
+  }
+}
+
+export async function salesHandyCheckImportStatus(
+  requestId: string,
+  apiToken: string,
+  baseUrl: string = "https://open-api.saleshandy.com"
+): Promise<any> {
+  try {
+    const response = await axios.get(
+      `${baseUrl}/v1/prospects/import-status/${requestId}`,
+      {
+        headers: {
+          'x-api-key': apiToken,
+          'Content-Type': 'application/json'
+        },
+      }
+    );
+
+    console.log(`📊 Import Status for ${requestId}:`, JSON.stringify(response.data, null, 2));
+    return response.data;
+  } catch (error: any) {
+    console.error(`❌ Failed to check import status for ${requestId}:`, error.response?.data || error.message);
+    return null;
   }
 }
 
@@ -422,13 +450,60 @@ export async function executeBatchJob(params: {
   // Send all prospects in one batch request
   if (prospectsToSend.length > 0) {
     try {
-      const success = await salesHandyBatchImport(
+      const result = await salesHandyBatchImport(
         prospectsToSend,
         campaignId || salesHandyCampaignId,
         salesHandyToken
       );
 
-      if (success) {
+      if (result.success && result.requestId) {
+        console.log(`🔄 Batch import initiated. Request ID: ${result.requestId}`);
+        console.log(`⏳ Waiting for SalesHandy to process ${itemsWithEmails.length} prospects...`);
+        
+        // Poll for import status (with timeout after 30 seconds)
+        let attempts = 0;
+        const maxAttempts = 10;
+        let importStatus: any = null;
+
+        while (attempts < maxAttempts) {
+          await new Promise(resolve => setTimeout(resolve, 3000)); // Wait 3 seconds between polls
+          importStatus = await salesHandyCheckImportStatus(result.requestId, salesHandyToken);
+          
+          if (importStatus?.payload?.status === 'completed') {
+            const accepted = importStatus.payload.successCount || 0;
+            const rejected = importStatus.payload.failureCount || 0;
+            
+            console.log(`✅ Import completed: ${accepted} accepted, ${rejected} rejected`);
+            
+            if (rejected > 0 && importStatus.payload.failures) {
+              console.log(`❌ Rejection reasons:`, JSON.stringify(importStatus.payload.failures.slice(0, 5), null, 2));
+            }
+            
+            // Only mark as created the ones that were actually accepted
+            const acceptedItems = itemsWithEmails.slice(0, accepted);
+            const rejectedItems = itemsWithEmails.slice(accepted);
+            
+            created.push(...acceptedItems);
+            skipped.push(...rejectedItems);
+            break;
+          } else if (importStatus?.payload?.status === 'failed') {
+            console.log(`❌ Import failed:`, importStatus.payload);
+            skipped.push(...itemsWithEmails);
+            break;
+          }
+          
+          attempts++;
+          console.log(`⏳ Still processing... (attempt ${attempts}/${maxAttempts})`);
+        }
+
+        if (attempts >= maxAttempts) {
+          console.log(`⚠️ Import status check timed out. Check SalesHandy manually for request ${result.requestId}`);
+          // Optimistically assume success but warn the user
+          created.push(...itemsWithEmails);
+        }
+
+      } else if (result.success) {
+        // Old behavior: no requestId returned
         created.push(...itemsWithEmails);
         console.log(`✅ Successfully sent ${itemsWithEmails.length} prospects to SalesHandy in batch`);
       } else {
