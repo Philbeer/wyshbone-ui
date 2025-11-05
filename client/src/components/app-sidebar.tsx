@@ -1343,12 +1343,9 @@ function IntegrationsSection({ userId }: { userId: string }) {
       const nango = new Nango({ publicKey: NANGO_PUBLIC_KEY });
       
       console.log(`🔗 Starting OAuth flow for ${provider}...`);
-      
-      // Get user ID from authenticated user context
-      const userId = user?.userId || user?.email || 'demo-user';
       console.log(`📝 Using connection ID: ${userId}`);
       
-      // Trigger OAuth flow
+      // Trigger OAuth flow (userId is passed as prop to this component)
       const result = await nango.auth(provider, userId);
       
       if (result) {
