@@ -2236,10 +2236,11 @@ CRITICAL RULES:
             const data = await response.json();
             
             if (response.ok) {
+              const batchId = data.batchId;
               const responseText = `📧 **SalesHandy Batch Started!**\n\n` +
                 `🔍 **Search:** ${params.query} in ${params.location}, ${params.country}\n` +
                 `🎯 **Target Role:** ${params.targetRole}\n` +
-                `⏱️ **Job ID:** ${data.jobId}\n\n` +
+                `🔗 **[View Pipeline Progress →](/batch/${batchId})**\n\n` +
                 `**Pipeline Processing:**\n` +
                 `1. ✅ Searching Google Places (up to 60 results with page tokens)\n` +
                 `2. 🌐 Finding website domains for each business\n` +
@@ -2247,7 +2248,7 @@ CRITICAL RULES:
                 `4. 🎯 Ranking contacts by position (${params.targetRole} prioritized)\n` +
                 `5. ✍️ Generating AI-powered personalized outreach\n` +
                 `6. 📤 Adding prospects to SalesHandy campaign\n\n` +
-                `This will take several minutes. I'll notify you when complete!`;
+                `This will take several minutes. Click the link above to watch the pipeline in real-time!`;
               
               aiBuffer = responseText;
               appendMessage(sessionId, { role: "assistant", content: responseText });
