@@ -1393,21 +1393,28 @@ CRITICAL RULES:
         type: "function" as const,
         function: {
           name: "saleshandy_batch_call",
-          description: "CRITICAL: Use ONLY when user provides SPECIFIC BUSINESS NAMES (e.g., 'The Ivy Restaurant', 'Pret A Manger', 'Dishoom'). This finds verified email contacts for named businesses using Google Places + Hunter.io + SalesHandy. DO NOT use for broad searches like 'dentists in London' or 'coffee shops' - use bubble_run_batch for those instead. This tool requires exact business names.",
+          description: "Find verified email contacts for businesses using Google Places (up to 60 results) + Hunter.io + SalesHandy. This searches for a business TYPE (like 'restaurants', 'coffee shops') and finds contacts for all matching businesses. Similar to bubble_run_batch but uses Hunter.io for email discovery and SalesHandy for campaign management instead of Smartlead.",
           parameters: {
             type: "object",
             properties: {
-              businesses: {
-                type: "array",
-                items: { type: "string" },
-                description: "EXACT business names - NOT business types. Examples: ['The Ivy Restaurant', 'Dishoom Covent Garden', 'Hawksmoor Steakhouse']. Do NOT use generic terms like ['restaurants', 'coffee shops']."
+              query: {
+                type: "string",
+                description: "Business type to search for (e.g., 'restaurants', 'coffee shops', 'dentists', 'gyms'). This will be used in Google Places search."
               },
               location: {
                 type: "string",
-                description: "Location context for the search (e.g., 'London, UK', 'New York, NY', 'Manchester, UK'). This helps disambiguate business names."
+                description: "Location for the search (e.g., 'London', 'Manchester', 'New York', 'Texas')"
+              },
+              country: {
+                type: "string",
+                description: "Country code or name (e.g., 'UK', 'US', 'GB', 'United Kingdom')"
+              },
+              targetRole: {
+                type: "string",
+                description: "Target job role/position (e.g., 'owner', 'CEO', 'Head of Sales', 'manager')"
               }
             },
-            required: ["businesses", "location"]
+            required: ["query", "location", "country", "targetRole"]
           }
         }
       };
@@ -2188,12 +2195,21 @@ CRITICAL RULES:
           try {
             const params = JSON.parse(toolCallBuffer.arguments);
             
-            if (!params.businesses || !Array.isArray(params.businesses) || params.businesses.length === 0) {
-              throw new Error("Please provide at least one business name");
+            // Validate required parameters
+            if (!params.query) {
+              throw new Error("Please provide a business type to search for (e.g., 'restaurants', 'coffee shops')");
             }
             
             if (!params.location) {
               throw new Error("Please provide a location for the search");
+            }
+            
+            if (!params.country) {
+              throw new Error("Please provide a country");
+            }
+            
+            if (!params.targetRole) {
+              throw new Error("Please provide a target job role (e.g., 'owner', 'CEO', 'Head of Sales')");
             }
             
             // Add auth params for development mode
@@ -2202,7 +2218,7 @@ CRITICAL RULES:
               user_email: user.email
             });
             
-            // Call batch create endpoint
+            // Call batch create endpoint with correct parameters
             const response = await fetch(`http://localhost:5000/api/batch/create?${authParams}`, {
               method: "POST",
               headers: { 
@@ -2210,40 +2226,42 @@ CRITICAL RULES:
                 "x-session-id": user.id
               },
               body: JSON.stringify({ 
-                businesses: params.businesses,
-                location: params.location
+                query: params.query,
+                location: params.location,
+                country: params.country,
+                targetRole: params.targetRole
               }),
             });
             
             const data = await response.json();
             
             if (response.ok) {
-              const responseText = `📧 **Batch Contact Discovery Started!**\n\n` +
-                `🔍 **Searching for contacts at:**\n${params.businesses.map((b: string) => `  • ${b}`).join('\n')}\n\n` +
-                `📍 **Location:** ${params.location}\n\n` +
+              const responseText = `📧 **SalesHandy Batch Started!**\n\n` +
+                `🔍 **Search:** ${params.query} in ${params.location}, ${params.country}\n` +
+                `🎯 **Target Role:** ${params.targetRole}\n` +
                 `⏱️ **Job ID:** ${data.jobId}\n\n` +
-                `I'm now:\n` +
-                `1. Finding each business on Google Places\n` +
-                `2. Discovering their website domains\n` +
-                `3. Finding verified email contacts with Hunter.io\n` +
-                `4. Ranking contacts by position (owners/directors prioritized)\n` +
-                `5. Generating AI-powered personalized outreach\n` +
-                `6. Adding prospects to your SalesHandy campaign\n\n` +
-                `This will take a few minutes. I'll update you when complete!`;
+                `**Pipeline Processing:**\n` +
+                `1. ✅ Searching Google Places (up to 60 results with page tokens)\n` +
+                `2. 🌐 Finding website domains for each business\n` +
+                `3. 📧 Discovering verified emails via Hunter.io\n` +
+                `4. 🎯 Ranking contacts by position (${params.targetRole} prioritized)\n` +
+                `5. ✍️ Generating AI-powered personalized outreach\n` +
+                `6. 📤 Adding prospects to SalesHandy campaign\n\n` +
+                `This will take several minutes. I'll notify you when complete!`;
               
               aiBuffer = responseText;
               appendMessage(sessionId, { role: "assistant", content: responseText });
               await saveMessage(conversationId, "assistant", responseText);
-              console.log("💾 Saved batch contact finder message to database");
+              console.log("💾 Saved SalesHandy batch message to database");
               
               res.write(`data: ${JSON.stringify({ content: responseText })}\n\n`);
             } else {
-              throw new Error(data.error || "Failed to start batch contact discovery");
+              throw new Error(data.error || "Failed to start SalesHandy batch");
             }
             
           } catch (toolErr: any) {
-            console.error("❌ Batch contact finder error:", toolErr.message);
-            aiBuffer = `Sorry, I couldn't start the batch contact discovery: ${toolErr.message}`;
+            console.error("❌ SalesHandy batch error:", toolErr.message);
+            aiBuffer = `Sorry, I couldn't start the SalesHandy batch: ${toolErr.message}`;
             res.write(`data: ${JSON.stringify({ content: aiBuffer })}\n\n`);
             
             appendMessage(sessionId, { role: "assistant", content: aiBuffer });
