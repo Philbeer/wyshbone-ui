@@ -1216,7 +1216,7 @@ function ScheduledMonitorsSection({ userId, onSelectConversation }: { userId: st
                 <Clock className="h-3 w-3" />
                 <span>
                   {monitor.schedule.charAt(0).toUpperCase() + monitor.schedule.slice(1)}
-                  {monitor.scheduleDay && ` on ${monitor.scheduleDay.charAt(0).toUpperCase() + monitor.scheduleDay.slice(1)}s`}
+                  {monitor.schedule !== 'hourly' && monitor.schedule !== 'once' && monitor.scheduleDay && ` on ${monitor.scheduleDay.charAt(0).toUpperCase() + monitor.scheduleDay.slice(1)}s`}
                 </span>
               </div>
               
