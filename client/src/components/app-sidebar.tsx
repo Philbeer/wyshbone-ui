@@ -1,4 +1,4 @@
-import { Globe, MessageSquare, Bug, FilePlus, MessagesSquare, ChevronDown, ChevronRight, Clock, Edit2, Trash2, Mail } from "lucide-react";
+import { Globe, MessageSquare, Bug, FilePlus, MessagesSquare, ChevronDown, ChevronRight, Clock, Edit2, Trash2, Mail, Link2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
@@ -521,6 +521,7 @@ export function AppSidebar({
   const [localRuns, setLocalRuns] = useState<RunItem[]>(runs);
   const [showPreviousChats, setShowPreviousChats] = useState(false);
   const [showScheduledMonitors, setShowScheduledMonitors] = useState(false);
+  const [showIntegrations, setShowIntegrations] = useState(false);
   const [newRunIds, setNewRunIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
@@ -849,6 +850,37 @@ export function AppSidebar({
                         Automated tasks that run on a schedule
                       </p>
                       <ScheduledMonitorsSection userId={user.id} onSelectConversation={onSelectConversation} />
+                    </div>
+                  </CollapsibleContent>
+                </Collapsible>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        <SidebarGroup>
+          <SidebarGroupLabel>Integrations</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <Collapsible open={showIntegrations} onOpenChange={setShowIntegrations}>
+                  <CollapsibleTrigger asChild>
+                    <SidebarMenuButton data-testid="button-toggle-integrations">
+                      {showIntegrations ? (
+                        <ChevronDown className="h-4 w-4" />
+                      ) : (
+                        <ChevronRight className="h-4 w-4" />
+                      )}
+                      <Link2 className="h-4 w-4" />
+                      <span>CRM & Accounting</span>
+                    </SidebarMenuButton>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="mt-2">
+                    <div className="px-3">
+                      <p className="text-xs text-muted-foreground mb-3">
+                        Connect your business tools
+                      </p>
+                      <IntegrationsSection userId={user.id} />
                     </div>
                   </CollapsibleContent>
                 </Collapsible>
@@ -1269,5 +1301,128 @@ function ScheduledMonitorsSection({ userId, onSelectConversation }: { userId: st
       })}
       </div>
     </>
+  );
+}
+
+// Integrations Section Component
+function IntegrationsSection({ userId }: { userId: string }) {
+  const [isConnecting, setIsConnecting] = useState<string | null>(null);
+  
+  const { data: integrations, isLoading, refetch } = useQuery({
+    queryKey: ['/api/integrations'],
+    refetchInterval: 5000,
+  });
+  
+  const providers = [
+    { key: 'salesforce', label: 'Salesforce', icon: '☁️' },
+    { key: 'xero', label: 'Xero', icon: '📊' },
+    { key: 'microsoft-business-central', label: 'Microsoft Business Central', icon: '🏢' },
+    { key: 'google-sheets', label: 'Google Sheets', icon: '📗' },
+  ];
+  
+  const connectedProviders = new Set(
+    (integrations?.integrations || []).map((i: any) => i.provider)
+  );
+  
+  const handleConnect = async (provider: string) => {
+    setIsConnecting(provider);
+    try {
+      const url = addDevAuthParams('/api/integrations/connect-session');
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider }),
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        alert(errorData.error || 'Failed to initiate connection');
+        return;
+      }
+      
+      const data = await response.json();
+      if (data.authorize_url) {
+        // Open OAuth popup
+        window.open(data.authorize_url, '_blank', 'width=500,height=700');
+      }
+    } catch (error) {
+      console.error('Failed to connect:', error);
+      alert('Failed to initiate connection');
+    } finally {
+      setIsConnecting(null);
+    }
+  };
+  
+  const handleDisconnect = async (integrationId: string) => {
+    try {
+      const url = addDevAuthParams(`/api/integrations/${integrationId}`);
+      const response = await fetch(url, {
+        method: 'DELETE',
+      });
+      
+      if (response.ok) {
+        refetch();
+      } else {
+        alert('Failed to disconnect integration');
+      }
+    } catch (error) {
+      console.error('Failed to disconnect:', error);
+      alert('Failed to disconnect integration');
+    }
+  };
+  
+  if (isLoading) {
+    return <div className="text-xs text-muted-foreground">Loading...</div>;
+  }
+  
+  return (
+    <div className="space-y-2">
+      {providers.map((provider) => {
+        const isConnected = connectedProviders.has(provider.key);
+        const integration = (integrations?.integrations || []).find((i: any) => i.provider === provider.key);
+        
+        return (
+          <div
+            key={provider.key}
+            className="p-3 rounded-md border border-border bg-card"
+            data-testid={`integration-${provider.key}`}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 flex-1 min-w-0">
+                <span className="text-lg flex-shrink-0">{provider.icon}</span>
+                <div className="min-w-0">
+                  <div className="text-sm font-medium truncate">{provider.label}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {isConnected ? 'Connected' : 'Not connected'}
+                  </div>
+                </div>
+              </div>
+              
+              {isConnected ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => handleDisconnect(integration.id)}
+                  data-testid={`button-disconnect-${provider.key}`}
+                  className="flex-shrink-0"
+                >
+                  Disconnect
+                </Button>
+              ) : (
+                <Button
+                  size="sm"
+                  onClick={() => handleConnect(provider.key)}
+                  disabled={isConnecting === provider.key}
+                  data-testid={`button-connect-${provider.key}`}
+                  className="flex-shrink-0"
+                >
+                  {isConnecting === provider.key ? 'Connecting...' : 'Connect'}
+                </Button>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
   );
 }
