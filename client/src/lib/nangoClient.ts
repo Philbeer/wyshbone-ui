@@ -1,4 +1,5 @@
 import Nango from "@nangohq/frontend";
+import { addDevAuthParams } from "./queryClient";
 
 export async function startNangoConnect(opts: {
   provider: string;
@@ -17,7 +18,8 @@ export async function startNangoConnect(opts: {
     requestBody.allowedIntegrations = allowedIntegrations;
   }
 
-  const res = await fetch("/api/nango/create-session", {
+  const url = addDevAuthParams("/api/nango/create-session");
+  const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(requestBody)
