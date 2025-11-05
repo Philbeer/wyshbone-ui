@@ -1,4 +1,5 @@
 import express from "express";
+import { inspect } from "util";
 
 export const nangoRouter = express.Router();
 
@@ -16,9 +17,19 @@ nangoRouter.post("/api/nango/create-session", express.json(), async (req, res) =
     const { userId, userEmail, userDisplayName, allowedIntegrations } = req.body || {};
     if (!userId) return res.status(400).json({ error: "Missing userId" });
 
-    const integrations = Array.isArray(allowedIntegrations) && allowedIntegrations.length
-      ? allowedIntegrations
-      : ["xero", "salesforce", "microsoft-business-central", "google-sheets"];
+    // Build the request body - only include allowed_integrations if explicitly provided
+    const requestBody: any = {
+      end_user: {
+        id: String(userId),
+        email: userEmail || "demo@wyshbone.com",
+        display_name: userDisplayName || "Wyshbone Demo"
+      }
+    };
+
+    // Only add allowed_integrations if provided (otherwise Nango shows all configured integrations)
+    if (Array.isArray(allowedIntegrations) && allowedIntegrations.length > 0) {
+      requestBody.allowed_integrations = allowedIntegrations;
+    }
 
     const resp = await fetch(`${NANGO_API_BASE}/connect/sessions`, {
       method: "POST",
@@ -26,20 +37,13 @@ nangoRouter.post("/api/nango/create-session", express.json(), async (req, res) =
         Authorization: `Bearer ${NANGO_SECRET_KEY}`,
         "Content-Type": "application/json"
       },
-      body: JSON.stringify({
-        end_user: {
-          id: String(userId),
-          email: userEmail || "demo@wyshbone.com",
-          display_name: userDisplayName || "Wyshbone Demo"
-        },
-        allowed_integrations: integrations
-      })
+      body: JSON.stringify(requestBody)
     });
 
     const data = await resp.json();
     if (!resp.ok) {
-      console.error("Nango create-session error:", data);
-      return res.status(resp.status).json({ error: data?.message || "Failed to create session" });
+      console.error("Nango create-session error:", inspect(data, { depth: 10, colors: false }));
+      return res.status(resp.status).json({ error: data?.error?.message || data?.message || "Failed to create session" });
     }
 
     const token = data?.data?.token;
