@@ -4742,10 +4742,8 @@ ${run.outputText}`;
     } catch (error: any) {
       const errorData = error.response?.data;
       if (errorData) {
-        console.error("Nango connect-session full error:", JSON.stringify(errorData, null, 2));
-        if (errorData.error?.errors) {
-          console.error("Validation errors:", JSON.stringify(errorData.error.errors, null, 2));
-        }
+        const util = await import('util');
+        console.error("Nango connect-session full error:", util.inspect(errorData, { depth: 10, colors: false }));
       } else {
         console.error("Nango connect-session error:", error.message);
       }
