@@ -4692,7 +4692,7 @@ ${run.outputText}`;
   // INTEGRATIONS (NANGO.DEV CRM/ACCOUNTING CONNECTIONS)
   // ===========================
   
-  // Get Nango authorization URL (bypasses broken Connect UI)
+  // Get Nango authorization URL (uses Nango API for correct URL)
   app.post("/api/integrations/authorization-url", async (req, res) => {
     try {
       const auth = await getAuthenticatedUserId(req);
@@ -4710,31 +4710,39 @@ ${run.outputText}`;
       
       const { provider } = validation.data;
       
-      const NANGO_PUBLIC_KEY = process.env.NANGO_PUBLIC_KEY || process.env.NANGO_SECRET_KEY;
-      const REPL_SLUG = process.env.REPL_SLUG;
-      const REPL_OWNER = process.env.REPL_OWNER;
+      const NANGO_SECRET_KEY = process.env.NANGO_SECRET_KEY;
+      const NANGO_HOST = process.env.NANGO_HOST || "https://api.nango.dev";
       
-      if (!NANGO_PUBLIC_KEY) {
+      if (!NANGO_SECRET_KEY) {
         return res.status(500).json({ error: "Nango integration not configured" });
       }
       
-      // Build callback URL for OAuth redirect
-      const callbackUrl = REPL_SLUG && REPL_OWNER
-        ? `https://${REPL_SLUG}.${REPL_OWNER}.repl.co/api/integrations/oauth-callback`
-        : `http://localhost:5000/api/integrations/oauth-callback`;
+      console.log(`🔗 Requesting authorization URL from Nango for ${auth.userEmail} - ${provider}`);
       
-      // Nango authorization URL format
-      const authUrl = new URL('https://api.nango.dev/oauth/connect');
-      authUrl.searchParams.set('public_key', NANGO_PUBLIC_KEY);
-      authUrl.searchParams.set('connection_id', auth.userId);
-      authUrl.searchParams.set('provider_config_key', provider);
-      authUrl.searchParams.set('callback_url', callbackUrl);
+      // Get authorization URL from Nango API
+      const nangoUrl = `${NANGO_HOST}/connection/${auth.userId}/authorization-url?provider_config_key=${provider}`;
+      const nangoResponse = await fetch(nangoUrl, {
+        headers: {
+          'Authorization': `Bearer ${NANGO_SECRET_KEY}`,
+        },
+      });
       
-      console.log(`🔗 Generated OAuth URL for ${auth.userEmail} - ${provider}`);
-      console.log(`   Callback: ${callbackUrl}`);
+      if (!nangoResponse.ok) {
+        const errorData = await nangoResponse.json();
+        console.error('❌ Nango authorization URL error:', errorData);
+        return res.status(500).json({ 
+          error: "Failed to get authorization URL from Nango",
+          details: errorData 
+        });
+      }
+      
+      const data = await nangoResponse.json();
+      const authorizationUrl = data.url;
+      
+      console.log(`✅ Got authorization URL: ${authorizationUrl}`);
       
       res.json({ 
-        authorizationUrl: authUrl.toString(),
+        authorizationUrl,
         provider 
       });
     } catch (error: any) {
