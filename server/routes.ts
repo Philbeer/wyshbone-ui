@@ -4841,6 +4841,70 @@ ${run.outputText}`;
     }
   });
   
+  // Verify and sync integration from Nango
+  app.get("/api/integrations/verify/:provider", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { provider } = req.params;
+      const NANGO_SECRET_KEY = process.env.NANGO_SECRET_KEY;
+      
+      if (!NANGO_SECRET_KEY) {
+        return res.status(500).json({ error: "Nango not configured" });
+      }
+      
+      console.log(`🔍 Verifying ${provider} connection for user ${auth.userEmail}...`);
+      
+      // Check if connection exists in Nango
+      const nangoResponse = await fetch(
+        `https://api.nango.dev/connection/${auth.userId}?provider_config_key=${provider}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${NANGO_SECRET_KEY}`,
+          },
+        }
+      );
+      
+      if (nangoResponse.ok) {
+        const connectionData = await nangoResponse.json();
+        console.log(`✅ Found ${provider} connection in Nango for ${auth.userEmail}`);
+        
+        // Check if we already have this integration
+        const existing = await storage.listIntegrations(auth.userId);
+        const existingIntegration = existing.find(
+          i => i.provider === provider && i.connectionId === connectionData.connection_id
+        );
+        
+        if (!existingIntegration) {
+          // Save to database
+          const crypto = await import('crypto');
+          const integrationId = crypto.randomUUID();
+          await storage.createIntegration({
+            id: integrationId,
+            userId: auth.userId,
+            provider,
+            connectionId: connectionData.connection_id,
+            metadata: connectionData,
+            createdAt: Date.now(),
+          });
+          console.log(`💾 Saved ${provider} integration to database for ${auth.userEmail}`);
+        }
+        
+        return res.json({ connected: true, provider });
+      } else {
+        const errorData = await nangoResponse.json();
+        console.log(`❌ No ${provider} connection found in Nango:`, errorData);
+        return res.json({ connected: false, provider });
+      }
+    } catch (error: any) {
+      console.error("Verify integration error:", error);
+      res.status(500).json({ error: error.message || "Failed to verify integration" });
+    }
+  });
+  
   // List user's integrations
   app.get("/api/integrations", async (req, res) => {
     try {

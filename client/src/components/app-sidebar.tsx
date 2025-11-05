@@ -1358,11 +1358,31 @@ function IntegrationsSection({ userId }: { userId: string }) {
         );
         
         if (popup) {
-          // Poll for completion
-          const interval = setInterval(() => {
+          // Poll for popup closure, then verify connection
+          const interval = setInterval(async () => {
             if (popup.closed) {
               clearInterval(interval);
-              console.log('✅ OAuth window closed - refreshing integrations');
+              console.log('✅ OAuth window closed - verifying connection...');
+              
+              // Wait a moment for Nango to process the connection
+              await new Promise(resolve => setTimeout(resolve, 2000));
+              
+              // Verify connection with backend
+              try {
+                const verifyUrl = addDevAuthParams(`/api/integrations/verify/${provider}`);
+                const verifyResponse = await fetch(verifyUrl);
+                const verifyData = await verifyResponse.json();
+                
+                if (verifyData.connected) {
+                  console.log('✅ Connection verified:', provider);
+                } else {
+                  console.warn('⚠️ Connection not found after OAuth flow');
+                }
+              } catch (error) {
+                console.error('Failed to verify connection:', error);
+              }
+              
+              // Refresh integration list
               refetch();
               setIsConnecting(null);
             }
