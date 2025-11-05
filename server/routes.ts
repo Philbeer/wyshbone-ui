@@ -18,6 +18,7 @@ import {
   addNoteRequestSchema,
   searchRequestSchema,
   createSessionRequestSchema,
+  createIntegrationRequestSchema,
 } from "@shared/schema";
 import { storage } from "./storage";
 import cors from "cors";
@@ -4684,6 +4685,138 @@ ${run.outputText}`;
     } catch (error: any) {
       console.error("Debug facts error:", error);
       res.status(500).json({ error: error.message || "Failed to fetch facts" });
+    }
+  });
+
+  // ===========================
+  // INTEGRATIONS (NANGO.DEV CRM/ACCOUNTING CONNECTIONS)
+  // ===========================
+  
+  // Create Nango connect session (OAuth flow initiation)
+  app.post("/api/integrations/connect-session", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const validation = createIntegrationRequestSchema.safeParse(req.body);
+      if (!validation.success) {
+        return res.status(400).json({ 
+          error: "Invalid request format", 
+          details: validation.error 
+        });
+      }
+      
+      const { provider } = validation.data;
+      
+      const NANGO_HOST = process.env.NANGO_HOST || "https://api.nango.dev";
+      const NANGO_SECRET_KEY = process.env.NANGO_SECRET_KEY;
+      const APP_BASE_URL = process.env.APP_BASE_URL || `https://${process.env.REPL_SLUG}.${process.env.REPL_OWNER}.repl.co`;
+      
+      if (!NANGO_SECRET_KEY) {
+        return res.status(500).json({ error: "Nango integration not configured - contact administrator" });
+      }
+      
+      const connectionId = `${auth.userId}__${provider}`;
+      
+      const payload = {
+        provider_config_key: provider,
+        connection_id: connectionId,
+        success_redirect_url: `${APP_BASE_URL}/?connected=${provider}`,
+        metadata: { userId: auth.userId, provider }
+      };
+      
+      console.log(`🔗 Creating Nango connect session for ${auth.userEmail} - ${provider}`);
+      
+      const axios = (await import('axios')).default;
+      const response = await axios.post(`${NANGO_HOST}/connect/sessions`, payload, {
+        headers: { Authorization: `Bearer ${NANGO_SECRET_KEY}` },
+      });
+      
+      res.json({ authorize_url: response.data?.authorize_url });
+    } catch (error: any) {
+      console.error("Nango connect-session error:", error.response?.data || error.message);
+      res.status(500).json({ error: "Failed to create Nango connect session" });
+    }
+  });
+  
+  // Nango webhook (receives connection events from Nango.dev)
+  app.post("/api/integrations/nango-webhook", async (req, res) => {
+    try {
+      const evt = req.body?.event;
+      const data = req.body?.data || {};
+      
+      if (!evt || !data.connection_id) {
+        return res.status(400).json({ ok: false, error: "Invalid webhook payload" });
+      }
+      
+      const provider = data.provider_config_key;
+      const userId = data.metadata?.userId || "unknown";
+      const connectionId = data.connection_id;
+      
+      console.log(`📨 Nango webhook: ${evt} for ${provider} (user: ${userId})`);
+      
+      // Save or update integration connection
+      if (evt === "connection.created" || evt === "connection.updated") {
+        const integrationId = crypto.randomUUID();
+        await storage.createIntegration({
+          id: integrationId,
+          userId,
+          provider,
+          connectionId,
+          metadata: data,
+          createdAt: Date.now(),
+        });
+        
+        console.log(`✅ Saved integration: ${provider} for user ${userId}`);
+      }
+      
+      res.json({ ok: true });
+    } catch (error: any) {
+      console.error("Nango webhook error:", error);
+      res.status(500).json({ ok: false, error: error.message });
+    }
+  });
+  
+  // List user's integrations
+  app.get("/api/integrations", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const integrations = await storage.listIntegrations(auth.userId);
+      res.json({ integrations });
+    } catch (error: any) {
+      console.error("List integrations error:", error);
+      res.status(500).json({ error: error.message || "Failed to list integrations" });
+    }
+  });
+  
+  // Delete integration
+  app.delete("/api/integrations/:id", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { id } = req.params;
+      
+      // Verify ownership
+      const integration = await storage.getIntegration(id);
+      if (!integration || integration.userId !== auth.userId) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+      
+      const deleted = await storage.deleteIntegration(id);
+      console.log(`🗑️ User ${auth.userEmail} deleted integration: ${integration.provider}`);
+      res.json({ success: deleted });
+    } catch (error: any) {
+      console.error("Delete integration error:", error);
+      res.status(500).json({ error: error.message || "Failed to delete integration" });
     }
   });
 
