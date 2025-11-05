@@ -4833,168 +4833,17 @@ ${run.outputText}`;
     }
   });
   
-  // Nango webhook (receives connection events from Nango.dev)
+  // DEPRECATED: Old Nango webhook routes - replaced with direct OAuth
+  // Commented out after migrating to direct Xero OAuth integration
+  /*
   app.post("/api/integrations/nango-webhook", async (req, res) => {
-    try {
-      // Verify webhook signature for security
-      const NANGO_SECRET_KEY = process.env.NANGO_SECRET_KEY;
-      if (!NANGO_SECRET_KEY) {
-        console.error("❌ Nango webhook received but NANGO_SECRET_KEY not configured");
-        return res.status(500).json({ ok: false, error: "Webhook not configured" });
-      }
-      
-      const signature = req.headers['x-nango-signature'] as string;
-      if (!signature) {
-        console.error("❌ Nango webhook rejected: missing signature");
-        return res.status(401).json({ ok: false, error: "Missing webhook signature" });
-      }
-      
-      // Verify signature using HMAC SHA-256 on raw body
-      const rawBody = (req as any).rawBody;
-      if (!rawBody) {
-        console.error("❌ Nango webhook error: raw body not captured");
-        return res.status(500).json({ ok: false, error: "Server configuration error" });
-      }
-      
-      const crypto = await import('crypto');
-      const expectedSignature = crypto
-        .createHmac('sha256', NANGO_SECRET_KEY)
-        .update(rawBody)
-        .digest('hex');
-      
-      if (signature !== expectedSignature) {
-        console.error("❌ Nango webhook rejected: invalid signature");
-        return res.status(401).json({ ok: false, error: "Invalid webhook signature" });
-      }
-      
-      const { type, operation, success, connectionId, providerConfigKey, endUser } = req.body;
-      
-      if (!type || !operation || !connectionId || !providerConfigKey) {
-        return res.status(400).json({ ok: false, error: "Invalid webhook payload" });
-      }
-      
-      const provider = providerConfigKey;
-      const userId = endUser?.endUserId || "unknown";
-      
-      console.log(`📨 Nango webhook: ${type}.${operation} for ${provider} (user: ${userId}, success: ${success})`);
-      
-      // Handle auth events
-      if (type === "auth") {
-        if (operation === "creation" && success) {
-          // Upsert integration (create or update if exists)
-          const existing = await storage.listIntegrations(userId);
-          const existingIntegration = existing.find(
-            i => i.provider === provider && i.connectionId === connectionId
-          );
-          
-          if (existingIntegration) {
-            // Update existing integration
-            console.log(`🔄 Updating existing integration: ${provider} for user ${userId}`);
-            // For now, we'll just log - storage doesn't have update method yet
-            // In production, you'd want to add an updateIntegration method
-          } else {
-            // Create new integration
-            const integrationId = crypto.randomUUID();
-            await storage.createIntegration({
-              id: integrationId,
-              userId,
-              provider,
-              connectionId,
-              metadata: req.body,
-              createdAt: Date.now(),
-            });
-            console.log(`✅ Created integration: ${provider} for user ${userId}`);
-          }
-        } else if (!success) {
-          console.log(`⚠️ Auth ${operation} failed for ${provider} (user: ${userId})`);
-        }
-      }
-      
-      res.json({ ok: true });
-    } catch (error: any) {
-      console.error("Nango webhook error:", error);
-      res.status(500).json({ ok: false, error: error.message });
-    }
+    // ... Nango webhook handling code removed ...
   });
   
-  // Verify and sync integration from Nango
   app.get("/api/integrations/verify/:provider", async (req, res) => {
-    try {
-      const auth = await getAuthenticatedUserId(req);
-      if (!auth) {
-        return res.status(401).json({ error: "Unauthorized" });
-      }
-      
-      const { provider } = req.params;
-      const NANGO_SECRET_KEY = process.env.NANGO_SECRET_KEY;
-      
-      if (!NANGO_SECRET_KEY) {
-        return res.status(500).json({ error: "Nango not configured" });
-      }
-      
-      console.log(`🔍 Verifying ${provider} connection for user ${auth.userEmail}...`);
-      
-      // Retry logic to handle Nango API timing delays
-      const maxRetries = 4;
-      const retryDelays = [0, 1000, 2000, 3000]; // 0ms, 1s, 2s, 3s
-      
-      for (let attempt = 0; attempt < maxRetries; attempt++) {
-        if (attempt > 0) {
-          console.log(`⏱️ Retry ${attempt}/${maxRetries - 1} after ${retryDelays[attempt]}ms delay...`);
-          await new Promise(resolve => setTimeout(resolve, retryDelays[attempt]));
-        }
-        
-        // Check if connection exists in Nango
-        const nangoResponse = await fetch(
-          `https://api.nango.dev/connection/${auth.userId}?provider_config_key=${provider}`,
-          {
-            headers: {
-              'Authorization': `Bearer ${NANGO_SECRET_KEY}`,
-            },
-          }
-        );
-        
-        if (nangoResponse.ok) {
-          const connectionData = await nangoResponse.json();
-          console.log(`✅ Found ${provider} connection in Nango for ${auth.userEmail} (attempt ${attempt + 1})`);
-          
-          // Check if we already have this integration
-          const existing = await storage.listIntegrations(auth.userId);
-          const existingIntegration = existing.find(
-            i => i.provider === provider && i.connectionId === connectionData.connection_id
-          );
-          
-          if (!existingIntegration) {
-            // Save to database
-            const crypto = await import('crypto');
-            const integrationId = crypto.randomUUID();
-            await storage.createIntegration({
-              id: integrationId,
-              userId: auth.userId,
-              provider,
-              connectionId: connectionData.connection_id,
-              metadata: connectionData,
-              createdAt: Date.now(),
-            });
-            console.log(`💾 Saved ${provider} integration to database for ${auth.userEmail}`);
-          }
-          
-          return res.json({ connected: true, provider });
-        } else if (attempt === maxRetries - 1) {
-          // Last attempt failed
-          const errorData = await nangoResponse.json();
-          console.log(`❌ No ${provider} connection found in Nango after ${maxRetries} attempts:`, errorData);
-          return res.json({ connected: false, provider });
-        }
-        // Continue to next retry attempt
-      }
-      
-      return res.json({ connected: false, provider });
-    } catch (error: any) {
-      console.error("Verify integration error:", error);
-      res.status(500).json({ error: error.message || "Failed to verify integration" });
-    }
+    // ... Nango verify code removed ...
   });
+  */
   
   // List user's integrations
   app.get("/api/integrations", async (req, res) => {
