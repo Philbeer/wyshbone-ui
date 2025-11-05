@@ -1330,8 +1330,8 @@ function IntegrationsSection({ userId }: { userId: string }) {
   const handleConnect = async (provider: string) => {
     setIsConnecting(provider);
     try {
-      // Get session token from backend
-      const url = addDevAuthParams('/api/integrations/connect-session');
+      // Get authorization URL from backend
+      const url = addDevAuthParams('/api/integrations/authorization-url');
       const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1347,36 +1347,34 @@ function IntegrationsSection({ userId }: { userId: string }) {
       
       const data = await response.json();
       
-      if (data.token) {
-        // Open Nango Connect UI in a popup
-        const connectUrl = `https://connect.nango.dev/?session_token=${data.token}`;
-        
+      if (data.authorizationUrl) {
+        // Open OAuth flow in popup
         const popup = window.open(
-          connectUrl,
-          'Nango OAuth',
+          data.authorizationUrl,
+          'OAuth',
           'width=600,height=700,left=100,top=100'
         );
         
         if (popup) {
-          // Poll for popup closure, then verify connection
-          const interval = setInterval(async () => {
-            if (popup.closed) {
-              clearInterval(interval);
-              console.log('✅ OAuth window closed - verifying connection...');
+          // Listen for OAuth success message from popup
+          const handleMessage = async (event: MessageEvent) => {
+            if (event.data.type === 'oauth-success' && event.data.provider === provider) {
+              console.log('✅ OAuth success received for:', provider);
+              window.removeEventListener('message', handleMessage);
               
-              // Wait a moment for Nango to process the connection
+              // Wait a moment for Nango to finalize the connection
               await new Promise(resolve => setTimeout(resolve, 2000));
               
-              // Verify connection with backend
+              // Verify and sync connection
               try {
                 const verifyUrl = addDevAuthParams(`/api/integrations/verify/${provider}`);
                 const verifyResponse = await fetch(verifyUrl);
                 const verifyData = await verifyResponse.json();
                 
                 if (verifyData.connected) {
-                  console.log('✅ Connection verified:', provider);
+                  console.log('✅ Connection verified and saved:', provider);
                 } else {
-                  console.warn('⚠️ Connection not found after OAuth flow');
+                  console.warn('⚠️ Connection not found after OAuth');
                 }
               } catch (error) {
                 console.error('Failed to verify connection:', error);
@@ -1385,6 +1383,21 @@ function IntegrationsSection({ userId }: { userId: string }) {
               // Refresh integration list
               refetch();
               setIsConnecting(null);
+            }
+          };
+          
+          window.addEventListener('message', handleMessage);
+          
+          // Fallback: poll for popup closure
+          const interval = setInterval(() => {
+            if (popup.closed) {
+              clearInterval(interval);
+              window.removeEventListener('message', handleMessage);
+              if (isConnecting) {
+                console.log('Popup closed, refreshing integrations');
+                refetch();
+                setIsConnecting(null);
+              }
             }
           }, 1000);
         } else {
@@ -1397,7 +1410,7 @@ function IntegrationsSection({ userId }: { userId: string }) {
       console.error('Failed to connect:', error);
       alert('Failed to initiate connection. Please try again.');
     } finally {
-      setIsConnecting(null);
+      if (!isConnecting) setIsConnecting(null);
     }
   };
   

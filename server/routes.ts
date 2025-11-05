@@ -4692,8 +4692,8 @@ ${run.outputText}`;
   // INTEGRATIONS (NANGO.DEV CRM/ACCOUNTING CONNECTIONS)
   // ===========================
   
-  // Create Nango connect session (OAuth flow initiation)
-  app.post("/api/integrations/connect-session", async (req, res) => {
+  // Get Nango authorization URL (bypasses broken Connect UI)
+  app.post("/api/integrations/authorization-url", async (req, res) => {
     try {
       const auth = await getAuthenticatedUserId(req);
       if (!auth) {
@@ -4710,50 +4710,110 @@ ${run.outputText}`;
       
       const { provider } = validation.data;
       
-      const NANGO_HOST = process.env.NANGO_HOST || "https://api.nango.dev";
-      const NANGO_SECRET_KEY = process.env.NANGO_SECRET_KEY;
+      const NANGO_PUBLIC_KEY = process.env.NANGO_PUBLIC_KEY || process.env.NANGO_SECRET_KEY;
+      const REPL_SLUG = process.env.REPL_SLUG;
+      const REPL_OWNER = process.env.REPL_OWNER;
       
-      if (!NANGO_SECRET_KEY) {
-        return res.status(500).json({ error: "Nango integration not configured - contact administrator" });
+      if (!NANGO_PUBLIC_KEY) {
+        return res.status(500).json({ error: "Nango integration not configured" });
       }
       
-      const payload = {
-        end_user: {
-          id: auth.userId,
-          email: auth.userEmail,
-        },
-        allowed_integrations: [provider]
-      };
+      // Build callback URL for OAuth redirect
+      const callbackUrl = REPL_SLUG && REPL_OWNER
+        ? `https://${REPL_SLUG}.${REPL_OWNER}.repl.co/api/integrations/oauth-callback`
+        : `http://localhost:5000/api/integrations/oauth-callback`;
       
-      console.log(`🔗 Creating Nango connect session for ${auth.userEmail} - ${provider}`);
+      // Nango authorization URL format
+      const authUrl = new URL('https://api.nango.dev/oauth/connect');
+      authUrl.searchParams.set('public_key', NANGO_PUBLIC_KEY);
+      authUrl.searchParams.set('connection_id', auth.userId);
+      authUrl.searchParams.set('provider_config_key', provider);
+      authUrl.searchParams.set('callback_url', callbackUrl);
       
-      const axios = (await import('axios')).default;
-      const response = await axios.post(`${NANGO_HOST}/connect/sessions`, payload, {
-        headers: { 
-          'Authorization': `Bearer ${NANGO_SECRET_KEY}`,
-          'Content-Type': 'application/json'
-        },
-      });
-      
-      console.log('✅ Nango session response:', JSON.stringify(response.data, null, 2));
+      console.log(`🔗 Generated OAuth URL for ${auth.userEmail} - ${provider}`);
+      console.log(`   Callback: ${callbackUrl}`);
       
       res.json({ 
-        token: response.data?.data?.token,
+        authorizationUrl: authUrl.toString(),
         provider 
       });
     } catch (error: any) {
-      const errorData = error.response?.data;
-      if (errorData) {
-        const util = await import('util');
-        console.error("Nango connect-session full error:", util.inspect(errorData, { depth: 10, colors: false }));
-      } else {
-        console.error("Nango connect-session error:", error.message);
-      }
-      
+      console.error("Authorization URL error:", error);
       res.status(500).json({ 
-        error: "Failed to create Nango connect session",
-        details: errorData || error.message 
+        error: "Failed to generate authorization URL",
+        details: error.message 
       });
+    }
+  });
+  
+  // OAuth callback (handles redirect from Nango after OAuth)
+  app.get("/api/integrations/oauth-callback", async (req, res) => {
+    try {
+      const { connection_id, provider_config_key } = req.query;
+      
+      console.log(`🔄 OAuth callback received for connection: ${connection_id}, provider: ${provider_config_key}`);
+      
+      // Close the popup and signal success
+      res.send(`
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <title>Connection Successful</title>
+            <style>
+              body {
+                font-family: system-ui, -apple-system, sans-serif;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                height: 100vh;
+                margin: 0;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                color: white;
+              }
+              .container {
+                text-align: center;
+                padding: 2rem;
+                background: rgba(255, 255, 255, 0.1);
+                border-radius: 1rem;
+                backdrop-filter: blur(10px);
+              }
+              .checkmark {
+                font-size: 4rem;
+                margin-bottom: 1rem;
+              }
+              h1 { margin: 0 0 0.5rem 0; }
+              p { margin: 0; opacity: 0.9; }
+            </style>
+          </head>
+          <body>
+            <div class="container">
+              <div class="checkmark">✓</div>
+              <h1>Connected Successfully!</h1>
+              <p>You can close this window</p>
+            </div>
+            <script>
+              // Signal parent window and auto-close after 2 seconds
+              if (window.opener) {
+                window.opener.postMessage({ type: 'oauth-success', provider: '${provider_config_key}' }, '*');
+              }
+              setTimeout(() => window.close(), 2000);
+            </script>
+          </body>
+        </html>
+      `);
+    } catch (error: any) {
+      console.error("OAuth callback error:", error);
+      res.status(500).send(`
+        <!DOCTYPE html>
+        <html>
+          <head><title>Connection Failed</title></head>
+          <body>
+            <h1>Connection Failed</h1>
+            <p>${error.message}</p>
+            <button onclick="window.close()">Close Window</button>
+          </body>
+        </html>
+      `);
     }
   });
   
