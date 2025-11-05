@@ -881,7 +881,7 @@ export function AppSidebar({
                       <p className="text-xs text-muted-foreground mb-3">
                         Connect your business tools
                       </p>
-                      <IntegrationsSection userId={user.id} />
+                      <IntegrationsSection userId={user.email} />
                     </div>
                   </CollapsibleContent>
                 </Collapsible>
