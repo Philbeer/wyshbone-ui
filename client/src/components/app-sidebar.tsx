@@ -2,9 +2,9 @@ import { Globe, MessageSquare, Bug, FilePlus, MessagesSquare, ChevronDown, Chevr
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
-import Nango from '@nangohq/frontend';
 import { useUser } from "@/contexts/UserContext";
 import { addDevAuthParams } from "@/lib/queryClient";
+import { startNangoConnect } from "@/lib/nangoClient";
 import {
   Sidebar,
   SidebarContent,
@@ -1330,54 +1330,46 @@ function IntegrationsSection({ userId }: { userId: string }) {
   const handleConnect = async (provider: string) => {
     setIsConnecting(provider);
     try {
-      const nangoModule = await import('@nangohq/frontend');
-      const Nango = nangoModule.default || nangoModule.Nango || nangoModule;
+      console.log(`🔗 Starting OAuth for ${provider}`);
       
-      const NANGO_PUBLIC_KEY = import.meta.env.VITE_NANGO_PUBLIC_KEY || import.meta.env.VITE_NANGO_SECRET_KEY;
-      if (!NANGO_PUBLIC_KEY) {
-        alert('Nango configuration missing - contact administrator');
-        setIsConnecting(null);
-        return;
-      }
-      
-      const nango = new Nango({ publicKey: NANGO_PUBLIC_KEY });
-      
-      console.log(`🔗 Starting OAuth flow for ${provider}...`);
-      console.log(`📝 Using connection ID: ${userId}`);
-      
-      // Trigger OAuth flow (userId is passed as prop to this component)
-      const result = await nango.auth(provider, userId);
-      
-      if (result) {
-        console.log('✅ OAuth completed successfully:', result);
-        
-        // Wait a moment for Nango to finalize
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        
-        // Verify and sync connection
-        try {
-          const verifyUrl = addDevAuthParams(`/api/integrations/verify/${provider}`);
-          const verifyResponse = await fetch(verifyUrl);
-          const verifyData = await verifyResponse.json();
+      await startNangoConnect({ 
+        provider, 
+        userId, 
+        userEmail: userId,
+        userDisplayName: "Wyshbone User",
+        onConnect: (connectionId) => {
+          console.log("✅ Connection:", connectionId);
           
-          if (verifyData.connected) {
-            console.log('✅ Connection verified and saved:', provider);
-          } else {
-            console.warn('⚠️ Connection not found after OAuth');
-          }
-        } catch (error) {
-          console.error('Failed to verify connection:', error);
+          // Wait a moment for Nango to finalize
+          setTimeout(async () => {
+            // Verify and sync connection
+            try {
+              const verifyUrl = addDevAuthParams(`/api/integrations/verify/${provider}`);
+              const verifyResponse = await fetch(verifyUrl);
+              const verifyData = await verifyResponse.json();
+              
+              if (verifyData.connected) {
+                console.log('✅ Connection verified and saved:', provider);
+              } else {
+                console.warn('⚠️ Connection not found after OAuth');
+              }
+            } catch (error) {
+              console.error('Failed to verify connection:', error);
+            }
+            
+            // Refresh integration list
+            refetch();
+          }, 2000);
+        },
+        onClose: () => {
+          setIsConnecting(null);
         }
-        
-        // Refresh integration list
-        refetch();
-      }
+      });
     } catch (error: any) {
-      console.error('OAuth flow error:', error);
+      console.error('❌ OAuth flow error:', error);
       if (error?.message && error.message !== 'User closed the popup') {
         alert(`Failed to connect: ${error.message}`);
       }
-    } finally {
       setIsConnecting(null);
     }
   };
