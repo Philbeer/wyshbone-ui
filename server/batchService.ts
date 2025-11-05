@@ -211,21 +211,24 @@ They work in "${query}". Reference a plausible buyer or use-case. UK tone. No fl
 export async function salesHandyUpsertProspect(
   prospect: SalesHandyProspect,
   apiToken: string,
-  baseUrl: string = "https://api.saleshandy.com"
+  baseUrl: string = "https://open-api.saleshandy.com"
 ): Promise<string | null> {
   try {
-    const response = await axios.post(`${baseUrl}/v3/prospects`, prospect, {
-      headers: { 
-        'x-api-key': apiToken,
-        'Content-Type': 'application/json',
-        'Accept': 'application/json'
-      },
-    });
+    const response = await axios.post(
+      `${baseUrl}/api/v1/prospects/import`,
+      prospect,
+      {
+        headers: {
+          'x-api-key': apiToken
+        },
+      }
+    );
 
     return (
       response.data?.id ||
       response.data?.prospectId ||
       response.data?.data?.id ||
+      response.data?.requestId ||
       null
     );
   } catch (error) {
@@ -239,7 +242,7 @@ export async function salesHandyAddToCampaign(
   campaignId: string,
   apiToken: string,
   senderId?: string,
-  baseUrl: string = "https://api.saleshandy.com"
+  baseUrl: string = "https://open-api.saleshandy.com"
 ): Promise<boolean> {
   try {
     const payload: any = { prospectId };
@@ -248,13 +251,11 @@ export async function salesHandyAddToCampaign(
     }
 
     await axios.post(
-      `${baseUrl}/v3/campaigns/${campaignId}/prospects`,
+      `${baseUrl}/api/v1/sequences/${campaignId}/prospects`,
       payload,
       {
-        headers: { 
-          'x-api-key': apiToken,
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
+        headers: {
+          'x-api-key': apiToken
         },
       }
     );
