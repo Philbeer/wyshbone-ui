@@ -1341,8 +1341,10 @@ function IntegrationsSection({ userId }: { userId: string }) {
           throw new Error(data.error || 'Failed to get authorization URL');
         }
         
-        // Navigate to Xero's authorization page
-        window.location.href = data.authorizationUrl;
+        // Open Xero's authorization page in a new tab (fixes Replit webview blocking)
+        window.open(data.authorizationUrl, '_blank');
+        setIsConnecting(null);
+        return;
       } else {
         // Other providers not yet implemented
         console.warn(`Provider ${provider} not yet implemented`);
