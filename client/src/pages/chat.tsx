@@ -761,13 +761,13 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
                           : "bg-card border border-card-border"
                       }`}
                     >
-                      {!isUser && chatMessage.content.includes('# 📊') ? (
+                      {!isUser && (chatMessage.content.includes('# 📊') || chatMessage.content.includes('[') && chatMessage.content.includes('](')) ? (
                         <div className="text-[15px] leading-relaxed prose prose-sm dark:prose-invert max-w-none">
                           <ReactMarkdown
                             remarkPlugins={[remarkGfm]}
                             components={{
                               a: ({ node, ...props }) => (
-                                <a {...props} className="text-primary hover:underline" target="_blank" rel="noopener noreferrer" />
+                                <a {...props} className="text-primary hover:underline cursor-pointer" target="_blank" rel="noopener noreferrer" />
                               ),
                               ul: ({ node, ...props }) => (
                                 <ul {...props} className="list-disc list-inside my-2 space-y-1" />
