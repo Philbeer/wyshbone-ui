@@ -431,14 +431,17 @@ export type CreateSessionRequest = z.infer<typeof createSessionRequestSchema>;
 export type CreateSessionResponse = z.infer<typeof createSessionResponseSchema>;
 export type SelectUserSession = typeof userSessions.$inferSelect;
 
-// Integrations table for CRM/accounting connections via Nango.dev
+// Integrations table for CRM/accounting OAuth connections
 export const integrations = pgTable("integrations", {
   id: text("id").primaryKey(),
   userId: text("user_id").notNull(),
-  provider: text("provider").notNull(), // 'salesforce', 'xero', 'microsoft-business-central', 'google-sheets'
-  connectionId: text("connection_id").notNull(), // Nango connection ID
-  metadata: jsonb("metadata"), // OAuth tokens, refresh tokens, etc. (stored by Nango)
+  provider: text("provider").notNull(), // 'xero', 'salesforce', 'microsoft-business-central', 'google-sheets'
+  accessToken: text("access_token").notNull(),
+  refreshToken: text("refresh_token"),
+  expiresAt: bigint("expires_at", { mode: "number" }),
+  metadata: jsonb("metadata"), // Provider-specific data (e.g., Xero tenant ID)
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
 }, (table) => ({
   userIdIdx: index("integrations_user_id_idx").on(table.userId),
   providerIdx: index("integrations_provider_idx").on(table.provider),
@@ -456,9 +459,12 @@ export const integrationSchema = z.object({
   id: z.string(),
   userId: z.string(),
   provider: integrationProviderSchema,
-  connectionId: z.string(),
-  metadata: z.any().optional(),
+  accessToken: z.string(),
+  refreshToken: z.string().optional().nullable(),
+  expiresAt: z.number().optional().nullable(),
+  metadata: z.any().optional().nullable(),
   createdAt: z.number(),
+  updatedAt: z.number(),
 });
 
 export type Integration = z.infer<typeof integrationSchema>;

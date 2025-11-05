@@ -24,6 +24,7 @@ import { storage } from "./storage";
 import cors from "cors";
 import * as cheerio from "cheerio";
 import { neon } from "@neondatabase/serverless";
+import { createXeroOAuthRouter } from "./routes/xero-oauth";
 
 const sql = neon(process.env.DATABASE_URL!);
 
@@ -4687,6 +4688,13 @@ ${run.outputText}`;
       res.status(500).json({ error: error.message || "Failed to fetch facts" });
     }
   });
+
+  // ===========================
+  // INTEGRATIONS - DIRECT OAUTH (XERO)
+  // ===========================
+  
+  // Register Xero OAuth routes
+  app.use("/api/integrations/xero", createXeroOAuthRouter(storage));
 
   // ===========================
   // INTEGRATIONS (NANGO.DEV CRM/ACCOUNTING CONNECTIONS)
