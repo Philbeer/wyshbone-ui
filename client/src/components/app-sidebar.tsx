@@ -1061,23 +1061,32 @@ function ScheduledMonitorsSection({ userId, onSelectConversation }: { userId: st
                 </Select>
               </div>
             )}
-            <div className="space-y-2">
-              <Label htmlFor="edit-time">
-                {editForm.schedule === 'once' ? 'Time (required for once, e.g., 12:20)' : 'Time (optional, e.g., 09:00)'}
-              </Label>
-              <Input
-                id="edit-time"
-                value={editForm.scheduleTime}
-                onChange={(e) => setEditForm({ ...editForm, scheduleTime: e.target.value })}
-                placeholder="HH:MM"
-                data-testid="input-edit-time"
-              />
-              {editForm.schedule === 'once' && (
-                <p className="text-xs text-muted-foreground">
-                  Set a time for today to test the monitor. It will run once and then become inactive.
+            {editForm.schedule !== 'hourly' && (
+              <div className="space-y-2">
+                <Label htmlFor="edit-time">
+                  {editForm.schedule === 'once' ? 'Time (required for once, e.g., 12:20)' : 'Time (optional, e.g., 09:00)'}
+                </Label>
+                <Input
+                  id="edit-time"
+                  value={editForm.scheduleTime}
+                  onChange={(e) => setEditForm({ ...editForm, scheduleTime: e.target.value })}
+                  placeholder="HH:MM"
+                  data-testid="input-edit-time"
+                />
+                {editForm.schedule === 'once' && (
+                  <p className="text-xs text-muted-foreground">
+                    Set a time for today to test the monitor. It will run once and then become inactive.
+                  </p>
+                )}
+              </div>
+            )}
+            {editForm.schedule === 'hourly' && (
+              <div className="space-y-2">
+                <p className="text-sm text-muted-foreground">
+                  Hourly monitors run every hour starting from when you save. First run will be in approximately 1 hour.
                 </p>
-              )}
-            </div>
+              </div>
+            )}
             <div className="space-y-3 p-3 rounded-md border border-border">
               <div className="flex items-center justify-between">
                 <div className="space-y-0.5 flex-1">
