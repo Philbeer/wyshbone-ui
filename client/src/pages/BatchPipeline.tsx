@@ -3,7 +3,7 @@ import { useRoute } from "wouter";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { CheckCircle2, XCircle, Clock, ChevronRight, Building2, Mail, Globe, User, MessageSquare } from "lucide-react";
+import { CheckCircle2, XCircle, Clock, ChevronRight, Building2, Mail, Globe, User } from "lucide-react";
 import type { BatchJob, BatchJobItem } from "@shared/schema";
 
 export default function BatchPipeline() {
@@ -172,12 +172,12 @@ export default function BatchPipeline() {
         <CardContent>
           <div className="space-y-2">
             {/* Table Header */}
-            <div className="grid grid-cols-7 gap-3 px-4 py-2 bg-muted/50 rounded-md text-sm font-medium">
+            <div className="grid grid-cols-6 gap-4 px-4 py-2 bg-muted/50 rounded-md text-sm font-medium">
               <div>Company</div>
+              <div>Location</div>
               <div>Domain</div>
               <div>Email</div>
               <div>Contact</div>
-              <div className="col-span-2">AI Personal Line</div>
               <div>Status</div>
             </div>
 
@@ -186,11 +186,14 @@ export default function BatchPipeline() {
               {items.map((item: BatchJobItem, index) => (
                 <div
                   key={item.place_id}
-                  className="grid grid-cols-7 gap-3 px-4 py-3 hover-elevate rounded-md text-sm border border-border/50"
+                  className="grid grid-cols-6 gap-4 px-4 py-3 hover-elevate rounded-md text-sm border border-border/50"
                   data-testid={`row-result-${index}`}
                 >
                   <div className="font-medium truncate" title={item.name}>
                     {item.name}
+                  </div>
+                  <div className="text-muted-foreground truncate text-xs" title={item.address}>
+                    {item.address || "—"}
                   </div>
                   <div className="flex items-center gap-1 truncate">
                     {item.domain ? (
@@ -199,7 +202,7 @@ export default function BatchPipeline() {
                         <span className="text-xs truncate" title={item.domain}>{item.domain}</span>
                       </>
                     ) : (
-                      <span className="text-muted-foreground text-xs">—</span>
+                      <span className="text-muted-foreground">—</span>
                     )}
                   </div>
                   <div className="flex items-center gap-1 truncate">
@@ -213,7 +216,7 @@ export default function BatchPipeline() {
                         <span className="text-xs truncate" title={item.selected_email}>{item.selected_email}</span>
                       </>
                     ) : (
-                      <span className="text-muted-foreground text-xs">—</span>
+                      <span className="text-muted-foreground">—</span>
                     )}
                   </div>
                   <div className="flex items-center gap-1 truncate">
@@ -225,19 +228,7 @@ export default function BatchPipeline() {
                         </span>
                       </>
                     ) : (
-                      <span className="text-muted-foreground text-xs">—</span>
-                    )}
-                  </div>
-                  <div className="col-span-2 flex items-start gap-1">
-                    {item.personal_line ? (
-                      <>
-                        <MessageSquare className="w-3 h-3 text-purple-600 dark:text-purple-400 flex-shrink-0 mt-0.5" />
-                        <span className="text-xs text-muted-foreground italic line-clamp-2" title={item.personal_line}>
-                          "{item.personal_line}"
-                        </span>
-                      </>
-                    ) : (
-                      <span className="text-muted-foreground text-xs">—</span>
+                      <span className="text-muted-foreground">—</span>
                     )}
                   </div>
                   <div>

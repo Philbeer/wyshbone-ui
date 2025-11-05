@@ -1259,7 +1259,7 @@ CRITICAL RULES:
         type: "function" as const,
         function: {
           name: "bubble_run_batch",
-          description: "LEGACY/DEPRECATED: Use saleshandy_batch_call instead for better results. This is the old Bubble workflow - only use if saleshandy_batch_call fails. For contact discovery, ALWAYS prefer saleshandy_batch_call which uses Google Places + Hunter.io + SalesHandy for verified email contacts.",
+          description: "CRITICAL: Use for BROAD BUSINESS TYPE searches (e.g., 'dentists', 'coffee shops', 'restaurants'). This searches by business TYPE + location + role. DO NOT use for specific named businesses like 'The Ivy' or 'Pret A Manger' - use saleshandy_batch_call for those instead. IMPORTANT: Call this function ONCE with ALL locations in the counties array - do NOT make multiple separate calls.",
           parameters: {
             type: "object",
             properties: {
@@ -1393,7 +1393,7 @@ CRITICAL RULES:
         type: "function" as const,
         function: {
           name: "saleshandy_batch_call",
-          description: "PRIMARY TOOL for contact discovery! Find verified email contacts for businesses using Google Places (up to 60 results) + Hunter.io + SalesHandy. Use this for ANY business contact search - it finds businesses by TYPE (like 'dentists', 'restaurants', 'coffee shops'), discovers their websites, finds verified emails via Hunter.io, and imports to SalesHandy campaign. ALWAYS use this instead of bubble_run_batch for contact/email discovery.",
+          description: "Find verified email contacts for businesses using Google Places (up to 60 results) + Hunter.io + SalesHandy. This searches for a business TYPE (like 'restaurants', 'coffee shops') and finds contacts for all matching businesses. Similar to bubble_run_batch but uses Hunter.io for email discovery and SalesHandy for campaign management instead of Smartlead.",
           parameters: {
             type: "object",
             properties: {

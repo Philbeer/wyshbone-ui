@@ -19,7 +19,6 @@ export interface PlacesTextSearchResult {
   place_id: string;
   name: string;
   formatted_address?: string;
-  website?: string;
 }
 
 export interface HunterEmailContact {
@@ -81,7 +80,6 @@ export async function placesTextSearchLite(
           place_id: x.place_id,
           name: x.name || "",
           formatted_address: x.formatted_address || "",
-          website: x.website || "",
         }))
       );
     }
@@ -309,18 +307,6 @@ export async function salesHandyAddToCampaign(
 
 /* ========== UTILITY ========== */
 
-export function extractDomainFromUrl(url: string): string {
-  if (!url) return "";
-  try {
-    // Add protocol if missing
-    const urlWithProtocol = url.startsWith("http") ? url : `https://${url}`;
-    const parsed = new URL(urlWithProtocol);
-    return parsed.hostname.replace(/^www\./, "");
-  } catch (error) {
-    return "";
-  }
-}
-
 export function guessFirstName(email: string): string {
   const local = email.split("@")[0];
   const match = local.match(/^([a-z]+)/i);
@@ -373,7 +359,6 @@ export async function executeBatchJob(params: {
       place_id: result.place_id,
       name: result.name,
       address: result.formatted_address,
-      domain: result.website ? extractDomainFromUrl(result.website) : undefined,
     }));
 
   // Step 2: Generate AI personal lines (if enabled)
@@ -400,22 +385,13 @@ export async function executeBatchJob(params: {
     items.map((item) =>
       hunterQueue.add(async () => {
         try {
-          // If we don't have a domain from Google Places, try Hunter.io
-          if (!item.domain) {
-            const { domain } = await hunterFindDomainAndEmails(
-              item.name,
-              country,
-              hunterApiKey
-            );
-            item.domain = domain;
-          }
-
-          // Find emails using the domain (from Google Places or Hunter.io)
-          const { emails } = await hunterFindDomainAndEmails(
+          // Find domain and emails
+          const { domain, emails } = await hunterFindDomainAndEmails(
             item.name,
             country,
             hunterApiKey
           );
+          item.domain = domain;
 
           // Rank emails by target role
           const ranked = rankContacts(targetRole, emails);
