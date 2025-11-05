@@ -222,6 +222,9 @@ export async function salesHandyBatchImport(
       conflictAction: "overwrite"
     };
 
+    console.log(`📤 Sending to SalesHandy: stepId="${sequenceId}", prospects=${prospects.length}`);
+    console.log(`📦 Sample prospect:`, JSON.stringify(prospects[0], null, 2));
+
     const response = await axios.post(
       `${baseUrl}/v1/sequences/prospects/import-with-field-name`,
       payload,
