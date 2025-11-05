@@ -1,6 +1,41 @@
-import { Router } from "express";
+import { Router, type Request } from "express";
 import { randomBytes } from "crypto";
 import type { IStorage } from "../storage";
+
+// SECURITY: Authentication middleware to validate session and extract userId
+async function getAuthenticatedUserId(req: Request, storage: IStorage): Promise<{ userId: string; userEmail: string } | null> {
+  // Development fallback: allow URL parameters for testing ONLY
+  const urlUserId = (req.params.userId || req.query.userId || req.query.user_id) as string | undefined;
+  const urlUserEmail = req.query.user_email as string | undefined;
+  
+  // If development mode and URL params present, allow (but warn)
+  if (process.env.NODE_ENV === 'development' && urlUserId && urlUserEmail) {
+    console.warn(`⚠️ DEV MODE: Using URL auth for ${urlUserEmail} - DISABLE IN PRODUCTION`);
+    return { userId: urlUserId, userEmail: urlUserEmail };
+  }
+  
+  // Production path: validate session
+  const sessionId = req.headers["x-session-id"] as string | undefined;
+  if (!sessionId) {
+    return null;
+  }
+  
+  try {
+    // Validate session and get user info
+    const session = await storage.getSession(sessionId);
+    if (!session) {
+      return null;
+    }
+    
+    return {
+      userId: session.userId,
+      userEmail: session.userEmail
+    };
+  } catch (error) {
+    console.error("Session validation error:", error);
+    return null;
+  }
+}
 
 const router = Router();
 
@@ -18,7 +53,7 @@ const XERO_TOKEN_URL = "https://identity.xero.com/connect/token";
 const XERO_CONNECTIONS_URL = "https://api.xero.com/connections";
 
 // Temporary state storage (in production, use Redis or database)
-const oauthStates = new Map<string, { userId: string; userEmail: string; timestamp: number }>();
+const oauthStates = new Map<string, { userId: string; userEmail: string; timestamp: number; sessionId?: string }>();
 
 // Clean up old states every 5 minutes
 setInterval(() => {
@@ -33,21 +68,26 @@ setInterval(() => {
 
 export function createXeroOAuthRouter(storage: IStorage) {
   // Initiate Xero OAuth flow
-  router.get("/authorize", (req, res) => {
-    const userId = req.query.user_id as string;
-    const userEmail = req.query.user_email as string;
-
-    if (!userId || !userEmail) {
-      return res.status(400).json({ error: "Missing user_id or user_email" });
+  router.get("/authorize", async (req, res) => {
+    // Authenticate user from session
+    const auth = await getAuthenticatedUserId(req, storage);
+    if (!auth) {
+      return res.status(401).json({ error: "Unauthorized - please log in" });
     }
 
     if (!XERO_CLIENT_ID) {
       return res.status(500).json({ error: "Xero OAuth not configured" });
     }
 
-    // Generate random state for CSRF protection
+    // Generate random state for CSRF protection and store session info
     const state = randomBytes(32).toString("hex");
-    oauthStates.set(state, { userId, userEmail, timestamp: Date.now() });
+    const sessionId = req.headers["x-session-id"] as string | undefined;
+    oauthStates.set(state, { 
+      userId: auth.userId, 
+      userEmail: auth.userEmail, 
+      timestamp: Date.now(),
+      sessionId: sessionId || undefined
+    });
 
     // Build authorization URL
     const params = new URLSearchParams({
@@ -153,14 +193,14 @@ export function createXeroOAuthRouter(storage: IStorage) {
 
   // Get user's Xero connections
   router.get("/connections", async (req, res) => {
-    const userId = req.query.user_id as string;
-
-    if (!userId) {
-      return res.status(400).json({ error: "Missing user_id" });
+    // Authenticate user from session
+    const auth = await getAuthenticatedUserId(req, storage);
+    if (!auth) {
+      return res.status(401).json({ error: "Unauthorized - please log in" });
     }
 
     try {
-      const integrations = await storage.listIntegrations(userId);
+      const integrations = await storage.listIntegrations(auth.userId);
       const xeroIntegrations = integrations.filter((i) => i.provider === "xero");
 
       res.json({
@@ -180,16 +220,17 @@ export function createXeroOAuthRouter(storage: IStorage) {
   // Disconnect Xero integration
   router.delete("/disconnect/:integrationId", async (req, res) => {
     const { integrationId } = req.params;
-    const userId = req.query.user_id as string;
-
-    if (!userId) {
-      return res.status(400).json({ error: "Missing user_id" });
+    
+    // Authenticate user from session
+    const auth = await getAuthenticatedUserId(req, storage);
+    if (!auth) {
+      return res.status(401).json({ error: "Unauthorized - please log in" });
     }
 
     try {
       const integration = await storage.getIntegration(integrationId);
       
-      if (!integration || integration.userId !== userId) {
+      if (!integration || integration.userId !== auth.userId) {
         return res.status(404).json({ error: "Integration not found" });
       }
 

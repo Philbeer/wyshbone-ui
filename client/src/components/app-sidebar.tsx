@@ -4,7 +4,6 @@ import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { useUser } from "@/contexts/UserContext";
 import { addDevAuthParams } from "@/lib/queryClient";
-import { startNangoConnect } from "@/lib/nangoClient";
 import {
   Sidebar,
   SidebarContent,
@@ -1332,39 +1331,16 @@ function IntegrationsSection({ userId }: { userId: string }) {
     try {
       console.log(`🔗 Starting OAuth for ${provider}`);
       
-      await startNangoConnect({ 
-        provider, 
-        userId, 
-        userEmail: userId,
-        userDisplayName: "Wyshbone User",
-        onConnect: (connectionId) => {
-          console.log("✅ Connection:", connectionId);
-          
-          // Wait a moment for Nango to finalize
-          setTimeout(async () => {
-            // Verify and sync connection
-            try {
-              const verifyUrl = addDevAuthParams(`/api/integrations/verify/${provider}`);
-              const verifyResponse = await fetch(verifyUrl);
-              const verifyData = await verifyResponse.json();
-              
-              if (verifyData.connected) {
-                console.log('✅ Connection verified and saved:', provider);
-              } else {
-                console.warn('⚠️ Connection not found after OAuth');
-              }
-            } catch (error) {
-              console.error('Failed to verify connection:', error);
-            }
-            
-            // Refresh integration list
-            refetch();
-          }, 2000);
-        },
-        onClose: () => {
-          setIsConnecting(null);
-        }
-      });
+      if (provider === 'xero') {
+        // Direct Xero OAuth integration
+        const authUrl = addDevAuthParams(`/api/integrations/xero/authorize`);
+        window.location.href = authUrl;
+      } else {
+        // Other providers not yet implemented
+        console.warn(`Provider ${provider} not yet implemented`);
+        alert(`${provider} integration coming soon!`);
+        setIsConnecting(null);
+      }
     } catch (error: any) {
       console.error('❌ OAuth flow error:', error);
       if (error?.message && error.message !== 'User closed the popup') {
