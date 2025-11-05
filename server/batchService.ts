@@ -469,9 +469,21 @@ export async function executeBatchJob(params: {
           await new Promise(resolve => setTimeout(resolve, 3000)); // Wait 3 seconds between polls
           importStatus = await salesHandyCheckImportStatus(result.requestId, salesHandyToken);
           
-          if (importStatus?.payload?.status === 'completed') {
-            const accepted = importStatus.payload.successCount || 0;
-            const rejected = importStatus.payload.failureCount || 0;
+          // Handle both API response formats: { status: 'completed' } or { isCompleted: true }
+          const isComplete = importStatus?.payload?.status === 'completed' || importStatus?.payload?.isCompleted === true;
+          const isFailed = importStatus?.payload?.status === 'failed';
+          
+          if (isComplete) {
+            const accepted = importStatus.payload.successCount || importStatus.payload.acceptedCount || 0;
+            const rejected = importStatus.payload.failureCount || importStatus.payload.rejectedCount || 0;
+            
+            // If there's a failedProspectsURL but no counts, assume all failed
+            if (importStatus.payload.failedProspectsURL && accepted === 0 && rejected === 0) {
+              console.log(`❌ All ${itemsWithEmails.length} prospects rejected by SalesHandy`);
+              console.log(`📄 Error report: ${importStatus.payload.failedProspectsURL}`);
+              skipped.push(...itemsWithEmails);
+              break;
+            }
             
             console.log(`✅ Import completed: ${accepted} accepted, ${rejected} rejected`);
             
@@ -486,7 +498,7 @@ export async function executeBatchJob(params: {
             created.push(...acceptedItems);
             skipped.push(...rejectedItems);
             break;
-          } else if (importStatus?.payload?.status === 'failed') {
+          } else if (isFailed) {
             console.log(`❌ Import failed:`, importStatus.payload);
             skipped.push(...itemsWithEmails);
             break;
