@@ -24,7 +24,8 @@ const SYSTEM_PROMPT: ChatMessage = {
     "- You have live internet access via web search to fetch current information, news, weather, and real-time data\n" +
     "- You remember the session context and previously found venues\n" +
     "- You can access verified business data via Wyshbone Global Database\n" +
-    "- You can trigger Wyshbone backend workflows in batch via the bubble_run_batch tool\n\n" +
+    "- You can trigger Wyshbone backend workflows in batch via the bubble_run_batch tool\n" +
+    "- You can find verified email contacts for businesses using the batch_contact_finder tool (Google Places + Hunter.io + SalesHandy)\n\n" +
     "CRITICAL MESSAGE PRIORITY RULES:\n" +
     "1. ⚡ CURRENT CONVERSATION (last 5-10 messages) = ABSOLUTE TOP PRIORITY - This is the active context\n" +
     "2. 📚 Durable Memory (stored facts) = FALLBACK ONLY - Use only when current conversation lacks details\n" +

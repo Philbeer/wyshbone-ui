@@ -1389,7 +1389,30 @@ CRITICAL RULES:
         }
       };
 
-      const tools: any[] = [bubbleTool, deepResearchTool, googlePlacesSearchTool, createScheduledMonitorTool];
+      const batchContactFinderTool = {
+        type: "function" as const,
+        function: {
+          name: "batch_contact_finder",
+          description: "Find verified email contacts for a list of businesses using Google Places, Hunter.io, and SalesHandy. Use this when user wants to find decision-makers, contacts, or emails for specific businesses. The system will automatically discover domains, find verified emails, rank contacts by position, generate personalized outreach, and add to campaigns.",
+          parameters: {
+            type: "object",
+            properties: {
+              businesses: {
+                type: "array",
+                items: { type: "string" },
+                description: "List of business names to find contacts for (e.g., ['The Ivy Restaurant London', 'Dishoom Covent Garden', 'Hawksmoor Steakhouse'])"
+              },
+              location: {
+                type: "string",
+                description: "Location context for the search (e.g., 'London, UK', 'New York, NY', 'Manchester, UK'). This helps disambiguate business names."
+              }
+            },
+            required: ["businesses", "location"]
+          }
+        }
+      };
+
+      const tools: any[] = [bubbleTool, deepResearchTool, googlePlacesSearchTool, createScheduledMonitorTool, batchContactFinderTool];
 
       console.log(`🌐 Calling Chat Completions API with function calling...`);
       
@@ -2152,6 +2175,75 @@ CRITICAL RULES:
           } catch (toolErr: any) {
             console.error("❌ Scheduled monitor creation error:", toolErr.message);
             aiBuffer = `Error creating scheduled monitor: ${toolErr.message}`;
+            res.write(`data: ${JSON.stringify({ content: aiBuffer })}\n\n`);
+            
+            appendMessage(sessionId, { role: "assistant", content: aiBuffer });
+            await saveMessage(conversationId, "assistant", aiBuffer);
+            console.log("💾 Saved error message to database");
+          }
+        } else if (isToolCall && toolCallBuffer.name === "batch_contact_finder") {
+          console.log("📧 Batch contact finder tool call detected");
+          console.log("📦 Arguments:", toolCallBuffer.arguments);
+          
+          try {
+            const params = JSON.parse(toolCallBuffer.arguments);
+            
+            if (!params.businesses || !Array.isArray(params.businesses) || params.businesses.length === 0) {
+              throw new Error("Please provide at least one business name");
+            }
+            
+            if (!params.location) {
+              throw new Error("Please provide a location for the search");
+            }
+            
+            // Add auth params for development mode
+            const authParams = new URLSearchParams({
+              user_id: user.id,
+              user_email: user.email
+            });
+            
+            // Call batch create endpoint
+            const response = await fetch(`http://localhost:5000/api/batch/create?${authParams}`, {
+              method: "POST",
+              headers: { 
+                "Content-Type": "application/json",
+                "x-session-id": user.id
+              },
+              body: JSON.stringify({ 
+                businesses: params.businesses,
+                location: params.location
+              }),
+            });
+            
+            const data = await response.json();
+            
+            if (response.ok) {
+              const responseText = `📧 **Batch Contact Discovery Started!**\n\n` +
+                `🔍 **Searching for contacts at:**\n${params.businesses.map((b: string) => `  • ${b}`).join('\n')}\n\n` +
+                `📍 **Location:** ${params.location}\n\n` +
+                `⏱️ **Job ID:** ${data.jobId}\n\n` +
+                `I'm now:\n` +
+                `1. Finding each business on Google Places\n` +
+                `2. Discovering their website domains\n` +
+                `3. Finding verified email contacts with Hunter.io\n` +
+                `4. Ranking contacts by position (owners/directors prioritized)\n` +
+                `5. Generating AI-powered personalized outreach\n` +
+                `6. Adding prospects to your SalesHandy campaign\n\n` +
+                `This will take a few minutes. I'll update you when complete!`;
+              
+              aiBuffer = responseText;
+              appendMessage(sessionId, { role: "assistant", content: responseText });
+              await saveMessage(conversationId, "assistant", responseText);
+              console.log("💾 Saved batch contact finder message to database");
+              
+              res.write(`data: ${JSON.stringify({ content: responseText })}\n\n`);
+            } else {
+              throw new Error(data.error || "Failed to start batch contact discovery");
+            }
+            
+          } catch (toolErr: any) {
+            console.error("❌ Batch contact finder error:", toolErr.message);
+            aiBuffer = `Sorry, I couldn't start the batch contact discovery: ${toolErr.message}`;
             res.write(`data: ${JSON.stringify({ content: aiBuffer })}\n\n`);
             
             appendMessage(sessionId, { role: "assistant", content: aiBuffer });
