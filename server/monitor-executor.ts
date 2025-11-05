@@ -4,6 +4,7 @@ import { startBackgroundResponsesJob } from './deepResearch';
 import { storage } from './storage';
 import { getOrCreateConversation } from './memory';
 import crypto from 'crypto';
+import { analyzeMonitorResults, executeAutonomousDeepDive, type AgenticAnalysisResult } from './agentic-analysis';
 
 export interface ScheduledMonitor {
   id: string;
@@ -201,12 +202,71 @@ async function executeDeepResearch(monitor: ScheduledMonitor, conversationId: st
         
         console.log(`💾 Saved monitor run #${runSequence} results to conversation ${conversationId}`);
         
+        // 🤖 AGENTIC INTELLIGENCE: Analyze results and decide on autonomous actions
+        const agenticAnalysis = await analyzeMonitorResults(monitor, {
+          totalResults: currentResultCount,
+          newResults,
+          summary: teaser,
+          fullOutput,
+        }, runSequence);
+        
+        // Save agentic decision-making to conversation for transparency
+        await storage.createMessage({
+          id: crypto.randomUUID(),
+          conversationId,
+          role: 'assistant',
+          content: `🤖 **Agentic Analysis**
+
+**Significance:** ${agenticAnalysis.significance.toUpperCase()}
+**Urgency:** ${agenticAnalysis.urgency}
+
+**Reasoning:** ${agenticAnalysis.reasoning}
+
+**Key Findings:**
+${agenticAnalysis.keyFindings.map((f, i) => `${i + 1}. ${f}`).join('\n')}
+
+${agenticAnalysis.requiresDeepDive ? `**🔍 Autonomous Action Triggered:**\nInitiating deeper research on: ${agenticAnalysis.deepDiveFocus}` : '**✓ No immediate follow-up required**'}`,
+          createdAt: Date.now() + 2,
+        });
+        
+        console.log(`💾 Saved agentic analysis to conversation`);
+        
+        // Execute autonomous deep dive if analysis determined it's warranted
+        let deepDiveResult = null;
+        if (agenticAnalysis.requiresDeepDive) {
+          console.log(`🤖 [AGENTIC] Executing autonomous deep dive...`);
+          deepDiveResult = await executeAutonomousDeepDive(
+            agenticAnalysis,
+            monitor,
+            conversationId,
+            runSequence
+          );
+        }
+        
+        // Adapt monitor for next run if AI suggested improvements
+        if (agenticAnalysis.suggestedNextPrompt) {
+          console.log(`🤖 [AGENTIC] AI suggested adapting monitor prompt for next run`);
+          await storage.updateScheduledMonitor(monitor.id, {
+            description: agenticAnalysis.suggestedNextPrompt,
+            config: {
+              ...(monitor.config ?? {}),
+              originalPrompt: monitor.description, // Keep original for reference
+              adaptedByAI: true,
+              adaptedAt: Date.now(),
+            },
+            updatedAt: Date.now(),
+          });
+          console.log(`💾 Updated monitor with AI-adapted prompt`);
+        }
+        
         return {
           totalResults: currentResultCount,
           newResults,
           summary: teaser,
           fullOutput,
           runId: updatedRun.id,
+          agenticAnalysis,
+          deepDiveResult,
         };
       }
       
