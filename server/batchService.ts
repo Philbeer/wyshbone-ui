@@ -235,8 +235,11 @@ export async function salesHandyBatchImport(
 
     console.log("✅ SalesHandy batch import response:", response.data);
     return response.status === 200 || response.status === 201;
-  } catch (error) {
-    console.error("Failed to batch import prospects:", error);
+  } catch (error: any) {
+    console.error("❌ SalesHandy API Error:");
+    console.error("Status:", error.response?.status);
+    console.error("Data:", JSON.stringify(error.response?.data, null, 2));
+    console.error("Headers:", error.response?.headers);
     return false;
   }
 }
