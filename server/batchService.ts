@@ -215,7 +215,11 @@ export async function salesHandyUpsertProspect(
 ): Promise<string | null> {
   try {
     const response = await axios.post(`${baseUrl}/v3/prospects`, prospect, {
-      headers: { Authorization: `Bearer ${apiToken}` },
+      headers: { 
+        'x-api-key': apiToken,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
     });
 
     return (
@@ -247,7 +251,11 @@ export async function salesHandyAddToCampaign(
       `${baseUrl}/v3/campaigns/${campaignId}/prospects`,
       payload,
       {
-        headers: { Authorization: `Bearer ${apiToken}` },
+        headers: { 
+          'x-api-key': apiToken,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
       }
     );
 
