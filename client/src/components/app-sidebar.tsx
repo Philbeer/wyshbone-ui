@@ -1332,9 +1332,17 @@ function IntegrationsSection({ userId }: { userId: string }) {
       console.log(`🔗 Starting OAuth for ${provider}`);
       
       if (provider === 'xero') {
-        // Direct Xero OAuth integration
-        const authUrl = addDevAuthParams(`/api/integrations/xero/authorize`);
-        window.location.href = authUrl;
+        // Direct Xero OAuth integration - fetch the authorization URL
+        const authEndpoint = addDevAuthParams(`/api/integrations/xero/authorize`);
+        const response = await fetch(authEndpoint);
+        const data = await response.json();
+        
+        if (!response.ok || !data.authorizationUrl) {
+          throw new Error(data.error || 'Failed to get authorization URL');
+        }
+        
+        // Navigate to Xero's authorization page
+        window.location.href = data.authorizationUrl;
       } else {
         // Other providers not yet implemented
         console.warn(`Provider ${provider} not yet implemented`);
