@@ -4926,47 +4926,62 @@ ${run.outputText}`;
       
       console.log(`🔍 Verifying ${provider} connection for user ${auth.userEmail}...`);
       
-      // Check if connection exists in Nango
-      const nangoResponse = await fetch(
-        `https://api.nango.dev/connection/${auth.userId}?provider_config_key=${provider}`,
-        {
-          headers: {
-            'Authorization': `Bearer ${NANGO_SECRET_KEY}`,
-          },
-        }
-      );
+      // Retry logic to handle Nango API timing delays
+      const maxRetries = 4;
+      const retryDelays = [0, 1000, 2000, 3000]; // 0ms, 1s, 2s, 3s
       
-      if (nangoResponse.ok) {
-        const connectionData = await nangoResponse.json();
-        console.log(`✅ Found ${provider} connection in Nango for ${auth.userEmail}`);
+      for (let attempt = 0; attempt < maxRetries; attempt++) {
+        if (attempt > 0) {
+          console.log(`⏱️ Retry ${attempt}/${maxRetries - 1} after ${retryDelays[attempt]}ms delay...`);
+          await new Promise(resolve => setTimeout(resolve, retryDelays[attempt]));
+        }
         
-        // Check if we already have this integration
-        const existing = await storage.listIntegrations(auth.userId);
-        const existingIntegration = existing.find(
-          i => i.provider === provider && i.connectionId === connectionData.connection_id
+        // Check if connection exists in Nango
+        const nangoResponse = await fetch(
+          `https://api.nango.dev/connection/${auth.userId}?provider_config_key=${provider}`,
+          {
+            headers: {
+              'Authorization': `Bearer ${NANGO_SECRET_KEY}`,
+            },
+          }
         );
         
-        if (!existingIntegration) {
-          // Save to database
-          const crypto = await import('crypto');
-          const integrationId = crypto.randomUUID();
-          await storage.createIntegration({
-            id: integrationId,
-            userId: auth.userId,
-            provider,
-            connectionId: connectionData.connection_id,
-            metadata: connectionData,
-            createdAt: Date.now(),
-          });
-          console.log(`💾 Saved ${provider} integration to database for ${auth.userEmail}`);
+        if (nangoResponse.ok) {
+          const connectionData = await nangoResponse.json();
+          console.log(`✅ Found ${provider} connection in Nango for ${auth.userEmail} (attempt ${attempt + 1})`);
+          
+          // Check if we already have this integration
+          const existing = await storage.listIntegrations(auth.userId);
+          const existingIntegration = existing.find(
+            i => i.provider === provider && i.connectionId === connectionData.connection_id
+          );
+          
+          if (!existingIntegration) {
+            // Save to database
+            const crypto = await import('crypto');
+            const integrationId = crypto.randomUUID();
+            await storage.createIntegration({
+              id: integrationId,
+              userId: auth.userId,
+              provider,
+              connectionId: connectionData.connection_id,
+              metadata: connectionData,
+              createdAt: Date.now(),
+            });
+            console.log(`💾 Saved ${provider} integration to database for ${auth.userEmail}`);
+          }
+          
+          return res.json({ connected: true, provider });
+        } else if (attempt === maxRetries - 1) {
+          // Last attempt failed
+          const errorData = await nangoResponse.json();
+          console.log(`❌ No ${provider} connection found in Nango after ${maxRetries} attempts:`, errorData);
+          return res.json({ connected: false, provider });
         }
-        
-        return res.json({ connected: true, provider });
-      } else {
-        const errorData = await nangoResponse.json();
-        console.log(`❌ No ${provider} connection found in Nango:`, errorData);
-        return res.json({ connected: false, provider });
+        // Continue to next retry attempt
       }
+      
+      return res.json({ connected: false, provider });
     } catch (error: any) {
       console.error("Verify integration error:", error);
       res.status(500).json({ error: error.message || "Failed to verify integration" });
