@@ -1,0 +1,158 @@
+Build task: Apply the Nango Connect Session integration now.
+
+1) Terminal commands:
+- npm i @nangohq/frontend express cors
+- mkdir -p server/routes client/src/lib
+
+2) Create/overwrite file server/routes/nango.ts with EXACT contents:
+===FILE: server/routes/nango.ts===
+import express from "express";
+// If your Node runtime lacks global fetch, uncomment after `npm i node-fetch`:
+// import fetch from "node-fetch";
+
+export const nangoRouter = express.Router();
+
+const NANGO_SECRET_KEY = process.env.NANGO_SECRET_KEY!;
+const NANGO_API_BASE = "https://api.nango.dev";
+
+// Health check
+nangoRouter.get("/api/nango/health", (_req, res) => {
+  res.json({ ok: true });
+});
+
+// Create a short-lived Connect Session token
+nangoRouter.post("/api/nango/create-session", express.json(), async (req, res) => {
+  try {
+    const { userId, userEmail, userDisplayName, allowedIntegrations } = req.body || {};
+    if (!userId) return res.status(400).json({ error: "Missing userId" });
+
+    const integrations = Array.isArray(allowedIntegrations) && allowedIntegrations.length
+      ? allowedIntegrations
+      : ["xero", "salesforce", "business-central", "google-sheets"];
+
+    const resp = await fetch(`${NANGO_API_BASE}/connect/sessions`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${NANGO_SECRET_KEY}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        end_user: {
+          id: String(userId),
+          email: userEmail || "demo@wyshbone.com",
+          display_name: userDisplayName || "Wyshbone Demo"
+        },
+        allowed_integrations: integrations
+      })
+    });
+
+    const data = await resp.json();
+    if (!resp.ok) {
+      console.error("Nango create-session error:", data);
+      return res.status(resp.status).json({ error: data?.message || "Failed to create session" });
+    }
+
+    const token = data?.data?.token;
+    if (!token) return res.status(500).json({ error: "No token in Nango response" });
+    return res.json({ token });
+  } catch (err: any) {
+    console.error("Nango session error:", err?.message || err);
+    return res.status(500).json({ error: err?.message || "Unexpected error" });
+  }
+});
+
+// Webhook for new connection notifications
+nangoRouter.post("/api/integrations/nango-webhook", express.json(), async (req, res) => {
+  try {
+    console.log("📩 Nango Webhook:", JSON.stringify(req.body, null, 2));
+    // TODO: persist connectionId/endUser to DB
+    return res.status(200).json({ ok: true });
+  } catch (err: any) {
+    console.error("Webhook error:", err?.message || err);
+    return res.status(500).json({ error: err?.message || "Unexpected error" });
+  }
+});
+===END FILE===
+
+3) Update server entry to mount router:
+- In server/index.ts (or server.ts), ensure:
+------------------------------------------------------------
+import express from "express";
+import cors from "cors";
+import { nangoRouter } from "./routes/nango.js"; // adjust path if needed
+
+const app = (globalThis as any).app || express();
+app.use(cors());
+app.use(express.json());
+app.use(nangoRouter);
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`Server running on :${PORT}`));
+------------------------------------------------------------
+
+4) Create/overwrite client/src/lib/nangoClient.ts:
+===FILE: client/src/lib/nangoClient.ts===
+import Nango from "@nangohq/frontend";
+
+export async function startNangoConnect(opts: {
+  provider: string;
+  userId: string;
+  userEmail?: string;
+  userDisplayName?: string;
+  allowedIntegrations?: string[];
+  onConnect?: (connectionId: string) => void;
+  onClose?: () => void;
+}) {
+  const { provider, userId, userEmail = "demo@wyshbone.com", userDisplayName = "Wyshbone Demo", allowedIntegrations, onConnect, onClose } = opts;
+
+  const res = await fetch("/api/nango/create-session", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ userId, userEmail, userDisplayName, allowedIntegrations })
+  });
+  const data = await res.json();
+  if (!res.ok || !data?.token) throw new Error(data?.error || "Failed to obtain Nango session token");
+
+  const nango = new Nango({ connectSessionToken: data.token });
+
+  const connectUI = nango.openConnectUI({
+    onEvent: (event) => {
+      if (event.type === "connect") onConnect?.(event?.payload?.connectionId);
+      if (event.type === "close") onClose?.();
+    }
+  });
+  await connectUI.setSessionToken(data.token);
+  // Or: await nango.auth(provider);
+  return true;
+}
+===END FILE===
+
+5) In client/src/components/app-sidebar.tsx, import and add buttons:
+- Add at top:  import { startNangoConnect } from "@/lib/nangoClient";
+- Replace your handler with:
+------------------------------------------------------------
+const handleConnect = async (provider: string) => {
+  try {
+    console.log("🔗 Starting OAuth for", provider);
+    await startNangoConnect({ provider, userId: "demo-user-123", onConnect: (cid) => console.log("Connection:", cid) });
+  } catch (e) {
+    console.error("❌ OAuth flow error:", e);
+  }
+};
+------------------------------------------------------------
+- Add in JSX:
+------------------------------------------------------------
+<div className="space-y-2">
+  <button onClick={() => handleConnect("xero")}>Connect Xero</button>
+  <button onClick={() => handleConnect("salesforce")}>Connect Salesforce</button>
+  <button onClick={() => handleConnect("business-central")}>Connect Business Central</button>
+  <button onClick={() => handleConnect("google-sheets")}>Connect Google Sheets</button>
+</div>
+------------------------------------------------------------
+
+6) Ensure Replit Secret exists:
+- NANGO_SECRET_KEY=<YOUR_REAL_SECRET>
+
+7) Run the app. Then verify:
+- GET https://<your-replit>/api/nango/health returns {"ok":true}
+- Click a Connect button → complete OAuth → watch server logs for 📩 webhook.
