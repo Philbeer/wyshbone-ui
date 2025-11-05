@@ -4712,29 +4712,33 @@ ${run.outputText}`;
       
       const NANGO_HOST = process.env.NANGO_HOST || "https://api.nango.dev";
       const NANGO_SECRET_KEY = process.env.NANGO_SECRET_KEY;
-      const APP_BASE_URL = process.env.APP_BASE_URL || `https://${process.env.REPL_SLUG}.${process.env.REPL_OWNER}.repl.co`;
       
       if (!NANGO_SECRET_KEY) {
         return res.status(500).json({ error: "Nango integration not configured - contact administrator" });
       }
       
-      const connectionId = `${auth.userId}__${provider}`;
-      
       const payload = {
-        provider_config_key: provider,
-        connection_id: connectionId,
-        success_redirect_url: `${APP_BASE_URL}/?connected=${provider}`,
-        metadata: { userId: auth.userId, provider }
+        end_user: {
+          id: auth.userId,
+          email: auth.userEmail,
+        },
+        allowed_integrations: [provider]
       };
       
       console.log(`🔗 Creating Nango connect session for ${auth.userEmail} - ${provider}`);
       
       const axios = (await import('axios')).default;
       const response = await axios.post(`${NANGO_HOST}/connect/sessions`, payload, {
-        headers: { Authorization: `Bearer ${NANGO_SECRET_KEY}` },
+        headers: { 
+          'Authorization': `Bearer ${NANGO_SECRET_KEY}`,
+          'Content-Type': 'application/json'
+        },
       });
       
-      res.json({ authorize_url: response.data?.authorize_url });
+      res.json({ 
+        token: response.data?.token,
+        provider 
+      });
     } catch (error: any) {
       console.error("Nango connect-session error:", error.response?.data || error.message);
       res.status(500).json({ error: "Failed to create Nango connect session" });
@@ -4744,32 +4748,78 @@ ${run.outputText}`;
   // Nango webhook (receives connection events from Nango.dev)
   app.post("/api/integrations/nango-webhook", async (req, res) => {
     try {
-      const evt = req.body?.event;
-      const data = req.body?.data || {};
+      // Verify webhook signature for security
+      const NANGO_SECRET_KEY = process.env.NANGO_SECRET_KEY;
+      if (!NANGO_SECRET_KEY) {
+        console.error("❌ Nango webhook received but NANGO_SECRET_KEY not configured");
+        return res.status(500).json({ ok: false, error: "Webhook not configured" });
+      }
       
-      if (!evt || !data.connection_id) {
+      const signature = req.headers['x-nango-signature'] as string;
+      if (!signature) {
+        console.error("❌ Nango webhook rejected: missing signature");
+        return res.status(401).json({ ok: false, error: "Missing webhook signature" });
+      }
+      
+      // Verify signature using HMAC SHA-256 on raw body
+      const rawBody = (req as any).rawBody;
+      if (!rawBody) {
+        console.error("❌ Nango webhook error: raw body not captured");
+        return res.status(500).json({ ok: false, error: "Server configuration error" });
+      }
+      
+      const crypto = await import('crypto');
+      const expectedSignature = crypto
+        .createHmac('sha256', NANGO_SECRET_KEY)
+        .update(rawBody)
+        .digest('hex');
+      
+      if (signature !== expectedSignature) {
+        console.error("❌ Nango webhook rejected: invalid signature");
+        return res.status(401).json({ ok: false, error: "Invalid webhook signature" });
+      }
+      
+      const { type, operation, success, connectionId, providerConfigKey, endUser } = req.body;
+      
+      if (!type || !operation || !connectionId || !providerConfigKey) {
         return res.status(400).json({ ok: false, error: "Invalid webhook payload" });
       }
       
-      const provider = data.provider_config_key;
-      const userId = data.metadata?.userId || "unknown";
-      const connectionId = data.connection_id;
+      const provider = providerConfigKey;
+      const userId = endUser?.endUserId || "unknown";
       
-      console.log(`📨 Nango webhook: ${evt} for ${provider} (user: ${userId})`);
+      console.log(`📨 Nango webhook: ${type}.${operation} for ${provider} (user: ${userId}, success: ${success})`);
       
-      // Save or update integration connection
-      if (evt === "connection.created" || evt === "connection.updated") {
-        const integrationId = crypto.randomUUID();
-        await storage.createIntegration({
-          id: integrationId,
-          userId,
-          provider,
-          connectionId,
-          metadata: data,
-          createdAt: Date.now(),
-        });
-        
-        console.log(`✅ Saved integration: ${provider} for user ${userId}`);
+      // Handle auth events
+      if (type === "auth") {
+        if (operation === "creation" && success) {
+          // Upsert integration (create or update if exists)
+          const existing = await storage.listIntegrations(userId);
+          const existingIntegration = existing.find(
+            i => i.provider === provider && i.connectionId === connectionId
+          );
+          
+          if (existingIntegration) {
+            // Update existing integration
+            console.log(`🔄 Updating existing integration: ${provider} for user ${userId}`);
+            // For now, we'll just log - storage doesn't have update method yet
+            // In production, you'd want to add an updateIntegration method
+          } else {
+            // Create new integration
+            const integrationId = crypto.randomUUID();
+            await storage.createIntegration({
+              id: integrationId,
+              userId,
+              provider,
+              connectionId,
+              metadata: req.body,
+              createdAt: Date.now(),
+            });
+            console.log(`✅ Created integration: ${provider} for user ${userId}`);
+          }
+        } else if (!success) {
+          console.log(`⚠️ Auth ${operation} failed for ${provider} (user: ${userId})`);
+        }
       }
       
       res.json({ ok: true });

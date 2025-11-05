@@ -6,7 +6,15 @@ import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 
 const app = express();
-app.use(express.json());
+
+// Capture raw body for webhook signature verification
+app.use(express.json({
+  verify: (req: any, _res, buf, encoding) => {
+    if (req.url === '/api/integrations/nango-webhook') {
+      req.rawBody = buf.toString(encoding as BufferEncoding || 'utf8');
+    }
+  }
+}));
 app.use(express.urlencoded({ extended: false }));
 
 app.use((req, res, next) => {

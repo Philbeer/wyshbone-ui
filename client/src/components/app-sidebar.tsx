@@ -2,6 +2,7 @@ import { Globe, MessageSquare, Bug, FilePlus, MessagesSquare, ChevronDown, Chevr
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
+import Nango from '@nangohq/frontend';
 import { useUser } from "@/contexts/UserContext";
 import { addDevAuthParams } from "@/lib/queryClient";
 import {
@@ -1329,6 +1330,7 @@ function IntegrationsSection({ userId }: { userId: string }) {
   const handleConnect = async (provider: string) => {
     setIsConnecting(provider);
     try {
+      // Get session token from backend
       const url = addDevAuthParams('/api/integrations/connect-session');
       const response = await fetch(url, {
         method: 'POST',
@@ -1339,17 +1341,27 @@ function IntegrationsSection({ userId }: { userId: string }) {
       if (!response.ok) {
         const errorData = await response.json();
         alert(errorData.error || 'Failed to initiate connection');
+        setIsConnecting(null);
         return;
       }
       
       const data = await response.json();
-      if (data.authorize_url) {
-        // Open OAuth popup
-        window.open(data.authorize_url, '_blank', 'width=500,height=700');
+      
+      if (data.token) {
+        // Initialize Nango and open Connect UI
+        const nango = new Nango();
+        
+        const result = await nango.auth(provider, data.token);
+        
+        if (result && result.connectionId) {
+          console.log('✅ Connected:', result.connectionId);
+          // Refresh integrations list
+          refetch();
+        }
       }
     } catch (error) {
       console.error('Failed to connect:', error);
-      alert('Failed to initiate connection');
+      alert('Failed to initiate connection. Please try again.');
     } finally {
       setIsConnecting(null);
     }
