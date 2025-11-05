@@ -10,6 +10,7 @@ import { Moon, Sun, FilePlus, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import ChatPage from "@/pages/chat";
 import DebugPage from "@/pages/debug";
+import BatchPipeline from "@/pages/BatchPipeline";
 import NotFound from "@/pages/not-found";
 import CountryHint from "@/components/CountryHint";
 import { LoginDialog } from "@/components/LoginDialog";
@@ -50,6 +51,7 @@ function Router({
         />}
       </Route>
       <Route path="/debug" component={DebugPage} />
+      <Route path="/batch/:id" component={BatchPipeline} />
       <Route component={NotFound} />
     </Switch>
   );
