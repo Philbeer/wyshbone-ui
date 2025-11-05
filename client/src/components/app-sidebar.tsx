@@ -881,7 +881,7 @@ function ScheduledMonitorsSection({ userId, onSelectConversation }: { userId: st
   const [editForm, setEditForm] = useState({ 
     label: '', 
     description: '',
-    schedule: 'weekly' as 'once' | 'daily' | 'weekly' | 'biweekly' | 'monthly',
+    schedule: 'weekly' as 'once' | 'hourly' | 'daily' | 'weekly' | 'biweekly' | 'monthly',
     scheduleDay: undefined as 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday' | undefined,
     scheduleTime: '',
     emailNotifications: true, // Default to enabled
@@ -1023,13 +1023,14 @@ function ScheduledMonitorsSection({ userId, onSelectConversation }: { userId: st
               <Label htmlFor="edit-schedule">Schedule</Label>
               <Select 
                 value={editForm.schedule} 
-                onValueChange={(value: 'once' | 'daily' | 'weekly' | 'biweekly' | 'monthly') => setEditForm({ ...editForm, schedule: value })}
+                onValueChange={(value: 'once' | 'hourly' | 'daily' | 'weekly' | 'biweekly' | 'monthly') => setEditForm({ ...editForm, schedule: value })}
               >
                 <SelectTrigger id="edit-schedule" data-testid="select-edit-schedule">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="once">Once (for testing)</SelectItem>
+                  <SelectItem value="hourly">Hourly (for testing)</SelectItem>
                   <SelectItem value="daily">Daily</SelectItem>
                   <SelectItem value="weekly">Weekly</SelectItem>
                   <SelectItem value="biweekly">Biweekly</SelectItem>

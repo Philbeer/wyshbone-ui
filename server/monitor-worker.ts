@@ -15,7 +15,7 @@ async function checkAndExecuteMonitors() {
     for (const monitor of monitors) {
       const isActive = monitor.isActive === 1;
       const hasNextRun = monitor.nextRunAt !== null && monitor.nextRunAt !== undefined;
-      const isTimeToRun = hasNextRun && monitor.nextRunAt <= now;
+      const isTimeToRun = hasNextRun && monitor.nextRunAt !== null && monitor.nextRunAt <= now;
       
       console.log(`  📊 ${monitor.label}: active=${isActive}, nextRun=${hasNextRun ? new Date(monitor.nextRunAt!).toLocaleString('en-GB') : 'none'}, ready=${isTimeToRun}`);
       
@@ -75,6 +75,10 @@ function calculateNextRunTime(monitor: any): number {
   
   // Move to next occurrence based on schedule
   switch (monitor.schedule) {
+    case 'hourly':
+      // Run every hour from current time
+      nextRun = new Date(now.getTime() + 60 * 60 * 1000);
+      break;
     case 'daily':
       nextRun.setDate(nextRun.getDate() + 1);
       break;
