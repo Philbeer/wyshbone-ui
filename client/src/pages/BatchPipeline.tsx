@@ -109,7 +109,8 @@ export default function BatchPipeline() {
   };
 
   return (
-    <div className="container max-w-6xl mx-auto p-6 space-y-6" data-testid="page-batch-pipeline">
+    <div className="h-full overflow-y-auto">
+      <div className="container max-w-6xl mx-auto p-6 space-y-6" data-testid="page-batch-pipeline">
       {/* Header */}
       <div className="space-y-2">
         <div className="flex items-center justify-between">
@@ -270,5 +271,6 @@ export default function BatchPipeline() {
         </Card>
       )}
     </div>
+  </div>
   );
 }
