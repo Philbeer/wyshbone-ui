@@ -30,14 +30,18 @@ The user interface follows Material Design principles, inspired by ChatGPT, Line
 - **Backend Validation:** Zod schema validation on all endpoints, with CORS enabled.
 - **Scheduled Monitors:** An agentic monitoring system for recurring tasks (deep_research, business_search, wyshbone_database) created via chat or manual configuration. It offers full CRUD operations, flexible scheduling (once, hourly, daily, weekly, biweekly, monthly), and business-context-aware intelligence to analyze results, pull user facts from memory, prioritize customer opportunities, and provide personalized reasoning. Email notifications are sent via Resend API and default to enabled. Hourly scheduling enables rapid testing of agentic features within a single day. The UI includes a sidebar management interface with edit and delete actions. **Smart Summary Mode:** Monitor runs create concise, actionable summaries in chat (not overwhelming full reports), showing only new results, AI key findings, and significance level, while full reports are sent via email.
 - **Xero OAuth Integration:** Direct OAuth 2.0 integration for securely connecting Xero accounting accounts. Features HMAC-signed state tokens with user identity preservation, 10-minute expiry protection, replay attack prevention, and session-based authentication. Supports token exchange, refresh, and secure storage of access/refresh tokens with tenant information. Production deployment requires XERO_CLIENT_ID, XERO_CLIENT_SECRET, and OAUTH_STATE_SECRET environment variables. The integration replaces paid third-party services with a native OAuth implementation.
+- **Batch Contact Discovery Pipeline:** Cost-optimized contact finding system using Google Places API (text search only, no expensive Place Details), Hunter.io (domain + email discovery and verification), and SalesHandy (automated prospect campaign management). Features intelligent email ranking by position type, AI-generated personal lines, and asynchronous job processing. Accessible via REST API endpoints: `POST /api/batch/create`, `GET /api/batch/:id`, `GET /api/batch`. Requires GOOGLE_PLACES_API_KEY, HUNTER_API_KEY, SALES_HANDY_API_TOKEN, and SALES_HANDY_CAMPAIGN_ID.
 
 ## External Dependencies
-- **OpenAI GPT-5:** For AI chat responses, prospect enrichment, and web search.
+- **OpenAI GPT-5:** For AI chat responses, prospect enrichment, web search, and AI-generated personal lines.
 - **Wyshbone Global Database:** For business discovery and location-based searches.
 - **GeoNames API:** For worldwide administrative region discovery and geocoding.
 - **Bubble:** External platform for backend workflows.
 - **Resend API:** For sending transactional email notifications.
 - **Xero:** Accounting platform integration via OAuth 2.0 for secure account connections.
+- **Google Places API:** For business name discovery in batch contact finding pipeline (text search only).
+- **Hunter.io:** For domain discovery, email finding, and email verification in batch processing.
+- **SalesHandy:** For automated prospect management and campaign integration.
 
 ## Production Deployment Requirements
 - **Required Environment Variables:**
