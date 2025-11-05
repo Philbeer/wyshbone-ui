@@ -181,26 +181,9 @@ async function executeDeepResearch(monitor: ScheduledMonitor, conversationId: st
           month: 'short', 
           year: 'numeric' 
         });
+        const runTime = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
         
-        await storage.createMessage({
-          id: crypto.randomUUID(),
-          conversationId,
-          role: 'user',
-          content: `🔍 **Monitor Run #${runSequence}** - ${runDate}\n\n${monitor.description}`,
-          createdAt: Date.now(),
-        });
-        
-        await storage.createMessage({
-          id: crypto.randomUUID(),
-          conversationId,
-          role: 'assistant',
-          content: fullOutput,
-          createdAt: Date.now() + 1,
-        });
-        
-        console.log(`💾 Saved monitor run #${runSequence} results to conversation ${conversationId}`);
-        
-        // 🤖 AGENTIC INTELLIGENCE: Analyze results and decide on autonomous actions
+        // 🤖 AGENTIC INTELLIGENCE: Analyze results and decide on autonomous actions (BEFORE creating messages)
         const agenticAnalysis = await analyzeMonitorResults(monitor, {
           totalResults: currentResultCount,
           newResults,
@@ -208,26 +191,35 @@ async function executeDeepResearch(monitor: ScheduledMonitor, conversationId: st
           fullOutput,
         }, runSequence);
         
-        // Save agentic decision-making to conversation for transparency
+        // ✨ SMART SUMMARY MODE: Create concise, actionable summary instead of overwhelming full output
+        const smartSummary = `📊 **${monitor.label}** - Run #${runSequence}
+**${runDate} at ${runTime}**
+
+**Results:** ${newResults > 0 ? `🆕 ${newResults} new` : '✓ No changes'} (${currentResultCount} total)
+
+**🤖 AI Analysis:** ${agenticAnalysis.significance.toUpperCase()} significance
+
+**💡 Key Findings:**
+${agenticAnalysis.keyFindings.map((f, i) => `${i + 1}. ${f}`).join('\n')}
+
+${agenticAnalysis.requiresDeepDive ? `\n**🔍 Follow-Up:** AI triggered deeper research on ${agenticAnalysis.deepDiveFocus}` : ''}
+
+${agenticAnalysis.urgency === 'immediate' ? '🚨 **Immediate attention recommended**' : ''}
+
+---
+📧 ${monitor.emailNotifications === 1 ? 'Full report sent to your email' : 'Email notifications disabled'}
+_Full research data stored in monitor history_`;
+        
+        // Save ONLY the smart summary to chat (not the overwhelming full output)
         await storage.createMessage({
           id: crypto.randomUUID(),
           conversationId,
           role: 'assistant',
-          content: `🤖 **Agentic Analysis**
-
-**Significance:** ${agenticAnalysis.significance.toUpperCase()}
-**Urgency:** ${agenticAnalysis.urgency}
-
-**Reasoning:** ${agenticAnalysis.reasoning}
-
-**Key Findings:**
-${agenticAnalysis.keyFindings.map((f, i) => `${i + 1}. ${f}`).join('\n')}
-
-${agenticAnalysis.requiresDeepDive ? `**🔍 Autonomous Action Triggered:**\nInitiating deeper research on: ${agenticAnalysis.deepDiveFocus}` : '**✓ No immediate follow-up required**'}`,
-          createdAt: Date.now() + 2,
+          content: smartSummary,
+          createdAt: Date.now(),
         });
         
-        console.log(`💾 Saved agentic analysis to conversation`);
+        console.log(`💾 Saved smart summary for run #${runSequence} to conversation ${conversationId}`);
         
         // Execute autonomous deep dive if analysis determined it's warranted
         let deepDiveResult = null;
