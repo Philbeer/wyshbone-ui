@@ -1259,7 +1259,7 @@ CRITICAL RULES:
         type: "function" as const,
         function: {
           name: "bubble_run_batch",
-          description: "Trigger Wyshbone backend workflows in batch for business types and roles. IMPORTANT: Call this function ONCE with ALL locations in the counties array - do NOT make multiple separate calls.",
+          description: "CRITICAL: Use for BROAD BUSINESS TYPE searches (e.g., 'dentists', 'coffee shops', 'restaurants'). This searches by business TYPE + location + role. DO NOT use for specific named businesses like 'The Ivy' or 'Pret A Manger' - use saleshandy_batch_call for those instead. IMPORTANT: Call this function ONCE with ALL locations in the counties array - do NOT make multiple separate calls.",
           parameters: {
             type: "object",
             properties: {
@@ -1389,18 +1389,18 @@ CRITICAL RULES:
         }
       };
 
-      const batchContactFinderTool = {
+      const saleshandyBatchTool = {
         type: "function" as const,
         function: {
-          name: "batch_contact_finder",
-          description: "Find verified email contacts for a list of businesses using Google Places, Hunter.io, and SalesHandy. Use this when user wants to find decision-makers, contacts, or emails for specific businesses. The system will automatically discover domains, find verified emails, rank contacts by position, generate personalized outreach, and add to campaigns.",
+          name: "saleshandy_batch_call",
+          description: "CRITICAL: Use ONLY when user provides SPECIFIC BUSINESS NAMES (e.g., 'The Ivy Restaurant', 'Pret A Manger', 'Dishoom'). This finds verified email contacts for named businesses using Google Places + Hunter.io + SalesHandy. DO NOT use for broad searches like 'dentists in London' or 'coffee shops' - use bubble_run_batch for those instead. This tool requires exact business names.",
           parameters: {
             type: "object",
             properties: {
               businesses: {
                 type: "array",
                 items: { type: "string" },
-                description: "List of business names to find contacts for (e.g., ['The Ivy Restaurant London', 'Dishoom Covent Garden', 'Hawksmoor Steakhouse'])"
+                description: "EXACT business names - NOT business types. Examples: ['The Ivy Restaurant', 'Dishoom Covent Garden', 'Hawksmoor Steakhouse']. Do NOT use generic terms like ['restaurants', 'coffee shops']."
               },
               location: {
                 type: "string",
@@ -1412,7 +1412,7 @@ CRITICAL RULES:
         }
       };
 
-      const tools: any[] = [bubbleTool, deepResearchTool, googlePlacesSearchTool, createScheduledMonitorTool, batchContactFinderTool];
+      const tools: any[] = [bubbleTool, deepResearchTool, googlePlacesSearchTool, createScheduledMonitorTool, saleshandyBatchTool];
 
       console.log(`🌐 Calling Chat Completions API with function calling...`);
       
@@ -2181,8 +2181,8 @@ CRITICAL RULES:
             await saveMessage(conversationId, "assistant", aiBuffer);
             console.log("💾 Saved error message to database");
           }
-        } else if (isToolCall && toolCallBuffer.name === "batch_contact_finder") {
-          console.log("📧 Batch contact finder tool call detected");
+        } else if (isToolCall && toolCallBuffer.name === "saleshandy_batch_call") {
+          console.log("📧 SalesHandy batch contact finder tool call detected");
           console.log("📦 Arguments:", toolCallBuffer.arguments);
           
           try {
