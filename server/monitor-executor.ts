@@ -53,8 +53,20 @@ export async function executeMonitorAndNotify(monitor: ScheduledMonitor, userEma
   const loginEmail = await storage.getUserEmail(monitor.userId);
   const recipientEmail = loginEmail || 'phil@listersbrewery.com';
   
-  if (monitor.emailNotifications === 1) {
+  // 🤖 AGENTIC URGENCY HANDLING
+  // Check if agentic analysis recommends sending an email
+  const shouldSendEmail = monitor.emailNotifications === 1 && (
+    !results.agenticAnalysis || // Always send if no analysis (backward compat)
+    results.agenticAnalysis.urgency === 'immediate' || // Send immediately for high urgency
+    results.agenticAnalysis.urgency === 'normal' // Send normally for normal urgency
+    // 'batched' urgency will skip email, allowing batch summaries in future
+  );
+  
+  if (shouldSendEmail) {
+    console.log(`📧 Sending email notification (urgency: ${results.agenticAnalysis?.urgency || 'default'})`);
     await sendMonitorResultEmail(monitor, recipientEmail, results, conversationId, monitor.userId);
+  } else if (results.agenticAnalysis?.urgency === 'batched') {
+    console.log(`📋 [AGENTIC] Batching notification - findings not urgent enough for immediate email`);
   }
 }
 
@@ -397,6 +409,8 @@ async function sendMonitorResultEmail(
       conversationId,
       userId,
       userEmail,
+      agenticAnalysis: results.agenticAnalysis,
+      deepDiveResult: results.deepDiveResult,
     };
     
     const { subject, html } = formatMonitorResultEmail(monitorResult);

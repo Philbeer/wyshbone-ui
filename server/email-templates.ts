@@ -12,6 +12,19 @@ export interface MonitorResult {
   conversationId?: string;
   userId?: string;
   userEmail?: string;
+  agenticAnalysis?: {
+    significance: 'high' | 'medium' | 'low';
+    urgency: 'immediate' | 'normal' | 'batched';
+    reasoning: string;
+    keyFindings: string[];
+    requiresDeepDive: boolean;
+    deepDiveFocus?: string;
+  };
+  deepDiveResult?: {
+    deepDiveCompleted: boolean;
+    deepDiveSummary?: string;
+    deepDiveFocus?: string;
+  };
 }
 
 export function formatMonitorResultEmail(
@@ -28,6 +41,8 @@ export function formatMonitorResultEmail(
     conversationId,
     userId,
     userEmail,
+    agenticAnalysis,
+    deepDiveResult,
   } = result;
 
   const typeLabel =
@@ -159,6 +174,50 @@ export function formatMonitorResultEmail(
               </div>`
                   : ''
               }
+            </div>`
+                : ''
+            }
+
+            ${
+              agenticAnalysis
+                ? `
+            <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 8px; padding: 16px; margin: 18px 0; color: white;">
+              <h3 style="margin: 0 0 12px; color: white; font-size: 16px; display: flex; align-items: center; gap: 8px;">
+                🤖 AI Agentic Analysis
+              </h3>
+              <div style="background-color: rgba(255,255,255,0.15); border-radius: 6px; padding: 12px; margin-bottom: 10px;">
+                <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+                  <div>
+                    <strong style="font-size: 11px; opacity: 0.9; text-transform: uppercase; letter-spacing: 0.5px;">Significance</strong>
+                    <div style="font-size: 16px; font-weight: 700; margin-top: 2px;">
+                      ${agenticAnalysis.significance === 'high' ? '🔴 HIGH' : agenticAnalysis.significance === 'medium' ? '🟡 MEDIUM' : '🟢 LOW'}
+                    </div>
+                  </div>
+                  <div style="border-left: 1px solid rgba(255,255,255,0.3); padding-left: 12px;">
+                    <strong style="font-size: 11px; opacity: 0.9; text-transform: uppercase; letter-spacing: 0.5px;">Urgency</strong>
+                    <div style="font-size: 16px; font-weight: 700; margin-top: 2px;">
+                      ${agenticAnalysis.urgency === 'immediate' ? '⚡ IMMEDIATE' : agenticAnalysis.urgency === 'normal' ? '📧 NORMAL' : '📋 BATCHED'}
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <p style="font-size: 14px; margin: 8px 0; line-height: 1.5; opacity: 0.95;">
+                <strong>AI Reasoning:</strong> ${escapeHtml(agenticAnalysis.reasoning)}
+              </p>
+              ${agenticAnalysis.keyFindings && agenticAnalysis.keyFindings.length > 0 ? `
+              <div style="margin-top: 12px;">
+                <strong style="font-size: 13px; display: block; margin-bottom: 6px;">Key Findings:</strong>
+                <ul style="margin: 4px 0; padding-left: 20px; font-size: 13px; line-height: 1.6;">
+                  ${agenticAnalysis.keyFindings.map(f => `<li>${escapeHtml(f)}</li>`).join('')}
+                </ul>
+              </div>` : ''}
+              ${agenticAnalysis.requiresDeepDive && deepDiveResult?.deepDiveCompleted ? `
+              <div style="margin-top: 12px; padding: 10px; background-color: rgba(255,255,255,0.2); border-radius: 4px; border-left: 3px solid #fbbf24;">
+                <strong style="display: block; margin-bottom: 4px;">⚡ Autonomous Action Taken:</strong>
+                <p style="margin: 0; font-size: 13px; opacity: 0.95;">
+                  AI automatically triggered deeper research on: <strong>${escapeHtml(deepDiveResult.deepDiveFocus || 'specific findings')}</strong>
+                </p>
+              </div>` : ''}
             </div>`
                 : ''
             }
