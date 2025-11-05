@@ -1344,8 +1344,9 @@ function IntegrationsSection({ userId }: { userId: string }) {
       
       console.log(`🔗 Starting OAuth flow for ${provider}...`);
       
-      // Get user ID from current user context
-      const userId = 'demo-user'; // In production, use actual user ID
+      // Get user ID from authenticated user context
+      const userId = user?.userId || user?.email || 'demo-user';
+      console.log(`📝 Using connection ID: ${userId}`);
       
       // Trigger OAuth flow
       const result = await nango.auth(provider, userId);
