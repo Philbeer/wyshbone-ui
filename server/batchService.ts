@@ -208,32 +208,36 @@ They work in "${query}". Reference a plausible buyer or use-case. UK tone. No fl
 
 /* ========== SALES HANDY ========== */
 
-export async function salesHandyUpsertProspect(
-  prospect: SalesHandyProspect,
+export async function salesHandyBatchImport(
+  prospects: any[],
+  sequenceId: string,
   apiToken: string,
   baseUrl: string = "https://open-api.saleshandy.com"
-): Promise<string | null> {
+): Promise<boolean> {
   try {
+    const payload = {
+      prospectList: prospects,
+      stepId: sequenceId,
+      verifyProspects: false,
+      conflictAction: "overwrite"
+    };
+
     const response = await axios.post(
-      `${baseUrl}/api/v1/prospects/import`,
-      prospect,
+      `${baseUrl}/api/v1/sequences/prospects/import-with-field-name`,
+      payload,
       {
         headers: {
-          'x-api-key': apiToken
+          'x-api-key': apiToken,
+          'Content-Type': 'application/json'
         },
       }
     );
 
-    return (
-      response.data?.id ||
-      response.data?.prospectId ||
-      response.data?.data?.id ||
-      response.data?.requestId ||
-      null
-    );
+    console.log("✅ SalesHandy batch import response:", response.data);
+    return response.status === 200 || response.status === 201;
   } catch (error) {
-    console.error("Failed to upsert prospect:", error);
-    return null;
+    console.error("Failed to batch import prospects:", error);
+    return false;
   }
 }
 
@@ -383,9 +387,13 @@ export async function executeBatchJob(params: {
     )
   );
 
-  // Step 4: Send verified contacts to SalesHandy
+  // Step 4: Send verified contacts to SalesHandy in one batch
   const created: BatchJobItem[] = [];
   const skipped: BatchJobItem[] = [];
+
+  // Collect all prospects with verified emails
+  const prospectsToSend: any[] = [];
+  const itemsWithEmails: BatchJobItem[] = [];
 
   for (const item of items) {
     if (!item.selected_email) {
@@ -393,41 +401,41 @@ export async function executeBatchJob(params: {
       continue;
     }
 
-    try {
-      const prospect: SalesHandyProspect = {
-        name: item.first_name
-          ? `${item.first_name} ${item.last_name || ""}`.trim()
-          : item.name,
-        email: item.selected_email,
-        company: item.name,
-        website: item.domain ? `https://${item.domain}` : "",
-        customFields: {
-          query,
-          location,
-          country,
-          personal_line: item.personal_line || "",
-        },
-      };
+    const prospectFields: any = {
+      Email: item.selected_email,
+      "First Name": item.first_name || guessFirstName(item.selected_email),
+      "Last Name": item.last_name || "",
+      Company: item.name,
+      Website: item.domain ? `https://${item.domain}` : "",
+      "Custom Field 1": query,
+      "Custom Field 2": location,
+      "Custom Field 3": country,
+      "Custom Field 4": item.personal_line || "",
+    };
 
-      const prospectId = await salesHandyUpsertProspect(
-        prospect,
+    prospectsToSend.push(prospectFields);
+    itemsWithEmails.push(item);
+  }
+
+  // Send all prospects in one batch request
+  if (prospectsToSend.length > 0) {
+    try {
+      const success = await salesHandyBatchImport(
+        prospectsToSend,
+        campaignId || salesHandyCampaignId,
         salesHandyToken
       );
 
-      if (prospectId) {
-        await salesHandyAddToCampaign(
-          prospectId,
-          campaignId || salesHandyCampaignId,
-          salesHandyToken,
-          salesHandySenderId
-        );
-        created.push(item);
+      if (success) {
+        created.push(...itemsWithEmails);
+        console.log(`✅ Successfully sent ${itemsWithEmails.length} prospects to SalesHandy in batch`);
       } else {
-        skipped.push(item);
+        skipped.push(...itemsWithEmails);
+        console.log(`❌ Failed to send batch to SalesHandy`);
       }
     } catch (error) {
-      console.error(`Failed to send ${item.name} to SalesHandy:`, error);
-      skipped.push(item);
+      console.error(`Failed to send batch to SalesHandy:`, error);
+      skipped.push(...itemsWithEmails);
     }
   }
 
