@@ -5037,6 +5037,151 @@ ${run.outputText}`;
     }
   });
 
+  // ============= BATCH JOB ROUTES =============
+  // Create batch job (Google Places + Hunter.io + SalesHandy pipeline)
+  app.post("/api/batch/create", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+
+      const { createBatchJobRequestSchema } = await import("@shared/schema");
+      const validatedData = createBatchJobRequestSchema.parse(req.body);
+
+      // Check required API keys
+      const GOOGLE_API_KEY = process.env.GOOGLE_PLACES_API_KEY;
+      const HUNTER_API_KEY = process.env.HUNTER_API_KEY;
+      const SALESHANDY_TOKEN = process.env.SALES_HANDY_API_TOKEN;
+      const SALESHANDY_CAMPAIGN_ID = process.env.SALES_HANDY_CAMPAIGN_ID;
+
+      if (!GOOGLE_API_KEY) {
+        return res.status(400).json({ error: "GOOGLE_PLACES_API_KEY not configured" });
+      }
+      if (!HUNTER_API_KEY) {
+        return res.status(400).json({ error: "HUNTER_API_KEY not configured" });
+      }
+      if (!SALESHANDY_TOKEN || !SALESHANDY_CAMPAIGN_ID) {
+        return res.status(400).json({ error: "SalesHandy not configured (SALES_HANDY_API_TOKEN, SALES_HANDY_CAMPAIGN_ID)" });
+      }
+
+      const crypto = await import("crypto");
+      const batchId = crypto
+        .createHash("sha256")
+        .update(`${validatedData.query}|${validatedData.location}|${Date.now()}`)
+        .digest("hex")
+        .slice(0, 12);
+
+      // Create batch job record
+      await storage.createBatchJob({
+        id: batchId,
+        userId: auth.userId,
+        status: "running",
+        query: validatedData.query,
+        location: validatedData.location,
+        country: validatedData.country,
+        targetRole: validatedData.targetRole || "Head of Sales",
+        limit: validatedData.limit || 60,
+        personalize: validatedData.personalize ? 1 : 0,
+        campaignId: validatedData.campaignId,
+        createdAt: Date.now(),
+      });
+
+      console.log(`📦 Batch job ${batchId} created for ${auth.userEmail}`);
+
+      // Execute batch job asynchronously
+      (async () => {
+        try {
+          const { executeBatchJob } = await import("./batchService");
+          
+          const result = await executeBatchJob({
+            query: validatedData.query,
+            location: validatedData.location,
+            country: validatedData.country,
+            targetRole: validatedData.targetRole || "Head of Sales",
+            limit: validatedData.limit || 60,
+            personalize: validatedData.personalize !== false,
+            campaignId: validatedData.campaignId,
+            googleApiKey: GOOGLE_API_KEY,
+            hunterApiKey: HUNTER_API_KEY,
+            salesHandyToken: SALESHANDY_TOKEN,
+            salesHandyCampaignId: SALESHANDY_CAMPAIGN_ID,
+            salesHandySenderId: process.env.SALES_HANDY_SENDER_ID,
+            openaiKey: process.env.OPENAI_API_KEY,
+          });
+
+          // Update batch job with results
+          await storage.updateBatchJob(batchId, {
+            status: "completed",
+            items: result.items as any,
+            totalFound: result.items.length,
+            totalSent: result.created.length,
+            totalSkipped: result.skipped.length,
+            completedAt: Date.now(),
+          });
+
+          console.log(`✅ Batch job ${batchId} completed: ${result.created.length}/${result.items.length} sent`);
+        } catch (error: any) {
+          console.error(`❌ Batch job ${batchId} failed:`, error);
+          await storage.updateBatchJob(batchId, {
+            status: "failed",
+            error: error.message || String(error),
+            completedAt: Date.now(),
+          });
+        }
+      })();
+
+      // Return immediate response
+      res.json({ batchId, status: "running" });
+    } catch (error: any) {
+      console.error("Create batch job error:", error);
+      res.status(500).json({ error: error.message || "Failed to create batch job" });
+    }
+  });
+
+  // Get batch job status
+  app.get("/api/batch/:id", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+
+      const { id } = req.params;
+      const job = await storage.getBatchJob(id);
+
+      if (!job) {
+        return res.status(404).json({ error: "Batch job not found" });
+      }
+
+      // Verify ownership
+      if (job.userId !== auth.userId) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+
+      res.json(job);
+    } catch (error: any) {
+      console.error("Get batch job error:", error);
+      res.status(500).json({ error: error.message || "Failed to get batch job" });
+    }
+  });
+
+  // List batch jobs for user
+  app.get("/api/batch", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+
+      const jobs = await storage.listBatchJobs(auth.userId);
+      res.json({ jobs });
+    } catch (error: any) {
+      console.error("List batch jobs error:", error);
+      res.status(500).json({ error: error.message || "Failed to list batch jobs" });
+    }
+  });
+
   // Serve logo for email templates
   app.get("/assets/logo.png", async (_req, res) => {
     try {
