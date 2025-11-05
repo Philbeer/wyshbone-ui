@@ -4740,10 +4740,19 @@ ${run.outputText}`;
         provider 
       });
     } catch (error: any) {
-      console.error("Nango connect-session error:", JSON.stringify(error.response?.data || error.message, null, 2));
+      const errorData = error.response?.data;
+      if (errorData) {
+        console.error("Nango connect-session full error:", JSON.stringify(errorData, null, 2));
+        if (errorData.error?.errors) {
+          console.error("Validation errors:", JSON.stringify(errorData.error.errors, null, 2));
+        }
+      } else {
+        console.error("Nango connect-session error:", error.message);
+      }
+      
       res.status(500).json({ 
         error: "Failed to create Nango connect session",
-        details: error.response?.data || error.message 
+        details: errorData || error.message 
       });
     }
   });
