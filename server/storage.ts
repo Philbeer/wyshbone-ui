@@ -13,11 +13,13 @@ import type {
   InsertScheduledMonitor,
   SelectUserSession,
   InsertIntegration,
-  SelectIntegration
+  SelectIntegration,
+  InsertBatchJob,
+  SelectBatchJob
 } from "@shared/schema";
 import { drizzle } from "drizzle-orm/neon-http";
 import { neon } from "@neondatabase/serverless";
-import { deepResearchRuns, conversations, messages, facts, scheduledMonitors, userSessions, integrations } from "@shared/schema";
+import { deepResearchRuns, conversations, messages, facts, scheduledMonitors, userSessions, integrations, batchJobs } from "@shared/schema";
 import { eq, or, and, desc, asc, lt, gt } from "drizzle-orm";
 
 export interface PendingBatchConfirmation {
@@ -118,6 +120,13 @@ export interface IStorage {
   listIntegrations(userId: string): Promise<SelectIntegration[]>;
   getIntegration(id: string): Promise<SelectIntegration | null>;
   deleteIntegration(id: string): Promise<boolean>;
+  
+  // Batch Job CRUD methods (for Google Places + Hunter.io + SalesHandy pipeline)
+  createBatchJob(job: InsertBatchJob): Promise<SelectBatchJob>;
+  getBatchJob(id: string): Promise<SelectBatchJob | null>;
+  listBatchJobs(userId: string): Promise<SelectBatchJob[]>;
+  updateBatchJob(id: string, updates: Partial<InsertBatchJob>): Promise<SelectBatchJob | null>;
+  deleteBatchJob(id: string): Promise<boolean>;
 }
 
 export class MemStorage implements IStorage {
@@ -131,6 +140,7 @@ export class MemStorage implements IStorage {
   private lastViewedRuns: Map<string, string> = new Map();
   private scheduledMonitors: Map<string, SelectScheduledMonitor> = new Map();
   private integrations: Map<string, SelectIntegration> = new Map();
+  private batchJobs: Map<string, SelectBatchJob> = new Map();
 
   async createJob(job: Job): Promise<Job> {
     this.jobs.set(job.id, job);
@@ -442,6 +452,35 @@ export class MemStorage implements IStorage {
 
   async deleteIntegration(id: string): Promise<boolean> {
     return this.integrations.delete(id);
+  }
+  
+  // Batch Job methods
+  async createBatchJob(job: InsertBatchJob): Promise<SelectBatchJob> {
+    this.batchJobs.set(job.id, job as SelectBatchJob);
+    return job as SelectBatchJob;
+  }
+
+  async getBatchJob(id: string): Promise<SelectBatchJob | null> {
+    return this.batchJobs.get(id) || null;
+  }
+
+  async listBatchJobs(userId: string): Promise<SelectBatchJob[]> {
+    return Array.from(this.batchJobs.values())
+      .filter(j => j.userId === userId)
+      .sort((a, b) => b.createdAt - a.createdAt);
+  }
+
+  async updateBatchJob(id: string, updates: Partial<InsertBatchJob>): Promise<SelectBatchJob | null> {
+    const job = this.batchJobs.get(id);
+    if (!job) return null;
+    
+    const updated = { ...job, ...updates };
+    this.batchJobs.set(id, updated);
+    return updated;
+  }
+
+  async deleteBatchJob(id: string): Promise<boolean> {
+    return this.batchJobs.delete(id);
   }
 }
 
@@ -811,6 +850,40 @@ export class DbStorage implements IStorage {
   async deleteIntegration(id: string): Promise<boolean> {
     const result = await db.delete(integrations)
       .where(eq(integrations.id, id));
+    return result.rowCount !== null && result.rowCount > 0;
+  }
+  
+  // Batch Job methods
+  async createBatchJob(job: InsertBatchJob): Promise<SelectBatchJob> {
+    const [newJob] = await db.insert(batchJobs).values(job).returning();
+    return newJob;
+  }
+
+  async getBatchJob(id: string): Promise<SelectBatchJob | null> {
+    const [job] = await db.select()
+      .from(batchJobs)
+      .where(eq(batchJobs.id, id));
+    return job || null;
+  }
+
+  async listBatchJobs(userId: string): Promise<SelectBatchJob[]> {
+    return await db.select()
+      .from(batchJobs)
+      .where(eq(batchJobs.userId, userId))
+      .orderBy(desc(batchJobs.createdAt));
+  }
+
+  async updateBatchJob(id: string, updates: Partial<InsertBatchJob>): Promise<SelectBatchJob | null> {
+    const [updated] = await db.update(batchJobs)
+      .set(updates)
+      .where(eq(batchJobs.id, id))
+      .returning();
+    return updated || null;
+  }
+
+  async deleteBatchJob(id: string): Promise<boolean> {
+    const result = await db.delete(batchJobs)
+      .where(eq(batchJobs.id, id));
     return result.rowCount !== null && result.rowCount > 0;
   }
 }
