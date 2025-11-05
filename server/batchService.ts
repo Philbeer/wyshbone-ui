@@ -223,7 +223,7 @@ export async function salesHandyBatchImport(
     };
 
     const response = await axios.post(
-      `${baseUrl}/api/v1/sequences/prospects/import-with-field-name`,
+      `${baseUrl}/v1/sequences/prospects/import-with-field-name`,
       payload,
       {
         headers: {
