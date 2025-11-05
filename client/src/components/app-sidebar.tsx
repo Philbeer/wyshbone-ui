@@ -884,7 +884,7 @@ function ScheduledMonitorsSection({ userId, onSelectConversation }: { userId: st
     schedule: 'weekly' as 'once' | 'daily' | 'weekly' | 'biweekly' | 'monthly',
     scheduleDay: undefined as 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday' | undefined,
     scheduleTime: '',
-    emailNotifications: false,
+    emailNotifications: true, // Default to enabled
     emailAddress: ''
   });
   const [isSaving, setIsSaving] = useState(false);
