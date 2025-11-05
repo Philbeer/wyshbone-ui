@@ -24,6 +24,8 @@ export interface AgenticAnalysisResult {
  * - What specific aspects to investigate further
  * - Whether to send immediate alerts or batch notifications
  * - How to adapt the monitor for future runs
+ * 
+ * BUSINESS-CONTEXT-AWARE: Analyzes significance based on user's business objectives
  */
 export async function analyzeMonitorResults(
   monitor: ScheduledMonitor,
@@ -33,13 +35,37 @@ export async function analyzeMonitorResults(
   console.log(`🤖 [AGENTIC] Analyzing monitor results for: ${monitor.label}`);
 
   try {
-    const analysisPrompt = `You are an agentic AI system analyzing the results of a scheduled monitoring job.
+    // BUSINESS CONTEXT: Load user's facts to understand their objectives
+    const { storage } = await import('./storage');
+    const userFacts = await storage.listTopFacts(monitor.userId, 20);
+    
+    // Extract business-relevant facts (industries, products, target customers)
+    const businessContext = userFacts
+      .filter((f: any) => ['industry', 'place', 'subject', 'preference'].includes(f.category))
+      .sort((a: any, b: any) => (b.score || 0) - (a.score || 0))
+      .slice(0, 10)
+      .map((f: any) => f.content)
+      .join('\n   - ');
+    
+    console.log(`🎯 [AGENTIC] Loaded business context: ${userFacts.length} facts`);
+    
+    const analysisPrompt = `You are an agentic AI system analyzing the results of a scheduled monitoring job for a business user.
 
 **Monitor Details:**
 - Label: ${monitor.label}
 - Description: ${monitor.description}
 - Run Sequence: #${runSequence}
 - Type: ${monitor.monitorType}
+
+**USER'S BUSINESS CONTEXT (CRITICAL FOR SIGNIFICANCE ASSESSMENT):**
+${businessContext ? `The user's business focus and objectives based on their history:
+   - ${businessContext}
+
+**IMPORTANT:** 
+- If results represent NEW POTENTIAL CUSTOMERS aligned with the user's business, rate as HIGH significance
+- If results show expansion opportunities in the user's industry/market, prioritize accordingly
+- Consider how findings help the user find new business opportunities
+` : 'No specific business context available - use general business value assessment.'}
 
 **Current Results:**
 - Total Results: ${results.totalResults || 0}
@@ -50,16 +76,20 @@ export async function analyzeMonitorResults(
 ${(results.fullOutput || '').substring(0, 2000)}
 
 **Your Task:**
-Analyze these results and make autonomous decisions about follow-up actions.
+Analyze these results and make autonomous decisions about follow-up actions **in the context of the user's business objectives**.
 
 **Decision Framework:**
 1. **Significance Assessment**: Rate the findings as 'high', 'medium', or 'low' based on:
+   - **NEW CUSTOMER OPPORTUNITY**: Do results show potential new customers for the user's business? (HIGHEST PRIORITY)
+   - **Business alignment**: How well do findings align with the user's industry/products/services?
    - Number of new results vs. total results
    - Quality and relevance of findings
    - Unexpected discoveries or patterns
-   - Business impact potential
+   - Geographic/demographic fit with user's target market
 
 2. **Deep Dive Decision**: Determine if automatic deeper research is warranted:
+   - If findings show significant new customer opportunities worth investigating
+   - If there are clusters or patterns in new businesses that could be prospects
    - If significance is 'high' and there are specific aspects worth investigating
    - If there are anomalies or unexpected patterns
    - If initial findings reveal a trend that needs more data
@@ -79,9 +109,9 @@ Respond with a JSON object (and ONLY JSON, no other text):
   "deepDivePrompt": "specific research question to investigate" (only if requiresDeepDive is true),
   "deepDiveFocus": "what aspect to focus on" (only if requiresDeepDive is true),
   "urgency": "immediate" | "normal",
-  "reasoning": "brief explanation of your decision",
+  "reasoning": "brief explanation of your decision, specifically mentioning how findings align (or don't align) with the user's business objectives",
   "suggestedNextPrompt": "refined version of the monitor prompt for next run" (optional - stored for user review, not auto-applied),
-  "keyFindings": ["finding 1", "finding 2", ...] (array of 2-5 key insights)
+  "keyFindings": ["finding 1 (mentioning business relevance)", "finding 2", ...] (array of 2-5 key insights, highlight NEW CUSTOMER opportunities if present)
 }`;
 
     const response = await openai.chat.completions.create({
@@ -185,6 +215,7 @@ async function canExecuteDeepDive(monitorId: string): Promise<{ allowed: boolean
 /**
  * Execute an autonomous deep dive based on agentic analysis
  * WITH BUDGET CONTROLS to prevent runaway costs
+ * BUSINESS-AWARE: Deep dive prompt considers user's business objectives
  */
 export async function executeAutonomousDeepDive(
   analysis: AgenticAnalysisResult,
@@ -209,7 +240,7 @@ export async function executeAutonomousDeepDive(
 
   console.log(`🤖 [AGENTIC] Initiating autonomous deep dive...`);
   console.log(`   - Focus: ${analysis.deepDiveFocus}`);
-  console.log(`   - Prompt: ${analysis.deepDivePrompt}`);
+  console.log(`   - Business-aligned prompt: ${analysis.deepDivePrompt}`);
 
   // Import here to avoid circular dependency
   const { startBackgroundResponsesJob } = await import('./deepResearch');

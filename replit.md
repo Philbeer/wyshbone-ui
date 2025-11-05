@@ -1,124 +1,38 @@
 # Wyshbone Chat Agent
 
 ## Overview
-The Wyshbone Chat Agent is an AI-powered chat assistant with three core capabilities: (1) Deep Research for comprehensive analysis, (2) Contact Finding via Bubble workflows for lead generation, and (3) Wyshbone Global Database for quick business listings. The system intelligently offers all three options when user intent is ambiguous, ensuring users can choose the best approach for their needs.
-
-## Multi-Tenant Architecture
-The system implements multi-tenant user isolation where each user (identified by email and ID from Bubble) has completely separate data:
-
-### Session-Based Authentication (✅ PRODUCTION-READY)
-- **Primary Method**: Secure session-based authentication via `?sid=` URL parameter
-  1. Bubble calls `POST /api/create-session` with user credentials and shared secret in Authorization header
-  2. Replit validates the secret, generates a session ID (30-minute expiry), stores in database
-  3. Bubble embeds iframe with `?sid=<session_id>`
-  4. Frontend validates session via `GET /api/validate-session/:sessionId` and loads user data
-  5. All subsequent API calls are scoped to the authenticated user
-- **Shared Secret**: `BUBBLE_SHARED_SECRET` environment variable must be configured in Replit secrets
-- **Session Storage**: Sessions stored in `user_sessions` PostgreSQL table with automatic expiry checking
-- **Session Expiry**: 30 minutes from creation, automatically cleaned up on validation attempts
-
-### Alternative Authentication Methods (Development/Testing)
-- **URL Parameters**: `?user_email=` and `?user_id=` for direct authentication (less secure, development only)
-- **Manual Login**: LoginDialog component allows creating/switching test user profiles
-- **Fallback Behavior**: When no authentication provided, system defaults to "demo-user" for local testing
-
-### Data Isolation & Security
-- All database tables include `userId`/`created_by_email` fields to ensure users only see their own data
-- API endpoints filter all queries by authenticated userId
-- Frontend components use `useUser()` hook to access authenticated user context
-
-### Endpoint Security (✅ PRODUCTION-READY)
-- **Authentication Middleware**: `getAuthenticatedUserId()` validates `x-session-id` header and extracts userId from database session
-- **Development Fallback**: URL parameters (`?user_email=` and `?user_id=`) allowed only when `NODE_ENV=development`
-- **17 Protected Endpoints**: All user-scoped endpoints validate session and verify resource ownership:
-  - Conversations: GET/POST/DELETE list, create, delete; GET messages (ownership verified)
-  - Facts: GET user facts
-  - Chat: POST chat (validates user.id matches authenticated userId)
-  - Deep Research: GET/POST list, create (validates userId); GET/POST/:id view, stop, duplicate (ownership verified)
-  - Scheduled Monitors: GET/POST/PATCH/DELETE list, create, update, delete (ownership verified)
-- **Security Controls**:
-  - Returns 401 Unauthorized for unauthenticated requests
-  - Returns 403 Forbidden for cross-tenant access attempts
-  - Logs all unauthorized access attempts with warning messages
-  - Validates resource ownership before allowing modifications or deletions
+The Wyshbone Chat Agent is an AI-powered chat assistant designed to facilitate deep research, contact finding via Bubble workflows, and quick business listings using the Wyshbone Global Database. It intelligently offers these options when user intent is ambiguous, aiming to provide comprehensive analysis, lead generation, and business discovery capabilities.
 
 ## User Preferences
-I want the agent to focus on practical, UK-focused responses. I want to ensure that any contact information discovered is public and verifiable, with no guessing of private details. I prefer a workflow that prioritizes Wyshbone Global Database as the authoritative source for business discovery. The agent should be able to intelligently decide when to search for new venues versus using cached information and support conversational queries without triggering unnecessary searches. I want the agent to auto-detect and execute Bubble batch workflows based on natural language commands. **CRITICAL: The AI must ALWAYS ask for confirmation when making assumptions or combining current input with historical facts/context - chat history and facts serve as background reference, not primary drivers.**
+I want the agent to focus on practical, UK-focused responses. I want to ensure that any contact information discovered is public and verifiable, with no guessing of private details. I prefer a workflow that prioritizes Wyshbone Global Database as the authoritative source for business discovery. The agent should be able to intelligently decide when to search for new venues versus using cached information and support conversational queries without triggering unnecessary searches. I want the agent to auto-detect and execute Bubble batch workflows based on natural language commands. CRITICAL: The AI must ALWAYS ask for confirmation when making assumptions or combining current input with historical facts/context - chat history and facts serve as background reference, not primary drivers.
 
 ## System Architecture
-The application utilizes a modern web stack, featuring Node.js/Express for the backend and React with TypeScript, Tailwind CSS, and shadcn/ui for the frontend. TanStack Query manages API state. Core AI interactions leverage OpenAI's GPT-5 via its Chat Completions API, supporting web search for real-time information.
+The application is built with a Node.js/Express backend and a React frontend, utilizing TypeScript, Tailwind CSS, and shadcn/ui. TanStack Query manages API state. Core AI interactions leverage OpenAI's GPT-5. The system supports multi-tenant user isolation with session-based authentication and robust data security.
 
 **UI/UX Decisions:**
-The user interface adheres to modern Material Design principles, inspired by ChatGPT, Linear, and Slack. It features a dark mode, Inter font, consistent spacing, a real-time chat interface, an auto-expanding input, a theme toggle, and a collapsible sidebar with a default country selector (United Kingdom by default, stored in localStorage). Accessibility (WCAG AA) is a key consideration.
+The user interface follows Material Design principles, inspired by ChatGPT, Linear, and Slack, featuring a dark mode, Inter font, consistent spacing, real-time chat, auto-expanding input, theme toggle, and a collapsible sidebar with a default UK country selector. Accessibility (WCAG AA) is a key consideration.
 
-**Technical Implementations & Feature Specifications:**
+**Technical Implementations:**
 - **AI Chat Interface:** Provides real-time conversations with a GPT-5 assistant, enforcing a concise, practical, and UK-focused AI personality via the system prompt.
 - **Tool Integration:**
-    - **Wyshbone Global Database:** Used for verified business discovery and prospect search/enrichment, filtering for operational businesses and returning Place IDs.
-    - **OpenAI GPT-5 for Enrichment:** Enriches prospects with domain, contact email, social links, business classification, summary, and lead score. Includes optional public contact discovery with strict verification of source URLs.
-    - **Bubble Workflow Integration:** Supports triggering Bubble backend workflows in batch based on natural language input, with configurable delays and dynamic parameter mapping. Features multi-country support, automatic location detection, country mismatch detection, and a mandatory user confirmation flow for all batch requests.
-    - **Job Management & Worldwide Location Coverage:** A background job system for running searches across geographic areas globally.
-        - **Intelligent Location Resolution:** Parses natural language location inputs using city hints, local dictionaries, and GeoNames geocoding fallback, returning structured location data.
-        - **GeoNames Integration:** A tri-layer API approach for administrative regions with caching, rate limiting, and exponential backoff. Handles country-specific admin levels (ADM1, ADM2).
-        - **Region Data:** Utilizes 482+ static region datasets (e.g., UK counties, US states) for fast lookups, complemented by dynamic GeoNames lookups for worldwide coverage.
-        - **Natural Language Job Creation:** Automatically creates jobs from commands like "Run dentists across all London boroughs."
-        - **Job Control Commands:** Provides commands for managing job status (status, pause, resume, cancel).
-        - **Background Worker:** Processes regions sequentially, passing ISO alpha-2 country codes to Bubble's workflow.
-        - **Progress Tracking:** Offers real-time status updates for jobs.
-    - **Stub Endpoint:** `/api/tool/add_note` for future Bubble integration.
-    - **Location Hints Database:** A PostgreSQL table (`location_hints`) with 29,483 worldwide location records across 200+ countries. Features smart search API with pagination, country filtering, and prefix/contains matching. Supports autocomplete and location disambiguation.
-    - **Location Ambiguity Resolver:** Intelligently disambiguates location names using the location hints database, handling UK synonyms and providing conservative warning logic to the user without auto-switching the default country.
-- **Streaming Responses:** Utilizes Server-Sent Events (SSE) for real-time AI responses and animated typing indicators.
+    - **Wyshbone Global Database:** For verified business discovery and prospect search/enrichment, returning Place IDs.
+    - **OpenAI GPT-5 for Enrichment:** Enriches prospects with domain, contact email, social links, business classification, summary, and lead score, including public contact discovery with source verification.
+    - **Bubble Workflow Integration:** Triggers Bubble backend workflows in batch based on natural language input, with multi-country support, automatic location detection, and a mandatory user confirmation for batch requests.
+    - **Job Management & Worldwide Location Coverage:** A background job system for running searches globally, featuring intelligent location resolution (using city hints, local dictionaries, and GeoNames), 482+ static region datasets, and natural language job creation and control.
+    - **Location Hints Database:** A PostgreSQL table with 29,483 worldwide location records for smart search, autocomplete, and disambiguation, handling UK synonyms.
+- **Streaming Responses:** Uses Server-Sent Events (SSE) for real-time AI responses.
 - **Error Handling:** Provides comprehensive error messages as system notifications.
-- **Conversational Planning:** A GPT-based planner intelligently decides whether to "search," "use_cache," or "respond" to prevent unnecessary searches and ensure venue deduplication.
-- **Deep Research Context Extraction:** When users use vague follow-up phrases like "deep dive", "yes", or "go ahead", the system uses a **server-side prompt enhancement layer** that:
-    1. **Detects vague prompts** using pattern matching (checks against: 'deep dive', 'yes', 'do it', 'go ahead', 'sure', 'okay', 'please', 'start', 'begin')
-    2. **Extracts actual topic** from recent conversation history (last 8 messages) using GPT-4o-mini
-    3. **Replaces vague prompt** with the extracted topic before validation (e.g., "deep dive" → "pubs in Kendal")
-    4. **Validates topic source** to distinguish explicit vs. inferred topics
-    5. **Asks for confirmation** when topics are inferred from context
-    
-    This ensures the AI **always uses conversation context** instead of passing vague phrases literally to the research system.
-- **Auto-Summarize Research Reports:** Automatically summarizes previously viewed deep research reports through natural language commands.
-    1. **Pattern Detection:** Detects summarize requests using a typo-tolerant regex pattern `/\bsumm?ari[sz]e(\s+(it|this|that|the(\s+report)?|the\s+deep\s+(dive|research)))?|tl;?dr\b/i` that handles common misspellings like "sumarise"
-    2. **Last Viewed Tracking:** Tracks the most recently clicked/viewed deep research report per session using IP-based session IDs
-    3. **GPT-4o Summarization:** Automatically generates concise summaries using GPT-4o when users type phrases like "summarize this", "sumarise it", or "tl;dr"
-    4. **Session Continuity:** Uses consistent session tracking across sidebar and chat endpoints via `getSessionId()` (x-session-id header or IP fallback)
-- **Persistent Memory System:** A database-backed system for conversation history and knowledge accumulation, serving as a background reference layer.
-    - **Conversation Persistence:** All chat messages are saved to PostgreSQL with conversation IDs maintained.
-    - **Fact Extraction:** Automatically extracts user preferences, business requirements, and contextual information from conversations and research prompts.
-    - **Intelligent Knowledge Scoring:** Facts are scored for importance (0-100), with higher scores for industries, places, and subjects. A recency boost algorithm prioritizes recent facts.
-    - **Category Classification:** Facts are categorized (industry/place/subject/preference/general) for filtering and prioritization.
-    - **ConversationId Round-Trip:** Backend generates and streams conversation IDs to the frontend for session continuity.
-    - **CRITICAL Message Priority Architecture:** The system enforces strict message ordering where current conversation (last 5-10 messages) takes ABSOLUTE PRIORITY over stored facts. Messages are ordered: System prompt → Conversation history (PRIORITY) → Durable memory (FALLBACK). When users use vague phrases ("deep dive", "yes", "go ahead"), the AI must first check current conversation for context before falling back to stored memory.
-    - **Context Building:** Combines historical conversations and extracted facts for personalized responses, with current conversation always prioritized over durable memory.
-    - **Memory Debug View:** A developer interface at `/debug` to inspect conversations, messages, and facts, including a User Profile Summary.
-    - **New Chat Feature:** Clears the visual conversation thread while preserving learned facts in the database.
-- **Data Models:** Standardized schemas for `ChatMessage`, `ChatRequest`, `AddNoteRequest`, `BubbleRunBatchRequest`, and database tables (`conversations`, `messages`, `facts`, `scheduled_monitors`).
-- **Backend Validation:** Zod schema validation is used on all endpoints, with CORS enabled.
-- **Scheduled Monitors:** Agentic monitoring system that allows users to create recurring tasks through natural conversation or manual configuration.
-    - **AI-Powered Creation:** Chat interface suggests and creates monitors using the `create_scheduled_monitor` tool
-    - **Full CRUD Operations:** Create, read, update, and delete monitors via `/api/scheduled-monitors` endpoints
-    - **Flexible Scheduling:** Daily, weekly, biweekly, and monthly frequencies with optional day-of-week and time specification
-    - **Monitor Types:** Supports deep_research, business_search, and wyshbone_database monitoring
-    - **Smart Time Calculation:** PATCH endpoint properly handles scheduleTime changes, calculating next run date/time correctly accounting for UK timezone and user-specified execution times
-    - **Email Notifications:** Integrated with Resend API to send professional HTML email reports when monitors complete
-        - Toggle email notifications on/off per monitor via UI switch
-        - Beautiful responsive email templates with monitor results summary
-        - Automatic credential management via Replit Resend connector
-        - Email includes run details, result counts, and direct link back to application
-    - **Sidebar Management UI:** Collapsible section showing all monitors with:
-        - Live status indicators (active/inactive)
-        - Next run date/time in UK format (DD/MM/YYYY, 24-hour time)
-        - Monitor type badges (Research/Contacts/Places)
-        - Email notification icon when enabled
-        - Edit and delete actions with confirmation dialogs
-    - **Edit Dialog Features:** Allows changing monitor label, schedule frequency, day, time, and email notification preference (description read-only to prevent changing search intent)
-    - **UK Date/Time Formatting:** All dates displayed in DD/MM/YYYY format with 24-hour time throughout the application
+- **Conversational Planning:** A GPT-based planner decides whether to "search," "use_cache," or "respond" to prevent unnecessary searches and ensure venue deduplication.
+- **Deep Research Context Extraction:** A server-side prompt enhancement layer detects vague follow-up phrases, extracts the actual topic from recent conversation history using GPT-4o-mini, and validates the topic source, asking for confirmation when topics are inferred.
+- **Auto-Summarize Research Reports:** Automatically summarizes previously viewed deep research reports using GPT-4o based on natural language commands and session tracking.
+- **Persistent Memory System:** A database-backed system for conversation history and knowledge accumulation. It saves all chat messages, extracts and scores facts (user preferences, business requirements) for importance and recency, and categorizes them. It prioritizes current conversation history over durable memory.
+- **Data Models:** Standardized schemas for chat messages, requests, and database tables (`conversations`, `messages`, `facts`, `scheduled_monitors`).
+- **Backend Validation:** Zod schema validation on all endpoints, with CORS enabled.
+- **Scheduled Monitors:** An agentic monitoring system for recurring tasks (deep_research, business_search, wyshbone_database) created via chat or manual configuration. It offers full CRUD operations, flexible scheduling, and business-context-aware intelligence to analyze results, pull user facts from memory, prioritize customer opportunities, and provide personalized reasoning. Email notifications are sent via Resend API. The UI includes a sidebar management interface with edit and delete actions.
 
 ## External Dependencies
 - **OpenAI GPT-5:** For AI chat responses, prospect enrichment, and web search.
 - **Wyshbone Global Database:** For business discovery and location-based searches.
 - **GeoNames API:** For worldwide administrative region discovery and geocoding.
-- **Bubble:** External platform for backend workflows, integrated via dedicated API endpoints.
-- **Resend API:** For sending transactional email notifications when scheduled monitors complete.
+- **Bubble:** External platform for backend workflows.
+- **Resend API:** For sending transactional email notifications.
