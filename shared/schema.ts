@@ -480,3 +480,94 @@ export const insertIntegrationSchema = createInsertSchema(integrations);
 export const selectIntegrationSchema = createSelectSchema(integrations);
 export type InsertIntegration = z.infer<typeof insertIntegrationSchema>;
 export type SelectIntegration = typeof integrations.$inferSelect;
+
+// Batch Jobs table for Google Places + Hunter.io + SalesHandy pipeline
+export const batchJobs = pgTable("batch_jobs", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  status: text("status").notNull(), // 'running', 'completed', 'failed'
+  query: text("query").notNull(),
+  location: text("location").notNull(),
+  country: text("country").notNull(),
+  targetRole: text("target_role").notNull(),
+  limit: integer("limit").notNull().default(60),
+  personalize: integer("personalize").notNull().default(1), // 1 = true, 0 = false (SQLite-style boolean)
+  campaignId: text("campaign_id"),
+  items: jsonb("items"), // Array of outlets found with contact details
+  totalFound: integer("total_found"),
+  totalSent: integer("total_sent"),
+  totalSkipped: integer("total_skipped"),
+  error: text("error"),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  completedAt: bigint("completed_at", { mode: "number" }),
+}, (table) => ({
+  userIdIdx: index("batch_jobs_user_id_idx").on(table.userId),
+  statusIdx: index("batch_jobs_status_idx").on(table.status),
+  createdAtIdx: index("batch_jobs_created_at_idx").on(table.createdAt),
+}));
+
+// Batch Job Zod schemas
+export const batchJobStatusSchema = z.enum(["running", "completed", "failed"]);
+
+export const batchJobItemSchema = z.object({
+  place_id: z.string(),
+  name: z.string(),
+  address: z.string().optional(),
+  domain: z.string().optional(),
+  personal_line: z.string().optional(),
+  selected_email: z.string().optional(),
+  selected_status: z.string().optional(),
+  first_name: z.string().optional(),
+  last_name: z.string().optional(),
+  position: z.string().optional(),
+});
+
+export const batchJobSchema = z.object({
+  id: z.string(),
+  userId: z.string(),
+  status: batchJobStatusSchema,
+  query: z.string(),
+  location: z.string(),
+  country: z.string(),
+  targetRole: z.string(),
+  limit: z.number().int(),
+  personalize: z.number().int(),
+  campaignId: z.string().optional().nullable(),
+  items: z.array(batchJobItemSchema).optional().nullable(),
+  totalFound: z.number().int().optional().nullable(),
+  totalSent: z.number().int().optional().nullable(),
+  totalSkipped: z.number().int().optional().nullable(),
+  error: z.string().optional().nullable(),
+  createdAt: z.number(),
+  completedAt: z.number().optional().nullable(),
+});
+
+export type BatchJob = z.infer<typeof batchJobSchema>;
+export type BatchJobItem = z.infer<typeof batchJobItemSchema>;
+
+export const createBatchJobRequestSchema = z.object({
+  query: z.string().min(1, "Query is required"),
+  location: z.string().min(1, "Location is required"),
+  country: z.string().min(1, "Country is required"),
+  targetRole: z.string().optional().default("Head of Sales"),
+  limit: z.number().int().min(1).max(100).optional().default(60),
+  personalize: z.boolean().optional().default(true),
+  campaignId: z.string().optional(),
+});
+
+export type CreateBatchJobRequest = z.infer<typeof createBatchJobRequestSchema>;
+
+export const batchJobResponseSchema = z.object({
+  batchId: z.string(),
+  total: z.number().int(),
+  sent: z.number().int(),
+  skipped: z.number().int(),
+});
+
+export type BatchJobResponse = z.infer<typeof batchJobResponseSchema>;
+
+// Batch Job Drizzle insert/select schemas
+export const insertBatchJobSchema = createInsertSchema(batchJobs);
+export const selectBatchJobSchema = createSelectSchema(batchJobs);
+export type InsertBatchJob = z.infer<typeof insertBatchJobSchema>;
+export type SelectBatchJob = typeof batchJobs.$inferSelect;
