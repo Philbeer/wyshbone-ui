@@ -118,6 +118,18 @@ export interface IStorage {
   listIntegrations(userId: string): Promise<SelectIntegration[]>;
   getIntegration(id: string): Promise<SelectIntegration | null>;
   deleteIntegration(id: string): Promise<boolean>;
+  
+  // Batch prospecting methods
+  createBatchJob(job: InsertBatchJob): Promise<SelectBatchJob>;
+  getBatchJob(id: string): Promise<SelectBatchJob | null>;
+  updateBatchJob(id: string, updates: Partial<InsertBatchJob>): Promise<SelectBatchJob | null>;
+  listBatchJobs(userId: string): Promise<SelectBatchJob[]>;
+  
+  createBatchItem(item: InsertBatchItem): Promise<SelectBatchItem>;
+  listBatchItems(batchId: string): Promise<SelectBatchItem[]>;
+  
+  getOutletCache(placeId: string): Promise<SelectOutletCache | null>;
+  upsertOutletCache(cache: InsertOutletCache): Promise<SelectOutletCache>;
 }
 
 export class MemStorage implements IStorage {

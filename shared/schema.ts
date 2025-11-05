@@ -480,3 +480,129 @@ export const insertIntegrationSchema = createInsertSchema(integrations);
 export const selectIntegrationSchema = createSelectSchema(integrations);
 export type InsertIntegration = z.infer<typeof insertIntegrationSchema>;
 export type SelectIntegration = typeof integrations.$inferSelect;
+
+// ============= BATCH PROSPECTING TABLES =============
+
+// Batch jobs table - stores batch prospecting job runs
+export const batchJobs = pgTable("batch_jobs", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  topic: text("topic").notNull(),
+  county: text("county").notNull(),
+  targetRole: text("target_role").notNull().default("Head of Sales"),
+  limit: integer("limit").notNull().default(60),
+  personalize: integer("personalize").notNull().default(1), // 1 = true, 0 = false
+  campaignId: text("campaign_id"),
+  status: text("status").notNull().default("running"), // running, enriched, delivered, failed
+  totalItems: integer("total_items").default(0),
+  sentCount: integer("sent_count").default(0),
+  skippedCount: integer("skipped_count").default(0),
+  failedCount: integer("failed_count").default(0),
+  metadata: jsonb("metadata"), // Additional job metadata
+  deliveryReport: jsonb("delivery_report"), // SalesHandy delivery details
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+}, (table) => ({
+  userIdIdx: index("batch_jobs_user_id_idx").on(table.userId),
+  statusIdx: index("batch_jobs_status_idx").on(table.status),
+}));
+
+// Batch items table - stores individual prospects in a batch
+export const batchItems = pgTable("batch_items", {
+  id: text("id").primaryKey(),
+  batchId: text("batch_id").notNull(),
+  placeId: text("place_id").notNull(),
+  name: text("name"),
+  address: text("address"),
+  phone: text("phone"),
+  website: text("website"),
+  domain: text("domain"),
+  score: integer("score").default(0),
+  scanAlive: integer("scan_alive").default(0), // 1 = true, 0 = false
+  scanHits: text("scan_hits").array(),
+  selectedEmail: text("selected_email"),
+  selectedStatus: text("selected_status"),
+  firstName: text("first_name"),
+  lastName: text("last_name"),
+  position: text("position"),
+  department: text("department"),
+  seniority: text("seniority"),
+  personalLine: text("personal_line"),
+  metadata: jsonb("metadata"), // Additional prospect data
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+}, (table) => ({
+  batchIdIdx: index("batch_items_batch_id_idx").on(table.batchId),
+  placeIdIdx: index("batch_items_place_id_idx").on(table.placeId),
+}));
+
+// Outlets cache table - stores Google Places details and Hunter contacts
+export const outletCache = pgTable("outlet_cache", {
+  placeId: text("place_id").primaryKey(),
+  name: text("name"),
+  address: text("address"),
+  phone: text("phone"),
+  website: text("website"),
+  domain: text("domain"),
+  geo: jsonb("geo"), // { lat, lng }
+  types: text("types").array(),
+  status: text("status"),
+  contacts: jsonb("contacts"), // Array of Hunter.io contacts
+  lastScanned: bigint("last_scanned", { mode: "number" }),
+  metadata: jsonb("metadata"),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+}, (table) => ({
+  domainIdx: index("outlet_cache_domain_idx").on(table.domain),
+}));
+
+// Batch job Zod schemas
+export const batchJobStatusSchema = z.enum(["running", "enriched", "delivered", "failed"]);
+
+export const batchJobSchema = z.object({
+  id: z.string(),
+  userId: z.string(),
+  topic: z.string(),
+  county: z.string(),
+  targetRole: z.string(),
+  limit: z.number(),
+  personalize: z.boolean(),
+  campaignId: z.string().optional().nullable(),
+  status: batchJobStatusSchema,
+  totalItems: z.number().default(0),
+  sentCount: z.number().default(0),
+  skippedCount: z.number().default(0),
+  failedCount: z.number().default(0),
+  metadata: z.any().optional().nullable(),
+  deliveryReport: z.any().optional().nullable(),
+  createdAt: z.number(),
+  updatedAt: z.number(),
+});
+
+export type BatchJob = z.infer<typeof batchJobSchema>;
+
+export const createBatchJobRequestSchema = z.object({
+  topic: z.string().min(1, "Topic is required"),
+  county: z.string().min(1, "County is required"),
+  limit: z.number().min(1).max(200).default(60),
+  personalize: z.boolean().default(true),
+  target_role: z.string().default("Head of Sales"),
+  campaignId: z.string().optional(),
+});
+
+export type CreateBatchJobRequest = z.infer<typeof createBatchJobRequestSchema>;
+
+// Batch job Drizzle insert/select schemas
+export const insertBatchJobSchema = createInsertSchema(batchJobs);
+export const selectBatchJobSchema = createSelectSchema(batchJobs);
+export type InsertBatchJob = z.infer<typeof insertBatchJobSchema>;
+export type SelectBatchJob = typeof batchJobs.$inferSelect;
+
+export const insertBatchItemSchema = createInsertSchema(batchItems);
+export const selectBatchItemSchema = createSelectSchema(batchItems);
+export type InsertBatchItem = z.infer<typeof insertBatchItemSchema>;
+export type SelectBatchItem = typeof batchItems.$inferSelect;
+
+export const insertOutletCacheSchema = createInsertSchema(outletCache);
+export const selectOutletCacheSchema = createSelectSchema(outletCache);
+export type InsertOutletCache = z.infer<typeof insertOutletCacheSchema>;
+export type SelectOutletCache = typeof outletCache.$inferSelect;

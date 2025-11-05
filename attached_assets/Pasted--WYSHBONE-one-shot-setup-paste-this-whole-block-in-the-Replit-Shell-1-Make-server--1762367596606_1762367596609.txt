@@ -1,0 +1,347 @@
+# --- WYSHBONE: one-shot setup (paste this whole block in the Replit Shell) ---
+
+# 1) Make server.js
+cat > server.js <<'EOF'
+/**
+ * Wyshbone: Places → Hunter (find + verify) → SalesHandy (direct)
+ * Single-file Express app.
+ * Endpoints:
+ *  - POST /batch/create  { topic, county, limit?, personalize?, target_role?, campaignId? }
+ *  - GET  /batch/:id
+ *  - GET  /outlet/:place_id
+ *
+ * Env (set via Replit Secrets; .env supported too):
+ *  GOOGLE_PLACES_API_KEY, OPENAI_API_KEY, HUNTER_API_KEY,
+ *  SALES_HANDY_API_TOKEN, SALES_HANDY_CAMPAIGN_ID,
+ *  SALES_HANDY_SENDER_ID (optional), SALES_HANDY_BASE_URL (optional)
+ */
+
+import 'dotenv/config';
+import express from "express";
+import axios from "axios";
+import PQueue from "p-queue";
+import crypto from "crypto";
+
+const app = express();
+app.use(express.json({ limit: "3mb" }));
+
+/* ---------- ENV ---------- */
+const GOOGLE_KEY = process.env.GOOGLE_PLACES_API_KEY || "";
+const OPENAI_KEY = process.env.OPENAI_API_KEY || "";
+const HUNTER_KEY = process.env.HUNTER_API_KEY || "";
+const SH_TOKEN   = process.env.SALES_HANDY_API_TOKEN || "";
+const SH_CAMPAIGN_ID_DEFAULT = process.env.SALES_HANDY_CAMPAIGN_ID || "";
+const SH_SENDER_ID = process.env.SALES_HANDY_SENDER_ID || "";
+const SH_BASE = process.env.SALES_HANDY_BASE_URL || "https://api.saleshandy.com";
+
+if (!GOOGLE_KEY) console.warn("⚠️ Missing GOOGLE_PLACES_API_KEY");
+if (!HUNTER_KEY) console.warn("⚠️ Missing HUNTER_API_KEY");
+if (!SH_TOKEN) console.warn("⚠️ Missing SALES_HANDY_API_TOKEN");
+
+/* ---------- IN-MEMORY STORE (swap to Supabase later) ---------- */
+const batches = new Map(); // batchId -> { status, items, meta, delivery }
+const outlets = new Map(); // place_id -> { outlet, contacts: [] }
+
+/* ---------- UTILS ---------- */
+const sha = (s) => crypto.createHash("sha256").update(s).digest("hex");
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const normalizeDomain = (url = "") =>
+  url.replace(/^https?:\/\/(www\.)?/i, "").replace(/\/.*$/, "");
+
+/* ---------- GOOGLE PLACES ---------- */
+async function placesTextSearch(query, region = "uk") {
+  const url = `https://maps.googleapis.com/maps/api/place/textsearch/json`;
+  const params = { query, region, key: GOOGLE_KEY };
+  const out = [];
+  let pagetoken;
+  for (let i = 0; i < 3; i++) {
+    const resp = await axios.get(url, { params: pagetoken ? { ...params, pagetoken } : params });
+    if (resp.data?.results?.length) out.push(...resp.data.results);
+    pagetoken = resp.data.next_page_token;
+    if (!pagetoken) break;
+    await sleep(2000);
+  }
+  return out;
+}
+
+async function placeDetails(place_id) {
+  const url = `https://maps.googleapis.com/maps/api/place/details/json`;
+  const fields = [
+    "place_id","name","formatted_address","formatted_phone_number",
+    "website","geometry/location","types","business_status"
+  ].join(",");
+  const params = { place_id, fields, key: GOOGLE_KEY };
+  const resp = await axios.get(url, { params });
+  return resp.data?.result;
+}
+
+/* ---------- SITE SCAN (light signals) ---------- */
+async function quickScan(domainOrUrl, keywords = []) {
+  try {
+    let url = domainOrUrl;
+    if (url && !/^https?:\/\//i.test(url)) url = `https://${url}`;
+    const resp = await axios.get(url, { timeout: 5000 });
+    const ok = resp.status >= 200 && resp.status < 400;
+    const text = String(resp.data || "").toLowerCase().slice(0, 20000);
+    const hits = keywords.filter((k) => text.includes(k.toLowerCase()));
+    return { alive: ok, hits };
+  } catch {
+    return { alive: false, hits: [] };
+  }
+}
+
+/* ---------- AI PERSONALIZATION ---------- */
+async function personalizeLine({ company, domain, county, topic }) {
+  if (!OPENAI_KEY) return "";
+  const prompt = `Write ONE short opener (<=18 words) for ${company} (${domain}) in ${county}.
+They offer ${topic}. Reference a likely buyer/use-case (e.g., architectural metalwork or marine engineering). UK tone. No flattery.`;
+  const r = await axios.post("https://api.openai.com/v1/chat/completions", {
+      model: "gpt-4o-mini",
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.3,
+      max_tokens: 60
+    },
+    { headers: { Authorization: `Bearer ${OPENAI_KEY}` } }
+  );
+  return r.data?.choices?.[0]?.message?.content?.trim() || "";
+}
+
+/* ---------- HUNTER.IO ---------- */
+async function hunterDomainSearch(domain) {
+  if (!domain) return [];
+  const url = `https://api.hunter.io/v2/domain-search`;
+  const params = { domain, api_key: HUNTER_KEY, limit: 50 };
+  const resp = await axios.get(url, { params });
+  const arr = resp.data?.data?.emails || [];
+  return arr.map((e) => ({
+    email: e.value || "",
+    first_name: e.first_name || "",
+    last_name: e.last_name || "",
+    position: e.position || "",
+    department: e.department || "",
+    seniority: e.seniority || "",
+    confidence: e.confidence || 0,
+    type: e.type || "",
+    source: "hunter",
+  }));
+}
+
+async function hunterVerify(email) {
+  const url = `https://api.hunter.io/v2/email-verifier`;
+  const params = { email, api_key: HUNTER_KEY };
+  const resp = await axios.get(url, { params });
+  return resp.data?.data || {};
+}
+
+/* ---------- CONTACT RANKING ---------- */
+function scoreContact(targetRole, c) {
+  const t = (targetRole || "").toLowerCase();
+  const title = (c.position || "").toLowerCase();
+  const dept = (c.department || "").toLowerCase();
+  const tokens = t.split(/\s+/).filter(Boolean);
+  let s = 0;
+  if (title === t && t) s += 100;
+  if (tokens.length && tokens.every(tok => title.includes(tok))) s += 60;
+  if (tokens.some(tok => title.includes(tok))) s += 25;
+  if (dept.includes("sales")) s += 20;
+  if (dept.includes("commercial")) s += 12;
+  if (/(head|director|vp|chief|lead)/.test(title)) s += 18;
+  if (/(manager)/.test(title)) s += 10;
+  if (/(assistant|intern)/.test(title)) s -= 6;
+  if (c.type === "personal") s += 12;
+  if (c.type === "generic") s -= 10;
+  if (/^[a-z]+[._-]?[a-z]+@/.test((c.email||"").toLowerCase())) s += 6;
+  if (/^info@|^hello@|^sales@/.test((c.email||"").toLowerCase())) s -= 8;
+  s += Math.round((c.confidence || 0) / 10);
+  return s;
+}
+const rankContacts = (targetRole, contacts=[]) =>
+  [...contacts].sort((a,b)=>scoreContact(targetRole,b)-scoreContact(targetRole,a));
+
+/* ---------- SALES HANDY ---------- */
+async function shUpsertProspect(p, auth) {
+  const resp = await axios.post(`${SH_BASE}/v3/prospects`, p, auth);
+  return resp.data?.id || resp.data?.prospectId || resp.data?.data?.id;
+}
+async function shAddToCampaign(prospectId, campaignId, auth) {
+  return axios.post(`${SH_BASE}/v3/campaigns/${campaignId}/prospects`,
+    { prospectId, senderId: (process.env.SALES_HANDY_SENDER_ID||undefined) }, auth);
+}
+async function deliverToSalesHandyVerified({ items, campaignId }) {
+  const auth = { headers: { Authorization: `Bearer ${SH_TOKEN}` } };
+  const created=[], skipped=[], failed=[];
+  const queue = new PQueue({ concurrency: 3, interval: 1000, intervalCap: 9 });
+  await Promise.all(items.map(x=>queue.add(async ()=>{
+    try{
+      if (!x.selected_email || x.selected_status!=="valid") {
+        skipped.push({name:x.name, reason:"no verified email"}); return;
+      }
+      const prospect = {
+        name: x.first_name ? `${x.first_name} ${x.last_name||""}`.trim() : x.name || x.domain,
+        email: x.selected_email,
+        company: x.name || "",
+        website: x.website || "",
+        phone: x.phone || "",
+        customFields: {
+          domain: x.domain || "",
+          place_id: x.place_id,
+          wyshbone_score: String(x.score || 0),
+          personal_line: x.personal_line || "",
+          topic: x.topic || "",
+          county: x.county || ""
+        }
+      };
+      const pid = await shUpsertProspect(prospect, auth);
+      const campId = campaignId || process.env.SALES_HANDY_CAMPAIGN_ID;
+      if (!campId) throw new Error("Missing SalesHandy Campaign ID");
+      await shAddToCampaign(pid, campId, auth);
+      created.push({ prospectId: pid, email: x.selected_email, company: x.name });
+    }catch(e){
+      failed.push({ name:x.name, email:x.selected_email||"", error: e.response?.data || String(e) });
+    }
+  })));
+  return { created, skipped, failed };
+}
+
+/* ---------- BUILD BATCH ---------- */
+async function buildBatch({ topic, county, limit=60 }) {
+  const queries = [
+    `${topic} in ${county}`,
+    `${topic} ${county} UK`,
+    `stainless steel laser cutting ${county}`,
+    `laser cutting services ${county}`,
+  ];
+  const raw=[];
+  for (const q of queries){ raw.push(...await placesTextSearch(q,"uk")); }
+  const byId=new Map(); raw.forEach(r=>byId.set(r.place_id,r));
+  const uniq=Array.from(byId.values()).slice(0,limit);
+  const q=new PQueue({ concurrency:4, interval:1000, intervalCap:8 });
+  const enriched=await Promise.all(uniq.map(r=>q.add(async()=>{
+    const det=await placeDetails(r.place_id);
+    const website=det?.website||""; const domain=normalizeDomain(website);
+    const scan=(website||domain)? await quickScan(website||domain,[
+      "stainless","laser","cnc","sheet metal","fabrication","cutting"
+    ]):{alive:false,hits:[]};
+    const outlet={
+      place_id:r.place_id,name:det?.name||r.name,address:det?.formatted_address||"",
+      phone:det?.formatted_phone_number||"", website, domain,
+      geo:det?.geometry?.location||null, types:det?.types||[], status:det?.business_status||"",
+      scan_alive:scan.alive, scan_hits:scan.hits,
+    };
+    if(!outlets.has(outlet.place_id)){ outlets.set(outlet.place_id,{outlet,contacts:[]}); }
+    else { const curr=outlets.get(outlet.place_id); outlets.set(outlet.place_id,{ outlet:{...curr.outlet,...outlet}, contacts:curr.contacts});}
+    return outlet;
+  })));
+  const scored = enriched.map(x=>({
+    ...x, score:(x.scan_alive?10:0)+x.scan_hits.length*5+(x.phone?2:0)+(x.website?3:0)
+  })).sort((a,b)=>b.score-a.score);
+  return scored;
+}
+
+/* ---------- CONTACT ATTACH + CHOOSE ---------- */
+async function attachAndChooseContact(outlet, targetRole) {
+  const contacts = await hunterDomainSearch(outlet.domain);
+  const rec = outlets.get(outlet.place_id) || { outlet, contacts: [] };
+  rec.contacts = contacts; outlets.set(outlet.place_id, rec);
+  if (!contacts.length) return null;
+  const ranked = rankContacts(targetRole, contacts);
+  for (const c of ranked) {
+    if (!c.email) continue;
+    const ver = await hunterVerify(c.email);
+    const status = (ver.status||"").toLowerCase();
+    if (status === "valid") {
+      outlet.selected_email = c.email;
+      outlet.selected_status = status;
+      outlet.first_name = c.first_name || guessFirstNameFromEmail(c.email);
+      outlet.last_name  = c.last_name || "";
+      outlet.position   = c.position || "";
+      outlet.department = c.department || "";
+      outlet.seniority  = c.seniority || "";
+      return c;
+    }
+  }
+  return null;
+}
+function guessFirstNameFromEmail(email=""){
+  const local=email.split("@")[0]; const m=local.match(/^([a-z]+)[._-]?[a-z]*/i);
+  if(m){ const name=m[1]; return name.charAt(0).toUpperCase()+name.slice(1); }
+  return "";
+}
+
+/* ---------- ROUTES ---------- */
+app.post("/batch/create", async (req,res)=>{
+  try{
+    const { topic, county, limit=60, personalize=true, target_role="Head of Sales", campaignId } = req.body||{};
+    if(!topic||!county) return res.status(400).json({error:"'topic' and 'county' are required"});
+    if(!SH_TOKEN||!SH_CAMPAIGN_ID_DEFAULT) return res.status(400).json({error:"SalesHandy env not configured"});
+    if(!HUNTER_KEY) return res.status(400).json({error:"HUNTER_API_KEY not configured"});
+
+    const batchId = sha(`${topic}|${county}|${Date.now()}`).slice(0,12);
+    batches.set(batchId,{ status:"running", items:[], meta:{topic,county,target_role} });
+
+    const items = await buildBatch({ topic, county, limit });
+
+    if(personalize && OPENAI_KEY){
+      const pq=new PQueue({ concurrency:4 });
+      await Promise.all(items.map(x=>pq.add(async()=>{
+        x.personal_line = await personalizeLine({ company:x.name, domain:x.domain, county, topic });
+      })));
+    }
+
+    const cq=new PQueue({ concurrency:3, interval:1000, intervalCap:9 });
+    await Promise.all(items.map(x=>cq.add(async()=>{
+      x.topic=topic; x.county=county;
+      if (x.domain) await attachAndChooseContact(x, target_role);
+    })));
+
+    batches.set(batchId,{ status:"enriched", items, meta:{topic,county,target_role} });
+
+    const delivery = await deliverToSalesHandyVerified({ items, campaignId });
+
+    batches.set(batchId,{ status:"delivered", items, meta:{topic,county,target_role}, delivery });
+
+    res.json({ batchId, total: items.length, sent: delivery.created.length, skipped_no_verified: delivery.skipped.length, failed: delivery.failed.length });
+  }catch(e){
+    console.error("batch/create error", e);
+    res.status(500).json({ error:"Batch failed", detail:String(e) });
+  }
+});
+
+app.get("/batch/:id",(req,res)=>{
+  const b=batches.get(req.params.id);
+  if(!b) return res.status(404).json({error:"Not found"});
+  res.json(b);
+});
+
+app.get("/outlet/:place_id",(req,res)=>{
+  const rec=outlets.get(req.params.place_id);
+  if(!rec) return res.status(404).json({error:"Not found"});
+  res.json(rec);
+});
+
+app.listen(3000, ()=>console.log("✅ Wyshbone: Places → Hunter → SalesHandy running on :3000"));
+EOF
+
+# 2) package.json with start script
+cat > package.json <<'EOF'
+{
+  "name": "wyshbone-batch-sh",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "axios": "^1.7.7",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "p-queue": "^7.4.1"
+  }
+}
+EOF
+
+# 3) install & run once
+npm i
+npm run start
+# --- end one-shot setup ---
