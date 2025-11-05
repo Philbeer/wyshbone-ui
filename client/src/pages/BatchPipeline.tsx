@@ -10,7 +10,7 @@ export default function BatchPipeline() {
   const [, params] = useRoute("/batch/:id");
   const batchId = params?.id;
 
-  const { data: job, isLoading } = useQuery<BatchJob>({
+  const { data: job, isLoading, error } = useQuery<BatchJob>({
     queryKey: [`/api/batch/${batchId}`],
     enabled: !!batchId,
   });
@@ -26,6 +26,24 @@ export default function BatchPipeline() {
           <Skeleton className="h-32" />
         </div>
         <Skeleton className="h-96" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="container max-w-6xl mx-auto p-6">
+        <Card className="border-red-600/20 bg-red-500/5">
+          <CardContent className="p-6">
+            <h2 className="text-lg font-semibold text-red-600 dark:text-red-400 mb-2">Error Loading Batch</h2>
+            <p className="text-sm text-muted-foreground mb-4">
+              {error instanceof Error ? error.message : "Failed to load batch job"}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Batch ID: {batchId}
+            </p>
+          </CardContent>
+        </Card>
       </div>
     );
   }
