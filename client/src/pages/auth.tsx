@@ -26,19 +26,33 @@ export default function AuthPage() {
 
   const signupMutation = useMutation({
     mutationFn: async (data: typeof signupData) => {
-      const res = await apiRequest("POST", "/api/auth/signup", data);
+      // Include demo session ID if available (for data transfer)
+      const demoSessionId = localStorage.getItem("wyshbone_sid");
+      const payload = demoSessionId ? { ...data, demoSessionId } : data;
+      
+      const res = await apiRequest("POST", "/api/auth/signup", payload);
       return await res.json();
     },
     onSuccess: (data) => {
-      // Store session ID
+      // Store new session ID and user
       if (data.sessionId) {
-        localStorage.setItem("sessionId", data.sessionId);
+        localStorage.setItem("wyshbone_sid", data.sessionId);
       }
+      if (data.user) {
+        localStorage.setItem("wyshbone_user", JSON.stringify(data.user));
+      }
+      
+      const message = data.dataTransferred 
+        ? "Your demo data has been transferred to your account!" 
+        : "Welcome to Wyshbone Chat Agent!";
+      
       toast({
         title: "Account created",
-        description: "Welcome to Wyshbone Chat Agent!",
+        description: message,
       });
-      setLocation("/");
+      
+      // Reload to refresh user context
+      window.location.href = "/";
     },
     onError: (error) => {
       toast({

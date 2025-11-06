@@ -100,7 +100,9 @@ export function UserProvider({ children }: { children: ReactNode }) {
       
       // Priority 3: Check localStorage (for returning users or manual login)
       const stored = localStorage.getItem("wyshbone_user");
-      if (stored) {
+      const storedSid = localStorage.getItem("wyshbone_sid");
+      
+      if (stored && storedSid) {
         try {
           const parsed = JSON.parse(stored);
           console.log(`✅ Loaded user from storage: ${parsed.email}`);
@@ -112,8 +114,35 @@ export function UserProvider({ children }: { children: ReactNode }) {
         }
       }
       
-      // No auth found - keep demo user
-      console.log("⚠️ No authentication found, using demo user");
+      // Priority 4: No auth found - auto-create a unique demo user
+      console.log("🎭 No authentication found, creating demo user...");
+      try {
+        const response = await fetch("/api/auth/demo", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" }
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          const demoUser = {
+            id: data.user.id,
+            email: data.user.email,
+            name: data.user.name
+          };
+          
+          // Store demo session ID for later transfer on signup
+          localStorage.setItem("wyshbone_sid", data.sessionId);
+          localStorage.setItem("wyshbone_user", JSON.stringify(demoUser));
+          
+          console.log(`✅ Created demo user: ${demoUser.email}`);
+          setUserInternal(demoUser);
+        } else {
+          console.error("Failed to create demo user, falling back to static demo");
+        }
+      } catch (error) {
+        console.error("Demo user creation error:", error);
+      }
+      
       setIsValidatingSession(false);
     }
     
