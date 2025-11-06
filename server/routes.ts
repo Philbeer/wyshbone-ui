@@ -4695,19 +4695,15 @@ Return structured data with the EXACT placeId provided above: "${placeId}"`;
         return res.status(404).json({ error: "Research run not found" });
       }
       
-      // Check if demo user has exceeded their limit
+      // Demo users must sign up to view deep research reports
       if (auth?.userId) {
         const user = await storage.getUserById(auth.userId);
         if (user && user.isDemo) {
-          const tier = user.subscriptionTier as keyof typeof TIER_LIMITS;
-          if (user.deepResearchCount >= TIER_LIMITS[tier].deepResearch) {
-            return res.status(403).json({ 
-              error: "DEMO_LIMIT_REACHED",
-              message: `You've used your ${TIER_LIMITS[tier].deepResearch} free deep research reports. Sign up for a free account to continue!`,
-              limit: TIER_LIMITS[tier].deepResearch,
-              requiresSignup: true
-            });
-          }
+          return res.status(403).json({ 
+            error: "DEMO_SIGNUP_REQUIRED",
+            message: "Sign up for a free account to view your deep research reports!",
+            requiresSignup: true
+          });
         }
       }
       

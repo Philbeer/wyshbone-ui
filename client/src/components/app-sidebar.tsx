@@ -580,8 +580,8 @@ export function AppSidebar({
         if (!response.ok) {
           const data = await response.json();
           
-          // Check if demo limit reached
-          if (data.error === "DEMO_LIMIT_REACHED") {
+          // Demo users must sign up to view reports
+          if (data.error === "DEMO_SIGNUP_REQUIRED") {
             setLocation("/auth");
             return; // Don't select the run
           }
