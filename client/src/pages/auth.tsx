@@ -65,7 +65,7 @@ export default function AuthPage() {
       });
       setLocation("/");
     },
-    onError: (error) {
+    onError: (error) => {
       toast({
         title: "Login failed",
         description: error.message || "Please check your credentials",
