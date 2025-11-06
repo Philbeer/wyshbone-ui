@@ -1393,7 +1393,7 @@ CRITICAL RULES:
         type: "function" as const,
         function: {
           name: "saleshandy_batch_call",
-          description: "CRITICAL: PRIMARY TOOL FOR CONTACT FINDING. Use this IMMEDIATELY when users ask to 'find contacts', 'get emails', 'find leads', or mention ANY business type + location + target person. This is the ONLY contact discovery tool. Searches Google Places (up to 60 results) + discovers domains and verified emails via Hunter.io + auto-adds prospects to SalesHandy campaign. ALWAYS use this for ANY request like: 'find contacts for [business type] in [location] targeting [role]'. Examples: pubs, restaurants, dentists, coffee shops, gyms, hotels, etc. NEVER just respond with text - ALWAYS call this tool.",
+          description: "CRITICAL: CONTACT DISCOVERY REQUEST - Use this tool for ANY request to find contacts, emails, or leads. This includes: 'find contacts for X', 'get emails for Y', 'find leads at Z', 'contact discovery for...', etc. If the user mentions a business type + location, this is a CONTACT DISCOVERY REQUEST - call this tool immediately. Never just respond with text. This tool: (1) Searches Google Places for businesses, (2) Finds domains & verified emails via Hunter.io, (3) Auto-adds to SalesHandy campaign. Works for ANY business type: pubs, restaurants, dentists, hotels, gyms, coffee shops, etc.",
           parameters: {
             type: "object",
             properties: {
