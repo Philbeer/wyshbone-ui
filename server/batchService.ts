@@ -498,6 +498,7 @@ export async function executeBatchJob(params: {
       "Last Name": item.last_name || "",
       Company: item.name,
       Website: item.domain ? `https://${item.domain}` : "",
+      "Personal Line": item.personal_line || "", // AI-generated custom field
     };
 
     prospectsToSend.push(prospectFields);
