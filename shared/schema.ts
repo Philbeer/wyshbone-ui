@@ -509,6 +509,16 @@ export const batchJobs = pgTable("batch_jobs", {
 // Batch Job Zod schemas
 export const batchJobStatusSchema = z.enum(["running", "completed", "failed"]);
 
+export const hunterContactSchema = z.object({
+  email: z.string(),
+  first_name: z.string().optional(),
+  last_name: z.string().optional(),
+  position: z.string().optional(),
+  department: z.string().optional(),
+  confidence: z.number().optional(),
+  score: z.number(), // Ranking score based on position match
+});
+
 export const batchJobItemSchema = z.object({
   place_id: z.string(),
   name: z.string(),
@@ -520,6 +530,7 @@ export const batchJobItemSchema = z.object({
   first_name: z.string().optional(),
   last_name: z.string().optional(),
   position: z.string().optional(),
+  hunter_contacts: z.array(hunterContactSchema).optional(), // All Hunter.io results with scores
 });
 
 export const batchJobSchema = z.object({

@@ -442,6 +442,17 @@ export async function executeBatchJob(params: {
           // Rank emails by target role
           const ranked = rankContacts(targetRole, emails);
 
+          // Save all Hunter.io contacts with their scores for UI display
+          item.hunter_contacts = ranked.map(contact => ({
+            email: contact.email || contact.value || "",
+            first_name: contact.first_name,
+            last_name: contact.last_name,
+            position: contact.position,
+            department: contact.department,
+            confidence: contact.confidence,
+            score: scoreContact(targetRole, contact), // Calculate and save score
+          })).filter(c => c.email); // Only include contacts with emails
+
           // Try to verify emails until we find a valid one
           for (const contact of ranked) {
             const email = contact.email || contact.value;

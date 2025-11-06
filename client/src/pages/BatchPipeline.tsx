@@ -1,14 +1,17 @@
 import { useQuery } from "@tanstack/react-query";
 import { useRoute } from "wouter";
+import { useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { CheckCircle2, XCircle, Clock, ChevronRight, Building2, Mail, Globe, User } from "lucide-react";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { CheckCircle2, XCircle, Clock, ChevronRight, Building2, Mail, Globe, User, Award, TrendingUp } from "lucide-react";
 import type { BatchJob, BatchJobItem } from "@shared/schema";
 
 export default function BatchPipeline() {
   const [, params] = useRoute("/batch/:id");
   const batchId = params?.id;
+  const [selectedItem, setSelectedItem] = useState<BatchJobItem | null>(null);
 
   const { data: job, isLoading, error } = useQuery<BatchJob>({
     queryKey: [`/api/batch/${batchId}`],
@@ -186,8 +189,9 @@ export default function BatchPipeline() {
               {items.map((item: BatchJobItem, index) => (
                 <div
                   key={item.place_id}
-                  className="grid grid-cols-6 gap-4 px-4 py-3 hover-elevate rounded-md text-sm border border-border/50"
+                  className="grid grid-cols-6 gap-4 px-4 py-3 hover-elevate active-elevate-2 rounded-md text-sm border border-border/50 cursor-pointer transition-all"
                   data-testid={`row-result-${index}`}
+                  onClick={() => setSelectedItem(item)}
                 >
                   <div className="font-medium truncate" title={item.name}>
                     {item.name}
@@ -270,6 +274,131 @@ export default function BatchPipeline() {
           </CardContent>
         </Card>
       )}
+
+      {/* Hunter.io Contacts Modal */}
+      <Dialog open={!!selectedItem} onOpenChange={() => setSelectedItem(null)}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto" data-testid="dialog-hunter-contacts">
+          {selectedItem && (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <Building2 className="w-5 h-5" />
+                  {selectedItem.name}
+                </DialogTitle>
+                <DialogDescription>
+                  All email contacts found via Hunter.io • Target role: {job.targetRole}
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="space-y-4 mt-4">
+                {/* Company Info */}
+                <div className="flex flex-col gap-2 p-4 bg-muted/50 rounded-md">
+                  {selectedItem.domain && (
+                    <div className="flex items-center gap-2 text-sm">
+                      <Globe className="w-4 h-4 text-muted-foreground" />
+                      <span className="font-mono">{selectedItem.domain}</span>
+                    </div>
+                  )}
+                  {selectedItem.address && (
+                    <div className="text-sm text-muted-foreground">{selectedItem.address}</div>
+                  )}
+                </div>
+
+                {/* Hunter.io Contacts List */}
+                {selectedItem.hunter_contacts && selectedItem.hunter_contacts.length > 0 ? (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Award className="w-4 h-4 text-yellow-600 dark:text-yellow-400" />
+                      <h3 className="font-semibold text-sm">
+                        {selectedItem.hunter_contacts.length} Contact{selectedItem.hunter_contacts.length !== 1 ? 's' : ''} Found
+                      </h3>
+                    </div>
+
+                    {selectedItem.hunter_contacts.map((contact, idx) => {
+                      const isSelected = contact.email === selectedItem.selected_email;
+                      const scoreColor = contact.score >= 80 ? "text-green-600 dark:text-green-400" :
+                                        contact.score >= 50 ? "text-yellow-600 dark:text-yellow-400" :
+                                        "text-gray-600 dark:text-gray-400";
+
+                      return (
+                        <div
+                          key={idx}
+                          className={`p-4 rounded-md border transition-all ${
+                            isSelected 
+                              ? "border-green-600/50 bg-green-500/10" 
+                              : "border-border/50 hover-elevate"
+                          }`}
+                          data-testid={`contact-${idx}`}
+                        >
+                          <div className="flex items-start justify-between gap-4">
+                            {/* Contact Info */}
+                            <div className="flex-1 space-y-1">
+                              <div className="flex items-center gap-2">
+                                {contact.first_name || contact.last_name ? (
+                                  <div className="font-medium">
+                                    {contact.first_name} {contact.last_name}
+                                  </div>
+                                ) : (
+                                  <div className="text-muted-foreground text-sm">No name</div>
+                                )}
+                                {isSelected && (
+                                  <Badge variant="outline" className="bg-green-500/10 text-green-600 dark:text-green-400 border-green-600/20">
+                                    <CheckCircle2 className="w-3 h-3 mr-1" />
+                                    Selected
+                                  </Badge>
+                                )}
+                              </div>
+
+                              {contact.position && (
+                                <div className="text-sm text-muted-foreground">
+                                  {contact.position}
+                                  {contact.department && ` • ${contact.department}`}
+                                </div>
+                              )}
+
+                              <div className="flex items-center gap-2 text-sm font-mono">
+                                <Mail className="w-3 h-3 text-blue-600 dark:text-blue-400" />
+                                {contact.email}
+                              </div>
+
+                              {contact.confidence !== undefined && (
+                                <div className="text-xs text-muted-foreground">
+                                  Hunter.io confidence: {contact.confidence}%
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Ranking Score */}
+                            <div className="flex flex-col items-end gap-1">
+                              <div className="flex items-center gap-1">
+                                <TrendingUp className={`w-4 h-4 ${scoreColor}`} />
+                                <span className={`text-2xl font-bold ${scoreColor}`}>
+                                  {contact.score}
+                                </span>
+                              </div>
+                              <div className="text-xs text-muted-foreground">
+                                Match Score
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <Mail className="w-12 h-12 mx-auto mb-2 opacity-20" />
+                    <p className="text-sm">No contacts found via Hunter.io</p>
+                    <p className="text-xs mt-1">
+                      {selectedItem.domain ? "Try adding contacts manually" : "No domain available for search"}
+                    </p>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   </div>
   );
