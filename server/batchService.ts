@@ -19,6 +19,7 @@ export interface PlacesTextSearchResult {
   place_id: string;
   name: string;
   formatted_address?: string;
+  website?: string;
 }
 
 export interface HunterEmailContact {
@@ -54,6 +55,29 @@ export interface SalesHandyProspect {
   };
 }
 
+/* ========== HELPER FUNCTIONS ========== */
+
+/**
+ * Extract domain from website URL
+ * e.g. "https://www.example.com/path" -> "example.com"
+ */
+function extractDomain(websiteUrl: string): string {
+  if (!websiteUrl) return "";
+  
+  try {
+    const url = new URL(websiteUrl);
+    // Remove 'www.' prefix if present
+    return url.hostname.replace(/^www\./, "");
+  } catch {
+    // If URL parsing fails, try to clean the string manually
+    return websiteUrl
+      .replace(/^https?:\/\//, "")
+      .replace(/^www\./, "")
+      .replace(/\/.*$/, "")
+      .trim();
+  }
+}
+
 /* ========== GOOGLE PLACES TEXT SEARCH (LITE) ========== */
 
 export async function placesTextSearchLite(
@@ -80,6 +104,7 @@ export async function placesTextSearchLite(
           place_id: x.place_id,
           name: x.name || "",
           formatted_address: x.formatted_address || "",
+          website: x.website || "",
         }))
       );
     }
@@ -359,6 +384,7 @@ export async function executeBatchJob(params: {
       place_id: result.place_id,
       name: result.name,
       address: result.formatted_address,
+      domain: result.website ? extractDomain(result.website) : undefined,
     }));
 
   // Step 2: Generate AI personal lines (if enabled)
@@ -391,7 +417,11 @@ export async function executeBatchJob(params: {
             country,
             hunterApiKey
           );
-          item.domain = domain;
+          
+          // Only use Hunter.io domain if Google Places didn't provide one
+          if (!item.domain && domain) {
+            item.domain = domain;
+          }
 
           // Rank emails by target role
           const ranked = rankContacts(targetRole, emails);
