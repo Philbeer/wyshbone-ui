@@ -4687,7 +4687,7 @@ Return structured data with the EXACT placeId provided above: "${placeId}"`;
     try {
       const runId = req.params.id;
       const sessionId = getSessionId(req);
-      const auth = await getAuthContext(req);
+      const auth = await getAuthenticatedUserId(req);
       
       // Verify the run exists
       const run = await getRun(runId);
