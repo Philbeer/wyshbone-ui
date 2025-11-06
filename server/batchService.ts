@@ -221,10 +221,17 @@ export async function generatePersonalLine(params: {
 
   if (!openaiKey) return "";
 
-  const prompt = `Write ONE short opener (<=18 words) for ${company}${
-    domain ? ` (${domain})` : ""
-  } in ${location}.
-They work in "${query}". Reference a plausible buyer or use-case. UK tone. No flattery.`;
+  const prompt = `Write ONE conversational opener for ${company} in ${location} who work in "${query}".
+
+Follow this exact pattern:
+"I can see you are [observation about their specific business/industry] - are you looking to [relevant business benefit/question]?"
+
+Examples:
+- "I can see you are in the hospitality trade - are you looking to increase sales?"
+- "I can see you are running a local pub - are you looking to attract more customers?"
+- "I can see you are in the dental practice space - are you looking to grow your patient base?"
+
+Keep it under 20 words. Natural UK tone. Make it specific to "${query}".`;
 
   try {
     const response = await axios.post(
