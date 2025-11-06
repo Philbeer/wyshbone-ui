@@ -402,6 +402,67 @@ export const selectScheduledMonitorSchema = createSelectSchema(scheduledMonitors
 export type InsertScheduledMonitor = z.infer<typeof insertScheduledMonitorSchema>;
 export type SelectScheduledMonitor = typeof scheduledMonitors.$inferSelect;
 
+// Users table for authentication and subscription management
+export const users = pgTable("users", {
+  id: text("id").primaryKey(),
+  email: text("email").notNull().unique(),
+  passwordHash: text("password_hash").notNull(),
+  name: text("name"),
+  stripeCustomerId: text("stripe_customer_id"),
+  stripeSubscriptionId: text("stripe_subscription_id"),
+  subscriptionTier: text("subscription_tier").default("free"), // 'free', 'basic', 'pro', 'business', 'enterprise'
+  subscriptionStatus: text("subscription_status").default("inactive"), // 'active', 'inactive', 'cancelled', 'past_due'
+  monitorCount: integer("monitor_count").notNull().default(0), // Track active monitors
+  deepResearchCount: integer("deep_research_count").notNull().default(0), // Track deep research runs this period
+  lastResetAt: bigint("last_reset_at", { mode: "number" }), // When usage counters were last reset
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+}, (table) => ({
+  emailIdx: index("users_email_idx").on(table.email),
+  subscriptionTierIdx: index("users_subscription_tier_idx").on(table.subscriptionTier),
+}));
+
+// User Zod schemas
+export const subscriptionTierSchema = z.enum(["free", "basic", "pro", "business", "enterprise"]);
+export const subscriptionStatusSchema = z.enum(["active", "inactive", "cancelled", "past_due"]);
+
+export const userSchema = z.object({
+  id: z.string(),
+  email: z.string().email(),
+  name: z.string().optional().nullable(),
+  stripeCustomerId: z.string().optional().nullable(),
+  stripeSubscriptionId: z.string().optional().nullable(),
+  subscriptionTier: subscriptionTierSchema,
+  subscriptionStatus: subscriptionStatusSchema,
+  monitorCount: z.number().int(),
+  deepResearchCount: z.number().int(),
+  lastResetAt: z.number().optional().nullable(),
+  createdAt: z.number(),
+  updatedAt: z.number(),
+});
+
+export type User = z.infer<typeof userSchema>;
+
+export const signupRequestSchema = z.object({
+  email: z.string().email("Valid email is required"),
+  password: z.string().min(8, "Password must be at least 8 characters"),
+  name: z.string().optional(),
+});
+
+export const loginRequestSchema = z.object({
+  email: z.string().email("Valid email is required"),
+  password: z.string().min(1, "Password is required"),
+});
+
+export type SignupRequest = z.infer<typeof signupRequestSchema>;
+export type LoginRequest = z.infer<typeof loginRequestSchema>;
+
+// User Drizzle insert/select schemas
+export const insertUserSchema = createInsertSchema(users);
+export const selectUserSchema = createSelectSchema(users);
+export type InsertUser = z.infer<typeof insertUserSchema>;
+export type SelectUser = typeof users.$inferSelect;
+
 // User Sessions table for secure multi-tenant authentication
 export const userSessions = pgTable("user_sessions", {
   sessionId: text("session_id").primaryKey(),
