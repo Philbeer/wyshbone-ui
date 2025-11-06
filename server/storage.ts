@@ -494,6 +494,28 @@ export class MemStorage implements IStorage {
   async deleteBatchJob(id: string): Promise<boolean> {
     return this.batchJobs.delete(id);
   }
+  
+  // User methods (stub - MemStorage not used in production)
+  async createUser(user: InsertUser): Promise<SelectUser> {
+    throw new Error("MemStorage: User operations not supported");
+  }
+
+  async getUserByEmail(email: string): Promise<SelectUser | null> {
+    return null;
+  }
+
+  async getUserById(id: string): Promise<SelectUser | null> {
+    return null;
+  }
+
+  async updateUser(id: string, updates: Partial<InsertUser>): Promise<SelectUser | null> {
+    return null;
+  }
+
+  async incrementMonitorCount(userId: string): Promise<void> {}
+  async decrementMonitorCount(userId: string): Promise<void> {}
+  async incrementDeepResearchCount(userId: string): Promise<void> {}
+  async resetUsageCounters(userId: string): Promise<void> {}
 }
 
 // Database connection

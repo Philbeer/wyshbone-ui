@@ -25,8 +25,19 @@ import cors from "cors";
 import * as cheerio from "cheerio";
 import { neon } from "@neondatabase/serverless";
 import { createXeroOAuthRouter } from "./routes/xero-oauth";
+import { hashPassword, verifyPassword, generateId, canCreateMonitor, canCreateDeepResearch, TIER_LIMITS } from "./auth";
+import { signupRequestSchema, loginRequestSchema } from "@shared/schema";
+import Stripe from "stripe";
 
 const sql = neon(process.env.DATABASE_URL!);
+
+// Initialize Stripe
+if (!process.env.STRIPE_SECRET_KEY) {
+  throw new Error('Missing required Stripe secret: STRIPE_SECRET_KEY');
+}
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
+  apiVersion: "2024-11-20.acacia",
+});
 
 // Helper to identify each user's session (Bubble should send x-session-id)
 function getSessionId(req: import("express").Request) {
@@ -152,6 +163,269 @@ async function fetchUrlContent(url: string): Promise<string> {
 export async function registerRoutes(app: Express): Promise<Server> {
   // Enable CORS for all routes
   app.use(cors());
+
+  // ===========================
+  // AUTH ROUTES
+  // ===========================
+  
+  // POST /api/auth/signup - User registration
+  app.post("/api/auth/signup", async (req, res) => {
+    try {
+      const validation = signupRequestSchema.safeParse(req.body);
+      if (!validation.success) {
+        return res.status(400).json({ error: "Invalid request", details: validation.error });
+      }
+
+      const { email, password, name } = validation.data;
+
+      // Check if user already exists
+      const existing = await storage.getUserByEmail(email);
+      if (existing) {
+        return res.status(409).json({ error: "Email already registered" });
+      }
+
+      // Hash password and create user
+      const passwordHash = await hashPassword(password);
+      const userId = generateId();
+      
+      const user = await storage.createUser({
+        id: userId,
+        email,
+        passwordHash,
+        name: name || null,
+        subscriptionTier: "free",
+        subscriptionStatus: "inactive",
+        monitorCount: 0,
+        deepResearchCount: 0,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+
+      // Create session
+      const sessionId = generateId();
+      const expiresAt = Date.now() + (30 * 24 * 60 * 60 * 1000); // 30 days
+      
+      await storage.createSession(sessionId, user.id, user.email, expiresAt);
+
+      res.json({
+        sessionId,
+        user: {
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          subscriptionTier: user.subscriptionTier,
+          subscriptionStatus: user.subscriptionStatus,
+        }
+      });
+    } catch (error: any) {
+      console.error("Signup error:", error);
+      res.status(500).json({ error: "Signup failed" });
+    }
+  });
+
+  // POST /api/auth/login - User login
+  app.post("/api/auth/login", async (req, res) => {
+    try {
+      const validation = loginRequestSchema.safeParse(req.body);
+      if (!validation.success) {
+        return res.status(400).json({ error: "Invalid request", details: validation.error });
+      }
+
+      const { email, password } = validation.data;
+
+      // Find user
+      const user = await storage.getUserByEmail(email);
+      if (!user) {
+        return res.status(401).json({ error: "Invalid credentials" });
+      }
+
+      // Verify password
+      const valid = await verifyPassword(password, user.passwordHash);
+      if (!valid) {
+        return res.status(401).json({ error: "Invalid credentials" });
+      }
+
+      // Create session
+      const sessionId = generateId();
+      const expiresAt = Date.now() + (30 * 24 * 60 * 60 * 1000); // 30 days
+      
+      await storage.createSession(sessionId, user.id, user.email, expiresAt);
+
+      res.json({
+        sessionId,
+        user: {
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          subscriptionTier: user.subscriptionTier,
+          subscriptionStatus: user.subscriptionStatus,
+          monitorCount: user.monitorCount,
+          deepResearchCount: user.deepResearchCount,
+        }
+      });
+    } catch (error: any) {
+      console.error("Login error:", error);
+      res.status(500).json({ error: "Login failed" });
+    }
+  });
+
+  // POST /api/auth/logout - User logout
+  app.post("/api/auth/logout", async (req, res) => {
+    const sessionId = req.headers["x-session-id"] as string;
+    if (sessionId) {
+      await storage.deleteSession(sessionId);
+    }
+    res.json({ success: true });
+  });
+
+  // GET /api/auth/me - Get current user
+  app.get("/api/auth/me", async (req, res) => {
+    const auth = await getAuthenticatedUserId(req);
+    if (!auth) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+
+    const user = await storage.getUserById(auth.userId);
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    res.json({
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      subscriptionTier: user.subscriptionTier,
+      subscriptionStatus: user.subscriptionStatus,
+      monitorCount: user.monitorCount,
+      deepResearchCount: user.deepResearchCount,
+    });
+  });
+
+  // ===========================
+  // SUBSCRIPTION ROUTES
+  // ===========================
+
+  // POST /api/subscription/create - Create Stripe subscription
+  app.post("/api/subscription/create", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+
+      const { priceId } = req.body;
+      if (!priceId) {
+        return res.status(400).json({ error: "Price ID required" });
+      }
+
+      const user = await storage.getUserById(auth.userId);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      // Create or retrieve Stripe customer
+      let customerId = user.stripeCustomerId;
+      if (!customerId) {
+        const customer = await stripe.customers.create({
+          email: user.email,
+          name: user.name || undefined,
+          metadata: { userId: user.id },
+        });
+        customerId = customer.id;
+        await storage.updateUser(user.id, { stripeCustomerId: customerId });
+      }
+
+      // Create subscription
+      const subscription = await stripe.subscriptions.create({
+        customer: customerId,
+        items: [{ price: priceId }],
+        payment_behavior: 'default_incomplete',
+        payment_settings: { save_default_payment_method: 'on_subscription' },
+        expand: ['latest_invoice.payment_intent'],
+      });
+
+      const invoice = subscription.latest_invoice as Stripe.Invoice;
+      const paymentIntent = invoice.payment_intent as Stripe.PaymentIntent;
+
+      res.json({
+        subscriptionId: subscription.id,
+        clientSecret: paymentIntent.client_secret,
+      });
+    } catch (error: any) {
+      console.error("Subscription creation error:", error);
+      res.status(500).json({ error: "Failed to create subscription" });
+    }
+  });
+
+  // GET /api/subscription/status - Get subscription status
+  app.get("/api/subscription/status", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+
+      const user = await storage.getUserById(auth.userId);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      if (!user.stripeSubscriptionId) {
+        return res.json({
+          tier: user.subscriptionTier,
+          status: user.subscriptionStatus,
+          limits: TIER_LIMITS[user.subscriptionTier as keyof typeof TIER_LIMITS],
+          usage: {
+            monitors: user.monitorCount,
+            deepResearch: user.deepResearchCount,
+          }
+        });
+      }
+
+      // Fetch from Stripe
+      const subscription = await stripe.subscriptions.retrieve(user.stripeSubscriptionId);
+      
+      res.json({
+        tier: user.subscriptionTier,
+        status: subscription.status,
+        limits: TIER_LIMITS[user.subscriptionTier as keyof typeof TIER_LIMITS],
+        usage: {
+          monitors: user.monitorCount,
+          deepResearch: user.deepResearchCount,
+        },
+        currentPeriodEnd: subscription.current_period_end,
+      });
+    } catch (error: any) {
+      console.error("Subscription status error:", error);
+      res.status(500).json({ error: "Failed to fetch subscription" });
+    }
+  });
+
+  // POST /api/subscription/cancel - Cancel subscription
+  app.post("/api/subscription/cancel", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+
+      const user = await storage.getUserById(auth.userId);
+      if (!user || !user.stripeSubscriptionId) {
+        return res.status(404).json({ error: "No active subscription" });
+      }
+
+      await stripe.subscriptions.cancel(user.stripeSubscriptionId);
+      
+      await storage.updateUser(user.id, {
+        subscriptionStatus: "cancelled",
+      });
+
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Subscription cancellation error:", error);
+      res.status(500).json({ error: "Failed to cancel subscription" });
+    }
+  });
 
   // ===========================
   // POST /api/create-session – Secure session creation for Bubble integration
