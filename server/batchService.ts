@@ -221,17 +221,18 @@ export async function generatePersonalLine(params: {
 
   if (!openaiKey) return "";
 
-  const prompt = `Write ONE conversational opener for ${company} in ${location} who work in "${query}".
+  const prompt = `Based on the business type "${query}", complete this sentence with ONLY the industry/business description (2-5 words):
 
-Follow this exact pattern:
-"I can see you are [observation about their specific business/industry] - are you looking to [relevant business benefit/question]?"
+"I can see you are in the _____ - are you looking to increase sales?"
 
 Examples:
-- "I can see you are in the hospitality trade - are you looking to increase sales?"
-- "I can see you are running a local pub - are you looking to attract more customers?"
-- "I can see you are in the dental practice space - are you looking to grow your patient base?"
+- Query: "pubs" → "hospitality trade"
+- Query: "restaurants" → "food and beverage industry"
+- Query: "dental practices" → "dental industry"
+- Query: "gyms" → "fitness industry"
+- Query: "hair salons" → "beauty trade"
 
-Keep it under 20 words. Natural UK tone. Make it specific to "${query}".`;
+Return ONLY the industry description (2-5 words). No quotes. No full sentence.`;
 
   try {
     const response = await axios.post(
@@ -247,7 +248,11 @@ Keep it under 20 words. Natural UK tone. Make it specific to "${query}".`;
       }
     );
 
-    return response.data?.choices?.[0]?.message?.content?.trim() || "";
+    const industry = response.data?.choices?.[0]?.message?.content?.trim() || "";
+    if (!industry) return "";
+    
+    // Wrap in the fixed template
+    return `I can see you are in the ${industry} - are you looking to increase sales?`;
   } catch (error) {
     console.error("Failed to generate personal line:", error);
     return "";
