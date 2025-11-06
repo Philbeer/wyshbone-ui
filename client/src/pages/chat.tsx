@@ -55,6 +55,8 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const hasLoadedHistoryRef = useRef(false);
+  const [batchJobTracking, setBatchJobTracking] = useState<Map<string, string>>(new Map()); // messageId -> batchId
+  const batchPollIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const detectDeepResearchIntent = (text: string): boolean => {
     const lowerText = text.toLowerCase();
@@ -176,6 +178,70 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
       localStorage.setItem('currentConversationId', conversationId);
     }
   }, [conversationId]);
+
+  // Poll batch job statuses and update messages when complete
+  useEffect(() => {
+    const pollBatchJobs = async () => {
+      if (batchJobTracking.size === 0) return;
+
+      for (const [messageId, batchId] of Array.from(batchJobTracking.entries())) {
+        try {
+          const response = await fetch(addDevAuthParams(`/api/batch/${batchId}`));
+          if (response.ok) {
+            const job = await response.json();
+            
+            if (job.status === 'completed') {
+              // Update message to show completion
+              setMessages((prev) =>
+                prev.map((msg) => {
+                  if (msg.id === messageId && 'content' in msg) {
+                    const updatedContent = msg.content
+                      .replace(/⏳/g, '✅')
+                      .replace(/This will take several minutes\./g, 'Pipeline completed!');
+                    return { ...msg, content: updatedContent };
+                  }
+                  return msg;
+                })
+              );
+
+              // Auto-open results tab
+              window.open(`/batch/${batchId}`, '_blank');
+              
+              // Remove from tracking
+              setBatchJobTracking((prev) => {
+                const newMap = new Map(prev);
+                newMap.delete(messageId);
+                return newMap;
+              });
+
+              console.log(`✅ Batch job ${batchId} completed and tab opened`);
+            }
+          }
+        } catch (error) {
+          console.error(`Error polling batch job ${batchId}:`, error);
+        }
+      }
+    };
+
+    // Start polling if we have batch jobs to track
+    if (batchJobTracking.size > 0 && !batchPollIntervalRef.current) {
+      batchPollIntervalRef.current = setInterval(pollBatchJobs, 5000); // Poll every 5 seconds
+    }
+
+    // Stop polling if no more batch jobs
+    if (batchJobTracking.size === 0 && batchPollIntervalRef.current) {
+      clearInterval(batchPollIntervalRef.current);
+      batchPollIntervalRef.current = null;
+    }
+
+    // Cleanup on unmount
+    return () => {
+      if (batchPollIntervalRef.current) {
+        clearInterval(batchPollIntervalRef.current);
+        batchPollIntervalRef.current = null;
+      }
+    };
+  }, [batchJobTracking]);
 
   // Expose send message function to parent
   useEffect(() => {
@@ -348,6 +414,12 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
               if (parsed.conversationId) {
                 console.log('💬 Received conversationId:', parsed.conversationId);
                 setConversationId(parsed.conversationId);
+              }
+              
+              // Handle batch job ID
+              if (parsed.batchId) {
+                console.log('🔗 Received batch job ID:', parsed.batchId);
+                setBatchJobTracking((prev) => new Map(prev).set(assistantMessageId, parsed.batchId));
               }
               
               if (parsed.content) {

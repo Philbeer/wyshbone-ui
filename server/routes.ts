@@ -2240,7 +2240,7 @@ CRITICAL RULES:
               const responseText = `📧 **SalesHandy Batch Started!**\n\n` +
                 `🔍 **Search:** ${params.query} in ${params.location}, ${params.country}\n` +
                 `🎯 **Target Role:** ${params.targetRole}\n` +
-                `🔗 **[View Pipeline Progress →](/batch/${batchId})**\n\n` +
+                `🔗 **[View Pipeline Progress →](/batch/${batchId})** ⏳\n\n` +
                 `**Pipeline Processing:**\n` +
                 `1. ✅ Searching Google Places (up to 60 results with page tokens)\n` +
                 `2. 🌐 Finding website domains for each business\n` +
@@ -2255,7 +2255,8 @@ CRITICAL RULES:
               await saveMessage(conversationId, "assistant", responseText);
               console.log("💾 Saved SalesHandy batch message to database");
               
-              res.write(`data: ${JSON.stringify({ content: responseText })}\n\n`);
+              // Send batch ID metadata along with the message
+              res.write(`data: ${JSON.stringify({ content: responseText, batchId })}\n\n`);
             } else {
               throw new Error(data.error || "Failed to start SalesHandy batch");
             }
