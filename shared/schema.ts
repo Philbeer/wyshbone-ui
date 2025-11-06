@@ -408,6 +408,8 @@ export const users = pgTable("users", {
   email: text("email").notNull().unique(),
   passwordHash: text("password_hash").notNull(),
   name: text("name"),
+  isDemo: integer("is_demo").notNull().default(0), // 1 = demo user, 0 = regular user
+  demoCreatedAt: bigint("demo_created_at", { mode: "number" }), // When demo account was created (for cleanup)
   stripeCustomerId: text("stripe_customer_id"),
   stripeSubscriptionId: text("stripe_subscription_id"),
   subscriptionTier: text("subscription_tier").default("free"), // 'free', 'basic', 'pro', 'business', 'enterprise'
@@ -420,6 +422,7 @@ export const users = pgTable("users", {
 }, (table) => ({
   emailIdx: index("users_email_idx").on(table.email),
   subscriptionTierIdx: index("users_subscription_tier_idx").on(table.subscriptionTier),
+  isDemoIdx: index("users_is_demo_idx").on(table.isDemo, table.demoCreatedAt),
 }));
 
 // User Zod schemas
@@ -430,6 +433,8 @@ export const userSchema = z.object({
   id: z.string(),
   email: z.string().email(),
   name: z.string().optional().nullable(),
+  isDemo: z.number().int(),
+  demoCreatedAt: z.number().optional().nullable(),
   stripeCustomerId: z.string().optional().nullable(),
   stripeSubscriptionId: z.string().optional().nullable(),
   subscriptionTier: subscriptionTierSchema,
@@ -447,6 +452,7 @@ export const signupRequestSchema = z.object({
   email: z.string().email("Valid email is required"),
   password: z.string().min(8, "Password must be at least 8 characters"),
   name: z.string().optional(),
+  demoSessionId: z.string().optional(), // For transferring demo data
 });
 
 export const loginRequestSchema = z.object({
