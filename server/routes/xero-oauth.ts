@@ -302,8 +302,8 @@ export function createXeroOAuthRouter(storage: IStorage) {
     }
   });
 
-  // Create a test contact in Xero
-  router.post("/test-contact", async (req, res) => {
+  // Add a business contact to Xero
+  router.post("/add-contact", async (req, res) => {
     // Authenticate user from session
     const auth = await getAuthenticatedUserId(req, storage);
     if (!auth) {
@@ -368,20 +368,45 @@ export function createXeroOAuthRouter(storage: IStorage) {
         });
       }
 
-      // Create test contact
-      const testContact = {
-        Name: `Test Contact ${Date.now()}`,
-        EmailAddress: `test${Date.now()}@example.com`,
-        FirstName: "Test",
-        LastName: "Contact",
-        Addresses: [
-          {
-            AddressType: "POBOX",
-            City: "London",
-            Country: "United Kingdom"
-          }
-        ]
+      // Get contact data from request body
+      const { name, email, phone, address, city, country, website } = req.body;
+      
+      if (!name) {
+        return res.status(400).json({ error: "Business name is required" });
+      }
+
+      // Build contact object for Xero
+      const contact: any = {
+        Name: name,
       };
+
+      if (email) {
+        contact.EmailAddress = email;
+      }
+
+      if (phone) {
+        contact.Phones = [
+          {
+            PhoneType: "DEFAULT",
+            PhoneNumber: phone
+          }
+        ];
+      }
+
+      if (website) {
+        contact.Website = website;
+      }
+
+      if (address || city || country) {
+        contact.Addresses = [
+          {
+            AddressType: "STREET",
+            AddressLine1: address || "",
+            City: city || "",
+            Country: country || "United Kingdom"
+          }
+        ];
+      }
 
       const createResponse = await fetch(`https://api.xero.com/api.xro/2.0/Contacts`, {
         method: "POST",
@@ -392,22 +417,32 @@ export function createXeroOAuthRouter(storage: IStorage) {
           Accept: "application/json",
         },
         body: JSON.stringify({
-          Contacts: [testContact]
+          Contacts: [contact]
         }),
       });
 
       if (!createResponse.ok) {
         const errorText = await createResponse.text();
         console.error("Xero API error:", errorText);
-        return res.status(500).json({ error: "Failed to create contact in Xero", details: errorText });
+        
+        // Try to parse error details
+        let errorMessage = "Failed to create contact in Xero";
+        try {
+          const errorJson = JSON.parse(errorText);
+          errorMessage = errorJson.Message || errorJson.message || errorMessage;
+        } catch {
+          // Use generic message if can't parse
+        }
+        
+        return res.status(400).json({ error: errorMessage });
       }
 
       const result = await createResponse.json();
-      console.log("✅ Test contact created in Xero:", result.Contacts[0]);
+      console.log("✅ Contact added to Xero:", result.Contacts[0]);
 
       res.json({
         success: true,
-        message: "Test contact created successfully!",
+        message: `Contact "${name}" added to Xero successfully!`,
         contact: result.Contacts[0],
       });
     } catch (error: any) {

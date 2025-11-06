@@ -3,7 +3,7 @@ import { useMutation } from "@tanstack/react-query";
 import { apiRequest, addDevAuthParams } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Send, User, CheckCircle2, Search } from "lucide-react";
+import { Send, User, CheckCircle2, Search, Building2 } from "lucide-react";
 import type { ChatMessage, AddNoteResponse, DeepResearchCreateRequest } from "@shared/schema";
 import wyshboneLogo from "@assets/wyshbone-logo_1759667581806.png";
 import Welcome from "@/components/Welcome";
@@ -13,6 +13,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useToast } from "@/hooks/use-toast";
 import { useUser } from "@/contexts/UserContext";
+import { AddToXeroDialog } from "@/components/AddToXeroDialog";
 
 type Message = ChatMessage & {
   id: string;
@@ -57,6 +58,7 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
   const hasLoadedHistoryRef = useRef(false);
   const [batchJobTracking, setBatchJobTracking] = useState<Map<string, string>>(new Map()); // messageId -> batchId
   const batchPollIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const [showXeroDialog, setShowXeroDialog] = useState(false);
 
   const detectDeepResearchIntent = (text: string): boolean => {
     const lowerText = text.toLowerCase();
@@ -951,6 +953,24 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
 
       {/* Right Sidebar */}
       <WishboneSidebar onPrompt={handleSend} />
+      
+      {/* Add to Xero Floating Button */}
+      <Button
+        onClick={() => setShowXeroDialog(true)}
+        className="fixed bottom-24 right-8 h-14 w-14 rounded-full shadow-lg md:right-8 sm:right-4"
+        size="icon"
+        title="Add Contact to Xero"
+        aria-label="Add Contact to Xero"
+        data-testid="button-add-to-xero"
+      >
+        <Building2 className="w-6 h-6" />
+      </Button>
+      
+      {/* Add to Xero Dialog */}
+      <AddToXeroDialog 
+        open={showXeroDialog}
+        onOpenChange={setShowXeroDialog}
+      />
     </div>
   );
 }
