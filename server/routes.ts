@@ -1857,6 +1857,22 @@ CRITICAL RULES:
               return res.end();
             }
             
+            // Confirmed or explicit - check subscription limits before starting
+            const currentUser = await storage.getUserById(user.id);
+            if (currentUser) {
+              const tier = currentUser.subscriptionTier as keyof typeof TIER_LIMITS;
+              if (!canCreateDeepResearch(tier, currentUser.deepResearchCount)) {
+                const limitMsg = `You've reached your deep research limit (${TIER_LIMITS[tier].deepResearch} for ${TIER_LIMITS[tier].displayName}). Please upgrade your subscription to continue.`;
+                aiBuffer = limitMsg;
+                appendMessage(sessionId, { role: "assistant", content: limitMsg });
+                await saveMessage(conversationId, "assistant", limitMsg);
+                
+                res.write(`data: ${JSON.stringify({ content: limitMsg })}\n\n`);
+                res.write(`data: [DONE]\n\n`);
+                return res.end();
+              }
+            }
+            
             // Confirmed or explicit - start deep research
             // Add auth params for development mode
             const authParams = new URLSearchParams({
@@ -1877,6 +1893,9 @@ CRITICAL RULES:
             const data = await response.json();
             
             if (response.ok) {
+              // Increment deep research count
+              await storage.incrementDeepResearchCount(user.id);
+              
               const confirmMsg = `🔬 Deep research started!\n\nI'm investigating: "${params.prompt}"\n\nYou can view the progress in the sidebar. I'll notify you when it's complete.`;
               aiBuffer = confirmMsg;
               appendMessage(sessionId, { role: "assistant", content: confirmMsg });
@@ -4730,6 +4749,22 @@ ${run.outputText}`;
         return res.status(401).json({ error: "Unauthorized" });
       }
       
+      // Check subscription limits
+      const user = await storage.getUserById(auth.userId);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      
+      const tier = user.subscriptionTier as keyof typeof TIER_LIMITS;
+      if (!canCreateMonitor(tier, user.monitorCount)) {
+        return res.status(403).json({ 
+          error: "Monitor limit reached", 
+          limit: TIER_LIMITS[tier].monitors,
+          current: user.monitorCount,
+          tier: TIER_LIMITS[tier].displayName,
+        });
+      }
+      
       const { label, description, schedule, scheduleDay, scheduleTime, monitorType, config, emailAddress } = req.body;
       
       if (!label || !description || !schedule || !monitorType) {
@@ -4760,6 +4795,9 @@ ${run.outputText}`;
         createdAt: now,
         updatedAt: now,
       });
+      
+      // Increment monitor count
+      await storage.incrementMonitorCount(auth.userId);
       
       res.json(monitor);
     } catch (error: any) {
@@ -4960,10 +4998,13 @@ ${run.outputText}`;
         return res.status(404).json({ error: "Monitor not found" });
       }
       
+      // Decrement monitor count
+      await storage.decrementMonitorCount(auth.userId);
+      
       res.json({ success: true });
     } catch (error: any) {
       console.error("Error deleting scheduled monitor:", error);
-      res.status(500).json({ error: error.message || "Failed to delete scheduled monitor" });
+      res.status(500).json({ error: "Failed to delete scheduled monitor" });
     }
   });
 
