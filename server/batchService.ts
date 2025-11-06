@@ -510,6 +510,7 @@ export async function executeBatchJob(params: {
       "Last Name": item.last_name || "",
       Company: item.name,
       Website: item.domain ? `https://${item.domain}` : "",
+      "Job Title": item.position || "", // Position from Hunter.io
       "Personal Line": item.personal_line || "", // AI-generated custom field
       "Google Place ID": item.place_id || "", // Google Places identifier
       "Wyshbone Query": query, // Original search query (e.g., "dentist supplies")
