@@ -49,6 +49,11 @@ The user interface follows Material Design principles, inspired by ChatGPT, Line
   - `XERO_CLIENT_ID`: OAuth client ID from Xero Developer Portal
   - `XERO_CLIENT_SECRET`: OAuth client secret from Xero Developer Portal
   - `OAUTH_STATE_SECRET`: Strong random secret (32+ characters) for signing OAuth state tokens
+  - `STRIPE_SECRET_KEY`: Stripe secret key for payment processing
+  - `STRIPE_PRICE_BASIC`: Stripe price ID for £35/month Basic tier (price_1QqpqWLskJp7a0AbArn9hQGo6v4)
+  - `STRIPE_PRICE_PRO`: Stripe price ID for £70/month Pro tier (price_1Qqpq1skJp7a0AbAmSRn8iGaRu)
+  - `STRIPE_PRICE_BUSINESS`: Stripe price ID for £120/month Business tier (price_1Qqpq1skJp7a0AbAmyzaR8noO)
+  - `STRIPE_PRICE_ENTERPRISE`: Stripe price ID for £250/month Enterprise tier (price_1Qqpq1skJp7a0AbAAKFqxeE)
   - `OAUTH_STATE_SECRET` must be rotated periodically for security hygiene
 - **Security Notes:**
   - The application uses header-based authentication (x-session-id) for API calls
