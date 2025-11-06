@@ -123,7 +123,7 @@ export default function AuthPage() {
       <Card className="w-full max-w-md">
         <CardHeader>
           <CardTitle className="text-2xl">Wyshbone Chat Agent</CardTitle>
-          <CardDescription>Sign in to access premium features</CardDescription>
+          <CardDescription>Create a free account to get 2 scheduled monitors and 2 deep research reports</CardDescription>
         </CardHeader>
         <CardContent>
           <Tabs defaultValue="login" className="w-full">
