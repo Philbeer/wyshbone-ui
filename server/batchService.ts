@@ -106,8 +106,8 @@ export async function placesTextSearchLite(
       headers: {
         "Content-Type": "application/json",
         "X-Goog-Api-Key": apiKey,
-        // CRITICAL: Use field mask to request website URL directly
-        "X-Goog-FieldMask": "places.id,places.displayName.text,places.formattedAddress,places.websiteUri,nextPageToken"
+        // CRITICAL: Only request name and website - no address needed for email outreach
+        "X-Goog-FieldMask": "places.id,places.displayName.text,places.websiteUri,nextPageToken"
       }
     });
     
