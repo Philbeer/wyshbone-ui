@@ -517,6 +517,7 @@ export function AppSidebar({
   onNewChat,
 }: AppSidebarProps) {
   const { user } = useUser();
+  const [, setLocation] = useLocation();
   const [showArchived, setShowArchived] = useState(false);
   const [localRuns, setLocalRuns] = useState<RunItem[]>(runs);
   const [showPreviousChats, setShowPreviousChats] = useState(false);
@@ -569,12 +570,23 @@ export function AppSidebar({
     if (run && run.runType === "deep_research") {
       try {
         const url = addDevAuthParams(`/api/deep-research/${id}/view`);
-        await fetch(url, {
+        const response = await fetch(url, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
           },
         });
+        
+        if (!response.ok) {
+          const data = await response.json();
+          
+          // Check if demo limit reached
+          if (data.error === "DEMO_LIMIT_REACHED") {
+            setLocation("/auth");
+            return; // Don't select the run
+          }
+        }
+        
         console.log(`📊 Tracked view for deep research run: ${id}`);
       } catch (error) {
         console.error("Failed to track view:", error);

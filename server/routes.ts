@@ -4687,11 +4687,28 @@ Return structured data with the EXACT placeId provided above: "${placeId}"`;
     try {
       const runId = req.params.id;
       const sessionId = getSessionId(req);
+      const auth = await getAuthContext(req);
       
       // Verify the run exists
       const run = await getRun(runId);
       if (!run) {
         return res.status(404).json({ error: "Research run not found" });
+      }
+      
+      // Check if demo user has exceeded their limit
+      if (auth?.userId) {
+        const user = await storage.getUserById(auth.userId);
+        if (user && user.isDemo) {
+          const tier = user.subscriptionTier as keyof typeof TIER_LIMITS;
+          if (user.deepResearchCount >= TIER_LIMITS[tier].deepResearch) {
+            return res.status(403).json({ 
+              error: "DEMO_LIMIT_REACHED",
+              message: `You've used your ${TIER_LIMITS[tier].deepResearch} free deep research reports. Sign up for a free account to continue!`,
+              limit: TIER_LIMITS[tier].deepResearch,
+              requiresSignup: true
+            });
+          }
+        }
       }
       
       // Track this as the last viewed run for this session
