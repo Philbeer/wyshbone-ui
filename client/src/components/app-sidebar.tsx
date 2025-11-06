@@ -1,4 +1,4 @@
-import { Globe, MessageSquare, Bug, FilePlus, MessagesSquare, ChevronDown, ChevronRight, Clock, Edit2, Trash2, Mail, Link2 } from "lucide-react";
+import { Globe, MessageSquare, Bug, FilePlus, MessagesSquare, ChevronDown, ChevronRight, Clock, Edit2, Trash2, Mail, Link2, User, CreditCard } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
@@ -788,6 +788,22 @@ export function AppSidebar({
                   <Link href="/debug">
                     <Bug className="h-4 w-4" />
                     <span>Memory Debug</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={location === "/account"} data-testid="link-account">
+                  <Link href="/account">
+                    <User className="h-4 w-4" />
+                    <span>Account</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={location === "/pricing"} data-testid="link-pricing">
+                  <Link href="/pricing">
+                    <CreditCard className="h-4 w-4" />
+                    <span>Pricing</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
