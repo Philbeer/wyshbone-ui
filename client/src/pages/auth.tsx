@@ -69,15 +69,21 @@ export default function AuthPage() {
       return await res.json();
     },
     onSuccess: (data) => {
-      // Store session ID
+      // Store session ID and user
       if (data.sessionId) {
-        localStorage.setItem("sessionId", data.sessionId);
+        localStorage.setItem("wyshbone_sid", data.sessionId);
       }
+      if (data.user) {
+        localStorage.setItem("wyshbone_user", JSON.stringify(data.user));
+      }
+      
       toast({
         title: "Logged in",
         description: "Welcome back!",
       });
-      setLocation("/");
+      
+      // Reload to refresh user context
+      window.location.href = "/";
     },
     onError: (error) => {
       toast({
