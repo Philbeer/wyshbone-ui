@@ -302,5 +302,119 @@ export function createXeroOAuthRouter(storage: IStorage) {
     }
   });
 
+  // Create a test contact in Xero
+  router.post("/test-contact", async (req, res) => {
+    // Authenticate user from session
+    const auth = await getAuthenticatedUserId(req, storage);
+    if (!auth) {
+      return res.status(401).json({ error: "Unauthorized - please log in" });
+    }
+
+    try {
+      // Get user's Xero integration
+      const integrations = await storage.listIntegrations(auth.userId);
+      const xeroIntegration = integrations.find((i) => i.provider === "xero");
+
+      if (!xeroIntegration) {
+        return res.status(404).json({ error: "No Xero integration found. Please connect Xero first." });
+      }
+
+      const metadata = xeroIntegration.metadata as any;
+      const tenantId = metadata?.tenantId;
+
+      if (!tenantId) {
+        return res.status(400).json({ error: "Xero tenant ID not found" });
+      }
+
+      // Check if token needs refresh
+      let accessToken = xeroIntegration.accessToken;
+      const expiresAt = xeroIntegration.expiresAt || 0;
+      const refreshToken = xeroIntegration.refreshToken;
+      
+      if (!refreshToken) {
+        return res.status(400).json({ error: "No refresh token available. Please reconnect Xero." });
+      }
+      
+      if (Date.now() >= expiresAt) {
+        console.log("🔄 Refreshing expired Xero token...");
+        
+        const refreshResponse = await fetch(XERO_TOKEN_URL, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+            Authorization: `Basic ${Buffer.from(`${XERO_CLIENT_ID}:${XERO_CLIENT_SECRET}`).toString("base64")}`,
+          },
+          body: new URLSearchParams({
+            grant_type: "refresh_token",
+            refresh_token: refreshToken,
+          }),
+        });
+
+        if (!refreshResponse.ok) {
+          const errorText = await refreshResponse.text();
+          console.error("Token refresh failed:", errorText);
+          return res.status(401).json({ error: "Failed to refresh Xero token. Please reconnect." });
+        }
+
+        const tokens = await refreshResponse.json();
+        accessToken = tokens.access_token;
+
+        // Update stored tokens
+        await storage.updateIntegration(xeroIntegration.id, {
+          accessToken: tokens.access_token,
+          refreshToken: tokens.refresh_token,
+          expiresAt: Date.now() + (tokens.expires_in * 1000),
+          updatedAt: Date.now(),
+        });
+      }
+
+      // Create test contact
+      const testContact = {
+        Name: `Test Contact ${Date.now()}`,
+        EmailAddress: `test${Date.now()}@example.com`,
+        FirstName: "Test",
+        LastName: "Contact",
+        Addresses: [
+          {
+            AddressType: "POBOX",
+            City: "London",
+            Country: "United Kingdom"
+          }
+        ]
+      };
+
+      const createResponse = await fetch(`https://api.xero.com/api.xro/2.0/Contacts`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "xero-tenant-id": tenantId,
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({
+          Contacts: [testContact]
+        }),
+      });
+
+      if (!createResponse.ok) {
+        const errorText = await createResponse.text();
+        console.error("Xero API error:", errorText);
+        return res.status(500).json({ error: "Failed to create contact in Xero", details: errorText });
+      }
+
+      const result = await createResponse.json();
+      console.log("✅ Test contact created in Xero:", result.Contacts[0]);
+
+      res.json({
+        success: true,
+        message: "Test contact created successfully!",
+        contact: result.Contacts[0],
+      });
+    } catch (error: any) {
+      console.error("Error creating test contact:", error);
+      res.status(500).json({ error: error.message || "Failed to create test contact" });
+    }
+  });
+
   return router;
 }

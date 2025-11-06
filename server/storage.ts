@@ -121,6 +121,7 @@ export interface IStorage {
   createIntegration(integration: InsertIntegration): Promise<SelectIntegration>;
   listIntegrations(userId: string): Promise<SelectIntegration[]>;
   getIntegration(id: string): Promise<SelectIntegration | null>;
+  updateIntegration(id: string, updates: Partial<InsertIntegration>): Promise<SelectIntegration | null>;
   deleteIntegration(id: string): Promise<boolean>;
   
   // Batch Job CRUD methods (for Google Places + Hunter.io + SalesHandy pipeline)
@@ -464,6 +465,15 @@ export class MemStorage implements IStorage {
 
   async getIntegration(id: string): Promise<SelectIntegration | null> {
     return this.integrations.get(id) || null;
+  }
+
+  async updateIntegration(id: string, updates: Partial<InsertIntegration>): Promise<SelectIntegration | null> {
+    const existing = this.integrations.get(id);
+    if (!existing) return null;
+    
+    const updated = { ...existing, ...updates, updatedAt: Date.now() };
+    this.integrations.set(id, updated);
+    return updated;
   }
 
   async deleteIntegration(id: string): Promise<boolean> {
@@ -885,6 +895,14 @@ export class DbStorage implements IStorage {
       .from(integrations)
       .where(eq(integrations.id, id));
     return integration || null;
+  }
+
+  async updateIntegration(id: string, updates: Partial<InsertIntegration>): Promise<SelectIntegration | null> {
+    const result = await db.update(integrations)
+      .set({ ...updates, updatedAt: Date.now() })
+      .where(eq(integrations.id, id))
+      .returning();
+    return result[0] || null;
   }
 
   async deleteIntegration(id: string): Promise<boolean> {
