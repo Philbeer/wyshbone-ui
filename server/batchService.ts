@@ -511,6 +511,7 @@ export async function executeBatchJob(params: {
       Company: item.name,
       Website: item.domain ? `https://${item.domain}` : "",
       "Personal Line": item.personal_line || "", // AI-generated custom field
+      "Google Place ID": item.place_id || "", // Google Places identifier
     };
 
     prospectsToSend.push(prospectFields);
