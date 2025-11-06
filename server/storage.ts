@@ -15,11 +15,13 @@ import type {
   InsertIntegration,
   SelectIntegration,
   InsertBatchJob,
-  SelectBatchJob
+  SelectBatchJob,
+  InsertUser,
+  SelectUser
 } from "@shared/schema";
 import { drizzle } from "drizzle-orm/neon-http";
 import { neon } from "@neondatabase/serverless";
-import { deepResearchRuns, conversations, messages, facts, scheduledMonitors, userSessions, integrations, batchJobs } from "@shared/schema";
+import { deepResearchRuns, conversations, messages, facts, scheduledMonitors, userSessions, integrations, batchJobs, users } from "@shared/schema";
 import { eq, or, and, desc, asc, lt, gt } from "drizzle-orm";
 
 export interface PendingBatchConfirmation {
@@ -127,6 +129,16 @@ export interface IStorage {
   listBatchJobs(userId: string): Promise<SelectBatchJob[]>;
   updateBatchJob(id: string, updates: Partial<InsertBatchJob>): Promise<SelectBatchJob | null>;
   deleteBatchJob(id: string): Promise<boolean>;
+  
+  // User CRUD methods (for authentication and subscription management)
+  createUser(user: InsertUser): Promise<SelectUser>;
+  getUserByEmail(email: string): Promise<SelectUser | null>;
+  getUserById(id: string): Promise<SelectUser | null>;
+  updateUser(id: string, updates: Partial<InsertUser>): Promise<SelectUser | null>;
+  incrementMonitorCount(userId: string): Promise<void>;
+  decrementMonitorCount(userId: string): Promise<void>;
+  incrementDeepResearchCount(userId: string): Promise<void>;
+  resetUsageCounters(userId: string): Promise<void>;
 }
 
 export class MemStorage implements IStorage {
@@ -885,6 +897,70 @@ export class DbStorage implements IStorage {
     const result = await db.delete(batchJobs)
       .where(eq(batchJobs.id, id));
     return result.rowCount !== null && result.rowCount > 0;
+  }
+  
+  // User management methods
+  async createUser(user: InsertUser): Promise<SelectUser> {
+    const [newUser] = await db.insert(users).values(user).returning();
+    return newUser;
+  }
+
+  async getUserByEmail(email: string): Promise<SelectUser | null> {
+    const [user] = await db.select()
+      .from(users)
+      .where(eq(users.email, email));
+    return user || null;
+  }
+
+  async getUserById(id: string): Promise<SelectUser | null> {
+    const [user] = await db.select()
+      .from(users)
+      .where(eq(users.id, id));
+    return user || null;
+  }
+
+  async updateUser(id: string, updates: Partial<InsertUser>): Promise<SelectUser | null> {
+    const [updated] = await db.update(users)
+      .set({ ...updates, updatedAt: Date.now() })
+      .where(eq(users.id, id))
+      .returning();
+    return updated || null;
+  }
+
+  async incrementMonitorCount(userId: string): Promise<void> {
+    const user = await this.getUserById(userId);
+    if (user) {
+      await db.update(users)
+        .set({ monitorCount: (user.monitorCount || 0) + 1 })
+        .where(eq(users.id, userId));
+    }
+  }
+
+  async decrementMonitorCount(userId: string): Promise<void> {
+    const user = await this.getUserById(userId);
+    if (user) {
+      await db.update(users)
+        .set({ monitorCount: Math.max(0, (user.monitorCount || 0) - 1) })
+        .where(eq(users.id, userId));
+    }
+  }
+
+  async incrementDeepResearchCount(userId: string): Promise<void> {
+    const user = await this.getUserById(userId);
+    if (user) {
+      await db.update(users)
+        .set({ deepResearchCount: (user.deepResearchCount || 0) + 1 })
+        .where(eq(users.id, userId));
+    }
+  }
+
+  async resetUsageCounters(userId: string): Promise<void> {
+    await db.update(users)
+      .set({ 
+        deepResearchCount: 0, 
+        lastResetAt: Date.now() 
+      })
+      .where(eq(users.id, userId));
   }
 }
 
