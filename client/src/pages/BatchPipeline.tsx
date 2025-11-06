@@ -189,64 +189,74 @@ export default function BatchPipeline() {
               {items.map((item: BatchJobItem, index) => (
                 <div
                   key={item.place_id}
-                  className="grid grid-cols-6 gap-4 px-4 py-3 hover-elevate active-elevate-2 rounded-md text-sm border border-border/50 cursor-pointer transition-all"
+                  className="px-4 py-3 hover-elevate active-elevate-2 rounded-md border border-border/50 cursor-pointer transition-all"
                   data-testid={`row-result-${index}`}
                   onClick={() => setSelectedItem(item)}
                 >
-                  <div className="font-medium truncate" title={item.name}>
-                    {item.name}
+                  {/* Main Row */}
+                  <div className="grid grid-cols-6 gap-4 text-sm">
+                    <div className="font-medium truncate" title={item.name}>
+                      {item.name}
+                    </div>
+                    <div className="text-muted-foreground truncate text-xs" title={item.address}>
+                      {item.address || "—"}
+                    </div>
+                    <div className="flex items-center gap-1 truncate">
+                      {item.domain ? (
+                        <>
+                          <Globe className="w-3 h-3 text-green-600 dark:text-green-400 flex-shrink-0" />
+                          <span className="text-xs truncate" title={item.domain}>{item.domain}</span>
+                        </>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1 truncate">
+                      {item.selected_email ? (
+                        <>
+                          <Mail className={`w-3 h-3 flex-shrink-0 ${
+                            item.selected_status === 'valid' 
+                              ? 'text-green-600 dark:text-green-400' 
+                              : 'text-yellow-600 dark:text-yellow-400'
+                          }`} />
+                          <span className="text-xs truncate" title={item.selected_email}>{item.selected_email}</span>
+                        </>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1 truncate">
+                      {item.first_name ? (
+                        <>
+                          <User className="w-3 h-3 text-blue-600 dark:text-blue-400 flex-shrink-0" />
+                          <span className="text-xs truncate" title={`${item.first_name} ${item.last_name || ''}`}>
+                            {item.first_name} {item.last_name || ''}
+                          </span>
+                        </>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </div>
+                    <div>
+                      {item.selected_email ? (
+                        <Badge variant="outline" className="bg-green-500/10 text-green-600 dark:text-green-400 border-green-600/20">
+                          <CheckCircle2 className="w-3 h-3 mr-1" />
+                          Sent
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="bg-gray-500/10 text-gray-600 dark:text-gray-400 border-gray-600/20">
+                          Skipped
+                        </Badge>
+                      )}
+                    </div>
                   </div>
-                  <div className="text-muted-foreground truncate text-xs" title={item.address}>
-                    {item.address || "—"}
-                  </div>
-                  <div className="flex items-center gap-1 truncate">
-                    {item.domain ? (
-                      <>
-                        <Globe className="w-3 h-3 text-green-600 dark:text-green-400 flex-shrink-0" />
-                        <span className="text-xs truncate" title={item.domain}>{item.domain}</span>
-                      </>
-                    ) : (
-                      <span className="text-muted-foreground">—</span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-1 truncate">
-                    {item.selected_email ? (
-                      <>
-                        <Mail className={`w-3 h-3 flex-shrink-0 ${
-                          item.selected_status === 'valid' 
-                            ? 'text-green-600 dark:text-green-400' 
-                            : 'text-yellow-600 dark:text-yellow-400'
-                        }`} />
-                        <span className="text-xs truncate" title={item.selected_email}>{item.selected_email}</span>
-                      </>
-                    ) : (
-                      <span className="text-muted-foreground">—</span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-1 truncate">
-                    {item.first_name ? (
-                      <>
-                        <User className="w-3 h-3 text-blue-600 dark:text-blue-400 flex-shrink-0" />
-                        <span className="text-xs truncate" title={`${item.first_name} ${item.last_name || ''}`}>
-                          {item.first_name} {item.last_name || ''}
-                        </span>
-                      </>
-                    ) : (
-                      <span className="text-muted-foreground">—</span>
-                    )}
-                  </div>
-                  <div>
-                    {item.selected_email ? (
-                      <Badge variant="outline" className="bg-green-500/10 text-green-600 dark:text-green-400 border-green-600/20">
-                        <CheckCircle2 className="w-3 h-3 mr-1" />
-                        Sent
-                      </Badge>
-                    ) : (
-                      <Badge variant="outline" className="bg-gray-500/10 text-gray-600 dark:text-gray-400 border-gray-600/20">
-                        Skipped
-                      </Badge>
-                    )}
-                  </div>
+                  
+                  {/* AI Personal Line - Subline */}
+                  {item.personal_line && (
+                    <div className="mt-2 pl-0 text-xs text-muted-foreground italic border-l-2 border-blue-500/30 pl-3" data-testid={`text-personal-line-${index}`}>
+                      💡 {item.personal_line}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
