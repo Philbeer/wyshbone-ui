@@ -16,6 +16,7 @@ export default function AuthPage() {
   const [signupData, setSignupData] = useState({
     email: "",
     password: "",
+    confirmPassword: "",
     name: "",
   });
 
@@ -25,7 +26,7 @@ export default function AuthPage() {
   });
 
   const signupMutation = useMutation({
-    mutationFn: async (data: typeof signupData) => {
+    mutationFn: async (data: { email: string; password: string; name: string }) => {
       // Include demo session ID if available (for data transfer)
       const demoSessionId = localStorage.getItem("wyshbone_sid");
       const payload = demoSessionId ? { ...data, demoSessionId } : data;
@@ -96,7 +97,20 @@ export default function AuthPage() {
 
   const handleSignup = (e: React.FormEvent) => {
     e.preventDefault();
-    signupMutation.mutate(signupData);
+    
+    // Validate passwords match
+    if (signupData.password !== signupData.confirmPassword) {
+      toast({
+        title: "Passwords don't match",
+        description: "Please make sure both passwords are the same",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    // Don't send confirmPassword to backend
+    const { confirmPassword, ...dataToSend } = signupData;
+    signupMutation.mutate(dataToSend);
   };
 
   const handleLogin = (e: React.FormEvent) => {
@@ -187,7 +201,20 @@ export default function AuthPage() {
                     value={signupData.password}
                     onChange={(e) => setSignupData({ ...signupData, password: e.target.value })}
                     required
+                    minLength={6}
                     data-testid="input-signup-password"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="signup-confirm-password">Confirm Password</Label>
+                  <Input
+                    id="signup-confirm-password"
+                    type="password"
+                    value={signupData.confirmPassword}
+                    onChange={(e) => setSignupData({ ...signupData, confirmPassword: e.target.value })}
+                    required
+                    minLength={6}
+                    data-testid="input-signup-confirm-password"
                   />
                 </div>
                 <Button
