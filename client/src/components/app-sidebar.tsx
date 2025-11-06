@@ -779,14 +779,6 @@ export function AppSidebar({
           <SidebarGroupContent>
             <SidebarMenu>
               <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={location === "/"} data-testid="link-chat">
-                  <Link href="/">
-                    <MessageSquare className="h-4 w-4" />
-                    <span>Chat</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
                 <SidebarMenuButton 
                   onClick={() => onNewChat?.()}
                   data-testid="button-new-chat"
