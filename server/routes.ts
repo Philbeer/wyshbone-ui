@@ -176,7 +176,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Invalid request", details: validation.error });
       }
 
-      const { email, password, name } = validation.data;
+      const { email, password, name, demoSessionId } = validation.data;
 
       // Check if user already exists
       const existing = await storage.getUserByEmail(email);
@@ -201,6 +201,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
         updatedAt: Date.now(),
       });
 
+      // If demo session provided, transfer demo data to new account
+      let transferredData = false;
+      if (demoSessionId) {
+        const demoSession = await storage.getSession(demoSessionId);
+        if (demoSession) {
+          const demoUser = await storage.getUserById(demoSession.userId);
+          
+          // Only transfer if it's actually a demo user
+          if (demoUser && demoUser.isDemo === 1) {
+            console.log(`🔄 Transferring demo data from ${demoUser.email} to ${email}`);
+            
+            // Transfer all user data (conversations, messages, facts, monitors, etc.)
+            await storage.transferUserData(demoUser.id, user.id);
+            
+            // Update usage counts from demo user
+            await storage.updateUser(user.id, {
+              monitorCount: demoUser.monitorCount,
+              deepResearchCount: demoUser.deepResearchCount,
+            });
+            
+            // Delete demo session and user
+            await storage.deleteSession(demoSessionId);
+            await storage.deleteUser(demoUser.id);
+            
+            transferredData = true;
+            console.log(`✅ Demo data transferred successfully`);
+          }
+        }
+      }
+
       // Create session
       const sessionId = generateId();
       const expiresAt = Date.now() + (30 * 24 * 60 * 60 * 1000); // 30 days
@@ -215,7 +245,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           name: user.name,
           subscriptionTier: user.subscriptionTier,
           subscriptionStatus: user.subscriptionStatus,
-        }
+        },
+        dataTransferred: transferredData
       });
     } catch (error: any) {
       console.error("Signup error:", error);
@@ -266,6 +297,55 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error: any) {
       console.error("Login error:", error);
       res.status(500).json({ error: "Login failed" });
+    }
+  });
+
+  // POST /api/auth/demo - Create a demo user automatically
+  app.post("/api/auth/demo", async (req, res) => {
+    try {
+      // Generate unique demo user credentials
+      const userId = generateId();
+      const demoEmail = `demo_${userId}@wyshbone.demo`;
+      const demoPassword = generateId(); // Random password for demo user
+      const passwordHash = await hashPassword(demoPassword);
+      
+      const user = await storage.createUser({
+        id: userId,
+        email: demoEmail,
+        passwordHash,
+        name: "Demo User",
+        isDemo: 1, // Mark as demo user
+        demoCreatedAt: Date.now(),
+        subscriptionTier: "free",
+        subscriptionStatus: "inactive",
+        monitorCount: 0,
+        deepResearchCount: 0,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+
+      // Create session
+      const sessionId = generateId();
+      const expiresAt = Date.now() + (7 * 24 * 60 * 60 * 1000); // 7 days for demo
+
+      await storage.createSession(sessionId, user.id, user.email, expiresAt);
+
+      console.log(`✅ Created demo user: ${demoEmail} (ID: ${userId})`);
+
+      res.json({
+        sessionId,
+        user: {
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          subscriptionTier: user.subscriptionTier,
+          subscriptionStatus: user.subscriptionStatus,
+          isDemo: true,
+        }
+      });
+    } catch (error: any) {
+      console.error("Demo user creation error:", error);
+      res.status(500).json({ error: "Demo user creation failed" });
     }
   });
 

@@ -139,6 +139,10 @@ export interface IStorage {
   decrementMonitorCount(userId: string): Promise<void>;
   incrementDeepResearchCount(userId: string): Promise<void>;
   resetUsageCounters(userId: string): Promise<void>;
+  deleteUser(id: string): Promise<boolean>;
+  
+  // Demo user transfer methods
+  transferUserData(fromUserId: string, toUserId: string): Promise<void>;
 }
 
 export class MemStorage implements IStorage {
@@ -516,6 +520,8 @@ export class MemStorage implements IStorage {
   async decrementMonitorCount(userId: string): Promise<void> {}
   async incrementDeepResearchCount(userId: string): Promise<void> {}
   async resetUsageCounters(userId: string): Promise<void> {}
+  async deleteUser(id: string): Promise<boolean> { return false; }
+  async transferUserData(fromUserId: string, toUserId: string): Promise<void> {}
 }
 
 // Database connection
@@ -983,6 +989,44 @@ export class DbStorage implements IStorage {
         lastResetAt: Date.now() 
       })
       .where(eq(users.id, userId));
+  }
+
+  async deleteUser(id: string): Promise<boolean> {
+    const result = await db.delete(users)
+      .where(eq(users.id, id));
+    return result.rowCount !== null && result.rowCount > 0;
+  }
+
+  async transferUserData(fromUserId: string, toUserId: string): Promise<void> {
+    // Transfer all conversations
+    await db.update(conversations)
+      .set({ userId: toUserId })
+      .where(eq(conversations.userId, fromUserId));
+    
+    // Transfer all facts
+    await db.update(facts)
+      .set({ userId: toUserId })
+      .where(eq(facts.userId, fromUserId));
+    
+    // Transfer all scheduled monitors
+    await db.update(scheduledMonitors)
+      .set({ userId: toUserId })
+      .where(eq(scheduledMonitors.userId, fromUserId));
+    
+    // Transfer all deep research runs
+    await db.update(deepResearchRuns)
+      .set({ userId: toUserId })
+      .where(eq(deepResearchRuns.userId, fromUserId));
+    
+    // Transfer all batch jobs
+    await db.update(batchJobs)
+      .set({ userId: toUserId })
+      .where(eq(batchJobs.userId, fromUserId));
+    
+    // Transfer all integrations
+    await db.update(integrations)
+      .set({ userId: toUserId })
+      .where(eq(integrations.userId, fromUserId));
   }
 }
 
