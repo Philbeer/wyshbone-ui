@@ -78,44 +78,60 @@ function extractDomain(websiteUrl: string): string {
   }
 }
 
-/* ========== GOOGLE PLACES TEXT SEARCH (LITE) ========== */
+/* ========== GOOGLE PLACES TEXT SEARCH (NEW API WITH FIELD MASK) ========== */
 
 export async function placesTextSearchLite(
   query: string,
   apiKey: string
 ): Promise<PlacesTextSearchResult[]> {
-  const url = "https://maps.googleapis.com/maps/api/place/textsearch/json";
+  // Use NEW Places API with field mask to get website URLs directly
+  const url = "https://places.googleapis.com/v1/places:searchText";
   const results: PlacesTextSearchResult[] = [];
-  let pagetoken: string | undefined;
+  let pageToken: string | undefined;
 
   // Fetch up to 3 pages (20 results per page = 60 total max)
   for (let i = 0; i < 3; i++) {
-    const params: any = { query, key: apiKey, region: "uk" };
-    if (pagetoken) {
-      params.pagetoken = pagetoken;
+    const body: any = { 
+      textQuery: query,
+      maxResultCount: 20,
+      languageCode: "en",
+      regionCode: "uk"
+    };
+    
+    if (pageToken) {
+      body.pageToken = pageToken;
     }
 
-    const response = await axios.get(url, { params });
+    const response = await axios.post(url, body, {
+      headers: {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": apiKey,
+        // CRITICAL: Use field mask to request website URL directly
+        "X-Goog-FieldMask": "places.id,places.displayName.text,places.formattedAddress,places.websiteUri,nextPageToken"
+      }
+    });
+    
     const data = response.data;
 
-    if (data?.results?.length) {
+    if (data?.places?.length) {
       results.push(
-        ...data.results.map((x: any) => ({
-          place_id: x.place_id,
-          name: x.name || "",
-          formatted_address: x.formatted_address || "",
-          website: x.website || "",
+        ...data.places.map((x: any) => ({
+          place_id: x.id,
+          name: x.displayName?.text || "",
+          formatted_address: x.formattedAddress || "",
+          website: x.websiteUri || "",
         }))
       );
     }
 
-    pagetoken = data.next_page_token;
-    if (!pagetoken) break;
+    pageToken = data.nextPageToken;
+    if (!pageToken) break;
 
     // Wait 2 seconds before fetching next page (Google requirement)
     await new Promise((resolve) => setTimeout(resolve, 2000));
   }
 
+  console.log(`📍 Google Places found ${results.length} results, ${results.filter(r => r.website).length} with websites`);
   return results;
 }
 
