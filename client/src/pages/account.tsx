@@ -11,10 +11,10 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 const TIER_CONFIG: Record<string, { displayName: string; color: string; monitors: number; deepResearch: number }> = {
   free: { displayName: "Free", color: "secondary", monitors: 2, deepResearch: 2 },
-  basic: { displayName: "Basic", color: "default", monitors: 10, deepResearch: 10 },
-  pro: { displayName: "Pro", color: "default", monitors: 25, deepResearch: 25 },
-  business: { displayName: "Business", color: "default", monitors: 50, deepResearch: 50 },
-  enterprise: { displayName: "Enterprise", color: "default", monitors: 100, deepResearch: 100 },
+  basic: { displayName: "Basic", color: "default", monitors: 10, deepResearch: 25 },
+  pro: { displayName: "Pro", color: "default", monitors: 50, deepResearch: 100 },
+  business: { displayName: "Business", color: "default", monitors: 200, deepResearch: 500 },
+  enterprise: { displayName: "Enterprise", color: "default", monitors: 99999, deepResearch: 99999 },
 };
 
 export default function Account() {

@@ -313,9 +313,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(401).json({ error: "Not authenticated" });
       }
 
-      const { priceId } = req.body;
+      const { tier } = req.body;
+      if (!tier) {
+        return res.status(400).json({ error: "Tier required" });
+      }
+
+      // Map tier names to Stripe price IDs from environment variables
+      const STRIPE_PRICE_IDS: Record<string, string> = {
+        basic: process.env.STRIPE_PRICE_BASIC || "price_basic_placeholder",
+        pro: process.env.STRIPE_PRICE_PRO || "price_pro_placeholder",
+        business: process.env.STRIPE_PRICE_BUSINESS || "price_business_placeholder",
+        enterprise: process.env.STRIPE_PRICE_ENTERPRISE || "price_enterprise_placeholder",
+      };
+
+      const priceId = STRIPE_PRICE_IDS[tier];
       if (!priceId) {
-        return res.status(400).json({ error: "Price ID required" });
+        return res.status(400).json({ error: "Invalid tier" });
+      }
+
+      // Check if using placeholder price IDs
+      if (priceId.includes("placeholder")) {
+        return res.status(400).json({ 
+          error: "Stripe price IDs not configured. Please set STRIPE_PRICE_BASIC, STRIPE_PRICE_PRO, STRIPE_PRICE_BUSINESS, and STRIPE_PRICE_ENTERPRISE environment variables with your Stripe price IDs." 
+        });
       }
 
       const user = await storage.getUserById(auth.userId);
@@ -335,25 +355,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
         await storage.updateUser(user.id, { stripeCustomerId: customerId });
       }
 
-      // Create subscription
-      const subscription = await stripe.subscriptions.create({
+      // Create Stripe Checkout Session
+      const session = await stripe.checkout.sessions.create({
         customer: customerId,
-        items: [{ price: priceId }],
-        payment_behavior: 'default_incomplete',
-        payment_settings: { save_default_payment_method: 'on_subscription' },
-        expand: ['latest_invoice.payment_intent'],
+        mode: 'subscription',
+        payment_method_types: ['card'],
+        line_items: [
+          {
+            price: priceId,
+            quantity: 1,
+          },
+        ],
+        success_url: `${process.env.REPLIT_DEV_DOMAIN || 'http://localhost:5000'}/account?session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${process.env.REPLIT_DEV_DOMAIN || 'http://localhost:5000'}/pricing`,
+        metadata: {
+          userId: user.id,
+          tier,
+        },
       });
 
-      const invoice = subscription.latest_invoice as Stripe.Invoice;
-      const paymentIntent = invoice.payment_intent as Stripe.PaymentIntent;
-
       res.json({
-        subscriptionId: subscription.id,
-        clientSecret: paymentIntent.client_secret,
+        checkoutUrl: session.url,
       });
     } catch (error: any) {
       console.error("Subscription creation error:", error);
-      res.status(500).json({ error: "Failed to create subscription" });
+      res.status(500).json({ error: error.message || "Failed to create subscription" });
     }
   });
 

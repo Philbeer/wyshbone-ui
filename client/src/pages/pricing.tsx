@@ -34,17 +34,15 @@ const PRICING_TIERS: PricingTier[] = [
     price: "£35",
     credits: 350,
     monitors: 10,
-    deepResearch: 10,
-    priceId: "price_basic", // Replace with actual Stripe price ID
+    deepResearch: 25,
   },
   {
     name: "pro",
     displayName: "Pro",
     price: "£70",
     credits: 800,
-    monitors: 25,
-    deepResearch: 25,
-    priceId: "price_pro",
+    monitors: 50,
+    deepResearch: 100,
     popular: true,
   },
   {
@@ -52,18 +50,16 @@ const PRICING_TIERS: PricingTier[] = [
     displayName: "Business",
     price: "£120",
     credits: 1400,
-    monitors: 50,
-    deepResearch: 50,
-    priceId: "price_business",
+    monitors: 200,
+    deepResearch: 500,
   },
   {
     name: "enterprise",
     displayName: "Enterprise",
     price: "£250",
     credits: 3000,
-    monitors: 100,
-    deepResearch: 100,
-    priceId: "price_enterprise",
+    monitors: 99999,
+    deepResearch: 99999,
   },
 ];
 
@@ -78,8 +74,8 @@ export default function Pricing() {
   });
 
   const subscribeMutation = useMutation({
-    mutationFn: async (priceId: string) => {
-      const res = await apiRequest("POST", "/api/subscription/create", { priceId });
+    mutationFn: async (tier: string) => {
+      const res = await apiRequest("POST", "/api/subscription/create", { tier });
       return await res.json();
     },
     onSuccess: (data) => {
@@ -116,17 +112,8 @@ export default function Pricing() {
       return;
     }
 
-    if (!tier.priceId) {
-      toast({
-        title: "Coming soon",
-        description: "This tier will be available soon",
-        variant: "destructive",
-      });
-      return;
-    }
-
     setSelectedTier(tier.name);
-    subscribeMutation.mutate(tier.priceId);
+    subscribeMutation.mutate(tier.name);
   };
 
   return (
