@@ -12,6 +12,7 @@ import ChatPage from "@/pages/chat";
 import DebugPage from "@/pages/debug";
 import BatchPipeline from "@/pages/BatchPipeline";
 import AuthPage from "@/pages/auth";
+import PricingPage from "@/pages/pricing";
 import NotFound from "@/pages/not-found";
 import CountryHint from "@/components/CountryHint";
 import { LoginDialog } from "@/components/LoginDialog";
@@ -52,6 +53,7 @@ function Router({
         />}
       </Route>
       <Route path="/auth" component={AuthPage} />
+      <Route path="/pricing" component={PricingPage} />
       <Route path="/debug" component={DebugPage} />
       <Route path="/batch/:id" component={BatchPipeline} />
       <Route component={NotFound} />
