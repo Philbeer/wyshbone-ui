@@ -686,9 +686,9 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
   };
 
   return (
-    <div className="flex h-full bg-background overflow-x-hidden">
+    <div className="flex h-full w-full max-w-full bg-background overflow-x-hidden">
       {/* Main Chat Area */}
-      <div className="flex flex-col flex-1 min-w-0">
+      <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
 
         {/* Messages Area */}
         <div className="flex-1 overflow-y-auto px-6 py-8">
