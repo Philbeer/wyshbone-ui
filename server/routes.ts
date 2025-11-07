@@ -559,6 +559,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // POST /agent/chat - MEGA Agent Kernel (Hybrid Mode)
+  // This runs alongside the standard chat for testing/comparison
+  app.post("/agent/chat", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+
+      const { text, conversationId } = req.body;
+      if (!text) {
+        return res.status(400).json({ error: "text required" });
+      }
+
+      // Get user profile for context
+      const user = await storage.getUserById(auth.userId);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      // Use conversationId as sessionId for MEGA kernel
+      const sessionId = conversationId || `mega-${auth.userId}`;
+
+      // Import agent kernel dynamically
+      const { agentChat } = await import("./lib/agent-kernel");
+
+      // Call MEGA kernel
+      const result = await agentChat(sessionId, text, user);
+
+      res.json(result);
+    } catch (error: any) {
+      console.error("MEGA agent error:", error);
+      res.status(500).json({ ok: false, error: error?.message || "unknown" });
+    }
+  });
+
   // ===========================
   // SUBSCRIPTION ROUTES
   // ===========================
