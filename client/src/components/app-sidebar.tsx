@@ -780,7 +780,14 @@ export function AppSidebar({
             <SidebarMenu>
               <SidebarMenuItem>
                 <SidebarMenuButton 
-                  onClick={() => onNewChat?.()}
+                  onClick={() => {
+                    // Navigate to home page first if not already there
+                    if (location !== "/") {
+                      setLocation("/");
+                    }
+                    // Then trigger new chat
+                    onNewChat?.();
+                  }}
                   data-testid="button-new-chat"
                 >
                   <FilePlus className="h-4 w-4" />
@@ -831,7 +838,14 @@ export function AppSidebar({
                         {conversations.map((conversation) => (
                           <button
                             key={conversation.id}
-                            onClick={() => onSelectConversation?.(conversation.id)}
+                            onClick={() => {
+                              // Navigate to home page first if not already there
+                              if (location !== "/") {
+                                setLocation("/");
+                              }
+                              // Then load conversation
+                              onSelectConversation?.(conversation.id);
+                            }}
                             className="w-full text-left px-3 py-2 rounded-md text-sm hover-elevate active-elevate-2 border border-border truncate"
                             data-testid={`button-conversation-${conversation.id}`}
                           >
