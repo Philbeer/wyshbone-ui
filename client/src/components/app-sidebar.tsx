@@ -781,12 +781,8 @@ export function AppSidebar({
               <SidebarMenuItem>
                 <SidebarMenuButton 
                   onClick={() => {
-                    // Navigate to home page first if not already there
-                    if (location !== "/") {
-                      setLocation("/");
-                    }
-                    // Then trigger new chat
-                    onNewChat?.();
+                    // Navigate to home page with new_chat parameter
+                    setLocation("/?new_chat=true");
                   }}
                   data-testid="button-new-chat"
                 >
@@ -839,12 +835,8 @@ export function AppSidebar({
                           <button
                             key={conversation.id}
                             onClick={() => {
-                              // Navigate to home page first if not already there
-                              if (location !== "/") {
-                                setLocation("/");
-                              }
-                              // Then load conversation
-                              onSelectConversation?.(conversation.id);
+                              // Navigate to home page with conversation parameter
+                              setLocation(`/?conversation=${conversation.id}`);
                             }}
                             className="w-full text-left px-3 py-2 rounded-md text-sm hover-elevate active-elevate-2 border border-border truncate"
                             data-testid={`button-conversation-${conversation.id}`}

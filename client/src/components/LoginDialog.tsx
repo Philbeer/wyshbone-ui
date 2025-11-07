@@ -30,12 +30,13 @@ export function LoginDialog() {
   };
 
   const handleLogout = () => {
-    setUser({
-      id: "demo-user",
-      email: "demo@wyshbone.com",
-      name: "Demo User"
-    });
-    setOpen(false);
+    // Clear all auth data
+    localStorage.removeItem("wyshbone_sid");
+    localStorage.removeItem("wyshbone_user");
+    localStorage.removeItem("currentConversationId");
+    
+    // Reload to trigger fresh demo session creation
+    window.location.reload();
   };
 
   return (
@@ -105,9 +106,9 @@ export function LoginDialog() {
             variant="outline" 
             onClick={handleLogout}
             className="flex-1"
-            data-testid="button-use-demo"
+            data-testid="button-logout"
           >
-            Use Demo User
+            Start Fresh Session
           </Button>
           <Button 
             onClick={handleLogin}

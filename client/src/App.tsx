@@ -231,10 +231,11 @@ function AppContent() {
     setSearchParams(window.location.search);
   }, [location]);
 
-  // Handle URL query parameters to load specific conversation
+  // Handle URL query parameters to load specific conversation or trigger new chat
   useEffect(() => {
     const params = new URLSearchParams(searchParams);
     const conversationParam = params.get('conversation');
+    const newChatParam = params.get('new_chat');
     
     if (conversationParam && loadConversationCallbackRef.current) {
       console.log("🔗 Loading conversation from URL:", conversationParam);
@@ -244,6 +245,14 @@ function AppContent() {
       // Clean up the URL parameter (optional - makes URL cleaner)
       window.history.replaceState({}, '', window.location.pathname);
       setSearchParams(''); // Clear search params after loading
+    } else if (newChatParam === 'true' && newChatCallbackRef.current) {
+      console.log("🆕 Starting new chat from URL parameter");
+      // Trigger new chat
+      newChatCallbackRef.current();
+      
+      // Clean up the URL parameter
+      window.history.replaceState({}, '', window.location.pathname);
+      setSearchParams('');
     }
   }, [searchParams]); // Re-run when search params change
 
