@@ -61,7 +61,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
       }
       
       // Priority 2: Check for direct URL parameters (?user_id= and ?user_email=)
-      // This is used for dev mode when not using session IDs
+      // Create a session for URL-authenticated users so they can open in new tabs
       const userId = urlParams.get("user_id");
       const userEmail = urlParams.get("user_email");
       
@@ -78,24 +78,47 @@ export function UserProvider({ children }: { children: ReactNode }) {
           }
         }
         
-        const userName = userEmail.split("@")[0];
-        const urlUser = {
-          id: userId,
-          email: userEmail,
-          name: userName.charAt(0).toUpperCase() + userName.slice(1)
-        };
-        console.log("🔐 User authenticated from URL parameters:", { userId, userEmail });
-        localStorage.setItem("wyshbone_user", JSON.stringify(urlUser));
+        console.log("🔐 User authenticated from URL parameters, creating session...", { userId, userEmail });
         
-        // Clear React Query cache if switching to a different user
-        if (isDifferentUser) {
-          console.log("🧹 Clearing React Query cache for new user");
-          queryClient.clear();
+        try {
+          // Request a session ID from the backend
+          const response = await fetch("/api/auth/url-session", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ user_id: userId, user_email: userEmail })
+          });
+          
+          if (response.ok) {
+            const data = await response.json();
+            const urlUser = {
+              id: data.user.id,
+              email: data.user.email,
+              name: data.user.name
+            };
+            
+            // Store session ID and user data
+            localStorage.setItem("wyshbone_sid", data.sessionId);
+            localStorage.setItem("wyshbone_user", JSON.stringify(urlUser));
+            
+            console.log(`✅ Created session for URL user: ${urlUser.email}`);
+            
+            // Clear React Query cache if switching to a different user
+            if (isDifferentUser) {
+              console.log("🧹 Clearing React Query cache for new user");
+              queryClient.clear();
+            }
+            
+            setUserInternal(urlUser);
+            setIsValidatingSession(false);
+            return;
+          } else {
+            console.error("Failed to create session for URL user");
+            // Fall through to next priority
+          }
+        } catch (error) {
+          console.error("Session creation error for URL user:", error);
+          // Fall through to next priority
         }
-        
-        setUserInternal(urlUser);
-        setIsValidatingSession(false);
-        return;
       }
       
       // Priority 3: Check localStorage (for returning users or manual login)

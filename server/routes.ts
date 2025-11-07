@@ -350,6 +350,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // POST /api/auth/url-session - Create session for URL-authenticated users
+  // SECURITY NOTE: This endpoint is development-only and mirrors the existing URL param
+  // authentication in getAuthenticatedUserId(). In Replit's embedded preview, URL params
+  // come from the hosting infrastructure, not from the user. This endpoint provides
+  // session persistence so users can open the app in new tabs without losing auth context.
   app.post("/api/auth/url-session", async (req, res) => {
     try {
       const { user_id, user_email } = req.body;
@@ -359,7 +363,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Missing user_id or user_email" });
       }
       
-      // In development, accept URL auth params; in production, reject
+      // PRODUCTION SAFETY: Strictly reject in production
       if (process.env.NODE_ENV !== 'development') {
         return res.status(403).json({ error: "URL authentication only allowed in development mode" });
       }
