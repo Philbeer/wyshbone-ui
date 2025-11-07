@@ -206,8 +206,8 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
                 })
               );
 
-              // Auto-open results tab
-              window.open(`/batch/${batchId}`, '_blank');
+              // Auto-open results tab with auth params
+              window.open(addDevAuthParams(`/batch/${batchId}`), '_blank');
               
               // Remove from tracking
               setBatchJobTracking((prev) => {
