@@ -957,7 +957,7 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
       {/* Add to Xero Floating Button */}
       <Button
         onClick={() => setShowXeroDialog(true)}
-        className="fixed bottom-24 right-8 h-14 w-14 rounded-full shadow-lg md:right-8 sm:right-4"
+        className="fixed bottom-24 right-8 lg:right-[344px] xl:right-[384px] h-14 w-14 rounded-full shadow-lg"
         size="icon"
         title="Add Contact to Xero"
         aria-label="Add Contact to Xero"
