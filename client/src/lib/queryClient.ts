@@ -56,7 +56,7 @@ export async function apiRequest(
   url: string,
   data?: unknown | undefined,
 ): Promise<Response> {
-  // Prefer session ID header over URL params
+  // Use session ID header if available (production-ready approach)
   const sessionId = getSessionId();
   const headers: Record<string, string> = {};
   
@@ -64,13 +64,13 @@ export async function apiRequest(
     headers["Content-Type"] = "application/json";
   }
   
-  // Add session header if available (production-ready approach)
+  // Add session header if available
   if (sessionId) {
     headers["x-session-id"] = sessionId;
   }
   
-  // Fallback to URL params in development mode only if no session
-  const authedUrl = sessionId ? url : addDevAuthParams(url);
+  // In development, always add URL params as fallback (for compatibility)
+  const authedUrl = addDevAuthParams(url);
   
   const res = await fetch(authedUrl, {
     method,
@@ -89,17 +89,17 @@ export const getQueryFn: <T>(options: {
 }) => QueryFunction<T> =
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
-    // Prefer session ID header over URL params
+    // Use session ID header if available (production-ready approach)
     const sessionId = getSessionId();
     const headers: Record<string, string> = {};
     
-    // Add session header if available (production-ready approach)
+    // Add session header if available
     if (sessionId) {
       headers["x-session-id"] = sessionId;
     }
     
-    // Fallback to URL params in development mode only if no session
-    const url = sessionId ? queryKey.join("/") : addDevAuthParams(queryKey.join("/") as string);
+    // In development, always add URL params as fallback (for compatibility)
+    const url = addDevAuthParams(queryKey.join("/") as string);
     
     const res = await fetch(url, {
       headers,

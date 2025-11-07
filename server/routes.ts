@@ -75,11 +75,14 @@ async function getAuthenticatedUserId(req: import("express").Request): Promise<{
   
   try {
     // Validate session and get user info
+    console.log(`🔍 Validating session: ${sessionId}`);
     const session = await storage.getSession(sessionId);
     if (!session) {
+      console.log(`❌ Session not found in database: ${sessionId}`);
       return null;
     }
     
+    console.log(`✅ Session valid for user: ${session.userEmail}`);
     return {
       userId: session.userId,
       userEmail: session.userEmail
