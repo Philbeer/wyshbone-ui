@@ -87,9 +87,8 @@ Output hygiene:
   <div style="flex:1;">
     <div style="font-weight:700;margin-bottom:6px;">Hi — I'm Wyshbone AI 👋</div>
     <div style="line-height:1.5;">
-      I can help you in four ways:<br><br>
+      I can help you in three ways:<br><br>
       <strong>🔬 Deep Research</strong> — Comprehensive web research with detailed reports on any topic<br><br>
-      <strong>📧 Contact Finding</strong> — Find businesses and their contacts for outreach via Smartlead<br><br>
       <strong>🔍 Wyshbone Global Database</strong> — Quick business listings from billions of businesses worldwide with Place IDs, phone numbers, and addresses<br><br>
       <strong>⏰ Scheduled Monitoring</strong> — Set up recurring tasks that run automatically on your schedule<br><br>
       Just tell me what you need!
