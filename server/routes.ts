@@ -1346,10 +1346,11 @@ Examples:
 
       // Handle "both_possible" - ask user to clarify
       if (userIntent?.intent === "both_possible") {
-        const clarificationMsg = `I can help with that in three ways:\n\n` +
+        const clarificationMsg = `I can help with that in four ways:\n\n` +
           `📊 **Deep Research** - I'll perform comprehensive research and provide a detailed report with findings, sources, and analysis\n\n` +
           `📧 **Find Contacts** - I'll trigger a workflow to find specific business contacts (like Head of Sales) for your target businesses\n\n` +
           `🔍 **Wyshbone Global Database** - I'll search our global database and return a quick list of businesses with Place IDs, phone numbers, addresses, and websites\n\n` +
+          `⏰ **Scheduled Monitoring** - I'll set up recurring automated monitoring to check regularly (e.g., every Monday) and build reports over time\n\n` +
           `Which would you prefer?`;
         
         appendMessage(sessionId, { role: "assistant", content: clarificationMsg });
