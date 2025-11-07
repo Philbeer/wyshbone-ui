@@ -827,7 +827,7 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
                       <img src={wyshboneLogo} alt="Wyshbone" className="w-full h-full object-cover" />
                     )}
                   </div>
-                  <div className={`flex flex-col ${isUser ? "items-end" : "items-start"} max-w-3xl`}>
+                  <div className={`flex flex-col ${isUser ? "items-end" : "items-start"} max-w-3xl xl:max-w-none`}>
                     <div
                       className={`rounded-lg px-4 py-3 ${
                         isUser
@@ -896,7 +896,7 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
               <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0">
                 <img src={wyshboneLogo} alt="Wyshbone" className="w-full h-full object-cover" />
               </div>
-              <div className="flex flex-col items-start max-w-3xl">
+              <div className="flex flex-col items-start max-w-3xl xl:max-w-none">
                 <div className="rounded-lg px-4 py-3 bg-card border border-card-border">
                   <div className="flex gap-1">
                     <span className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
