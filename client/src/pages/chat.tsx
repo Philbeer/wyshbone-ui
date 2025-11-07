@@ -686,7 +686,6 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
   };
 
   return (
-    <>
     <div className="flex flex-nowrap h-full w-full bg-background overflow-hidden">
       {/* Main Chat Area */}
       <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
@@ -954,25 +953,24 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
 
       {/* Right Sidebar */}
       <WishboneSidebar onPrompt={handleSend} />
+      
+      {/* Add to Xero Floating Button */}
+      <Button
+        onClick={() => setShowXeroDialog(true)}
+        className="fixed bottom-24 right-8 h-14 w-14 rounded-full shadow-lg md:right-8 sm:right-4"
+        size="icon"
+        title="Add Contact to Xero"
+        aria-label="Add Contact to Xero"
+        data-testid="button-add-to-xero"
+      >
+        <Building2 className="w-6 h-6" />
+      </Button>
+      
+      {/* Add to Xero Dialog */}
+      <AddToXeroDialog 
+        open={showXeroDialog}
+        onOpenChange={setShowXeroDialog}
+      />
     </div>
-    
-    {/* Add to Xero Floating Button - Outside flex container */}
-    <Button
-      onClick={() => setShowXeroDialog(true)}
-      className="fixed bottom-24 right-8 h-14 w-14 rounded-full shadow-lg md:right-8 sm:right-4"
-      size="icon"
-      title="Add Contact to Xero"
-      aria-label="Add Contact to Xero"
-      data-testid="button-add-to-xero"
-    >
-      <Building2 className="w-6 h-6" />
-    </Button>
-    
-    {/* Add to Xero Dialog - Outside flex container */}
-    <AddToXeroDialog 
-      open={showXeroDialog}
-      onOpenChange={setShowXeroDialog}
-    />
-    </>
   );
 }
