@@ -4791,18 +4791,6 @@ Return structured data with the EXACT placeId provided above: "${placeId}"`;
         return res.status(404).json({ error: "Research run not found" });
       }
       
-      // Demo users must sign up to view deep research reports
-      if (auth?.userId) {
-        const user = await storage.getUserById(auth.userId);
-        if (user && user.isDemo) {
-          return res.status(403).json({ 
-            error: "DEMO_SIGNUP_REQUIRED",
-            message: "Sign up for a free account to view your deep research reports!",
-            requiresSignup: true
-          });
-        }
-      }
-      
       // Track this as the last viewed run for this session
       await storage.setLastViewedRun(sessionId, runId);
       console.log(`📊 Tracked last viewed run for session ${sessionId}: ${runId}`);
