@@ -660,10 +660,14 @@ export class DbStorage implements IStorage {
   }
 
   async listConversations(userId: string): Promise<SelectConversation[]> {
+    // Exclude monitor_run conversations - those are accessed via monitors in sidebar
     return db
       .select()
       .from(conversations)
-      .where(eq(conversations.userId, userId))
+      .where(and(
+        eq(conversations.userId, userId),
+        eq(conversations.type, "chat")
+      ))
       .orderBy(desc(conversations.createdAt));
   }
 

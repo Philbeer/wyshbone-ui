@@ -1219,28 +1219,24 @@ function ScheduledMonitorsSection({ userId, onSelectConversation }: { userId: st
           if (!onSelectConversation) return;
           
           try {
-            // Fetch all run conversations for this monitor
-            const url = addDevAuthParams(`/api/monitors/${monitor.id}/runs`);
+            // Fetch the single conversation thread for this monitor
+            const url = addDevAuthParams(`/api/monitors/${monitor.id}/conversation`);
             const response = await fetch(url);
             
             if (!response.ok) {
-              console.error('Failed to fetch monitor runs');
+              if (response.status === 404) {
+                console.log('No conversation yet for this monitor - it hasn\'t run yet');
+                return;
+              }
+              console.error('Failed to fetch monitor conversation');
               return;
             }
             
-            const runs = await response.json();
-            
-            if (runs.length === 0) {
-              console.log('No runs yet for this monitor');
-              return;
-            }
-            
-            // Load the LATEST run (first in the array, sorted by runSequence desc)
-            const latestRun = runs[0];
-            console.log('✅ Loading latest run conversation:', latestRun.id, 'Run #' + latestRun.runSequence);
-            onSelectConversation(latestRun.id);
+            const data = await response.json();
+            console.log('✅ Loading monitor conversation thread:', data.conversationId);
+            onSelectConversation(data.conversationId);
           } catch (error) {
-            console.error('Error loading monitor run:', error);
+            console.error('Error loading monitor conversation:', error);
           }
         };
         
