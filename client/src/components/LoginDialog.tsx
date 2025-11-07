@@ -69,7 +69,7 @@ export function LoginDialog() {
         <DialogHeader>
           <DialogTitle>User Profile</DialogTitle>
           <DialogDescription>
-            Create a new test profile or switch back to demo user
+            {isDemoUser ? "Create a new test profile or switch back to demo user" : "Manage your account"}
           </DialogDescription>
         </DialogHeader>
         
@@ -85,52 +85,67 @@ export function LoginDialog() {
             </div>
           </div>
 
-          <div className="border-t pt-4 space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="email">Email Address</Label>
-              <Input
-                id="email"
-                type="email"
-                placeholder="test@example.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleLogin()}
-                data-testid="input-email"
-              />
+          {isDemoUser && (
+            <div className="border-t pt-4 space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="email">Email Address</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  placeholder="test@example.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleLogin()}
+                  data-testid="input-email"
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="name">Name (Optional)</Label>
+                <Input
+                  id="name"
+                  type="text"
+                  placeholder="Test User"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleLogin()}
+                  data-testid="input-name"
+                />
+              </div>
             </div>
-            
-            <div className="space-y-2">
-              <Label htmlFor="name">Name (Optional)</Label>
-              <Input
-                id="name"
-                type="text"
-                placeholder="Test User"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleLogin()}
-                data-testid="input-name"
-              />
-            </div>
-          </div>
+          )}
         </div>
 
         <div className="flex gap-2">
-          <Button 
-            variant="outline" 
-            onClick={handleLogout}
-            className="flex-1"
-            data-testid="button-logout"
-          >
-            Start Fresh Session
-          </Button>
-          <Button 
-            onClick={handleLogin}
-            disabled={!email.trim()}
-            className="flex-1"
-            data-testid="button-create-profile"
-          >
-            Create Profile
-          </Button>
+          {isDemoUser ? (
+            <>
+              <Button 
+                variant="outline" 
+                onClick={handleLogout}
+                className="flex-1"
+                data-testid="button-logout"
+              >
+                Start Fresh Session
+              </Button>
+              <Button 
+                onClick={handleLogin}
+                disabled={!email.trim()}
+                className="flex-1"
+                data-testid="button-create-profile"
+              >
+                Create Profile
+              </Button>
+            </>
+          ) : (
+            <Button 
+              variant="outline" 
+              onClick={handleLogout}
+              className="w-full"
+              data-testid="button-sign-out"
+            >
+              Sign Out
+            </Button>
+          )}
         </div>
       </DialogContent>
     </Dialog>
