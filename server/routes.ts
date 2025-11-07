@@ -349,6 +349,62 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // POST /api/auth/url-session - Create session for URL-authenticated users
+  app.post("/api/auth/url-session", async (req, res) => {
+    try {
+      const { user_id, user_email } = req.body;
+      
+      // Validate required fields
+      if (!user_id || !user_email) {
+        return res.status(400).json({ error: "Missing user_id or user_email" });
+      }
+      
+      // In development, accept URL auth params; in production, reject
+      if (process.env.NODE_ENV !== 'development') {
+        return res.status(403).json({ error: "URL authentication only allowed in development mode" });
+      }
+      
+      // Check if this user already has an account (registered user)
+      let user = await storage.getUserById(user_id);
+      
+      // If no user exists with this ID, check by email
+      if (!user) {
+        const users = await storage.getAllUsers();
+        user = users.find(u => u.email === user_email);
+      }
+      
+      // Generate session for this user
+      const sessionId = generateId();
+      const expiresAt = Date.now() + (7 * 24 * 60 * 60 * 1000); // 7 days
+      
+      await storage.createSession(sessionId, user_id, user_email, expiresAt);
+      
+      console.log(`✅ Created URL session for user: ${user_email} (ID: ${user_id})`);
+      
+      res.json({
+        sessionId,
+        user: user ? {
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          subscriptionTier: user.subscriptionTier,
+          subscriptionStatus: user.subscriptionStatus,
+          isDemo: user.isDemo === 1,
+        } : {
+          id: user_id,
+          email: user_email,
+          name: user_email.split("@")[0],
+          subscriptionTier: "free",
+          subscriptionStatus: "inactive",
+          isDemo: true,
+        }
+      });
+    } catch (error: any) {
+      console.error("URL session creation error:", error);
+      res.status(500).json({ error: "Session creation failed" });
+    }
+  });
+
   // POST /api/auth/logout - User logout
   app.post("/api/auth/logout", async (req, res) => {
     const sessionId = req.headers["x-session-id"] as string;
