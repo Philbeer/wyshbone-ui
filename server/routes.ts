@@ -517,6 +517,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // GET /api/chat/greeting - Get personalized greeting for user
+  app.get("/api/chat/greeting", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+
+      const user = await storage.getUserById(auth.userId);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      // Build session context
+      const sessionContext = buildSessionContext({
+        companyName: user.companyName ?? null,
+        companyDomain: user.companyDomain ?? null,
+        roleHint: user.roleHint ?? null,
+        primaryObjective: user.primaryObjective ?? null,
+        secondaryObjectives: user.secondaryObjectives ?? null,
+        targetMarkets: user.targetMarkets ?? null,
+        productsOrServices: user.productsOrServices ?? null,
+        preferences: user.preferences ?? null,
+        inferredIndustry: user.inferredIndustry ?? null,
+        confidence: user.confidence ?? null,
+      } as any);
+
+      // Generate personalized opening
+      const greeting = generatePersonalizedOpening(sessionContext);
+
+      res.json({ 
+        greeting,
+        hasProfile: sessionContext.hasProfile,
+        industry: sessionContext.inferredIndustry,
+        confidence: sessionContext.confidence
+      });
+    } catch (error: any) {
+      console.error("Greeting generation error:", error);
+      res.status(500).json({ error: "Failed to generate greeting" });
+    }
+  });
+
   // ===========================
   // SUBSCRIPTION ROUTES
   // ===========================

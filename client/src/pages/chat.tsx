@@ -56,6 +56,7 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const hasLoadedHistoryRef = useRef(false);
+  const hasShownGreetingRef = useRef(false); // Track if we've shown the auto-greeting
   const [batchJobTracking, setBatchJobTracking] = useState<Map<string, string>>(new Map()); // messageId -> batchId
   const batchPollIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const [showXeroDialog, setShowXeroDialog] = useState(false);
@@ -181,6 +182,41 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
     }
   }, [conversationId]);
 
+  // Auto-show personalized greeting when user first visits
+  useEffect(() => {
+    const showAutoGreeting = async () => {
+      // Only show greeting once, when we have no messages and welcome is visible
+      if (hasShownGreetingRef.current || messages.length > 0 || !showWelcome || isLoadingHistory) {
+        return;
+      }
+
+      hasShownGreetingRef.current = true;
+
+      try {
+        const response = await fetch(addDevAuthParams('/api/chat/greeting'));
+        if (response.ok) {
+          const data = await response.json();
+          
+          // Add personalized greeting as an assistant message
+          const greetingMessage: Message = {
+            id: crypto.randomUUID(),
+            role: 'assistant',
+            content: data.greeting,
+            timestamp: new Date(),
+          };
+
+          setMessages([greetingMessage]);
+          setShowWelcome(false); // Hide static welcome, show dynamic greeting
+        }
+      } catch (error) {
+        console.error('Failed to fetch greeting:', error);
+        // Silently fail - user can still use chat normally
+      }
+    };
+
+    showAutoGreeting();
+  }, [messages.length, showWelcome, isLoadingHistory]);
+
   // Poll batch job statuses and update messages when complete
   useEffect(() => {
     const pollBatchJobs = async () => {
@@ -280,6 +316,9 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
         
         // IMPORTANT: Set history loading ref to true FIRST to prevent auto-loading
         hasLoadedHistoryRef.current = true;
+        
+        // Reset greeting ref so it shows for new chat
+        hasShownGreetingRef.current = false;
         
         // Clear conversationId from localStorage BEFORE clearing state
         localStorage.removeItem('currentConversationId');
