@@ -1,4 +1,4 @@
-import { Globe, MessageSquare, Bug, FilePlus, MessagesSquare, ChevronDown, ChevronRight, Clock, Edit2, Trash2, Mail, Link2, User, CreditCard } from "lucide-react";
+import { Globe, MessageSquare, Bug, FilePlus, MessagesSquare, ChevronDown, ChevronRight, Clock, Edit2, Trash2, Mail, Link2, User, CreditCard, History } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
@@ -811,6 +811,14 @@ export function AppSidebar({
                   <Link href="/pricing">
                     <CreditCard className="h-4 w-4" />
                     <span>Pricing</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={location === "/batch-history"} data-testid="link-batch-history">
+                  <Link href="/batch-history">
+                    <History className="h-4 w-4" />
+                    <span>Email Finder Runs</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>

@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import ChatPage from "@/pages/chat";
 import DebugPage from "@/pages/debug";
 import BatchPipeline from "@/pages/BatchPipeline";
+import BatchHistoryPage from "@/pages/batch-history";
 import AuthPage from "@/pages/auth";
 import PricingPage from "@/pages/pricing";
 import AccountPage from "@/pages/account";
@@ -57,6 +58,7 @@ function Router({
       <Route path="/pricing" component={PricingPage} />
       <Route path="/account" component={AccountPage} />
       <Route path="/debug" component={DebugPage} />
+      <Route path="/batch-history" component={BatchHistoryPage} />
       <Route path="/batch/:id" component={BatchPipeline} />
       <Route component={NotFound} />
     </Switch>
