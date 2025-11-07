@@ -791,38 +791,6 @@ export function AppSidebar({
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={location === "/debug"} data-testid="link-debug">
-                  <Link href="/debug">
-                    <Bug className="h-4 w-4" />
-                    <span>Memory Debug</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={location === "/account"} data-testid="link-account">
-                  <Link href="/account">
-                    <User className="h-4 w-4" />
-                    <span>Account</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={location === "/pricing"} data-testid="link-pricing">
-                  <Link href="/pricing">
-                    <CreditCard className="h-4 w-4" />
-                    <span>Pricing</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={location === "/batch-history"} data-testid="link-batch-history">
-                  <Link href="/batch-history">
-                    <History className="h-4 w-4" />
-                    <span>Email Finder Runs</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
                 <Collapsible open={showPreviousChats} onOpenChange={setShowPreviousChats}>
                   <CollapsibleTrigger asChild>
                     <SidebarMenuButton data-testid="button-toggle-previous-chats">
@@ -854,6 +822,53 @@ export function AppSidebar({
                         ))}
                       </div>
                     )}
+                  </CollapsibleContent>
+                </Collapsible>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={location === "/debug"} data-testid="link-debug">
+                  <Link href="/debug">
+                    <Bug className="h-4 w-4" />
+                    <span>Memory Debug</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={location === "/account"} data-testid="link-account">
+                  <Link href="/account">
+                    <User className="h-4 w-4" />
+                    <span>Account</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={location === "/pricing"} data-testid="link-pricing">
+                  <Link href="/pricing">
+                    <CreditCard className="h-4 w-4" />
+                    <span>Pricing</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <Collapsible open={showIntegrations} onOpenChange={setShowIntegrations}>
+                  <CollapsibleTrigger asChild>
+                    <SidebarMenuButton data-testid="button-toggle-integrations">
+                      {showIntegrations ? (
+                        <ChevronDown className="h-4 w-4" />
+                      ) : (
+                        <ChevronRight className="h-4 w-4" />
+                      )}
+                      <Link2 className="h-4 w-4" />
+                      <span>CRM & Accounting</span>
+                    </SidebarMenuButton>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="mt-2">
+                    <div className="px-3">
+                      <p className="text-xs text-muted-foreground mb-3">
+                        Connect your business tools
+                      </p>
+                      <IntegrationsSection userId={user.email} />
+                    </div>
                   </CollapsibleContent>
                 </Collapsible>
               </SidebarMenuItem>
@@ -893,45 +908,26 @@ export function AppSidebar({
         </SidebarGroup>
 
         <SidebarGroup>
-          <SidebarGroupLabel>Integrations</SidebarGroupLabel>
+          <SidebarGroupLabel>Deep Researches</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               <SidebarMenuItem>
-                <Collapsible open={showIntegrations} onOpenChange={setShowIntegrations}>
-                  <CollapsibleTrigger asChild>
-                    <SidebarMenuButton data-testid="button-toggle-integrations">
-                      {showIntegrations ? (
-                        <ChevronDown className="h-4 w-4" />
-                      ) : (
-                        <ChevronRight className="h-4 w-4" />
-                      )}
-                      <Link2 className="h-4 w-4" />
-                      <span>CRM & Accounting</span>
-                    </SidebarMenuButton>
-                  </CollapsibleTrigger>
-                  <CollapsibleContent className="mt-2">
-                    <div className="px-3">
-                      <p className="text-xs text-muted-foreground mb-3">
-                        Connect your business tools
-                      </p>
-                      <IntegrationsSection userId={user.email} />
-                    </div>
-                  </CollapsibleContent>
-                </Collapsible>
+                <SidebarMenuButton asChild isActive={location === "/batch-history"} data-testid="link-batch-history">
+                  <Link href="/batch-history">
+                    <History className="h-4 w-4" />
+                    <span>Email Finder Runs</span>
+                  </Link>
+                </SidebarMenuButton>
               </SidebarMenuItem>
             </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+            <div className="px-3 mt-4">
+              <p className="text-xs text-muted-foreground mb-3">
+                AutoGen API calls you've sent. Click to view. Use Stop to cancel. Menu for more actions.
+              </p>
 
-        <SidebarGroup>
-          <SidebarGroupLabel>Runs</SidebarGroupLabel>
-          <SidebarGroupContent className="px-3">
-            <p className="text-xs text-muted-foreground mb-3">
-              AutoGen API calls you've sent. Click to view. Use Stop to cancel. Menu for more actions.
-            </p>
-
-            {renderRunSection(todays, "Today")}
-            {renderRunSection(previous, "Previous")}
+              {renderRunSection(todays, "Today")}
+              {renderRunSection(previous, "Previous")}
+            </div>
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
