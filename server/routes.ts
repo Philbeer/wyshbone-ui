@@ -582,12 +582,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Use conversationId as sessionId for MEGA kernel
       const sessionId = conversationId || `mega-${auth.userId}`;
 
+      console.log("🚀 MEGA agent starting:", { sessionId, text: text.substring(0, 50) });
+
       // Import agent kernel dynamically
       const { agentChat } = await import("./lib/agent-kernel");
 
-      // Call MEGA kernel
-      const result = await agentChat(sessionId, text, user);
+      // Call MEGA kernel with timeout
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error("MEGA agent timeout")), 30000)
+      );
+      
+      const result = await Promise.race([
+        agentChat(sessionId, text, user as any),
+        timeoutPromise
+      ]);
 
+      console.log("✅ MEGA agent completed");
       res.json(result);
     } catch (error: any) {
       console.error("MEGA agent error:", error);

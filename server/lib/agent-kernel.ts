@@ -212,6 +212,8 @@ type KernelResult = {
 };
 
 async function callPlanner(state: SessionState, userText: string): Promise<KernelResult> {
+  console.log("📝 Planner called with userText:", userText.substring(0, 50));
+  
   const profile = JSON.stringify(state.profile || {});
   const entities = JSON.stringify(state.entities || []);
   const summary = state.summary || "";
@@ -228,6 +230,7 @@ USER=${userText}`
     }
   ];
 
+  console.log("🤖 Calling OpenAI with model:", CONFIG.model);
   const completion = await openai.chat.completions.create({
     model: CONFIG.model,
     response_format: {
@@ -284,14 +287,18 @@ USER=${userText}`
     messages
   });
 
+  console.log("📥 OpenAI response received");
+  
   const raw = completion.choices?.[0]?.message?.content || "{}";
   try {
     const parsed = JSON.parse(raw);
+    console.log("✅ Planner completed successfully");
     return {
       natural: parsed.natural_response || "",
       plan: parsed.plan || {}
     };
-  } catch {
+  } catch (err) {
+    console.error("❌ Failed to parse OpenAI response:", err);
     return { natural: raw, plan: {} };
   }
 }
