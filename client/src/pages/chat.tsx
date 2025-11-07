@@ -60,6 +60,12 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
   const [batchJobTracking, setBatchJobTracking] = useState<Map<string, string>>(new Map()); // messageId -> batchId
   const batchPollIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const [showXeroDialog, setShowXeroDialog] = useState(false);
+  
+  // MEGA Agent mode toggle
+  const [chatMode, setChatMode] = useState<"standard" | "mega">(() => {
+    return (localStorage.getItem('chatMode') as "standard" | "mega") || "standard";
+  });
+  const [megaChips, setMegaChips] = useState<string[]>([]);
 
   const detectDeepResearchIntent = (text: string): boolean => {
     const lowerText = text.toLowerCase();
