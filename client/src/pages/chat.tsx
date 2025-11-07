@@ -278,19 +278,19 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
           abortControllerRef.current = null;
         }
         
+        // IMPORTANT: Set history loading ref to true FIRST to prevent auto-loading
+        hasLoadedHistoryRef.current = true;
+        
+        // Clear conversationId from localStorage BEFORE clearing state
+        localStorage.removeItem('currentConversationId');
+        
         // Clear all state
         setMessages([]);
         setShowWelcome(true);
         setInput("");
         setIsStreaming(false);
         setShowLocationSuggestions(false);
-        
-        // Clear conversationId from localStorage
-        localStorage.removeItem('currentConversationId');
         setConversationId(undefined);
-        
-        // Reset history loading ref so it can load again if needed
-        hasLoadedHistoryRef.current = false;
         
         console.log("🆕 Started new chat - visual thread cleared, context retained");
       };
