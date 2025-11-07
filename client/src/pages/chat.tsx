@@ -692,7 +692,7 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
 
         {/* Messages Area */}
         <div className="flex-1 overflow-y-auto py-8">
-        <div className="w-full space-y-4 px-6 lg:pr-0">
+        <div className="w-full space-y-4 px-6">
           {messages.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full min-h-[400px] text-center">
               <div className="w-16 h-16 rounded-full overflow-hidden mb-4">
@@ -914,7 +914,7 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
 
       {/* Input Area */}
       <div className="border-t border-border bg-background py-6">
-        <div className="w-full relative px-6 lg:pr-0">
+        <div className="w-full relative px-6">
           {/* Location Suggestions */}
           {showLocationSuggestions && (
             <LocationSuggestions
