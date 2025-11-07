@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useLocation } from "wouter";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,9 +9,13 @@ import { useUser } from "@/contexts/UserContext";
 
 export function LoginDialog() {
   const { user, setUser } = useUser();
+  const [, setLocation] = useLocation();
   const [open, setOpen] = useState(false);
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
+  
+  // Check if user is a demo user
+  const isDemoUser = user.email.endsWith("@wyshbone.demo");
 
   const handleLogin = () => {
     if (!email.trim()) return;
@@ -39,19 +44,27 @@ export function LoginDialog() {
     window.location.reload();
   };
 
+  // Handle button click - redirect demo users to signup
+  const handleUserMenuClick = () => {
+    if (isDemoUser) {
+      setLocation("/auth");
+    } else {
+      setOpen(true);
+    }
+  };
+
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button 
-          variant="ghost" 
-          size="sm"
-          className="gap-1.5 sidebar:gap-2"
-          data-testid="button-user-menu"
-        >
-          <UserCircle className="h-4 w-4 shrink-0" />
-          <span className="text-xs truncate max-w-[80px] sidebar:max-w-none">{user.name}</span>
-        </Button>
-      </DialogTrigger>
+      <Button 
+        variant="ghost" 
+        size="sm"
+        className="gap-1.5 sidebar:gap-2"
+        data-testid="button-user-menu"
+        onClick={handleUserMenuClick}
+      >
+        <UserCircle className="h-4 w-4 shrink-0" />
+        <span className="text-xs truncate max-w-[80px] sidebar:max-w-none">{user.name}</span>
+      </Button>
       <DialogContent className="sm:max-w-md" data-testid="dialog-login">
         <DialogHeader>
           <DialogTitle>User Profile</DialogTitle>
