@@ -692,7 +692,7 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
 
         {/* Messages Area */}
         <div className="flex-1 overflow-y-auto py-8">
-        <div className="w-full space-y-4 px-6 xl:pr-0">
+        <div className="w-full space-y-4 px-6 lg:pr-0">
           {messages.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full min-h-[400px] text-center">
               <div className="w-16 h-16 rounded-full overflow-hidden mb-4">
@@ -827,7 +827,7 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
                       <img src={wyshboneLogo} alt="Wyshbone" className="w-full h-full object-cover" />
                     )}
                   </div>
-                  <div className={`flex flex-col ${isUser ? "items-end" : "items-start"} max-w-3xl xl:max-w-none`}>
+                  <div className={`flex flex-col ${isUser ? "items-end" : "items-start"} max-w-3xl lg:max-w-none`}>
                     <div
                       className={`rounded-lg px-4 py-3 ${
                         isUser
@@ -896,7 +896,7 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
               <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0">
                 <img src={wyshboneLogo} alt="Wyshbone" className="w-full h-full object-cover" />
               </div>
-              <div className="flex flex-col items-start max-w-3xl xl:max-w-none">
+              <div className="flex flex-col items-start max-w-3xl lg:max-w-none">
                 <div className="rounded-lg px-4 py-3 bg-card border border-card-border">
                   <div className="flex gap-1">
                     <span className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
@@ -914,7 +914,7 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
 
       {/* Input Area */}
       <div className="border-t border-border bg-background py-6">
-        <div className="w-full relative px-6 xl:pr-0">
+        <div className="w-full relative px-6 lg:pr-0">
           {/* Location Suggestions */}
           {showLocationSuggestions && (
             <LocationSuggestions
