@@ -95,7 +95,7 @@ export default function WishboneSidebar({ onPrompt }: Props) {
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.3 }}
-          className="hidden lg:block flex-shrink-0 w-[320px] xl:w-[360px] border-l border-border bg-background"
+          className="hidden lg:block flex-shrink-0 w-[min(320px,100vw)] xl:w-[min(360px,100vw)] border-l border-border bg-background"
           aria-label="Research Tips and Examples"
           data-testid="sidebar-research"
         >
