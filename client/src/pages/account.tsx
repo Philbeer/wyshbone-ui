@@ -3,11 +3,14 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
-import { Loader2, CreditCard, TrendingUp, Package, AlertCircle } from "lucide-react";
+import { Loader2, CreditCard, TrendingUp, Package, AlertCircle, Building2, Save } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { useState } from "react";
 
 const TIER_CONFIG: Record<string, { displayName: string; color: string; monitors: number; deepResearch: number }> = {
   free: { displayName: "Free", color: "secondary", monitors: 2, deepResearch: 2 },
@@ -20,10 +23,26 @@ const TIER_CONFIG: Record<string, { displayName: string; color: string; monitors
 export default function Account() {
   const { toast } = useToast();
   const [, setLocation] = useLocation();
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [profileForm, setProfileForm] = useState({
+    companyName: "",
+    companyDomain: "",
+    roleHint: "",
+    primaryObjective: "",
+  });
 
   // Get current user info
   const { data: currentUser, isLoading: userLoading } = useQuery({
     queryKey: ["/api/auth/me"],
+    onSuccess: (data: any) => {
+      // Initialize form with current user data
+      setProfileForm({
+        companyName: data?.companyName || "",
+        companyDomain: data?.companyDomain || "",
+        roleHint: data?.roleHint || "",
+        primaryObjective: data?.primaryObjective || "",
+      });
+    },
   });
 
   // Get subscription status
@@ -48,6 +67,28 @@ export default function Account() {
     onError: (error: Error) => {
       toast({
         title: "Cancellation failed",
+        description: error.message || "Please try again",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const updateProfileMutation = useMutation({
+    mutationFn: async (data: typeof profileForm) => {
+      const res = await apiRequest("PUT", "/api/auth/profile", data);
+      return await res.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "Profile updated",
+        description: "Your company profile has been saved. AI responses will now be personalized to your business.",
+      });
+      setIsEditingProfile(false);
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Update failed",
         description: error.message || "Please try again",
         variant: "destructive",
       });
@@ -108,6 +149,152 @@ export default function Account() {
             Manage your subscription and view usage
           </p>
         </div>
+
+        {/* Company Profile Card */}
+        <Card className="mb-6" data-testid="card-company-profile">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <Building2 className="w-5 h-5" />
+                  Company Profile
+                </CardTitle>
+                <CardDescription className="mt-1">
+                  Help personalize AI responses to your business
+                </CardDescription>
+              </div>
+              {!isEditingProfile && (
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={() => setIsEditingProfile(true)}
+                  data-testid="button-edit-profile"
+                >
+                  Edit
+                </Button>
+              )}
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {!isEditingProfile ? (
+              // Display mode
+              <div className="space-y-3">
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">Company Name</p>
+                  <p className="text-sm" data-testid="text-company-name">
+                    {user?.companyName || <span className="text-muted-foreground italic">Not set</span>}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">Company Domain</p>
+                  <p className="text-sm" data-testid="text-company-domain">
+                    {user?.companyDomain || <span className="text-muted-foreground italic">Not set</span>}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">Your Role</p>
+                  <p className="text-sm" data-testid="text-role-hint">
+                    {user?.roleHint || <span className="text-muted-foreground italic">Not set</span>}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">Primary Objective</p>
+                  <p className="text-sm" data-testid="text-primary-objective">
+                    {user?.primaryObjective || <span className="text-muted-foreground italic">Not set</span>}
+                  </p>
+                </div>
+              </div>
+            ) : (
+              // Edit mode
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="companyName">Company Name</Label>
+                  <Input
+                    id="companyName"
+                    placeholder="e.g., Acme Ltd"
+                    value={profileForm.companyName}
+                    onChange={(e) => setProfileForm({ ...profileForm, companyName: e.target.value })}
+                    data-testid="input-company-name"
+                  />
+                  <p className="text-xs text-muted-foreground">The name of your company</p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="companyDomain">Company Domain</Label>
+                  <Input
+                    id="companyDomain"
+                    placeholder="e.g., acme.com"
+                    value={profileForm.companyDomain}
+                    onChange={(e) => setProfileForm({ ...profileForm, companyDomain: e.target.value })}
+                    data-testid="input-company-domain"
+                  />
+                  <p className="text-xs text-muted-foreground">Your company website domain (helps identify your industry)</p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="roleHint">Your Role</Label>
+                  <Input
+                    id="roleHint"
+                    placeholder="e.g., Founder, Sales Director, Marketing Manager"
+                    value={profileForm.roleHint}
+                    onChange={(e) => setProfileForm({ ...profileForm, roleHint: e.target.value })}
+                    data-testid="input-role-hint"
+                  />
+                  <p className="text-xs text-muted-foreground">What's your role in the company?</p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="primaryObjective">Primary Objective</Label>
+                  <Input
+                    id="primaryObjective"
+                    placeholder="e.g., Find new B2B customers, Research market trends"
+                    value={profileForm.primaryObjective}
+                    onChange={(e) => setProfileForm({ ...profileForm, primaryObjective: e.target.value })}
+                    data-testid="input-primary-objective"
+                  />
+                  <p className="text-xs text-muted-foreground">What are you trying to achieve with this tool?</p>
+                </div>
+              </div>
+            )}
+          </CardContent>
+          {isEditingProfile && (
+            <CardFooter className="flex gap-2">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setIsEditingProfile(false);
+                  // Reset form to current user data
+                  setProfileForm({
+                    companyName: user?.companyName || "",
+                    companyDomain: user?.companyDomain || "",
+                    roleHint: user?.roleHint || "",
+                    primaryObjective: user?.primaryObjective || "",
+                  });
+                }}
+                disabled={updateProfileMutation.isPending}
+                className="flex-1"
+                data-testid="button-cancel-edit"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={() => updateProfileMutation.mutate(profileForm)}
+                disabled={updateProfileMutation.isPending}
+                className="flex-1"
+                data-testid="button-save-profile"
+              >
+                {updateProfileMutation.isPending ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-4 h-4 mr-2" />
+                    Save Profile
+                  </>
+                )}
+              </Button>
+            </CardFooter>
+          )}
+        </Card>
 
         {/* Current Plan Card */}
         <Card className="mb-6" data-testid="card-current-plan">
