@@ -230,7 +230,6 @@ USER=${userText}`
 
   const completion = await openai.chat.completions.create({
     model: CONFIG.model,
-    temperature: CONFIG.temperature,
     response_format: {
       type: "json_schema",
       json_schema: {
