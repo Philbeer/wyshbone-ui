@@ -19,6 +19,16 @@ interface PricingTier {
   popular?: boolean;
 }
 
+interface CurrentUser {
+  id: string;
+  email: string;
+  name: string;
+  subscriptionTier: string;
+  subscriptionStatus: string | null;
+  monitorCount: number;
+  deepResearchCount: number;
+}
+
 const PRICING_TIERS: PricingTier[] = [
   {
     name: "free",
@@ -69,7 +79,7 @@ export default function Pricing() {
   const [selectedTier, setSelectedTier] = useState<string | null>(null);
 
   // Check if user is authenticated
-  const { data: currentUser } = useQuery({
+  const { data: currentUser } = useQuery<CurrentUser>({
     queryKey: ["/api/auth/me"],
   });
 
@@ -95,13 +105,24 @@ export default function Pricing() {
   });
 
   const handleSubscribe = (tier: PricingTier) => {
-    if (!currentUser) {
-      toast({
-        title: "Sign up required",
-        description: "Please create an account to subscribe",
-      });
-      setLocation("/auth");
-      return;
+    // Check if user is a demo user
+    const isDemoUser = currentUser?.email?.endsWith("@wyshbone.demo");
+    
+    // If no user or demo user, redirect to signup
+    if (!currentUser || isDemoUser) {
+      if (tier.name === "free") {
+        // Redirect demo users to signup page for free tier
+        setLocation("/auth");
+        return;
+      } else {
+        // For paid tiers, show signup required message
+        toast({
+          title: "Sign up required",
+          description: "Please create an account to subscribe",
+        });
+        setLocation("/auth");
+        return;
+      }
     }
 
     if (tier.name === "free") {
