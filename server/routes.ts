@@ -27,7 +27,7 @@ import { neon } from "@neondatabase/serverless";
 import { createXeroOAuthRouter } from "./routes/xero-oauth";
 import { hashPassword, verifyPassword, generateId, canCreateMonitor, canCreateDeepResearch, TIER_LIMITS } from "./auth";
 import { signupRequestSchema, loginRequestSchema, updateProfileRequestSchema } from "@shared/schema";
-import { buildSessionContext, generatePersonalizedOpening } from "./lib/context";
+import { buildSessionContext, generatePersonalizedOpening, type SessionContext } from "./lib/context";
 import Stripe from "stripe";
 
 const sql = neon(process.env.DATABASE_URL!);
@@ -847,8 +847,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const conversationHistory = await loadConversationHistory(conversationId);
       console.log(`📚 Loaded ${conversationHistory.length} messages from conversation history`);
 
-      // 3) Build context with facts
-      const memoryMessages = await buildContextWithFacts(user.id, conversationHistory);
+      // 3) Get user context for personalization
+      const currentUser = await storage.getUserById(user.id);
+      let userSessionContext: SessionContext | undefined = undefined;
+      
+      if (currentUser) {
+        // Explicitly map database user fields to avoid type casting issues
+        userSessionContext = buildSessionContext({
+          companyName: currentUser.companyName ?? null,
+          companyDomain: currentUser.companyDomain ?? null,
+          roleHint: currentUser.roleHint ?? null,
+          primaryObjective: currentUser.primaryObjective ?? null,
+          secondaryObjectives: currentUser.secondaryObjectives ?? null,
+          targetMarkets: currentUser.targetMarkets ?? null,
+          productsOrServices: currentUser.productsOrServices ?? null,
+          preferences: currentUser.preferences ?? null,
+          inferredIndustry: currentUser.inferredIndustry ?? null,
+          confidence: currentUser.confidence ?? null,
+        } as any);
+        
+        console.log(`🎯 User context loaded: company=${userSessionContext.companyName || 'N/A'}, industry=${userSessionContext.inferredIndustry || 'N/A'}`);
+      } else {
+        console.log(`⚠️ User ${user.id} not found in database, using default prompt`);
+      }
+
+      // 4) Build context with facts (personalized system prompt if context available)
+      const memoryMessages = await buildContextWithFacts(user.id, conversationHistory, 20, userSessionContext);
       console.log(`🧠 Built context with facts for user ${user.id}`);
       
       // Also keep in-memory conversation for backwards compatibility with existing features

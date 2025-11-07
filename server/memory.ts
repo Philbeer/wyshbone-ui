@@ -1,6 +1,8 @@
 import OpenAI from "openai";
 import { storage } from "./storage";
 import { randomUUID } from "crypto";
+import { buildPersonalizedSystemPrompt } from "./openai";
+import type { SessionContext } from "./lib/context";
 
 export type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
 type Conversation = ChatMessage[];
@@ -15,7 +17,7 @@ export type VenueCache = {
 const conversations = new Map<string, Conversation>();
 const venueCaches = new Map<string, VenueCache>();
 
-const SYSTEM_PROMPT: ChatMessage = {
+export const SYSTEM_PROMPT: ChatMessage = {
   role: "system",
   content:
     "You are Wyshbone AI, a helpful sales/research assistant powered by GPT-5 with live web search capabilities. " +
@@ -391,7 +393,8 @@ ${prompt}
 export async function buildContextWithFacts(
   userId: string,
   conversationHistory: ChatMessage[],
-  maxFacts: number = 20
+  maxFacts: number = 20,
+  userContext?: SessionContext
 ): Promise<ChatMessage[]> {
   const allFacts = await storage.listTopFacts(userId, 100);
   
@@ -427,8 +430,15 @@ export async function buildContextWithFacts(
   
   const factLines = topFacts.map((f) => `- ${f.fact} (score ${f.score})`).join('\n');
   
-  // CRITICAL ORDER: System prompt → Conversation history (PRIORITY) → Durable memory (FALLBACK)
-  const messages: ChatMessage[] = [SYSTEM_PROMPT];
+  // CRITICAL ORDER: System prompt (personalized if context provided) → Conversation history (PRIORITY) → Durable memory (FALLBACK)
+  const systemPromptContent = userContext 
+    ? buildPersonalizedSystemPrompt(userContext)
+    : SYSTEM_PROMPT.content;
+  
+  const messages: ChatMessage[] = [{
+    role: "system",
+    content: systemPromptContent
+  }];
   
   // Add conversation history FIRST (highest priority)
   messages.push(...conversationHistory);
