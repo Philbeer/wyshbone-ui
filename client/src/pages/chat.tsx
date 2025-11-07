@@ -67,6 +67,11 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
   });
   const [megaChips, setMegaChips] = useState<string[]>([]);
 
+  // Persist chat mode to localStorage
+  useEffect(() => {
+    localStorage.setItem('chatMode', chatMode);
+  }, [chatMode]);
+
   const detectDeepResearchIntent = (text: string): boolean => {
     const lowerText = text.toLowerCase();
     const researchKeywords = /\b(research|investigate|analyze|study|explore|deep dive|comprehensive|thorough|detailed report|sources|citations|evidence|findings|create.*report|write.*report|compile.*report)\b/;
@@ -640,6 +645,61 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
     },
   });
 
+  // Send message to MEGA Agent
+  const sendMegaMessage = async (messageContent: string) => {
+    setIsStreaming(true);
+    setMegaChips([]); // Clear previous chips
+    
+    try {
+      const response = await fetch(addDevAuthParams("/agent/chat"), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          text: messageContent,
+          conversationId: conversationId || `mega-${user.id}`,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("MEGA agent request failed");
+      }
+
+      const data = await response.json();
+
+      // Add assistant response
+      const assistantMessage: Message = {
+        id: crypto.randomUUID(),
+        role: "assistant",
+        content: data.natural || "No response",
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, assistantMessage]);
+
+      // Store follow-up chips
+      if (data.plan?.follow_ups) {
+        setMegaChips(data.plan.follow_ups);
+      }
+
+      // Show clarity questions if any
+      if (data.plan?.clarity_questions && data.plan.clarity_questions.length > 0) {
+        toast({
+          title: "Questions",
+          description: data.plan.clarity_questions.join("\n"),
+        });
+      }
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to send message",
+        variant: "destructive",
+      });
+    } finally {
+      setIsStreaming(false);
+    }
+  };
+
   const handleSend = async (promptOverride?: string) => {
     const messageContent = promptOverride || input.trim();
     if (!messageContent || isStreaming) return;
@@ -657,6 +717,13 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
     // Update UI state immediately
     setMessages((prev) => [...prev, userMessage]);
     setInput("");
+    setShowWelcome(false);
+
+    // Route to MEGA agent if in MEGA mode
+    if (chatMode === "mega") {
+      await sendMegaMessage(messageContent);
+      return;
+    }
 
     // Check if this looks like a deep research request
     if (detectDeepResearchIntent(messageContent)) {
@@ -960,6 +1027,50 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
       {/* Input Area */}
       <div className="border-t border-border bg-background py-6">
         <div className="w-full relative px-6">
+          {/* Chat Mode Toggle */}
+          <div className="mb-3 flex items-center gap-2">
+            <Button
+              variant={chatMode === "standard" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setChatMode("standard")}
+              data-testid="button-mode-standard"
+            >
+              Standard
+            </Button>
+            <Button
+              variant={chatMode === "mega" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setChatMode("mega")}
+              data-testid="button-mode-mega"
+            >
+              🚀 MEGA
+            </Button>
+            <span className="text-xs text-muted-foreground ml-2">
+              {chatMode === "mega" ? "Action-first AI with follow-up suggestions" : "Streaming chat with web search"}
+            </span>
+          </div>
+
+          {/* MEGA Chips (Follow-up suggestions) */}
+          {chatMode === "mega" && megaChips.length > 0 && (
+            <div className="mb-3 flex flex-wrap gap-2">
+              {megaChips.map((chip, idx) => (
+                <Button
+                  key={idx}
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => {
+                    setInput(chip);
+                    handleSend(chip);
+                  }}
+                  className="text-xs"
+                  data-testid={`chip-${idx}`}
+                >
+                  💡 {chip}
+                </Button>
+              ))}
+            </div>
+          )}
+
           {/* Location Suggestions */}
           {showLocationSuggestions && (
             <LocationSuggestions
