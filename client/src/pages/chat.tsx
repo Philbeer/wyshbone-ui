@@ -954,23 +954,7 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
       {/* Right Sidebar */}
       <WishboneSidebar onPrompt={handleSend} />
       
-      {/* Add to Xero Floating Button */}
-      <Button
-        onClick={() => setShowXeroDialog(true)}
-        className="fixed bottom-24 right-8 h-14 w-14 rounded-full shadow-lg"
-        size="icon"
-        title="Add Contact to Xero"
-        aria-label="Add Contact to Xero"
-        data-testid="button-add-to-xero"
-      >
-        <Building2 className="w-6 h-6" />
-      </Button>
-      
-      {/* Add to Xero Dialog */}
-      <AddToXeroDialog 
-        open={showXeroDialog}
-        onOpenChange={setShowXeroDialog}
-      />
+      {/* Add to Xero features temporarily removed for layout debugging */}
     </div>
   );
 }
