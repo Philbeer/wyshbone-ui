@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X } from "lucide-react";
+import { X, Search, Database, Calendar } from "lucide-react";
 
 type Props = {
   onPrompt: (prompt: string) => void;
@@ -38,19 +38,34 @@ const SALES_EXAMPLES: Example[] = [
   },
 ];
 
-const RESEARCH_TIPS = [
-  "Choose your search type: 'Deep Research' for comprehensive analysis, 'Find Contacts' for verified business info, or 'Wyshbone Global Database' for quick listings",
-  "Include location details: city, county, and country (defaults to UK if not specified)",
-  "Set up monitors: Ask to create scheduled searches that run daily/weekly and email you results",
-  "Use natural language: Just describe what you need - the AI will determine the best approach",
-  "Follow-up questions work: Say 'deep dive' or 'get contacts' after a search to explore further",
+const WYSHBONE_FEATURES = [
+  {
+    icon: Search,
+    title: "Deep Research",
+    description: "Comprehensive analysis with sources, citations, and evidence. Perfect for market research and competitive analysis.",
+  },
+  {
+    icon: Database,
+    title: "Wyshbone Global Database",
+    description: "Quick business discovery with verified listings and Place IDs. Search millions of venues worldwide instantly.",
+  },
+  {
+    icon: Calendar,
+    title: "Scheduled Monitoring",
+    description: "Automated searches that run daily, weekly, or monthly. Get email alerts when new businesses match your criteria.",
+  },
 ];
 
-const Tip = ({ children }: { children: React.ReactNode }) => (
-  <li className="flex items-start gap-2 text-sm leading-relaxed text-foreground">
-    <span className="mt-1.5 inline-block h-1.5 w-1.5 rounded-full bg-muted-foreground flex-shrink-0" />
-    <span>{children}</span>
-  </li>
+const FeatureCard = ({ icon: Icon, title, description }: { icon: any; title: string; description: string }) => (
+  <div className="flex gap-3 p-3 rounded-lg bg-muted/50">
+    <div className="flex-shrink-0 mt-0.5">
+      <Icon className="h-5 w-5 text-primary" />
+    </div>
+    <div className="flex-1 min-w-0">
+      <h4 className="text-sm font-semibold text-foreground mb-1">{title}</h4>
+      <p className="text-xs text-muted-foreground leading-relaxed">{description}</p>
+    </div>
+  </div>
 );
 
 export default function WishboneSidebar({ onPrompt }: Props) {
@@ -90,11 +105,10 @@ export default function WishboneSidebar({ onPrompt }: Props) {
               <div className="pb-2 flex items-start justify-between gap-2">
                 <div className="flex-1">
                   <h2 className="text-base font-semibold text-foreground">
-                    Research Tips
+                    What can I do?
                   </h2>
                   <p className="text-xs text-muted-foreground mt-1">
-                    Click an example to auto-fill and send. Or type your own prompt in
-                    chat.
+                    Discover businesses, research markets, and automate monitoring
                   </p>
                 </div>
                 <Button
@@ -109,19 +123,24 @@ export default function WishboneSidebar({ onPrompt }: Props) {
                 </Button>
               </div>
 
-          {/* Research Tips Card */}
-          <Card data-testid="card-research-tips">
+          {/* Wyshbone Functions Card */}
+          <Card data-testid="card-wyshbone-functions">
             <CardHeader className="pb-3">
               <CardTitle className="text-sm font-semibold">
-                Search Tips
+                Wyshbone Functions
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <ul className="space-y-2">
-                {RESEARCH_TIPS.map((t, idx) => (
-                  <Tip key={idx}>{t}</Tip>
+              <div className="space-y-3">
+                {WYSHBONE_FEATURES.map((feature, idx) => (
+                  <FeatureCard
+                    key={idx}
+                    icon={feature.icon}
+                    title={feature.title}
+                    description={feature.description}
+                  />
                 ))}
-              </ul>
+              </div>
             </CardContent>
           </Card>
 
@@ -162,7 +181,7 @@ export default function WishboneSidebar({ onPrompt }: Props) {
             </CardHeader>
             <CardContent>
               <p className="text-sm text-foreground">
-                The AI intelligently offers all three search options when your request is ambiguous. You can also create scheduled monitors that run automatically and email you when new venues are discovered.
+                Just describe what you need in natural language. The AI will automatically choose the best approach and offer alternatives when your request is ambiguous.
               </p>
             </CardContent>
           </Card>
