@@ -91,10 +91,10 @@ export default function WishboneSidebar({ onPrompt }: Props) {
     <AnimatePresence>
       {isVisible && (
         <motion.aside
-          initial={{ x: "100%", opacity: 0 }}
-          animate={{ x: 0, opacity: 1 }}
-          exit={{ x: "100%", opacity: 0 }}
-          transition={{ type: "spring", damping: 25, stiffness: 200 }}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.3 }}
           className="hidden lg:block flex-shrink-0 w-[320px] xl:w-[360px] border-l border-border bg-background"
           aria-label="Research Tips and Examples"
           data-testid="sidebar-research"
