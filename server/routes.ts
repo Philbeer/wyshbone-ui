@@ -26,7 +26,8 @@ import * as cheerio from "cheerio";
 import { neon } from "@neondatabase/serverless";
 import { createXeroOAuthRouter } from "./routes/xero-oauth";
 import { hashPassword, verifyPassword, generateId, canCreateMonitor, canCreateDeepResearch, TIER_LIMITS } from "./auth";
-import { signupRequestSchema, loginRequestSchema } from "@shared/schema";
+import { signupRequestSchema, loginRequestSchema, updateProfileRequestSchema } from "@shared/schema";
+import { buildSessionContext, generatePersonalizedOpening } from "./lib/context";
 import Stripe from "stripe";
 
 const sql = neon(process.env.DATABASE_URL!);
@@ -438,7 +439,79 @@ export async function registerRoutes(app: Express): Promise<Server> {
       subscriptionStatus: user.subscriptionStatus,
       monitorCount: user.monitorCount,
       deepResearchCount: user.deepResearchCount,
+      companyName: user.companyName,
+      companyDomain: user.companyDomain,
+      roleHint: user.roleHint,
+      primaryObjective: user.primaryObjective,
+      inferredIndustry: user.inferredIndustry,
+      confidence: user.confidence,
     });
+  });
+
+  // PUT /api/auth/profile - Update user profile (company/domain/context)
+  app.put("/api/auth/profile", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+
+      const validation = updateProfileRequestSchema.safeParse(req.body);
+      if (!validation.success) {
+        return res.status(400).json({ error: "Invalid request", details: validation.error });
+      }
+
+      const updates = validation.data;
+      
+      // If company name or domain was provided, infer industry
+      let inferredIndustry: string | null | undefined = undefined;
+      let confidence: number | null | undefined = undefined;
+      
+      if (updates.companyName || updates.companyDomain) {
+        const tempUser = await storage.getUserById(auth.userId);
+        if (tempUser) {
+          // Merge current user data with updates to get fresh context
+          const mergedUserData = {
+            ...tempUser,
+            companyName: updates.companyName ?? tempUser.companyName,
+            companyDomain: updates.companyDomain ?? tempUser.companyDomain,
+          };
+          
+          // Use context builder to infer industry from merged data
+          const ctx = buildSessionContext(mergedUserData as any);
+          
+          inferredIndustry = ctx.inferredIndustry ?? null;
+          confidence = ctx.confidence;
+        }
+      }
+
+      // Update user profile
+      const updatedUser = await storage.updateUser(auth.userId, {
+        ...updates,
+        inferredIndustry,
+        confidence,
+        lastContextRefresh: Date.now(),
+      });
+
+      if (!updatedUser) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      res.json({
+        id: updatedUser.id,
+        email: updatedUser.email,
+        name: updatedUser.name,
+        companyName: updatedUser.companyName,
+        companyDomain: updatedUser.companyDomain,
+        roleHint: updatedUser.roleHint,
+        primaryObjective: updatedUser.primaryObjective,
+        inferredIndustry: updatedUser.inferredIndustry,
+        confidence: updatedUser.confidence,
+      });
+    } catch (error: any) {
+      console.error("Profile update error:", error);
+      res.status(500).json({ error: "Profile update failed" });
+    }
   });
 
   // ===========================

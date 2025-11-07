@@ -1,0 +1,191 @@
+# Wyshbone AI – Lightweight Personalization via Company/Domain
+Single-spec document for Replit implementation.
+
+## 0) Goal (plain English)
+Add `companyName` and/or `companyDomain` to each user profile. Use these (lightly) to infer industry and ask one concise, helpful question that steers the assistant to useful actions (e.g., breweries → pubs/cans; charity → partners/events). No big forms. Progressive, skippable, and action-first.
+
+---
+
+## 1) TypeScript: User profile (drop into `types/user.ts`)
+export type UserProfile = {
+  userId: string;
+  displayName?: string;
+
+  // 🚀 New context fields (one of these is enough to start)
+  companyName?: string;        // e.g., "Listers Brewery"
+  companyDomain?: string;      // e.g., "listersbrewery.com"
+
+  // Progressive hints (filled gradually; never ask all at once)
+  roleHint?: string;                   // e.g., "Founder", "Sales", "Fundraising"
+  primaryObjective?: string;           // e.g., "Find pubs buying cask"
+  secondaryObjectives?: string[];      // optional list
+  targetMarkets?: string[];            // e.g., ["UK pubs", "bottle shops"]
+  productsOrServices?: string[];       // e.g., ["cask ale", "cans"]
+
+  preferences?: {
+    tone?: "concise" | "detailed";
+    cadence?: "one_question" | "short_flow";
+  };
+
+  // Internal inference
+  inferredIndustry?: string;    // e.g., "Brewery", "Charity"
+  lastContextRefreshISO?: string;
+  confidence?: number;          // 0..1 (how confident we are about inference)
+};
+
+---
+
+## 2) System Prompt (paste into your agent’s system message)
+You are Wyshbone AI, a research & lead-generation assistant. Personalize gently using the user’s profile when available.
+
+PRINCIPLES
+- Be helpful, fast, and light-touch.
+- Use Company Name/Domain to infer industry & likely needs, but ask ONE concise question at a time—only when helpful.
+- Never interrogate. Offer clear, useful starting options based on what you infer.
+- If the user declines a question, continue with best-guess defaults.
+- Default to action: “Want me to start a quick search for X?” rather than long questionnaires.
+
+WHEN PROFILE HAS COMPANY OR DOMAIN
+1) Infer the industry from name/domain (e.g., brewery, charity, SaaS, manufacturing).
+2) Open with a friendly one-liner:
+   “I see you’re with {{companyName}} — want me to tailor results for {{inferredIndustry}}?”
+3) Ask at most ONE follow-up to clarify objective:
+   “Should I focus on [likely_target_1] or [likely_target_2]? (Or something else?)”
+4) Offer 1–3 relevant quick-start actions (buttons or short prompts).
+5) Store new info (role, objective, targets) silently as hints. Never demand answers.
+
+WHEN PROFILE IS UNKNOWN
+- Don’t block. Optional one-liner:
+  “I can personalize if you share your company or website (optional). Want to skip for now?”
+
+PROGRESSIVE DISCOVERY
+- One question at a time.
+- Prefer suggestive confirmations over open-ended forms.
+- If answer is vague, propose concise defaults and confirm.
+
+TONE & EXAMPLES
+- Brewery (cask/cans): “Want me to find pubs buying cask right now, or bottle shops taking cans? I can start a quick list.”
+- Charity (Macmillan-style): “Shall I begin with corporate partners, local events, or donor research?”
+
+SAFETY & PRIVACY
+- Always allow “skip”. Never expose private data. Treat guesses as guesses if confidence < 0.6.
+- Provide a “Reset personalization / Change company” option.
+
+OUTPUT STYLE
+- Be crisp. End with one actionable suggestion or a 2–3 item mini-menu.
+
+---
+
+## 3) Context builder (drop into `lib/context.ts`)
+import type { UserProfile } from "../types/user";
+
+export function buildSessionContext(profile: UserProfile | null) {
+  if (!profile) return { hasProfile: false };
+
+  const inferredIndustry =
+    profile.inferredIndustry ??
+    inferIndustryFromDomain(profile.companyDomain ?? "") ??
+    inferIndustryFromName(profile.companyName ?? "");
+
+  const confidence = inferredIndustry ? 0.7 : 0.3;
+
+  return {
+    hasProfile: true,
+    companyName: profile.companyName,
+    companyDomain: profile.companyDomain,
+    inferredIndustry,
+    primaryObjective: profile.primaryObjective,
+    roleHint: profile.roleHint,
+    confidence,
+  };
+}
+
+// 🔎 very lightweight heuristics; swap for your enrichment later
+function inferIndustryFromDomain(domain: string | undefined): string | undefined {
+  if (!domain) return;
+  const d = domain.toLowerCase();
+  if (d.includes("brew") || d.includes("ale") || d.includes("beer")) return "Brewery";
+  if (d.includes("charity") || d.includes("cancer") || d.includes("ngo")) return "Charity";
+  if (d.includes("coffee") || d.includes("roast")) return "Coffee Roaster";
+  if (d.includes("logistics") || d.includes("freight")) return "Logistics";
+  return;
+}
+
+function inferIndustryFromName(name: string | undefined): string | undefined {
+  if (!name) return;
+  const n = name.toLowerCase();
+  if (n.includes("brew") || n.includes("ale") || n.includes("beer")) return "Brewery";
+  if (n.includes("charity") || n.includes("foundation")) return "Charity";
+  if (n.includes("coffee") || n.includes("roast")) return "Coffee Roaster";
+  return;
+}
+
+---
+
+## 4) Session bootstrap & opening line (drop into your route/controller, e.g., `routes/chat.ts`)
+import { buildSessionContext } from "../lib/context";
+// import { getUserProfile } from "../lib/users"; // TODO: implement
+
+app.post("/chat/start", async (req, res) => {
+  const profile = await getUserProfile(req.userId); // fetch from your store
+  const ctx = buildSessionContext(profile);
+
+  const opening = ctx.hasProfile ? personalizedOpening(ctx) :
+    "I can personalize if you share your company or website (optional). Want to skip and start with a generic search?";
+
+  res.json({ opening, ctx });
+});
+
+function personalizedOpening(ctx: any) {
+  const company = ctx.companyName || ctx.companyDomain || "your org";
+  const industry = ctx.inferredIndustry;
+
+  if (industry === "Brewery") {
+    return `Great to meet you. I see you're with ${company}. Want me to focus on brewery growth?
+Should I start by finding pubs buying cask, or bottle shops taking cans? (I can spin up a quick list now.)`;
+  }
+  if (industry === "Charity") {
+    return `Thanks for stopping by. For ${company}, should I begin with potential corporate partners, local fundraising events, or donor research?`;
+  }
+  return `Shall I tailor results for ${company}? What’s the main thing you want to achieve today? (I can also suggest a couple of quick starting points.)`;
+}
+
+---
+
+## 5) Gentle question templates (wire into UI as quick replies)
+- “Should I start with **[Option A]** or **[Option B]**? (Or something else?)”
+- “Do you prefer **quick lists** first or a **short summary** of the landscape?”
+- “Are you mainly targeting **[Market 1]** or **[Market 2]** right now?”
+- “Want me to **auto-save findings** to your list as we go? You can turn this off anytime.”
+
+Rule: one question at a time. If no answer, proceed with a safe default and keep going.
+
+---
+
+## 6) Guardrails (paste into policy/config)
+- Opt-in & skip: always let user skip personalization.
+- Progressive disclosure: never ask more than one question at once.
+- Assisted inference: if confidence < 0.6, frame as a question, not a fact.
+- Data minimization: store only what user volunteers or confirms.
+- Reset: provide “Change company / Reset personalization” action.
+
+---
+
+## 7) Two worked flows (for QA)
+Brewery + cans
+1) Agent: “I see you’re with Listers Brewery… start with pubs buying cask, or bottle shops taking cans?”
+2) User: “Cans.”
+3) Agent: “Great. Target bottle shops within 25 miles first, or across the UK? I can show a top-10 now.”
+
+Charity (Macmillan-style)
+1) Agent: “For Macmillan, should I begin with corporate partners, local fundraising events, or donor research?”
+2) User: “Corporate partners.”
+3) Agent: “Perfect — I’ll surface 10 employers with CSR alignment and recent initiatives. Local first, or national?”
+
+---
+
+## 8) Implementation notes
+- You only need ONE of `companyName` or `companyDomain` to start.
+- Everything else in the profile is optional and filled gradually as the conversation progresses.
+- Replace the simple inference with your enrichment stack later (Companies House, Google Places, etc.).
+- Expose a “Reset personalization” command in the chat UI.

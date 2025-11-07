@@ -417,6 +417,20 @@ export const users = pgTable("users", {
   monitorCount: integer("monitor_count").notNull().default(0), // Track active monitors
   deepResearchCount: integer("deep_research_count").notNull().default(0), // Track deep research runs this period
   lastResetAt: bigint("last_reset_at", { mode: "number" }), // When usage counters were last reset
+  
+  // Personalization fields - lightweight company/domain context
+  companyName: text("company_name"),
+  companyDomain: text("company_domain"),
+  roleHint: text("role_hint"), // e.g., "Founder", "Sales", "Fundraising"
+  primaryObjective: text("primary_objective"), // e.g., "Find pubs buying cask"
+  secondaryObjectives: text("secondary_objectives").array(), // optional list
+  targetMarkets: text("target_markets").array(), // e.g., ["UK pubs", "bottle shops"]
+  productsOrServices: text("products_or_services").array(), // e.g., ["cask ale", "cans"]
+  preferences: jsonb("preferences"), // { tone, cadence }
+  inferredIndustry: text("inferred_industry"), // e.g., "Brewery", "Charity"
+  lastContextRefresh: bigint("last_context_refresh", { mode: "number" }), // When context was last updated
+  confidence: integer("confidence"), // 0-100 (how confident we are about inference)
+  
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
   updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
 }, (table) => ({
@@ -428,6 +442,11 @@ export const users = pgTable("users", {
 // User Zod schemas
 export const subscriptionTierSchema = z.enum(["free", "basic", "pro", "business", "enterprise"]);
 export const subscriptionStatusSchema = z.enum(["active", "inactive", "cancelled", "past_due"]);
+
+export const userPreferencesSchema = z.object({
+  tone: z.enum(["concise", "detailed"]).optional(),
+  cadence: z.enum(["one_question", "short_flow"]).optional(),
+}).optional();
 
 export const userSchema = z.object({
   id: z.string(),
@@ -442,11 +461,26 @@ export const userSchema = z.object({
   monitorCount: z.number().int(),
   deepResearchCount: z.number().int(),
   lastResetAt: z.number().optional().nullable(),
+  
+  // Personalization fields
+  companyName: z.string().optional().nullable(),
+  companyDomain: z.string().optional().nullable(),
+  roleHint: z.string().optional().nullable(),
+  primaryObjective: z.string().optional().nullable(),
+  secondaryObjectives: z.array(z.string()).optional().nullable(),
+  targetMarkets: z.array(z.string()).optional().nullable(),
+  productsOrServices: z.array(z.string()).optional().nullable(),
+  preferences: userPreferencesSchema.nullable(),
+  inferredIndustry: z.string().optional().nullable(),
+  lastContextRefresh: z.number().optional().nullable(),
+  confidence: z.number().int().min(0).max(100).optional().nullable(),
+  
   createdAt: z.number(),
   updatedAt: z.number(),
 });
 
 export type User = z.infer<typeof userSchema>;
+export type UserPreferences = z.infer<typeof userPreferencesSchema>;
 
 export const signupRequestSchema = z.object({
   email: z.string().email("Valid email is required"),
@@ -460,8 +494,20 @@ export const loginRequestSchema = z.object({
   password: z.string().min(1, "Password is required"),
 });
 
+export const updateProfileRequestSchema = z.object({
+  companyName: z.string().optional(),
+  companyDomain: z.string().optional(),
+  roleHint: z.string().optional(),
+  primaryObjective: z.string().optional(),
+  secondaryObjectives: z.array(z.string()).optional(),
+  targetMarkets: z.array(z.string()).optional(),
+  productsOrServices: z.array(z.string()).optional(),
+  preferences: userPreferencesSchema,
+});
+
 export type SignupRequest = z.infer<typeof signupRequestSchema>;
 export type LoginRequest = z.infer<typeof loginRequestSchema>;
+export type UpdateProfileRequest = z.infer<typeof updateProfileRequestSchema>;
 
 // User Drizzle insert/select schemas
 export const insertUserSchema = createInsertSchema(users);
