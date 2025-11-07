@@ -1,0 +1,406 @@
+/* =====================================================================
+   WYSHBONE "MEGA" AGENT KERNEL v1  (ADD-ON, DOES NOT OVERWRITE)
+   - Engine: ChatGPT (OpenAI) via json_schema responses
+   - Capabilities:
+       • Planner → Executor
+       • Session profile + entity memory + rolling summary
+       • Tool registry & safe auto-exec
+       • Chips (follow-ups + clarity Qs)
+       • Tunable verbosity / speed
+   - Endpoints: POST /agent/chat
+   - Programmatic: agentChat(sessionId, text, options?)
+   ---------------------------------------------------------------------
+   Install:
+     npm i express body-parser openai
+   Env:
+     OPENAI_API_KEY=sk-...
+   Run (standalone):
+     ts-node agent-kernel.ts
+   Integrate:
+     - Keep your old routes.
+     - Frontend can call POST /agent/chat
+     - Or call agentChat(...) from your existing server pipeline.
+   ===================================================================== */
+
+import express from "express";
+import bodyParser from "body-parser";
+import { OpenAI } from "openai";
+
+/* ========================= CONFIG ========================= */
+
+const CONFIG = {
+  model: "gpt-5",                // Switch here if needed
+  temperature: 0.6,              // 0.4–0.8 typical
+  fastMode: true,                // true = shorter replies, snappier suggestions
+  maxRecentTurns: 10,            // recent turns kept verbatim in context
+  autosummariseEvery: 6,         // summarise history every N turns
+  autoRunSafeActions: true,      // auto-exec safe actions like SEARCH_PLACES
+  maxChips: 5,
+  maxClarityQs: 2
+};
+
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+/* ========================= MEMORY ========================= */
+
+type SessionProfile = {
+  company_name?: string;
+  domain?: string;
+  sector?: string;
+  known_products?: string[];     // ["cask","keg","cans"]
+  target_buyers?: string[];      // ["freehouse pubs","bottle shops"]
+  territory?: string;            // "GB","Texas","West Sussex"
+};
+
+type Entity = { key: string; value: string; source: "user"|"assistant"|"tool"; lastSeenISO: string };
+type HistoryTurn = { role:"user"|"assistant"|"tool"; content:string; ts: string };
+
+type SessionState = {
+  profile: SessionProfile;
+  entities: Entity[];
+  summary: string;           // rolling conversation summary
+  history: HistoryTurn[];    // compact history (recent turns kept full)
+  turns: number;             // counter
+};
+
+const SESSIONS = new Map<string, SessionState>();
+
+function ensureSession(sessionId: string): SessionState {
+  if (!SESSIONS.has(sessionId)) {
+    SESSIONS.set(sessionId, { profile: {}, entities: [], summary: "", history: [], turns: 0 });
+  }
+  return SESSIONS.get(sessionId)!;
+}
+
+/* ========================= TOOLS ========================= */
+
+type ToolInvocation = {
+  label: string;
+  action: string;
+  params?: Record<string, any>;
+};
+
+// Example: wire your real implementations here
+const ToolRegistry: Record<string, (session: SessionState, params?: any) => Promise<{ok:boolean; data?:any; note?:string}>> = {
+  // Google Places (delegate to your existing workflow or HTTP service)
+  "SEARCH_PLACES": async (session, params) => {
+    // You can dispatch an event, call an internal service, or enqueue a job
+    // Here we just echo back what would be done:
+    return {
+      ok: true,
+      data: { dispatched: true, params },
+      note: "SEARCH_PLACES dispatched to existing pipeline"
+    };
+  },
+
+  // Draft a short outbound email (the assistant can improve it after)
+  "DRAFT_EMAIL": async (session, params) => {
+    const { to_role="General Manager", purpose="intro", product="your product" } = params || {};
+    const body =
+`Subject: Quick ${product} intro — potential fit?
+
+Hi ${to_role},
+
+I’ll keep it brief — we help teams like yours with ${product}.
+If useful, I can share a 60-second summary or a short sample list.
+
+Would you be open to a quick look?
+
+Best,
+Wyshbone`;
+
+    return { ok: true, data: { draft: body } };
+  },
+
+  // Generic fetch stub (you can secure/whitelist domains server-side)
+  "HTTP_FETCH": async (session, params) => {
+    const { url, method="GET", headers={}, body } = params || {};
+    if (!url) return { ok:false, note:"Missing url" };
+    // In production, validate domain, sanitize headers.
+    const r = await fetch(url, { method, headers, body: body ? JSON.stringify(body) : undefined });
+    const text = await r.text();
+    return { ok: true, data: { status: r.status, text: text.slice(0, 4000) } };
+  }
+};
+
+/* ========================= PROMPTS ========================= */
+
+const SYSTEM_PROMPT = `
+You are Wyshbone’s MEGA Chat Orchestrator ("coach+planner+executor").
+You must output JSON ONLY that matches the schema requested.
+
+PRINCIPLES:
+- Be proactive but not overbearing. Ask at most 1–2 targeted questions when they unlock the next step.
+- Use PROFILE, ENTITIES, and SUMMARY to personalise recommendations.
+- Prefer concrete actions (searches, filters, list building, email draft) over vague chat.
+- If context is thin, make safe assumptions and list them in "assumptions".
+- Keep "natural_response" short, skimmable, and action-oriented.
+- Always provide "follow_ups" (clickable chips), <= 12 words each.
+
+OUTPUT SCHEMA (MANDATORY):
+{
+  "natural_response": "string",
+  "plan": {
+    "clarity_questions": ["short question"],
+    "assumptions": ["we assume ..."],
+    "suggested_actions": [
+      {"label":"Find pubs selling cans in Kent","action":"SEARCH_PLACES","params":{"query":"pubs selling canned beer","region":"Kent","country":"GB"}}
+    ],
+    "follow_ups": ["See top 50 matches?", "Draft first outreach email?"],
+    "profile_updates": { "sector":"", "territory":"", "target_buyers":[""], "known_products":[""] },
+    "entity_updates": [ {"key":"target_region","value":"Kent"} ],
+    "tone": "fast" | "deliberate"
+  }
+}
+
+RULES:
+- NEVER output prose outside the JSON object.
+- If you propose an action, keep params minimal and sensible.
+- When helpful, adapt for brewery vs roastery vs other sectors.
+- If SUMMARY exists, avoid repeating already-known details.
+- Prefer "tone":"fast" unless the user asks for depth/analysis, then "deliberate".
+`;
+
+/* ========================= SUMMARISER ========================= */
+
+async function summariseHistory(summary: string, recent: HistoryTurn[]): Promise<string> {
+  const clip = recent.map(t => `${t.ts} ${t.role.toUpperCase()}: ${t.content}`).join("\n");
+  const sys = `You compress conversation turns into a compact running summary that preserves decisions, facts, and open TODOs. Keep it under 180 words.`;
+  const completion = await openai.chat.completions.create({
+    model: CONFIG.model,
+    temperature: 0.2,
+    messages: [
+      { role: "system", content: sys },
+      { role: "user", content: `PRIOR SUMMARY:\n${summary || "(none)"}\n\nNEW TURNS:\n${clip}\n\nReturn the UPDATED summary only.` }
+    ]
+  });
+  return completion.choices[0].message.content || summary;
+}
+
+/* ========================= CONTEXT BUILDER ========================= */
+
+function recentTurns(state: SessionState): HistoryTurn[] {
+  return state.history.slice(-CONFIG.maxRecentTurns);
+}
+
+function nowISO() { return new Date().toISOString(); }
+
+/* ========================= CORE CALL ========================= */
+
+type KernelResult = {
+  natural: string;
+  plan: {
+    clarity_questions?: string[];
+    assumptions?: string[];
+    suggested_actions?: ToolInvocation[];
+    follow_ups?: string[];
+    profile_updates?: Partial<SessionProfile>;
+    entity_updates?: Entity[];
+    tone?: "fast"|"deliberate";
+  };
+};
+
+async function callPlanner(state: SessionState, userText: string): Promise<KernelResult> {
+  const profile = JSON.stringify(state.profile || {});
+  const entities = JSON.stringify(state.entities || []);
+  const summary = state.summary || "";
+  const recents = recentTurns(state).map(t => ({ role:t.role, content:t.content }));
+
+  const messages = [
+    { role: "system" as const, content: SYSTEM_PROMPT + `\nFAST_MODE=${CONFIG.fastMode}\n` },
+    { role: "user" as const, content:
+`PROFILE=${profile}
+ENTITIES=${entities}
+SUMMARY=${summary}
+RECENT=${JSON.stringify(recents)}
+USER=${userText}`
+    }
+  ];
+
+  const completion = await openai.chat.completions.create({
+    model: CONFIG.model,
+    temperature: CONFIG.temperature,
+    response_format: {
+      type: "json_schema",
+      json_schema: {
+        name: "wyshbone_plan",
+        schema: {
+          type: "object",
+          required: ["natural_response","plan"],
+          properties: {
+            natural_response: { type: "string" },
+            plan: {
+              type: "object",
+              properties: {
+                clarity_questions: { type:"array", items:{type:"string"} },
+                assumptions: { type:"array", items:{type:"string"} },
+                follow_ups: { type:"array", items:{type:"string"} },
+                tone: { type:"string", enum:["fast","deliberate"] },
+                profile_updates: {
+                  type:"object",
+                  properties: {
+                    company_name:{type:"string"},
+                    domain:{type:"string"},
+                    sector:{type:"string"},
+                    known_products:{type:"array", items:{type:"string"}},
+                    target_buyers:{type:"array", items:{type:"string"}},
+                    territory:{type:"string"}
+                  }
+                },
+                entity_updates: {
+                  type:"array",
+                  items:{ type:"object", properties:{
+                    key:{type:"string"}, value:{type:"string"}
+                  }}
+                },
+                suggested_actions: {
+                  type:"array",
+                  items:{
+                    type:"object",
+                    required:["label","action"],
+                    properties:{
+                      label:{type:"string"},
+                      action:{type:"string"},
+                      params:{type:"object", additionalProperties:true}
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    messages
+  });
+
+  const raw = completion.choices?.[0]?.message?.content || "{}";
+  try {
+    const parsed = JSON.parse(raw);
+    return {
+      natural: parsed.natural_response || "",
+      plan: parsed.plan || {}
+    };
+  } catch {
+    return { natural: raw, plan: {} };
+  }
+}
+
+/* ========================= ENTITY UPDATE ========================= */
+
+function upsertEntities(state: SessionState, updates?: Entity[]) {
+  if (!updates) return;
+  const now = nowISO();
+  for (const u of updates) {
+    const idx = state.entities.findIndex(e => e.key === u.key);
+    if (idx >= 0) {
+      state.entities[idx].value = u.value;
+      state.entities[idx].lastSeenISO = now;
+    } else {
+      state.entities.push({ key: u.key, value: u.value, source: "assistant", lastSeenISO: now });
+    }
+  }
+}
+
+/* ========================= ACTION EXECUTOR ========================= */
+
+async function maybeExecuteFirstSafeAction(state: SessionState, plan: KernelResult["plan"]) {
+  if (!CONFIG.autoRunSafeActions) return undefined;
+  if (!plan?.suggested_actions?.length) return undefined;
+
+  // Define what's considered "safe" to auto-run
+  const safe = new Set(["SEARCH_PLACES"]); // add more once comfortable
+  const first = plan.suggested_actions.find(a => safe.has(a.action));
+  if (!first) return undefined;
+
+  const impl = ToolRegistry[first.action];
+  if (!impl) return { ok:false, note:`No tool for ${first.action}` };
+
+  const result = await impl(state, first.params);
+  // Log into history as a tool turn
+  state.history.push({ role:"tool", content:`${first.action} → ${JSON.stringify(result)}`, ts: nowISO() });
+  return result;
+}
+
+/* ========================= PUBLIC API ========================= */
+
+export async function agentChat(sessionId: string, userText: string, extraProfile?: Partial<SessionProfile>) {
+  const state = ensureSession(sessionId);
+
+  // Merge hints
+  if (extraProfile) state.profile = { ...state.profile, ...extraProfile };
+
+  // Soft guesser (brewery → default buyers)
+  if (!state.profile.sector && ((state.profile.company_name||"").toLowerCase().includes("brew") || (state.profile.domain||"").includes("brew"))) {
+    state.profile.sector = "brewery";
+    state.profile.target_buyers = state.profile.target_buyers || ["freehouse pubs","bottle shops"];
+  }
+
+  // Record user turn
+  state.history.push({ role:"user", content:userText, ts: nowISO() });
+  state.turns++;
+
+  // Planner
+  const planned = await callPlanner(state, userText);
+
+  // Apply profile/entity updates
+  if (planned.plan?.profile_updates) state.profile = { ...state.profile, ...planned.plan.profile_updates };
+  upsertEntities(state, planned.plan?.entity_updates);
+
+  // Maybe auto-exec a safe action
+  const autoResult = await maybeExecuteFirstSafeAction(state, planned.plan);
+
+  // Record assistant turn
+  state.history.push({ role:"assistant", content: planned.natural, ts: nowISO() });
+
+  // Periodic autosummary
+  if (state.turns % CONFIG.autosummariseEvery === 0) {
+    const recent = recentTurns(state);
+    state.summary = await summariseHistory(state.summary, recent);
+  }
+
+  // Trim history length (keep last N fully, older covered by summary)
+  if (state.history.length > 200) state.history.splice(0, state.history.length - 200);
+
+  // Chip limits
+  const follow = (planned.plan.follow_ups || []).slice(0, CONFIG.maxChips);
+  const qns = (planned.plan.clarity_questions || []).slice(0, CONFIG.maxClarityQs);
+
+  return {
+    ok: true,
+    natural: planned.natural,
+    plan: {
+      ...planned.plan,
+      follow_ups: follow,
+      clarity_questions: qns
+    },
+    profile: state.profile,
+    entities: state.entities,
+    summary: state.summary,
+    auto_action_result: autoResult
+  };
+}
+
+/* ========================= EXPRESS ENDPOINT ========================= */
+
+const app = express();
+app.use(bodyParser.json());
+
+app.post("/agent/chat", async (req, res) => {
+  try {
+    const { sessionId, text, profile } = req.body as { sessionId: string; text: string; profile?: Partial<SessionProfile> };
+    if (!sessionId || !text) return res.status(400).json({ ok:false, error:"sessionId and text required" });
+
+    const out = await agentChat(sessionId, text, profile);
+    res.json(out);
+  } catch (err:any) {
+    console.error("agent/chat error:", err?.message);
+    res.status(500).json({ ok:false, error: err?.message || "unknown" });
+  }
+});
+
+// Only start server if run directly
+if (require.main === module) {
+  const PORT = process.env.PORT || 3000;
+  app.listen(PORT, () => console.log(`✅ Wyshbone MEGA Agent Kernel listening on :${PORT}`));
+}
