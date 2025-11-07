@@ -20,6 +20,17 @@ function getUserFromStorage() {
   return null;
 }
 
+// Helper to get session ID from localStorage
+function getSessionId(): string | null {
+  try {
+    const sessionId = localStorage.getItem('wyshbone_sid');
+    return sessionId || null;
+  } catch (e) {
+    console.error('Failed to get session ID from localStorage:', e);
+    return null;
+  }
+}
+
 // Helper to add development auth parameters to URL (exported for use in components)
 export function addDevAuthParams(url: string): string {
   // Only add auth params in development mode
@@ -45,12 +56,25 @@ export async function apiRequest(
   url: string,
   data?: unknown | undefined,
 ): Promise<Response> {
-  // Add development auth parameters
-  const authedUrl = addDevAuthParams(url);
+  // Prefer session ID header over URL params
+  const sessionId = getSessionId();
+  const headers: Record<string, string> = {};
+  
+  if (data) {
+    headers["Content-Type"] = "application/json";
+  }
+  
+  // Add session header if available (production-ready approach)
+  if (sessionId) {
+    headers["x-session-id"] = sessionId;
+  }
+  
+  // Fallback to URL params in development mode only if no session
+  const authedUrl = sessionId ? url : addDevAuthParams(url);
   
   const res = await fetch(authedUrl, {
     method,
-    headers: data ? { "Content-Type": "application/json" } : {},
+    headers,
     body: data ? JSON.stringify(data) : undefined,
     credentials: "include",
   });
@@ -65,10 +89,20 @@ export const getQueryFn: <T>(options: {
 }) => QueryFunction<T> =
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
-    // Add development auth parameters
-    const url = addDevAuthParams(queryKey.join("/") as string);
+    // Prefer session ID header over URL params
+    const sessionId = getSessionId();
+    const headers: Record<string, string> = {};
+    
+    // Add session header if available (production-ready approach)
+    if (sessionId) {
+      headers["x-session-id"] = sessionId;
+    }
+    
+    // Fallback to URL params in development mode only if no session
+    const url = sessionId ? queryKey.join("/") : addDevAuthParams(queryKey.join("/") as string);
     
     const res = await fetch(url, {
+      headers,
       credentials: "include",
     });
 
