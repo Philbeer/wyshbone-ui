@@ -2916,6 +2916,69 @@ CRITICAL RULES:
   });
 
   // ===========================
+  // SMART COACH ENDPOINT
+  // ===========================
+  app.post("/api/chat-smart", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+
+      const { text, conversationId } = req.body as { text: string; conversationId?: string };
+      if (!text) {
+        return res.status(400).json({ error: "text required" });
+      }
+
+      // Get user for profile enrichment
+      const user = await storage.getUserById(auth.userId);
+      let userSessionContext: SessionContext | undefined;
+      
+      if (user) {
+        userSessionContext = buildSessionContext({
+          companyName: user.companyName ?? null,
+          companyDomain: user.companyDomain ?? null,
+          roleHint: user.roleHint ?? null,
+          primaryObjective: user.primaryObjective ?? null,
+          secondaryObjectives: user.secondaryObjectives ?? null,
+          targetMarkets: user.targetMarkets ?? null,
+          productsOrServices: user.productsOrServices ?? null,
+          preferences: user.preferences ?? null,
+          inferredIndustry: user.inferredIndustry ?? null,
+          confidence: user.confidence ?? null,
+        } as any);
+      }
+
+      // Convert session context to coach profile
+      const { sessionContextToCoachProfile, wyshboneCoachWrapper } = await import("./smart-coach");
+      const coachProfile = sessionContextToCoachProfile(userSessionContext);
+
+      // Load conversation history if available
+      let conversationHistory: Array<{ role: string; content: string }> = [];
+      if (conversationId) {
+        const dbHistory = await loadConversationHistory(conversationId);
+        conversationHistory = dbHistory.map(msg => ({
+          role: msg.role,
+          content: msg.content
+        }));
+      }
+
+      // Get smart coach response
+      const coached = await wyshboneCoachWrapper(text, coachProfile, conversationHistory);
+
+      return res.json({
+        ok: true,
+        natural: coached.natural_response,
+        plan: coached.coach_plan,
+        profile: coachProfile
+      });
+    } catch (error: any) {
+      console.error("chat-smart error:", error?.message);
+      res.status(500).json({ ok: false, error: error?.message || "unknown" });
+    }
+  });
+
+  // ===========================
   // CONVERSATION MANAGEMENT API
   // ===========================
   
