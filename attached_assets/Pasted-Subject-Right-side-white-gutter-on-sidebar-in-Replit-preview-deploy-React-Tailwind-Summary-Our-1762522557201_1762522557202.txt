@@ -1,0 +1,93 @@
+Subject: Right-side white gutter on sidebar in Replit preview/deploy (React + Tailwind)
+
+Summary
+Our React/Tailwind app shows a persistent white gutter on the right edge of the sidebar in Replit Preview/Deploy. Padding was removed from the obvious containers, but a 6–16px gap remains, so the sidebar never sits truly flush with the viewport edge. Screenshot attached.
+
+Environment
+
+Host: Replit (Preview and Publish)
+
+Framework: React + TailwindCSS
+
+Affected area: Chat screen layout with a right-hand sidebar
+
+Browser: Chrome on Windows (likely Chromium-wide)
+
+Expected
+Sidebar should render edge-to-edge with no visible right gutter.
+
+Actual
+A thin white strip remains on the right edge of the sidebar, even after moving/removing padding on the chat containers and sidebar.
+
+Steps to Reproduce (high level)
+
+Open the app in Replit preview.
+
+Navigate to the chat layout with left content + right sidebar.
+
+Observe a white gutter on the right side of the sidebar.
+
+What we already tried
+
+Removed px-6 from message area & input area outer containers.
+
+Moved spacing to inner wrappers (outer shells at p-0).
+
+Verified no obvious pr-*/px-* left on the sidebar container.
+
+Issue persists.
+
+Suspected causes (ranked)
+
+Residual padding or max-w-* on the sidebar or an ancestor container.
+
+Grid gap on the parent layout (gap / gap-x-*) creating an inter-column gutter that appears at the outer edge.
+
+Scrollbar reserve width from overflow-y-scroll on the sidebar (Chrome sometimes leaves a narrow gutter).
+
+Page-level padding from a top-level wrapper or environment defaults in Replit preview.
+
+Proposed fixes we can apply (please confirm best practice)
+A) Ensure sidebar stretches fully:
+
+<div className="w-full max-w-none p-0 m-0 overflow-y-auto">...</div>
+
+
+B) Zero x-gap on parent grid and outer padding:
+
+<div className="grid grid-cols-12 gap-y-4 gap-x-0 p-0 m-0">...</div>
+
+
+C) If scrollbar reserve is the cause:
+
+<div className="overflow-y-scroll scrollbar-none">...</div>
+
+
+Optional global CSS:
+
+::-webkit-scrollbar { display: none; }
+
+
+D) Remove any page-level gutters:
+
+<div className="w-screen h-screen p-0 m-0 overflow-hidden">...</div>
+
+
+Global reset:
+
+html, body { margin: 0; padding: 0; }
+
+
+E) Debug aid to pinpoint the offender:
+
+<div className="border border-blue-500">/* parent wrapper */</div>
+<div className="border border-red-500">/* sidebar */</div>
+
+
+Questions for Replit
+
+Does Replit preview/deploy add any default padding/margins around the app root that could manifest as a right-edge gutter?
+
+Is there a recommended “full-bleed” layout recipe for Tailwind apps in Replit to guarantee zero environment gutters?
+
+If the gutter is a known scrollbar-reserve behavior in the preview container, what’s the preferred workaround?
