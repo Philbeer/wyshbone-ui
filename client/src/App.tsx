@@ -457,7 +457,7 @@ function AppLayout({
   };
 
   return (
-    <div className="flex h-screen w-full">
+    <div className="flex h-screen w-full overflow-hidden" style={{ maxWidth: '100vw' }}>
       <AppSidebar 
         defaultCountry={defaultCountry} 
         onCountryChange={setDefaultCountry}
