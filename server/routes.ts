@@ -587,15 +587,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Import agent kernel dynamically
       const { agentChat } = await import("./lib/agent-kernel");
 
-      // Call MEGA kernel with timeout
+      // Call MEGA kernel with extended timeout (GPT-5 can be slow)
       const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error("MEGA agent timeout")), 30000)
+        setTimeout(() => reject(new Error("Request timed out after 90 seconds. GPT-5 may be experiencing delays.")), 90000)
       );
       
       const result = await Promise.race([
         agentChat(sessionId, text, user as any),
         timeoutPromise
-      ]);
+      ]) as any;
 
       console.log("✅ MEGA agent completed");
       res.json(result);

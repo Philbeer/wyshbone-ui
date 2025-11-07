@@ -651,6 +651,14 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
     setMegaChips([]); // Clear previous chips
     
     try {
+      // Show a warning for slow responses
+      const slowWarningTimeout = setTimeout(() => {
+        toast({
+          title: "Still thinking...",
+          description: "GPT-5 is processing your request. This can take up to 60 seconds.",
+        });
+      }, 15000);
+
       const response = await fetch(addDevAuthParams("/agent/chat"), {
         method: "POST",
         headers: {
@@ -662,8 +670,11 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
         }),
       });
 
+      clearTimeout(slowWarningTimeout);
+
       if (!response.ok) {
-        throw new Error("MEGA agent request failed");
+        const errorData = await response.json().catch(() => ({ error: "Unknown error" }));
+        throw new Error(errorData.error || "MEGA agent request failed");
       }
 
       const data = await response.json();
@@ -691,8 +702,8 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
       }
     } catch (error: any) {
       toast({
-        title: "Error",
-        description: error.message || "Failed to send message",
+        title: "MEGA Agent Error",
+        description: error.message || "Failed to send message. Try switching to Standard mode.",
         variant: "destructive",
       });
     } finally {
