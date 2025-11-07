@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MEGA Agent Tester</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            max-width: 900px;
+            margin: 40px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            margin-top: 0;
+        }
+        .input-group {
+            margin: 20px 0;
+        }
+        label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #555;
+        }
+        input, textarea {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 14px;
+            font-family: inherit;
+        }
+        textarea {
+            min-height: 100px;
+            resize: vertical;
+        }
+        button {
+            background: #0066cc;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            margin-right: 10px;
+        }
+        button:hover {
+            background: #0052a3;
+        }
+        button.secondary {
+            background: #666;
+        }
+        button.secondary:hover {
+            background: #555;
+        }
+        .response {
+            margin-top: 30px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border-left: 4px solid #0066cc;
+        }
+        .response h3 {
+            margin-top: 0;
+            color: #333;
+        }
+        .natural-response {
+            background: white;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 15px 0;
+            white-space: pre-wrap;
+            line-height: 1.6;
+        }
+        .chips {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin: 15px 0;
+        }
+        .chip {
+            background: #e3f2fd;
+            color: #1565c0;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 14px;
+            cursor: pointer;
+            border: 1px solid #90caf9;
+        }
+        .chip:hover {
+            background: #bbdefb;
+        }
+        .metadata {
+            font-size: 12px;
+            color: #666;
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid #e0e0e0;
+        }
+        .error {
+            color: #d32f2f;
+            background: #ffebee;
+            padding: 15px;
+            border-radius: 6px;
+            margin-top: 20px;
+        }
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 MEGA Agent Tester</h1>
+        <p>Test the MEGA Agent Kernel endpoint with personalized, action-oriented responses.</p>
+
+        <div class="input-group">
+            <label for="userId">User ID</label>
+            <input type="text" id="userId" value="9be10227781aa2d0c57e5fb62892ba50" placeholder="Your user ID">
+        </div>
+
+        <div class="input-group">
+            <label for="userEmail">Email</label>
+            <input type="text" id="userEmail" value="tom@tom.com" placeholder="your@email.com">
+        </div>
+
+        <div class="input-group">
+            <label for="message">Message</label>
+            <textarea id="message" placeholder="Type your message here... (e.g., 'Find pubs selling canned beer in Kent')">Find pubs selling canned beer in Kent</textarea>
+        </div>
+
+        <button onclick="sendMessage()">Send to MEGA Agent</button>
+        <button class="secondary" onclick="clearResponse()">Clear</button>
+
+        <div id="responseContainer"></div>
+    </div>
+
+    <script>
+        async function sendMessage() {
+            const userId = document.getElementById('userId').value;
+            const userEmail = document.getElementById('userEmail').value;
+            const message = document.getElementById('message').value;
+            const responseContainer = document.getElementById('responseContainer');
+
+            if (!message.trim()) {
+                alert('Please enter a message');
+                return;
+            }
+
+            responseContainer.innerHTML = '<div class="loading">⏳ Sending to MEGA Agent...</div>';
+
+            try {
+                const url = `/agent/chat?user_id=${encodeURIComponent(userId)}&user_email=${encodeURIComponent(userEmail)}`;
+                
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        text: message,
+                        conversationId: 'test-mega-session'
+                    })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error || 'Request failed');
+                }
+
+                displayResponse(data);
+            } catch (error) {
+                responseContainer.innerHTML = `<div class="error"><strong>Error:</strong> ${error.message}</div>`;
+            }
+        }
+
+        function displayResponse(data) {
+            const responseContainer = document.getElementById('responseContainer');
+            
+            let html = '<div class="response">';
+            html += '<h3>✨ MEGA Agent Response</h3>';
+            
+            // Natural response
+            html += '<div class="natural-response">' + escapeHtml(data.natural || 'No response') + '</div>';
+            
+            // Follow-up chips
+            if (data.plan?.follow_ups && data.plan.follow_ups.length > 0) {
+                html += '<div><strong>💡 Suggestions:</strong></div>';
+                html += '<div class="chips">';
+                data.plan.follow_ups.forEach(chip => {
+                    html += `<div class="chip" onclick="useChip('${escapeHtml(chip)}')">${escapeHtml(chip)}</div>`;
+                });
+                html += '</div>';
+            }
+            
+            // Clarity questions
+            if (data.plan?.clarity_questions && data.plan.clarity_questions.length > 0) {
+                html += '<div style="margin-top: 15px;"><strong>❓ Questions:</strong></div>';
+                html += '<ul style="margin: 5px 0; padding-left: 20px;">';
+                data.plan.clarity_questions.forEach(q => {
+                    html += `<li>${escapeHtml(q)}</li>`;
+                });
+                html += '</ul>';
+            }
+            
+            // Metadata
+            html += '<div class="metadata">';
+            html += '<strong>Profile:</strong> ' + JSON.stringify(data.profile || {}, null, 2) + '<br>';
+            html += '<strong>Entities:</strong> ' + JSON.stringify(data.entities || [], null, 2) + '<br>';
+            if (data.summary) {
+                html += '<strong>Summary:</strong> ' + escapeHtml(data.summary);
+            }
+            html += '</div>';
+            
+            html += '</div>';
+            
+            responseContainer.innerHTML = html;
+        }
+
+        function useChip(text) {
+            document.getElementById('message').value = text;
+            sendMessage();
+        }
+
+        function clearResponse() {
+            document.getElementById('responseContainer').innerHTML = '';
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Allow Enter to send (Shift+Enter for new line)
+        document.getElementById('message').addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
+    </script>
+</body>
+</html>

@@ -358,7 +358,7 @@ export async function agentChat(
       company_name: ctx.companyName,
       domain: ctx.companyDomain,
       sector: ctx.inferredIndustry,
-      territory: user.defaultCountry || "GB"
+      territory: "GB" // Default territory
     };
   }
 
