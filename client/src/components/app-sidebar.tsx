@@ -872,6 +872,14 @@ export function AppSidebar({
                   </CollapsibleContent>
                 </Collapsible>
               </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={location === "/batch-history"} data-testid="link-batch-history">
+                  <Link href="/batch-history">
+                    <History className="h-4 w-4" />
+                    <span>Email Finder Runs</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
@@ -909,25 +917,13 @@ export function AppSidebar({
 
         <SidebarGroup>
           <SidebarGroupLabel>Deep Researches</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={location === "/batch-history"} data-testid="link-batch-history">
-                  <Link href="/batch-history">
-                    <History className="h-4 w-4" />
-                    <span>Email Finder Runs</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            </SidebarMenu>
-            <div className="px-3 mt-4">
-              <p className="text-xs text-muted-foreground mb-3">
-                AutoGen API calls you've sent. Click to view. Use Stop to cancel. Menu for more actions.
-              </p>
+          <SidebarGroupContent className="px-3">
+            <p className="text-xs text-muted-foreground mb-3">
+              Deep dive research reports. Click to view. Use Stop to cancel. Menu for more actions.
+            </p>
 
-              {renderRunSection(todays, "Today")}
-              {renderRunSection(previous, "Previous")}
-            </div>
+            {renderRunSection(todays, "Today")}
+            {renderRunSection(previous, "Previous")}
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
