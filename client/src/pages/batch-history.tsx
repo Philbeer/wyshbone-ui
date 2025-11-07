@@ -65,7 +65,7 @@ export default function BatchHistoryPage() {
 
   if (isLoading) {
     return (
-      <div className="flex-1 overflow-auto p-6">
+      <div className="h-full overflow-auto p-6">
         <div className="max-w-5xl mx-auto space-y-6">
           <div>
             <h1 className="text-3xl font-bold mb-2">Email Finder Runs</h1>
@@ -96,7 +96,7 @@ export default function BatchHistoryPage() {
 
   if (jobs.length === 0) {
     return (
-      <div className="flex-1 overflow-auto p-6">
+      <div className="h-full overflow-auto p-6">
         <div className="max-w-5xl mx-auto space-y-6">
           <div>
             <h1 className="text-3xl font-bold mb-2">Email Finder Runs</h1>
@@ -120,7 +120,7 @@ export default function BatchHistoryPage() {
   }
 
   return (
-    <div className="flex-1 overflow-auto p-6">
+    <div className="h-full overflow-auto p-6">
       <div className="max-w-5xl mx-auto space-y-6">
         <div>
           <h1 className="text-3xl font-bold mb-2">Email Finder Runs</h1>
