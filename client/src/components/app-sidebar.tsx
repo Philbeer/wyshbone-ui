@@ -811,8 +811,8 @@ export function AppSidebar({
                           <button
                             key={conversation.id}
                             onClick={() => {
-                              // Navigate to home page with conversation parameter
-                              setLocation(`/?conversation=${conversation.id}`);
+                              // Use the callback to load conversation
+                              onSelectConversation?.(conversation.id);
                             }}
                             className="w-full text-left px-3 py-2 rounded-md text-sm hover-elevate active-elevate-2 border border-border truncate"
                             data-testid={`button-conversation-${conversation.id}`}
