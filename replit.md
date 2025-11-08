@@ -9,17 +9,29 @@ I want the agent to focus on practical, UK-focused responses. I want to ensure t
 ## System Architecture
 The application is built with a Node.js/Express backend and a React frontend, utilizing TypeScript, Tailwind CSS, and shadcn/ui. TanStack Query manages API state. Core AI interactions leverage OpenAI's GPT-5. The system supports multi-tenant user isolation with session-based authentication and robust data security.
 
+**Dual-Mode Architecture (MEGA + Standard):**
+- **Standard Mode:** Streaming GPT-5 chat with tool calling for fast, interactive responses
+- **MEGA Mode:** GPT-4o planner-executor pattern for complex multi-step tasks with intelligent delegation
+- **Shared Infrastructure:** Both modes use identical execution layer (`server/lib/actions.ts`) and PostgreSQL storage for conversation history
+- **Bidirectional Flow:** MEGA can delegate streaming tasks back to Standard mode, with automatic mode reversion after completion
+- **Session Management:** Kent contamination prevention via dual-eviction (age >1h OR turns >100) with immediate staleness checks
+
 **UI/UX Decisions:**
 The user interface follows Material Design principles, inspired by ChatGPT, Linear, and Slack, featuring a dark mode, Inter font, consistent spacing, real-time chat, auto-expanding input, theme toggle, and a collapsible sidebar with a default UK country selector. Accessibility (WCAG AA) is a key consideration.
 
 **Technical Implementations:**
-- **AI Chat Interface:** Provides real-time conversations with a GPT-5 assistant, enforcing a concise, practical, and UK-focused AI personality via the system prompt.
+- **AI Chat Interface:** Provides real-time conversations with a GPT-5 assistant (Standard mode) or GPT-4o planner-executor (MEGA mode), enforcing a concise, practical, and UK-focused AI personality via the system prompt.
+- **Unified Action Layer:** Four core functions execute identically in both MEGA and Standard modes via `server/lib/actions.ts`:
+    - **DEEP_RESEARCH:** Multi-source web research with intelligent analysis (uses `server/deepResearch.ts`)
+    - **SEARCH_PLACES:** Google Places API integration for business discovery (uses `server/googlePlaces.ts`, marketed as "Wyshbone Global Database")
+    - **CREATE_SCHEDULED_MONITOR:** Agentic recurring task scheduler with email notifications
+    - **BATCH_CONTACT_FINDER:** Cost-optimized contact discovery pipeline (uses `server/batchService.ts`)
 - **Tool Integration:**
-    - **Wyshbone Global Database:** For verified business discovery and prospect search/enrichment, returning Place IDs.
-    - **OpenAI GPT-5 for Enrichment:** Enriches prospects with domain, contact email, social links, business classification, summary, and lead score, including public contact discovery with source verification.
-    - **Bubble Workflow Integration:** Triggers Bubble backend workflows in batch based on natural language input, with multi-country support, automatic location detection, and a mandatory user confirmation for batch requests.
-    - **Job Management & Worldwide Location Coverage:** A background job system for running searches globally, featuring intelligent location resolution (using city hints, local dictionaries, and GeoNames), 482+ static region datasets, and natural language job creation and control.
-    - **Location Hints Database:** A PostgreSQL table with 29,483 worldwide location records for smart search, autocomplete, and disambiguation, handling UK synonyms.
+    - **Wyshbone Global Database:** Marketing terminology for Google Places API - verified business discovery returning Place IDs
+    - **OpenAI GPT-5 for Enrichment:** Enriches prospects with domain, contact email, social links, business classification, summary, and lead score, including public contact discovery with source verification
+    - **Bubble Workflow Integration:** Triggers Bubble backend workflows in batch based on natural language input, with multi-country support, automatic location detection, and a mandatory user confirmation for batch requests
+    - **Job Management & Worldwide Location Coverage:** A background job system for running searches globally, featuring intelligent location resolution (using city hints, local dictionaries, and GeoNames), 482+ static region datasets, and natural language job creation and control
+    - **Location Hints Database:** A PostgreSQL table with 29,483 worldwide location records for smart search, autocomplete, and disambiguation, handling UK synonyms
 - **Streaming Responses:** Uses Server-Sent Events (SSE) for real-time AI responses.
 - **Error Handling:** Provides comprehensive error messages as system notifications.
 - **Conversational Planning:** A GPT-based planner decides whether to "search," "use_cache," or "respond" to prevent unnecessary searches and ensure venue deduplication.

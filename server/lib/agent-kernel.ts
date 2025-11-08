@@ -167,9 +167,9 @@ import { executeAction } from "./actions";
 
 // Tool registry - thin wrappers that delegate to shared execution logic
 // This ensures MEGA and Standard mode execute functions identically
-const ToolRegistry: Record<string, (session: SessionState, params?: any, userId?: string) => Promise<{ok:boolean; data?:any; note?:string; error?:string}>> = {
+const ToolRegistry: Record<string, (session: SessionState, params?: any, userId?: string, storage?: any) => Promise<{ok:boolean; data?:any; note?:string; error?:string}>> = {
   
-  "SEARCH_PLACES": async (session, params, userId) => {
+  "SEARCH_PLACES": async (session, params, userId, storage) => {
     console.log(`🚀 MEGA: Delegating to shared action executor - SEARCH_PLACES`);
     
     // Enrich params with session profile defaults
@@ -181,21 +181,23 @@ const ToolRegistry: Record<string, (session: SessionState, params?: any, userId?
     return executeAction({
       action: "SEARCH_PLACES",
       params: enrichedParams,
-      userId
+      userId,
+      storage
     });
   },
 
-  "DEEP_RESEARCH": async (session, params, userId) => {
+  "DEEP_RESEARCH": async (session, params, userId, storage) => {
     console.log(`🚀 MEGA: Delegating to shared action executor - DEEP_RESEARCH`);
     
     return executeAction({
       action: "DEEP_RESEARCH",
       params,
-      userId
+      userId,
+      storage
     });
   },
 
-  "BATCH_CONTACT_FINDER": async (session, params, userId) => {
+  "BATCH_CONTACT_FINDER": async (session, params, userId, storage) => {
     console.log(`🚀 MEGA: Delegating to shared action executor - BATCH_CONTACT_FINDER`);
     
     // Enrich params with session profile defaults
@@ -207,17 +209,30 @@ const ToolRegistry: Record<string, (session: SessionState, params?: any, userId?
     return executeAction({
       action: "BATCH_CONTACT_FINDER",
       params: enrichedParams,
-      userId
+      userId,
+      storage
     });
   },
 
-  "DRAFT_EMAIL": async (session, params, userId) => {
+  "DRAFT_EMAIL": async (session, params, userId, storage) => {
     console.log(`🚀 MEGA: Delegating to shared action executor - DRAFT_EMAIL`);
     
     return executeAction({
       action: "DRAFT_EMAIL",
       params,
-      userId
+      userId,
+      storage
+    });
+  },
+
+  "CREATE_SCHEDULED_MONITOR": async (session, params, userId, storage) => {
+    console.log(`🚀 MEGA: Delegating to shared action executor - CREATE_SCHEDULED_MONITOR`);
+    
+    return executeAction({
+      action: "CREATE_SCHEDULED_MONITOR",
+      params,
+      userId,
+      storage
     });
   }
 };
@@ -551,13 +566,13 @@ function upsertEntities(state: SessionState, updates?: Entity[]) {
 
 /* ========================= ACTION EXECUTOR ========================= */
 
-async function maybeExecuteFirstSafeAction(state: SessionState, plan: KernelResult["plan"], userId?: string) {
+async function maybeExecuteFirstSafeAction(state: SessionState, plan: KernelResult["plan"], userId?: string, storage?: any) {
   if (!CONFIG.autoRunSafeActions) return undefined;
   if (!plan?.suggested_actions?.length) return undefined;
 
   // Execute all actions immediately (like Standard mode does)
   // All our tools are safe to auto-execute when user clearly requests them
-  const safe = new Set(["SEARCH_PLACES", "DEEP_RESEARCH", "BATCH_CONTACT_FINDER", "DRAFT_EMAIL"]);
+  const safe = new Set(["SEARCH_PLACES", "DEEP_RESEARCH", "BATCH_CONTACT_FINDER", "DRAFT_EMAIL", "CREATE_SCHEDULED_MONITOR"]);
   
   // Actions that should delegate to Standard mode's streaming chat
   const delegateToStandard = new Set(["WEB_SEARCH", "FETCH_URL", "COMPLEX_CONVERSATION"]);
@@ -592,7 +607,7 @@ async function maybeExecuteFirstSafeAction(state: SessionState, plan: KernelResu
   }
 
   console.log(`▶️ Executing action: ${safeAction.action} with params:`, safeAction.params);
-  const result = await impl(state, safeAction.params, userId);
+  const result = await impl(state, safeAction.params, userId, storage);
   state.history.push({ 
     role:"tool", 
     content:`${safeAction.action} → ${JSON.stringify(result)}`, 
@@ -661,7 +676,7 @@ export async function agentChat(
   upsertEntities(state, planned.plan?.entity_updates);
 
   // Maybe auto-exec a safe action
-  const autoResult = await maybeExecuteFirstSafeAction(state, planned.plan, user?.id);
+  const autoResult = await maybeExecuteFirstSafeAction(state, planned.plan, user?.id, storage);
 
   // Record assistant turn in session state
   state.history.push({ role:"assistant", content: planned.natural, ts: nowISO() });
