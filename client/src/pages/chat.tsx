@@ -330,18 +330,21 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
         // Reset greeting ref so it shows for new chat
         hasShownGreetingRef.current = false;
         
-        // Clear conversationId from localStorage BEFORE clearing state
-        localStorage.removeItem('currentConversationId');
+        // Generate a fresh conversation ID for the new chat
+        const newConversationId = crypto.randomUUID();
         
-        // Clear all state
+        // Clear old conversationId from localStorage and set new one
+        localStorage.setItem('currentConversationId', newConversationId);
+        
+        // Clear all state and set new conversation ID
         setMessages([]);
         setShowWelcome(true);
         setInput("");
         setIsStreaming(false);
         setShowLocationSuggestions(false);
-        setConversationId(undefined);
+        setConversationId(newConversationId);
         
-        console.log("🆕 Started new chat - visual thread cleared, context retained");
+        console.log(`🆕 Started new chat with ID: ${newConversationId}`);
       };
       onNewChat(handleNewChat);
     }
@@ -667,6 +670,13 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
         });
       }, 10000);
 
+      // Ensure we have a conversationId - create one if needed
+      const currentConversationId = conversationId || crypto.randomUUID();
+      if (!conversationId) {
+        setConversationId(currentConversationId);
+        localStorage.setItem('currentConversationId', currentConversationId);
+      }
+
       const response = await fetch(addDevAuthParams("/agent/chat"), {
         method: "POST",
         headers: {
@@ -674,7 +684,7 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
         },
         body: JSON.stringify({
           text: messageContent,
-          conversationId: conversationId || `mega-${user.id}`,
+          conversationId: currentConversationId,
         }),
       });
 

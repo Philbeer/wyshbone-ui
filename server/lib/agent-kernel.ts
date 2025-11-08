@@ -765,26 +765,6 @@ export async function agentChat(
   // Use conversationId as sessionId for in-memory state
   const state = ensureSession(conversationId);
 
-  // Ensure conversation record exists in database
-  // This is critical for MEGA conversations to appear in "Previous Chats" sidebar
-  if (storage && user) {
-    try {
-      const existingConversation = await storage.getConversation(conversationId);
-      if (!existingConversation) {
-        await storage.createConversation({
-          id: conversationId,
-          userId: user.id,
-          label: "New Chat", // Use same default as Standard mode - will auto-update based on content
-          type: "chat", // Explicitly set type to "chat" so it appears in sidebar
-          createdAt: Date.now()
-        });
-        console.log(`📝 MEGA: Created conversation record for ${conversationId}`);
-      }
-    } catch (error) {
-      console.error("Failed to create MEGA conversation record:", error);
-    }
-  }
-
   // Sync with database to load shared conversation history
   // This ensures MEGA sees what Standard mode has done
   if (storage && state.turns === 0) {
@@ -805,6 +785,21 @@ export async function agentChat(
   // Save user message to database (to share with Standard mode)
   if (storage && user) {
     try {
+      // Ensure conversation record exists BEFORE saving message
+      const existingConversation = await storage.getConversation(conversationId);
+      if (!existingConversation) {
+        // Create conversation with "New Chat" label - will be updated after message is saved
+        await storage.createConversation({
+          id: conversationId,
+          userId: user.id,
+          label: "New Chat",
+          type: "chat",
+          createdAt: Date.now()
+        });
+        console.log(`📝 MEGA: Created conversation record for ${conversationId}`);
+      }
+
+      // Save user message
       await storage.createMessage({
         id: crypto.randomUUID(),
         conversationId: conversationId,
