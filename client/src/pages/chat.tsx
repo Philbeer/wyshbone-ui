@@ -96,19 +96,11 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
 
   const startDeepResearch = async (request: DeepResearchCreateRequest) => {
     try {
-      const response = await fetch(addDevAuthParams("/api/deep-research"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...request,
-          conversationId,
-          userId: user.id
-        }),
+      const response = await apiRequest("POST", "/api/deep-research", {
+        ...request,
+        conversationId,
+        userId: user.id
       });
-
-      if (!response.ok) {
-        throw new Error("Failed to start deep research");
-      }
 
       const data = await response.json();
       const run = data.run;
