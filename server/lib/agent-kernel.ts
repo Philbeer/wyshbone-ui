@@ -1,12 +1,13 @@
 /* =====================================================================
-   WYSHBONE "MEGA" AGENT KERNEL v1  (Hybrid Mode - Runs Alongside Standard Chat)
-   - Engine: GPT-5 (OpenAI) via json_schema responses
+   WYSHBONE "MEGA" AGENT KERNEL v2  (Hybrid Mode - Runs Alongside Standard Chat)
+   - Engine: GPT-4 Turbo (OpenAI) via json_schema responses - OPTIMIZED FOR SPEED
    - Capabilities:
        • Planner → Executor
        • Session profile + entity memory + rolling summary
        • Tool registry & safe auto-exec
        • Chips (follow-ups + clarity questions)
        • Tunable verbosity / speed
+   - Target: <12s average response time (was ~30s with GPT-5)
    ===================================================================== */
 
 import { openai } from "../openai";
@@ -16,14 +17,14 @@ import { buildSessionContext, type SessionContext } from "./context";
 /* ========================= CONFIG ========================= */
 
 const CONFIG = {
-  model: "gpt-5",
-  temperature: 0.6,
+  model: "gpt-4-1106-preview",  // Fastest GPT-4 Turbo (was gpt-5)
+  temperature: 0.4,              // Lower = faster + tighter replies (was 0.6)
   fastMode: true,
-  maxRecentTurns: 10,
-  autosummariseEvery: 6,
+  maxRecentTurns: 6,             // Reduce tokens in prompt (was 10)
+  autosummariseEvery: 4,         // Summarise sooner = less baggage (was 6)
   autoRunSafeActions: true,
-  maxChips: 5,
-  maxClarityQs: 2
+  maxChips: 4,                   // Streamlined suggestions (was 5)
+  maxClarityQs: 1                // Focus on key question (was 2)
 };
 
 /* ========================= MEMORY ========================= */
@@ -242,10 +243,14 @@ type KernelResult = {
 async function callPlanner(state: SessionState, userText: string): Promise<KernelResult> {
   console.log("📝 Planner called with userText:", userText.substring(0, 50));
   
+  // Token optimization: limit context size for faster responses
   const profile = JSON.stringify(state.profile || {});
-  const entities = JSON.stringify(state.entities || []);
-  const summary = state.summary || "";
-  const recents = recentTurns(state).map(t => ({ role:t.role, content:t.content }));
+  const limitedEntities = (state.entities || []).slice(0, 20);  // Max 20 entities
+  const entities = JSON.stringify(limitedEntities);
+  const summary = (state.summary || "").slice(0, 1200);  // Max 1200 chars (~300 tokens)
+  const recents = recentTurns(state)
+    .slice(-CONFIG.maxRecentTurns)  // Ensure we respect maxRecentTurns
+    .map(t => ({ role:t.role, content:t.content }));
 
   const messages = [
     { role: "system" as const, content: SYSTEM_PROMPT + `\nFAST_MODE=${CONFIG.fastMode}\n` },

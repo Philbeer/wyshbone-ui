@@ -587,9 +587,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Import agent kernel dynamically
       const { agentChat } = await import("./lib/agent-kernel");
 
-      // Call MEGA kernel with extended timeout (GPT-5 can be slow)
+      // Call MEGA kernel with timeout (GPT-4 Turbo is fast)
       const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error("Request timed out after 90 seconds. GPT-5 may be experiencing delays.")), 90000)
+        setTimeout(() => reject(new Error("Request timed out after 30 seconds. Please try again.")), 30000)
       );
       
       const result = await Promise.race([

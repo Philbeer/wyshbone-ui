@@ -1,0 +1,77 @@
+/* 
+🛠️ WYSHBONE TASK: OPTIMIZE AGENT KERNEL RESPONSE TIME
+
+📍 Objective:
+Improve the speed of our /agent/chat endpoint. Target: <12s average response (currently ~30s).
+Keep intelligent suggestions, profile/memory, and safe tool actions.
+
+---
+
+✅ Step 1: Update CONFIG
+
+In agent-kernel.ts, update the kernel settings to favor speed:
+
+*/
+const CONFIG = {
+  model: "gpt-4-1106-preview",  // Fastest GPT-4 Turbo
+  temperature: 0.4,             // Lower = faster + tighter replies
+  fastMode: true,               // Enables short, crisp messages
+  maxRecentTurns: 6,            // Reduce tokens in prompt
+  autosummariseEvery: 4,        // Summarise sooner = less baggage
+  autoRunSafeActions: true,     
+  maxChips: 4,
+  maxClarityQs: 1
+};
+
+/* 
+✅ Step 2: Cap Recents in callPlanner()
+
+Inside the `callPlanner()` function, ensure we slice recentTurns cleanly:
+*/
+const recents = recentTurns(state)
+  .slice(-CONFIG.maxRecentTurns)
+  .map(t => ({ role: t.role, content: t.content }));
+
+/* 
+✅ Step 3: Trim summary and entity overload
+
+Before passing into prompt:
+
+*/
+const summary = (state.summary || "").slice(0, 1200);          // Limit summary tokens
+const entities = (state.entities || []).slice(0, 20);          // Limit entity flood
+
+/* 
+✅ Step 4: (Optional) Parallelize tool execution (if multiple safe tools allowed)
+
+Replace serial tool run with:
+*/
+await Promise.all(
+  plan.suggested_actions
+    .filter(a => SAFE_TO_RUN.has(a.action))
+    .map(a => ToolRegistry[a.action](state, a.params))
+);
+
+/* 
+✅ Step 5: (Optional frontend) Fast UI — defer tool call
+
+Render `natural_response` immediately. Then run any auto tools after a tick:
+*/
+window.dispatchEvent(new CustomEvent("WYSHBONE_AUTO_TOOL", {
+  detail: plan.suggested_actions?.[0]
+}));
+
+/*
+📦 Summary:
+
+- Reduced LLM token load (shorter memory window, faster summary cadence)
+- Lowered temperature for speed and crispness
+- Optional deferral of tools to allow UI to feel snappy
+- Keeps structure, planning, chips, clarity questions
+
+Expected result: response time drops from ~30s → ~6–10s
+
+No features removed. All planner logic, profile updates, and safe actions stay intact.
+
+*/
+

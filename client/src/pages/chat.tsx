@@ -655,9 +655,9 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
       const slowWarningTimeout = setTimeout(() => {
         toast({
           title: "Still thinking...",
-          description: "GPT-5 is processing your request. This can take up to 60 seconds.",
+          description: "MEGA is processing your request. This usually takes 5-15 seconds.",
         });
-      }, 15000);
+      }, 10000);
 
       const response = await fetch(addDevAuthParams("/agent/chat"), {
         method: "POST",
