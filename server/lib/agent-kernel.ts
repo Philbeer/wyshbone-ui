@@ -82,190 +82,63 @@ type ToolInvocation = {
   params?: Record<string, any>;
 };
 
-// Tool registry - wire to existing Wyshbone services
-const ToolRegistry: Record<string, (session: SessionState, params?: any, userId?: string) => Promise<{ok:boolean; data?:any; note?:string}>> = {
+// Import shared action execution logic (same as Standard mode)
+import { executeAction } from "./actions";
+
+// Tool registry - thin wrappers that delegate to shared execution logic
+// This ensures MEGA and Standard mode execute functions identically
+const ToolRegistry: Record<string, (session: SessionState, params?: any, userId?: string) => Promise<{ok:boolean; data?:any; note?:string; error?:string}>> = {
   
   "SEARCH_PLACES": async (session, params, userId) => {
-    try {
-      const query = params?.query || "businesses";
-      const locationText = params?.location || params?.region;
-      const country = params?.country || session.profile.territory || "GB";
-      
-      console.log(`🔍 MEGA: Executing Wyshbone search for "${query}" in ${locationText}, ${country}`);
-      
-      // Import and call the real search function
-      const { searchPlaces } = await import("../googlePlaces");
-      const results = await searchPlaces({
-        query,
-        locationText,
-        region: country,
-        maxResults: 30
-      });
-      
-      console.log(`✅ MEGA: Found ${results.length} places`);
-      
-      // Frontend expects "places" not "results"
-      return {
-        ok: true,
-        data: { 
-          places: results,
-          count: results.length,
-          query,
-          location: locationText,
-          country
-        },
-        note: `Found ${results.length} ${query} in ${locationText}`
-      };
-    } catch (error: any) {
-      console.error("❌ MEGA: SEARCH_PLACES error:", error);
-      return {
-        ok: false,
-        note: `Search failed: ${error.message}`
-      };
-    }
+    console.log(`🚀 MEGA: Delegating to shared action executor - SEARCH_PLACES`);
+    
+    // Enrich params with session profile defaults
+    const enrichedParams = {
+      ...params,
+      country: params?.country || session.profile.territory || "GB"
+    };
+    
+    return executeAction({
+      action: "SEARCH_PLACES",
+      params: enrichedParams,
+      userId
+    });
   },
 
   "DEEP_RESEARCH": async (session, params, userId) => {
-    try {
-      const topic = params?.topic || params?.query || "requested topic";
-      
-      console.log(`🔬 MEGA: Starting deep research on "${topic}"`);
-      
-      // Import deep research module
-      const { startBackgroundResponsesJob } = await import("../deepResearch");
-      
-      if (!userId) {
-        return {
-          ok: false,
-          note: "User authentication required for deep research"
-        };
-      }
-      
-      // Execute deep research (this is async and will run in background)
-      const run = await startBackgroundResponsesJob({
-        prompt: topic,
-        userId,
-        mode: "report"
-      });
-      
-      console.log(`✅ MEGA: Deep research started with ID ${run.id}`);
-      
-      // Frontend expects "run" object with "id" property
-      return {
-        ok: true,
-        data: {
-          run: {
-            id: run.id,
-            label: topic,
-            status: "running"
-          },
-          topic,
-          message: "Research started - you'll receive results when complete"
-        },
-        note: `Started research on "${topic}" - run ID: ${run.id}`
-      };
-    } catch (error: any) {
-      console.error("❌ MEGA: DEEP_RESEARCH error:", error);
-      return {
-        ok: false,
-        note: `Research failed: ${error.message}`
-      };
-    }
+    console.log(`🚀 MEGA: Delegating to shared action executor - DEEP_RESEARCH`);
+    
+    return executeAction({
+      action: "DEEP_RESEARCH",
+      params,
+      userId
+    });
   },
 
   "BATCH_CONTACT_FINDER": async (session, params, userId) => {
-    try {
-      const query = params?.query || "businesses";
-      const location = params?.location || "unspecified";
-      const country = params?.country || session.profile.territory || "GB";
-      const targetRole = params?.targetRole || params?.role || "General Manager";
-      
-      console.log(`📧 MEGA: Starting batch contact finder for "${query}" in ${location}`);
-      
-      // Import batch service
-      const { executeBatchJob } = await import("../batchService");
-      
-      if (!userId) {
-        return {
-          ok: false,
-          note: "User authentication required for batch contact finding"
-        };
-      }
-      
-      // Get API keys from environment
-      const googleApiKey = process.env.GOOGLE_PLACES_API_KEY;
-      const hunterApiKey = process.env.HUNTER_API_KEY;
-      const salesHandyToken = process.env.SALES_HANDY_API_TOKEN;
-      const salesHandyCampaignId = process.env.SALES_HANDY_CAMPAIGN_ID;
-      const openaiKey = process.env.OPENAI_API_KEY;
-      
-      if (!googleApiKey || !hunterApiKey || !salesHandyToken || !salesHandyCampaignId) {
-        return {
-          ok: false,
-          note: "Batch contact finder requires API keys (Google Places, Hunter.io, SalesHandy)"
-        };
-      }
-      
-      // Execute batch job asynchronously
-      const result = await executeBatchJob({
-        query,
-        location,
-        country,
-        targetRole,
-        limit: 30,
-        personalize: true,
-        googleApiKey,
-        hunterApiKey,
-        salesHandyToken,
-        salesHandyCampaignId,
-        openaiKey
-      });
-      
-      console.log(`✅ MEGA: Batch job completed - ${result.created.length} contacts added`);
-      
-      // Frontend expects "job" object with "id" property
-      return {
-        ok: true,
-        data: {
-          job: {
-            id: `batch_${Date.now()}`,
-            query,
-            location,
-            targetRole,
-            status: "completed"
-          },
-          totalFound: result.items.length,
-          created: result.created.length,
-          skipped: result.skipped.length,
-          message: `Found ${result.items.length} businesses, added ${result.created.length} contacts to SalesHandy`
-        },
-        note: `Batch complete: ${result.created.length} contacts added to SalesHandy`
-      };
-    } catch (error: any) {
-      console.error("❌ MEGA: BATCH_CONTACT_FINDER error:", error);
-      return {
-        ok: false,
-        note: `Batch job failed: ${error.message}`
-      };
-    }
+    console.log(`🚀 MEGA: Delegating to shared action executor - BATCH_CONTACT_FINDER`);
+    
+    // Enrich params with session profile defaults
+    const enrichedParams = {
+      ...params,
+      country: params?.country || session.profile.territory || "GB"
+    };
+    
+    return executeAction({
+      action: "BATCH_CONTACT_FINDER",
+      params: enrichedParams,
+      userId
+    });
   },
 
-  "DRAFT_EMAIL": async (session, params) => {
-    const { to_role="General Manager", purpose="intro", product="your product" } = params || {};
-    const body =
-`Subject: Quick ${product} intro — potential fit?
-
-Hi ${to_role},
-
-I'll keep it brief — we help teams like yours with ${product}.
-If useful, I can share a 60-second summary or a short sample list.
-
-Would you be open to a quick look?
-
-Best,
-Wyshbone`;
-
-    return { ok: true, data: { draft: body } };
+  "DRAFT_EMAIL": async (session, params, userId) => {
+    console.log(`🚀 MEGA: Delegating to shared action executor - DRAFT_EMAIL`);
+    
+    return executeAction({
+      action: "DRAFT_EMAIL",
+      params,
+      userId
+    });
   }
 };
 
