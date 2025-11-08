@@ -978,6 +978,59 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
                   // Not a JSON message, fall through to regular display
                 }
                 
+                // Check if this system message has search results to display
+                if (message.searchResults && Array.isArray(message.searchResults)) {
+                  return (
+                    <div
+                      key={message.id}
+                      className="flex flex-col gap-3 w-full"
+                      data-testid={`message-system-${message.id}`}
+                    >
+                      <div className="flex justify-center">
+                        <div className="bg-chart-2/20 text-chart-2 px-4 py-2 rounded-lg text-sm font-medium">
+                          {message.content}
+                        </div>
+                      </div>
+                      
+                      {/* Search Results Table */}
+                      <div className="bg-card border border-card-border rounded-lg p-4">
+                        <div className="overflow-x-auto">
+                          <table className="w-full">
+                            <thead>
+                              <tr className="border-b border-border">
+                                <th className="text-left py-2 px-3 font-semibold text-sm">Name</th>
+                                <th className="text-left py-2 px-3 font-semibold text-sm">Address</th>
+                                <th className="text-left py-2 px-3 font-semibold text-sm">Phone</th>
+                                <th className="text-left py-2 px-3 font-semibold text-sm">Rating</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {message.searchResults.map((place: any, index: number) => (
+                                <tr 
+                                  key={place.place_id || index} 
+                                  className="border-b border-border/50 hover-elevate active-elevate-2 cursor-pointer"
+                                  data-testid={`search-result-${index}`}
+                                >
+                                  <td className="py-3 px-3 text-sm font-medium">{place.name}</td>
+                                  <td className="py-3 px-3 text-sm text-muted-foreground">{place.address || '—'}</td>
+                                  <td className="py-3 px-3 text-sm text-muted-foreground">{place.phone || '—'}</td>
+                                  <td className="py-3 px-3 text-sm">
+                                    {place.rating ? (
+                                      <span className="text-yellow-600 dark:text-yellow-400">
+                                        ⭐ {place.rating}
+                                      </span>
+                                    ) : '—'}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
+                
                 return (
                   <div
                     key={message.id}
