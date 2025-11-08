@@ -82,11 +82,10 @@ export async function executeAction(params: {
         const run = await startBackgroundResponsesJob({
           prompt: researchTopic,
           label: label || researchTopic,
-          userId,
           mode,
           counties,
           windowMonths
-        });
+        }, undefined, userId);
 
         console.log(`✅ Deep research started: ${run.id}`);
 
