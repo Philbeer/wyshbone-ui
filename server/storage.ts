@@ -22,7 +22,7 @@ import type {
 import { drizzle } from "drizzle-orm/neon-http";
 import { neon } from "@neondatabase/serverless";
 import { deepResearchRuns, conversations, messages, facts, scheduledMonitors, userSessions, integrations, batchJobs, users } from "@shared/schema";
-import { eq, or, and, desc, asc, lt, gt } from "drizzle-orm";
+import { eq, or, and, desc, asc, lt, gt, ilike } from "drizzle-orm";
 
 export interface PendingBatchConfirmation {
   business_types: string[];
@@ -723,6 +723,23 @@ export class DbStorage implements IStorage {
       .select()
       .from(facts)
       .orderBy(desc(facts.createdAt));
+  }
+
+  async searchFacts(userId: string, searchQuery: string): Promise<SelectFact[]> {
+    const searchPattern = `%${searchQuery}%`;
+    return db
+      .select()
+      .from(facts)
+      .where(
+        and(
+          eq(facts.userId, userId),
+          or(
+            ilike(facts.fact, searchPattern),
+            ilike(facts.category, searchPattern)
+          )
+        )
+      )
+      .orderBy(desc(facts.score), desc(facts.createdAt));
   }
 
   async deleteFact(id: string): Promise<boolean> {
