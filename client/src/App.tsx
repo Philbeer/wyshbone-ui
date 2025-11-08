@@ -233,30 +233,7 @@ function AppContent() {
     setSearchParams(window.location.search);
   }, [location]);
 
-  // Handle URL query parameters to load specific conversation or trigger new chat
-  useEffect(() => {
-    const params = new URLSearchParams(searchParams);
-    const conversationParam = params.get('conversation');
-    const newChatParam = params.get('new_chat');
-    
-    if (conversationParam && loadConversationCallbackRef.current) {
-      console.log("🔗 Loading conversation from URL:", conversationParam);
-      // Load the conversation from URL parameter
-      loadConversationCallbackRef.current(conversationParam);
-      
-      // Clean up the URL parameter (optional - makes URL cleaner)
-      window.history.replaceState({}, '', window.location.pathname);
-      setSearchParams(''); // Clear search params after loading
-    } else if (newChatParam === 'true' && newChatCallbackRef.current) {
-      console.log("🆕 Starting new chat from URL parameter");
-      // Trigger new chat
-      newChatCallbackRef.current();
-      
-      // Clean up the URL parameter
-      window.history.replaceState({}, '', window.location.pathname);
-      setSearchParams('');
-    }
-  }, [searchParams]); // Re-run when search params change
+  // No longer using URL parameters for navigation - using direct callbacks instead
 
   const toggleTheme = () => {
     setTheme(prev => prev === "light" ? "dark" : "light");
@@ -282,8 +259,15 @@ function AppContent() {
   }, []);
 
   const handleSelectConversation = useCallback((conversationId: string) => {
-    // Navigate to chat page with conversation parameter
-    setLocation(`/?conversation=${conversationId}`);
+    // Navigate to home page first, then trigger load conversation
+    setLocation('/');
+    // Use setTimeout to ensure we're on the home page before loading conversation
+    setTimeout(() => {
+      if (loadConversationCallbackRef.current) {
+        console.log("🔗 Loading conversation:", conversationId);
+        loadConversationCallbackRef.current(conversationId);
+      }
+    }, 100);
   }, [setLocation]);
 
   const handleNewChatClick = useCallback(() => {
