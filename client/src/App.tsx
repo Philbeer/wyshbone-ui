@@ -286,6 +286,17 @@ function AppContent() {
     setLocation(`/?conversation=${conversationId}`);
   }, [setLocation]);
 
+  const handleNewChatClick = useCallback(() => {
+    // Navigate to home page first, then trigger new chat
+    setLocation('/');
+    // Use setTimeout to ensure we're on the home page before triggering new chat
+    setTimeout(() => {
+      if (newChatCallbackRef.current) {
+        newChatCallbackRef.current();
+      }
+    }, 100);
+  }, [setLocation]);
+
   const addRun = useCallback((runData: Partial<RunItem>): string => {
     const newId = `run_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
     const newRun: RunItem = {
@@ -386,6 +397,7 @@ function AppContent() {
             handleSelectRun={handleSelectRun}
             handleSelectConversation={handleSelectConversation}
             handleRunRun={handleRunRun}
+            handleNewChatClick={handleNewChatClick}
             newChatCallbackRef={newChatCallbackRef}
             theme={theme}
             toggleTheme={toggleTheme}
@@ -412,6 +424,7 @@ function AppLayout({
   handleSelectRun,
   handleSelectConversation,
   handleRunRun,
+  handleNewChatClick,
   newChatCallbackRef,
   theme,
   toggleTheme,
@@ -473,7 +486,7 @@ function AppLayout({
         onStopRun={(id: string) => console.log("Stop run:", id)}
         onArchiveRun={(id: string, archived: boolean) => console.log("Archive run:", id, archived)}
         onRunRun={handleRunRun}
-        onNewChat={() => newChatCallbackRef.current?.()}
+        onNewChat={handleNewChatClick}
       />
       <div className="flex flex-col flex-1">
         <header className="relative flex items-center py-2 border-b gap-2">

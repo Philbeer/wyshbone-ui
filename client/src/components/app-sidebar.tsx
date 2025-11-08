@@ -780,10 +780,7 @@ export function AppSidebar({
             <SidebarMenu>
               <SidebarMenuItem>
                 <SidebarMenuButton 
-                  onClick={() => {
-                    // Navigate to home page with new_chat parameter
-                    setLocation("/?new_chat=true");
-                  }}
+                  onClick={onNewChat}
                   data-testid="button-new-chat"
                 >
                   <FilePlus className="h-4 w-4" />
