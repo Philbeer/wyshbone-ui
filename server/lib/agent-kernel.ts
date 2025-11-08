@@ -261,6 +261,22 @@ TOOLS AVAILABLE
 - DRAFT_EMAIL: Generate outreach email (auto-executes, no confirm needed)
   Params: {to_role, purpose, product}
 
+═══════════════════════════════════════════════════════════════════
+DELEGATE TO STANDARD MODE (for complex streaming features)
+═══════════════════════════════════════════════════════════════════
+When user needs real-time web search, URL fetching, or complex multi-turn
+conversation that benefits from streaming, use these actions - they will
+automatically switch to Standard mode's streaming chat:
+
+- WEB_SEARCH: Real-time web search with streaming responses
+  Params: {query}
+  
+- FETCH_URL: Fetch and parse content from web page
+  Params: {url}
+  
+- COMPLEX_CONVERSATION: Multi-turn conversation needing streaming
+  Params: {context}
+
 OUTPUT SCHEMA:
 {
   "natural_response": "string (conversational, 2-3 sentences max)",
@@ -462,20 +478,44 @@ async function maybeExecuteFirstSafeAction(state: SessionState, plan: KernelResu
   // Execute all actions immediately (like Standard mode does)
   // All our tools are safe to auto-execute when user clearly requests them
   const safe = new Set(["SEARCH_PLACES", "DEEP_RESEARCH", "BATCH_CONTACT_FINDER", "DRAFT_EMAIL"]);
-  const first = plan.suggested_actions.find(a => safe.has(a.action));
-  if (!first) {
-    console.log(`⏸️ Action "${plan.suggested_actions[0].action}" not in safe list - not auto-executing`);
+  
+  // Actions that should delegate to Standard mode's streaming chat
+  const delegateToStandard = new Set(["WEB_SEARCH", "FETCH_URL", "COMPLEX_CONVERSATION"]);
+  
+  const first = plan.suggested_actions[0];
+  
+  // Check if this action should be delegated to Standard mode
+  if (delegateToStandard.has(first.action)) {
+    console.log(`🔄 Delegating "${first.action}" to Standard mode for streaming execution`);
+    return { 
+      ok: true, 
+      delegateToStandard: true,
+      data: { action: first.action, params: first.params }
+    };
+  }
+  
+  // Check if action is in safe auto-execute list
+  const safeAction = plan.suggested_actions.find(a => safe.has(a.action));
+  if (!safeAction) {
+    console.log(`⏸️ Action "${first.action}" not in safe list - not auto-executing`);
     return undefined;
   }
 
-  const impl = ToolRegistry[first.action];
-  if (!impl) return { ok:false, note:`No tool for ${first.action}` };
+  const impl = ToolRegistry[safeAction.action];
+  if (!impl) {
+    console.log(`⚠️ No handler for "${safeAction.action}" - delegating to Standard mode`);
+    return { 
+      ok: true, 
+      delegateToStandard: true,
+      data: { action: safeAction.action, params: safeAction.params }
+    };
+  }
 
-  console.log(`▶️ Executing action: ${first.action} with params:`, first.params);
-  const result = await impl(state, first.params, userId);
+  console.log(`▶️ Executing action: ${safeAction.action} with params:`, safeAction.params);
+  const result = await impl(state, safeAction.params, userId);
   state.history.push({ 
     role:"tool", 
-    content:`${first.action} → ${JSON.stringify(result)}`, 
+    content:`${safeAction.action} → ${JSON.stringify(result)}`, 
     ts: nowISO() 
   });
   

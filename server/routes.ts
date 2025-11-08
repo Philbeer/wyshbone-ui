@@ -598,6 +598,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       ]) as any;
 
       console.log("✅ MEGA agent completed");
+      
+      // Check if MEGA wants to delegate to Standard mode
+      if (result.auto_action_result?.delegateToStandard) {
+        console.log("🔄 MEGA delegating to Standard mode - switching to streaming chat");
+        
+        // Return a special response telling frontend to use Standard mode
+        return res.json({
+          ok: true,
+          natural: result.natural + "\n\n_Switching to Standard mode for this request..._",
+          plan: result.plan,
+          delegateToStandard: true,
+          originalRequest: text
+        });
+      }
+      
       res.json(result);
     } catch (error: any) {
       console.error("MEGA agent error:", error);

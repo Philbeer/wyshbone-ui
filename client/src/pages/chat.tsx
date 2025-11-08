@@ -679,6 +679,30 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
 
       const data = await response.json();
 
+      // Check if MEGA wants to delegate to Standard mode
+      if (data.delegateToStandard) {
+        console.log("🔄 MEGA delegated to Standard - switching to streaming mode");
+        
+        // Add MEGA's transition message
+        const transitionMessage: Message = {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content: data.natural || "Switching to Standard mode for better handling of this request...",
+          timestamp: new Date(),
+        };
+        setMessages((prev) => [...prev, transitionMessage]);
+        
+        // Switch to Standard mode and re-submit using the existing handleSend function
+        setMegaMode(false);
+        
+        // Re-submit after a brief delay to allow mode switch
+        setTimeout(() => {
+          handleSend(messageContent);
+        }, 500);
+        
+        return;
+      }
+
       // Add assistant response
       const assistantMessage: Message = {
         id: crypto.randomUUID(),
