@@ -1,5 +1,4 @@
-import type { User, SelectFact } from "@shared/schema";
-import type { IStorage } from "../storage";
+import type { User } from "@shared/schema";
 
 export interface SessionContext {
   hasProfile: boolean;
@@ -9,13 +8,9 @@ export interface SessionContext {
   primaryObjective?: string;
   roleHint?: string;
   confidence: number;
-  topFacts?: SelectFact[];
 }
 
-export async function buildSessionContext(
-  user: User | null,
-  storage: IStorage
-): Promise<SessionContext> {
+export function buildSessionContext(user: User | null): SessionContext {
   if (!user) {
     return { hasProfile: false, confidence: 0 };
   }
@@ -27,9 +22,6 @@ export async function buildSessionContext(
 
   const confidence = inferredIndustry ? 70 : 30;
 
-  // Load top 10 facts for this user (ranked by importance score)
-  const topFacts = await storage.listTopFacts(user.id, 10);
-
   return {
     hasProfile: !!(user.companyName || user.companyDomain),
     companyName: user.companyName ?? undefined,
@@ -38,7 +30,6 @@ export async function buildSessionContext(
     primaryObjective: user.primaryObjective ?? undefined,
     roleHint: user.roleHint ?? undefined,
     confidence,
-    topFacts: topFacts.length > 0 ? topFacts : undefined,
   };
 }
 

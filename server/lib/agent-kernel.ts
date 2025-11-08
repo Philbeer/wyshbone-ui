@@ -859,8 +859,8 @@ export async function agentChat(
   }
 
   // Merge user profile into session if provided
-  if (user && storage) {
-    const ctx = await buildSessionContext(user, storage);
+  if (user) {
+    const ctx = buildSessionContext(user);
     state.profile = {
       company_name: ctx.companyName,
       domain: ctx.companyDomain,
