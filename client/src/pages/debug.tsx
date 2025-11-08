@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatDistanceToNow } from "date-fns";
+import { useUser } from "@/contexts/UserContext";
 
 type Conversation = {
   id: string;
@@ -36,8 +37,18 @@ type Fact = {
 };
 
 export default function DebugPage() {
+  const { user } = useUser();
   const [selectedConversation, setSelectedConversation] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
+
+  // Debounce search query
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearchQuery(searchQuery);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
 
   const { data: conversationsData } = useQuery<{ conversations: Conversation[] }>({
     queryKey: ["/api/debug/conversations"],
@@ -56,22 +67,32 @@ export default function DebugPage() {
     refetchInterval: 5000,
   });
 
+  // All facts query (no search)
   const { data: factsData } = useQuery<{ facts: Fact[] }>({
     queryKey: ["/api/debug/facts"],
     refetchInterval: 5000,
+    enabled: !debouncedSearchQuery.trim(),
+  });
+
+  // Search facts query (with search)
+  const { data: searchResultsData } = useQuery<Fact[]>({
+    queryKey: ["/api/facts", user?.id, "search", debouncedSearchQuery],
+    queryFn: async () => {
+      if (!user?.id) throw new Error("User not authenticated");
+      const response = await fetch(`/api/facts/${user.id}/search?q=${encodeURIComponent(debouncedSearchQuery)}`);
+      if (!response.ok) throw new Error("Failed to search facts");
+      return response.json();
+    },
+    enabled: !!debouncedSearchQuery.trim() && !!user?.id && user.id !== "demo-user",
   });
 
   const conversations = conversationsData?.conversations || [];
   const messages = messagesData?.messages || [];
-  const allFacts = factsData?.facts || [];
   
-  // Filter facts based on search query (client-side filtering for simplicity)
-  const facts = searchQuery.trim() 
-    ? allFacts.filter(f => 
-        f.fact.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        f.category.toLowerCase().includes(searchQuery.toLowerCase())
-      )
-    : allFacts;
+  // Use search results if searching, otherwise use all facts
+  const facts = debouncedSearchQuery.trim() 
+    ? (searchResultsData || [])
+    : (factsData?.facts || []);
 
   return (
     <div className="h-full overflow-hidden p-4">
