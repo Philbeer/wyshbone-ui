@@ -774,7 +774,7 @@ export async function agentChat(
         await storage.createConversation({
           id: conversationId,
           userId: user.id,
-          label: "MEGA Chat",
+          label: "New Chat", // Use same default as Standard mode - will auto-update based on content
           type: "chat", // Explicitly set type to "chat" so it appears in sidebar
           createdAt: Date.now()
         });
@@ -813,6 +813,10 @@ export async function agentChat(
         createdAt: Date.now()
       });
       console.log(`💾 MEGA: Saved user message to database (conversationId: ${conversationId})`);
+
+      // Auto-update conversation label from first user message
+      const { updateConversationLabel } = await import("../memory");
+      await updateConversationLabel(conversationId, userText);
     } catch (error) {
       console.error("Failed to save user message to database:", error);
     }

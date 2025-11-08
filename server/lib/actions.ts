@@ -287,6 +287,7 @@ Wyshbone`;
         }
 
         const monitor = await storage.createScheduledMonitor({
+          id: crypto.randomUUID(),
           userId,
           label,
           description: description || label,
@@ -299,7 +300,9 @@ Wyshbone`;
           emailNotifications: emailAddress ? 1 : 0,
           isActive: 1,
           status: "active",
-          nextRunAt: nextRunAt.getTime()
+          nextRunAt: nextRunAt.getTime(),
+          createdAt: Date.now(),
+          updatedAt: Date.now()
         });
 
         console.log(`✅ Scheduled monitor created: ${monitor.id}`);
