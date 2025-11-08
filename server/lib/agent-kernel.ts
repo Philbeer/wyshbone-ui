@@ -17,7 +17,7 @@ import { buildSessionContext, type SessionContext } from "./context";
 /* ========================= CONFIG ========================= */
 
 const CONFIG = {
-  model: "gpt-4-1106-preview",  // Fastest GPT-4 Turbo (was gpt-5)
+  model: "gpt-4o",               // GPT-4o - supports structured outputs (json_schema)
   temperature: 0.4,              // Lower = faster + tighter replies (was 0.6)
   fastMode: true,
   maxRecentTurns: 6,             // Reduce tokens in prompt (was 10)
