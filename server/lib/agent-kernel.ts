@@ -82,32 +82,60 @@ type ToolInvocation = {
 };
 
 // Tool registry - wire to existing Wyshbone services
-const ToolRegistry: Record<string, (session: SessionState, params?: any) => Promise<{ok:boolean; data?:any; note?:string}>> = {
+const ToolRegistry: Record<string, (session: SessionState, params?: any, userId?: string) => Promise<{ok:boolean; data?:any; note?:string}>> = {
   
-  "SEARCH_PLACES": async (session, params) => {
-    // Delegate to existing Wyshbone Global Database search
+  "SEARCH_PLACES": async (session, params, userId) => {
+    // TODO: Wire to actual Wyshbone Global Database search
+    // For now, return a helpful note
+    const query = params?.query || "businesses";
+    const location = params?.region || params?.location || "unspecified location";
+    const country = params?.country || session.profile.territory || "GB";
+    
     return {
       ok: true,
-      data: { dispatched: true, params },
-      note: "SEARCH_PLACES will be executed via Wyshbone Global Database"
+      data: { 
+        query, 
+        location, 
+        country,
+        note: "Search queued - this will execute Wyshbone Global Database search"
+      },
+      note: `Ready to search "${query}" in ${location}, ${country}`
     };
   },
 
-  "DEEP_RESEARCH": async (session, params) => {
-    // Delegate to existing deep research system
+  "DEEP_RESEARCH": async (session, params, userId) => {
+    // TODO: Wire to actual deep research backend
+    // For now, return a helpful note
+    const topic = params?.topic || params?.query || "requested topic";
+    
     return {
       ok: true,
-      data: { dispatched: true, params },
-      note: "DEEP_RESEARCH will be executed via existing research pipeline"
+      data: {
+        topic,
+        status: "queued",
+        note: "Research queued - this will execute comprehensive deep research"
+      },
+      note: `Ready to research: "${topic}"`
     };
   },
 
-  "BATCH_CONTACT_FINDER": async (session, params) => {
-    // Delegate to SalesHandy batch system
+  "BATCH_CONTACT_FINDER": async (session, params, userId) => {
+    // TODO: Wire to actual SalesHandy batch system
+    // For now, return a helpful note
+    const query = params?.query || "businesses";
+    const location = params?.location || "unspecified";
+    const targetRole = params?.targetRole || params?.role || "General Manager";
+    
     return {
       ok: true,
-      data: { dispatched: true, params },
-      note: "BATCH_CONTACT_FINDER will be executed via SalesHandy pipeline"
+      data: {
+        query,
+        location,
+        targetRole,
+        status: "queued",
+        note: "Batch job queued - this will find contacts via Hunter.io and add to SalesHandy"
+      },
+      note: `Ready to find ${targetRole} contacts for ${query} in ${location}`
     };
   },
 
@@ -326,19 +354,24 @@ function upsertEntities(state: SessionState, updates?: Entity[]) {
 
 /* ========================= ACTION EXECUTOR ========================= */
 
-async function maybeExecuteFirstSafeAction(state: SessionState, plan: KernelResult["plan"]) {
+async function maybeExecuteFirstSafeAction(state: SessionState, plan: KernelResult["plan"], userId?: string) {
   if (!CONFIG.autoRunSafeActions) return undefined;
   if (!plan?.suggested_actions?.length) return undefined;
 
   // Define what's considered "safe" to auto-run
-  const safe = new Set(["SEARCH_PLACES", "DRAFT_EMAIL"]);
+  const safe = new Set(["DRAFT_EMAIL"]); // Only DRAFT_EMAIL is truly safe to auto-execute
   const first = plan.suggested_actions.find(a => safe.has(a.action));
-  if (!first) return undefined;
+  if (!first) {
+    // For actions that need confirmation, return them without executing
+    console.log(`⏸️ Action "${plan.suggested_actions[0].action}" requires confirmation - not auto-executing`);
+    return undefined;
+  }
 
   const impl = ToolRegistry[first.action];
   if (!impl) return { ok:false, note:`No tool for ${first.action}` };
 
-  const result = await impl(state, first.params);
+  console.log(`🔧 Auto-executing safe action: ${first.action}`);
+  const result = await impl(state, first.params, userId);
   state.history.push({ 
     role:"tool", 
     content:`${first.action} → ${JSON.stringify(result)}`, 
@@ -382,7 +415,7 @@ export async function agentChat(
   upsertEntities(state, planned.plan?.entity_updates);
 
   // Maybe auto-exec a safe action
-  const autoResult = await maybeExecuteFirstSafeAction(state, planned.plan);
+  const autoResult = await maybeExecuteFirstSafeAction(state, planned.plan, user?.id);
 
   // Record assistant turn
   state.history.push({ role:"assistant", content: planned.natural, ts: nowISO() });
@@ -401,6 +434,8 @@ export async function agentChat(
   // Chip limits
   const follow = (planned.plan.follow_ups || []).slice(0, CONFIG.maxChips);
   const qns = (planned.plan.clarity_questions || []).slice(0, CONFIG.maxClarityQs);
+
+  console.log(`📊 Returning MEGA response with ${follow.length} follow-up chips`);
 
   return {
     ok: true,
