@@ -487,6 +487,20 @@ CRITICAL RULES:
 - Use PROFILE/SUMMARY/ENTITIES to personalize every response
 - Keep natural_response concise, warm, and goal-oriented
 
+FOLLOW-UP CHIPS RESTRICTIONS:
+- ONLY suggest follow_ups that trigger supported actions or clarifying questions
+- SUPPORTED follow-up patterns:
+  ✓ "Search for [business type] in [location]" → triggers SEARCH_PLACES
+  ✓ "Research [topic]" → triggers DEEP_RESEARCH
+  ✓ "Find emails for [business type] in [location]" → triggers BATCH_CONTACT_FINDER
+  ✓ "Schedule a monitor for [topic]" → triggers CREATE_SCHEDULED_MONITOR
+  ✓ Clarifying questions: "What location?", "What type of business?"
+- FORBIDDEN follow-up patterns:
+  ✗ "View research summary" (no action handler exists)
+  ✗ "See competitive analysis" (no action handler exists)
+  ✗ "Export results" (no action handler exists)
+  ✗ Any UI-only action that doesn't map to SEARCH_PLACES, DEEP_RESEARCH, BATCH_CONTACT_FINDER, or CREATE_SCHEDULED_MONITOR
+
 EXAMPLES OF suggested_actions:
 Input: "find pubs in cornwall"
 Output: suggested_actions: [{"label":"Search","action":"SEARCH_PLACES","params":{"query":"pubs","location":"Cornwall","country":"GB"}}]
