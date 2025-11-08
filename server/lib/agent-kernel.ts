@@ -1,13 +1,13 @@
 /* =====================================================================
    WYSHBONE "MEGA" AGENT KERNEL v2  (Hybrid Mode - Runs Alongside Standard Chat)
-   - Engine: GPT-4 Turbo (OpenAI) via json_schema responses - OPTIMIZED FOR SPEED
+   - Engine: GPT-4o (OpenAI) via json_schema responses - OPTIMIZED FOR SPEED
    - Capabilities:
        • Planner → Executor
        • Session profile + entity memory + rolling summary
        • Tool registry & safe auto-exec
        • Chips (follow-ups + clarity questions)
        • Tunable verbosity / speed
-   - Target: <12s average response time (was ~30s with GPT-5)
+   - Target: <12s average response time (was ~40-60s with GPT-5)
    ===================================================================== */
 
 import { openai } from "../openai";
@@ -17,7 +17,7 @@ import { buildSessionContext, type SessionContext } from "./context";
 /* ========================= CONFIG ========================= */
 
 const CONFIG = {
-  model: "gpt-4-1106-preview",  // Fastest GPT-4 Turbo (was gpt-5)
+  model: "gpt-4o",               // GPT-4o - Fast + supports json_schema (was gpt-5)
   temperature: 0.4,              // Lower = faster + tighter replies (was 0.6)
   fastMode: true,
   maxRecentTurns: 6,             // Reduce tokens in prompt (was 10)
