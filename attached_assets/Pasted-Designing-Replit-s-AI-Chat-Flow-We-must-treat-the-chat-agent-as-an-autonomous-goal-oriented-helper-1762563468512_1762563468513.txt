@@ -1,0 +1,101 @@
+Designing Replit’s AI Chat Flow
+
+We must treat the chat agent as an autonomous, goal‐oriented helper that always tries to identify the user’s true intent. The flow begins by greeting and orienting the user (especially if new) and ends with either executing a function/workflow or engaging in continued chat. Throughout, the agent should use all available context (project name, user data, previous sessions) to personalize responses. For example, on “hi” the agent replies warmly and immediately asks, “How can I assist you with your project today?” – making capabilities clear while inviting the user to articulate their goal
+learn.microsoft.com
+medium.com
+. If the user is known (returning), the agent can recall past tasks or preferences (e.g. “Welcome back! I remember you were working on WidgetApp.”). The agent’s tone and personality should be consistent and friendly, giving transparency about its abilities to build trust
+learn.microsoft.com
+medium.com
+.
+
+Understanding & Clarifying User Intent
+
+Classify the message: Immediately determine if the user’s input is a greeting, a question, a direct command (invoking a known function), or something open-ended
+learn.microsoft.com
+medium.com
+.
+
+Handle vague inputs: If intent is unclear (e.g. “hi” or “Can you help me?”), the agent should ask probing questions. For instance, “I can help with search, code changes, or project info – which would you like?” This aligns with best practices that emphasize anticipating vague user intents and clarifying them with follow‑up questions
+medium.com
+learn.microsoft.com
+.
+
+Use NLU and context: Apply language understanding to detect keywords or intents (e.g. “search”, “add file”, “domain settings”). Consider the conversation history and known user data (project details, domain name) as cues to interpret intent accurately
+learn.microsoft.com
+openai.com
+. For example, if the user’s last session involved editing code, a query like “I want to update my signup page” should be recognized as a request to modify that file and the agent can immediately suggest relevant code-edit actions.
+
+Flow Control: Chat vs. Workflow Execution
+
+Identify actionable requests: If the user’s intent clearly matches a built-in workflow (such as “global search”, “run tests”, “deploy app”, etc.), the agent should confirm and propose executing it. For example, “It sounds like you want to search your codebase for ‘authentication’ – should I run the global search now?” This follows the guidance of goal-oriented flows where each step brings the user closer to their objective
+learn.microsoft.com
+medium.com
+.
+
+Chat or question: If the query is informational or conversational (e.g. asking about Replit features or coding advice), the agent should answer directly without triggering a workflow. It might respond, “Sure, let me explain how search works…” and provide a concise explanation.
+
+Ranking and suggestions: When intent is ambiguous, the agent can suggest possible next steps. For instance, it might list options: “I can [1] perform a full project search, [2] manage your database, or [3] chat about building features. What sounds right?” Presenting choices helps the user narrow down their goal. This proactive suggestion mechanism is akin to decision-tree design – anticipating user paths and offering clear options
+learn.microsoft.com
+medium.com
+.
+
+Proactive Clarification and Flow Management
+
+Goal-oriented flow: Keep the conversation focused on accomplishing the user’s goal. Each exchange should move closer to a solution, whether that’s gathering requirements or performing an action
+learn.microsoft.com
+. If the user gives multiple tasks at once, the agent should break them into manageable steps, asking one question at a time to clarify each part
+learn.microsoft.com
+learn.microsoft.com
+. For example, for “I need a login page,” it might ask “Do you want me to create the UI design first or set up backend authentication?”
+
+Agent initiative: The AI should know when to take the lead. If the user stalls or seems unsure, the agent can step in with recommendations or next steps. For instance, after a greeting it might say, “I see your domain is myapp.repl.co. Would you like to edit your homepage, check logs, or do a search?” Taking initiative in this way ensures a cooperative flow
+learn.microsoft.com
+.
+
+Managing topic shifts: Conversations are rarely linear. If the user suddenly changes topic or asks an unrelated question, the agent should gracefully pause the current task, address the new query, and later resume the original thread if appropriate
+learn.microsoft.com
+medium.com
+. This loop-friendly design prevents dead ends: the agent can say “On another note, here’s the answer to your new question about X…” and then guide the user back to pending tasks.
+
+Executing Workflows and Confirmations
+
+Explicit confirmation: Before launching any workflow (like running code or making changes), the agent should restate what it will do and get confirmation. E.g. “I’ll create a database table named ‘Users’ – does that sound good?” This transparency aligns with explainability principles
+learn.microsoft.com
+medium.com
+.
+
+Communicate transitions: When the agent moves from talking to acting, it should clearly signal the switch. For example, “Understood. Now I am running the search…” as it triggers a global search. Such communication avoids confusion about when the AI is “thinking” or “acting”
+learn.microsoft.com
+.
+
+Progress updates: If a workflow takes time, the agent can provide feedback (e.g. “Still searching… this may take a moment”). Showing progress maintains trust and engages the user while they wait for results.
+
+Personalization and Memory
+
+Leverage known user context: Use stored user data and conversation history to personalize guidance. For example, if the user previously mentioned a preferred coding language or framework, tailor suggestions accordingly. ChatGPT’s memory feature shows how recalling user details (e.g. “you prefer bullet points in notes” or “your daughter loves jellyfish”) leads to more relevant help
+openai.com
+openai.com
+. Replit’s chat should similarly remember project context (domain names, team roles, recent files) to make interactions smoother.
+
+Personalized prompts: Acknowledge past choices: “Last time you were editing main.py. Do you want to continue from there?” This demonstrates continuity and reduces repetition.
+
+User preferences: If the user prefers a certain style (verbose vs. concise answers, or hands-on vs. suggestion mode), the agent should adapt its responses to match that style over time
+openai.com
+.
+
+Fallbacks and Robustness
+
+Clarifying vagueness: If the input is too vague or off-scope, ask a clarifying question instead of failing. For example, if a user says “Do something to my app,” the agent should respond, “Could you specify what change you need? I can edit code, adjust settings, or run analysis.” This avoids abrupt dead ends
+learn.microsoft.com
+.
+
+Alternative suggestions: When a request is outside capabilities, gently steer the user back. E.g. “I can’t book flights, but I can help with your code or documentation. Would you like to try one of those?” Such graceful redirection keeps the conversation productive
+learn.microsoft.com
+.
+
+Error recovery: If the agent misunderstands multiple times, offer to escalate or provide help resources. For example: “It seems we’re having trouble understanding each other. Would you like me to connect you with documentation or an expert?” This ensures the user feels supported even when the AI’s limits are reached.
+
+Throughout the session, the agent should balance clarity (explaining why it takes actions) with initiative (proactively offering help). By mapping out decision paths (branching dialogue trees) and always looping back to the user’s goal, the chat can smoothly decide when to keep chatting (asking or clarifying) and when to trigger a workflow. This design – anticipating intents, guiding with goal-focused questions, and leveraging memory for personalization – yields an intuitive, human-like interaction that efficiently leads to the user’s desired outcome
+learn.microsoft.com
+medium.com
+.
