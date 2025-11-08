@@ -834,8 +834,15 @@ export async function agentChat(
   // Maybe auto-exec a safe action
   const autoResult = await maybeExecuteFirstSafeAction(state, planned.plan, user?.id, storage);
 
+  // Merge action result note into natural response (for batch contact finder, deep research, etc.)
+  let finalResponse = planned.natural;
+  if (autoResult?.note) {
+    finalResponse = autoResult.note; // Use detailed action output instead of planner's generic response
+    console.log(`✨ MEGA: Using action result note as response`);
+  }
+
   // Record assistant turn in session state
-  state.history.push({ role:"assistant", content: planned.natural, ts: nowISO() });
+  state.history.push({ role:"assistant", content: finalResponse, ts: nowISO() });
 
   // Save assistant message to database (to share with Standard mode)
   if (storage && user) {
@@ -844,7 +851,7 @@ export async function agentChat(
         id: crypto.randomUUID(),
         conversationId: conversationId,
         role: "assistant",
-        content: planned.natural,
+        content: finalResponse,
         createdAt: Date.now()
       });
       console.log(`💾 MEGA: Saved assistant message to database (conversationId: ${conversationId})`);
@@ -872,7 +879,7 @@ export async function agentChat(
 
   return {
     ok: true,
-    natural: planned.natural,
+    natural: finalResponse, // Use the merged response (action note if available, else planner's response)
     plan: {
       ...planned.plan,
       follow_ups: follow,
