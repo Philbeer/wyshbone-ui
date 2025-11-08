@@ -104,10 +104,11 @@ const ToolRegistry: Record<string, (session: SessionState, params?: any, userId?
       
       console.log(`✅ MEGA: Found ${results.length} places`);
       
+      // Frontend expects "places" not "results"
       return {
         ok: true,
         data: { 
-          results,
+          places: results,
           count: results.length,
           query,
           location: locationText,
@@ -149,12 +150,16 @@ const ToolRegistry: Record<string, (session: SessionState, params?: any, userId?
       
       console.log(`✅ MEGA: Deep research started with ID ${run.id}`);
       
+      // Frontend expects "run" object with "id" property
       return {
         ok: true,
         data: {
-          runId: run.id,
+          run: {
+            id: run.id,
+            label: topic,
+            status: "running"
+          },
           topic,
-          status: "running",
           message: "Research started - you'll receive results when complete"
         },
         note: `Started research on "${topic}" - run ID: ${run.id}`
@@ -218,16 +223,20 @@ const ToolRegistry: Record<string, (session: SessionState, params?: any, userId?
       
       console.log(`✅ MEGA: Batch job completed - ${result.created.length} contacts added`);
       
+      // Frontend expects "job" object with "id" property
       return {
         ok: true,
         data: {
-          query,
-          location,
-          targetRole,
+          job: {
+            id: `batch_${Date.now()}`,
+            query,
+            location,
+            targetRole,
+            status: "completed"
+          },
           totalFound: result.items.length,
           created: result.created.length,
           skipped: result.skipped.length,
-          status: "completed",
           message: `Found ${result.items.length} businesses, added ${result.created.length} contacts to SalesHandy`
         },
         note: `Batch complete: ${result.created.length} contacts added to SalesHandy`
