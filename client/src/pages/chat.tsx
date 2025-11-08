@@ -688,6 +688,66 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
       };
       setMessages((prev) => [...prev, assistantMessage]);
 
+      // Handle tool execution results (SEARCH_PLACES, DEEP_RESEARCH, etc.)
+      if (data.auto_action_result?.ok && data.auto_action_result?.data) {
+        const result = data.auto_action_result.data;
+        
+        // Handle SEARCH_PLACES results
+        if (result.places && Array.isArray(result.places)) {
+          const systemMessage: SystemMessage = {
+            id: crypto.randomUUID(),
+            type: "system",
+            content: `✅ Found ${result.places.length} places via Wyshbone Global Database. Results displayed below.`,
+            timestamp: new Date(),
+            searchResults: result.places,
+          };
+          setMessages((prev) => [...prev, systemMessage]);
+        }
+        
+        // Handle DEEP_RESEARCH results
+        if (result.run && result.run.id) {
+          if (addRun) {
+            addRun({
+              id: result.run.id,
+              label: result.run.label || "Deep Research",
+              startedAt: new Date().toISOString(),
+              status: result.run.status || "running",
+              runType: "deep_research",
+              outputPreview: result.run.outputPreview,
+            });
+          }
+          const systemMessage: SystemMessage = {
+            id: crypto.randomUUID(),
+            type: "system",
+            content: `🔬 Deep research started. Check the sidebar for progress.`,
+            timestamp: new Date(),
+          };
+          setMessages((prev) => [...prev, systemMessage]);
+        }
+        
+        // Handle BATCH_CONTACT_FINDER results
+        if (result.job && result.job.id) {
+          const systemMessage: SystemMessage = {
+            id: crypto.randomUUID(),
+            type: "system",
+            content: `📧 Batch contact finder started. Job ID: ${result.job.id}. This will run in the background.`,
+            timestamp: new Date(),
+          };
+          setMessages((prev) => [...prev, systemMessage]);
+        }
+        
+        // Handle DRAFT_EMAIL results
+        if (result.draft) {
+          const systemMessage: SystemMessage = {
+            id: crypto.randomUUID(),
+            type: "system",
+            content: `✉️ Email draft:\n\n${result.draft}`,
+            timestamp: new Date(),
+          };
+          setMessages((prev) => [...prev, systemMessage]);
+        }
+      }
+
       // Store follow-up chips
       if (data.plan?.follow_ups) {
         setMegaChips(data.plan.follow_ups);
