@@ -74,7 +74,7 @@ export type ConversationItem = {
 
 function AppContent() {
   const { user } = useUser();
-  const [location] = useLocation();
+  const [location, setLocation] = useLocation();
   const [runs, setRuns] = useState<RunItem[]>(DEMO_RUNS);
   const [conversations, setConversations] = useState<ConversationItem[]>([]);
   const prevUserIdRef = useRef<string>(user.id);
@@ -282,8 +282,9 @@ function AppContent() {
   }, []);
 
   const handleSelectConversation = useCallback((conversationId: string) => {
-    loadConversationCallbackRef.current?.(conversationId);
-  }, []);
+    // Navigate to chat page with conversation parameter
+    setLocation(`/?conversation=${conversationId}`);
+  }, [setLocation]);
 
   const addRun = useCallback((runData: Partial<RunItem>): string => {
     const newId = `run_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
