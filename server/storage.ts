@@ -19,8 +19,8 @@ import type {
   InsertUser,
   SelectUser
 } from "@shared/schema";
-import { drizzle } from "drizzle-orm/neon-http";
-import { neon } from "@neondatabase/serverless";
+import { drizzle } from "drizzle-orm/postgres-js";
+import postgres from "postgres";
 import { deepResearchRuns, conversations, messages, facts, scheduledMonitors, userSessions, integrations, batchJobs, users } from "@shared/schema";
 import { eq, or, and, desc, asc, lt, gt, ilike } from "drizzle-orm";
 
@@ -534,9 +534,9 @@ export class MemStorage implements IStorage {
   async transferUserData(fromUserId: string, toUserId: string): Promise<void> {}
 }
 
-// Database connection
-const sql = neon(process.env.DATABASE_URL!);
-const db = drizzle(sql);
+// Database connection for Supabase
+const queryClient = postgres(process.env.DATABASE_URL!);
+const db = drizzle(queryClient);
 
 export class DbStorage implements IStorage {
   // Job methods - keeping in-memory for now
