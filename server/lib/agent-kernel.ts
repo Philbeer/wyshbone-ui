@@ -301,12 +301,13 @@ Step 2: RESPOND based on classification:
 └──────────────────────────────────────────────────────────────────┘
 
 ┌─ DIRECT_ACTION ─────────────────────────────────────────────────┐
-│ natural_response: "I'll {action}. Let me confirm: {restate      │
-│ what you'll do with params}. Sound good?"                       │
+│ natural_response: "Running search for {query} in {location}..." │
+│ OR if slightly ambiguous: "I'll search for {query}. Sound good?"│
 │                                                                  │
-│ suggested_actions: [The action with params]                     │
-│ follow_ups: ["Yes, run it", "Modify the search", "Never mind"] │
-│ ⚠️ ALWAYS CONFIRM before executing - restate the action!        │
+│ suggested_actions: [The action with params - WILL AUTO-EXECUTE] │
+│ follow_ups: ["View results", "Refine search", "Try another"]   │
+│ ✓ EXECUTE IMMEDIATELY when request is clear (like Standard)     │
+│ ? CONFIRM when params are guessed/assumed                       │
 └──────────────────────────────────────────────────────────────────┘
 
 ┌─ VAGUE_REQUEST ─────────────────────────────────────────────────┐
@@ -344,14 +345,21 @@ ALWAYS use context to personalize:
 ✓ ENTITIES → Reference known facts: "For {target_region}..."
 
 ═══════════════════════════════════════════════════════════════════
-CONFIRMATION & TRANSPARENCY
+EXECUTION LOGIC (CRITICAL - LIKE STANDARD MODE)
 ═══════════════════════════════════════════════════════════════════
 
-Before executing ANY action (except DRAFT_EMAIL):
-1. Restate what you'll do: "I'll search for pubs in Kent that sell canned beer"
-2. Show key params: "Query: 'pubs canned beer', Location: Kent, Country: GB"
-3. Ask: "Sound good?" or "Ready to run this?"
-4. Wait for confirmation before suggesting_actions
+When user makes CLEAR requests → Execute immediately:
+✓ "find pubs in Kent" → SEARCH_PLACES executes now
+✓ "research coffee shops in London" → DEEP_RESEARCH executes now  
+✓ "get emails for restaurants in NYC" → BATCH_CONTACT_FINDER executes now
+
+When request is AMBIGUOUS → Confirm first:
+? "find some places" → Ask: what type? where?
+? "research something" → Ask: what topic?
+
+TRANSPARENCY: Show what you're doing in natural_response:
+- "Running search for pubs in Kent..."
+- "Starting deep research on coffee shops in London..."
 
 ═══════════════════════════════════════════════════════════════════
 TOOLS AVAILABLE
@@ -559,19 +567,19 @@ async function maybeExecuteFirstSafeAction(state: SessionState, plan: KernelResu
   if (!CONFIG.autoRunSafeActions) return undefined;
   if (!plan?.suggested_actions?.length) return undefined;
 
-  // Define what's considered "safe" to auto-run
-  const safe = new Set(["DRAFT_EMAIL"]); // Only DRAFT_EMAIL is truly safe to auto-execute
+  // Execute all actions immediately (like Standard mode does)
+  // All our tools are safe to auto-execute when user clearly requests them
+  const safe = new Set(["SEARCH_PLACES", "DEEP_RESEARCH", "BATCH_CONTACT_FINDER", "DRAFT_EMAIL"]);
   const first = plan.suggested_actions.find(a => safe.has(a.action));
   if (!first) {
-    // For actions that need confirmation, return them without executing
-    console.log(`⏸️ Action "${plan.suggested_actions[0].action}" requires confirmation - not auto-executing`);
+    console.log(`⏸️ Action "${plan.suggested_actions[0].action}" not in safe list - not auto-executing`);
     return undefined;
   }
 
   const impl = ToolRegistry[first.action];
   if (!impl) return { ok:false, note:`No tool for ${first.action}` };
 
-  console.log(`🔧 Auto-executing safe action: ${first.action}`);
+  console.log(`▶️ Executing action: ${first.action} with params:`, first.params);
   const result = await impl(state, first.params, userId);
   state.history.push({ 
     role:"tool", 
