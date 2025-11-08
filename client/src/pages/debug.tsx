@@ -4,6 +4,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Input } from "@/components/ui/input";
+import { Search, X } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { formatDistanceToNow } from "date-fns";
 
 type Conversation = {
@@ -34,6 +37,7 @@ type Fact = {
 
 export default function DebugPage() {
   const [selectedConversation, setSelectedConversation] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
 
   const { data: conversationsData } = useQuery<{ conversations: Conversation[] }>({
     queryKey: ["/api/debug/conversations"],
@@ -59,7 +63,15 @@ export default function DebugPage() {
 
   const conversations = conversationsData?.conversations || [];
   const messages = messagesData?.messages || [];
-  const facts = factsData?.facts || [];
+  const allFacts = factsData?.facts || [];
+  
+  // Filter facts based on search query (client-side filtering for simplicity)
+  const facts = searchQuery.trim() 
+    ? allFacts.filter(f => 
+        f.fact.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        f.category.toLowerCase().includes(searchQuery.toLowerCase())
+      )
+    : allFacts;
 
   return (
     <div className="h-full overflow-hidden p-4">
@@ -217,13 +229,45 @@ export default function DebugPage() {
             {/* All Facts Section */}
             <Card className="flex-1 flex flex-col min-h-0">
               <CardHeader className="flex-shrink-0">
-                <CardTitle>All Extracted Facts ({facts.length})</CardTitle>
-                <CardDescription>Complete knowledge base accumulated from conversations</CardDescription>
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <CardTitle>All Extracted Facts ({facts.length})</CardTitle>
+                    <CardDescription>Complete knowledge base accumulated from conversations</CardDescription>
+                  </div>
+                </div>
+                {/* Search Input */}
+                <div className="relative mt-4">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    type="text"
+                    placeholder="Search facts by content or category..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-9 pr-9"
+                    data-testid="input-search-facts"
+                  />
+                  {searchQuery && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
+                      onClick={() => setSearchQuery("")}
+                      data-testid="button-clear-search"
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  )}
+                </div>
               </CardHeader>
               <CardContent className="flex-1 min-h-0 overflow-hidden">
                 <ScrollArea className="h-full">
                   <div className="space-y-3 pr-4">
-                    {facts.length === 0 && (
+                    {facts.length === 0 && searchQuery && (
+                      <p className="text-sm text-muted-foreground" data-testid="text-no-search-results">
+                        No facts found matching "{searchQuery}". Try a different search term.
+                      </p>
+                    )}
+                    {facts.length === 0 && !searchQuery && (
                       <p className="text-sm text-muted-foreground" data-testid="text-no-facts">
                         No facts extracted yet. Facts are automatically extracted after conversations.
                       </p>
