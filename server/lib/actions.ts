@@ -192,7 +192,20 @@ export async function executeAction(params: {
           }
         })();
 
-        // Return immediately with job ID and link
+        // Return immediately with detailed message (same as Standard mode)
+        const detailedMessage = `📧 **SalesHandy Batch Started!**\n\n` +
+          `🔍 **Search:** ${query} in ${location}, ${country}\n` +
+          `🎯 **Target Role:** ${targetRole}\n` +
+          `🔗 **[View Pipeline Progress →](/batch/${batchId})** ⏳\n\n` +
+          `**Pipeline Processing:**\n` +
+          `1. ✅ Searching Google Places (up to 60 results with page tokens)\n` +
+          `2. 🌐 Finding website domains for each business\n` +
+          `3. 📧 Discovering verified emails via Hunter.io\n` +
+          `4. 🎯 Ranking contacts by position (${targetRole} prioritized)\n` +
+          `5. ✍️ Generating AI-powered personalized outreach\n` +
+          `6. 📤 Adding prospects to SalesHandy campaign\n\n` +
+          `This will take several minutes. Click the link above to watch the pipeline in real-time!`;
+
         return {
           ok: true,
           data: {
@@ -200,7 +213,7 @@ export async function executeAction(params: {
             status: "running",
             viewUrl: `/batch/${batchId}`
           },
-          note: `📧 Batch contact finder started! [View pipeline](/batch/${batchId})`
+          note: detailedMessage
         };
       }
 
