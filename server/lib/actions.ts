@@ -116,6 +116,10 @@ export async function executeAction(params: {
           return { ok: false, error: "User authentication required for batch contact finder" };
         }
 
+        if (!storage) {
+          return { ok: false, error: "Storage not available for batch contact finder" };
+        }
+
         console.log(`📧 Starting batch contact finder: "${query}" in ${location}`);
 
         // Get API keys
@@ -132,38 +136,71 @@ export async function executeAction(params: {
           };
         }
 
-        const result = await executeBatchJob({
+        // Create batch job record in database
+        const batchId = `batch_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 10)}`.slice(0, 12);
+        
+        await storage.createBatchJob({
+          id: batchId,
+          userId: userId,
+          status: "running",
           query,
           location,
           country,
           targetRole,
           limit,
-          personalize: true,
-          googleApiKey,
-          hunterApiKey,
-          salesHandyToken,
-          salesHandyCampaignId,
-          openaiKey
+          personalize: 1,
+          createdAt: Date.now(),
         });
 
-        console.log(`✅ Batch job completed: ${result.created.length} contacts added`);
+        console.log(`📦 Created batch job record: ${batchId}`);
 
-        // Frontend expects "job" object with id property
+        // Execute batch job asynchronously (don't wait for completion)
+        (async () => {
+          try {
+            const result = await executeBatchJob({
+              query,
+              location,
+              country,
+              targetRole,
+              limit,
+              personalize: true,
+              googleApiKey,
+              hunterApiKey,
+              salesHandyToken,
+              salesHandyCampaignId,
+              openaiKey
+            });
+
+            // Update job with results
+            await storage.updateBatchJob(batchId, {
+              status: "completed",
+              items: result.items as any,
+              totalFound: result.items.length,
+              totalSent: result.created.length,
+              totalSkipped: result.skipped.length,
+              completedAt: Date.now(),
+            });
+
+            console.log(`✅ Batch job ${batchId} completed: ${result.created.length}/${result.items.length} sent`);
+          } catch (error: any) {
+            console.error(`❌ Batch job ${batchId} failed:`, error);
+            await storage.updateBatchJob(batchId, {
+              status: "failed",
+              error: error.message,
+              completedAt: Date.now(),
+            });
+          }
+        })();
+
+        // Return immediately with job ID and link
         return {
           ok: true,
           data: {
-            job: {
-              id: `batch_${Date.now()}`,
-              query,
-              location,
-              targetRole,
-              status: "completed"
-            },
-            totalFound: result.items.length,
-            created: result.created.length,
-            skipped: result.skipped.length
+            batchId,
+            status: "running",
+            viewUrl: `/batch/${batchId}`
           },
-          note: `Batch complete: ${result.created.length} contacts added to SalesHandy`
+          note: `📧 Batch contact finder started! [View pipeline](/batch/${batchId})`
         };
       }
 
