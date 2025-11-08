@@ -46,7 +46,7 @@ const WYSHBONE_FEATURES = [
   },
   {
     icon: Database,
-    title: "Wyshbone Global Database",
+    title: "Wyshbone Global Database (Quick Search)",
     description: "Quick business discovery with verified listings and Place IDs. Search millions of venues worldwide instantly.",
   },
   {
