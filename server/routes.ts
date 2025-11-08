@@ -481,7 +481,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           };
           
           // Use context builder to infer industry from merged data
-          const ctx = buildSessionContext(mergedUserData as any);
+          const ctx = await buildSessionContext(mergedUserData as any, storage);
           
           inferredIndustry = ctx.inferredIndustry ?? null;
           confidence = ctx.confidence;
@@ -531,7 +531,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Build session context
-      const sessionContext = buildSessionContext({
+      const sessionContext = await buildSessionContext({
         companyName: user.companyName ?? null,
         companyDomain: user.companyDomain ?? null,
         roleHint: user.roleHint ?? null,
@@ -542,7 +542,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         preferences: user.preferences ?? null,
         inferredIndustry: user.inferredIndustry ?? null,
         confidence: user.confidence ?? null,
-      } as any);
+      } as any, storage);
 
       // Generate personalized opening
       const greeting = generatePersonalizedOpening(sessionContext);
@@ -964,7 +964,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       if (currentUser) {
         // Explicitly map database user fields to avoid type casting issues
-        userSessionContext = buildSessionContext({
+        userSessionContext = await buildSessionContext({
           companyName: currentUser.companyName ?? null,
           companyDomain: currentUser.companyDomain ?? null,
           roleHint: currentUser.roleHint ?? null,
@@ -975,9 +975,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           preferences: currentUser.preferences ?? null,
           inferredIndustry: currentUser.inferredIndustry ?? null,
           confidence: currentUser.confidence ?? null,
-        } as any);
+        } as any, storage);
         
-        console.log(`🎯 User context loaded: company=${userSessionContext.companyName || 'N/A'}, industry=${userSessionContext.inferredIndustry || 'N/A'}`);
+        console.log(`🎯 User context loaded: company=${userSessionContext.companyName || 'N/A'}, industry=${userSessionContext.inferredIndustry || 'N/A'}, facts=${userSessionContext.topFacts?.length || 0}`);
       } else {
         console.log(`⚠️ User ${user.id} not found in database, using default prompt`);
       }

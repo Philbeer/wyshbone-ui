@@ -48,6 +48,38 @@ export function buildPersonalizedSystemPrompt(context?: SessionContext): string 
     }
   }
   
+  // CRITICAL: Add user's top facts for personalized suggestions
+  if (context.topFacts && context.topFacts.length > 0) {
+    prompt += "\n\nUSER'S KEY FACTS (RANKED BY IMPORTANCE):";
+    prompt += "\nThese are the most important facts I've learned about this user. USE THESE when making suggestions.";
+    
+    // Group facts by category for better organization
+    const factsByCategory: Record<string, typeof context.topFacts> = {};
+    for (const fact of context.topFacts) {
+      const category = fact.category || 'general';
+      if (!factsByCategory[category]) {
+        factsByCategory[category] = [];
+      }
+      factsByCategory[category].push(fact);
+    }
+    
+    // Add facts grouped by category
+    const categoryOrder = ['place', 'industry', 'subject', 'preference', 'general'];
+    for (const category of categoryOrder) {
+      const facts = factsByCategory[category];
+      if (facts && facts.length > 0) {
+        prompt += `\n\n${category.toUpperCase()}:`;
+        for (const fact of facts) {
+          prompt += `\n- ${fact.fact} (importance: ${fact.score}/100)`;
+        }
+      }
+    }
+    
+    prompt += "\n\nIMPORTANT: When suggesting locations or industries, CHECK THESE FACTS FIRST.";
+    prompt += "\nDo NOT suggest locations/industries that contradict or aren't mentioned in the user's facts.";
+    prompt += "\nIf the user asks for suggestions and you have relevant facts, use THOSE facts - don't use generic knowledge.";
+  }
+  
   // Action-first guidance based on industry
   if (context.inferredIndustry && context.confidence && context.confidence > 50) {
     prompt += "\n\nPERSONALIZED GUIDANCE:";
@@ -61,6 +93,7 @@ export function buildPersonalizedSystemPrompt(context?: SessionContext): string 
   prompt += "\n- Gather context naturally through conversation";
   prompt += "\n- Ask for clarification when recommendations require business-specific details";
   prompt += "\n- Confirm assumptions before acting on inferred context";
+  prompt += "\n- ALWAYS check the user's key facts above before making suggestions about locations or industries";
   
   return prompt;
 }
