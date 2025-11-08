@@ -579,21 +579,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "User not found" });
       }
 
-      // Use conversationId as sessionId for MEGA kernel
-      const sessionId = conversationId || `mega-${auth.userId}`;
+      // Use the same conversationId as Standard mode (shared conversation)
+      // If not provided, use user-specific default
+      const sharedConversationId = conversationId || auth.userId;
 
-      console.log("🚀 MEGA agent starting:", { sessionId, text: text.substring(0, 50) });
+      console.log("🚀 MEGA agent starting:", { 
+        conversationId: sharedConversationId, 
+        text: text.substring(0, 50) 
+      });
 
       // Import agent kernel dynamically
       const { agentChat } = await import("./lib/agent-kernel");
 
-      // Call MEGA kernel with timeout (GPT-4 Turbo is fast)
+      // Call MEGA kernel with timeout and pass storage for database persistence
       const timeoutPromise = new Promise((_, reject) => 
         setTimeout(() => reject(new Error("Request timed out after 30 seconds. Please try again.")), 30000)
       );
       
       const result = await Promise.race([
-        agentChat(sessionId, text, user as any),
+        agentChat(sharedConversationId, text, user as any, storage),
         timeoutPromise
       ]) as any;
 
@@ -609,7 +613,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           natural: result.natural + "\n\n_Switching to Standard mode for this request..._",
           plan: result.plan,
           delegateToStandard: true,
-          originalRequest: text
+          originalRequest: text,
+          conversationId: sharedConversationId // Share the same conversation
         });
       }
       

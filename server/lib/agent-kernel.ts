@@ -57,21 +57,101 @@ type SessionState = {
   summary: string;
   history: HistoryTurn[];
   turns: number;
+  lastUpdated: number; // Timestamp for cleanup
 };
 
 const SESSIONS = new Map<string, SessionState>();
 
-function ensureSession(sessionId: string): SessionState {
-  if (!SESSIONS.has(sessionId)) {
-    SESSIONS.set(sessionId, { 
-      profile: {}, 
-      entities: [], 
-      summary: "", 
-      history: [], 
-      turns: 0 
-    });
+// Clear stale sessions periodically (prevent Kent issue)
+setInterval(() => {
+  const MAX_SESSION_AGE_MS = 60 * 60 * 1000; // 1 hour
+  const MAX_TURNS = 100;
+  const now = Date.now();
+  
+  const entries = Array.from(SESSIONS.entries());
+  let cleaned = 0;
+  
+  for (const [sessionId, state] of entries) {
+    const sessionAge = now - state.lastUpdated;
+    
+    // Clear sessions that are either >1 hour old OR have >100 turns
+    if (sessionAge > MAX_SESSION_AGE_MS || state.turns > MAX_TURNS) {
+      const reason = sessionAge > MAX_SESSION_AGE_MS 
+        ? `>1h old (${Math.floor(sessionAge / 60000)}min)`
+        : `>${MAX_TURNS} turns`;
+      console.log(`🧹 Clearing stale session (${reason}): ${sessionId.substring(0, 20)}...`);
+      SESSIONS.delete(sessionId);
+      cleaned++;
+    }
   }
-  return SESSIONS.get(sessionId)!;
+  
+  if (cleaned > 0) {
+    console.log(`🧹 Session cleanup complete: ${cleaned} removed, ${SESSIONS.size} active`);
+  }
+}, 10 * 60 * 1000); // Every 10 minutes
+
+function ensureSession(sessionId: string): SessionState {
+  const MAX_SESSION_AGE_MS = 60 * 60 * 1000; // 1 hour (same as cleanup)
+  const MAX_TURNS = 100;
+  
+  const existing = SESSIONS.get(sessionId);
+  
+  // Check if existing session is stale (prevents Kent issue)
+  if (existing) {
+    const sessionAge = Date.now() - existing.lastUpdated;
+    const isStale = sessionAge > MAX_SESSION_AGE_MS || existing.turns > MAX_TURNS;
+    
+    if (isStale) {
+      const reason = sessionAge > MAX_SESSION_AGE_MS 
+        ? `>1h old (${Math.floor(sessionAge / 60000)}min)`
+        : `>${MAX_TURNS} turns`;
+      console.log(`🧹 Immediate cleanup: Discarding stale session (${reason}): ${sessionId.substring(0, 20)}...`);
+      SESSIONS.delete(sessionId);
+    } else {
+      return existing;
+    }
+  }
+  
+  // Create fresh session (either first time or after staleness discard)
+  const freshSession = { 
+    profile: {}, 
+    entities: [], 
+    summary: "", 
+    history: [], 
+    turns: 0,
+    lastUpdated: Date.now()
+  };
+  
+  SESSIONS.set(sessionId, freshSession);
+  console.log(`✨ Created fresh MEGA session: ${sessionId.substring(0, 20)}...`);
+  return freshSession;
+}
+
+// Load conversation history from database to sync with Standard mode
+async function syncSessionWithDatabase(
+  conversationId: string,
+  state: SessionState,
+  storage: any
+): Promise<void> {
+  try {
+    const messages = await storage.listMessages(conversationId);
+    
+    // Only load recent messages to avoid token overload (last 20 messages)
+    const recentMessages = messages.slice(-20);
+    
+    // Convert database messages to session history format
+    state.history = recentMessages.map((msg: any) => ({
+      role: msg.role,
+      content: msg.content,
+      ts: new Date(msg.createdAt).toISOString()
+    }));
+    
+    state.turns = Math.floor(recentMessages.length / 2); // Rough estimate
+    
+    console.log(`🔄 Synced MEGA session with database: ${recentMessages.length} messages loaded`);
+  } catch (error) {
+    console.error("Failed to sync session with database:", error);
+  }
 }
 
 /* ========================= TOOLS ========================= */
@@ -525,11 +605,19 @@ async function maybeExecuteFirstSafeAction(state: SessionState, plan: KernelResu
 /* ========================= PUBLIC API ========================= */
 
 export async function agentChat(
-  sessionId: string, 
+  conversationId: string, 
   userText: string, 
-  user?: User
+  user?: User,
+  storage?: any
 ) {
-  const state = ensureSession(sessionId);
+  // Use conversationId as sessionId for in-memory state
+  const state = ensureSession(conversationId);
+
+  // Sync with database to load shared conversation history
+  // This ensures MEGA sees what Standard mode has done
+  if (storage && state.turns === 0) {
+    await syncSessionWithDatabase(conversationId, state, storage);
+  }
 
   // Merge user profile into session if provided
   if (user) {
@@ -542,9 +630,26 @@ export async function agentChat(
     };
   }
 
-  // Record user turn
+  // Save user message to database (to share with Standard mode)
+  if (storage && user) {
+    try {
+      await storage.createMessage({
+        id: crypto.randomUUID(),
+        conversationId: conversationId,
+        role: "user",
+        content: userText,
+        createdAt: Date.now()
+      });
+      console.log(`💾 MEGA: Saved user message to database (conversationId: ${conversationId})`);
+    } catch (error) {
+      console.error("Failed to save user message to database:", error);
+    }
+  }
+
+  // Record user turn in session state
   state.history.push({ role:"user", content:userText, ts: nowISO() });
   state.turns++;
+  state.lastUpdated = Date.now(); // Update timestamp to prevent premature cleanup
 
   // Planner
   const planned = await callPlanner(state, userText);
@@ -558,8 +663,24 @@ export async function agentChat(
   // Maybe auto-exec a safe action
   const autoResult = await maybeExecuteFirstSafeAction(state, planned.plan, user?.id);
 
-  // Record assistant turn
+  // Record assistant turn in session state
   state.history.push({ role:"assistant", content: planned.natural, ts: nowISO() });
+
+  // Save assistant message to database (to share with Standard mode)
+  if (storage && user) {
+    try {
+      await storage.createMessage({
+        id: crypto.randomUUID(),
+        conversationId: conversationId,
+        role: "assistant",
+        content: planned.natural,
+        createdAt: Date.now()
+      });
+      console.log(`💾 MEGA: Saved assistant message to database (conversationId: ${conversationId})`);
+    } catch (error) {
+      console.error("Failed to save assistant message to database:", error);
+    }
+  }
 
   // Periodic autosummary
   if (state.turns % CONFIG.autosummariseEvery === 0) {
@@ -589,6 +710,7 @@ export async function agentChat(
     profile: state.profile,
     entities: state.entities,
     summary: state.summary,
-    auto_action_result: autoResult
+    auto_action_result: autoResult,
+    conversationId: conversationId // Return conversationId for frontend
   };
 }
