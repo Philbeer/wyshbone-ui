@@ -3222,6 +3222,35 @@ CRITICAL RULES:
     }
   });
 
+  // Search user facts
+  app.get("/api/facts/:userId/search", async (req, res) => {
+    try {
+      // SECURITY: Validate authenticated user
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      // SECURITY: Only allow users to search their own facts
+      const requestedUserId = req.params.userId;
+      if (requestedUserId !== auth.userId) {
+        console.warn(`🚫 User ${auth.userEmail} attempted to search facts for ${requestedUserId}`);
+        return res.status(403).json({ error: "Forbidden: Cannot access other users' data" });
+      }
+      
+      const searchQuery = req.query.q as string;
+      if (!searchQuery || searchQuery.trim() === "") {
+        return res.status(400).json({ error: "Search query is required" });
+      }
+      
+      const facts = await storage.searchFacts(auth.userId, searchQuery.trim());
+      res.json(facts);
+    } catch (error: any) {
+      console.error("Error searching facts:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // =========================================
   // POST /api/search – OpenAI Responses API
   // (kept as you provided; unchanged in logic)
