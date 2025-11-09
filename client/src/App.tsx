@@ -20,6 +20,7 @@ import CountryHint from "@/components/CountryHint";
 import { LoginDialog } from "@/components/LoginDialog";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { UserProvider, useUser } from "@/contexts/UserContext";
+import { SidebarFlashProvider } from "@/contexts/SidebarFlashContext";
 
 // No demo runs - users only see their own data
 const DEMO_RUNS: RunItem[] = [];
@@ -540,7 +541,9 @@ function AppLayout({
 function App() {
   return (
     <UserProvider>
-      <AppContent />
+      <SidebarFlashProvider>
+        <AppContent />
+      </SidebarFlashProvider>
     </UserProvider>
   );
 }

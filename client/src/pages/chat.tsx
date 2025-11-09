@@ -14,6 +14,7 @@ import remarkGfm from 'remark-gfm';
 import { useToast } from "@/hooks/use-toast";
 import { useUser } from "@/contexts/UserContext";
 import { AddToXeroDialog } from "@/components/AddToXeroDialog";
+import { useSidebarFlash } from "@/contexts/SidebarFlashContext";
 
 type Message = ChatMessage & {
   id: string;
@@ -49,6 +50,7 @@ interface ChatPageProps {
 export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage, addRun, updateRun, getActiveRunId, onNewChat, onLoadConversation }: ChatPageProps) {
   const { user } = useUser();
   const { toast } = useToast();
+  const { trigger: triggerSidebarFlash } = useSidebarFlash();
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
@@ -115,6 +117,7 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
           runType: "deep_research",
           outputPreview: run.outputPreview,
         });
+        triggerSidebarFlash('deepResearch');
       }
       
       const systemMessage: SystemMessage = {
@@ -471,6 +474,7 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
               if (parsed.batchId) {
                 console.log('🔗 Received batch job ID:', parsed.batchId);
                 setBatchJobTracking((prev) => new Map(prev).set(assistantMessageId, parsed.batchId));
+                triggerSidebarFlash('emailFinder');
               }
               
               if (parsed.content) {

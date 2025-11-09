@@ -4,6 +4,7 @@ import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { useUser } from "@/contexts/UserContext";
 import { addDevAuthParams } from "@/lib/queryClient";
+import { useSidebarFlash } from "@/contexts/SidebarFlashContext";
 import {
   Sidebar,
   SidebarContent,
@@ -517,13 +518,33 @@ export function AppSidebar({
   onNewChat,
 }: AppSidebarProps) {
   const { user } = useUser();
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
+  const { lastTriggerBySection } = useSidebarFlash();
   const [showArchived, setShowArchived] = useState(false);
   const [localRuns, setLocalRuns] = useState<RunItem[]>(runs);
   const [showPreviousChats, setShowPreviousChats] = useState(false);
   const [showScheduledMonitors, setShowScheduledMonitors] = useState(false);
   const [showIntegrations, setShowIntegrations] = useState(false);
   const [newRunIds, setNewRunIds] = useState<Set<string>>(new Set());
+  
+  const [flashingSection, setFlashingSection] = useState<string | null>(null);
+
+  // Watch for flash triggers from other components
+  useEffect(() => {
+    const triggers = Array.from(lastTriggerBySection.entries());
+    if (triggers.length === 0) return;
+    
+    // Get the most recent trigger
+    const [section, timestamp] = triggers[triggers.length - 1];
+    setFlashingSection(section);
+    
+    // Remove flash after 2 seconds (2 flashes animation duration)
+    const timer = setTimeout(() => {
+      setFlashingSection(null);
+    }, 2000);
+    
+    return () => clearTimeout(timer);
+  }, [lastTriggerBySection]);
 
   useEffect(() => {
     // Always update localRuns first
@@ -880,7 +901,10 @@ export function AppSidebar({
               <SidebarMenuItem>
                 <Collapsible open={showScheduledMonitors} onOpenChange={setShowScheduledMonitors}>
                   <CollapsibleTrigger asChild>
-                    <SidebarMenuButton data-testid="button-toggle-scheduled-monitors">
+                    <SidebarMenuButton 
+                      className={flashingSection === 'scheduledMonitors' ? 'animate-flash-border' : ''}
+                      data-testid="button-toggle-scheduled-monitors"
+                    >
                       {showScheduledMonitors ? (
                         <ChevronDown className="h-4 w-4" />
                       ) : (
@@ -901,7 +925,12 @@ export function AppSidebar({
                 </Collapsible>
               </SidebarMenuItem>
               <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={location === "/batch-history"} data-testid="link-batch-history">
+                <SidebarMenuButton 
+                  asChild 
+                  isActive={location === "/batch-history"} 
+                  className={flashingSection === 'emailFinder' ? 'animate-flash-border' : ''}
+                  data-testid="link-batch-history"
+                >
                   <Link href="/batch-history">
                     <History className="h-4 w-4" />
                     <span>Email Finder Runs</span>
@@ -913,7 +942,9 @@ export function AppSidebar({
         </SidebarGroup>
 
         <SidebarGroup>
-          <SidebarGroupLabel>Deep Researches</SidebarGroupLabel>
+          <SidebarGroupLabel className={flashingSection === 'deepResearch' ? 'animate-flash-border' : ''}>
+            Deep Researches
+          </SidebarGroupLabel>
           <SidebarGroupContent className="px-3">
             <p className="text-xs text-muted-foreground mb-3">
               Deep dive research reports. Click to view. Use Stop to cancel. Menu for more actions.
