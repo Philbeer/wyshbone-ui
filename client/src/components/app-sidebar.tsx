@@ -1024,6 +1024,11 @@ function ScheduledMonitorsSection({ userId, onSelectConversation }: { userId: st
       return;
     }
     
+    if (editForm.schedule === 'once' && !editForm.scheduleTime?.trim()) {
+      alert('Time is required when schedule is set to "Once"');
+      return;
+    }
+    
     setIsSaving(true);
     try {
       // Override email address for dev testing
