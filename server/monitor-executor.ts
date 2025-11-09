@@ -49,9 +49,11 @@ export async function executeMonitorAndNotify(monitor: ScheduledMonitor, userEma
   
   const results = await executeMonitor(monitor, conversationId, nextSequence);
   
-  // Get user's login email from their active session
+  // Get recipient email: prioritize monitor.emailAddress (dev override), then user's login email
   const loginEmail = await storage.getUserEmail(monitor.userId);
-  const recipientEmail = loginEmail || 'phil@listersbrewery.com';
+  const recipientEmail = monitor.emailAddress || loginEmail || 'phil@listersbrewery.com';
+  
+  console.log(`📬 Email recipient: ${monitor.emailAddress ? `${recipientEmail} (override)` : `${recipientEmail} (login email)`}`);
   
   // 🤖 AGENTIC URGENCY HANDLING
   // Send email if monitor has notifications enabled
