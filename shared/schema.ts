@@ -281,9 +281,12 @@ export const messages = pgTable("messages", {
   conversationId: text("conversation_id").notNull(),
   role: text("role").notNull(),
   content: text("content").notNull(),
+  source: text("source").default("ui"), // 'ui', 'supervisor', 'system'
+  metadata: jsonb("metadata"), // For supervisor: { supervisor_task_id, capabilities[], lead_ids[] }
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
 }, (table) => ({
   conversationIdIdx: index("messages_conversation_id_idx").on(table.conversationId, table.createdAt),
+  sourceIdx: index("messages_source_idx").on(table.source),
 }));
 
 // Facts table - stores extracted durable facts about users
@@ -318,6 +321,29 @@ export const insertFactSchema = createInsertSchema(facts);
 export const selectFactSchema = createSelectSchema(facts);
 export type InsertFact = z.infer<typeof insertFactSchema>;
 export type SelectFact = typeof facts.$inferSelect;
+
+// ============= SUPERVISOR TASKS TABLE =============
+
+// Supervisor Tasks table - stores tasks for external Supervisor backend
+export const supervisorTasks = pgTable("supervisor_tasks", {
+  id: text("id").primaryKey(),
+  conversationId: text("conversation_id").notNull(),
+  userId: text("user_id").notNull(),
+  taskType: text("task_type").notNull(), // 'generate_leads', 'analyze_conversation', 'provide_insights'
+  requestData: jsonb("request_data").notNull(), // { user_message, search_query: { business_type, location } }
+  status: text("status").notNull().default("pending"), // 'pending', 'processing', 'completed', 'failed'
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+}, (table) => ({
+  conversationIdIdx: index("supervisor_tasks_conversation_id_idx").on(table.conversationId),
+  statusIdx: index("supervisor_tasks_status_idx").on(table.status, table.createdAt),
+  userIdIdx: index("supervisor_tasks_user_id_idx").on(table.userId),
+}));
+
+// Supervisor Task insert/select schemas
+export const insertSupervisorTaskSchema = createInsertSchema(supervisorTasks);
+export const selectSupervisorTaskSchema = createSelectSchema(supervisorTasks);
+export type InsertSupervisorTask = z.infer<typeof insertSupervisorTaskSchema>;
+export type SelectSupervisorTask = typeof supervisorTasks.$inferSelect;
 
 // ============= SCHEDULED MONITORS TABLE =============
 

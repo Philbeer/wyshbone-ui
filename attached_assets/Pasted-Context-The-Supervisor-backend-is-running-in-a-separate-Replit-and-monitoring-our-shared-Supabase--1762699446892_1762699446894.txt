@@ -1,0 +1,79 @@
+Context:
+The Supervisor backend is running in a separate Replit and monitoring our shared Supabase database. I need to integrate the chat interface so users can ask Supervisor for leads and see responses in real-time.
+
+What I need you to build:
+1. Detect Supervisor Intent
+
+When user sends a message containing "find leads", "find prospects", "search for", "analyze conversation", or "insights"
+Parse the message to extract business type and location
+2. Create Supervisor Tasks in Supabase
+
+Insert into supervisor_tasks table when Supervisor is needed
+Table structure:
+conversation_id (UUID)
+user_id (UUID)
+task_type (TEXT) - one of: 'generate_leads', 'analyze_conversation', 'provide_insights'
+request_data (JSONB) - contains: { user_message, search_query: { business_type, location } }
+status (TEXT) - set to 'pending'
+created_at (BIGINT) - timestamp in milliseconds
+
+3. Subscribe to Supabase Realtime
+
+Listen for INSERT events on messages table
+Filter by current conversation_id
+When message.source === 'supervisor', add to chat with special styling
+4. Display Supervisor Messages
+
+Show "🤖 Supervisor" badge
+Add blue left border or background gradient
+Display metadata chips showing capabilities and lead count
+Make it visually distinct from regular AI messages
+5. Optional Enhancements
+
+Show loading indicator while waiting (Supervisor responds within 30 seconds)
+Add "Ask Supervisor" button to explicitly trigger Supervisor
+Important Details:
+Messages table already has:
+
+source column (TEXT) - can be 'ui', 'supervisor', or 'system'
+metadata column (JSONB) - contains: { supervisor_task_id, capabilities[], lead_ids[] }
+Example Supervisor message metadata:
+
+{
+  "supervisor_task_id": "abc-123",
+  "capabilities": ["lead_generation", "email_enrichment"],
+  "lead_ids": ["lead-1", "lead-2", "lead-3"]
+}
+
+Testing:
+After implementation, test by typing in chat: "Find dental clinics in York"
+
+Should create supervisor_task in Supabase
+Within 30 seconds, should see Supervisor response with leads
+Message should have blue badge saying "🤖 Supervisor"
+Reference:
+Read the file INTEGRATION_INSTRUCTIONS_FOR_WYSHBONE_UI.md in the Wyshbone Supervisor Replit for complete code examples, including:
+
+Intent detection function
+Supabase task creation code
+Realtime subscription setup
+React component examples with styling
+🎯 What You Have Now
+✅ Supervisor backend is LIVE and working:
+
+Polls Supabase every 30 seconds
+Processes tasks within 30 seconds
+Generates leads with Google Places + Hunter.io
+Posts formatted responses to messages table
+Includes rich metadata (lead IDs, capabilities)
+✅ Documentation ready:
+
+INTEGRATION_INSTRUCTIONS_FOR_WYSHBONE_UI.md - Complete integration guide with code examples
+replit.md - Updated architecture documentation
+SQL migrations already applied to Supabase
+✅ Tested and verified:
+
+Created test task successfully
+Supervisor processed it
+Posted response to Supabase messages table
+All metadata included correctly
