@@ -209,35 +209,16 @@ async function executeDeepResearch(monitor: ScheduledMonitor, conversationId: st
           fullOutput,
         }, runSequence);
         
-        // ✨ SMART SUMMARY MODE: Create concise, actionable summary instead of overwhelming full output
-        const smartSummary = `📊 **${monitor.label}** - Run #${runSequence}
-**${runDate} at ${runTime}**
-
-**Results:** ${newResults > 0 ? `🆕 ${newResults} new` : '✓ No changes'} (${currentResultCount} total)
-
-**🤖 AI Analysis:** ${agenticAnalysis.significance.toUpperCase()} significance
-
-**💡 Key Findings:**
-${agenticAnalysis.keyFindings.map((f, i) => `${i + 1}. ${f}`).join('\n')}
-
-${agenticAnalysis.requiresDeepDive ? `\n**🔍 Follow-Up:** AI triggered deeper research on ${agenticAnalysis.deepDiveFocus}` : ''}
-
-${agenticAnalysis.urgency === 'immediate' ? '🚨 **Immediate attention recommended**' : ''}
-
----
-📧 ${monitor.emailNotifications === 1 ? 'Full report sent to your email' : 'Email notifications disabled'}
-_Full research data stored in monitor history_`;
-        
-        // Save ONLY the smart summary to chat (not the overwhelming full output)
+        // Save the FULL deep research report to conversation (matching standard deep research format)
         await storage.createMessage({
           id: crypto.randomUUID(),
           conversationId,
           role: 'assistant',
-          content: smartSummary,
+          content: fullOutput,
           createdAt: Date.now(),
         });
         
-        console.log(`💾 Saved smart summary for run #${runSequence} to conversation ${conversationId}`);
+        console.log(`💾 Saved full deep research report for run #${runSequence} to conversation ${conversationId}`);
         
         // Execute autonomous deep dive if analysis determined it's warranted
         let deepDiveResult = null;
