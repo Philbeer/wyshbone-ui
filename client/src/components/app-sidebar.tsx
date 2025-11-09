@@ -761,8 +761,6 @@ export function AppSidebar({
     </div>
   );
 
-  const [location] = useLocation();
-
   return (
     <Sidebar>
       <SidebarContent>
