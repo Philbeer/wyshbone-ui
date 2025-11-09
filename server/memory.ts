@@ -4,7 +4,7 @@ import { randomUUID } from "crypto";
 import { buildPersonalizedSystemPrompt } from "./openai";
 import type { SessionContext } from "./lib/context";
 
-export type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
+export type ChatMessage = { role: "system" | "user" | "assistant"; content: string; name?: string };
 type Conversation = ChatMessage[];
 
 export type VenueCache = {
@@ -263,14 +263,87 @@ export async function loadConversationHistory(
   conversationId: string,
   maxMessages: number = 14
 ): Promise<ChatMessage[]> {
-  const messages = await storage.listMessages(conversationId);
+  // Load messages from local database (UI messages)
+  const localMessages = await storage.listMessages(conversationId);
   
-  const recentMessages = messages.slice(Math.max(0, messages.length - maxMessages));
+  // Load Supervisor messages from Supabase (if configured)
+  let supervisorMessages: any[] = [];
+  try {
+    const { getSupervisorMessages, isSupabaseConfigured } = await import('./supabase-client');
+    
+    if (isSupabaseConfigured()) {
+      supervisorMessages = await getSupervisorMessages(conversationId);
+      console.log(`📨 Loaded ${supervisorMessages.length} Supervisor messages from Supabase`);
+    }
+  } catch (error) {
+    console.warn('⚠️ Failed to load Supervisor messages:', error);
+  }
   
-  return recentMessages.map(msg => ({
-    role: msg.role as "user" | "assistant" | "system",
-    content: msg.content,
-  }));
+  // Merge and sort all messages by timestamp
+  const allMessages = [
+    ...localMessages.map(msg => ({
+      ...msg,
+      createdAt: msg.createdAt,
+      source: 'ui' as const
+    })),
+    ...supervisorMessages.map(msg => {
+      // Normalize timestamp - handle numeric, string, or missing values
+      let createdAt: number;
+      if (typeof msg.created_at === 'number') {
+        createdAt = msg.created_at;
+      } else if (typeof msg.created_at === 'string') {
+        const parsed = Date.parse(msg.created_at);
+        createdAt = isNaN(parsed) ? Date.now() : parsed;
+      } else {
+        createdAt = Date.now();
+      }
+      
+      return {
+        id: msg.id,
+        conversationId: msg.conversation_id,
+        role: msg.role, // Keep original role for now, normalize later
+        content: msg.content,
+        createdAt,
+        source: 'supervisor' as const,
+        metadata: msg.metadata
+      };
+    })
+  ].sort((a, b) => a.createdAt - b.createdAt);
+  
+  // Take the most recent messages
+  const recentMessages = allMessages.slice(Math.max(0, allMessages.length - maxMessages));
+  
+  // Format for AI context - normalize roles and tag Supervisor messages
+  return recentMessages.map(msg => {
+    // Normalize role to OpenAI-compatible values
+    let normalizedRole: "user" | "assistant" | "system";
+    if (msg.role === 'supervisor' || msg.role === 'assistant') {
+      normalizedRole = 'assistant'; // Supervisor messages are assistant responses
+    } else if (msg.role === 'user') {
+      normalizedRole = 'user';
+    } else if (msg.role === 'system') {
+      normalizedRole = 'system';
+    } else {
+      // Fallback for any unknown roles
+      console.warn(`⚠️ Unknown message role '${msg.role}', defaulting to 'assistant'`);
+      normalizedRole = 'assistant';
+    }
+    
+    const baseMessage: ChatMessage = {
+      role: normalizedRole,
+      content: msg.content,
+    };
+    
+    // Tag Supervisor messages so AI knows they're from the Supervisor
+    if (msg.source === 'supervisor') {
+      return {
+        ...baseMessage,
+        name: 'Supervisor', // OpenAI allows 'name' field to distinguish speakers
+      } as ChatMessage;
+    }
+    
+    return baseMessage;
+  });
 }
 
 export async function extractAndSaveFacts(
