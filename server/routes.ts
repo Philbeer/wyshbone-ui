@@ -5339,8 +5339,8 @@ ${run.outputText}`;
         return res.status(403).json({ error: "Forbidden: Cannot modify other users' monitors" });
       }
       
-      // Automatically use user's login email for notifications
-      if (updates.emailNotifications === 1) {
+      // Use provided emailAddress, or fallback to user's login email
+      if (updates.emailNotifications === 1 && !updates.emailAddress) {
         updates.emailAddress = auth.userEmail;
       }
       
