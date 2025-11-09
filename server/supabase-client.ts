@@ -1,27 +1,34 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
 
-// Supabase configuration from environment variables
-const SUPABASE_URL = process.env.SUPABASE_URL || '';
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-
 let supabase: SupabaseClient | null = null;
+let initialized = false;
 
-if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-  console.warn('⚠️ Supabase credentials not configured. Supervisor integration disabled.');
-  console.warn('   Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY to enable Supervisor.');
-} else {
-  // Use service role key for backend writes (bypasses RLS)
-  supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
-    },
-  });
-  console.log('✅ Supabase Supervisor client initialized');
+// Lazy initialization - only check env vars when first accessed
+function initializeSupabase(): void {
+  if (initialized) return;
+  initialized = true;
+
+  const SUPABASE_URL = process.env.SUPABASE_URL || '';
+  const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+    console.warn('⚠️ Supabase credentials not configured. Supervisor integration disabled.');
+    console.warn('   Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY to enable Supervisor.');
+  } else {
+    // Use service role key for backend writes (bypasses RLS)
+    supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+      },
+    });
+    console.log('✅ Supabase Supervisor client initialized');
+  }
 }
 
 function ensureSupabaseClient(): SupabaseClient {
+  initializeSupabase();
   if (!supabase) {
     throw new Error('Supabase client not configured. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.');
   }
@@ -126,5 +133,6 @@ export async function getSupervisorMessages(
 }
 
 export function isSupabaseConfigured(): boolean {
+  initializeSupabase();
   return supabase !== null;
 }

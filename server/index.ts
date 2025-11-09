@@ -1,7 +1,9 @@
+// CRITICAL: Load environment variables FIRST before any other imports
 import dotenv from "dotenv";
-dotenv.config({ path: '.env.local' });
+dotenv.config({ path: '.env.local', override: true }); // Override cached Replit secrets
 dotenv.config();
 
+// Now import everything else AFTER env vars are loaded
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
