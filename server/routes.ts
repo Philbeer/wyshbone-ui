@@ -5813,6 +5813,7 @@ ${run.outputText}`;
         personalize: validatedData.personalize ? 1 : 0,
         campaignId: validatedData.campaignId,
         createdAt: Date.now(),
+        updatedAt: Date.now(),
       });
 
       console.log(`📦 Batch job ${batchId} created for ${auth.userEmail}`);

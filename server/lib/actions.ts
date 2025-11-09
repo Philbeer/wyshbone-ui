@@ -150,6 +150,7 @@ export async function executeAction(params: {
           limit,
           personalize: 1,
           createdAt: Date.now(),
+          updatedAt: Date.now(),
         });
 
         console.log(`📦 Created batch job record: ${batchId}`);
