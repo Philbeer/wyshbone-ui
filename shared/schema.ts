@@ -612,6 +612,7 @@ export const batchJobs = pgTable("batch_jobs", {
   totalSkipped: integer("total_skipped"),
   error: text("error"),
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
   completedAt: bigint("completed_at", { mode: "number" }),
 }, (table) => ({
   userIdIdx: index("batch_jobs_user_id_idx").on(table.userId),
