@@ -15,10 +15,12 @@ import { useToast } from "@/hooks/use-toast";
 import { useUser } from "@/contexts/UserContext";
 import { AddToXeroDialog } from "@/components/AddToXeroDialog";
 import { useSidebarFlash } from "@/contexts/SidebarFlashContext";
+import { subscribeSupervisorMessages, type SupervisorMessage } from "@/lib/supabase";
 
 type Message = ChatMessage & {
   id: string;
   timestamp: Date;
+  source?: 'user' | 'assistant' | 'supervisor';
 };
 
 type SystemMessage = {
@@ -75,11 +77,66 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
     return (localStorage.getItem('chatMode') as "standard" | "mega") || "standard";
   });
   const [megaChips, setMegaChips] = useState<string[]>([]);
+  
+  // Supervisor integration
+  const [supervisorTaskId, setSupervisorTaskId] = useState<string | null>(null);
+  const [isWaitingForSupervisor, setIsWaitingForSupervisor] = useState(false);
+  const supervisorTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Persist chat mode to localStorage
   useEffect(() => {
     localStorage.setItem('chatMode', chatMode);
   }, [chatMode]);
+
+  // Subscribe to Supervisor responses via Supabase realtime
+  useEffect(() => {
+    if (!conversationId) return;
+
+    console.log('🔔 Setting up Supervisor subscription for conversation:', conversationId);
+    
+    const channel = subscribeSupervisorMessages(conversationId, (supervisorMessage: SupervisorMessage) => {
+      console.log('🤖 Received Supervisor message:', supervisorMessage);
+      
+      // Convert Supervisor message to display message format
+      const displayMessage: Message = {
+        id: supervisorMessage.id,
+        role: 'assistant',
+        content: supervisorMessage.content,
+        timestamp: new Date(supervisorMessage.created_at),
+        source: 'supervisor',
+      };
+      
+      setMessages((prev) => {
+        // Avoid duplicates
+        if (prev.some(m => m.id === displayMessage.id)) {
+          return prev;
+        }
+        return [...prev, displayMessage];
+      });
+      
+      // Clear waiting state and timeout
+      setIsWaitingForSupervisor(false);
+      setSupervisorTaskId(null);
+      if (supervisorTimeoutRef.current) {
+        clearTimeout(supervisorTimeoutRef.current);
+        supervisorTimeoutRef.current = null;
+      }
+      
+      // Show toast notification (auto-scroll handled by existing useEffect on messages)
+      toast({
+        title: "Supervisor Response",
+        description: "Your lead generation results are ready!",
+      });
+    });
+
+    // Cleanup subscription on unmount or conversation change
+    return () => {
+      if (channel) {
+        console.log('🔕 Cleaning up Supervisor subscription');
+        channel.unsubscribe();
+      }
+    };
+  }, [conversationId, toast]);
 
   const detectDeepResearchIntent = (text: string): boolean => {
     const lowerText = text.toLowerCase();
@@ -468,6 +525,27 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
               if (parsed.conversationId) {
                 console.log('💬 Received conversationId:', parsed.conversationId);
                 setConversationId(parsed.conversationId);
+              }
+              
+              // Handle Supervisor task creation
+              if (parsed.supervisorTaskId) {
+                console.log('🤖 Supervisor task created:', parsed.supervisorTaskId);
+                setSupervisorTaskId(parsed.supervisorTaskId);
+                setIsWaitingForSupervisor(true);
+                
+                // Set timeout watchdog (clear if Supervisor responds within 2 minutes)
+                if (supervisorTimeoutRef.current) {
+                  clearTimeout(supervisorTimeoutRef.current);
+                }
+                supervisorTimeoutRef.current = setTimeout(() => {
+                  console.warn('⏱️ Supervisor response timeout - clearing waiting state');
+                  setIsWaitingForSupervisor(false);
+                  setSupervisorTaskId(null);
+                  toast({
+                    title: "Timeout",
+                    description: "Supervisor is taking longer than expected. The results will appear when ready.",
+                  });
+                }, 120000); // 2 minute timeout
               }
               
               // Handle batch job ID
@@ -1089,6 +1167,8 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
 
               const chatMessage = message as Message;
               const isUser = chatMessage.role === "user";
+              const isSupervisor = chatMessage.source === 'supervisor';
+              
               return (
                 <div
                   key={chatMessage.id}
@@ -1097,20 +1177,32 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
                 >
                   <div
                     className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
-                      isUser ? "bg-primary" : "overflow-hidden"
+                      isUser ? "bg-primary" : isSupervisor ? "bg-gradient-to-br from-blue-500 to-blue-600" : "overflow-hidden"
                     }`}
                   >
                     {isUser ? (
                       <User className="w-4 h-4 text-primary-foreground" />
+                    ) : isSupervisor ? (
+                      <Building2 className="w-4 h-4 text-white" />
                     ) : (
                       <img src={wyshboneLogo} alt="Wyshbone" className="w-full h-full object-cover" />
                     )}
                   </div>
                   <div className={`flex flex-col ${isUser ? "items-end" : "items-start"} max-w-3xl lg:max-w-none`}>
+                    {isSupervisor && (
+                      <div className="mb-1">
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium bg-gradient-to-r from-blue-500 to-blue-600 text-white">
+                          <Building2 className="w-3 h-3" />
+                          Supervisor
+                        </span>
+                      </div>
+                    )}
                     <div
                       className={`rounded-lg px-4 py-3 ${
                         isUser
                           ? "bg-primary text-primary-foreground"
+                          : isSupervisor
+                          ? "bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-950 dark:to-blue-900 border border-blue-200 dark:border-blue-800"
                           : "bg-card border border-card-border"
                       }`}
                     >
@@ -1167,6 +1259,33 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
                 </div>
               );
             })
+          )}
+
+          {/* Supervisor thinking indicator */}
+          {isWaitingForSupervisor && (
+            <div className="flex gap-3 flex-row" data-testid="supervisor-loading">
+              <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 bg-gradient-to-br from-blue-500 to-blue-600">
+                <Building2 className="w-4 h-4 text-white" />
+              </div>
+              <div className="flex flex-col items-start max-w-3xl lg:max-w-none">
+                <div className="mb-1">
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium bg-gradient-to-r from-blue-500 to-blue-600 text-white">
+                    <Building2 className="w-3 h-3" />
+                    Supervisor
+                  </span>
+                </div>
+                <div className="rounded-lg px-4 py-3 bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-950 dark:to-blue-900 border border-blue-200 dark:border-blue-800">
+                  <div className="flex items-center gap-2">
+                    <div className="flex space-x-1">
+                      <div className="w-2 h-2 rounded-full bg-blue-600 dark:bg-blue-400 animate-bounce" style={{ animationDelay: '0ms' }}></div>
+                      <div className="w-2 h-2 rounded-full bg-blue-600 dark:bg-blue-400 animate-bounce" style={{ animationDelay: '150ms' }}></div>
+                      <div className="w-2 h-2 rounded-full bg-blue-600 dark:bg-blue-400 animate-bounce" style={{ animationDelay: '300ms' }}></div>
+                    </div>
+                    <span className="text-sm text-blue-700 dark:text-blue-300">Searching for leads...</span>
+                  </div>
+                </div>
+              </div>
+            </div>
           )}
 
           {/* Thinking indicator */}

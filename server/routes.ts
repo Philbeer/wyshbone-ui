@@ -29,6 +29,8 @@ import { hashPassword, verifyPassword, generateId, canCreateMonitor, canCreateDe
 import { signupRequestSchema, loginRequestSchema, updateProfileRequestSchema } from "@shared/schema";
 import { buildSessionContext, generatePersonalizedOpening, type SessionContext } from "./lib/context";
 import Stripe from "stripe";
+import { detectSupervisorIntent } from './intent-detector';
+import { createSupervisorTask, isSupabaseConfigured } from './supabase-client';
 
 const sql = neon(process.env.DATABASE_URL!);
 
@@ -953,6 +955,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Update conversation label if this is the first user message
       await updateConversationLabel(conversationId, latestUserText);
+
+      // SUPERVISOR INTEGRATION: Detect if this message requires Supervisor assistance
+      if (isSupabaseConfigured()) {
+        try {
+          const intentResult = detectSupervisorIntent(latestUserText);
+          
+          if (intentResult.requiresSupervisor && intentResult.taskType && intentResult.requestData) {
+            console.log(`🤖 Supervisor intent detected: ${intentResult.taskType}`);
+            
+            // Create Supervisor task in Supabase
+            const supervisorTask = await createSupervisorTask(
+              conversationId,
+              user.id,
+              intentResult.taskType,
+              intentResult.requestData
+            );
+            
+            console.log(`✅ Created Supervisor task ${supervisorTask.id} for ${intentResult.taskType}`);
+            
+            // Notify frontend that Supervisor is working
+            res.write(`data: ${JSON.stringify({ 
+              supervisorTaskId: supervisorTask.id,
+              supervisorTaskType: intentResult.taskType 
+            })}\n\n`);
+          }
+        } catch (error: any) {
+          console.error('❌ Supervisor integration error:', error);
+          // Don't fail the whole request - continue with standard chat
+        }
+      }
 
       // 2) Load conversation history from database
       const conversationHistory = await loadConversationHistory(conversationId);
