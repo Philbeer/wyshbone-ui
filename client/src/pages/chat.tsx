@@ -244,16 +244,13 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
                 prev.map((msg) => {
                   if (msg.id === messageId && 'content' in msg) {
                     const updatedContent = msg.content
-                      .replace(/⏳/g, '✅')
-                      .replace(/This will take several minutes\./g, 'Pipeline completed!');
+                      .replace(/⏳ Running/g, '✅ Completed')
+                      .replace(/⏳/g, '✅');
                     return { ...msg, content: updatedContent };
                   }
                   return msg;
                 })
               );
-
-              // Auto-open results tab with auth params
-              window.open(addDevAuthParams(`/batch/${batchId}`), '_blank');
               
               // Remove from tracking
               setBatchJobTracking((prev) => {
@@ -262,7 +259,7 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
                 return newMap;
               });
 
-              console.log(`✅ Batch job ${batchId} completed and tab opened`);
+              console.log(`✅ Batch job ${batchId} completed`);
             }
           }
         } catch (error) {

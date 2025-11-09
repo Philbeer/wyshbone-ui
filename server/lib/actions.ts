@@ -197,7 +197,7 @@ export async function executeAction(params: {
         const detailedMessage = `📧 **SalesHandy Batch Started!**\n\n` +
           `🔍 **Search:** ${query} in ${location}, ${country}\n` +
           `🎯 **Target Role:** ${targetRole}\n` +
-          `🔗 **[View Pipeline Progress →](/batch/${batchId})** ⏳\n\n` +
+          `🔗 **[View Pipeline Progress →](/batch/${batchId})** ⏳ Running\n\n` +
           `**Pipeline Processing:**\n` +
           `1. ✅ Searching Google Places (up to 60 results with page tokens)\n` +
           `2. 🌐 Finding website domains for each business\n` +
@@ -205,7 +205,7 @@ export async function executeAction(params: {
           `4. 🎯 Ranking contacts by position (${targetRole} prioritized)\n` +
           `5. ✍️ Generating AI-powered personalized outreach\n` +
           `6. 📤 Adding prospects to SalesHandy campaign\n\n` +
-          `This will take several minutes. Click the link above to watch the pipeline in real-time!`;
+          `Click the link above to watch the pipeline in real-time!`;
 
         return {
           ok: true,
