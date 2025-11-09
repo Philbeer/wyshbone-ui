@@ -12,7 +12,7 @@ export interface ScheduledMonitor {
   conversationId?: string | null;
   label: string;
   description: string;
-  monitorType: 'deep_research' | 'business_search' | 'wyshbone_database';
+  monitorType: 'deep_research' | 'business_search' | 'wyshbone_database' | 'place_search';
   emailNotifications: number;
   emailAddress?: string | null;
   config?: any;
@@ -70,6 +70,22 @@ async function executeMonitor(monitor: ScheduledMonitor, conversationId: string,
   
   if (monitor.monitorType === 'deep_research') {
     return await executeDeepResearch(monitor, conversationId, runSequence);
+  }
+  
+  if (monitor.monitorType === 'place_search') {
+    // Convert place_search to deep_research format
+    const config = monitor.config || {};
+    const searchQuery = `Find ${config.query || 'places'} in ${config.location || 'the area'}${config.country ? ` (${config.country})` : ''}. List all results with names and details.`;
+    console.log(`📍 Converted place_search to deep research query: ${searchQuery}`);
+    
+    // Create a modified monitor that uses deep_research
+    const deepResearchMonitor = {
+      ...monitor,
+      description: searchQuery,
+      monitorType: 'deep_research' as any
+    };
+    
+    return await executeDeepResearch(deepResearchMonitor, conversationId, runSequence);
   }
   
   // Other monitor types not yet implemented
