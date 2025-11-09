@@ -199,13 +199,27 @@ Displays with Supervisor badge
 - Never expose service role key in frontend code
 - Consider adding RLS policies on `supervisor_tasks` table
 
+## ⚠️ Known Limitations
+
+### Intent Detection
+The current keyword-based intent detection is simple but has limitations:
+- May miss complex or multi-clause prompts
+- Could false-trigger on unrelated messages containing keywords
+- Doesn't handle all language variations (idioms, slang, typos)
+
+**Recommended enhancements:**
+- Add fallback to embedding similarity for ambiguous cases
+- Implement user confirmation before creating tasks ("Did you mean to search for leads?")
+- Add explicit "Ask Supervisor" button to avoid relying purely on detection
+
 ## 💡 Enhancement Ideas
 
-- Add "Ask Supervisor" explicit button next to chat input
+- Add "Ask Supervisor" explicit button next to chat input (reduces reliance on keyword detection)
 - Show Supervisor capabilities/status in UI
 - Add Supervisor message history view
 - Implement retry logic if Supervisor doesn't respond in 30s
 - Add analytics for Supervisor usage
+- Improve intent detection with NLP or embeddings
 
 ## 📚 Reference
 

@@ -65,62 +65,64 @@ export async function createSupervisorTask(
   userId: string,
   taskType: 'generate_leads' | 'analyze_conversation' | 'provide_insights',
   requestData: SupervisorTaskData
-): Promise<SupervisorTask | null> {
-  try {
-    const client = ensureSupabaseClient();
-    
-    const task: SupervisorTask = {
-      id: crypto.randomUUID(),
-      conversation_id: conversationId,
-      user_id: userId,
-      task_type: taskType,
-      request_data: requestData,
-      status: 'pending',
-      created_at: Date.now(),
-    };
+): Promise<SupervisorTask> {
+  const client = ensureSupabaseClient();
+  
+  const task: SupervisorTask = {
+    id: crypto.randomUUID(),
+    conversation_id: conversationId,
+    user_id: userId,
+    task_type: taskType,
+    request_data: requestData,
+    status: 'pending',
+    created_at: Date.now(),
+  };
 
-    const { data, error } = await client
-      .from('supervisor_tasks')
-      .insert(task)
-      .select()
-      .single();
+  const { data, error } = await client
+    .from('supervisor_tasks')
+    .insert(task)
+    .select()
+    .single();
 
-    if (error) {
-      console.error('❌ Failed to create Supervisor task:', error);
-      return null;
-    }
-
-    console.log('✅ Created Supervisor task:', data.id);
-    return data as SupervisorTask;
-  } catch (error) {
-    console.error('❌ Error creating Supervisor task:', error);
-    return null;
+  if (error) {
+    console.error('❌ Failed to create Supervisor task:', error);
+    throw new Error(`Failed to create Supervisor task: ${error.message}`);
   }
+
+  // Parse BIGINT created_at from string to number (Supabase returns it as string)
+  const parsedData = {
+    ...data,
+    created_at: typeof data.created_at === 'string' ? Number(data.created_at) : data.created_at,
+  } as SupervisorTask;
+
+  console.log('✅ Created Supervisor task:', parsedData.id);
+  return parsedData;
 }
 
 export async function getSupervisorMessages(
   conversationId: string
 ): Promise<SupervisorMessage[]> {
-  try {
-    const client = ensureSupabaseClient();
-    
-    const { data, error } = await client
-      .from('messages')
-      .select('*')
-      .eq('conversation_id', conversationId)
-      .eq('source', 'supervisor')
-      .order('created_at', { ascending: true });
+  const client = ensureSupabaseClient();
+  
+  const { data, error } = await client
+    .from('messages')
+    .select('*')
+    .eq('conversation_id', conversationId)
+    .eq('source', 'supervisor')
+    .order('created_at', { ascending: true });
 
-    if (error) {
-      console.error('❌ Failed to fetch Supervisor messages:', error);
-      return [];
-    }
-
-    return (data as SupervisorMessage[]) || [];
-  } catch (error) {
-    console.error('❌ Error fetching Supervisor messages:', error);
-    return [];
+  if (error) {
+    console.error('❌ Failed to fetch Supervisor messages:', error);
+    throw new Error(`Failed to fetch Supervisor messages: ${error.message}`);
   }
+
+  // Parse BIGINT created_at from string to number (Supabase returns it as string)
+  const messages = (data || []).map(msg => ({
+    ...msg,
+    created_at: typeof msg.created_at === 'string' ? Number(msg.created_at) : msg.created_at,
+  })) as SupervisorMessage[];
+
+  return messages;
 }
 
 export function isSupabaseConfigured(): boolean {

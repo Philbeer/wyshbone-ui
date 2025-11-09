@@ -7,22 +7,19 @@ export interface IntentDetectionResult {
 }
 
 const LEAD_GENERATION_KEYWORDS = [
-  'find leads',
-  'find prospects',
-  'search for',
-  'look for',
-  'find businesses',
-  'find companies',
-  'generate leads',
-  'get leads',
-  'need leads',
-  'show me businesses',
-  'list businesses',
-  'find shops',
-  'find restaurants',
-  'find clinics',
-  'find dentists',
-  'find lawyers',
+  // Core actions
+  'find lead', 'find prospect', 'search for', 'look for', 'looking for',
+  'find business', 'find compan', 'generate lead', 'get lead', 'need lead',
+  'show me business', 'show me compan', 'list business', 'list compan',
+  
+  // Business types (plural-friendly stems)
+  'find shop', 'find restaurant', 'find clinic', 'find dentist', 'find dental',
+  'find lawyer', 'find attorney', 'find doctor', 'find salon', 'find gym',
+  'find hotel', 'find cafe', 'find coffee', 'find retail', 'find store',
+  
+  // Alternative phrasings
+  'businesses in', 'companies in', 'shops in', 'restaurants in',
+  'leads for', 'prospects for', 'contacts in',
 ];
 
 const ANALYSIS_KEYWORDS = [
@@ -35,11 +32,16 @@ const ANALYSIS_KEYWORDS = [
 ];
 
 export function detectSupervisorIntent(userMessage: string): IntentDetectionResult {
-  const lowerMessage = userMessage.toLowerCase().trim();
+  // Normalize: lowercase, strip punctuation, trim
+  const normalized = userMessage
+    .toLowerCase()
+    .replace(/[.,!?;:()]/g, ' ') // Remove punctuation
+    .replace(/\s+/g, ' ') // Normalize whitespace
+    .trim();
 
-  // Check for lead generation intent
+  // Check for lead generation intent (using normalized message)
   const hasLeadIntent = LEAD_GENERATION_KEYWORDS.some(keyword =>
-    lowerMessage.includes(keyword.toLowerCase())
+    normalized.includes(keyword.toLowerCase())
   );
 
   if (hasLeadIntent) {
@@ -58,9 +60,9 @@ export function detectSupervisorIntent(userMessage: string): IntentDetectionResu
     };
   }
 
-  // Check for analysis intent
+  // Check for analysis intent (using normalized message)
   const hasAnalysisIntent = ANALYSIS_KEYWORDS.some(keyword =>
-    lowerMessage.includes(keyword.toLowerCase())
+    normalized.includes(keyword.toLowerCase())
   );
 
   if (hasAnalysisIntent) {
