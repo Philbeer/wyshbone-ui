@@ -2,7 +2,7 @@ import fs from 'fs';
 
 export interface MonitorResult {
   monitorLabel: string;
-  monitorType: 'deep_research' | 'business_search' | 'wyshbone_database';
+  monitorType: 'deep_research' | 'business_search' | 'wyshbone_database' | 'place_search';
   description: string;
   runDate: Date;
   results?: any;

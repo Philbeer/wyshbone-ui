@@ -16,7 +16,7 @@ const openai = new OpenAI({
 export interface MonitorSuggestion {
   label: string;
   description: string;
-  monitorType: 'deep_research' | 'business_search' | 'wyshbone_database';
+  monitorType: 'deep_research' | 'business_search' | 'wyshbone_database' | 'place_search';
   schedule: 'daily' | 'weekly' | 'biweekly' | 'monthly';
   scheduleDay?: string;
   scheduleTime?: string;

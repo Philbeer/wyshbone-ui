@@ -5,7 +5,7 @@ let connectionSettings: any;
 async function getCredentials() {
   console.log('🔧 TEMPORARILY FORCING ENV VARIABLE USE FOR TESTING');
   const apiKey = process.env.RESEND_API_KEY;
-  const fromEmail = 'monitor@wyshboneai.com';
+  const fromEmail = 'onboarding@resend.dev';
   
   if (!apiKey) {
     throw new Error('RESEND_API_KEY environment variable not set');
