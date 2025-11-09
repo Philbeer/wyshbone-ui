@@ -973,6 +973,7 @@ function ScheduledMonitorsSection({ userId, onSelectConversation }: { userId: st
   });
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [sendToPhil, setSendToPhil] = useState(false);
   
   const { data: monitors, isLoading, isError, error, refetch } = useQuery({
     queryKey: [`/api/scheduled-monitors/${userId}`],
@@ -1025,6 +1026,9 @@ function ScheduledMonitorsSection({ userId, onSelectConversation }: { userId: st
     
     setIsSaving(true);
     try {
+      // Override email address for dev testing
+      const emailAddress = sendToPhil ? 'phil@wyshbone.com' : editForm.emailAddress;
+      
       const url = addDevAuthParams(`/api/scheduled-monitors/${editingMonitor.id}`);
       const response = await fetch(url, {
         method: 'PATCH',
@@ -1035,11 +1039,13 @@ function ScheduledMonitorsSection({ userId, onSelectConversation }: { userId: st
           scheduleDay: editForm.scheduleDay || null,
           scheduleTime: editForm.scheduleTime || null,
           emailNotifications: editForm.emailNotifications ? 1 : 0,
+          emailAddress: emailAddress || null,
         }),
       });
       
       if (response.ok) {
         setEditingMonitor(null);
+        setSendToPhil(false); // Reset dev toggle after save
         refetch();
       } else {
         alert('Failed to update monitor');
@@ -1188,6 +1194,21 @@ function ScheduledMonitorsSection({ userId, onSelectConversation }: { userId: st
                   data-testid="switch-email-notifications"
                 />
               </div>
+              {import.meta.env.DEV && (
+                <div className="flex items-center gap-2 pt-2 border-t border-border">
+                  <input
+                    type="checkbox"
+                    id="send-to-phil"
+                    checked={sendToPhil}
+                    onChange={(e) => setSendToPhil(e.target.checked)}
+                    className="h-4 w-4 rounded border-input"
+                    data-testid="checkbox-send-to-phil"
+                  />
+                  <Label htmlFor="send-to-phil" className="text-xs text-muted-foreground font-normal cursor-pointer">
+                    🧪 DEV: Send test email to Phil
+                  </Label>
+                </div>
+              )}
             </div>
           </div>
           <div className="flex justify-end gap-2">
