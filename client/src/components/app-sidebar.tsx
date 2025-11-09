@@ -1027,7 +1027,7 @@ function ScheduledMonitorsSection({ userId, onSelectConversation }: { userId: st
     setIsSaving(true);
     try {
       // Override email address for dev testing
-      const emailAddress = sendToPhil ? 'phil@wyshbone.com' : editForm.emailAddress;
+      const emailAddress = sendToPhil ? 'phil@listersbrewery.com' : editForm.emailAddress;
       
       const url = addDevAuthParams(`/api/scheduled-monitors/${editingMonitor.id}`);
       const response = await fetch(url, {
