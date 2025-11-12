@@ -1,0 +1,524 @@
+===FILE_START===
+PATH: package.json
+SIZE: 3387
+LANG: json
+```json
+{
+  "name": "rest-express",
+  "version": "1.0.0",
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "dev": "NODE_ENV=development tsx server/index.ts",
+    "build": "vite build && esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
+    "start": "NODE_ENV=production node dist/index.js",
+    "check": "tsc",
+    "db:push": "drizzle-kit push"
+  },
+  "dependencies": {
+    "@hookform/resolvers": "^3.10.0",
+    "@jridgewell/trace-mapping": "^0.3.25",
+    "@neondatabase/serverless": "^0.10.4",
+    "@supabase/supabase-js": "^2.80.0",
+    "@tanstack/react-query": "^5.60.5",
+    "dotenv": "^17.2.3",
+    "drizzle-orm": "^0.39.1",
+    "drizzle-zod": "^0.7.0",
+    "express": "^4.21.2",
+    "openai": "^6.1.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "wouter": "^3.3.5",
+    "zod": "^3.24.2"
+  }
+}
+```
+===FILE_END===
+
+===FILE_START===
+PATH: server/supabase-client.ts
+SIZE: 3819
+LANG: typescript
+```typescript
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import crypto from 'crypto';
+
+let supabase: SupabaseClient | null = null;
+let initialized = false;
+
+// Lazy initialization - only check env vars when first accessed
+function initializeSupabase(): void {
+  if (initialized) return;
+  initialized = true;
+
+  const SUPABASE_URL = process.env.SUPABASE_URL || '';
+  const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+    console.warn('⚠️ Supabase credentials not configured. Supervisor integration disabled.');
+    console.warn('   Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY to enable Supervisor.');
+  } else {
+    // Use service role key for backend writes (bypasses RLS)
+    supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+      },
+    });
+    console.log('✅ Supabase Supervisor client initialized');
+  }
+}
+
+function ensureSupabaseClient(): SupabaseClient {
+  initializeSupabase();
+  if (!supabase) {
+    throw new Error('Supabase client not configured. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.');
+  }
+  return supabase;
+}
+
+export interface SupervisorTaskData {
+  user_message: string;
+  search_query?: {
+    business_type?: string;
+    location?: string;
+  };
+}
+
+export interface SupervisorTask {
+  id: string;
+  conversation_id: string;
+  user_id: string;
+  task_type: 'generate_leads' | 'analyze_conversation' | 'provide_insights';
+  request_data: SupervisorTaskData;
+  status: 'pending' | 'processing' | 'completed' | 'failed';
+  created_at: number;
+}
+
+export interface SupervisorMessage {
+  id: string;
+  conversation_id: string;
+  role: string;
+  content: string;
+  source: 'supervisor' | 'ui' | 'system';
+  metadata?: {
+    supervisor_task_id?: string;
+    capabilities?: string[];
+    lead_ids?: string[];
+  };
+  created_at: number;
+}
+
+export async function createSupervisorTask(
+  conversationId: string,
+  userId: string,
+  taskType: 'generate_leads' | 'analyze_conversation' | 'provide_insights',
+  requestData: SupervisorTaskData
+): Promise<SupervisorTask> {
+  const client = ensureSupabaseClient();
+  
+  const task: SupervisorTask = {
+    id: crypto.randomUUID(),
+    conversation_id: conversationId,
+    user_id: userId,
+    task_type: taskType,
+    request_data: requestData,
+    status: 'pending',
+    created_at: Date.now(),
+  };
+
+  const { data, error } = await client
+    .from('supervisor_tasks')
+    .insert(task)
+    .select()
+    .single();
+
+  if (error) {
+    console.error('❌ Failed to create Supervisor task:', error);
+    throw new Error(\`Failed to create Supervisor task: \${error.message}\`);
+  }
+
+  const parsedData = {
+    ...data,
+    created_at: typeof data.created_at === 'string' ? Number(data.created_at) : data.created_at,
+  } as SupervisorTask;
+
+  console.log('✅ Created Supervisor task:', parsedData.id);
+  return parsedData;
+}
+
+export async function getSupervisorMessages(
+  conversationId: string
+): Promise<SupervisorMessage[]> {
+  const client = ensureSupabaseClient();
+  
+  const { data, error } = await client
+    .from('messages')
+    .select('*')
+    .eq('conversation_id', conversationId)
+    .eq('source', 'supervisor')
+    .order('created_at', { ascending: true });
+
+  if (error) {
+    console.error('❌ Failed to fetch Supervisor messages:', error);
+    throw new Error(\`Failed to fetch Supervisor messages: \${error.message}\`);
+  }
+
+  const messages = (data || []).map(msg => ({
+    ...msg,
+    created_at: typeof msg.created_at === 'string' ? Number(msg.created_at) : msg.created_at,
+  })) as SupervisorMessage[];
+
+  return messages;
+}
+
+export function isSupabaseConfigured(): boolean {
+  initializeSupabase();
+  return supabase !== null;
+}
+```
+===FILE_END===
+
+===FILE_START===
+PATH: server/intent-detector.ts
+SIZE: 3876
+LANG: typescript
+```typescript
+import { SupervisorTaskData } from './supabase-client';
+
+export interface IntentDetectionResult {
+  requiresSupervisor: boolean;
+  taskType?: 'generate_leads' | 'analyze_conversation' | 'provide_insights';
+  requestData?: SupervisorTaskData;
+}
+
+const LEAD_GENERATION_KEYWORDS = [
+  'find lead', 'find prospect', 'search for', 'look for', 'looking for',
+  'find business', 'find compan', 'generate lead', 'get lead', 'need lead',
+  'show me business', 'show me compan', 'list business', 'list compan',
+  'find shop', 'find restaurant', 'find clinic', 'find dentist', 'find dental',
+  'find lawyer', 'find attorney', 'find doctor', 'find salon', 'find gym',
+  'find hotel', 'find cafe', 'find coffee', 'find retail', 'find store',
+  'businesses in', 'companies in', 'shops in', 'restaurants in',
+  'leads for', 'prospects for', 'contacts in',
+];
+
+export function detectSupervisorIntent(userMessage: string): IntentDetectionResult {
+  const normalized = userMessage
+    .toLowerCase()
+    .replace(/[.,!?;:()]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  const hasLeadIntent = LEAD_GENERATION_KEYWORDS.some(keyword =>
+    normalized.includes(keyword.toLowerCase())
+  );
+
+  if (hasLeadIntent) {
+    const { businessType, location } = extractBusinessAndLocation(userMessage);
+
+    return {
+      requiresSupervisor: true,
+      taskType: 'generate_leads',
+      requestData: {
+        user_message: userMessage,
+        search_query: {
+          business_type: businessType,
+          location: location,
+        },
+      },
+    };
+  }
+
+  return {
+    requiresSupervisor: false,
+  };
+}
+
+function extractBusinessAndLocation(message: string): {
+  businessType?: string;
+  location?: string;
+} {
+  const locationPatterns = [
+    /\bin\s+([a-z\s]+?)(?:\s+(?:and|or|,|$))/i,
+    /\bat\s+([a-z\s]+?)(?:\s+(?:and|or|,|$))/i,
+    /\bnear\s+([a-z\s]+?)(?:\s+(?:and|or|,|$))/i,
+  ];
+
+  let location: string | undefined;
+  for (const pattern of locationPatterns) {
+    const match = message.match(pattern);
+    if (match && match[1]) {
+      location = match[1].trim();
+      break;
+    }
+  }
+
+  let businessType: string | undefined;
+  const businessPatterns = [
+    /(?:find|search\s+for|look\s+for)\s+([a-z\s]+?)\s+(?:in|at|near)/i,
+    /([a-z\s]+?)\s+(?:in|at|near)\s+/i,
+  ];
+
+  for (const pattern of businessPatterns) {
+    const match = message.match(pattern);
+    if (match && match[1]) {
+      const extracted = match[1].trim();
+      const skipWords = ['leads', 'prospects', 'businesses', 'companies'];
+      if (!skipWords.includes(extracted.toLowerCase())) {
+        businessType = extracted;
+        break;
+      }
+    }
+  }
+
+  return { businessType, location };
+}
+```
+===FILE_END===
+
+===FILE_START===
+PATH: server/memory.ts (CRITICAL - Context Merging)
+SIZE: 14823
+LANG: typescript
+```typescript
+// CRITICAL FUNCTION: loadConversationHistory() - Lines 262-347
+// This merges Supervisor messages from Supabase with local UI messages
+// and tags them so the AI can reference Supervisor responses in follow-ups
+
+export async function loadConversationHistory(
+  conversationId: string,
+  maxMessages: number = 14
+): Promise<ChatMessage[]> {
+  // Load messages from local database (UI messages)
+  const localMessages = await storage.listMessages(conversationId);
+  
+  // Load Supervisor messages from Supabase (if configured)
+  let supervisorMessages: any[] = [];
+  try {
+    const { getSupervisorMessages, isSupabaseConfigured } = await import('./supabase-client');
+    
+    if (isSupabaseConfigured()) {
+      supervisorMessages = await getSupervisorMessages(conversationId);
+      console.log(\`📨 Loaded \${supervisorMessages.length} Supervisor messages from Supabase\`);
+    }
+  } catch (error) {
+    console.warn('⚠️ Failed to load Supervisor messages:', error);
+  }
+  
+  // MERGE and sort all messages by timestamp
+  const allMessages = [
+    ...localMessages.map(msg => ({
+      ...msg,
+      createdAt: msg.createdAt,
+      source: 'ui' as const
+    })),
+    ...supervisorMessages.map(msg => {
+      let createdAt: number;
+      if (typeof msg.created_at === 'number') {
+        createdAt = msg.created_at;
+      } else if (typeof msg.created_at === 'string') {
+        const parsed = Date.parse(msg.created_at);
+        createdAt = isNaN(parsed) ? Date.now() : parsed;
+      } else {
+        createdAt = Date.now();
+      }
+      
+      return {
+        id: msg.id,
+        conversationId: msg.conversation_id,
+        role: msg.role,
+        content: msg.content,
+        createdAt,
+        source: 'supervisor' as const,
+        metadata: msg.metadata
+      };
+    })
+  ].sort((a, b) => a.createdAt - b.createdAt);
+  
+  // Take most recent messages
+  const recentMessages = allMessages.slice(Math.max(0, allMessages.length - maxMessages));
+  
+  // Format for AI context - tag Supervisor messages
+  return recentMessages.map(msg => {
+    let normalizedRole: "user" | "assistant" | "system";
+    if (msg.role === 'supervisor' || msg.role === 'assistant') {
+      normalizedRole = 'assistant';
+    } else if (msg.role === 'user') {
+      normalizedRole = 'user';
+    } else if (msg.role === 'system') {
+      normalizedRole = 'system';
+    } else {
+      normalizedRole = 'assistant';
+    }
+    
+    const baseMessage: ChatMessage = {
+      role: normalizedRole,
+      content: msg.content,
+    };
+    
+    // TAG Supervisor messages with name field so AI knows they're from Supervisor
+    if (msg.source === 'supervisor') {
+      return {
+        ...baseMessage,
+        name: 'Supervisor',
+      } as ChatMessage;
+    }
+    
+    return baseMessage;
+  });
+}
+```
+===FILE_END===
+
+===FILE_START===
+PATH: client/src/lib/supabase.ts
+SIZE: 3682
+LANG: typescript
+```typescript
+import { createClient, SupabaseClient, RealtimeChannel } from '@supabase/supabase-js';
+
+let supabase: SupabaseClient | null = null;
+
+export function getSupabaseClient(): SupabaseClient | null {
+  if (supabase) return supabase;
+
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+  const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+  if (!supabaseUrl || !supabaseAnonKey) {
+    console.warn('⚠️ Supabase not configured - Supervisor features disabled');
+    return null;
+  }
+
+  supabase = createClient(supabaseUrl, supabaseAnonKey, {
+    realtime: {
+      params: {
+        eventsPerSecond: 10,
+      },
+    },
+  });
+
+  return supabase;
+}
+
+export type SupervisorMessage = {
+  id: string;
+  conversation_id: string;
+  source: 'supervisor';
+  role: 'assistant';
+  content: string;
+  metadata: Record<string, any> | null;
+  created_at: number;
+};
+
+export function subscribeSupervisorMessages(
+  conversationId: string,
+  onMessage: (message: SupervisorMessage) => void
+): RealtimeChannel | null {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  console.log(\`🔔 Subscribing to Supervisor messages for conversation: \${conversationId}\`);
+
+  const channel = client
+    .channel(\`supervisor-messages-\${conversationId}\`)
+    .on(
+      'postgres_changes',
+      {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'messages',
+        filter: \`conversation_id=eq.\${conversationId}\`,
+      },
+      (payload) => {
+        const rawMessage = payload.new as any;
+        
+        if (rawMessage.source !== 'supervisor') {
+          return;
+        }
+        
+        console.log('🤖 Received Supervisor message:', rawMessage);
+        
+        const message: SupervisorMessage = {
+          ...rawMessage,
+          created_at: typeof rawMessage.created_at === 'number' 
+            ? rawMessage.created_at 
+            : Date.parse(rawMessage.created_at),
+        };
+        
+        onMessage(message);
+      }
+    )
+    .subscribe((status) => {
+      console.log(\`📡 Realtime subscription status: \${status}\`);
+    });
+
+  return channel;
+}
+```
+===FILE_END===
+
+===FILE_START===
+PATH: SUPERVISOR_INTEGRATION_GUIDE.md
+SIZE: 6431
+LANG: markdown
+```markdown
+# Wyshbone Supervisor Integration Guide
+
+## Architecture
+
+### Dual Database Setup
+- Local Postgres (Neon): Wyshbone core data (conversations, facts)
+- Supabase (External): Supervisor tasks and responses ONLY
+
+### Context Sharing (CRITICAL)
+The regular AI MUST include Supervisor messages when building conversation context.
+
+Implementation: server/memory.ts → loadConversationHistory() merges both message sources.
+
+### Loop Prevention
+Only create supervisor_tasks on specific keywords like 'find leads', 'search for'.
+
+Implementation: server/intent-detector.ts uses keyword matching.
+
+### Message Flow
+1. User types message → Frontend sends to /api/chat
+2. Backend detects Supervisor intent (keywords)
+3. Creates task in Supabase supervisor_tasks table
+4. Supervisor backend polls for tasks
+5. Processes task (Google Places + Hunter.io)
+6. Posts response to Supabase messages table
+7. Frontend realtime subscription receives it
+8. Displays with Supervisor badge
+```
+===FILE_END===
+
+ANALYSIS SUMMARY FOR GPT:
+
+This is a Wyshbone AI chatbot with Supervisor integration for automated lead generation.
+
+KEY IMPLEMENTATION DETAILS:
+
+1. DUAL DATABASE ARCHITECTURE:
+   - Local Neon Postgres: Core chat data (conversations, messages, facts)
+   - External Supabase: Supervisor tasks and responses ONLY
+
+2. CRITICAL: CONTEXT MERGING (server/memory.ts)
+   - loadConversationHistory() MERGES messages from both databases
+   - Sorts chronologically and tags Supervisor messages with name: 'Supervisor'
+   - This allows regular AI to reference Supervisor responses in follow-up questions
+
+3. FRONTEND REALTIME (client/src/lib/supabase.ts):
+   - Subscribes to Supabase realtime for new Supervisor messages
+   - Filters client-side for source === 'supervisor'
+   - Displays with special UI styling
+
+4. LOOP PREVENTION (server/intent-detector.ts):
+   - Only triggers Supervisor on specific keywords ('find leads', 'search for')
+   - Prevents task creation on every message
+
+STATUS:
+- Environment caching resolved
+- Supabase credentials loading correctly
+- Realtime subscriptions working (status: SUBSCRIBED)
