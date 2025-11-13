@@ -39,9 +39,24 @@ const sql = neon(process.env.DATABASE_URL!);
 // Export API key generation/validation
 const EXPORT_KEY = process.env.EXPORT_KEY || (() => {
   const generatedKey = randomBytes(16).toString('hex');
+  const isDevelopment = process.env.NODE_ENV === 'development';
+  
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log('🔑 EXPORT_KEY for this app:', generatedKey);
+  console.log('⚠️  WARNING: Auto-generated EXPORT_KEY (DEVELOPMENT ONLY)');
+  
+  if (isDevelopment) {
+    // Only show full key in development mode (not production)
+    console.log('🔑 EXPORT_KEY for this app:', generatedKey);
+  } else {
+    // In production, mask the key
+    const masked = generatedKey.slice(0, 4) + '***' + generatedKey.slice(-4);
+    console.log('🔑 EXPORT_KEY generated (masked):', masked);
+  }
+  
   console.log('   Use this key in the X-EXPORT-KEY header to access /export endpoints');
+  console.log('   ');
+  console.log('   🔒 PRODUCTION: Set EXPORT_KEY environment variable to use a secure key');
+  console.log('   🚨 SECURITY: Never commit this key to source control or share in logs');
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   return generatedKey;
 })();

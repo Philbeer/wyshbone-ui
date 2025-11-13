@@ -95,6 +95,8 @@ type SummaryData = {
 
 let cachedSummary: SummaryData | null = null;
 let cachedFileList: Set<string> | null = null;
+let cacheTimestamp: number | null = null;
+const CACHE_TTL_MS = 30000; // 30 seconds - prevents serving stale file lists
 
 async function scanFiles(): Promise<FileInfo[]> {
   const files = await fg(INCLUDE_PATTERNS, {
@@ -219,7 +221,10 @@ function calculateMetrics(files: FileInfo[]): {
 }
 
 export async function getSummary(): Promise<SummaryData> {
-  if (cachedSummary) {
+  const now = Date.now();
+  
+  // Invalidate cache after TTL to pick up file changes
+  if (cachedSummary && cacheTimestamp && (now - cacheTimestamp) < CACHE_TTL_MS) {
     return cachedSummary;
   }
 
@@ -248,6 +253,7 @@ export async function getSummary(): Promise<SummaryData> {
 
   cachedSummary = summary;
   cachedFileList = new Set(files.filter(f => !('skipped' in f)).map(f => f.path));
+  cacheTimestamp = now;
 
   return summary;
 }
@@ -277,4 +283,5 @@ export async function getFileContent(requestedPath: string): Promise<{ path: str
 export function clearCache(): void {
   cachedSummary = null;
   cachedFileList = null;
+  cacheTimestamp = null;
 }
