@@ -31,8 +31,20 @@ import { buildSessionContext, generatePersonalizedOpening, type SessionContext }
 import Stripe from "stripe";
 import { detectSupervisorIntent } from './intent-detector';
 import { createSupervisorTask, isSupabaseConfigured } from './supabase-client';
+import { getSummary, getFileContent } from './lib/exporter';
+import { randomBytes } from 'crypto';
 
 const sql = neon(process.env.DATABASE_URL!);
+
+// Export API key generation/validation
+const EXPORT_KEY = process.env.EXPORT_KEY || (() => {
+  const generatedKey = randomBytes(16).toString('hex');
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  console.log('🔑 EXPORT_KEY for this app:', generatedKey);
+  console.log('   Use this key in the X-EXPORT-KEY header to access /export endpoints');
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  return generatedKey;
+})();
 
 // Initialize Stripe
 if (!process.env.STRIPE_SECRET_KEY) {
@@ -5958,6 +5970,60 @@ ${run.outputText}`;
     } catch (error: any) {
       console.error("Error serving logo:", error);
       res.status(404).send('Logo not found');
+    }
+  });
+
+  // Export API endpoints - for external status monitoring and AI analysis
+  app.get("/export/status.json", async (req, res) => {
+    console.log('🔍 Export status.json endpoint hit');
+    try {
+      const providedKey = req.headers['x-export-key'] as string | undefined;
+      console.log('🔑 Checking key:', providedKey ? 'provided' : 'missing');
+      
+      if (!providedKey || providedKey !== EXPORT_KEY) {
+        console.log('❌ Invalid or missing export key');
+        return res.status(403).json({ error: 'Invalid or missing X-EXPORT-KEY header' });
+      }
+
+      console.log('✅ Export key valid, generating summary...');
+      const summary = await getSummary();
+      console.log(`📊 Summary generated: ${summary.totals.files} files, ${summary.totals.loc} LOC`);
+      res.json(summary);
+    } catch (error: any) {
+      console.error("❌ Export status error:", error);
+      res.status(500).json({ error: error.message || 'Failed to generate status summary' });
+    }
+  });
+
+  app.get("/export/file", async (req, res) => {
+    console.log('🔍 Export file endpoint hit, path:', req.query.path);
+    try {
+      const providedKey = req.headers['x-export-key'] as string | undefined;
+      
+      if (!providedKey || providedKey !== EXPORT_KEY) {
+        console.log('❌ Invalid or missing export key');
+        return res.status(403).json({ error: 'Invalid or missing X-EXPORT-KEY header' });
+      }
+
+      const requestedPath = req.query.path as string | undefined;
+      
+      if (!requestedPath) {
+        console.log('❌ Missing path parameter');
+        return res.status(400).json({ error: 'Missing required query parameter: path' });
+      }
+
+      console.log('✅ Reading file:', requestedPath);
+      const fileData = await getFileContent(requestedPath);
+      console.log(`📄 File read successfully: ${fileData.path}`);
+      res.json(fileData);
+    } catch (error: any) {
+      console.error("❌ Export file error:", error.message);
+      
+      if (error.message.includes('not in whitelist')) {
+        return res.status(404).json({ error: 'File not found or not accessible' });
+      }
+      
+      res.status(500).json({ error: error.message || 'Failed to read file' });
     }
   });
 
