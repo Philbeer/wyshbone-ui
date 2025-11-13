@@ -17,7 +17,7 @@ import { buildSessionContext, type SessionContext } from "./context";
 /* ========================= CONFIG ========================= */
 
 const CONFIG = {
-  model: "gpt-4o",               // GPT-4o - supports structured outputs (json_schema)
+  model: "gpt-5",                // GPT-5 - latest model with Aug 2025 knowledge cutoff
   temperature: 0.4,              // Lower = faster + tighter replies (was 0.6)
   fastMode: true,
   maxRecentTurns: 6,             // Reduce tokens in prompt (was 10)
