@@ -58,6 +58,7 @@ type SessionState = {
   history: HistoryTurn[];
   turns: number;
   lastUpdated: number; // Timestamp for cleanup
+  userGoal?: string; // High-level sales/lead goal for this session
 };
 
 const SESSIONS = new Map<string, SessionState>();
@@ -856,6 +857,15 @@ export async function agentChat(
   // This ensures MEGA sees what Standard mode has done
   if (storage && state.turns === 0) {
     await syncSessionWithDatabase(conversationId, state, storage);
+  }
+
+  // Load user's goal from storage and add to session state
+  if (storage && typeof storage.getUserGoal === 'function') {
+    const userGoal = await storage.getUserGoal(conversationId);
+    if (userGoal) {
+      state.userGoal = userGoal;
+      console.log(`🎯 Loaded user goal: ${userGoal.substring(0, 80)}`);
+    }
   }
 
   // Merge user profile into session if provided
