@@ -96,6 +96,13 @@ export interface IStorage {
   setLastViewedRun(sessionId: string, runId: string): Promise<void>;
   getLastViewedRun(sessionId: string): Promise<string | null>;
   
+  // User goal tracking (for per-session sales/lead goals)
+  setUserGoal(sessionId: string, goalText: string): Promise<void>;
+  getUserGoal(sessionId: string): Promise<string | null>;
+  hasUserGoal(sessionId: string): Promise<boolean>;
+  setAwaitingGoal(sessionId: string, awaiting: boolean): Promise<void>;
+  isAwaitingGoal(sessionId: string): Promise<boolean>;
+  
   // Scheduled Monitor CRUD methods
   createScheduledMonitor(monitor: InsertScheduledMonitor): Promise<SelectScheduledMonitor>;
   getScheduledMonitor(id: string): Promise<SelectScheduledMonitor | null>;
@@ -155,6 +162,8 @@ export class MemStorage implements IStorage {
   private messages: Map<string, SelectMessage> = new Map();
   private facts: Map<string, SelectFact> = new Map();
   private lastViewedRuns: Map<string, string> = new Map();
+  private userGoals: Map<string, string> = new Map();
+  private awaitingGoalFlags: Map<string, boolean> = new Map();
   private scheduledMonitors: Map<string, SelectScheduledMonitor> = new Map();
   private integrations: Map<string, SelectIntegration> = new Map();
   private batchJobs: Map<string, SelectBatchJob> = new Map();
@@ -332,6 +341,30 @@ export class MemStorage implements IStorage {
   
   async getLastViewedRun(sessionId: string): Promise<string | null> {
     return this.lastViewedRuns.get(sessionId) || null;
+  }
+  
+  async setUserGoal(sessionId: string, goalText: string): Promise<void> {
+    this.userGoals.set(sessionId, goalText);
+  }
+  
+  async getUserGoal(sessionId: string): Promise<string | null> {
+    return this.userGoals.get(sessionId) || null;
+  }
+  
+  async hasUserGoal(sessionId: string): Promise<boolean> {
+    return this.userGoals.has(sessionId);
+  }
+  
+  async setAwaitingGoal(sessionId: string, awaiting: boolean): Promise<void> {
+    if (awaiting) {
+      this.awaitingGoalFlags.set(sessionId, true);
+    } else {
+      this.awaitingGoalFlags.delete(sessionId);
+    }
+  }
+  
+  async isAwaitingGoal(sessionId: string): Promise<boolean> {
+    return this.awaitingGoalFlags.get(sessionId) || false;
   }
   
   async createScheduledMonitor(monitor: InsertScheduledMonitor): Promise<SelectScheduledMonitor> {
@@ -544,6 +577,8 @@ export class DbStorage implements IStorage {
   private pendingConfirmations: Map<string, PendingBatchConfirmation> = new Map();
   private partialWorkflows: Map<string, PartialWorkflow> = new Map();
   private lastViewedRuns: Map<string, string> = new Map();
+  private userGoals: Map<string, string> = new Map();
+  private awaitingGoalFlags: Map<string, boolean> = new Map();
 
   async createJob(job: Job): Promise<Job> {
     this.jobs.set(job.id, job);
@@ -757,6 +792,30 @@ export class DbStorage implements IStorage {
   
   async getLastViewedRun(sessionId: string): Promise<string | null> {
     return this.lastViewedRuns.get(sessionId) || null;
+  }
+  
+  async setUserGoal(sessionId: string, goalText: string): Promise<void> {
+    this.userGoals.set(sessionId, goalText);
+  }
+  
+  async getUserGoal(sessionId: string): Promise<string | null> {
+    return this.userGoals.get(sessionId) || null;
+  }
+  
+  async hasUserGoal(sessionId: string): Promise<boolean> {
+    return this.userGoals.has(sessionId);
+  }
+  
+  async setAwaitingGoal(sessionId: string, awaiting: boolean): Promise<void> {
+    if (awaiting) {
+      this.awaitingGoalFlags.set(sessionId, true);
+    } else {
+      this.awaitingGoalFlags.delete(sessionId);
+    }
+  }
+  
+  async isAwaitingGoal(sessionId: string): Promise<boolean> {
+    return this.awaitingGoalFlags.get(sessionId) || false;
   }
   
   async createScheduledMonitor(monitor: InsertScheduledMonitor): Promise<SelectScheduledMonitor> {
