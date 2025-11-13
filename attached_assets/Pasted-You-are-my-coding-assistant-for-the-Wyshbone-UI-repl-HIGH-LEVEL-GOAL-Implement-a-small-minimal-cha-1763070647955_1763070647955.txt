@@ -1,0 +1,345 @@
+You are my coding assistant for the Wyshbone UI repl.
+HIGH-LEVEL GOAL
+Implement a small, minimal-change feature so that:
+
+
+When a new chat session starts, the UI:
+
+
+checks whether we already know the user’s high-level sales/lead goal for this session, and
+
+
+if not, asks the user in natural language to describe it.
+
+
+
+
+The user’s goal is then:
+
+
+stored in persistent session state (per-user/per-session context, re-using the existing mechanism you already use for chat/session state), and
+
+
+made available to the tool-calling layer, so tools like lead search and monitoring can easily read it and use it for planning.
+
+
+
+
+After implementation, there should be a clear helper function exposed on the server side like:
+getUserGoal(sessionId)
+so that later features (planner, executor, monitoring, etc.) can call it without worrying about how it’s stored.
+
+
+Do not hardcode any specific industries or verticals; the goal must remain free-text and generic (e.g. “find 50 new pubs in Yorkshire that stock craft IPA” is fine, but you must not encode “pubs” or “breweries” into the logic).
+Keep changes as small, local and composable as possible. Do not refactor the entire project or rename unrelated modules.
+
+STEP 1 — FIND THE RIGHT PLACES (BACKEND)
+First, locate the files that handle:
+
+
+Chat/session lifecycle on the server
+
+
+Where a new chat session or conversation is initialised.
+
+
+Where you currently create or load any per-session/per-user context (e.g. session, conversation, userState, chatContext, etc.).
+
+
+
+
+Tool-calling or agent runtime
+
+
+The place where the system builds the context that is passed into tools (e.g. lead search, monitoring, etc.).
+
+
+This is likely where we’ll inject the user’s goal so tools can see it.
+
+
+
+
+Without doing a full rewrite, identify the single “best” place to hook in goal storage and retrieval.
+
+STEP 2 — ADD A SMALL GOAL STORAGE MODULE
+Create or extend a small server-side module to encapsulate goal storage. The purpose is to keep all “goal” logic in one place instead of scattering it.
+
+
+If you already have a session/context store file (e.g. something like sessionStore, contextStore, or similar), extend that.
+
+
+If not, create a new module with a simple API (you can name it something like userGoalStore or similar, following existing naming conventions).
+
+
+The module should:
+
+
+Store the user’s goal in the same storage system you already use for session state:
+
+
+If you use an in-memory map keyed by sessionId, use that.
+
+
+If you use a database or persistent store, add a field for the goal using the existing pattern.
+
+
+
+
+Expose at least the following functions (names can vary, but the responsibilities should match):
+
+
+setUserGoal(sessionId, goalText: string)
+
+
+getUserGoal(sessionId): string | null
+
+
+hasUserGoal(sessionId): boolean
+
+
+
+
+Make sure the types and imports are consistent with the rest of the codebase (TypeScript vs JS, etc.).
+
+STEP 3 — HOOK GOAL CAPTURE INTO CHAT SESSION START
+Next, update the server-side code that handles the start of a new chat.
+At the point where:
+
+
+a new chat/session is created, or
+
+
+the first user message is processed for a given session,
+
+
+add logic along these lines:
+
+
+Determine the sessionId or equivalent identifier you already use to track a chat.
+
+
+Check hasUserGoal(sessionId):
+
+
+If true, do nothing special: proceed as usual.
+
+
+If false, ensure that the system:
+
+
+sends a message to the user asking for their goal (see UX below), and
+
+
+marks the session as being in a “waiting for goal” state so that the next user message is interpreted as the goal instead of a normal chat request.
+
+
+
+
+
+
+You may already have a place where you track conversation “mode” or flags in session context. Re-use that mechanism if it exists (e.g. a session flag like awaitingGoal: true).
+The idea is:
+
+
+On the first interaction where we notice we don’t know the goal, we ask.
+
+
+The next user message becomes the goal value.
+
+
+
+STEP 4 — FRONTEND / UX BEHAVIOUR
+Update the frontend logic so that the user experience is:
+
+
+When a new chat starts and there is no known goal:
+
+
+The assistant sends a friendly, simple question such as:
+
+“Before we get started, what’s your high-level sales or lead goal? For example, ‘find 50 new pubs in London that might stock our IPA.’”
+
+
+
+This should be displayed in the UI just like any other assistant message.
+
+
+
+
+The user types their answer as a normal chat message.
+
+
+The system interprets that next message as the goal (see Step 5), stores it, and then continues the normal flow.
+
+
+You do not need a separate dedicated UI form if your chat UX already supports this “system asks, user replies” pattern. Re-use the existing chat bubble / message pipeline.
+If the user already has a known goal for the session, do not re-ask; just proceed normally.
+
+STEP 5 — CAPTURE THE GOAL FROM THE USER’S REPLY
+In the server-side message handling pipeline (where user messages are processed):
+
+
+Detect if the session is in awaitingGoal (or equivalent) state.
+
+
+If it is:
+
+
+Treat the current user message text as the goal.
+
+
+Call setUserGoal(sessionId, messageText).
+
+
+Clear the awaitingGoal flag.
+
+
+Optionally send a brief confirmation message back to the user such as:
+
+“Got it — I’ll use that as your goal for this session.”
+
+
+
+Then:
+
+
+either immediately proceed with normal handling of the original question (if that makes sense),
+
+
+or simply acknowledge and wait for the next user message to initiate tool use.
+
+
+
+
+
+
+If the session is not awaiting a goal, handle the message as you do today.
+
+
+This logic should be minimal and only affect the first message after the goal question.
+
+STEP 6 — MAKE GOAL AVAILABLE TO THE TOOL-CALLING LAYER
+Now that the goal is stored, integrate it into the tool-calling runtime.
+Find the place where:
+
+
+you build the context object that is sent to tools (lead search, monitoring, planning, etc.), or
+
+
+you construct the arguments for the agent/tool calls.
+
+
+Update that code so that:
+
+
+It calls getUserGoal(sessionId) (or equivalent) to retrieve the goal.
+
+
+If a goal exists, include it in the context or tool input under a clear key, e.g.:
+
+
+context.userGoal
+
+
+or toolInput.userGoal
+
+
+
+
+This must be read-only for the tools: they should be able to see the goal and use it for filtering, planning, etc., but not be responsible for storing or mutating it.
+Do not hardcode any industries or special-case behaviour in this task. Just expose the raw free-text goal.
+
+STEP 7 — EXPOSE getUserGoal(sessionId) HELPER
+Ensure there is a clean helper function accessible from elsewhere in the codebase, with a signature equivalent to:
+
+
+getUserGoal(sessionId: string): string | null
+
+
+This may simply re-export the function from the goal store module, or be a thin wrapper over the session/context store, whichever fits your existing architecture best.
+The key is that future tasks (planner, executor, monitoring, etc.) can easily call getUserGoal(sessionId) without needing to know how or where it’s stored.
+
+STEP 8 — TESTING / VALIDATION
+Add or update tests if you have a test framework. At minimum, manually verify the following scenarios:
+
+
+New user with no existing goal
+
+
+Start a new chat/session.
+
+
+Confirm that the UI asks for the goal.
+
+
+Reply with a high-level goal text.
+
+
+Confirm that:
+
+
+the goal is stored,
+
+
+getUserGoal(sessionId) returns that text, and
+
+
+subsequent messages are treated normally without re-asking.
+
+
+
+
+
+
+Existing user/session where goal is already set
+
+
+Start a chat where getUserGoal(sessionId) already returns a value.
+
+
+Confirm that:
+
+
+the system does not re-ask for the goal, and
+
+
+tools receive the goal in their context.
+
+
+
+
+
+
+Tool integration sanity check
+
+
+Add a temporary log in the tool-calling layer to output context.userGoal (or whatever you called it) when a tool runs.
+
+
+Confirm that it matches the goal the user provided.
+
+
+
+
+Ensure that no breaking changes are introduced to other parts of the system.
+
+CONSTRAINTS / NON-GOALS
+
+
+Do not hardcode any domain/industry-specific logic.
+
+
+Do not refactor unrelated modules.
+
+
+Do not redesign the entire chat architecture.
+
+
+Prefer adding small, focused functions and a tiny module over large structural changes.
+
+
+Keep naming consistent with the existing style of the codebase.
+
+
+
+Please implement this feature end-to-end in this Wyshbone UI repl, following the above steps.
