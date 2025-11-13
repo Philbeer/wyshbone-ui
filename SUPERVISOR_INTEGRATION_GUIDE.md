@@ -68,76 +68,175 @@ If you see:
 
 Then check your environment variables.
 
-## 📋 Remaining Implementation Tasks
+### Step 4: Frontend Integration
 
-### Backend
+✅ **COMPLETED** - Frontend realtime subscriptions are active:
 
-- [ ] **Create POST /api/supervisor/create-task endpoint**
-  - Accept: `{ message: string, conversationId: string }`
-  - Detect intent using `detectSupervisorIntent(message)`
-  - If intent detected, call `createSupervisorTask()`
-  - Return: `{ taskCreated: boolean, taskId?: string }`
+**File:** `client/src/lib/supabase.ts`
+- Supabase client initialized with `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`
+- `subscribeSupervisorMessages()` function listens for new Supervisor responses
+- Filters client-side for `source === 'supervisor'` messages only
 
-- [ ] **Add intent detection to message flow**
-  - Option A: Call `/api/supervisor/create-task` from frontend after sending message
-  - Option B: Add middleware to `/api/chat` endpoint to auto-detect Supervisor intents
+**File:** `client/src/pages/chat.tsx` (lines 92-139)
+- Subscribes to Supervisor messages using `subscribeSupervisorMessages()`
+- Converts Supervisor messages to display format
+- Shows toast notifications when responses arrive
+- Auto-scrolls to new messages
 
-### Frontend
+### Step 5: Backend Intent Detection & Task Creation
 
-- [ ] **Install Supabase client for browser**
-  ```bash
-  # Already installed: @supabase/supabase-js
-  ```
+✅ **COMPLETED** - Automatic Supervisor task creation on keywords:
 
-- [ ] **Create Supabase realtime hook** (`client/src/lib/use-supervisor-realtime.ts`)
-  ```typescript
-  import { createClient } from '@supabase/supabase-js';
-  import { useEffect } from 'react';
+**File:** `server/intent-detector.ts`
+- Detects lead generation keywords ("find leads", "search for", etc.)
+- Extracts business type and location from user messages
+- Returns structured intent with task type and request data
 
-  const supabase = createClient(
-    import.meta.env.VITE_SUPABASE_URL,
-    import.meta.env.VITE_SUPABASE_ANON_KEY
-  );
+**File:** `server/routes.ts` (in `/api/chat` endpoint)
+- After user message is saved, checks for Supervisor intent
+- If detected, creates task in Supabase via `createSupervisorTask()`
+- Returns task ID to frontend for tracking
 
-  export function useSupervisorRealtime(conversationId: string, onMessage: (msg: any) => void) {
-    useEffect(() => {
-      const channel = supabase
-        .channel(`conversation:${conversationId}`)
-        .on(
-          'postgres_changes',
-          {
-            event: 'INSERT',
-            schema: 'public',
-            table: 'messages',
-            filter: `conversation_id=eq.${conversationId}`,
-          },
-          (payload) => {
-            if (payload.new.source === 'supervisor') {
-              onMessage(payload.new);
-            }
-          }
-        )
-        .subscribe();
+### Step 6: Context Sharing & Loop Prevention ⚠️ CRITICAL
 
-      return () => {
-        supabase.removeChannel(channel);
-      };
-    }, [conversationId]);
-  }
-  ```
+This step explains **WHY** the architecture works and **HOW** to avoid infinite loops.
 
-- [ ] **Add Supervisor message UI** in `client/src/pages/chat.tsx`
-  - Detect messages with `source === 'supervisor'`
-  - Add blue left border or gradient background
-  - Show "🤖 Supervisor" badge
-  - Display metadata chips (capabilities, lead count)
-  - Add loading indicator while waiting for response
+#### 🔄 Context Sharing: Why ALL Messages Must Be Visible to the AI
 
-- [ ] **Call Supervisor on message send**
-  - After user sends message, check if it contains lead keywords
-  - Call POST `/api/supervisor/create-task`
-  - Show "Supervisor is analyzing..." indicator
-  - Wait for realtime response (max 30 seconds)
+**Problem:** User asks Supervisor for leads, then follows up with "Tell me more about the first one."
+
+If the regular AI can't see Supervisor's previous response, it has NO CONTEXT and will fail.
+
+**Solution:** `server/memory.ts` → `loadConversationHistory()` (lines 262-347)
+
+```typescript
+// MERGES messages from BOTH databases
+const allMessages = [
+  ...localMessages,      // From local Postgres (UI messages)
+  ...supervisorMessages  // From Supabase (Supervisor responses)
+].sort((a, b) => a.createdAt - b.createdAt);
+
+// TAGS Supervisor messages so AI knows who said what
+if (msg.source === 'supervisor') {
+  return {
+    role: 'assistant',
+    content: msg.content,
+    name: 'Supervisor'  // ← OpenAI uses this to identify speaker
+  };
+}
+```
+
+**Result:** When building conversation context, the AI sees:
+
+```
+User: "Find dental clinics in York"
+Assistant (Supervisor): "Here are 5 dental clinics in York: ..."
+User: "Tell me more about the first one"  ← AI has full context!
+```
+
+#### 🔁 Loop Prevention: Why Not Every Message Triggers Supervisor
+
+**Problem:** If EVERY user message creates a Supervisor task, you get infinite loops:
+
+```
+User: "Thanks!"
+→ Creates Supervisor task (unnecessary)
+Supervisor: "Here are leads for 'Thanks'..." (nonsense)
+→ AI tries to respond
+→ Creates ANOTHER task...
+→ INFINITE LOOP 💥
+```
+
+**Solution:** `server/intent-detector.ts` uses **keyword matching**
+
+```typescript
+const LEAD_GENERATION_KEYWORDS = [
+  'find lead', 'find prospect', 'search for', 'look for',
+  'find business', 'generate lead', 'get lead',
+  // ... only specific keywords
+];
+
+// Only returns requiresSupervisor: true if keywords match
+if (hasLeadIntent) {
+  return { requiresSupervisor: true, taskType: 'generate_leads' };
+}
+```
+
+**Result:** Supervisor tasks are created ONLY when users explicitly ask for leads.
+
+#### 🔀 Complete Flow: How It All Works Together
+
+```
+1. User: "Find cafes in Manchester"
+   ↓
+2. Frontend → POST /api/chat
+   ↓
+3. Backend detects keywords ("find", "cafes") → Creates Supervisor task
+   ↓
+4. Regular AI also responds: "Looking for cafes in Manchester..."
+   ↓
+5. Supervisor backend polls Supabase → Finds task
+   ↓
+6. Supervisor searches Google Places + Hunter.io
+   ↓
+7. Supervisor posts response to Supabase messages table
+   ↓
+8. Frontend realtime subscription receives it
+   ↓
+9. Displays Supervisor response with blue badge
+   ↓
+10. User: "Tell me more about the first one"
+    ↓
+11. Backend loads conversation history (INCLUDES Supervisor message!)
+    ↓
+12. Regular AI has full context and can answer intelligently
+    ✅ NO new Supervisor task (no keywords detected)
+```
+
+**Key Insights:**
+- ✅ Supervisor and regular AI work **together**, not against each other
+- ✅ Context merging ensures **seamless conversation flow**
+- ✅ Keyword detection prevents **unnecessary task creation**
+- ✅ Users get **best of both worlds**: real-time research + conversational AI
+
+## ✅ Integration Status: COMPLETE
+
+All core integration tasks are finished! The Supervisor backend is fully integrated with Wyshbone.
+
+### ✅ Completed Implementation
+
+**Backend:**
+- ✅ Supabase client service (`server/supabase-client.ts`)
+- ✅ Intent detection with keyword matching (`server/intent-detector.ts`)
+- ✅ Context merging from both databases (`server/memory.ts`)
+- ✅ Automatic task creation in `/api/chat` endpoint (`server/routes.ts`)
+
+**Frontend:**
+- ✅ Supabase realtime subscriptions (`client/src/lib/supabase.ts`)
+- ✅ Real-time message reception in chat UI (`client/src/pages/chat.tsx`)
+- ✅ Supervisor message display with special styling
+- ✅ Toast notifications for new responses
+- ✅ Loading indicators during task processing
+
+**Environment:**
+- ✅ All 4 Supabase environment variables configured
+- ✅ `.env.local` override file prevents caching issues
+- ✅ Lazy initialization pattern for robust startup
+
+### 🎯 Current Status
+
+**Working Features:**
+1. ✅ Users can type "Find cafes in Manchester" → Supervisor task created
+2. ✅ Supervisor backend processes task → Posts response to Supabase
+3. ✅ Frontend receives response via realtime subscription
+4. ✅ AI can reference Supervisor responses in follow-up questions
+5. ✅ No infinite loops (keyword detection prevents unnecessary tasks)
+
+**Tested & Verified:**
+- ✅ Environment variables loading correctly
+- ✅ Supabase realtime connection status: `SUBSCRIBED`
+- ✅ Message context merging working
+- ✅ Intent detection triggering on keywords only
 
 ## 🧪 Testing Flow
 
