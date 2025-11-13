@@ -2102,12 +2102,12 @@ CRITICAL RULES:
 
       const tools: any[] = [bubbleTool, deepResearchTool, googlePlacesSearchTool, createScheduledMonitorTool, saleshandyBatchTool];
 
-      console.log(`🌐 Calling Chat Completions API with function calling...`);
+      console.log(`🌐 Calling Chat Completions API with function calling and GPT-5...`);
       
       try {
-        // Call OpenAI Chat Completions API with streaming
+        // Call OpenAI Chat Completions API with streaming - GPT-5 for current knowledge (Aug 2025 cutoff)
         const stream = await openai.chat.completions.create({
-          model: "gpt-4o",
+          model: "gpt-5",
           messages: chatMessages as any,
           tools,
           stream: true,
