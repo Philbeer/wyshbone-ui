@@ -1052,6 +1052,46 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Stream from OpenAI using Responses API with GPT-5
       let aiBuffer = "";
 
+      // ===========================
+      // USER GOAL CAPTURE
+      // Check if we're awaiting the user's goal, or if we need to ask for it
+      // ===========================
+      const isAwaitingGoal = await storage.isAwaitingGoal(sessionId);
+      const hasGoal = await storage.hasUserGoal(sessionId);
+
+      if (isAwaitingGoal) {
+        // User is providing their goal - capture it
+        console.log("🎯 Capturing user goal:", latestUserText.substring(0, 100));
+        await storage.setUserGoal(sessionId, latestUserText);
+        await storage.setAwaitingGoal(sessionId, false);
+        
+        const confirmationMsg = `Got it! I'll use "${latestUserText}" as your goal for this session. How can I help you achieve it?`;
+        aiBuffer = confirmationMsg;
+        appendMessage(sessionId, { role: "assistant", content: confirmationMsg });
+        await saveMessage(conversationId, "assistant", confirmationMsg);
+        console.log("💾 Saved goal confirmation message to database");
+        
+        res.write(`data: ${JSON.stringify({ content: confirmationMsg })}\n\n`);
+        res.write(`data: [DONE]\n\n`);
+        return res.end();
+      }
+
+      if (!hasGoal && !isNewSearch) {
+        // No goal set yet - ask the user for it
+        console.log("❓ No goal set for session - asking user");
+        await storage.setAwaitingGoal(sessionId, true);
+        
+        const goalRequestMsg = `Before we get started, what's your high-level sales or lead goal for this session?\n\nFor example:\n• "Find 50 new pubs in Yorkshire that might stock craft IPA"\n• "Identify dental practices in Manchester for our equipment"\n• "Discover coffee shops in London that opened in 2024"`;
+        aiBuffer = goalRequestMsg;
+        appendMessage(sessionId, { role: "assistant", content: goalRequestMsg });
+        await saveMessage(conversationId, "assistant", goalRequestMsg);
+        console.log("💾 Saved goal request message to database");
+        
+        res.write(`data: ${JSON.stringify({ content: goalRequestMsg })}\n\n`);
+        res.write(`data: [DONE]\n\n`);
+        return res.end();
+      }
+
       // Check if the latest message contains URLs
       const urls = extractUrls(latestUserText);
       const useDirectFetch = urls.length > 0;
