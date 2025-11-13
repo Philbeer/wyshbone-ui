@@ -90,6 +90,7 @@ type SummaryData = {
     hasApi: boolean;
     testsCount: number;
   };
+  ui001_goalCaptureEnabled: boolean;
   files: FileInfo[];
 };
 
@@ -248,6 +249,7 @@ export async function getSummary(): Promise<SummaryData> {
       hasApi: metrics.hasApi,
       testsCount: metrics.testsCount,
     },
+    ui001_goalCaptureEnabled: true,
     files,
   };
 
