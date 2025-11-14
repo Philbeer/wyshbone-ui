@@ -1,0 +1,322 @@
+You are editing the Wyshbone UI repl.
+
+High-level goal
+
+Modify the tool-calling logic so that when the user asks for something that will trigger tools (lead search, monitoring, outreach), the chat FIRST checks whether it has enough information:
+
+Target region (where to focus)
+
+Target persona (who to contact)
+
+Volume (roughly how many leads / emails)
+
+Timing (when / how fast / how often)
+
+If any of these are missing or ambiguous, the chat should ask up to 3 short clarifying questions (sales-friendly) before calling any tools. Once clarified, it should call tools with the enriched parameters.
+
+Do NOT remove or break existing tools. Just insert a structured “clarification” step before tool calls.
+
+Context and constraints
+
+Wyshbone UI already:
+
+Handles chat and session state.
+
+Calls tools for lead search, monitoring, and outreach.
+
+Has some notion of user/session context (e.g. user goal, company info, etc).
+
+We are now adding Layer 1 / UI-002 – Clarifying questions, specifically for tool-triggering lead tasks.
+
+Keep the implementation:
+
+Local and minimal: small, focused edits instead of refactors.
+
+Backwards compatible: if all info is already present, behaviour should be unchanged.
+
+Framework-appropriate (TypeScript/Node/React or whatever the existing stack is).
+
+What to implement
+1. Introduce a “lead request context” structure in session state
+
+Add a small, typed structure that captures the four key fields for a lead-related request.
+
+Create (or extend) a module that deals with per-session context (look for existing session/context utilities). If such a module exists, extend it; otherwise, create a small one.
+
+Type (example, adapt to existing conventions):
+
+export type LeadRequestContext = {
+  targetRegion?: string;      // e.g. "UK", "London", "North West", "US East Coast"
+  targetPersona?: string;     // e.g. "pub landlords", "buyers", "coffee shop owners"
+  volume?: string;            // e.g. "25", "50–100", "a small batch"
+  timing?: string;            // e.g. "this week", "ongoing weekly", "one-off now"
+};
+
+
+Also expose helpers like:
+
+export function getLeadRequestContext(sessionId: string): LeadRequestContext
+export function saveLeadRequestContext(sessionId: string, ctx: LeadRequestContext): Promise<void> | void
+
+
+Use the same persistence mechanism that we already use for user goal / chat session state (don’t invent a new storage system).
+
+2. Add helpers to detect missing / ambiguous fields and generate clarifying questions
+
+In the same module (or a new “leadClarifier” module), add:
+
+export function getMissingLeadFields(ctx: LeadRequestContext): Array<keyof LeadRequestContext>;
+
+
+Rules for “missing” / “ambiguous”:
+
+Field is undefined / empty → missing.
+
+Field is very vague like "anywhere", "anyone", "lots", "as many as possible", "whenever" → treat as ambiguous and therefore missing.
+
+Implement this via a small list of “vague terms” and a simple check. No heavy NLP needed.
+
+Then add:
+
+export function buildClarifyingQuestions(missing: Array<keyof LeadRequestContext>): string[];
+
+
+Behaviour:
+
+Only build questions for the first 3 missing fields (max 3 questions total).
+
+Questions MUST be short and practical for salespeople. Example templates (you can use these literally):
+
+For targetRegion
+
+"Where do you want to focus? (e.g. UK-wide, London, North West, specific cities)"
+
+For targetPersona
+
+"Who exactly are you trying to reach? (e.g. pub owners, bar managers, buyers)"
+
+For volume
+
+"Roughly how many leads do you want in this batch?"
+
+For timing
+
+"When do you want these going out / monitored? (e.g. this week, ongoing, specific dates)"
+
+The questions should be returned as a string[] in the order of priority:
+
+targetRegion
+
+targetPersona
+
+volume
+
+timing
+
+Only include fields that are missing. Respect the 3-question cap.
+
+3. Wire this into the tool-calling pipeline
+
+Find the code path where Wyshbone UI decides to call tools for:
+
+Lead search
+
+Monitoring
+
+Outreach
+
+This is typically:
+
+A server-side handler that takes the latest chat message + session, builds an OpenAI request (possibly with tools), and interprets tool calls.
+
+Before any actual tool call is executed, insert a “clarification pre-check” step:
+
+Detect whether the current user request is about lead search / monitoring / outreach.
+
+Use the existing intent / tool-routing logic where possible (do NOT rebuild intent detection).
+
+Wherever we currently say “yes, we’re going to call the lead-related tools”, hook in this logic.
+
+If the intent is lead-related:
+
+Load current LeadRequestContext for the session:
+const ctx = getLeadRequestContext(sessionId);
+
+Update it from any information we can extract from:
+
+The latest user message.
+
+Existing session metadata (e.g. previously captured goal, company, region).
+
+Then call getMissingLeadFields(ctx).
+
+If no missing fields:
+
+Save the updated context.
+
+Proceed with the normal tool-calling logic, but now pass the enriched parameters into the lead tools. For example, when building tool parameters, include:
+
+{
+  ...existingParams,
+  target_region: ctx.targetRegion,
+  target_persona: ctx.targetPersona,
+  volume: ctx.volume,
+  timing: ctx.timing
+}
+
+
+(Adapt names to actual tool schemas.)
+
+If there are missing fields:
+
+Build clarifying questions with buildClarifyingQuestions(missing).
+
+Instead of calling tools, return a chat response that:
+
+Asks those questions, ideally in one message with each question on a new line or bullet.
+
+Flags internally that we’re in a “clarification in progress” state for this session (e.g. store a small flag / pendingFields list in session context).
+
+Example response content (for Replit to construct):
+
+To get this right, I need a bit more detail:
+
+1) Where do you want to focus? (e.g. UK-wide, London, North West, specific cities)
+2) Who exactly are you trying to reach? (e.g. pub owners, bar managers, buyers)
+
+
+Do NOT call any tools at this point.
+
+4. Handle the answers to clarifying questions
+
+We also need to handle the next user reply, which answers those questions.
+
+Add logic so that when:
+
+The session has a “clarification in progress” flag with a list of missing fields.
+
+A new user message arrives.
+
+Then:
+
+Take the new message and map answers back to the missing fields.
+
+Keep this simple: just treat the whole message as free text and assign it sequentially to the pending fields in order.
+
+Example: if pending fields are ["targetRegion", "targetPersona"] and the user replies “Pubs in the North West, mainly owners and managers”, assign:
+
+targetRegion = "North West pubs"
+
+targetPersona = "pub owners and managers"
+
+It doesn’t have to be perfect—just capture a useful string.
+
+Update LeadRequestContext accordingly and clear the “clarification in progress” flag.
+
+Re-run the missing-fields check:
+
+If still missing fields AND we haven’t already asked 3 total questions this round, you may ask again (but cap at 3 total).
+
+Otherwise, once all four fields are present or good enough, proceed to call tools as normal with the enriched parameters.
+
+The net effect should be:
+
+First user lead request → clarification questions if needed.
+
+Second user reply → fill the gaps, then actual tool calls.
+
+5. Keep questions short and sales-friendly
+
+Make sure any questions you embed in code are:
+
+Short
+
+Clear
+
+Practical for salespeople (no jargon).
+
+You can hardcode the example wording above.
+
+6. Acceptance criteria
+
+I should be able to:
+
+Scenario A – fully specified request (no extra questions)
+
+User: “Find me 50 pubs in the North West where I can email the landlord this week.”
+
+Expected:
+
+System infers:
+
+targetRegion = "North West"
+
+targetPersona = "pub landlords"
+
+volume = "50"
+
+timing = "this week"
+
+No clarifying questions are asked.
+
+Lead search / monitoring / outreach tools are called with these values.
+
+Scenario B – missing region + volume
+
+User: “Can you find me some bars to pitch this month?”
+
+Expected:
+
+System recognises lead intent.
+
+It asks something like:
+
+“Where do you want to focus? (e.g. UK-wide, London, North West, specific cities)”
+
+“Roughly how many leads do you want in this batch?”
+
+After the user answers, tools are called with the new targetRegion and volume.
+
+Scenario C – vague timing and persona
+
+User: “I want to contact places about my beer, as many as possible.”
+
+Expected:
+
+System asks up to 3 short clarifying questions focused on:
+
+WHO to reach
+
+WHERE to focus
+
+WHEN / timing
+
+Once answered, tools run with all four fields populated.
+
+Behaviour when non-lead chat messages occur:
+
+Normal chat continues as before.
+
+No clarifying questions are injected unless a lead-related tool is about to be used.
+
+7. Implementation notes
+
+Reuse existing session storage and types; do not introduce a new DB layer.
+
+Keep changes small and local:
+
+One small context module (if needed) for LeadRequestContext.
+
+One small “clarification pre-check” block in the main tool-calling path.
+
+One small clarification-answer handler in the chat pipeline.
+
+Do not change OpenAI model configuration or tool schemas except to pass in the new parameters.
+
+When you’re done, please:
+
+Point me to the main files you changed.
+
+Briefly list any new types or helper functions you added.
+
+Confirm the three acceptance scenarios above work logically with your changes.

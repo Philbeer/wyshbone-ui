@@ -103,6 +103,25 @@ export interface IStorage {
   setAwaitingGoal(sessionId: string, awaiting: boolean): Promise<void>;
   isAwaitingGoal(sessionId: string): Promise<boolean>;
   
+  // Lead Request Context tracking (UI-002: clarification questions for lead requests)
+  getLeadRequestContext(sessionId: string): Promise<{
+    targetRegion?: string;
+    targetPersona?: string;
+    volume?: string;
+    timing?: string;
+  }>;
+  saveLeadRequestContext(sessionId: string, context: {
+    targetRegion?: string;
+    targetPersona?: string;
+    volume?: string;
+    timing?: string;
+  }): Promise<void>;
+  clearLeadRequestContext(sessionId: string): Promise<void>;
+  isAwaitingLeadClarification(sessionId: string): Promise<boolean>;
+  setAwaitingLeadClarification(sessionId: string, missingFields: Array<'targetRegion' | 'targetPersona' | 'volume' | 'timing'>): Promise<void>;
+  clearAwaitingLeadClarification(sessionId: string): Promise<void>;
+  getPendingLeadClarificationFields(sessionId: string): Promise<Array<'targetRegion' | 'targetPersona' | 'volume' | 'timing'>>;
+  
   // Scheduled Monitor CRUD methods
   createScheduledMonitor(monitor: InsertScheduledMonitor): Promise<SelectScheduledMonitor>;
   getScheduledMonitor(id: string): Promise<SelectScheduledMonitor | null>;
@@ -164,6 +183,9 @@ export class MemStorage implements IStorage {
   private lastViewedRuns: Map<string, string> = new Map();
   private userGoals: Map<string, string> = new Map();
   private awaitingGoalFlags: Map<string, boolean> = new Map();
+  private leadRequestContexts: Map<string, { targetRegion?: string; targetPersona?: string; volume?: string; timing?: string }> = new Map();
+  private awaitingLeadClarificationFlags: Map<string, boolean> = new Map();
+  private pendingLeadClarificationFields: Map<string, string[]> = new Map();
   private scheduledMonitors: Map<string, SelectScheduledMonitor> = new Map();
   private integrations: Map<string, SelectIntegration> = new Map();
   private batchJobs: Map<string, SelectBatchJob> = new Map();
@@ -365,6 +387,41 @@ export class MemStorage implements IStorage {
   
   async isAwaitingGoal(sessionId: string): Promise<boolean> {
     return this.awaitingGoalFlags.get(sessionId) || false;
+  }
+  
+  async getLeadRequestContext(sessionId: string): Promise<{ targetRegion?: string; targetPersona?: string; volume?: string; timing?: string }> {
+    return this.leadRequestContexts.get(sessionId) || {};
+  }
+  
+  async saveLeadRequestContext(sessionId: string, context: { targetRegion?: string; targetPersona?: string; volume?: string; timing?: string }): Promise<void> {
+    this.leadRequestContexts.set(sessionId, context);
+  }
+  
+  async clearLeadRequestContext(sessionId: string): Promise<void> {
+    this.leadRequestContexts.delete(sessionId);
+  }
+  
+  async isAwaitingLeadClarification(sessionId: string): Promise<boolean> {
+    return this.awaitingLeadClarificationFlags.get(sessionId) || false;
+  }
+  
+  async setAwaitingLeadClarification(sessionId: string, missingFields: string[]): Promise<void> {
+    if (missingFields.length > 0) {
+      this.awaitingLeadClarificationFlags.set(sessionId, true);
+      this.pendingLeadClarificationFields.set(sessionId, missingFields);
+    } else {
+      this.awaitingLeadClarificationFlags.delete(sessionId);
+      this.pendingLeadClarificationFields.delete(sessionId);
+    }
+  }
+  
+  async clearAwaitingLeadClarification(sessionId: string): Promise<void> {
+    this.awaitingLeadClarificationFlags.delete(sessionId);
+    this.pendingLeadClarificationFields.delete(sessionId);
+  }
+  
+  async getPendingLeadClarificationFields(sessionId: string): Promise<string[]> {
+    return this.pendingLeadClarificationFields.get(sessionId) || [];
   }
   
   async createScheduledMonitor(monitor: InsertScheduledMonitor): Promise<SelectScheduledMonitor> {
@@ -579,6 +636,9 @@ export class DbStorage implements IStorage {
   private lastViewedRuns: Map<string, string> = new Map();
   private userGoals: Map<string, string> = new Map();
   private awaitingGoalFlags: Map<string, boolean> = new Map();
+  private leadRequestContexts: Map<string, { targetRegion?: string; targetPersona?: string; volume?: string; timing?: string }> = new Map();
+  private awaitingLeadClarificationFlags: Map<string, boolean> = new Map();
+  private pendingLeadClarificationFields: Map<string, string[]> = new Map();
 
   async createJob(job: Job): Promise<Job> {
     this.jobs.set(job.id, job);
@@ -816,6 +876,41 @@ export class DbStorage implements IStorage {
   
   async isAwaitingGoal(sessionId: string): Promise<boolean> {
     return this.awaitingGoalFlags.get(sessionId) || false;
+  }
+  
+  async getLeadRequestContext(sessionId: string): Promise<{ targetRegion?: string; targetPersona?: string; volume?: string; timing?: string }> {
+    return this.leadRequestContexts.get(sessionId) || {};
+  }
+  
+  async saveLeadRequestContext(sessionId: string, context: { targetRegion?: string; targetPersona?: string; volume?: string; timing?: string }): Promise<void> {
+    this.leadRequestContexts.set(sessionId, context);
+  }
+  
+  async clearLeadRequestContext(sessionId: string): Promise<void> {
+    this.leadRequestContexts.delete(sessionId);
+  }
+  
+  async isAwaitingLeadClarification(sessionId: string): Promise<boolean> {
+    return this.awaitingLeadClarificationFlags.get(sessionId) || false;
+  }
+  
+  async setAwaitingLeadClarification(sessionId: string, missingFields: string[]): Promise<void> {
+    if (missingFields.length > 0) {
+      this.awaitingLeadClarificationFlags.set(sessionId, true);
+      this.pendingLeadClarificationFields.set(sessionId, missingFields);
+    } else {
+      this.awaitingLeadClarificationFlags.delete(sessionId);
+      this.pendingLeadClarificationFields.delete(sessionId);
+    }
+  }
+  
+  async clearAwaitingLeadClarification(sessionId: string): Promise<void> {
+    this.awaitingLeadClarificationFlags.delete(sessionId);
+    this.pendingLeadClarificationFields.delete(sessionId);
+  }
+  
+  async getPendingLeadClarificationFields(sessionId: string): Promise<string[]> {
+    return this.pendingLeadClarificationFields.get(sessionId) || [];
   }
   
   async createScheduledMonitor(monitor: InsertScheduledMonitor): Promise<SelectScheduledMonitor> {
