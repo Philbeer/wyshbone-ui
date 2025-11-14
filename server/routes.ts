@@ -2180,6 +2180,50 @@ CRITICAL RULES:
 
       const tools: any[] = [bubbleTool, deepResearchTool, googlePlacesSearchTool, createScheduledMonitorTool, saleshandyBatchTool];
 
+      // ===========================
+      // LEAD CLARIFICATION CHECK (UI-002)
+      // Before calling tools, check if we need to ask clarifying questions
+      // ===========================
+      const { handleLeadClarification, clearLeadContext } = await import("./leadClarification");
+      
+      // Clear lead context on new searches, BUT NOT if we're currently awaiting clarification
+      // (otherwise we'd wipe context in the middle of a clarification flow)
+      const isAwaitingClarification = await storage.isAwaitingLeadClarification(sessionId);
+      if (isNewSearch && !isAwaitingClarification) {
+        await clearLeadContext(sessionId);
+      }
+      
+      // Let handleLeadClarification own the entire clarification flow
+      // It handles: awaiting detection, answer parsing, context merging, and flag clearing
+      const clarificationResult = await handleLeadClarification({
+        sessionId,
+        userMessage: latestUserText,
+        conversationHistory: memoryMessages.map(m => String(m.content || ''))
+      });
+      
+      if (clarificationResult.type === 'clarify') {
+        // Missing fields - ask clarifying questions and return early
+        console.log("❓ Lead clarification needed - asking questions");
+        
+        appendMessage(sessionId, { role: "assistant", content: clarificationResult.formattedMessage });
+        await saveMessage(conversationId, "assistant", clarificationResult.formattedMessage);
+        console.log("💾 Saved clarification questions to database");
+        
+        res.write(`data: ${JSON.stringify({ content: clarificationResult.formattedMessage })}\n\n`);
+        res.write(`data: [DONE]\n\n`);
+        return res.end();
+      } else if (clarificationResult.type === 'proceed') {
+        // All fields present - inject enriched context into chat messages
+        console.log("✅ Lead context complete - proceeding with tools");
+        
+        const enrichedContextMessage = {
+          role: "system" as const,
+          content: clarificationResult.enrichedSystemMessage
+        };
+        chatMessages = [...chatMessages, enrichedContextMessage];
+      }
+      // type === 'skip': Continue normally (not a lead request)
+
       console.log(`🌐 Calling Chat Completions API with function calling and GPT-5...`);
       
       try {

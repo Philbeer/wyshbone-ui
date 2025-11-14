@@ -185,7 +185,7 @@ export class MemStorage implements IStorage {
   private awaitingGoalFlags: Map<string, boolean> = new Map();
   private leadRequestContexts: Map<string, { targetRegion?: string; targetPersona?: string; volume?: string; timing?: string }> = new Map();
   private awaitingLeadClarificationFlags: Map<string, boolean> = new Map();
-  private pendingLeadClarificationFields: Map<string, string[]> = new Map();
+  private pendingLeadClarificationFields: Map<string, Array<'targetRegion' | 'targetPersona' | 'volume' | 'timing'>> = new Map();
   private scheduledMonitors: Map<string, SelectScheduledMonitor> = new Map();
   private integrations: Map<string, SelectIntegration> = new Map();
   private batchJobs: Map<string, SelectBatchJob> = new Map();
@@ -405,7 +405,7 @@ export class MemStorage implements IStorage {
     return this.awaitingLeadClarificationFlags.get(sessionId) || false;
   }
   
-  async setAwaitingLeadClarification(sessionId: string, missingFields: string[]): Promise<void> {
+  async setAwaitingLeadClarification(sessionId: string, missingFields: Array<'targetRegion' | 'targetPersona' | 'volume' | 'timing'>): Promise<void> {
     if (missingFields.length > 0) {
       this.awaitingLeadClarificationFlags.set(sessionId, true);
       this.pendingLeadClarificationFields.set(sessionId, missingFields);
@@ -420,7 +420,7 @@ export class MemStorage implements IStorage {
     this.pendingLeadClarificationFields.delete(sessionId);
   }
   
-  async getPendingLeadClarificationFields(sessionId: string): Promise<string[]> {
+  async getPendingLeadClarificationFields(sessionId: string): Promise<Array<'targetRegion' | 'targetPersona' | 'volume' | 'timing'>> {
     return this.pendingLeadClarificationFields.get(sessionId) || [];
   }
   
@@ -638,7 +638,7 @@ export class DbStorage implements IStorage {
   private awaitingGoalFlags: Map<string, boolean> = new Map();
   private leadRequestContexts: Map<string, { targetRegion?: string; targetPersona?: string; volume?: string; timing?: string }> = new Map();
   private awaitingLeadClarificationFlags: Map<string, boolean> = new Map();
-  private pendingLeadClarificationFields: Map<string, string[]> = new Map();
+  private pendingLeadClarificationFields: Map<string, Array<'targetRegion' | 'targetPersona' | 'volume' | 'timing'>> = new Map();
 
   async createJob(job: Job): Promise<Job> {
     this.jobs.set(job.id, job);
@@ -894,7 +894,7 @@ export class DbStorage implements IStorage {
     return this.awaitingLeadClarificationFlags.get(sessionId) || false;
   }
   
-  async setAwaitingLeadClarification(sessionId: string, missingFields: string[]): Promise<void> {
+  async setAwaitingLeadClarification(sessionId: string, missingFields: Array<'targetRegion' | 'targetPersona' | 'volume' | 'timing'>): Promise<void> {
     if (missingFields.length > 0) {
       this.awaitingLeadClarificationFlags.set(sessionId, true);
       this.pendingLeadClarificationFields.set(sessionId, missingFields);
@@ -909,7 +909,7 @@ export class DbStorage implements IStorage {
     this.pendingLeadClarificationFields.delete(sessionId);
   }
   
-  async getPendingLeadClarificationFields(sessionId: string): Promise<string[]> {
+  async getPendingLeadClarificationFields(sessionId: string): Promise<Array<'targetRegion' | 'targetPersona' | 'volume' | 'timing'>> {
     return this.pendingLeadClarificationFields.get(sessionId) || [];
   }
   

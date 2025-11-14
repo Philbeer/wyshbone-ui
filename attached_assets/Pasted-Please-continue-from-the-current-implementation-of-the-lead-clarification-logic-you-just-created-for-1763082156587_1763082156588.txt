@@ -1,0 +1,157 @@
+Please continue from the current implementation of the lead-clarification logic you just created for Wyshbone UI and:
+
+1) FIX CRITICAL ISSUES
+2) COMPLETE INTEGRATION
+3) VERIFY THE THREE ACCEPTANCE SCENARIOS
+
+Do NOT redesign the architecture – keep the structure you already created. Just finish and polish it.
+
+========================================
+1. FIX CRITICAL TYPE ISSUES
+========================================
+
+You mentioned:
+
+- "Type mismatch in storage interface (partially fixed, needs completion)"
+
+Please:
+- Fully resolve all TypeScript type mismatches introduced by the new clarification logic.
+- Make sure any storage helpers (for lead clarification context, flags, etc.) have consistent types across:
+  - Their definitions
+  - Their usage sites
+  - The session/context storage layer used elsewhere (e.g. similar to userGoalHelper.ts or existing session helpers).
+
+Constraints:
+- Do NOT weaken types unnecessarily with `any` or `unknown` unless absolutely required.
+- Prefer small, local type fixes over broad refactors.
+
+========================================
+2. IMPROVE ANSWER PARSING (parseClarificationAnswers)
+========================================
+
+You noted:
+
+- "parseClarificationAnswers only handles single-field responses (needs GPT-based multi-field parsing)"
+
+Without adding heavy complexity, please:
+- Make `parseClarificationAnswers` capable of handling replies that may answer **2–3 questions at once**.
+- Approach:
+
+  - If we already have a list of `pendingFields` (e.g. ["targetRegion", "targetPersona", "volume"]), then:
+    - Split the user reply into sensible segments (commas, "and", or line breaks).
+    - Sequentially map each segment to the corresponding pending field.
+    - Example:
+      - pendingFields: ["targetRegion", "targetPersona"]
+      - user reply: "North West, mostly pub landlords"
+      - → targetRegion = "North West"
+      - → targetPersona = "mostly pub landlords"
+
+  - If there are more segments than fields, merge extras into the last field.
+  - If there is only one field pending, keep the existing simple behaviour.
+
+- Keep it deterministic and fast – this function is still "planning/interpretation" logic, not a place to call external models.
+
+If you want to use a small heuristic NLP-style helper (string splitting, trimming, etc.), that’s fine, but do NOT call any external APIs from here.
+
+========================================
+3. WIRE INTO STANDARD CHAT /api/chat
+========================================
+
+You mentioned:
+
+- "Wire handleLeadClarification() into /api/chat endpoint (Standard mode) - ~50 lines"
+
+Please:
+- Implement and integrate a `handleLeadClarification` (or equivalent) function into the **Standard mode** chat pipeline, in the `/api/chat` endpoint.
+- The behaviour must be:
+
+  1. When a user message arrives:
+     - Determine if the conversation is about to trigger **lead-related tools** (lead search, monitoring, outreach) using the existing intent / tool-routing logic.
+     - If it is NOT lead-related, behave exactly as before (no changes to non-lead conversations).
+
+  2. If it IS lead-related:
+     - Load the current lead clarification context (region, persona, volume, timing) from session storage.
+     - Try to enrich it with information from:
+       - The current message
+       - Existing session context (e.g. user goal)
+     - Determine if fields are missing/ambiguous using the helper you created.
+     - If all required fields are present:
+       - Proceed with normal tool-calling logic, passing the enriched parameters into the tools.
+     - If fields are missing:
+       - Use your `buildClarifyingQuestions` helper to generate up to 3 short, sales-friendly questions.
+       - Send a chat response asking those questions.
+       - Set a “clarification in progress” flag + `pendingFields` in session context.
+       - IMPORTANT: do NOT call any tools in this branch.
+
+Ensure this is fully integrated in the main `/api/chat` flow (Standard mode) and type-safe.
+
+========================================
+4. WIRE INTO MEGA MODE (agent-kernel.ts)
+========================================
+
+You also mentioned:
+
+- "Wire into agent-kernel.ts (MEGA mode) - ~30 lines"
+
+Please:
+- Integrate the same clarification logic into the **Mega/agent-kernel** path in `agent-kernel.ts`.
+- Behaviour should mirror Standard mode:
+
+  - When an agent action would trigger lead-related tools:
+    - Check the lead context
+    - Ask clarification questions if needed
+    - Only allow actual tool execution once context is sufficiently filled
+
+- Reuse the same helpers and types where possible to avoid duplication.
+- Keep Mega/Standard behaviour aligned semantically; differences should only be where the architecture forces it.
+
+========================================
+5. ENSURE ALL THREE ACCEPTANCE SCENARIOS WORK
+========================================
+
+Specifically test and, if necessary, adjust the logic so these behave correctly:
+
+Scenario A – fully specified request:
+- User: "Find me 50 pubs in the North West where I can email the landlord this week."
+- Expected:
+  - No clarification questions.
+  - Lead-related tools are called with:
+    - targetRegion: "North West"
+    - targetPersona: "pub landlords"
+    - volume: 50
+    - timing: "this week"
+
+Scenario B – missing fields (region + volume):
+- User: "Can you find me some bars to pitch this month?"
+- Expected:
+  - Intent recognised as lead-related.
+  - System asks at least:
+    - Where to focus (region)
+    - Roughly how many leads (volume)
+  - After the user replies, tools are called with enriched parameters.
+
+Scenario C – vague terms:
+- User: "I want to contact places about my beer, as many as possible."
+- Expected:
+  - Vague terms like "places" and "as many as possible" trigger clarification:
+    - System asks who exactly (persona)
+    - Where (region)
+    - Volume/timing as needed
+  - After clarification, tools run with concrete values.
+
+You don’t need to implement formal automated tests if that’s outside scope, but the runtime logic should clearly support these flows and be robust.
+
+========================================
+6. GENERAL CONSTRAINTS
+========================================
+
+- Do NOT refactor unrelated parts of the app.
+- Respect existing patterns (e.g. how userGoalHelper.ts is structured).
+- Keep questions short, clear, and practical for salespeople.
+- Ensure non-lead conversations behave exactly as before (no regressions).
+- Avoid adding new dependencies – use existing stack only.
+
+When done, please:
+- List the files you changed.
+- Summarise the integration points (Standard /api/chat and agent-kernel).
+- Confirm that Scenarios A, B, and C all behave as expected at a logical level.

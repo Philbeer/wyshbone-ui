@@ -41,11 +41,41 @@ const LEAD_INTENT_KEYWORDS = [
 
 /**
  * Detect if the user message is likely to trigger lead-related tools.
- * Uses simple keyword matching for now - can be enhanced with ML classifier later.
+ * Uses simple keyword matching + checks for existing lead context (for follow-ups).
  */
-export function detectLeadIntent(userMessage: string): boolean {
+export async function detectLeadIntent(userMessage: string, sessionId: string): Promise<boolean> {
   const normalized = userMessage.toLowerCase();
-  return LEAD_INTENT_KEYWORDS.some(keyword => normalized.includes(keyword));
+  
+  // Direct keyword match
+  const hasKeywords = LEAD_INTENT_KEYWORDS.some(keyword => normalized.includes(keyword));
+  if (hasKeywords) {
+    return true;
+  }
+  
+  // Check if we have existing lead context (indicates follow-up to lead request)
+  const existingContext = await storage.getLeadRequestContext(sessionId);
+  const hasExistingContext = Object.keys(existingContext).length > 0;
+  
+  if (hasExistingContext) {
+    // This might be a follow-up to a lead request
+    // Check for continuation indicators or missing field answers
+    const continuationIndicators = ['yes', 'yeah', 'sure', 'okay', 'ok', 'go ahead', 'let\'s do it', 'sounds good', 'proceed'];
+    const isContinuation = continuationIndicators.some(phrase => normalized.includes(phrase));
+    
+    if (isContinuation) {
+      return true;
+    }
+    
+    // Check if message contains location/number info (likely filling in missing fields)
+    const hasLocationInfo = /\b(in|at|around|near|from)\b/.test(normalized);
+    const hasNumberInfo = /\d+/.test(normalized);
+    
+    if (hasLocationInfo || hasNumberInfo) {
+      return true;
+    }
+  }
+  
+  return false;
 }
 
 /**
@@ -105,26 +135,45 @@ Examples:
 
 /**
  * Parse answers from a clarification response and map them to pending fields.
- * Uses sequential mapping: first answer → first missing field, etc.
+ * Handles multi-field answers by splitting on commas, "and", or line breaks.
  */
 export async function parseClarificationAnswers(
   userMessage: string,
-  pendingFields: string[]
+  pendingFields: Array<keyof LeadRequestContext>
 ): Promise<Partial<LeadRequestContext>> {
-  // Simple sequential mapping for now
-  // Can be enhanced with GPT extraction if needed
-  
   const context: Partial<LeadRequestContext> = {};
   
-  // For now, treat the entire message as answering the first pending field
-  // This is simple but works for most cases
-  if (pendingFields.length > 0) {
-    const field = pendingFields[0] as keyof LeadRequestContext;
-    (context as any)[field] = userMessage.trim();
+  if (pendingFields.length === 0) {
+    return context;
   }
   
-  // TODO: Enhance with GPT extraction to parse multiple answers from one message
-  // e.g., "London, pub owners, 50, this week" should fill all four fields
+  // If only one field pending, use the entire message
+  if (pendingFields.length === 1) {
+    const field = pendingFields[0];
+    (context as any)[field] = userMessage.trim();
+    return context;
+  }
+  
+  // Multiple fields pending - try to parse multiple answers
+  // Split on common separators: commas, "and", line breaks
+  const segments = userMessage
+    .split(/[,\n]+|\s+and\s+/i)
+    .map(s => s.trim())
+    .filter(s => s.length > 0);
+  
+  // Map each segment to corresponding pending field
+  for (let i = 0; i < pendingFields.length; i++) {
+    const field = pendingFields[i];
+    
+    if (i < segments.length) {
+      // We have a segment for this field
+      (context as any)[field] = segments[i];
+    } else if (i === pendingFields.length - 1 && segments.length > pendingFields.length) {
+      // More segments than fields - merge extras into last field
+      const remainingSegments = segments.slice(i);
+      (context as any)[field] = remainingSegments.join(', ');
+    }
+  }
   
   return context;
 }
@@ -192,7 +241,7 @@ export async function handleLeadClarification(params: {
   }
 
   // Step 2: Detect if this is a new lead request
-  const isLeadIntent = detectLeadIntent(userMessage);
+  const isLeadIntent = await detectLeadIntent(userMessage, sessionId);
   
   if (!isLeadIntent) {
     // Not a lead request - skip clarification

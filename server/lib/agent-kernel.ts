@@ -919,6 +919,59 @@ export async function agentChat(
   state.turns++;
   state.lastUpdated = Date.now(); // Update timestamp to prevent premature cleanup
 
+  // ===========================
+  // LEAD CLARIFICATION CHECK (UI-002) for MEGA mode
+  // Check if we need to ask clarifying questions before planning
+  // ===========================
+  const { handleLeadClarification } = await import("../leadClarification");
+  
+  // Let handleLeadClarification own the entire clarification flow
+  // It handles: awaiting detection, answer parsing, context merging, and flag clearing
+  const clarificationResult = await handleLeadClarification({
+    sessionId: conversationId,
+    userMessage: userText,
+    conversationHistory: state.history.map(h => h.content)
+  });
+  
+  if (clarificationResult.type === 'clarify') {
+    // Missing fields - return clarifying questions as the response
+    console.log("❓ MEGA: Lead clarification needed - asking questions");
+    
+    // Save clarification message to database
+    if (storage && user) {
+      try {
+        await storage.createMessage({
+          id: crypto.randomUUID(),
+          conversationId: conversationId,
+          role: "assistant",
+          content: clarificationResult.formattedMessage,
+          createdAt: Date.now()
+        });
+        console.log(`💾 MEGA: Saved clarification questions to database`);
+      } catch (error) {
+        console.error("Failed to save clarification message:", error);
+      }
+    }
+    
+    // Record assistant turn with clarification questions
+    state.history.push({ role:"assistant", content: clarificationResult.formattedMessage, ts: nowISO() });
+    
+    return {
+      ok: true,
+      natural: clarificationResult.formattedMessage,
+      plan: {
+        action: null,
+        follow_ups: [],
+        clarity_questions: []
+      },
+      profile: state.profile,
+      entities: state.entities,
+      summary: state.summary,
+      conversationId: conversationId
+    };
+  }
+  // type === 'proceed' or 'skip': Continue with normal planning
+
   // Planner
   const planned = await callPlanner(state, userText);
 
