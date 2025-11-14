@@ -90,7 +90,12 @@ type SummaryData = {
     hasApi: boolean;
     testsCount: number;
   };
-  ui001_goalCaptureEnabled: boolean;
+  ui001_goalCaptureEnabled: boolean; // Legacy field - keep for backward compatibility
+  ui001_done: boolean;
+  ui002_done: boolean;
+  ui003_done: boolean;
+  ui004_done: boolean;
+  ui050_done: boolean;
   files: FileInfo[];
 };
 
@@ -249,7 +254,12 @@ export async function getSummary(): Promise<SummaryData> {
       hasApi: metrics.hasApi,
       testsCount: metrics.testsCount,
     },
-    ui001_goalCaptureEnabled: true,
+    ui001_goalCaptureEnabled: true, // Legacy field
+    ui001_done: true,  // Goal capture implemented
+    ui002_done: true,  // Clarifying questions implemented
+    ui003_done: false, // Not implemented yet
+    ui004_done: false, // Not implemented yet
+    ui050_done: false, // Not implemented yet
     files,
   };
 
