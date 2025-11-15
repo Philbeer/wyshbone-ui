@@ -1,0 +1,71 @@
+You are my coding assistant for the Wyshbone UI repl.
+
+Goal: Allow the Wyshbone Control Tower to run real behaviour tests against the chat logic without a browser session, using export-key based auth instead of user session auth.
+
+Context:
+
+The existing /api/chat endpoint currently requires a logged-in user / session and returns 401 to Tower.
+
+Tower already knows the Wyshbone UI baseUrl and exportKey (it uses them for /export).
+
+Tower now sends a correct chat payload (user + messages + optional fields) but cannot authenticate.
+
+Requirements:
+
+Add a dedicated Tower test endpoint
+
+Implement a new route: POST /api/tower/chat-test.
+
+It must:
+
+Accept the same request body shape as /api/chat:
+
+user: { id: string; name: string; email: string; domain?: string }
+
+messages: { role: "user" | "assistant" | "system"; content: string }[]
+
+Optional: sessionId?: string, goal?: string
+
+Authenticate using the existing export key mechanism:
+
+Require an X-EXPORT-KEY header.
+
+Validate it against the same key/config used by the /export endpoint.
+
+If missing or invalid → return 401 {"error":"Unauthorized"}.
+
+Bypass normal user-session auth when the export key is valid.
+
+Internally call the same chat pipeline / handler as /api/chat, so behaviour and response format are identical.
+
+Keep existing endpoints unchanged
+
+Do not change the behaviour or auth model of /api/chat for normal users.
+
+Do not weaken any other auth checks.
+
+Only introduce the new /api/tower/chat-test path and wire it cleanly into existing routing.
+
+Add basic tests / verification
+
+If there is an existing test framework, add a small test (or tests) that verify:
+
+No / wrong X-EXPORT-KEY → 401.
+
+Correct X-EXPORT-KEY + minimal valid payload → 200 and a valid chat response body.
+
+If there is no test framework, add a tiny scripts/test-tower-chat.ts or .js that:
+
+Reads baseUrl and exportKey from the appropriate config/source.
+
+Sends a sample request to /api/tower/chat-test.
+
+Logs status + response for manual inspection.
+
+Code quality
+
+Reuse existing export-key validation logic from the /export endpoint instead of duplicating it.
+
+Keep types and handlers clear: e.g. a shared handleChatRequestForTower() wrapper that calls the same underlying chat logic as /api/chat.
+
+Produce full code changes (routes, handler wiring, types, tests/scripts) that compile and run.
