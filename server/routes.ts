@@ -6198,25 +6198,33 @@ ${run.outputText}`;
       const conversationHistory = await loadConversationHistory(conversationId);
       console.log(`📚 Loaded ${conversationHistory.length} messages from history`);
 
-      // Get user context for personalization
-      const currentUser = await storage.getUserById(user.id);
+      // Get user context for personalization (optional for test users)
+      // Tower may send synthetic test users that don't exist in storage
       let userSessionContext: SessionContext | undefined = undefined;
       
-      if (currentUser) {
-        userSessionContext = buildSessionContext({
-          companyName: currentUser.companyName ?? null,
-          companyDomain: currentUser.companyDomain ?? null,
-          roleHint: currentUser.roleHint ?? null,
-          primaryObjective: currentUser.primaryObjective ?? null,
-          secondaryObjectives: currentUser.secondaryObjectives ?? null,
-          targetMarkets: currentUser.targetMarkets ?? null,
-          productsOrServices: currentUser.productsOrServices ?? null,
-          preferences: currentUser.preferences ?? null,
-          inferredIndustry: currentUser.inferredIndustry ?? null,
-          confidence: currentUser.confidence ?? null,
-        } as any);
-        
-        console.log(`🎯 User context loaded for Tower test`);
+      try {
+        const currentUser = await storage.getUserById(user.id);
+        if (currentUser) {
+          userSessionContext = buildSessionContext({
+            companyName: currentUser.companyName ?? null,
+            companyDomain: currentUser.companyDomain ?? null,
+            roleHint: currentUser.roleHint ?? null,
+            primaryObjective: currentUser.primaryObjective ?? null,
+            secondaryObjectives: currentUser.secondaryObjectives ?? null,
+            targetMarkets: currentUser.targetMarkets ?? null,
+            productsOrServices: currentUser.productsOrServices ?? null,
+            preferences: currentUser.preferences ?? null,
+            inferredIndustry: currentUser.inferredIndustry ?? null,
+            confidence: currentUser.confidence ?? null,
+          } as any);
+          
+          console.log(`🎯 User context loaded for Tower test`);
+        } else {
+          console.log(`ℹ️ Test user ${user.id} not in storage - using default context`);
+        }
+      } catch (userError: any) {
+        // Gracefully handle missing user for Tower test users
+        console.log(`ℹ️ Could not load user context for ${user.id} - using default context`);
       }
 
       // Build context with facts (personalized system prompt if context available)
