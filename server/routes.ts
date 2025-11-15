@@ -122,6 +122,12 @@ async function getAuthenticatedUserId(req: import("express").Request): Promise<{
   }
 }
 
+// Helper to validate export key for Tower testing
+function validateExportKey(req: import("express").Request): boolean {
+  const providedKey = req.headers['x-export-key'] as string | undefined;
+  return !!providedKey && providedKey === EXPORT_KEY;
+}
+
 // Helper to detect URLs in text
 function extractUrls(text: string): string[] {
   const urlRegex = /https?:\/\/[^\s]+/g;
@@ -6134,6 +6140,141 @@ ${run.outputText}`;
       }
       
       res.status(500).json({ error: error.message || 'Failed to read file' });
+    }
+  });
+
+  // ===========================
+  // POST /api/tower/chat-test – Tower testing endpoint with export-key auth
+  // ===========================
+  app.post("/api/tower/chat-test", async (req, res) => {
+    console.log('🏢 POST /api/tower/chat-test received from Tower');
+    
+    try {
+      // AUTHENTICATION: Validate export key
+      if (!validateExportKey(req)) {
+        console.log('❌ Invalid or missing X-EXPORT-KEY header');
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      console.log('✅ Export key validated for Tower');
+
+      // Validate request body against chat schema
+      const validation = chatRequestSchema.safeParse(req.body);
+      if (!validation.success) {
+        console.log('❌ Validation failed:', validation.error);
+        return res.status(400).json({ 
+          error: "Invalid request format", 
+          details: validation.error 
+        });
+      }
+
+      const { messages, user, defaultCountry, conversationId: requestedConversationId } = validation.data;
+      console.log('📝 Tower chat request for user:', user.id, user.email);
+
+      // Get or create persistent conversation
+      const conversationId = await getOrCreateConversation(user.id, requestedConversationId);
+      console.log(`💬 Using conversation ID: ${conversationId}`);
+
+      // Prepare streaming headers
+      res.setHeader("Content-Type", "text/event-stream");
+      res.setHeader("Cache-Control", "no-cache");
+      res.setHeader("Connection", "keep-alive");
+      res.setHeader("X-Accel-Buffering", "no");
+      res.flushHeaders();
+
+      // Send conversationId to client as first event
+      res.write(`data: ${JSON.stringify({ conversationId })}\n\n`);
+
+      // Extract latest user message
+      const latestUserText = messages?.length ? String(messages[messages.length - 1].content) : "";
+      
+      // Save user message to database
+      await saveMessage(conversationId, "user", latestUserText);
+      console.log("💾 Saved user message to database");
+
+      // Update conversation label if this is the first message
+      await updateConversationLabel(conversationId, latestUserText);
+
+      // Load conversation history from database
+      const conversationHistory = await loadConversationHistory(conversationId);
+      console.log(`📚 Loaded ${conversationHistory.length} messages from history`);
+
+      // Get user context for personalization
+      const currentUser = await storage.getUserById(user.id);
+      let userSessionContext: SessionContext | undefined = undefined;
+      
+      if (currentUser) {
+        userSessionContext = buildSessionContext({
+          companyName: currentUser.companyName ?? null,
+          companyDomain: currentUser.companyDomain ?? null,
+          roleHint: currentUser.roleHint ?? null,
+          primaryObjective: currentUser.primaryObjective ?? null,
+          secondaryObjectives: currentUser.secondaryObjectives ?? null,
+          targetMarkets: currentUser.targetMarkets ?? null,
+          productsOrServices: currentUser.productsOrServices ?? null,
+          preferences: currentUser.preferences ?? null,
+          inferredIndustry: currentUser.inferredIndustry ?? null,
+          confidence: currentUser.confidence ?? null,
+        } as any);
+        
+        console.log(`🎯 User context loaded for Tower test`);
+      }
+
+      // Build context with facts (personalized system prompt if context available)
+      const memoryMessages = await buildContextWithFacts(user.id, conversationHistory, 20, userSessionContext);
+      console.log(`🧠 Built context with facts for user ${user.id}`);
+
+      // Call OpenAI Chat Completions API with streaming
+      console.log(`🌐 Calling Chat Completions API for Tower test...`);
+      
+      const stream = await openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: memoryMessages as any,
+        stream: true,
+      });
+
+      console.log("✅ Chat stream started for Tower");
+      
+      let aiBuffer = "";
+
+      // Stream response chunks
+      for await (const chunk of stream) {
+        const delta = chunk.choices[0]?.delta;
+        
+        if (delta.content) {
+          aiBuffer += delta.content;
+          res.write(`data: ${JSON.stringify({ content: delta.content })}\n\n`);
+          // @ts-ignore
+          if (res.flush) res.flush();
+        }
+      }
+
+      // Save assistant response to database
+      await saveMessage(conversationId, "assistant", aiBuffer);
+      console.log("💾 Saved assistant message to database");
+
+      // Send completion signal
+      res.write(`data: [DONE]\n\n`);
+      res.end();
+      
+      console.log('✅ Tower chat test completed successfully');
+
+    } catch (error: any) {
+      console.error("❌ Tower chat test error:", error);
+      
+      // If headers not sent yet, send error as JSON
+      if (!res.headersSent) {
+        return res.status(500).json({ 
+          error: "Chat processing failed", 
+          details: error.message 
+        });
+      }
+      
+      // If streaming already started, send error as SSE and end
+      res.write(`data: ${JSON.stringify({ 
+        error: error.message || "Unknown error" 
+      })}\n\n`);
+      res.write(`data: [DONE]\n\n`);
+      res.end();
     }
   });
 
