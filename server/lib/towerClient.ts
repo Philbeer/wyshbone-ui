@@ -19,8 +19,12 @@ export interface TowerRunLog {
   userEmail: string;
   status: RunStatus;
   source: 'live_user';  // Required by Tower backend
-  input: string;
-  output?: string;
+  request: {
+    inputText: string;
+  };
+  response?: {
+    outputText: string;
+  };
   toolCalls?: Array<{
     name: string;
     args: any;
@@ -99,7 +103,9 @@ export async function startRunLog(
     userEmail,
     status: 'started',
     source: 'live_user',
-    input,
+    request: {
+      inputText: input,
+    },
     startedAt: Date.now(),
     mode,
     model: mode === 'mega' ? 'gpt-4o' : 'gpt-4o',
@@ -136,8 +142,12 @@ export async function completeRunLog(
     userEmail,
     status,
     source: 'live_user',
-    input,
-    output,
+    request: {
+      inputText: input,
+    },
+    response: {
+      outputText: output,
+    },
     toolCalls,
     error,
     startedAt,
