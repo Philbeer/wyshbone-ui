@@ -103,7 +103,8 @@ export function appendMessage(sessionId: string, msg: ChatMessage) {
 export function resetConversation(sessionId: string) {
   conversations.set(sessionId, [SYSTEM_PROMPT]);
   venueCaches.delete(sessionId);
-  runIds.delete(sessionId);
+  // Note: runIds are now keyed by conversationId, not sessionId
+  // New conversations get new conversationIds, which automatically get fresh runIds
 }
 
 export function getVenueCache(sessionId: string): VenueCache {
@@ -132,24 +133,25 @@ export function markVenuesAsServed(sessionId: string, placeIds: string[]) {
 }
 
 /**
- * Get or create a unified runId for a session
- * This ensures all messages in a chat session use the same runId for Tower logging
+ * Get or create a unified runId for a conversation
+ * This ensures all messages in a conversation use the same runId for Tower logging
+ * @param conversationId - Unique conversation identifier (prevents cross-user collision)
  */
-export function getOrCreateRunId(sessionId: string): string {
-  if (!runIds.has(sessionId)) {
+export function getOrCreateRunId(conversationId: string): string {
+  if (!runIds.has(conversationId)) {
     const runId = `run_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
-    runIds.set(sessionId, runId);
-    console.log(`🆕 Created new unified runId for session ${sessionId}: ${runId}`);
+    runIds.set(conversationId, runId);
+    console.log(`🆕 Created new unified runId for conversation ${conversationId}: ${runId}`);
   }
-  return runIds.get(sessionId)!;
+  return runIds.get(conversationId)!;
 }
 
 /**
- * Reset the runId for a session (called when user starts a new conversation)
+ * Reset the runId for a conversation (called when conversation data is cleaned up)
  */
-export function resetRunId(sessionId: string) {
-  runIds.delete(sessionId);
-  console.log(`🔄 Reset runId for session ${sessionId}`);
+export function resetRunId(conversationId: string) {
+  runIds.delete(conversationId);
+  console.log(`🔄 Reset runId for conversation ${conversationId}`);
 }
 
 export function getVenueCacheContext(sessionId: string): string {
