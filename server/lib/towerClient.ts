@@ -59,6 +59,7 @@ export async function logRunToTower(runLog: TowerRunLog): Promise<void> {
     const endpoint = `${TOWER_URL}/tower/runs/log`;
     
     console.log(`📡 Logging run ${runLog.runId} to Tower (${runLog.status})`);
+    console.log(`📦 Tower payload:`, JSON.stringify(runLog, null, 2));
     
     const response = await fetch(endpoint, {
       method: 'POST',
