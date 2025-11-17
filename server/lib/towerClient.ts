@@ -10,6 +10,13 @@ import type { ChatMessage } from '../../shared/schema';
 const TOWER_URL = process.env.TOWER_URL || '';
 const TOWER_API_KEY = process.env.TOWER_API_KEY || process.env.EXPORT_KEY || '';
 
+// 🔍 DIAGNOSTIC: Log Tower configuration at module load time
+console.log('🔍 Tower Client Configuration:');
+console.log(`   TOWER_URL: ${TOWER_URL ? TOWER_URL : '(not set)'}`);
+console.log(`   TOWER_API_KEY: ${TOWER_API_KEY ? '***' + TOWER_API_KEY.slice(-4) : '(not set)'}`);
+console.log(`   EXPORT_KEY: ${process.env.EXPORT_KEY ? '***' + process.env.EXPORT_KEY.slice(-4) : '(not set)'}`);
+console.log(`   Tower logging enabled: ${!!TOWER_URL && !!TOWER_API_KEY}`);
+
 export type RunStatus = 'started' | 'success' | 'error' | 'timeout';
 
 export interface TowerRunLog {

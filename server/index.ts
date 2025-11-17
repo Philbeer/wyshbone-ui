@@ -3,6 +3,15 @@ import dotenv from "dotenv";
 dotenv.config({ path: '.env.local', override: true }); // Override cached Replit secrets
 dotenv.config();
 
+// 🔍 DIAGNOSTIC: Check if TOWER_URL is available in environment
+console.log('🔍 Environment Variable Check at Startup:');
+console.log(`   TOWER_URL: ${process.env.TOWER_URL || '(not set)'}`);
+console.log(`   TOWER_API_KEY: ${process.env.TOWER_API_KEY || '(not set)'}`);
+console.log(`   EXPORT_KEY: ${process.env.EXPORT_KEY ? '***' + process.env.EXPORT_KEY.slice(-4) : '(not set)'}`);
+console.log(`   NODE_ENV: ${process.env.NODE_ENV || '(not set)'}`);
+console.log(`   All TOWER_* vars: ${Object.keys(process.env).filter(k => k.startsWith('TOWER_')).join(', ') || '(none)'}`);
+console.log('');
+
 // Now import everything else AFTER env vars are loaded
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
