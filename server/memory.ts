@@ -16,6 +16,7 @@ export type VenueCache = {
 
 const conversations = new Map<string, Conversation>();
 const venueCaches = new Map<string, VenueCache>();
+const runIds = new Map<string, string>();
 
 export const SYSTEM_PROMPT: ChatMessage = {
   role: "system",
@@ -102,6 +103,7 @@ export function appendMessage(sessionId: string, msg: ChatMessage) {
 export function resetConversation(sessionId: string) {
   conversations.set(sessionId, [SYSTEM_PROMPT]);
   venueCaches.delete(sessionId);
+  runIds.delete(sessionId);
 }
 
 export function getVenueCache(sessionId: string): VenueCache {
@@ -127,6 +129,27 @@ export function markVenuesAsServed(sessionId: string, placeIds: string[]) {
       venue.served = true;
     }
   }
+}
+
+/**
+ * Get or create a unified runId for a session
+ * This ensures all messages in a chat session use the same runId for Tower logging
+ */
+export function getOrCreateRunId(sessionId: string): string {
+  if (!runIds.has(sessionId)) {
+    const runId = `run_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
+    runIds.set(sessionId, runId);
+    console.log(`🆕 Created new unified runId for session ${sessionId}: ${runId}`);
+  }
+  return runIds.get(sessionId)!;
+}
+
+/**
+ * Reset the runId for a session (called when user starts a new conversation)
+ */
+export function resetRunId(sessionId: string) {
+  runIds.delete(sessionId);
+  console.log(`🔄 Reset runId for session ${sessionId}`);
 }
 
 export function getVenueCacheContext(sessionId: string): string {
