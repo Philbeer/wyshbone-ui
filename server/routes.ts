@@ -33,6 +33,7 @@ import { detectSupervisorIntent } from './intent-detector';
 import { createSupervisorTask, isSupabaseConfigured } from './supabase-client';
 import { getSummary, getFileContent } from './lib/exporter';
 import { randomBytes } from 'crypto';
+import { startRunLog, completeRunLog, logToolCall, isTowerLoggingEnabled } from './lib/towerClient';
 
 const sql = neon(process.env.DATABASE_URL!);
 
@@ -920,6 +921,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ===========================
   app.post("/api/chat", async (req, res) => {
     console.log('🎯 POST /api/chat received', { query: req.query, hasBody: !!req.body });
+    
+    // 🏢 TOWER: Declare variables at top level for error handler access
+    let runId = '';
+    let conversationId = '';
+    let latestUserText = '';
+    let runStartTime = Date.now();
+    const toolCallsLog: Array<{ name: string; args: any; result?: any; error?: string }> = [];
+    let user: any = null;
+    
     try {
       // Validate request body against your existing schema
       const validation = chatRequestSchema.safeParse(req.body);
@@ -930,7 +940,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           .json({ error: "Invalid request format", details: validation.error });
       }
 
-      const { messages, user, defaultCountry, conversationId: requestedConversationId } = validation.data;
+      const validatedData = validation.data;
+      user = validatedData.user;
+      const { messages, defaultCountry, conversationId: requestedConversationId } = validatedData;
       console.log('📝 Chat request from user:', user.id, user.email);
       
       // SECURITY: Validate authenticated user matches the user in request
@@ -949,7 +961,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const sessionId = getSessionId(req);
 
       // Grab the latest user message text (last item in the array)
-      const latestUserText =
+      latestUserText =
         messages?.length ? String(messages[messages.length - 1].content) : "";
       
       // Store default country in session for use in tools
@@ -958,8 +970,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Get or create persistent conversation
-      const conversationId = await getOrCreateConversation(user.id, requestedConversationId);
+      conversationId = await getOrCreateConversation(user.id, requestedConversationId);
       console.log(`💬 Using conversation ID: ${conversationId}`);
+
+      // 🏢 TOWER: Start run logging
+      runStartTime = Date.now();
+      runId = await startRunLog(conversationId, user.id, user.email, latestUserText, 'standard');
 
       // Prepare streaming headers FIRST (before any writes)
       res.setHeader("Content-Type", "text/event-stream");
@@ -3124,11 +3140,46 @@ CRITICAL RULES:
         .then(() => console.log("✅ Facts extracted and saved"))
         .catch((err) => console.error("❌ Fact extraction failed:", err.message));
 
+      // 🏢 TOWER: Log successful completion
+      await completeRunLog(
+        runId,
+        conversationId,
+        user.id,
+        user.email,
+        latestUserText,
+        aiBuffer,
+        'success',
+        runStartTime,
+        toolCallsLog.length > 0 ? toolCallsLog : undefined,
+        undefined,
+        'standard'
+      );
+
       // End stream
       res.write(`data: [DONE]\n\n`);
       res.end();
     } catch (error: any) {
       console.error("Chat error:", error);
+      
+      // 🏢 TOWER: Log error completion
+      try {
+        await completeRunLog(
+          runId,
+          conversationId,
+          user.id,
+          user.email,
+          latestUserText,
+          '',
+          'error',
+          runStartTime,
+          toolCallsLog.length > 0 ? toolCallsLog : undefined,
+          error.message,
+          'standard'
+        );
+      } catch (logError: any) {
+        console.error("❌ Tower logging error:", logError.message);
+      }
+      
       res.write(`data: ${JSON.stringify({ error: error.message })}\n\n`);
       res.end();
     }
