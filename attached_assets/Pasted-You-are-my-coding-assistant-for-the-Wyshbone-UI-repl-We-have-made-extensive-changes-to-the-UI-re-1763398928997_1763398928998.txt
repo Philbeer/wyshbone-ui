@@ -1,0 +1,61 @@
+You are my coding assistant for the Wyshbone UI repl.
+
+We have made extensive changes to the UI recently (unified runId, improved run logging for Tower, conversation grouping, new clarification logging, deep research logging, planner/executor improvements, quick tools, and message pipeline changes). 
+
+Before continuing development, I need a **full architecture audit** of the UI codebase.
+
+Your task is to collect and show me **every file involved in the chat pipeline**, the run logging pipeline, the tool invocation layer, and the UI frontend that renders chat messages.
+
+I need to inspect the exact code we are running.
+
+Please:
+
+1. Search the entire repo and list **all files** related to:
+   - Chat pipeline (server API route handlers, POST /api/chat, streaming handlers)
+   - runId creation and persistence
+   - Unified runId storage per session
+   - Tower logging (startRunLog, completeRunLog, clarification logs)
+   - Any file that calls towerRunLog, logToTower, or similar
+   - All planner / executor modules
+   - All lead clarification modules
+   - All deep research clarification modules
+   - Any tool integration modules (global search, enrichment, outreach)
+   - Message history storage (session-level or conversation-level)
+   - Session scaffolding / context / memory used in the UI
+   - Any utilities/helpers that process request/response text
+   - React components that render:
+       * Chat bubbles
+       * Loading states
+       * Clarifications
+       * Deep research UI
+       * Any "Continue" or "Confirm" prompts
+   - Any client-side code that invokes chat-completions or tool calls
+   - Any new files created during the runId unification project
+
+2. Produce a **list of all matching files** grouped by category:
+   A. Server routes / handlers
+   B. Chat pipeline modules & message processors
+   C. Planner/executor logic
+   D. Clarification modules
+   E. Tower logging logic
+   F. Tool-calling modules
+   G. Session/context utilities
+   H. Frontend components for chat display
+   I. Shared helpers/utilities
+   J. Any documentation
+
+3. Stop after listing the files, and prompt me:
+   “Do you want me to print all file contents?”
+
+4. When I confirm, print the files **one by one**, in full, splitting across multiple messages if needed.
+
+5. After printing everything, produce a final architecture map showing:
+   - How messages flow from the frontend → chat endpoint → OpenAI → tools → Tower → back to frontend.
+   - Where runId is injected.
+   - Where Tower logs are sent.
+   - Where clarification logic branches.
+   - Where deep research branches.
+   - Where planner/executor sits in the pipeline.
+
+This step is ONLY for visibility.  
+Do not rewrite or refactor anything until I explicitly ask.
