@@ -108,7 +108,7 @@ export async function startRunLog(
       inputText: input,
     },
     response: {
-      outputText: '', // Empty at start, will be filled when completed
+      outputText: '[generating...]', // Placeholder at start, will be filled when completed
     },
     startedAt: Date.now(),
     mode,
