@@ -1601,6 +1601,22 @@ Only extract fields that are in the missing list: ${partialWorkflow.missing_fiel
           appendMessage(sessionId, { role: "assistant", content: previewText });
           await saveMessage(conversationId, "assistant", previewText);
           console.log("💾 Saved partial workflow preview message to database");
+          
+          // 🏢 TOWER: Log workflow preview confirmation
+          await completeRunLog(
+            runId,
+            conversationId,
+            user.id,
+            user.email,
+            latestUserText,
+            previewText,
+            'success',
+            runStartTime,
+            undefined,
+            undefined,
+            'standard'
+          );
+          
           res.write(`data: ${JSON.stringify({ content: previewText })}\n\n`);
           res.write(`data: [DONE]\n\n`);
           res.end();
@@ -1677,6 +1693,21 @@ ${run.outputText}`;
           appendMessage(sessionId, { role: "assistant", content: summaryMsg });
           await saveMessage(conversationId, "assistant", summaryMsg);
           
+          // 🏢 TOWER: Log summarize success
+          await completeRunLog(
+            runId,
+            conversationId,
+            user.id,
+            user.email,
+            latestUserText,
+            summaryMsg,
+            'success',
+            runStartTime,
+            undefined,
+            undefined,
+            'standard'
+          );
+          
           res.write(`data: ${JSON.stringify({ content: summaryMsg })}\n\n`);
           res.write(`data: [DONE]\n\n`);
           return res.end();
@@ -1686,6 +1717,21 @@ ${run.outputText}`;
           aiBuffer = errorMsg;
           appendMessage(sessionId, { role: "assistant", content: errorMsg });
           await saveMessage(conversationId, "assistant", errorMsg);
+          
+          // 🏢 TOWER: Log summarize error
+          await completeRunLog(
+            runId,
+            conversationId,
+            user.id,
+            user.email,
+            latestUserText,
+            errorMsg,
+            'error',
+            runStartTime,
+            undefined,
+            err.message,
+            'standard'
+          );
           
           res.write(`data: ${JSON.stringify({ content: errorMsg })}\n\n`);
           res.write(`data: [DONE]\n\n`);
@@ -1819,6 +1865,22 @@ CRITICAL RULES:
             appendMessage(sessionId, { role: "assistant", content: askMsg });
             await saveMessage(conversationId, "assistant", askMsg);
             console.log("💾 Saved research clarification message to database");
+            
+            // 🏢 TOWER: Log clarification response
+            await completeRunLog(
+              runId,
+              conversationId,
+              user.id,
+              user.email,
+              latestUserText,
+              askMsg,
+              'success',
+              runStartTime,
+              undefined,
+              undefined,
+              'standard'
+            );
+            
             res.write(`data: ${JSON.stringify({ content: askMsg })}\n\n`);
             res.write(`data: [DONE]\n\n`);
             return res.end();
@@ -1850,6 +1912,22 @@ CRITICAL RULES:
             appendMessage(sessionId, { role: "assistant", content: confirmMsg });
             await saveMessage(conversationId, "assistant", confirmMsg);
             console.log("💾 Saved research start message to database");
+            
+            // 🏢 TOWER: Log research start confirmation
+            await completeRunLog(
+              runId,
+              conversationId,
+              user.id,
+              user.email,
+              latestUserText,
+              confirmMsg,
+              'success',
+              runStartTime,
+              undefined,
+              undefined,
+              'standard'
+            );
+            
             res.write(`data: ${JSON.stringify({ content: confirmMsg })}\n\n`);
             res.write(`data: [DONE]\n\n`);
             return res.end();
@@ -1862,6 +1940,22 @@ CRITICAL RULES:
           appendMessage(sessionId, { role: "assistant", content: errorMsg });
           await saveMessage(conversationId, "assistant", errorMsg);
           console.log("💾 Saved research error message to database");
+          
+          // 🏢 TOWER: Log research error
+          await completeRunLog(
+            runId,
+            conversationId,
+            user.id,
+            user.email,
+            latestUserText,
+            errorMsg,
+            'error',
+            runStartTime,
+            undefined,
+            err.message,
+            'standard'
+          );
+          
           res.write(`data: ${JSON.stringify({ content: errorMsg })}\n\n`);
           res.write(`data: [DONE]\n\n`);
           return res.end();
@@ -2230,6 +2324,21 @@ CRITICAL RULES:
         appendMessage(sessionId, { role: "assistant", content: clarificationResult.formattedMessage });
         await saveMessage(conversationId, "assistant", clarificationResult.formattedMessage);
         console.log("💾 Saved clarification questions to database");
+        
+        // 🏢 TOWER: Log lead clarification
+        await completeRunLog(
+          runId,
+          conversationId,
+          user.id,
+          user.email,
+          latestUserText,
+          clarificationResult.formattedMessage,
+          'success',
+          runStartTime,
+          undefined,
+          undefined,
+          'standard'
+        );
         
         res.write(`data: ${JSON.stringify({ content: clarificationResult.formattedMessage })}\n\n`);
         res.write(`data: [DONE]\n\n`);

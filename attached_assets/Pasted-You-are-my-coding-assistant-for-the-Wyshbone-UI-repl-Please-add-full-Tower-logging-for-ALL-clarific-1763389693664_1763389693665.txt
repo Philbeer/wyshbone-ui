@@ -1,0 +1,106 @@
+You are my coding assistant for the Wyshbone UI repl.
+Please add full Tower logging for ALL clarification flows in /api/chat.
+At the moment, only the main chat response path logs to Tower, but clarification paths exit early and bypass Tower logging.
+
+I want Tower to receive and track EVERY message shown to the user, including:
+
+clarification questions
+
+“needs_clarification” responses
+
+deep research clarifications
+
+lead search clarifications
+
+business-type/location clarification steps
+
+any early-return response where the UI asks the user for missing info
+
+Current Problem
+
+Clarification flows (e.g., needs_clarification, needs_more_info, “deep research: missing topic”, “lead search: missing business type/location”) return early inside /api/chat before the Tower logging code runs.
+This makes Tower blind to the MOST important behaviour issues.
+
+What to Implement
+
+Wherever the chat handler generates a clarification response and returns early, add a call to:
+
+await towerClient.logRun({
+    runId,
+    userId,
+    conversationId,
+    status: "success",
+    request: { inputText: latestUserText },
+    response: { outputText: clarificationMessageText },
+    toolCalls: toolCallsLog,
+    startedAt,
+    completedAt: Date.now(),
+    durationMs: Date.now() - startedAt,
+    model,
+    mode,
+});
+
+
+Use the same structure as the main logging path.
+
+Rules:
+
+DO NOT duplicate run start logs
+
+ONLY send completion logs for clarification messages
+
+Use the same runId and startAt as the main chat handler
+
+Ensure no exceptions block the main flow
+
+If Tower URL is missing, silently skip logging (as the main code does)
+
+Where to Add Logging
+
+In every clarification return path, including but not limited to:
+
+Deep Research clarification
+(search for needs_clarification or “Deep Research clarification needed”)
+
+Lead search clarification
+(search for “Lead clarification needed”)
+
+Business-type/location clarification
+
+Any return of { needs_clarification: true, message: ... }
+
+Any early return res.json({...}) that does NOT pass through the standard logging code
+
+Before returning the clarification response to the client, log it to Tower.
+
+Acceptance Criteria
+
+After implementation:
+
+ANY chat prompt that triggers clarification must appear in Tower under Recent Runs
+
+Auto-flagging should work on clarification replies
+
+Manual flagging should work on clarification replies
+
+The Tower dashboard will show ALL messages, not just final answers
+
+No errors or double-logging
+
+Do not modify:
+
+MEGA mode
+
+Tool execution logic
+
+Deep research engine
+
+Tower start-log behaviour
+
+Response streaming code
+
+Error handler logic
+
+Only add the missing “final log” step to clarification return paths.
+
+Please implement the changes and restart the server.
