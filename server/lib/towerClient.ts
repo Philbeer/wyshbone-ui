@@ -106,6 +106,9 @@ export async function startRunLog(
     request: {
       inputText: input,
     },
+    response: {
+      outputText: '', // Empty at start, will be filled when completed
+    },
     startedAt: Date.now(),
     mode,
     model: mode === 'mega' ? 'gpt-4o' : 'gpt-4o',
