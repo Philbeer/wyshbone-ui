@@ -973,9 +973,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       conversationId = await getOrCreateConversation(user.id, requestedConversationId);
       console.log(`💬 Using conversation ID: ${conversationId}`);
 
-      // 🏢 TOWER: Start run logging
+      // 🏢 TOWER: Track run timing (log on completion only)
       runStartTime = Date.now();
-      runId = await startRunLog(conversationId, user.id, user.email, latestUserText, 'standard');
+      runId = `run_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
 
       // Prepare streaming headers FIRST (before any writes)
       res.setHeader("Content-Type", "text/event-stream");

@@ -680,15 +680,6 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
       }
       
       setIsStreaming(false);
-      
-      // AUTO-REVERT: After Standard completes, switch back to MEGA mode
-      // This creates the bidirectional flow: MEGA → Standard → MEGA
-      if (chatMode === "standard") {
-        console.log("🔄 Standard mode completed - auto-reverting to MEGA mode");
-        setTimeout(() => {
-          setChatMode("mega");
-        }, 500);
-      }
     } catch (error: any) {
       setIsStreaming(false);
       
