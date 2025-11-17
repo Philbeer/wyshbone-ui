@@ -975,9 +975,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       conversationId = await getOrCreateConversation(user.id, requestedConversationId);
       console.log(`💬 Using conversation ID: ${conversationId}`);
 
-      // 🏢 TOWER: Start run logging and create unified runId for this conversation
+      // 🏢 TOWER: Create unified runId for this conversation (send to Tower when complete)
       runStartTime = Date.now();
-      runId = await startRunLog(conversationId, user.id, auth.userEmail, latestUserText, 'standard');
+      runId = getOrCreateRunId(conversationId);
 
       // Prepare streaming headers FIRST (before any writes)
       res.setHeader("Content-Type", "text/event-stream");
@@ -1098,6 +1098,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         await saveMessage(conversationId, "assistant", confirmationMsg);
         console.log("💾 Saved goal confirmation message to database");
         
+        // 🏢 TOWER: Log goal capture
+        await completeRunLog(
+          runId,
+          conversationId,
+          user.id,
+          user.email,
+          latestUserText,
+          confirmationMsg,
+          'success',
+          runStartTime,
+          undefined,
+          undefined,
+          'standard'
+        );
+        
         res.write(`data: ${JSON.stringify({ content: confirmationMsg })}\n\n`);
         res.write(`data: [DONE]\n\n`);
         res.end();
@@ -1113,6 +1128,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         appendMessage(sessionId, { role: "assistant", content: goalRequestMsg });
         await saveMessage(conversationId, "assistant", goalRequestMsg);
         console.log("💾 Saved goal request message to database");
+        
+        // 🏢 TOWER: Log goal request
+        await completeRunLog(
+          runId,
+          conversationId,
+          user.id,
+          user.email,
+          latestUserText,
+          goalRequestMsg,
+          'success',
+          runStartTime,
+          undefined,
+          undefined,
+          'standard'
+        );
         
         res.write(`data: ${JSON.stringify({ content: goalRequestMsg })}\n\n`);
         res.write(`data: [DONE]\n\n`);
