@@ -12,6 +12,8 @@ import {
   extractAndSaveFacts,
   buildContextWithFacts,
   updateConversationLabel,
+  getOrCreateRunId,
+  resetRunId,
 } from "./memory";
 import {
   chatRequestSchema,
@@ -973,9 +975,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       conversationId = await getOrCreateConversation(user.id, requestedConversationId);
       console.log(`💬 Using conversation ID: ${conversationId}`);
 
-      // 🏢 TOWER: Track run timing (log on completion only)
+      // 🏢 TOWER: Use unified runId for all messages in this session
       runStartTime = Date.now();
-      runId = `run_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
+      runId = getOrCreateRunId(sessionId);
 
       // Prepare streaming headers FIRST (before any writes)
       res.setHeader("Content-Type", "text/event-stream");
