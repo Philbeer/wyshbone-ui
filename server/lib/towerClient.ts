@@ -3,6 +3,9 @@
  * 
  * Logs all live user runs from Wyshbone UI to Tower backend
  * for monitoring, analytics, and debugging.
+ * 
+ * SECURITY: ALL authenticated users (demo and regular) have their runs logged.
+ * No filtering based on user type, email domain, or demo status.
  */
 
 import type { ChatMessage } from '../../shared/schema';
@@ -43,15 +46,23 @@ export interface TowerRunLog {
  * Check if Tower logging is enabled
  */
 export function isTowerLoggingEnabled(): boolean {
-  return !!TOWER_URL && !!TOWER_API_KEY;
+  const enabled = !!TOWER_URL && !!TOWER_API_KEY;
+  if (!enabled) {
+    console.warn('⚠️ Tower logging DISABLED - missing TOWER_URL or TOWER_API_KEY');
+    console.warn('   Set these environment variables to enable run logging for ALL users');
+  }
+  return enabled;
 }
 
 /**
  * Log a run to Tower
+ * 
+ * SECURITY: This function logs runs for ALL authenticated users without filtering.
+ * No checks are performed on userId, userEmail, or demo status.
  */
 export async function logRunToTower(runLog: TowerRunLog): Promise<void> {
   if (!isTowerLoggingEnabled()) {
-    console.log('⚠️ Tower logging disabled - missing TOWER_URL or TOWER_API_KEY');
+    console.log(`⚠️ Tower logging disabled - skipping log for user ${runLog.userEmail}`);
     return;
   }
 
@@ -59,7 +70,9 @@ export async function logRunToTower(runLog: TowerRunLog): Promise<void> {
     const endpoint = `${TOWER_URL}/tower/runs/log`;
     
     console.log(`📡 Logging run ${runLog.runId} to Tower (${runLog.status})`);
-    console.log(`📦 Tower payload:`, JSON.stringify(runLog, null, 2));
+    console.log(`   User: ${runLog.userEmail} (ID: ${runLog.userId})`);
+    console.log(`   Conversation: ${runLog.conversationId}`);
+    console.log(`   Mode: ${runLog.mode || 'standard'}`);
     
     const response = await fetch(endpoint, {
       method: 'POST',
@@ -73,20 +86,25 @@ export async function logRunToTower(runLog: TowerRunLog): Promise<void> {
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error(`❌ Tower logging failed: ${response.status} ${errorText}`);
+      console.error(`❌ Tower logging failed for user ${runLog.userEmail}: ${response.status} ${errorText}`);
+      console.error(`   RunId: ${runLog.runId}, ConversationId: ${runLog.conversationId}`);
       // Don't throw - logging failure shouldn't break the main flow
       return;
     }
 
     console.log(`✅ Logged run ${runLog.runId} to Tower successfully`);
+    console.log(`   User: ${runLog.userEmail} (ALL users are logged equally)`);
   } catch (error: any) {
     console.error(`❌ Tower logging error for run ${runLog.runId}:`, error.message);
+    console.error(`   User: ${runLog.userEmail}, ConversationId: ${runLog.conversationId}`);
     // Don't throw - logging failure shouldn't break the main flow
   }
 }
 
 /**
  * Create a new run log entry (called at start of chat)
+ * 
+ * SECURITY: Logs ALL users equally - no filtering by demo status
  */
 export async function startRunLog(
   conversationId: string,
@@ -96,6 +114,9 @@ export async function startRunLog(
   mode: 'standard' | 'mega' = 'standard'
 ): Promise<string> {
   const runId = `run_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
+  
+  console.log(`🏁 Starting run log for user: ${userEmail} (ID: ${userId})`);
+  console.log(`   RunId: ${runId}, ConversationId: ${conversationId}`);
   
   const runLog: TowerRunLog = {
     runId,
@@ -122,6 +143,9 @@ export async function startRunLog(
 
 /**
  * Complete a run log entry (called at end of chat)
+ * 
+ * SECURITY: Logs ALL users equally - no filtering by demo status
+ * This function is called for every completed run regardless of user type
  */
 export async function completeRunLog(
   runId: string,
@@ -138,6 +162,11 @@ export async function completeRunLog(
 ): Promise<void> {
   const completedAt = Date.now();
   const durationMs = completedAt - startedAt;
+
+  console.log(`🏁 Completing run log for user: ${userEmail} (ID: ${userId})`);
+  console.log(`   RunId: ${runId}, ConversationId: ${conversationId}`);
+  console.log(`   Status: ${status}, Duration: ${durationMs}ms`);
+  console.log(`   🔍 ALL authenticated users are logged to Tower (no filtering)`);
 
   const runLog: TowerRunLog = {
     runId,
@@ -180,4 +209,6 @@ export function logToolCall(
     result,
     error,
   });
+  
+  console.log(`🔧 Tool call logged: ${toolName}`);
 }
