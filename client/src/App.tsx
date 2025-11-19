@@ -21,6 +21,7 @@ import { LoginDialog } from "@/components/LoginDialog";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { UserProvider, useUser } from "@/contexts/UserContext";
 import { SidebarFlashProvider } from "@/contexts/SidebarFlashContext";
+import { MyGoalsPanel } from "@/components/my-goals-panel";
 
 // No demo runs - users only see their own data
 const DEMO_RUNS: RunItem[] = [];
@@ -473,7 +474,7 @@ function AppLayout({
         onRunRun={handleRunRun}
         onNewChat={handleNewChatClick}
       />
-      <div className="flex flex-col flex-1">
+      <div className="flex flex-col flex-1 min-w-0">
         <header className="relative flex items-center py-2 border-b gap-2">
           <SidebarTrigger data-testid="button-sidebar-toggle" className="hidden sidebar:flex" />
           
@@ -522,16 +523,21 @@ function AppLayout({
             </Button>
           </div>
         </header>
-        <main className="flex-1 overflow-hidden">
-          <Router 
-            defaultCountry={defaultCountry} 
-            onInjectSystemMessage={handleInjectSystemMessage}
-            addRunFn={addRun}
-            updateRunFn={updateRun}
-            getActiveRunId={getActiveRunId}
-            onNewChat={handleNewChat}
-            onLoadConversation={handleLoadConversation}
-          />
+        <main className="flex-1 overflow-hidden flex">
+          <div className="flex-1 min-w-0">
+            <Router 
+              defaultCountry={defaultCountry} 
+              onInjectSystemMessage={handleInjectSystemMessage}
+              addRunFn={addRun}
+              updateRunFn={updateRun}
+              getActiveRunId={getActiveRunId}
+              onNewChat={handleNewChat}
+              onLoadConversation={handleLoadConversation}
+            />
+          </div>
+          <div className="hidden xl:flex w-80 border-l p-4">
+            <MyGoalsPanel />
+          </div>
         </main>
       </div>
     </div>

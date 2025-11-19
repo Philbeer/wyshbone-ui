@@ -1,0 +1,86 @@
+You are my coding assistant for the Wyshbone UI repl.
+
+Task:
+Implement UI-010: a persistent “My Goals” panel in the Wyshbone UI. This panel should display the current user’s high-level sales/lead goal, allow them to view and edit it at any time, and keep it in sync with whatever mechanism UI-001 uses to store the goal at the start of a chat.
+
+Context:
+- UI-001 already asks for the user’s high-level sales/lead goal at the start of a new chat session.
+- That goal is stored somewhere (e.g. per-user context, session store, Supabase, or similar).
+- We now want a visible “My Goals” UI so users can see and adjust that goal later without restarting the chat.
+
+High-level requirements:
+1. A visible “My Goals” panel in the main UI.
+2. It shows the current goal (if any) and allows editing.
+3. Changes are persisted using the same backend and types as UI-001.
+4. The updated goal is available to the tool-calling layer and Supervisor (same place UI-001 writes to).
+5. The panel feels like a first-class part of the UI (no hacky floating divs).
+
+Implementation steps:
+
+1. Find existing goal storage
+   - Locate where UI-001 stores the user’s high-level goal:
+     • e.g. `useUserSession`, `useUserContext`, `GoalContext`, or similar
+     • any API route like `/api/goal`, `/api/session/update`, etc.
+   - Identify the canonical type for a goal (e.g. `UserGoal`, `Goal`, `LeadGoal`).
+   - Identify the read/write functions already used by UI-001 to set the goal.
+   - We must reuse these functions/types, not invent new ones.
+
+2. Create a MyGoalsPanel component
+   - Add a new component file, something like:
+     • `components/my-goals-panel.tsx`
+   - Use existing design system components:
+     • `Card`, `CardHeader`, `CardTitle`, `CardDescription`, `CardContent`
+     • `Input` or `Textarea` (depending on current style)
+     • `Button`
+   - The panel should:
+     • Show the current saved goal (if it exists)
+     • Show a placeholder if no goal is set yet (“Describe your main sales/lead goal here…”)
+     • Allow the user to edit the goal text
+     • Include a clear “Save goal” / “Update goal” button
+   - Handle basic states:
+     • loading (while fetching goal)
+     • dirty (unsaved changes)
+     • saving (disabled button + subtle feedback)
+     • saved (brief “Saved” confirmation)
+
+3. Wire it to the real data
+   - Use the same read/write mechanism as UI-001:
+     • If there is an existing hook, e.g. `useUserGoal()`, use that.
+     • If not, create a small hook that wraps the existing session/goal storage.
+   - When the user saves:
+     • Persist the goal via the existing backend route or context update.
+     • Ensure the stored value is exactly what the rest of the system expects (no schema drift).
+   - Ensure that when:
+     • The user updates the goal via this panel, the value is updated for the active session.
+     • Future tool calls and Supervisor requests see the new goal value.
+
+4. Integrate the panel into the layout
+   - Place the MyGoalsPanel in a sensible, always-accessible location, for example:
+     • in a right-hand sidebar
+     • in a “Session Details” / “Context” column
+     • or in a panel area that already shows session info.
+   - Do NOT hide it behind an obscure route—this should be a primary control surface.
+   - If there is a layout file like `app/(app)/layout.tsx`, `components/layout/MainLayout.tsx`, or `components/chat/ChatShell.tsx`, integrate the MyGoalsPanel there in a way that doesn’t break existing layout.
+
+5. Provide a helper to fetch the goal programmatically
+   - Expose a simple helper, e.g.:
+     • `export function getUserGoalFromUIContext(sessionId: string): string | null`
+     or use an existing exported helper if one already exists.
+   - This helper should internally read from the same source the panel and UI-001 use.
+   - The goal is to make it easy for the Supervisor and tool-calling layer to access the current goal state.
+
+6. Basic UX polish
+   - Ensure the panel title is clear, e.g.:
+     • “My Goal”
+     • “My Sales / Lead Goal”
+   - Add a small description explaining that this goal is used by the agent:
+     • e.g. “Wyshbone uses this goal to plan and run lead generation on your behalf.”
+   - Keep styling consistent with existing cards and controls (use the same Tailwind/shadcn/ui patterns).
+
+7. Output requirements
+   - For any new file: output the full file contents.
+   - For any edited file: output the full file contents with your changes applied.
+   - Include all necessary imports and exports.
+   - Do not just describe changes—produce concrete, copy-pasteable code.
+
+Now implement UI-010 according to the above, making minimal, coherent changes that fit the existing codebase.

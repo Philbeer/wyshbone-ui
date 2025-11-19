@@ -36,6 +36,7 @@ import { createSupervisorTask, isSupabaseConfigured } from './supabase-client';
 import { getSummary, getFileContent } from './lib/exporter';
 import { randomBytes } from 'crypto';
 import { startRunLog, completeRunLog, logToolCall, isTowerLoggingEnabled } from './lib/towerClient';
+import { getUserGoal, setUserGoal, hasUserGoal } from './userGoalHelper';
 
 const sql = neon(process.env.DATABASE_URL!);
 
@@ -3599,6 +3600,70 @@ CRITICAL RULES:
       res.json(facts);
     } catch (error: any) {
       console.error("Error searching facts:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ===========================
+  // GOAL MANAGEMENT API (UI-010)
+  // ===========================
+  
+  // GET /api/goal - Get current user's goal
+  app.get("/api/goal", async (req, res) => {
+    try {
+      // SECURITY: Validate authenticated user
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      // Get session ID (same as UI-001 and other routes)
+      const sessionId = getSessionId(req);
+      const goal = await getUserGoal(sessionId);
+      
+      res.json({
+        goal: goal || null,
+        hasGoal: !!goal
+      });
+    } catch (error: any) {
+      console.error("Error fetching goal:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+  
+  // PUT /api/goal - Update current user's goal
+  app.put("/api/goal", async (req, res) => {
+    try {
+      // SECURITY: Validate authenticated user
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { goal } = req.body;
+      
+      if (typeof goal !== 'string') {
+        return res.status(400).json({ error: "Goal must be a string" });
+      }
+      
+      const trimmedGoal = goal.trim();
+      
+      if (trimmedGoal === '') {
+        return res.status(400).json({ error: "Goal cannot be empty" });
+      }
+      
+      // Get session ID (same as UI-001 and other routes)
+      const sessionId = getSessionId(req);
+      await setUserGoal(sessionId, trimmedGoal);
+      
+      console.log(`✅ Goal updated for user ${auth.userEmail} (session: ${sessionId}): "${trimmedGoal.substring(0, 50)}${trimmedGoal.length > 50 ? '...' : ''}"`);
+      
+      res.json({
+        success: true,
+        goal: trimmedGoal
+      });
+    } catch (error: any) {
+      console.error("Error updating goal:", error);
       res.status(500).json({ error: error.message });
     }
   });
