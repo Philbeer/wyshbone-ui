@@ -22,6 +22,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { UserProvider, useUser } from "@/contexts/UserContext";
 import { SidebarFlashProvider } from "@/contexts/SidebarFlashContext";
 import { MyGoalsPanel } from "@/components/my-goals-panel";
+import { PlanApprovalPanel } from "@/components/plan-approval-panel";
 import { ProgressWidget } from "@/components/progress-widget";
 
 // No demo runs - users only see their own data
@@ -538,6 +539,7 @@ function AppLayout({
           </div>
           <div className="hidden xl:flex w-80 border-l p-4 flex-col gap-4 overflow-y-auto">
             <MyGoalsPanel />
+            <PlanApprovalPanel />
             <ProgressWidget />
           </div>
         </main>

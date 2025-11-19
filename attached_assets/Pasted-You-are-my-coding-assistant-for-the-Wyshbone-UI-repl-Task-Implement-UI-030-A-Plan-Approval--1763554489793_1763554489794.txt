@@ -1,0 +1,169 @@
+You are my coding assistant for the Wyshbone UI repl.
+
+Task:
+Implement UI-030: A “Plan Approval” UI that shows the user the LeadGenPlan created by the Supervisor (SUP-001) and requires the user to approve or reject it before SUP-002 executes it.
+
+This is a required part of the V1 agentic workflow:
+User sets goal → Supervisor proposes plan → User approves → Supervisor executes.
+
+---------------------------------------
+1) Discover where plans already exist
+---------------------------------------
+
+Locate the existing API routes and structures used for:
+  - Plan generation (SUP-001)
+  - Plan execution (SUP-002)
+  - Session or user goal context (UI-001 / UI-010)
+
+Look for endpoints such as:
+  - /api/plan
+  - /api/supervisor/plan
+  - /api/run-plan
+  - /api/supervisor-tasks
+  - /api/leadgen/plan
+
+Determine:
+  • How the UI currently triggers or receives the LeadGenPlan
+  • How plan IDs, step arrays, and metadata are structured
+  • How SUP-002 is invoked for execution
+
+Do NOT invent new structures; reuse the existing LeadGenPlan format.
+
+---------------------------------------
+2) Add API route: GET /api/plan (if not present)
+---------------------------------------
+
+Implement or reuse an endpoint that returns something like:
+
+{
+  planId: string;
+  goal: string;
+  steps: LeadGenStep[];
+  createdAt: string;
+  status: "pending_approval" | "approved" | "executing" | "completed" | "failed";
+}
+
+If this route already exists, adapt to it.
+
+---------------------------------------
+3) Add API route: POST /api/plan/approve
+---------------------------------------
+
+This should:
+  - Accept { planId }
+  - Update plan state (e.g. “approved”)
+  - Trigger Supervisor to begin execution (SUP-002) for this session
+  - Return a simple acknowledgement
+
+If needed, add a small utility server function like:
+  startPlanExecution(planId, sessionId)
+
+---------------------------------------
+4) Create a hook: usePlanForApproval
+---------------------------------------
+
+Add a hook in:
+  client/src/hooks/use-plan-for-approval.ts
+
+It should:
+  - Fetch the plan for the current session
+  - Return:
+        {
+          loading,
+          plan,
+          approvePlan,
+          rejecting,
+          error
+        }
+  - Poll periodically for updates (5–10 seconds)
+  - Use the correct sessionId resolution (same mechanism as UI-010)
+
+---------------------------------------
+5) Create UI component: PlanApprovalPanel
+---------------------------------------
+
+Add:
+  client/src/components/plan-approval-panel.tsx
+
+Use existing shadcn/ui components:
+
+Structure:
+
+<Card>
+  <CardHeader>
+    <CardTitle>Plan for Your Goal</CardTitle>
+    <CardDescription>
+      Review and approve the plan Wyshbone generated.
+    </CardDescription>
+  </CardHeader>
+
+  <CardContent>
+    • Show the goal text
+    • Show each step of the plan (ordered, numbered)
+    • Show a badge for step type (search, enrich, outreach, fallback, etc.)
+    • If no plan exists → show guidance: “No plan generated yet.”
+  </CardContent>
+
+  <CardFooter>
+    <Button variant="default">Approve Plan</Button>
+    <Button variant="outline" className="ml-2">Regenerate</Button>
+  </CardFooter>
+</Card>
+
+Behaviour:
+  - If plan.status !== "pending_approval", hide this panel or dim it.
+  - Approve button triggers POST /api/plan/approve.
+  - Regenerate button re-runs plan generation (call SUP-001 through backend API).
+  - After approval, UI shows a small confirmation.
+
+---------------------------------------
+6) Integrate into layout
+---------------------------------------
+
+Insert <PlanApprovalPanel /> into the UI layout, ideally near:
+
+- The My Goals panel (UI-010)
+- The Progress widget (UI-020)
+
+Add it to:
+  client/src/App.tsx 
+or the main layout component, stacking:
+
+<MyGoalsPanel />
+<PlanApprovalPanel />
+<ProgressWidget />
+
+The order should feel natural:
+  Goal → Plan → Progress
+
+---------------------------------------
+7) UI States
+---------------------------------------
+
+Handle UI states cleanly:
+
+• loading: Skeleton or spinner  
+• no plan: Show placeholder message  
+• pending_approval: Show approval panel  
+• approved or executing: Hide the panel  
+• completed: Hide panel, rely on progress widget
+
+---------------------------------------
+8) Logging / Observability
+---------------------------------------
+
+If there is a client log or debug logger, log:
+
+"PlanApprovalPanel mounted for sessionId=..."
+"PlanApprovalPanel: plan approved (planId=...)"
+
+---------------------------------------
+9) Output Requirements
+---------------------------------------
+
+- For any new file: output full contents.
+- For any modified file: output full contents with the changes applied.
+- Include all imports and exports.
+- DO NOT write descriptions or summaries — produce concrete, copy-pasteable code.
+
+Implement UI-030 according to the above, making changes minimal and consistent with the rest of the UI architecture.

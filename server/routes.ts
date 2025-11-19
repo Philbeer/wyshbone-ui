@@ -3720,6 +3720,135 @@ CRITICAL RULES:
     }
   });
 
+  // ===========================
+  // PLAN APPROVAL API (UI-030)
+  // ===========================
+  
+  // GET /api/plan - Get current leadgen plan for approval
+  app.get("/api/plan", async (req, res) => {
+    try {
+      // SECURITY: Validate authenticated user
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      // Get session ID
+      const sessionId = getSessionId(req);
+      
+      // Get plan for this session
+      const { getPlanBySession } = await import('./leadgen-plan.js');
+      const plan = getPlanBySession(sessionId);
+      
+      res.json(plan);
+    } catch (error: any) {
+      console.error("Error fetching plan:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+  
+  // POST /api/plan/approve - Approve a plan and trigger execution
+  app.post("/api/plan/approve", async (req, res) => {
+    try {
+      // SECURITY: Validate authenticated user
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { planId } = req.body;
+      
+      if (!planId) {
+        return res.status(400).json({ error: "Plan ID is required" });
+      }
+      
+      const { approvePlan, getPlanById, updatePlanStatus } = await import('./leadgen-plan.js');
+      
+      // Approve the plan
+      const approvedPlan = approvePlan(planId);
+      
+      if (!approvedPlan) {
+        return res.status(404).json({ error: "Plan not found" });
+      }
+      
+      // Trigger Supervisor execution (SUP-002)
+      // Create a supervisor task for this approved plan
+      if (approvedPlan.conversationId && isSupabaseConfigured()) {
+        try {
+          const supervisorTask = await createSupervisorTask(
+            approvedPlan.conversationId,
+            auth.userId,
+            'generate_leads',
+            {
+              user_message: approvedPlan.goal,
+              search_query: {
+                business_type: 'businesses', // Simplified - would be extracted from goal
+                location: 'location' // Simplified - would be extracted from goal
+              }
+            }
+          );
+          
+          // Update plan with supervisor task ID and mark as executing
+          updatePlanStatus(planId, 'executing', supervisorTask.id);
+          
+          console.log(`✅ Plan ${planId} approved and execution started (task: ${supervisorTask.id})`);
+        } catch (error) {
+          console.error('Failed to create supervisor task:', error);
+          // Plan is still approved, but execution failed to start
+        }
+      }
+      
+      res.json({
+        success: true,
+        plan: approvedPlan
+      });
+    } catch (error: any) {
+      console.error("Error approving plan:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+  
+  // POST /api/plan/regenerate - Regenerate a plan (calls SUP-001)
+  app.post("/api/plan/regenerate", async (req, res) => {
+    try {
+      // SECURITY: Validate authenticated user
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { planId } = req.body;
+      
+      if (!planId) {
+        return res.status(400).json({ error: "Plan ID is required" });
+      }
+      
+      const { getPlanById, rejectPlan, createLeadGenPlan } = await import('./leadgen-plan.js');
+      
+      // Reject the old plan
+      const oldPlan = getPlanById(planId);
+      if (!oldPlan) {
+        return res.status(404).json({ error: "Plan not found" });
+      }
+      
+      rejectPlan(planId);
+      
+      // Create a new plan with the same goal
+      const sessionId = getSessionId(req);
+      const newPlan = createLeadGenPlan(sessionId, oldPlan.goal, oldPlan.conversationId);
+      
+      console.log(`🔄 Plan regenerated: ${planId} → ${newPlan.id}`);
+      
+      res.json({
+        success: true,
+        plan: newPlan
+      });
+    } catch (error: any) {
+      console.error("Error regenerating plan:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // =========================================
   // POST /api/search – OpenAI Responses API
   // (kept as you provided; unchanged in logic)
