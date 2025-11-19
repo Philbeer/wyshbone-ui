@@ -3,8 +3,9 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePlanForApproval } from "@/hooks/use-plan-for-approval";
-import { CheckCircle2, Clock, Zap, Users, Mail, AlertCircle } from "lucide-react";
+import { CheckCircle2, Clock, Zap, Users, Mail, AlertCircle, RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useQueryClient } from "@tanstack/react-query";
 
 const stepIcons: Record<string, typeof CheckCircle2> = {
   search: Zap,
@@ -21,13 +22,14 @@ const stepVariants: Record<string, "default" | "secondary" | "outline"> = {
 };
 
 export function PlanApprovalPanel() {
-  const { loading, plan, approvePlan, regeneratePlan, approving, regenerating } = usePlanForApproval();
+  const { loading, plan, approvePlan, regeneratePlan, approving, regenerating, error } = usePlanForApproval();
   const { toast } = useToast();
+  const queryClient = useQueryClient();
 
-  console.log("📋 PlanApprovalPanel mounted, plan:", plan);
+  console.log("📋 PlanApprovalPanel mounted, plan:", plan, "error:", error);
 
   // Don't show if plan is not pending approval
-  if (!loading && (!plan || plan.status !== 'pending_approval')) {
+  if (!loading && !error && (!plan || plan.status !== 'pending_approval')) {
     return null;
   }
 
@@ -48,26 +50,76 @@ export function PlanApprovalPanel() {
     );
   }
 
+  // Error state
+  if (error) {
+    return (
+      <Card data-testid="card-plan-approval-error" className="border-destructive">
+        <CardHeader>
+          <CardTitle className="text-lg flex items-center gap-2 text-destructive">
+            <AlertCircle className="h-5 w-5" />
+            Error Loading Plan
+          </CardTitle>
+          <CardDescription>
+            Failed to load your plan. Please try again.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="text-sm text-destructive">{error}</div>
+        </CardContent>
+        <CardFooter>
+          <Button 
+            variant="outline" 
+            onClick={() => queryClient.invalidateQueries({ queryKey: ["/api/plan"] })}
+            data-testid="button-retry-plan"
+          >
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Retry
+          </Button>
+        </CardFooter>
+      </Card>
+    );
+  }
+
   if (!plan) {
     return null;
   }
 
-  const handleApprove = () => {
+  const handleApprove = async () => {
     console.log(`✅ PlanApprovalPanel: approving plan ${plan.id}`);
-    approvePlan(plan.id);
-    toast({
-      title: "Plan Approved",
-      description: "Wyshbone will now execute your plan.",
-    });
+    try {
+      await approvePlan(plan.id);
+      toast({
+        title: "Plan Approved",
+        description: "Wyshbone will now execute your plan.",
+      });
+      console.log(`✅ PlanApprovalPanel: plan ${plan.id} approved successfully`);
+    } catch (error) {
+      console.error(`❌ PlanApprovalPanel: failed to approve plan ${plan.id}:`, error);
+      toast({
+        title: "Approval Failed",
+        description: "Failed to approve plan. Please try again.",
+        variant: "destructive",
+      });
+    }
   };
 
-  const handleRegenerate = () => {
+  const handleRegenerate = async () => {
     console.log(`🔄 PlanApprovalPanel: regenerating plan ${plan.id}`);
-    regeneratePlan(plan.id);
-    toast({
-      title: "Regenerating Plan",
-      description: "Creating a new plan for your goal.",
-    });
+    try {
+      await regeneratePlan(plan.id);
+      toast({
+        title: "Plan Regenerated",
+        description: "A new plan has been created for your goal.",
+      });
+      console.log(`🔄 PlanApprovalPanel: plan ${plan.id} regenerated successfully`);
+    } catch (error) {
+      console.error(`❌ PlanApprovalPanel: failed to regenerate plan ${plan.id}:`, error);
+      toast({
+        title: "Regeneration Failed",
+        description: "Failed to regenerate plan. Please try again.",
+        variant: "destructive",
+      });
+    }
   };
 
   return (

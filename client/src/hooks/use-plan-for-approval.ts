@@ -63,8 +63,8 @@ export function usePlanForApproval() {
   return {
     loading: isLoading,
     plan: plan || null,
-    approvePlan: (planId: string) => approveMutation.mutate(planId),
-    regeneratePlan: (planId: string) => regenerateMutation.mutate(planId),
+    approvePlan: (planId: string) => approveMutation.mutateAsync(planId),
+    regeneratePlan: (planId: string) => regenerateMutation.mutateAsync(planId),
     approving: approveMutation.isPending,
     regenerating: regenerateMutation.isPending,
     error: error ? String(error) : undefined,
