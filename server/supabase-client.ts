@@ -132,6 +132,46 @@ export async function getSupervisorMessages(
   return messages;
 }
 
+export async function getActiveSupervisorTask(
+  conversationId: string
+): Promise<SupervisorTask | null> {
+  if (!isSupabaseConfigured()) {
+    return null;
+  }
+
+  const client = ensureSupabaseClient();
+  
+  const { data, error } = await client
+    .from('supervisor_tasks')
+    .select('*')
+    .eq('conversation_id', conversationId)
+    .in('status', ['pending', 'processing'])
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .single();
+
+  if (error) {
+    // No active task found is not an error
+    if (error.code === 'PGRST116') {
+      return null;
+    }
+    console.error('❌ Failed to fetch active Supervisor task:', error);
+    return null;
+  }
+
+  if (!data) {
+    return null;
+  }
+
+  // Parse BIGINT created_at from string to number
+  const parsedData = {
+    ...data,
+    created_at: typeof data.created_at === 'string' ? Number(data.created_at) : data.created_at,
+  } as SupervisorTask;
+
+  return parsedData;
+}
+
 export function isSupabaseConfigured(): boolean {
   initializeSupabase();
   return supabase !== null;

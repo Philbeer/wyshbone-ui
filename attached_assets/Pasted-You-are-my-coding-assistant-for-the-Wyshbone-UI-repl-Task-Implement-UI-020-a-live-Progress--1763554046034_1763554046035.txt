@@ -1,0 +1,168 @@
+You are my coding assistant for the Wyshbone UI repl.
+
+Task:
+Implement UI-020: a live “Progress” widget that shows the status of the current goal/plan execution in a clear, always-visible way.
+
+This widget should:
+- Show the current goal (from the My Goals / UI-010 system).
+- Show the current plan status (steps, progress, successes/failures).
+- Update as Supervisor executes the plan (SUP-002/SUP-010/SUP-003).
+- Make it obvious to the user what Wyshbone is doing right now.
+
+Do NOT over-engineer; implement a minimal but real widget that we can extend later.
+
+--------------------------------
+1) Discover existing plan/monitoring status APIs
+--------------------------------
+
+First, find what already exists for plan/run status:
+
+- Look for HTTP routes or handlers such as:
+  • /api/plan
+  • /api/status
+  • /api/runs
+  • /api/monitor
+  • /api/supervisor-tasks
+- Look for any hooks like:
+  • useRuns, useMonitor, useSupervisorTasks, usePlanStatus, etc.
+- Look for Tower-related or monitoring-related UI code that already shows:
+  • run_id
+  • status
+  • step/status timelines
+  • supervisor task status
+
+We want to **reuse** an existing endpoint/shape if one exists rather than invent something new.
+
+If no suitable plan/monitor endpoint exists:
+- Assume a minimal endpoint like `/api/plan-status` exists or can be added which returns:
+  {
+    goal: string | null;
+    planId: string | null;
+    totalSteps: number;
+    completedSteps: number;
+    currentStep?: {
+      id: string;
+      label: string;
+      status: "pending" | "running" | "completed" | "failed";
+    } | null;
+    lastUpdatedAt: string;
+  }
+- You may create a basic API handler for this on the server side if appropriate, wired to whatever Supervisor is using to track plan execution.
+
+--------------------------------
+2) Define a Progress type + hook
+--------------------------------
+
+Create a hook in e.g. `client/src/hooks/use-plan-progress.ts`:
+
+- The hook should:
+  • Fetch the current plan/goal progress for the active session.
+  • Poll periodically (e.g. every 5–10 seconds) or reuse an existing SSE/websocket if it already exists.
+  • Return a structure like:
+
+    interface PlanProgress {
+      loading: boolean;
+      error?: string;
+      goal: string | null;
+      planId: string | null;
+      totalSteps: number;
+      completedSteps: number;
+      currentStep?: {
+        id: string;
+        label: string;
+        status: "pending" | "running" | "completed" | "failed";
+      } | null;
+      lastUpdatedAt?: string;
+    }
+
+  • Derive a simple “percent complete” value: (completedSteps / totalSteps) * 100 when totalSteps > 0.
+
+- Use the same session identifier mechanism as the My Goals panel (/api/goal) so that the progress is for the current session.
+
+--------------------------------
+3) Create a ProgressWidget UI component
+--------------------------------
+
+Add a component, e.g. `client/src/components/progress-widget.tsx`:
+
+- Use the existing design system:
+  • Card, CardHeader, CardTitle, CardDescription, CardContent
+  • Progress bar component if one exists; otherwise build a simple bar with Tailwind.
+  • Badges or small labels for statuses if consistent with existing styling.
+
+The widget should show at minimum:
+
+- Title: “Progress”
+- Current goal (if any), e.g.:
+  • “Goal: <goal text>”
+- A progress bar and text:
+  • “Step X of Y completed”
+  • Or “No plan running yet” if there is no active plan.
+- Current step description:
+  • If currentStep is present: “Currently: <label> (status)”
+- Last updated time:
+  • “Last updated: <timestamp in friendly format>”
+
+States to handle:
+
+- loading: show a skeleton / “Loading progress…”
+- no plan: “No active plan yet. When you start a lead generation run, progress will appear here.”
+- error: “Unable to load progress” (with a retry button).
+
+Use the `usePlanProgress` hook to wire data into the widget.
+
+--------------------------------
+4) Integrate ProgressWidget into the layout
+--------------------------------
+
+- Place the ProgressWidget near the My Goals panel to create a coherent “context” column.
+
+For example:
+- If `AppLayout` or a main layout component exists where `MyGoalsPanel` is rendered:
+  • Import ProgressWidget
+  • Render it in the same sidebar, e.g. stacked:
+
+    <MyGoalsPanel />
+    <ProgressWidget />
+
+- Ensure this does not break small/mobile layouts; if necessary:
+  • Show this sidebar only above a certain breakpoint (similar to MyGoalsPanel).
+  • Optionally make the widget collapsible on small screens if that’s already a pattern in the UI.
+
+--------------------------------
+5) Connect to real Supervisor/Tower data as much as possible
+--------------------------------
+
+When choosing or creating an API endpoint:
+
+- Prefer reading from whatever Supervisor already exposes for:
+  • supervisor_tasks
+  • plan execution runs
+  • goal monitoring events from SUP-003
+- If a simple “current plan status” endpoint does not exist yet:
+  • Create a minimal server route that aggregates current plan info for the session from existing tables (e.g. supervisor_tasks, suggested_leads, etc.).
+  • Keep it as small and fast as possible; this is a read-only status call.
+
+Make sure:
+
+- The endpoint uses the same sessionId/userId resolution behaviour as /api/goal.
+- The ProgressWidget only shows data for the **current** user/session.
+
+--------------------------------
+6) Logging & observability (light-touch)
+--------------------------------
+
+- When the ProgressWidget mounts, log a small debug message if there is an existing client-side logger, e.g.:
+  • “ProgressWidget mounted for sessionId=…”
+- If the API call fails repeatedly, optionally surface a structured console error to make debugging easier.
+
+--------------------------------
+7) Output requirements
+--------------------------------
+
+- For any new file (hooks, components, API routes): output full contents.
+- For any modified file (layout, App.tsx, server route index): output full contents with changes applied.
+- Include all necessary imports/exports.
+- Do not just describe changes; produce concrete, copy-pasteable code.
+
+Implement UI-020 now according to these requirements, keeping the code minimal, consistent with the existing My Goals panel and overall UI design.

@@ -3608,6 +3608,58 @@ CRITICAL RULES:
   // GOAL MANAGEMENT API (UI-010)
   // ===========================
   
+  // GET /api/plan-status - Get current plan/goal execution status (UI-020)
+  app.get("/api/plan-status", async (req, res) => {
+    try {
+      // SECURITY: Validate authenticated user
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      // Get session ID
+      const sessionId = getSessionId(req);
+      
+      // Get current goal
+      const goal = await getUserGoal(sessionId);
+      
+      // Get active supervisor task for the current conversation (if any)
+      // We'll use the most recent conversation ID for this session
+      const conversationId = req.query.conversationId as string | undefined;
+      
+      let activeSupervisorTask = null;
+      if (conversationId && isSupabaseConfigured()) {
+        const { getActiveSupervisorTask } = await import('./supabase-client.js');
+        activeSupervisorTask = await getActiveSupervisorTask(conversationId);
+      }
+      
+      // Build response based on available data
+      const response = {
+        goal: goal || null,
+        planId: activeSupervisorTask?.id || null,
+        totalSteps: activeSupervisorTask ? 3 : 0, // Simplified: assume 3 steps for active tasks
+        completedSteps: activeSupervisorTask?.status === 'processing' ? 1 : 
+                        activeSupervisorTask?.status === 'completed' ? 3 : 0,
+        currentStep: activeSupervisorTask ? {
+          id: activeSupervisorTask.id,
+          label: activeSupervisorTask.task_type === 'generate_leads' ? 'Finding leads' :
+                 activeSupervisorTask.task_type === 'analyze_conversation' ? 'Analyzing conversation' :
+                 'Providing insights',
+          status: activeSupervisorTask.status === 'pending' ? 'pending' as const :
+                  activeSupervisorTask.status === 'processing' ? 'running' as const :
+                  activeSupervisorTask.status === 'completed' ? 'completed' as const :
+                  'failed' as const
+        } : null,
+        lastUpdatedAt: activeSupervisorTask?.created_at ? new Date(activeSupervisorTask.created_at).toISOString() : new Date().toISOString()
+      };
+      
+      res.json(response);
+    } catch (error: any) {
+      console.error("Error fetching plan status:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+  
   // GET /api/goal - Get current user's goal
   app.get("/api/goal", async (req, res) => {
     try {
