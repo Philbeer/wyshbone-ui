@@ -3,7 +3,7 @@ import { useMutation } from "@tanstack/react-query";
 import { apiRequest, addDevAuthParams } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Send, User, CheckCircle2, Search, Building2 } from "lucide-react";
+import { Send, User, CheckCircle2, Search, Building2, HelpCircle } from "lucide-react";
 import type { ChatMessage, AddNoteResponse, DeepResearchCreateRequest } from "@shared/schema";
 import wyshboneLogo from "@assets/wyshbone-logo_1759667581806.png";
 import { LocationSuggestions } from "@/components/LocationSuggestions";
@@ -71,6 +71,9 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
   const [batchJobTracking, setBatchJobTracking] = useState<Map<string, string>>(new Map()); // messageId -> batchId
   const batchPollIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const [showXeroDialog, setShowXeroDialog] = useState(false);
+  
+  // Functions panel visibility control (default hidden to not interfere with agentic flow)
+  const [showFunctionsPanel, setShowFunctionsPanel] = useState(false);
   
   // MEGA Agent mode toggle
   const [chatMode, setChatMode] = useState<"standard" | "mega">(() => {
@@ -1287,27 +1290,43 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
       {/* Input Area */}
       <div className="border-t border-border bg-background py-6">
         <div className="w-full relative px-6">
-          {/* Chat Mode Toggle */}
-          <div className="mb-3 flex items-center gap-2">
-            <Button
-              variant={chatMode === "standard" ? "default" : "outline"}
-              size="sm"
-              onClick={() => setChatMode("standard")}
-              data-testid="button-mode-standard"
-            >
-              Standard
-            </Button>
-            <Button
-              variant={chatMode === "mega" ? "default" : "outline"}
-              size="sm"
-              onClick={() => setChatMode("mega")}
-              data-testid="button-mode-mega"
-            >
-              🚀 MEGA
-            </Button>
-            <span className="text-xs text-muted-foreground ml-2">
-              {chatMode === "mega" ? "Action-first AI with follow-up suggestions" : "Streaming chat with web search"}
-            </span>
+          {/* Chat Mode Toggle and Functions Panel Toggle */}
+          <div className="mb-3 flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center gap-2">
+              <Button
+                variant={chatMode === "standard" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setChatMode("standard")}
+                data-testid="button-mode-standard"
+              >
+                Standard
+              </Button>
+              <Button
+                variant={chatMode === "mega" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setChatMode("mega")}
+                data-testid="button-mode-mega"
+              >
+                🚀 MEGA
+              </Button>
+              <span className="text-xs text-muted-foreground ml-2">
+                {chatMode === "mega" ? "Action-first AI with follow-up suggestions" : "Streaming chat with web search"}
+              </span>
+            </div>
+            
+            {/* Functions Panel Toggle - only show when panel is hidden */}
+            {!showFunctionsPanel && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowFunctionsPanel(true)}
+                className="flex items-center gap-1"
+                data-testid="button-show-functions"
+              >
+                <HelpCircle className="h-3 w-3" />
+                <span className="hidden sm:inline">Show functions</span>
+              </Button>
+            )}
           </div>
 
           {/* MEGA Chips (Follow-up suggestions) */}
@@ -1367,8 +1386,12 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
       </div>
       </div>
 
-      {/* Right Sidebar */}
-      <WishboneSidebar onPrompt={handleSend} />
+      {/* Right Sidebar - Functions Panel */}
+      <WishboneSidebar 
+        onPrompt={handleSend}
+        isVisible={showFunctionsPanel}
+        onHide={() => setShowFunctionsPanel(false)}
+      />
       
       {/* Add to Xero features temporarily removed for layout debugging */}
     </div>

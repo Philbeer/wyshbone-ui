@@ -1,0 +1,124 @@
+You are my coding assistant for the Wyshbone UI repl.
+
+Context:
+- The Agentic V1 flow is now live (goal prompt → goal panel → plan → approval → progress).
+- The center “What can I do?” / Wyshbone Functions panel is still visible.
+- We want to KEEP this panel but make it COLLAPSIBLE so it never blocks or interferes with the agent workflow.
+
+Requirements:
+1) Wrap the “What can I do?” panel in a collapsible container
+2) Default: COLLAPSED (hidden) for now
+3) Add a small toggle button so I can show/hide it
+4) Ensure that when it is shown, it does NOT interfere with:
+   - My Goals panel (right)
+   - Plan Approval panel
+   - Progress widget
+   - Chat area
+
+---------------------------------------------------
+1) Find the “What can I do?” / functions panel
+---------------------------------------------------
+
+Search the codebase for the panel that currently shows:
+- heading: "What can I do?"
+- sections: "Wyshbone Functions", "Deep Research", "Wyshbone Global Database (Quick Search)", "Scheduled Monitoring", "Example Searches"
+
+Identify:
+- The React component file that renders this panel (e.g. `WhatCanIDoPanel`, `FunctionsPanel`, `HelpPanel`, etc.).
+- Where it is mounted in the main layout (likely in `client/src/App.tsx` or a main chat layout component).
+
+---------------------------------------------------
+2) Add a collapsible state + toggle
+---------------------------------------------------
+
+In the component that renders the “What can I do?” panel:
+
+- Add a local UI state, e.g.:
+
+  const [showFunctionsPanel, setShowFunctionsPanel] = useState(false);
+
+- Default value should be `false` (collapsed).
+
+- Add a small toggle button somewhere NON-intrusive, e.g. in the top-right of the chat area or just above the panel area:
+
+  - When `showFunctionsPanel === false`, show a subtle button like:
+      "Show functions"
+  - When `showFunctionsPanel === true`, show:
+      "Hide functions"
+
+- The actual “What can I do?” content should only render when `showFunctionsPanel` is true.
+
+Example structure (pseudo-code):
+
+  {showFunctionsPanel ? (
+    <FunctionsPanel />
+  ) : (
+    <button onClick={() => setShowFunctionsPanel(true)}>
+      Show functions
+    </button>
+  )}
+
+and inside the panel header, a small "Hide" button:
+
+  <button onClick={() => setShowFunctionsPanel(false)}>Hide</button>
+
+You may adjust the exact styling to match the existing design system (Button component, etc.).
+
+---------------------------------------------------
+3) Ensure layout does NOT overlap the agentic flow
+---------------------------------------------------
+
+Adjust the layout so that:
+- The collapsible panel sits in its own column or area that does not overlap the main chat / plan / goal panels.
+- When the panel is hidden, the main chat + plan + goals area should take full width.
+- When the panel is shown, it should resize the layout, NOT float on top of or cover the chat or goal panels.
+
+If the current implementation uses a multi-column layout:
+- Make the functions panel column conditional on `showFunctionsPanel`.
+- The main chat column should always be visible and should not depend on the functions panel.
+
+If necessary, refactor the layout container (e.g. in App.tsx) so that:
+- left: navigation
+- center: chat + plan approval + agent messages
+- right: My Goals + Progress
+- optional extra column/section: functions panel only when `showFunctionsPanel === true`.
+
+---------------------------------------------------
+4) Do NOT remove any functionality from the functions panel
+---------------------------------------------------
+
+- Keep all existing buttons / cards / links:
+  - Deep Research
+  - Wyshbone Global Database
+  - Scheduled Monitoring
+  - Example Searches
+- Only change its visibility and layout (collapsible behaviour), not its internal logic.
+
+---------------------------------------------------
+5) Keep agentic flow in control
+---------------------------------------------------
+
+After this change, the user journey should be:
+
+- New Chat → sees green prompt “Before we begin, what is your main sales/lead goal? Use the ‘My Goal’ panel on the right…”
+- User sets goal in My Goal panel and saves it.
+- “Start working on this goal” button (already implemented) is visible and NOT blocked by any overlay.
+- Plan Approval panel appears in the main area when a plan exists.
+- Progress widget operates independently on the right.
+- The functions panel is hidden by default, but can be opened with the small toggle.
+
+Make sure that:
+- The presence or absence of the functions panel does NOT affect the visibility of:
+  - plan approval
+  - progress
+  - chat messages.
+
+---------------------------------------------------
+6) Output requirements
+---------------------------------------------------
+
+- For any file you modify (e.g. FunctionsPanel component, App.tsx, layout files), output the FULL file contents with imports and exports.
+- For any new components or hooks you create, output full file contents.
+- Do not just describe the changes; produce concrete, copy-pasteable code.
+
+Implement these changes now so that the “What can I do?” panel is collapsible and does not interfere with the Agentic V1 workflow.

@@ -1,12 +1,13 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Search, Database, Calendar } from "lucide-react";
 
 type Props = {
   onPrompt: (prompt: string) => void;
+  isVisible: boolean;
+  onHide: () => void;
 };
 
 type Example = {
@@ -68,32 +69,18 @@ const FeatureCard = ({ icon: Icon, title, description }: { icon: any; title: str
   </div>
 );
 
-export default function WishboneSidebar({ onPrompt }: Props) {
-  const [isVisible, setIsVisible] = useState(false);
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setIsVisible(true);
-    }, 2000);
-
-    return () => clearTimeout(timer);
-  }, []);
-
+export default function WishboneSidebar({ onPrompt, isVisible, onHide }: Props) {
   const handleExampleClick = (ex: Example) => {
     onPrompt(ex.prompt);
-  };
-
-  const handleHide = () => {
-    setIsVisible(false);
   };
 
   return (
     <AnimatePresence>
       {isVisible && (
         <motion.aside
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
+          initial={{ opacity: 0, x: 20 }}
+          animate={{ opacity: 1, x: 0 }}
+          exit={{ opacity: 0, x: 20 }}
           transition={{ duration: 0.3 }}
           className="hidden lg:block flex-shrink-0 w-[min(320px,100vw)] xl:w-[min(360px,100vw)] border-l border-border bg-background"
           aria-label="Research Tips and Examples"
@@ -114,7 +101,7 @@ export default function WishboneSidebar({ onPrompt }: Props) {
                 <Button
                   size="icon"
                   variant="ghost"
-                  onClick={handleHide}
+                  onClick={onHide}
                   className="flex-shrink-0"
                   data-testid="button-hide-sidebar"
                   aria-label="Hide sidebar"
