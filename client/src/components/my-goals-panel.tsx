@@ -6,7 +6,7 @@ import { Save, Check, Play } from "lucide-react";
 import { useUserGoal } from "@/hooks/use-user-goal";
 import { usePlanForApproval } from "@/hooks/use-plan-for-approval";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 
 export function MyGoalsPanel() {
   const { goal, hasGoal, isLoading, updateGoal, isUpdating } = useUserGoal();
@@ -79,7 +79,11 @@ export function MyGoalsPanel() {
         conversationId,
       });
       
+      // apiRequest already throws on non-2xx, so if we reach here it's successful
       const data = await response.json();
+      
+      // Invalidate the plan query to trigger refetch
+      queryClient.invalidateQueries({ queryKey: ["/api/plan"] });
       
       toast({
         title: "Plan Created",
