@@ -21,6 +21,7 @@ The user interface follows Material Design principles, inspired by ChatGPT, Line
 
 **Technical Implementations:**
 - **AI Chat Interface:** Provides real-time conversations with a GPT-5 assistant (Standard mode) or GPT-4o planner-executor (MEGA mode), enforcing a concise, practical, and UK-focused AI personality via the system prompt.
+- **Agentic V1 Workflow:** Goal-driven initialization where users set their sales/lead goal, click "Start working on this goal" to trigger plan generation via POST /api/plan/start, review and approve the generated plan in PlanApprovalPanel, and monitor execution progress in ProgressWidget. The chat initializes by prompting for a goal if none is set, replacing legacy welcome/marketing flows with a streamlined agentic experience.
 - **Unified Action Layer:** Four core functions execute identically in both MEGA and Standard modes via `server/lib/actions.ts`:
     - **DEEP_RESEARCH:** Multi-source web research with intelligent analysis (uses `server/deepResearch.ts`)
     - **SEARCH_PLACES:** Google Places API integration for business discovery (uses `server/googlePlaces.ts`, marketed as "Wyshbone Global Database")
