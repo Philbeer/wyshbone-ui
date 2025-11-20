@@ -3849,6 +3849,38 @@ CRITICAL RULES:
     }
   });
   
+  // POST /api/plan/start - Create a new plan for the current goal (SUP-001)
+  app.post("/api/plan/start", async (req, res) => {
+    try {
+      // SECURITY: Validate authenticated user
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { goal, conversationId } = req.body;
+      
+      if (!goal) {
+        return res.status(400).json({ error: "Goal is required" });
+      }
+      
+      const { createLeadGenPlan } = await import('./leadgen-plan.js');
+      
+      const sessionId = getSessionId(req);
+      const newPlan = createLeadGenPlan(sessionId, goal, conversationId);
+      
+      console.log(`🚀 Plan started: ${newPlan.id} for session ${sessionId}`);
+      
+      res.json({
+        success: true,
+        plan: newPlan
+      });
+    } catch (error: any) {
+      console.error("Error starting plan:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+  
   // POST /api/plan/create-test - Create a test plan for demo purposes (DEV ONLY)
   app.post("/api/plan/create-test", async (req, res) => {
     try {

@@ -6,7 +6,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { Send, User, CheckCircle2, Search, Building2 } from "lucide-react";
 import type { ChatMessage, AddNoteResponse, DeepResearchCreateRequest } from "@shared/schema";
 import wyshboneLogo from "@assets/wyshbone-logo_1759667581806.png";
-import Welcome from "@/components/Welcome";
 import { LocationSuggestions } from "@/components/LocationSuggestions";
 import WishboneSidebar from "@/components/WishboneSidebar";
 import ReactMarkdown from 'react-markdown';
@@ -16,6 +15,7 @@ import { useUser } from "@/contexts/UserContext";
 import { AddToXeroDialog } from "@/components/AddToXeroDialog";
 import { useSidebarFlash } from "@/contexts/SidebarFlashContext";
 import { subscribeSupervisorMessages, type SupervisorMessage } from "@/lib/supabase";
+import { useUserGoal } from "@/hooks/use-user-goal";
 
 type Message = ChatMessage & {
   id: string;
@@ -53,10 +53,10 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
   const { user } = useUser();
   const { toast } = useToast();
   const { trigger: triggerSidebarFlash } = useSidebarFlash();
+  const { goal, hasGoal, isLoading: isLoadingGoal } = useUserGoal();
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
-  const [showWelcome, setShowWelcome] = useState(true);
   const [showLocationSuggestions, setShowLocationSuggestions] = useState(false);
   const [conversationId, setConversationId] = useState<string | undefined>(() => {
     // Load conversationId from localStorage on mount
@@ -197,8 +197,6 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
     }
   };
 
-  // Welcome message will hide automatically when user sends first message (messages.length > 0)
-
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
@@ -231,7 +229,6 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
           }));
           if (historicalMessages.length > 0) {
             setMessages(historicalMessages);
-            setShowWelcome(false);
             console.log(`📜 Loaded ${historicalMessages.length} messages from conversation ${storedConversationId}`);
           }
         }
@@ -252,40 +249,30 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
     }
   }, [conversationId]);
 
-  // Auto-show personalized greeting when user first visits
+  // Show goal prompt when user has no goal and no messages
   useEffect(() => {
-    const showAutoGreeting = async () => {
-      // Only show greeting once, when we have no messages and welcome is visible
-      if (hasShownGreetingRef.current || messages.length > 0 || !showWelcome || isLoadingHistory) {
+    const showGoalPrompt = () => {
+      // Only show once when we have no messages, not loading history or goal, and no goal is set
+      if (hasShownGreetingRef.current || messages.length > 0 || isLoadingHistory || isLoadingGoal) {
         return;
       }
 
-      hasShownGreetingRef.current = true;
+      if (!hasGoal) {
+        hasShownGreetingRef.current = true;
+        
+        const goalPromptMessage: SystemMessage = {
+          id: crypto.randomUUID(),
+          type: "system",
+          content: "Before we begin, what is your main sales/lead goal? Use the \"My Goal\" panel on the right to set your goal.",
+          timestamp: new Date(),
+        };
 
-      try {
-        const response = await fetch(addDevAuthParams('/api/chat/greeting'));
-        if (response.ok) {
-          const data = await response.json();
-          
-          // Add personalized greeting as an assistant message
-          const greetingMessage: Message = {
-            id: crypto.randomUUID(),
-            role: 'assistant',
-            content: data.greeting,
-            timestamp: new Date(),
-          };
-
-          setMessages([greetingMessage]);
-          setShowWelcome(false); // Hide static welcome, show dynamic greeting
-        }
-      } catch (error) {
-        console.error('Failed to fetch greeting:', error);
-        // Silently fail - user can still use chat normally
+        setMessages([goalPromptMessage]);
       }
     };
 
-    showAutoGreeting();
-  }, [messages.length, showWelcome, isLoadingHistory]);
+    showGoalPrompt();
+  }, [messages.length, hasGoal, isLoadingHistory, isLoadingGoal]);
 
   // Poll batch job statuses and update messages when complete
   useEffect(() => {
@@ -395,7 +382,6 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
         
         // Clear all state and set new conversation ID
         setMessages([]);
-        setShowWelcome(true);
         setInput("");
         setIsStreaming(false);
         setShowLocationSuggestions(false);
@@ -419,7 +405,6 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
 
         setIsStreaming(false);
         setInput("");
-        setShowWelcome(false);
         setShowLocationSuggestions(false);
         
         // Update conversationId
@@ -900,7 +885,6 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
     // Update UI state immediately
     setMessages((prev) => [...prev, userMessage]);
     setInput("");
-    setShowWelcome(false);
 
     // Route to MEGA agent if in MEGA mode
     if (chatMode === "mega") {
@@ -988,13 +972,12 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
         {/* Messages Area */}
         <div className="flex-1 overflow-y-auto py-8">
         <div className="w-full space-y-4 px-6">
-          {messages.length === 0 ? (
+          {messages.length === 0 && isLoadingGoal ? (
             <div className="flex flex-col items-center justify-center h-full min-h-[400px] text-center">
               <div className="w-16 h-16 rounded-full overflow-hidden mb-4">
                 <img src={wyshboneLogo} alt="Wyshbone" className="w-full h-full object-cover" />
               </div>
-              <h2 className="text-xl font-semibold mb-6">Welcome to Wyshbone AI</h2>
-              {showWelcome && <Welcome />}
+              <h2 className="text-xl font-semibold mb-6">Loading...</h2>
             </div>
           ) : (
             messages

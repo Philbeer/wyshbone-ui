@@ -1,0 +1,125 @@
+You are my coding assistant for the Wyshbone UI repl.
+
+Critical task:
+The agentic V1 UI logic (UI-001, UI-010, UI-020, UI-030) is implemented correctly, but the old pre-agent chat boot flow is still running and blocks all new V1 behavior.
+
+I need you to REMOVE the old bootstrap flow and REPLACE it with the new agentic startup sequence:
+
+---------------------------------------------------------------
+1) Remove / disable ALL legacy “welcome” / “marketing” flows
+---------------------------------------------------------------
+
+Search for any components or code paths that:
+- show “I can personalize if you share your company…”
+- show the “What can I do?” / marketing panel
+- automatically send an initial message from the system
+- run a generic LLM/chat wrapper handler instead of the agent pipeline
+
+Remove or disable those components entirely.
+
+Typical files likely include:
+- client/src/components/WelcomeMessage.tsx
+- client/src/components/HelpPanel.tsx
+- any code in App.tsx that inserts marketing/help UI
+- any default system prompts in the chat handler
+
+The new V1 agent should not start with a marketing-first UX.
+
+---------------------------------------------------------------
+2) Replace initial chat boot with: ask for goal (UI-001)
+---------------------------------------------------------------
+
+When a NEW session starts:
+- Do NOT show any welcome text.
+- Do NOT run any LLM call.
+- Immediately check goal state using /api/goal.
+- If no goal is stored, show a simple inline message:
+
+   “Before we begin, what is your main sales/lead goal?”
+
+- Do not proceed until the user enters and saves a goal.
+
+---------------------------------------------------------------
+3) After goal is saved → reveal “Start Working On This Goal” button
+---------------------------------------------------------------
+
+Integrate the “Start working on this goal” button inside MyGoalsPanel,
+BUT only show it if:
+- hasGoal = true
+- AND no plan is currently pending/approved/executing.
+
+---------------------------------------------------------------
+4) When “Start working on this goal” is clicked:
+---------------------------------------------------------------
+
+Create a new REST endpoint call:
+POST /api/plan/start
+
+This should:
+- read the current sessionId
+- read the current saved goal
+- call the Supervisor to create a new LeadGenPlan (SUP-001)
+- respond with planId + status = "pending_approval"
+
+After this:
+- The PlanApprovalPanel (UI-030) should immediately pick up the new plan via its polling.
+
+---------------------------------------------------------------
+5) Rewrite chat send handler to use the agent pipeline
+---------------------------------------------------------------
+
+Remove the old “streamLLM” or “generic chat handler”.
+
+Replace with:
+- sendUserMessageToServer → server stores the message
+- Supervisor decides whether:
+    • to ask clarifying questions (UI-002)
+    • to generate a plan (SUP-001)
+    • to run a plan (SUP-002)
+    • or to fallback to a direct LLM completion
+
+Ensure chat messages now reflect agent actions, not LLM-only messages.
+
+---------------------------------------------------------------
+6) Fix ProgressWidget state for “no plan yet”
+---------------------------------------------------------------
+
+If /api/progress returns 404 or “no plan”, show:
+
+  “No active plan yet. Progress will appear after you start working on your goal.”
+
+Only show “Unable to load progress” for true errors.
+
+---------------------------------------------------------------
+7) Ensure sessionId generation is done BEFORE chat render
+---------------------------------------------------------------
+
+Fix App.tsx bootstrap so that:
+- sessionId is generated once
+- saved to localStorage
+- available to all hooks (useUserGoal, usePlan, useProgress)
+
+---------------------------------------------------------------
+8) Output requirements
+---------------------------------------------------------------
+
+For ANY file you modify:
+- Output the full file contents.
+- Include all necessary imports/exports.
+- No summaries, only concrete code.
+
+For ANY new file:
+- Output full file content.
+
+Focus on:
+- App.tsx
+- MyGoalsPanel
+- PlanApprovalPanel
+- Chat component
+- useChat hook
+- useUserGoal
+- usePlanForApproval
+- ProgressWidget
+- client-side agent pipeline
+
+I want the old chat wrapper startup logic gone and the new V1 agentic flow fully activated.

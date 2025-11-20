@@ -1,16 +1,20 @@
 import { useState, useEffect } from "react";
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
+import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
-import { Save, Check } from "lucide-react";
+import { Save, Check, Play } from "lucide-react";
 import { useUserGoal } from "@/hooks/use-user-goal";
+import { usePlanForApproval } from "@/hooks/use-plan-for-approval";
 import { useToast } from "@/hooks/use-toast";
+import { apiRequest } from "@/lib/queryClient";
 
 export function MyGoalsPanel() {
   const { goal, hasGoal, isLoading, updateGoal, isUpdating } = useUserGoal();
+  const { plan } = usePlanForApproval();
   const [localGoal, setLocalGoal] = useState("");
   const [isDirty, setIsDirty] = useState(false);
   const [showSaved, setShowSaved] = useState(false);
+  const [isStartingPlan, setIsStartingPlan] = useState(false);
   const { toast } = useToast();
 
   // Initialize local goal when data loads
@@ -56,6 +60,47 @@ export function MyGoalsPanel() {
       },
     });
   };
+
+  const handleStartWorking = async () => {
+    if (!hasGoal || !goal) {
+      toast({
+        variant: "destructive",
+        title: "No goal set",
+        description: "Please save your goal first.",
+      });
+      return;
+    }
+
+    setIsStartingPlan(true);
+    try {
+      const conversationId = localStorage.getItem('currentConversationId') || undefined;
+      const response = await apiRequest("POST", "/api/plan/start", {
+        goal,
+        conversationId,
+      });
+      
+      const data = await response.json();
+      
+      toast({
+        title: "Plan Created",
+        description: "Review and approve the plan to start execution.",
+      });
+      
+      console.log("✅ Plan created:", data.plan);
+    } catch (error: any) {
+      console.error("❌ Failed to start plan:", error);
+      toast({
+        variant: "destructive",
+        title: "Failed to create plan",
+        description: error.message || "An error occurred while creating the plan.",
+      });
+    } finally {
+      setIsStartingPlan(false);
+    }
+  };
+
+  // Show "Start working" button only if goal exists and no plan is pending/approved/executing
+  const showStartButton = hasGoal && !isDirty && !plan;
 
   return (
     <Card className="h-full flex flex-col" data-testid="card-my-goals">
@@ -110,6 +155,20 @@ For example:
           </>
         )}
       </CardContent>
+      {showStartButton && (
+        <CardFooter className="pt-0">
+          <Button
+            onClick={handleStartWorking}
+            disabled={isStartingPlan}
+            className="w-full"
+            variant="default"
+            data-testid="button-start-working"
+          >
+            <Play className="h-4 w-4 mr-2" />
+            {isStartingPlan ? "Creating plan..." : "Start Working On This Goal"}
+          </Button>
+        </CardFooter>
+      )}
     </Card>
   );
 }

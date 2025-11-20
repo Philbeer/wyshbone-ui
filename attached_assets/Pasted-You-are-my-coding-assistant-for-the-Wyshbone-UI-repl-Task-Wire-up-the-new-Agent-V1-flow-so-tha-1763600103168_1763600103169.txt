@@ -1,0 +1,92 @@
+You are my coding assistant for the Wyshbone UI repl.
+
+Task:
+Wire up the new Agent V1 flow so that a user can explicitly go:
+“My Goal” → “Start working on this goal” → see a plan → approve → see execution progress.
+
+Right now:
+- UI-010 (MyGoalsPanel) is implemented.
+- UI-020 (ProgressWidget) is implemented.
+- UI-030 (PlanApprovalPanel) and plan APIs are implemented, including a test/demo plan endpoint.
+- But there is no obvious way for a normal user to trigger plan creation from the UI for their current goal.
+
+I want you to:
+
+1) Add a clear “Start working on this goal” button
+-------------------------------------------------
+
+In the MyGoalsPanel component (client/src/components/my-goals-panel.tsx):
+
+- Under the goal textarea and “Save goal” button, add a new primary button:
+
+  “Start working on this goal”
+
+- This button should:
+  • Be disabled if there is no saved goal text.
+  • Call a new helper/hook to request plan creation for the current session/goal.
+  • Show a small “Starting…” loading state while it runs.
+
+2) Create a hook to start a plan for the current session
+--------------------------------------------------------
+
+Create a hook, e.g. in client/src/hooks/use-start-plan.ts:
+
+- It should expose something like:
+
+  interface UseStartPlanResult {
+    starting: boolean;
+    error?: string;
+    startPlan: () => Promise<void>;
+  }
+
+- `startPlan` should:
+  • POST to the existing plan-creation endpoint you added for UI-030 (the same one the demo/test endpoint uses, just without hardcoded demo data).
+  • If there is already a plan that is `pending_approval` or `executing` for this session, it should be a no-op or just refresh, not create duplicates.
+  • On success, it should cause the PlanApprovalPanel to see the new plan (i.e. rely on the polling in use-plan-for-approval).
+
+If there is currently only a “demo” or “test” plan endpoint:
+- Create a real route like POST /api/plan/start or similar on the server side that:
+  • Reads the goal for the current session
+  • Calls the existing plan-generation logic (SUP-001 wrapper)
+  • Persists the new plan with status "pending_approval"
+  • Returns { planId, status }
+
+Use the same sessionId mechanism as /api/goal.
+
+3) Improve ProgressWidget empty-state behaviour
+-----------------------------------------------
+
+In the ProgressWidget component / hook:
+
+- If the progress API returns:
+  • 404 / specific “no plan” shape
+  or
+  • an empty body signalling “no active plan”
+
+Then instead of “Unable to load progress”, show a friendly neutral state:
+
+  • Title: “Progress”
+  • Body: “No active plan yet. Once you start working on your goal, progress will appear here.”
+
+Keep “Unable to load progress” only for genuine errors (5xx, network failures, etc).
+
+4) End-to-end behaviour
+-----------------------
+
+After these changes, the expected UX should be:
+
+- User enters goal in MyGoal panel → clicks “Save goal”
+- User clicks “Start working on this goal”
+- The UI calls the plan-start API for this session
+- PlanApprovalPanel polling detects a `pending_approval` plan and shows it
+- User approves the plan
+- Supervisor starts executing
+- ProgressWidget shows live progress instead of an error
+
+5) Output requirements
+----------------------
+
+- For any new files (hook, server route): output full contents.
+- For modified files (MyGoalsPanel, ProgressWidget, server/routes.ts or equivalent): output full contents with changes applied.
+- Include all necessary imports and exports.
+- Do not describe changes – produce concrete, copy-pasteable code.
