@@ -1,0 +1,159 @@
+You are working in Wyshbone-UI.
+Backend / Supervisor is already correct and working:
+
+POST /api/plan/start creates a plan with an id and status: "pending_approval".
+
+POST /api/plan/approve starts background execution via the Supervisor plan executor.
+
+GET /api/plan-status?planId=<id> returns live progress keyed by planId.
+
+The plan executor has been tested via curl and runs steps sequentially, updating progress and finishing with status: "completed".
+
+The bug (current behaviour in UI)
+
+In Preview:
+
+I enter a goal in My Goal panel (right-hand side) and click “Start Working On This Goal”.
+
+A plan appears in the Plan Approval panel with steps.
+
+I click Approve Plan → I get a toast “Plan Approved – Wyshbone will now execute your plan”.
+
+The Plan Approval panel disappears, and the Progress card at the bottom right still says:
+
+“No active plan running. When you approve a plan, progress will appear here.”
+
+In DevTools → Network tab, I only see calls like
+GET /plan?user_id=...&conversationId=... (status 304),
+but I never see any GET /api/plan-status?planId=... calls at all.
+
+So the backend executor is running, but the UI never polls /api/plan-status, and the user never sees step-by-step progress.
+
+You already did some partial work:
+
+use-plan-for-approval.ts now returns { planId, plan, status, startPlan, approvePlan, ... }.
+
+use-plan-progress.ts takes (planId: string | null, isActive: boolean) and builds the URL as
+GET /api/plan-status?planId=${planId}.
+
+progress-widget.tsx calls usePlanProgress(planId, status === 'executing').
+
+plan-approval-panel.tsx uses plan.id when approving.
+
+But in practice, after I click Approve Plan, no polling happens and progress remains blank.
+
+What I want you to do
+
+Please debug and fully fix the UI side so that:
+
+When I click Start Working On This Goal:
+
+A plan is created via POST /api/plan/start.
+
+The returned plan.id is stored in usePlanForApproval state as planId.
+
+The hook status becomes 'pending_approval' (or similar) and the Plan Approval panel shows the steps.
+
+When I click Approve Plan:
+
+POST /api/plan/approve is called with that same planId.
+
+Once the approve call resolves, the hook status becomes 'executing', and planId remains set.
+
+The Progress widget becomes active and starts polling /api/plan-status?planId=<planId> every 5s.
+
+Progress data from the response is displayed in the Progress widget (e.g. current step, completed steps, final status).
+
+When the plan finishes:
+
+The progress widget updates to show completed or failed.
+
+Polling stops once the plan is no longer executing.
+
+Concrete steps to do
+
+Reproduce the bug in Preview (as above), with DevTools → Network open, filter plan and plan-status.
+
+Add temporary logs to understand state flow:
+
+In client/src/hooks/use-plan-for-approval.ts:
+
+After every significant state change, console.log('[usePlanForApproval] planId, status, plan', { planId, status, plan }).
+
+In client/src/hooks/use-plan-progress.ts:
+
+Inside the queryFn, console.log('[usePlanProgress] fetching /api/plan-status', { planId, isActive }).
+
+Verify where the state machine is broken:
+
+Confirm what status value is set after Approve Plan completes.
+
+Confirm whether planId is still populated at that point.
+
+Confirm whether ProgressWidget is actually mounted and calling usePlanProgress(planId, status === 'executing').
+
+Fix the state machine so that:
+
+startPlan mutation:
+
+Saves plan.id into hook state (planId).
+
+Sets status to something like 'pending_approval'.
+
+approvePlan mutation:
+
+Calls POST /api/plan/approve with the stored planId.
+
+On success:
+
+Sets status = 'executing'.
+
+Leaves planId unchanged.
+
+Optionally keeps the plan data so the user can still see the steps summary.
+
+Ensure you are not resetting planId or status back to idle when the Plan Approval panel closes.
+
+Wire Progress widget correctly:
+
+In progress-widget.tsx, rely only on the values from usePlanForApproval():
+
+const { planId, status } = usePlanForApproval();
+
+const isActive = status === 'executing';
+
+const { data: progress } = usePlanProgress(planId, isActive);
+
+Make sure the component is always rendered (even if showing “No active plan running”) so that when status flips to 'executing', polling automatically starts.
+
+Use progress to show something simple for now (e.g. currentStep, totalSteps, state).
+
+Retest in Preview:
+
+Enter a goal → Start working on this goal → Approve plan.
+
+In DevTools → Network, I should now see repeating:
+
+GET /api/plan-status?planId=<actual-plan-id> every 5 seconds while execution is running.
+
+The Progress card should update from “No active plan running” to some in-progress message, and later to completed.
+
+Remove or downgrade the noisy logs once everything works (keep one or two useful ones if needed).
+
+Acceptance criteria
+
+After approving a plan, I can visibly see the plan executing in the Progress card (even if it’s just stubbed steps for now).
+
+Network tab shows active polling of /api/plan-status?planId=<id> during execution.
+
+When execution finishes, the Progress card reflects success or failure and polling stops.
+
+Nothing else in the chat UX is broken.
+
+Please implement the fix end-to-end and then give me a short summary of:
+
+What was wrong.
+
+What you changed (file names + key behaviours).
+
+How to reproduce and see the progress working.
