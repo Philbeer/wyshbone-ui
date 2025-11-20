@@ -13,7 +13,6 @@ export interface LeadGenStep {
 export interface LeadGenPlan {
   id: string;
   sessionId: string;
-  conversationId?: string;
   goal: string;
   steps: LeadGenStep[];
   createdAt: string;
@@ -38,10 +37,8 @@ export function usePlanForApproval() {
     mutationFn: async (goal: string) => {
       console.log(`🚀 usePlanForApproval: startPlanMutation called with goal:`, goal.substring(0, 50) + "...");
       
-      const conversationId = localStorage.getItem('currentConversationId') || undefined;
       const response = await apiRequest("POST", "/api/plan/start", {
         goal,
-        conversationId,
       });
       const data = await response.json();
       
