@@ -3623,34 +3623,51 @@ CRITICAL RULES:
       // Get current goal
       const goal = await getUserGoal(sessionId);
       
-      // Get active supervisor task for the current conversation (if any)
-      // We'll use the most recent conversation ID for this session
-      const conversationId = req.query.conversationId as string | undefined;
+      // Check for active plan execution using the leadgen-executor
+      const { getExecutionBySession, getExecutionByConversation } = await import('./leadgen-executor.js');
       
-      let activeSupervisorTask = null;
-      if (conversationId && isSupabaseConfigured()) {
-        const { getActiveSupervisorTask } = await import('./supabase-client.js');
-        activeSupervisorTask = await getActiveSupervisorTask(conversationId);
+      // Try to get execution by conversation ID first (if provided), then fall back to session
+      const conversationId = req.query.conversationId as string | undefined;
+      let execution = conversationId 
+        ? getExecutionByConversation(conversationId) 
+        : getExecutionBySession(sessionId);
+      
+      // If no execution found by conversation, try session
+      if (!execution && conversationId) {
+        execution = getExecutionBySession(sessionId);
       }
       
-      // Build response based on available data
+      if (!execution) {
+        // No active execution - return empty state
+        return res.json({
+          goal: goal || null,
+          planId: null,
+          totalSteps: 0,
+          completedSteps: 0,
+          currentStep: null,
+          lastUpdatedAt: new Date().toISOString()
+        });
+      }
+      
+      // Calculate completed steps
+      const completedSteps = execution.stepProgress.filter(s => s.status === 'completed').length;
+      
+      // Find current step (first running or pending step)
+      const currentStepProgress = execution.stepProgress.find(s => s.status === 'running') ||
+                                  execution.stepProgress.find(s => s.status === 'pending');
+      
+      // Build response based on execution data
       const response = {
         goal: goal || null,
-        planId: activeSupervisorTask?.id || null,
-        totalSteps: activeSupervisorTask ? 3 : 0, // Simplified: assume 3 steps for active tasks
-        completedSteps: activeSupervisorTask?.status === 'processing' ? 1 : 
-                        activeSupervisorTask?.status === 'completed' ? 3 : 0,
-        currentStep: activeSupervisorTask ? {
-          id: activeSupervisorTask.id,
-          label: activeSupervisorTask.task_type === 'generate_leads' ? 'Finding leads' :
-                 activeSupervisorTask.task_type === 'analyze_conversation' ? 'Analyzing conversation' :
-                 'Providing insights',
-          status: activeSupervisorTask.status === 'pending' ? 'pending' as const :
-                  activeSupervisorTask.status === 'processing' ? 'running' as const :
-                  activeSupervisorTask.status === 'completed' ? 'completed' as const :
-                  'failed' as const
+        planId: execution.planId,
+        totalSteps: execution.steps.length,
+        completedSteps,
+        currentStep: currentStepProgress ? {
+          id: currentStepProgress.stepId,
+          label: execution.steps[currentStepProgress.stepIndex].label,
+          status: currentStepProgress.status
         } : null,
-        lastUpdatedAt: activeSupervisorTask?.created_at ? new Date(activeSupervisorTask.created_at).toISOString() : new Date().toISOString()
+        lastUpdatedAt: execution.startedAt
       };
       
       res.json(response);
@@ -3760,52 +3777,61 @@ CRITICAL RULES:
       
       const { planId } = req.body;
       
+      console.log(`📋 /api/plan/approve called for planId: ${planId}`);
+      
       if (!planId) {
         return res.status(400).json({ error: "Plan ID is required" });
       }
       
       const { approvePlan, getPlanById, updatePlanStatus } = await import('./leadgen-plan.js');
       
+      // Get the plan first to validate it exists
+      const plan = getPlanById(planId);
+      if (!plan) {
+        console.error(`❌ Plan not found: ${planId}`);
+        return res.status(404).json({ error: "Plan not found" });
+      }
+      
+      console.log(`✅ Found plan: ${planId}, status: ${plan.status}`);
+      
       // Approve the plan
       const approvedPlan = approvePlan(planId);
       
       if (!approvedPlan) {
+        console.error(`❌ Failed to approve plan: ${planId}`);
         return res.status(404).json({ error: "Plan not found" });
       }
       
-      // Trigger Supervisor execution (SUP-002)
-      // Create a supervisor task for this approved plan
-      if (approvedPlan.conversationId && isSupabaseConfigured()) {
-        try {
-          const supervisorTask = await createSupervisorTask(
-            approvedPlan.conversationId,
-            auth.userId,
-            'generate_leads',
-            {
-              user_message: approvedPlan.goal,
-              search_query: {
-                business_type: 'businesses', // Simplified - would be extracted from goal
-                location: 'location' // Simplified - would be extracted from goal
-              }
-            }
-          );
-          
-          // Update plan with supervisor task ID and mark as executing
-          updatePlanStatus(planId, 'executing', supervisorTask.id);
-          
-          console.log(`✅ Plan ${planId} approved and execution started (task: ${supervisorTask.id})`);
-        } catch (error) {
-          console.error('Failed to create supervisor task:', error);
-          // Plan is still approved, but execution failed to start
-        }
-      }
+      console.log(`✅ Plan approved: ${planId}`);
       
-      res.json({
-        success: true,
-        plan: approvedPlan
-      });
+      // Trigger SUP-002 execution using the leadgen-executor
+      try {
+        const { startPlanExecution } = await import('./leadgen-executor.js');
+        
+        // Start background execution
+        const execution = await startPlanExecution(approvedPlan);
+        
+        // Update plan status to executing
+        updatePlanStatus(planId, 'executing');
+        
+        console.log(`✅ Plan ${planId} approved and SUP-002 execution started`);
+        console.log(`  📊 Execution has ${execution.steps.length} steps to complete`);
+        
+        // Return success response
+        res.json({
+          planId: approvedPlan.id,
+          status: 'executing'
+        });
+      } catch (executionError: any) {
+        console.error(`❌ Failed to start execution for plan ${planId}:`, executionError);
+        
+        // Plan is approved but execution failed to start
+        return res.status(500).json({ 
+          error: `Plan approved but failed to start execution: ${executionError.message}` 
+        });
+      }
     } catch (error: any) {
-      console.error("Error approving plan:", error);
+      console.error("❌ Error approving plan:", error);
       res.status(500).json({ error: error.message });
     }
   });

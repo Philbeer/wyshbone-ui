@@ -34,29 +34,41 @@ export function usePlanForApproval() {
 
   const approveMutation = useMutation({
     mutationFn: async (planId: string) => {
-      return await apiRequest("/api/plan/approve", {
-        method: "POST",
-        body: JSON.stringify({ planId }),
-        headers: { "Content-Type": "application/json" },
-      });
+      console.log(`🔄 usePlanForApproval: approveMutation called with planId: ${planId}`);
+      
+      const response = await apiRequest("POST", "/api/plan/approve", { planId });
+      const data = await response.json();
+      
+      console.log(`✅ usePlanForApproval: approval response:`, data);
+      return data;
     },
     onSuccess: () => {
+      console.log(`✅ usePlanForApproval: invalidating plan query`);
       // Invalidate plan query to refetch
       queryClient.invalidateQueries({ queryKey: ["/api/plan"] });
+    },
+    onError: (error) => {
+      console.error(`❌ usePlanForApproval: approval failed:`, error);
     },
   });
 
   const regenerateMutation = useMutation({
     mutationFn: async (planId: string) => {
-      return await apiRequest("/api/plan/regenerate", {
-        method: "POST",
-        body: JSON.stringify({ planId }),
-        headers: { "Content-Type": "application/json" },
-      });
+      console.log(`🔄 usePlanForApproval: regenerateMutation called with planId: ${planId}`);
+      
+      const response = await apiRequest("POST", "/api/plan/regenerate", { planId });
+      const data = await response.json();
+      
+      console.log(`✅ usePlanForApproval: regenerate response:`, data);
+      return data;
     },
     onSuccess: () => {
+      console.log(`✅ usePlanForApproval: invalidating plan query after regenerate`);
       // Invalidate plan query to refetch
       queryClient.invalidateQueries({ queryKey: ["/api/plan"] });
+    },
+    onError: (error) => {
+      console.error(`❌ usePlanForApproval: regeneration failed:`, error);
     },
   });
 

@@ -1,0 +1,136 @@
+You are my coding assistant for the Wyshbone UI repl.
+
+Current state:
+- /api/goal and My Goal panel work.
+- /api/plan/start works: it creates a plan and the PlanApprovalPanel shows it.
+- When I click “Approve plan”, the UI shows an error instead of starting execution.
+- I have NEVER seen progress move past “Unable to load progress”.
+
+Goal:
+Fix the plan approval flow so that:
+
+  PlanApprovalPanel “Approve plan” → calls the server → marks plan as approved → starts SUP-002 execution for that plan → Progress widget can show step-by-step progress.
+
+------------------------------
+1) Inspect the approval flow
+------------------------------
+
+Find and inspect:
+
+- client/src/hooks/use-plan-for-approval.ts
+- client/src/components/plan-approval-panel.tsx
+- Any API helper used to approve a plan.
+
+Identify:
+- Which endpoint the approval button calls (e.g. POST /api/plan/approve, /api/plan/:id/approve, etc).
+- The request shape (body / params).
+- How errors are surfaced to the UI.
+
+Log this in comments as you go so we can see the “intended” contract.
+
+------------------------------
+2) Ensure server has a matching approval route
+------------------------------
+
+On the server side, inspect:
+
+- server/routes.ts (or wherever routes are defined)
+- Any controller/service for plan approval and execution, e.g.:
+  - approveLeadGenPlan
+  - startPlanExecution
+  - executeLeadGenPlan
+  - supervisor-related helpers.
+
+You must ensure there is a route like:
+
+  POST /api/plan/approve
+
+OR something very close.
+
+This route should:
+
+- Read the current sessionId using the SAME helper as chat/goals (getSessionId).
+- Read the planId from the request (body or URL).
+- Validate that the plan exists for that session and is in a “pending_approval” state.
+- Mark the plan status as “approved” and/or “executing”.
+- Trigger the SUP-002 execution logic for that plan (whatever function runs a LeadGenPlan step-by-step).
+- Return a JSON response like:
+
+  { planId, status: "executing" }
+
+Add robust try/catch with logging:
+
+- Log the planId, sessionId, and error message if anything fails.
+- Return a 400/500 with a friendly error string if something goes wrong.
+
+------------------------------
+3) Make the PlanApprovalPanel handle errors gracefully
+------------------------------
+
+In client/src/components/plan-approval-panel.tsx:
+
+- Ensure clicking “Approve plan”:
+
+  - Shows a loading state while the request is in-flight.
+  - If the API returns success, it should:
+      * update local state if needed
+      * let the existing polling logic pick up the new status (executing)
+  - If the API throws, display a small inline error message like:
+      “Sorry, something went wrong approving the plan. Please try again.”
+
+- Add console.log around the approval call so we can see:
+  - the planId being sent
+  - the response status
+  - any error message
+
+------------------------------
+4) Hook plan execution to Progress widget
+------------------------------
+
+Check how the Progress widget gets its data:
+
+- Which endpoint does it call? (Probably something like GET /api/progress or /api/plan/:id/progress).
+- Make sure that the server’s approval handler (from step 2) actually TRIGGERS whatever mechanism is responsible for:
+  - starting SUP-002 execution for that plan
+  - emitting/updating progress for that plan or session.
+
+If there is already a “start execution” helper for SUP-002, make sure the approval route calls it.
+
+If progress is keyed by sessionId instead of planId, ensure:
+
+- The approval route associates this plan with the current session in whatever structure the progress endpoint uses.
+- The progress endpoint can see that there is now an active plan for that session.
+
+------------------------------
+5) Expected behaviour after your changes
+------------------------------
+
+After your implementation, the flow for a user should be:
+
+1) Enter goal in My Goal → Save goal (works already).
+2) Click “Start working on this goal” → a plan appears in PlanApprovalPanel.
+3) Click “Approve plan”:
+   - No error is thrown.
+   - The approval button briefly shows loading.
+   - The plan status becomes executing.
+   - The Progress widget begins showing:
+        - “Step 1 of X”
+        - A progress bar
+        - Completed vs total steps.
+
+And internally:
+- SUP-002 is actually running the plan.
+- Any errors in SUP-002 are logged server-side without crashing the approval call.
+
+------------------------------
+6) Output requirements
+------------------------------
+
+For every file you modify (client or server):
+
+- Output the FULL file contents (imports + exports).
+- Do not just describe changes – produce concrete, copy-pasteable code.
+
+For any new file (e.g. an execution helper), output the full contents.
+
+Implement the above now so that clicking “Approve plan” successfully starts SUP-002 execution and Progress can show live updates.
