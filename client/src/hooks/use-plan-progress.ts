@@ -34,6 +34,8 @@ interface PlanStatusResponse {
 export function usePlanProgress(planId: string | null, isActive: boolean): PlanProgress {
   const { user } = useUser();
 
+  console.log(`[PLAN_PROGRESS_DEBUG] hook called - planId=${planId}, isActive=${isActive}, enabled=${!!user && !!planId && isActive}`);
+
   const { data, isLoading, error } = useQuery<PlanStatusResponse>({
     queryKey: ["/api/plan-status", planId],
     queryFn: async () => {
@@ -42,22 +44,27 @@ export function usePlanProgress(planId: string | null, isActive: boolean): PlanP
       }
       
       // Build URL with planId query parameter
-      const url = addDevAuthParams(`/api/plan-status?planId=${planId}`);
-      console.log(`📊 usePlanProgress: fetching progress for planId=${planId} from ${url}`);
+      const url = addDevAuthParams(`/api/plan-status?planId=${encodeURIComponent(planId)}`);
+      console.log(`[PLAN_PROGRESS_DEBUG] fetching /api/plan-status for planId=${planId}, url=${url}`);
       
       const response = await fetch(url);
       if (!response.ok) {
+        console.error(`[PLAN_PROGRESS_DEBUG] fetch failed - status=${response.status}, statusText=${response.statusText}`);
         throw new Error(`Failed to fetch plan status: ${response.statusText}`);
       }
       
       const data = await response.json();
-      console.log(`✅ usePlanProgress: received progress data:`, data);
+      console.log(`[PLAN_PROGRESS_DEBUG] received response - status=${data.status}, completedSteps=${data.completedSteps}, totalSteps=${data.totalSteps}, currentStep=${data.currentStep?.label || 'none'}`);
       return data;
     },
     enabled: !!user && !!planId && isActive,
     refetchInterval: isActive ? 5000 : false, // Poll every 5 seconds only when active
     staleTime: 3000,
   });
+
+  if (isActive && planId) {
+    console.log(`[PLAN_PROGRESS_DEBUG] polling status - isLoading=${isLoading}, hasData=${!!data}, error=${error ? String(error) : 'none'}`);
+  }
 
   // Calculate percent complete
   const percentComplete = data?.totalSteps

@@ -85,16 +85,16 @@ export function PlanApprovalPanel() {
   }
 
   const handleApprove = async () => {
-    console.log(`✅ PlanApprovalPanel: approving plan ${plan.id}`);
+    console.log(`[PLAN_DEBUG] PlanApprovalPanel: handleApprove called for plan ${plan.id}`);
     try {
       await approvePlan(plan.id);
       toast({
         title: "Plan Approved",
         description: "Wyshbone will now execute your plan.",
       });
-      console.log(`✅ PlanApprovalPanel: plan ${plan.id} approved successfully`);
+      console.log(`[PLAN_DEBUG] PlanApprovalPanel: plan ${plan.id} approved successfully via hook`);
     } catch (error) {
-      console.error(`❌ PlanApprovalPanel: failed to approve plan ${plan.id}:`, error);
+      console.error(`[PLAN_DEBUG] PlanApprovalPanel: failed to approve plan ${plan.id}:`, error);
       toast({
         title: "Approval Failed",
         description: "Failed to approve plan. Please try again.",

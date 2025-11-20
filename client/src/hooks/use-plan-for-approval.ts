@@ -38,66 +38,70 @@ export function usePlanForApproval() {
   });
 
   // Sync local state with plan data from query
+  // Only sync when a plan exists - don't reset when plan becomes null
   useEffect(() => {
     if (plan) {
       // Update local state when we get a plan from the backend
       setActivePlanId(plan.id);
       setActiveStatus(plan.status);
-      console.log('[usePlanForApproval] synced state from query - planId:', plan.id, 'status:', plan.status);
+      console.log('[PLAN_DEBUG] synced state from query - planId:', plan.id, 'status:', plan.status);
+    } else {
+      console.log('[PLAN_DEBUG] query returned null plan - keeping existing state - planId:', activePlanId, 'status:', activeStatus);
     }
-  }, [plan]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [plan]); // Only depend on plan - don't include activePlanId/activeStatus to avoid infinite loops
 
   // Mutation to start a new plan
   const startPlanMutation = useMutation({
     mutationFn: async (goal: string) => {
-      console.log(`🚀 usePlanForApproval: startPlanMutation called with goal:`, goal.substring(0, 50) + "...");
+      console.log(`[PLAN_DEBUG] startPlan called with goal:`, goal.substring(0, 50) + "...");
       
       const response = await apiRequest("POST", "/api/plan/start", {
         goal,
       });
       const data = await response.json();
       
-      console.log(`✅ usePlanForApproval: plan/start response:`, data);
+      console.log(`[PLAN_DEBUG] startPlan response:`, data);
       return data;
     },
     onSuccess: (data) => {
-      console.log(`✅ usePlanForApproval: plan created, planId:`, data.plan?.id);
       // Set local state
       if (data.plan) {
-        setActivePlanId(data.plan.id);
-        setActiveStatus(data.plan.status || 'pending_approval');
-        console.log('[usePlanForApproval] set local state after startPlan - planId:', data.plan.id, 'status:', data.plan.status);
+        const newPlanId = data.plan.id;
+        const newStatus = data.plan.status || 'pending_approval';
+        setActivePlanId(newPlanId);
+        setActiveStatus(newStatus);
+        console.log(`[PLAN_DEBUG] after startPlan - planId=${newPlanId}, status=${newStatus}`);
       }
       // Invalidate plan query to refetch the new plan
       queryClient.invalidateQueries({ queryKey: ["/api/plan"] });
     },
     onError: (error) => {
-      console.error(`❌ usePlanForApproval: plan start failed:`, error);
+      console.error(`[PLAN_DEBUG] startPlan failed:`, error);
     },
   });
 
   // Mutation to approve a plan
   const approveMutation = useMutation({
     mutationFn: async (planId: string) => {
-      console.log(`🔄 usePlanForApproval: approveMutation called with planId: ${planId}`);
+      console.log(`[PLAN_DEBUG] approvePlan called for planId=${planId}`);
       
       const response = await apiRequest("POST", "/api/plan/approve", { planId });
       const data = await response.json();
       
-      console.log(`✅ usePlanForApproval: approval response:`, data);
+      console.log(`[PLAN_DEBUG] approvePlan API response:`, data);
       return { data, planId };
     },
     onSuccess: ({ planId }) => {
-      console.log(`✅ usePlanForApproval: plan approved, setting status to executing for planId: ${planId}`);
       // Keep the planId and set status to executing
       setActivePlanId(planId);
       setActiveStatus('executing');
-      console.log('[usePlanForApproval] set local state after approvePlan - planId:', planId, 'status: executing');
+      console.log(`[PLAN_DEBUG] after approvePlan - planId=${planId}, status=executing`);
       // Invalidate plan query to refetch
       queryClient.invalidateQueries({ queryKey: ["/api/plan"] });
     },
     onError: (error) => {
-      console.error(`❌ usePlanForApproval: approval failed:`, error);
+      console.error(`[PLAN_DEBUG] approvePlan failed:`, error);
     },
   });
 
@@ -122,7 +126,7 @@ export function usePlanForApproval() {
     },
   });
 
-  console.log('[usePlanForApproval] current state - activePlanId:', activePlanId, 'activeStatus:', activeStatus, 'plan from query:', plan?.id);
+  console.log(`[PLAN_DEBUG] hook state - planId=${activePlanId}, status=${activeStatus}, plan from query=${plan?.id || 'null'}`);
 
   return {
     loading: isLoading,

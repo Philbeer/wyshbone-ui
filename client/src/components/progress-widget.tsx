@@ -16,7 +16,7 @@ export function ProgressWidget() {
   const isActive = status === 'executing';
   const progress = usePlanProgress(planId, isActive);
 
-  console.log("📊 ProgressWidget: planId:", planId, "status:", status, "isActive:", isActive);
+  console.log(`[PLAN_PROGRESS_DEBUG] render - planId=${planId}, status=${status}, isActive=${isActive}, progress={completedSteps:${progress.completedSteps}, totalSteps:${progress.totalSteps}, currentStep:${progress.currentStep?.label || 'none'}}`);
 
   // Loading state
   if (progress.loading) {
