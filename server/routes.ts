@@ -3806,7 +3806,27 @@ CRITICAL RULES:
       
       // Trigger SUP-002 execution using the leadgen-executor
       try {
-        const { startPlanExecution } = await import('./leadgen-executor.js');
+        const { startPlanExecution, getPlanExecution } = await import('./leadgen-executor.js');
+        
+        // Guard against duplicate execution
+        const existingExecution = getPlanExecution(planId);
+        if (existingExecution) {
+          console.log(`⚠️ Execution already exists for plan ${planId}, status: ${existingExecution.status}`);
+          
+          // If execution is still running, return current state
+          if (existingExecution.status === 'executing') {
+            return res.json({
+              planId: approvedPlan.id,
+              status: 'executing'
+            });
+          }
+          
+          // If execution completed or failed, allow viewing the result
+          return res.json({
+            planId: approvedPlan.id,
+            status: existingExecution.status
+          });
+        }
         
         // Start background execution
         const execution = await startPlanExecution(approvedPlan);

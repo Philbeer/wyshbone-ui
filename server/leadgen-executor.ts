@@ -71,6 +71,9 @@ export async function startPlanExecution(plan: LeadGenPlan): Promise<PlanExecuti
 async function executeStepsInBackground(execution: PlanExecution): Promise<void> {
   console.log(`⚙️ Background executor started for plan ${execution.planId}`);
   
+  // Import updatePlanStatus to persist state back to leadgen-plan
+  const { updatePlanStatus } = await import('./leadgen-plan.js');
+  
   for (let i = 0; i < execution.steps.length; i++) {
     const step = execution.steps[i];
     const progress = execution.stepProgress[i];
@@ -107,6 +110,11 @@ async function executeStepsInBackground(execution: PlanExecution): Promise<void>
       execution.error = `Step ${i + 1} failed: ${error.message}`;
       execution.completedAt = new Date().toISOString();
       executions.set(execution.planId, execution);
+      
+      // Persist failure status back to plan
+      updatePlanStatus(execution.planId, 'failed');
+      
+      console.log(`💾 Persisted failed status to plan ${execution.planId}`);
       return;
     }
   }
@@ -116,7 +124,11 @@ async function executeStepsInBackground(execution: PlanExecution): Promise<void>
   execution.completedAt = new Date().toISOString();
   executions.set(execution.planId, execution);
   
+  // Persist completion status back to plan
+  updatePlanStatus(execution.planId, 'completed');
+  
   console.log(`🎉 Plan execution completed for ${execution.planId}`);
+  console.log(`💾 Persisted completed status to plan ${execution.planId}`);
 }
 
 /**
@@ -152,22 +164,22 @@ export function getPlanExecution(planId: string): PlanExecution | null {
 }
 
 /**
- * Get execution by session ID (returns most recent active execution)
+ * Get execution by session ID (returns most recent execution regardless of status)
  */
 export function getExecutionBySession(sessionId: string): PlanExecution | null {
   const sessionExecutions = Array.from(executions.values())
-    .filter(exec => exec.sessionId === sessionId && exec.status === 'executing')
+    .filter(exec => exec.sessionId === sessionId)
     .sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime());
   
   return sessionExecutions[0] || null;
 }
 
 /**
- * Get execution by conversation ID (for UI that tracks by conversation)
+ * Get execution by conversation ID (returns most recent execution regardless of status)
  */
 export function getExecutionByConversation(conversationId: string): PlanExecution | null {
   const conversationExecutions = Array.from(executions.values())
-    .filter(exec => exec.conversationId === conversationId && exec.status === 'executing')
+    .filter(exec => exec.conversationId === conversationId)
     .sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime());
   
   return conversationExecutions[0] || null;
