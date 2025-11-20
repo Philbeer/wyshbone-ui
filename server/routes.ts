@@ -3624,16 +3624,20 @@ CRITICAL RULES:
       const goal = await getUserGoal(sessionId);
       
       // Check for active plan execution using the leadgen-executor
-      const { getExecutionBySession, getExecutionByConversation } = await import('./leadgen-executor.js');
+      const { getExecutionBySession, getExecutionByConversation, getPlanExecution } = await import('./leadgen-executor.js');
       
-      // Try to get execution by conversation ID first (if provided), then fall back to session
+      // Try to get execution by planId first (if provided), then conversation ID, then session
+      const planId = req.query.planId as string | undefined;
       const conversationId = req.query.conversationId as string | undefined;
-      let execution = conversationId 
-        ? getExecutionByConversation(conversationId) 
-        : getExecutionBySession(sessionId);
+      
+      let execution = planId 
+        ? getPlanExecution(planId)
+        : conversationId 
+          ? getExecutionByConversation(conversationId) 
+          : getExecutionBySession(sessionId);
       
       // If no execution found by conversation, try session
-      if (!execution && conversationId) {
+      if (!execution && conversationId && !planId) {
         execution = getExecutionBySession(sessionId);
       }
       

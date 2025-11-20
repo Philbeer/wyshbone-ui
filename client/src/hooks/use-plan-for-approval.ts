@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useUser } from "@/contexts/UserContext";
 import { apiRequest } from "@/lib/queryClient";
+import { useState, useEffect } from "react";
 
 export interface LeadGenStep {
   id: string;
@@ -23,6 +24,10 @@ export interface LeadGenPlan {
 export function usePlanForApproval() {
   const { user } = useUser();
   const queryClient = useQueryClient();
+  
+  // Maintain local state for active plan tracking
+  const [activePlanId, setActivePlanId] = useState<string | null>(null);
+  const [activeStatus, setActiveStatus] = useState<string>('idle');
 
   // Fetch current plan from backend
   const { data: plan, isLoading, error } = useQuery<LeadGenPlan | null>({
@@ -31,6 +36,16 @@ export function usePlanForApproval() {
     refetchInterval: 5000, // Poll every 5 seconds for plan updates
     staleTime: 3000,
   });
+
+  // Sync local state with plan data from query
+  useEffect(() => {
+    if (plan) {
+      // Update local state when we get a plan from the backend
+      setActivePlanId(plan.id);
+      setActiveStatus(plan.status);
+      console.log('[usePlanForApproval] synced state from query - planId:', plan.id, 'status:', plan.status);
+    }
+  }, [plan]);
 
   // Mutation to start a new plan
   const startPlanMutation = useMutation({
@@ -47,6 +62,12 @@ export function usePlanForApproval() {
     },
     onSuccess: (data) => {
       console.log(`✅ usePlanForApproval: plan created, planId:`, data.plan?.id);
+      // Set local state
+      if (data.plan) {
+        setActivePlanId(data.plan.id);
+        setActiveStatus(data.plan.status || 'pending_approval');
+        console.log('[usePlanForApproval] set local state after startPlan - planId:', data.plan.id, 'status:', data.plan.status);
+      }
       // Invalidate plan query to refetch the new plan
       queryClient.invalidateQueries({ queryKey: ["/api/plan"] });
     },
@@ -64,10 +85,14 @@ export function usePlanForApproval() {
       const data = await response.json();
       
       console.log(`✅ usePlanForApproval: approval response:`, data);
-      return data;
+      return { data, planId };
     },
-    onSuccess: () => {
-      console.log(`✅ usePlanForApproval: invalidating plan query`);
+    onSuccess: ({ planId }) => {
+      console.log(`✅ usePlanForApproval: plan approved, setting status to executing for planId: ${planId}`);
+      // Keep the planId and set status to executing
+      setActivePlanId(planId);
+      setActiveStatus('executing');
+      console.log('[usePlanForApproval] set local state after approvePlan - planId:', planId, 'status: executing');
       // Invalidate plan query to refetch
       queryClient.invalidateQueries({ queryKey: ["/api/plan"] });
     },
@@ -97,11 +122,13 @@ export function usePlanForApproval() {
     },
   });
 
+  console.log('[usePlanForApproval] current state - activePlanId:', activePlanId, 'activeStatus:', activeStatus, 'plan from query:', plan?.id);
+
   return {
     loading: isLoading,
     plan: plan || null,
-    planId: plan?.id || null,
-    status: plan?.status || 'idle',
+    planId: activePlanId, // Use local state instead of plan data
+    status: activeStatus,  // Use local state instead of plan data
     startPlan: (goal: string) => startPlanMutation.mutateAsync(goal),
     approvePlan: (planId: string) => approveMutation.mutateAsync(planId),
     regeneratePlan: (planId: string) => regenerateMutation.mutateAsync(planId),
