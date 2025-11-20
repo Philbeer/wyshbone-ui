@@ -1,0 +1,202 @@
+You are my coding assistant for the Wyshbone UI repl.
+
+Goal for UI-020:
+Connect the existing Goal panel, Plan Approval panel, and Progress widget to the new Supervisor plan API:
+
+- POST /api/plan/start
+- POST /api/plan/approve
+- GET  /api/plan/progress?planId=...
+
+Right now the UI still uses old placeholder logic. After this task, the UI must:
+
+1) Send the real goal text to /api/plan/start.
+2) Render the actual plan returned by the backend (not hard-coded steps).
+3) Approve the real plan via /api/plan/approve.
+4) Poll /api/plan/progress for that planId and show step-by-step progress.
+
+You JUST implemented these endpoints in Supervisor and they’re fully tested, so assume they exist and behave exactly as the summary said.
+
+--------------------------------------
+1) Inspect current plan / progress UI
+--------------------------------------
+
+Please open and inspect:
+
+- client/src/hooks/use-user-goal.ts
+- client/src/hooks/use-plan-for-approval.ts
+- client/src/components/my-goals-panel.tsx
+- client/src/components/plan-approval-panel.tsx
+- client/src/components/progress-widget.tsx (or similarly named file)
+- Any existing API helper utilities (e.g. client/src/lib/api.ts, if present)
+
+I want you to understand:
+
+- How the goal is currently stored.
+- How the plan steps are currently being shown (they are still mock/placeholder).
+- How the Progress widget currently fetches data (it probably isn’t calling /api/plan/progress yet).
+
+Please add brief comments in the code if needed to document the old behaviour before you replace it.
+
+--------------------------------------
+2) Wire “Start Working On This Goal” → POST /api/plan/start
+--------------------------------------
+
+Behaviour we want:
+
+- When the user clicks **“Start Working On This Goal”**:
+  - Take the current goal text (from the right-hand My Goal panel).
+  - Call `POST /api/plan/start` with a JSON body like:
+
+      { "goal": "<goal text>" }
+
+    (Include user/account info if the server expects it; inspect routes.ts or follow the existing fetch wrappers.)
+
+  - Expect a response something like:
+
+      {
+        "planId": "uuid",
+        "status": "pending_approval",
+        "plan": {
+          "steps": [ ... ],
+          ...
+        }
+      }
+
+- Store in React state (inside the plan hook):
+
+  - `currentPlanId`
+  - `currentPlan` (full plan object)
+  - `status` (pending_approval / executing / completed / failed)
+
+Implementation details:
+
+- Update `use-plan-for-approval.ts` so it has something like:
+
+  - `startPlan(goal: string): Promise<void>`
+  - state: `{ planId, plan, status, error }`
+  - it should call `/api/plan/start`, handle errors, and set state.
+
+- The PlanApprovalPanel must now **render the plan steps from this `plan` object**, NOT from hard-coded data. If no plan exists yet, show the old “no plan generated yet” placeholder.
+
+--------------------------------------
+3) Wire “Approve Plan” → POST /api/plan/approve
+--------------------------------------
+
+In `plan-approval-panel.tsx`:
+
+- When user clicks **Approve Plan**:
+
+  - If there is no `planId`, show a small error and return.
+  - Call `POST /api/plan/approve` with body:
+
+      { "planId": "<currentPlanId>" }
+
+  - On success:
+    - update the plan hook status to `executing`
+    - allow the Progress widget to start polling.
+  - Show a loading state while the request is in flight.
+  - If there’s an error response, show a clear inline error:
+    - e.g. “Sorry, there was a problem approving this plan. Please try again.”
+
+- Remove or update any old “fake approval” logic so the only source of truth is the new API.
+
+--------------------------------------
+4) Wire Progress Widget → GET /api/plan/progress?planId=...
+--------------------------------------
+
+Progress widget behaviour we want:
+
+- It should know which plan to track:
+  - Prefer an explicit `planId` passed from the plan hook.
+  - If none is provided, it can optionally call `/api/plan/progress` without a planId to get “most recent plan for this user” (if the backend supports this), but **primary path should be by `planId`.**
+
+- Implementation:
+
+  - In `progress-widget.tsx` (or similar), add props or a hook connection to get `currentPlanId` and `status` from `use-plan-for-approval`.
+  - When `status === "executing"` AND `planId` exists:
+    - Start polling `GET /api/plan/progress?planId=<planId>` every ~2 seconds.
+  - When `status` becomes `completed` or `failed`, stop polling.
+
+- Shape:
+
+  - Assume the server returns a JSON object with at least:
+
+      {
+        "planId": "...",
+        "overallStatus": "pending" | "executing" | "completed" | "failed",
+        "currentStepIndex": number,
+        "steps": [
+          {
+            "title": string,
+            "index": number,
+            "status": "pending" | "running" | "completed" | "failed",
+            "errorMessage"?: string
+          },
+          ...
+        ]
+      }
+
+  - Map this into whatever internal TS types you need.
+  - Render:
+    - A simple overall status line (e.g. “Step 2 of 3 – Enrich Contact Data (running)”)
+    - A small list / bullet view of steps and their statuses, or at least:
+      - Completed vs running vs pending.
+
+- Error handling:
+  - If the progress endpoint returns 404 or a known “no active plan” shape, show something like:
+    - “No active plan is running yet.”
+  - If it returns a real error, show:
+    - “Error loading progress. Retry.”
+
+--------------------------------------
+5) Clean out the old placeholder plan logic
+--------------------------------------
+
+Right now some plan steps (Search DB / Enrich / Prepare Outreach) are still hard-coded in the UI. These must be removed or replaced so we don’t mislead users.
+
+- Ensure that:
+  - PlanApprovalPanel always renders from the `plan` returned by `/api/plan/start`.
+  - If there is no plan, it shows a simple, honest empty state.
+- Remove any mock plan arrays, dummy status flags, or local fake progress that might clash with the real data.
+
+--------------------------------------
+6) Testing flow (what I will do in the browser)
+--------------------------------------
+
+Design the code so that when I do this in the browser:
+
+1. Open a new chat as Demo User.
+2. Enter a goal in the right-hand “My Goal” panel (e.g. “find new pubs in west sussex”) and click **Save goal**.
+3. Click **Start Working On This Goal**.
+   - Expectation:
+     - UI calls `POST /api/plan/start`.
+     - Plan steps from the backend appear in the PlanApproval panel.
+4. Click **Approve Plan**.
+   - Expectation:
+     - UI calls `POST /api/plan/approve` with `planId`.
+     - Plan status becomes `executing`.
+5. Watch the **Progress** widget.
+   - Expectation:
+     - UI polls `GET /api/plan/progress?planId=<...>`.
+     - I see step 1 → step 2 → step 3 change from pending → running → completed (or failed).
+
+Please ensure console.log messages are added (in moderation) so I can see:
+
+- The planId being used,
+- Responses from /api/plan/start, /api/plan/approve, and /api/plan/progress,
+- Any errors, clearly.
+
+--------------------------------------
+7) Output requirements
+--------------------------------------
+
+For any file you modify (hooks or components), output the **full updated file contents** (imports + exports), not just diff snippets, so I can copy-paste.
+
+Files you’ll almost certainly touch:
+
+- client/src/hooks/use-plan-for-approval.ts
+- client/src/components/plan-approval-panel.tsx
+- client/src/components/progress-widget.tsx
+- Maybe a small helper in client/src/lib/api.ts (or equivalent) if you centralize fetch logic.
+
+After your changes, the UI must actually drive the new Supervisor plan engine end-to-end.
