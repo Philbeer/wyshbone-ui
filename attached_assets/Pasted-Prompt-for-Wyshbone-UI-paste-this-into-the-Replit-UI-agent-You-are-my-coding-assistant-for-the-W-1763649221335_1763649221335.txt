@@ -1,0 +1,183 @@
+Prompt for Wyshbone-UI (paste this into the Replit UI agent):
+
+You are my coding assistant for the Wyshbone-UI repl.
+The Supervisor backend now has a working plan-execution pipeline:
+
+POST /api/plan/start → creates a plan and returns planId
+
+POST /api/plan/approve (with planId) → starts execution in the background
+
+GET /api/plan-status?planId=<id> → returns live progress for that plan
+(this has been tested directly with curl and works)
+
+The bug:
+In the live UI, when I:
+
+Enter a goal in My Goal on the right
+
+Click Start Working On This Goal
+
+Review the plan and click Approve Plan
+
+I only ever see the toast “Plan Approved – Wyshbone will now execute your plan”.
+The Progress card never shows step progress, and in DevTools → Network (filter “plan”) I see only /api/plan?... requests – no GET /api/plan-status?planId=… polling at all.
+
+You already tried to fix this, but it’s still broken. Please now do a proper instrumented debug pass and fix it.
+
+1. Open the relevant files
+
+Open and inspect:
+
+client/src/hooks/use-plan-for-approval.ts
+
+client/src/hooks/use-plan-progress.ts
+
+client/src/components/progress-widget.tsx
+
+client/src/components/plan-approval-panel.tsx
+
+2. Instrument the hooks with clear logging
+
+Add very explicit console.log calls with a unique prefix so I can see what’s happening:
+
+In use-plan-for-approval.ts:
+
+When startPlan is called, log:
+
+[PLAN_DEBUG] startPlan called, the goal text, and the planId returned from /api/plan/start
+
+After you update local state, log [PLAN_DEBUG] after startPlan – planId=<...>, status=<...>
+
+When approvePlan is called, log:
+
+[PLAN_DEBUG] approvePlan called for planId=<...>
+
+After the request succeeds and you update state, log
+[PLAN_DEBUG] after approvePlan – planId=<...>, status=<...>
+
+On each hook run (inside the hook body), log the current values of:
+
+[PLAN_DEBUG] hook state – planId=<...>, status=<...>
+
+Make sure usePlanForApproval maintains local React state for planId and status that:
+
+is set when startPlan succeeds (status = "pending_approval")
+
+is changed to "executing" when approvePlan succeeds
+
+does not get reset to null just because /api/plan returns null after approval
+
+The hook should not throw away planId or status just because the plan is no longer returned by /api/plan.
+
+3. Ensure the approve button really uses the hook
+
+In plan-approval-panel.tsx:
+
+Confirm that the Approve Plan button calls the approvePlan function from usePlanForApproval, passing the correct planId.
+
+If any local state or direct fetch('/api/plan/approve', …) calls are still used, remove them and route all logic through the hook.
+
+After clicking Approve, the hook’s state must become status === "executing" while keeping the same planId.
+
+4. Fix and instrument use-plan-progress.ts
+
+Ensure the hook is defined as:
+
+export function usePlanProgress(planId: string | null, isActive: boolean) {
+  // ...
+}
+
+
+and that:
+
+If !planId or !isActive, it should not call the API.
+
+When active, it should request:
+
+const url = addDevAuthParams(`/api/plan-status?planId=${encodeURIComponent(planId)}`);
+
+
+Add logs:
+
+When polling starts:
+[PLAN_PROGRESS_DEBUG] starting polling for planId=<...>, isActive=<...>
+
+Before each fetch:
+[PLAN_PROGRESS_DEBUG] fetching /api/plan-status for planId=<...>
+
+After a successful response: log the status, completedSteps, totalSteps from the response.
+
+5. Wire ProgressWidget correctly
+
+In progress-widget.tsx:
+
+Confirm the pattern is roughly:
+
+const { planId, status } = usePlanForApproval();
+const isExecuting = status === "executing";
+const { data, isLoading } = usePlanProgress(planId, isExecuting);
+
+
+If it’s not, update it so that:
+
+usePlanProgress is called with planId and status === "executing"
+
+The widget renders different UI for:
+
+no active plan
+
+pending approval
+
+executing (show progress bar or step text)
+
+completed / failed
+
+Use the data from /api/plan-status (whatever shape you already defined – e.g. { status, totalSteps, completedSteps, currentStepLabel }) to show something like:
+
+Step 2 of 3 – Enrich contact data
+
+Add a high-level log when rendering:
+
+[PLAN_PROGRESS_DEBUG] render – planId=<...>, status=<...>, progress=<summarised>
+
+6. Test the full flow yourself
+
+Run the app in Preview and do this:
+
+Set goal: find pubs in west sussex
+
+Click Start Working On This Goal
+
+Approve the generated plan
+
+While doing that:
+
+Watch the Console tab for [PLAN_DEBUG] and [PLAN_PROGRESS_DEBUG] logs:
+
+Verify planId becomes non-null after start.
+
+Verify status becomes "executing" after approval and stays that way until completion.
+
+Verify usePlanProgress is called with isActive = true.
+
+In Network (filter plan-status), verify that:
+
+GET /api/plan-status?planId=<that planId> is sent every ~5 seconds while executing.
+
+If any of these are not true, fix the relevant hook/component until they are.
+
+7. Clean up and summarise
+
+Once progress is actually showing in the UI, remove or comment out overly verbose logs, but leave one or two summary logs with the [PLAN_PROGRESS_DEBUG] prefix.
+
+Then give me a short summary in the Replit chat:
+
+What was wrong (concretely).
+
+Which files you changed.
+
+How the final state machine for status works (idle, pending_approval, executing, completed, failed).
+
+How /api/plan-status is now used from the UI.
+
+Do not redesign the whole flow or the backend; only fix the wiring and state/polling so that approving a plan results in visible, step-by-step progress in the Progress widget.
