@@ -9,7 +9,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 
 export function MyGoalsPanel() {
-  const { goal, hasGoal, isLoading, updateGoal, isUpdating } = useUserGoal();
+  const { goal, setGoal, hasGoal, isLoading, saving, error, saveGoal } = useUserGoal();
   const { plan } = usePlanForApproval();
   const [localGoal, setLocalGoal] = useState("");
   const [isDirty, setIsDirty] = useState(false);
@@ -24,15 +24,21 @@ export function MyGoalsPanel() {
     }
   }, [goal, isDirty]);
 
+  // Update the hook's goal state when local changes
+  useEffect(() => {
+    setGoal(localGoal);
+  }, [localGoal, setGoal]);
+
   // Track if the local value differs from saved value
   useEffect(() => {
     setIsDirty(localGoal.trim() !== (goal || ""));
   }, [localGoal, goal]);
 
-  const handleSave = () => {
+  const handleSave = async () => {
     const trimmedGoal = localGoal.trim();
     
     if (trimmedGoal === "") {
+      console.log("❌ MyGoalsPanel: Goal is empty");
       toast({
         variant: "destructive",
         title: "Goal cannot be empty",
@@ -41,28 +47,37 @@ export function MyGoalsPanel() {
       return;
     }
 
-    updateGoal(trimmedGoal, {
-      onSuccess: () => {
-        setIsDirty(false);
-        setShowSaved(true);
-        setTimeout(() => setShowSaved(false), 2000);
-        toast({
-          title: "Goal saved",
-          description: "Your goal has been updated successfully.",
-        });
-      },
-      onError: (error: any) => {
-        toast({
-          variant: "destructive",
-          title: "Failed to save goal",
-          description: error.message || "An error occurred while saving your goal.",
-        });
-      },
-    });
+    console.log("💾 MyGoalsPanel: Calling saveGoal...");
+    
+    try {
+      // Use the hook's saveGoal function which handles mutation state
+      await saveGoal();
+      
+      console.log("✅ MyGoalsPanel: Goal saved successfully via hook");
+      
+      setIsDirty(false);
+      setShowSaved(true);
+      setTimeout(() => setShowSaved(false), 2000);
+      
+      toast({
+        title: "Goal saved",
+        description: "Your goal has been updated successfully.",
+      });
+    } catch (error: any) {
+      console.error("❌ MyGoalsPanel: Failed to save goal:", error);
+      toast({
+        variant: "destructive",
+        title: "Failed to save goal",
+        description: error.message || "An error occurred while saving your goal.",
+      });
+    }
   };
 
   const handleStartWorking = async () => {
-    if (!hasGoal || !goal) {
+    const trimmedGoal = localGoal.trim();
+    
+    if (trimmedGoal === "") {
+      console.log("❌ MyGoalsPanel: Cannot start - no goal set");
       toast({
         variant: "destructive",
         title: "No goal set",
@@ -71,16 +86,20 @@ export function MyGoalsPanel() {
       return;
     }
 
+    console.log("🚀 MyGoalsPanel: Starting plan for goal:", trimmedGoal.substring(0, 50) + "...");
     setIsStartingPlan(true);
+    
     try {
       const conversationId = localStorage.getItem('currentConversationId') || undefined;
+      console.log("📋 MyGoalsPanel: Calling POST /api/plan/start with conversationId:", conversationId);
+      
       const response = await apiRequest("POST", "/api/plan/start", {
-        goal,
+        goal: trimmedGoal,
         conversationId,
       });
       
-      // apiRequest already throws on non-2xx, so if we reach here it's successful
       const data = await response.json();
+      console.log("✅ MyGoalsPanel: Plan created successfully:", { planId: data.plan?.id, status: data.plan?.status });
       
       // Invalidate the plan query to trigger refetch
       queryClient.invalidateQueries({ queryKey: ["/api/plan"] });
@@ -89,10 +108,8 @@ export function MyGoalsPanel() {
         title: "Plan Created",
         description: "Review and approve the plan to start execution.",
       });
-      
-      console.log("✅ Plan created:", data.plan);
     } catch (error: any) {
-      console.error("❌ Failed to start plan:", error);
+      console.error("❌ MyGoalsPanel: Failed to start plan:", error);
       toast({
         variant: "destructive",
         title: "Failed to create plan",
@@ -103,8 +120,9 @@ export function MyGoalsPanel() {
     }
   };
 
-  // Show "Start working" button only if goal exists and no plan is pending/approved/executing
-  const showStartButton = hasGoal && !isDirty && !plan;
+  // SIMPLIFIED LOGIC: Show Start button whenever goal text exists (non-empty)
+  // Don't depend on hasGoal flag - just check if there's text
+  const showStartButton = localGoal.trim().length > 0 && !plan;
 
   return (
     <Card className="h-full flex flex-col" data-testid="card-my-goals">
@@ -135,7 +153,7 @@ For example:
             />
             <Button
               onClick={handleSave}
-              disabled={!isDirty || isUpdating}
+              disabled={!isDirty || saving}
               className="w-full"
               data-testid="button-save-goal"
             >
@@ -147,13 +165,18 @@ For example:
               ) : (
                 <>
                   <Save className="h-4 w-4 mr-2" />
-                  {hasGoal ? "Update goal" : "Save goal"}
+                  {saving ? "Saving..." : hasGoal ? "Update goal" : "Save goal"}
                 </>
               )}
             </Button>
             {isDirty && (
               <p className="text-xs text-muted-foreground text-center" data-testid="text-unsaved-changes">
                 You have unsaved changes
+              </p>
+            )}
+            {error && (
+              <p className="text-xs text-destructive text-center" data-testid="text-error-message">
+                {error.message || "An error occurred"}
               </p>
             )}
           </>

@@ -3708,14 +3708,16 @@ CRITICAL RULES:
       const sessionId = getSessionId(req);
       await setUserGoal(sessionId, trimmedGoal);
       
-      console.log(`✅ Goal updated for user ${auth.userEmail} (session: ${sessionId}): "${trimmedGoal.substring(0, 50)}${trimmedGoal.length > 50 ? '...' : ''}"`);
+      console.log(`✅ Goal saved for session ${sessionId}: "${trimmedGoal.substring(0, 50)}${trimmedGoal.length > 50 ? '...' : ''}"`);
+      console.log(`📋 Goal hasGoal=true after save`);
       
+      // Return format matching GET /api/goal
       res.json({
-        success: true,
-        goal: trimmedGoal
+        goal: trimmedGoal,
+        hasGoal: true
       });
     } catch (error: any) {
-      console.error("Error updating goal:", error);
+      console.error("❌ Error updating goal:", error);
       res.status(500).json({ error: error.message });
     }
   });

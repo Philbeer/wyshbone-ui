@@ -1,0 +1,137 @@
+You are my coding assistant for the Wyshbone UI repl.
+
+Problem:
+- When I type a goal in the My Goal panel and click “Save goal”, I see an error.
+- No “Start working on this goal” button ever appears.
+- I have never seen the Plan Approval panel.
+- The Progress panel says “Unable to load progress” because no plan ever exists.
+
+We need to fix the core V1 flow:
+
+  Save goal → Start working on this goal → Plan Approval → Progress
+
+Do this in three steps.
+
+-------------------------------------------------
+1) FIX saving the goal (/api/goal) end-to-end
+-------------------------------------------------
+
+Investigate:
+
+- The hook: client/src/hooks/use-user-goal.ts
+- The MyGoalsPanel component: client/src/components/my-goals-panel.tsx
+- The server routes that handle goal get/save: server/routes.ts (or similar)
+
+Requirements:
+
+a) POST /api/goal must:
+   - Use the correct session identifier (same getSessionId helper as the chat uses).
+   - Persist the goal for that session (wherever we currently store it).
+   - Return JSON like: { goal: string, hasGoal: boolean }
+
+b) GET /api/goal must:
+   - Return the saved goal for the current session, or { goal: null, hasGoal: false } if none.
+
+c) The useUserGoal hook must:
+   - Load goal + hasGoal on mount (GET /api/goal).
+   - Expose:
+       goal, setGoal,
+       saving, error,
+       hasGoal,
+       saveGoal: () => Promise<void>
+   - When saveGoal resolves, hasGoal should be true if goal is non-empty.
+
+d) The MyGoalsPanel component must:
+   - Bind its textarea value to `goal`.
+   - Call `saveGoal` on Save button click.
+   - Show any error in a small inline message or console.log, but DO NOT silently swallow it.
+
+Add temporary console logging:
+
+- In useUserGoal: log when GET /api/goal and POST /api/goal resolve (goal + hasGoal).
+- In MyGoalsPanel: log on Save click and after save completes.
+
+Make sure clicking “Save goal” with non-empty text:
+- Does NOT throw an exception.
+- Sets hasGoal = true.
+- Returns the saved goal on a refresh.
+
+-------------------------------------------------
+2) ALWAYS show “Start working on this goal” when a goal exists
+-------------------------------------------------
+
+In MyGoalsPanel (client/src/components/my-goals-panel.tsx):
+
+- Under the Save goal button, add a new button:
+
+    “Start working on this goal”
+
+- Visibility rules (keep this simple and robust):
+  - Show the button whenever `goal.trim().length > 0`.
+  - Do NOT depend on hasGoal being true for visibility (hasGoal can still be used, but the button visibility must not be blocked by a buggy flag).
+  - Disable the button while a “start plan” call is in flight.
+
+Create/ensure a hook exists, e.g. client/src/hooks/use-start-plan.ts:
+
+  interface UseStartPlanResult {
+    starting: boolean;
+    error?: string;
+    startPlan: () => Promise<void>;
+  }
+
+- startPlan() should:
+  - POST to /api/plan/start (or the existing plan-start endpoint).
+  - That route must:
+      * Use the current sessionId
+      * Read the saved goal for that session
+      * Call the existing LeadGenPlan generation logic (SUP-001 wrapper)
+      * Persist a plan with status "pending_approval"
+      * Return { planId, status }
+
+- On success, do NOT need to manually update UI:
+  - The PlanApprovalPanel’s existing polling (use-plan-for-approval.ts) should detect the pending plan and render it.
+
+Add console logs in startPlan:
+- Log when the call starts and when it returns.
+- Log returned planId/status.
+
+-------------------------------------------------
+3) VERIFY Plan Approval shows up and Progress handles “no plan yet”
+-------------------------------------------------
+
+Plan Approval:
+
+- Confirm that client/src/hooks/use-plan-for-approval.ts is polling the correct endpoint, using the same sessionId logic as goals and chat.
+- Confirm the PlanApprovalPanel is mounted in App.tsx (or the main layout) for the current session.
+
+Expected behaviour after fixes:
+
+1. New Chat → green “Before we begin” message appears.
+2. User types a goal in My Goal → clicks “Save goal” → no error.
+3. “Start working on this goal” button is visible in the My Goal panel.
+4. User clicks “Start working on this goal”.
+5. A plan is created server-side with status "pending_approval".
+6. PlanApprovalPanel appears with a list of steps and Approve/Regenerate buttons.
+7. Progress panel:
+   - Before approval: can say “No active plan yet”.
+   - After approval: shows “Step 1 of X …”.
+
+Progress widget:
+
+- If the progress endpoint returns “no plan yet” or 404 for the session, show a neutral message:
+    “No active plan yet. Progress will appear once a plan is running.”
+- Only show “Unable to load progress” for genuine network/5xx errors.
+
+-------------------------------------------------
+Output requirements
+-------------------------------------------------
+
+- For any new files (hooks, routes) output full contents.
+- For any modified files (use-user-goal, MyGoalsPanel, use-start-plan, routes.ts, PlanApprovalPanel if needed), output full file contents with imports and exports.
+- Do not describe the changes – produce concrete, copy-pasteable code.
+
+Implement these changes now so that:
+
+- Saving a goal works without error.
+- “Start working on this goal” always shows when a goal is filled in.
+- Clicking it creates a plan and triggers the Plan Approval panel.
