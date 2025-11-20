@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useUser } from "@/contexts/UserContext";
+import { addDevAuthParams } from "@/lib/queryClient";
 
 export interface PlanProgress {
   loading: boolean;
@@ -30,13 +31,31 @@ interface PlanStatusResponse {
   lastUpdatedAt: string;
 }
 
-export function usePlanProgress(conversationId?: string): PlanProgress {
+export function usePlanProgress(planId: string | null, isActive: boolean): PlanProgress {
   const { user } = useUser();
 
   const { data, isLoading, error } = useQuery<PlanStatusResponse>({
-    queryKey: conversationId ? ["/api/plan-status", conversationId] : ["/api/plan-status"],
-    enabled: !!user,
-    refetchInterval: 5000, // Poll every 5 seconds
+    queryKey: ["/api/plan-status", planId],
+    queryFn: async () => {
+      if (!planId) {
+        throw new Error("No planId provided");
+      }
+      
+      // Build URL with planId query parameter
+      const url = addDevAuthParams(`/api/plan-status?planId=${planId}`);
+      console.log(`📊 usePlanProgress: fetching progress for planId=${planId} from ${url}`);
+      
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch plan status: ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      console.log(`✅ usePlanProgress: received progress data:`, data);
+      return data;
+    },
+    enabled: !!user && !!planId && isActive,
+    refetchInterval: isActive ? 5000 : false, // Poll every 5 seconds only when active
     staleTime: 3000,
   });
 

@@ -1,0 +1,119 @@
+You are my coding assistant for the Wyshbone UI repl.
+
+The backend plan executor is now fully working and returns correct progress at:
+    GET /api/plan-status?planId=<id>
+
+But the UI is never sending the planId, so the progress panel always shows:
+    "Unable to load progress"
+
+I need you to fix the UI to properly store, pass, and use the planId.
+
+===============================================================
+TASK: Update UI so planId flows correctly through the system
+===============================================================
+
+You must implement the following changes:
+
+---------------------------------------------------------------
+1. Fix use-plan-for-approval.ts
+---------------------------------------------------------------
+Purpose:
+- After POST /api/plan/start, you must extract the planId
+  and store it in state.
+- Return planId, plan, status, startPlan, approvePlan.
+
+Required behaviour:
+- POST /api/plan/start should be called with:
+      body: { goal }
+- Response structure from backend is typically:
+      { planId: "...", plan: { id, steps, goal, status } }
+- Store BOTH "planId" and "plan" in UI state.
+
+Required fields to track:
+- planId: string | null
+- plan: LeadGenPlan | null
+- status: "idle" | "pending_approval" | "executing" | "completed" | "failed"
+
+startPlan() must:
+- POST /api/plan/start
+- save planId = data.planId OR data.plan.id
+- save plan = data.plan
+- set status = "pending_approval"
+
+approvePlan() must:
+- POST /api/plan/approve with body { planId }
+- set status = "executing" after success
+
+Return to the rest of the app:
+- { planId, plan, status, startPlan, approvePlan, isLoading, error }
+
+---------------------------------------------------------------
+2. Fix use-plan-progress.ts
+---------------------------------------------------------------
+Purpose:
+- Poll progress from the backend using the *correct* planId.
+- If planId is null, do not poll.
+- If status != "executing", do not poll.
+
+Implement:
+usePlanProgress(planId: string | null, isActive: boolean)
+
+Logic:
+- If (!planId || !isActive) return no polling.
+- Otherwise poll:
+      GET /api/plan-status?planId=<planId>
+  every 5 seconds.
+- Normalise the returned structure:
+      overallStatus, currentStepIndex, steps[]
+
+---------------------------------------------------------------
+3. Update ProgressWidget to use corrected hooks
+---------------------------------------------------------------
+In ProgressWidget:
+
+- Import usePlanForApproval and usePlanProgress.
+- Extract:
+      const { planId, status } = usePlanForApproval();
+- Call:
+      const { progress, isLoading, error } =
+          usePlanProgress(planId, status === "executing");
+
+- Render progress.steps with status indicators.
+- Remove all old code that fetched /api/plan/progress or did not include planId.
+
+---------------------------------------------------------------
+4. Ensure MyGoalsPanel calls startPlan() correctly
+---------------------------------------------------------------
+- When user clicks “Start working on this goal”, call:
+      startPlan(goalText)
+- The wrapper must NOT try to start execution; only create the plan.
+- After startPlan() finishes, the right panel should show the Plan Approval panel.
+
+---------------------------------------------------------------
+END TASK
+===============================================================
+
+Make the required edits across:
+- client/src/hooks/use-plan-for-approval.ts
+- client/src/hooks/use-plan-progress.ts
+- client/src/components/progress-widget.tsx
+- client/src/components/my-goals-panel.tsx (only if needed)
+
+After writing all code:
+1. Show me the full updated contents of each changed file.
+2. Check for TypeScript errors.
+3. Restart the UI server.
+4. Confirm that planId is passed correctly to /api/plan-status.
+
+The expected behaviour after this fix:
+
+- User enters goal.
+- User clicks "Start working on this goal".
+- UI receives planId and stores it.
+- User clicks "Approve Plan".
+- Supervisor starts execution.
+- UI polls:
+      /api/plan-status?planId=<that plan id>
+- ProgressWidget updates step-by-step in real time.
+
+Please implement now.

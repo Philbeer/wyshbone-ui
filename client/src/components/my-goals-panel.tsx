@@ -6,15 +6,13 @@ import { Save, Check, Play } from "lucide-react";
 import { useUserGoal } from "@/hooks/use-user-goal";
 import { usePlanForApproval } from "@/hooks/use-plan-for-approval";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest, queryClient } from "@/lib/queryClient";
 
 export function MyGoalsPanel() {
   const { goal, setGoal, hasGoal, isLoading, saving, error, saveGoal } = useUserGoal();
-  const { plan } = usePlanForApproval();
+  const { plan, startPlan, starting } = usePlanForApproval();
   const [localGoal, setLocalGoal] = useState("");
   const [isDirty, setIsDirty] = useState(false);
   const [showSaved, setShowSaved] = useState(false);
-  const [isStartingPlan, setIsStartingPlan] = useState(false);
   const { toast } = useToast();
 
   // Initialize local goal when data loads
@@ -87,22 +85,11 @@ export function MyGoalsPanel() {
     }
 
     console.log("🚀 MyGoalsPanel: Starting plan for goal:", trimmedGoal.substring(0, 50) + "...");
-    setIsStartingPlan(true);
     
     try {
-      const conversationId = localStorage.getItem('currentConversationId') || undefined;
-      console.log("📋 MyGoalsPanel: Calling POST /api/plan/start with conversationId:", conversationId);
+      await startPlan(trimmedGoal);
       
-      const response = await apiRequest("POST", "/api/plan/start", {
-        goal: trimmedGoal,
-        conversationId,
-      });
-      
-      const data = await response.json();
-      console.log("✅ MyGoalsPanel: Plan created successfully:", { planId: data.plan?.id, status: data.plan?.status });
-      
-      // Invalidate the plan query to trigger refetch
-      queryClient.invalidateQueries({ queryKey: ["/api/plan"] });
+      console.log("✅ MyGoalsPanel: Plan created successfully via hook");
       
       toast({
         title: "Plan Created",
@@ -115,8 +102,6 @@ export function MyGoalsPanel() {
         title: "Failed to create plan",
         description: error.message || "An error occurred while creating the plan.",
       });
-    } finally {
-      setIsStartingPlan(false);
     }
   };
 
@@ -186,13 +171,13 @@ For example:
         <CardFooter className="pt-0">
           <Button
             onClick={handleStartWorking}
-            disabled={isStartingPlan}
+            disabled={starting}
             className="w-full"
             variant="default"
             data-testid="button-start-working"
           >
             <Play className="h-4 w-4 mr-2" />
-            {isStartingPlan ? "Creating plan..." : "Start Working On This Goal"}
+            {starting ? "Creating plan..." : "Start Working On This Goal"}
           </Button>
         </CardFooter>
       )}

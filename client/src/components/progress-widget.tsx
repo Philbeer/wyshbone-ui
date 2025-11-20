@@ -3,38 +3,20 @@ import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePlanProgress } from "@/hooks/use-plan-progress";
+import { usePlanForApproval } from "@/hooks/use-plan-for-approval";
 import { AlertCircle, CheckCircle2, Clock, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatDistanceToNow } from "date-fns";
-import { useState, useEffect } from "react";
 
-interface ProgressWidgetProps {
-  conversationId?: string;
-}
+export function ProgressWidget() {
+  // Get planId and status from the plan approval hook
+  const { planId, status, plan } = usePlanForApproval();
+  
+  // Only poll progress when we have a planId and status is executing
+  const isActive = status === 'executing';
+  const progress = usePlanProgress(planId, isActive);
 
-export function ProgressWidget({ conversationId: propConversationId }: ProgressWidgetProps) {
-  // Read conversation ID from localStorage if not provided as prop
-  const [conversationId, setConversationId] = useState<string | undefined>(() => {
-    return propConversationId || localStorage.getItem('currentConversationId') || undefined;
-  });
-
-  // Update conversation ID when localStorage changes
-  useEffect(() => {
-    const updateConversationId = () => {
-      const stored = localStorage.getItem('currentConversationId');
-      if (stored && stored !== conversationId) {
-        setConversationId(stored);
-      }
-    };
-
-    // Check for changes periodically
-    const interval = setInterval(updateConversationId, 1000);
-    return () => clearInterval(interval);
-  }, [conversationId]);
-
-  const progress = usePlanProgress(conversationId);
-
-  console.log("📊 ProgressWidget mounted, conversationId:", conversationId);
+  console.log("📊 ProgressWidget: planId:", planId, "status:", status, "isActive:", isActive);
 
   // Loading state
   if (progress.loading) {
@@ -54,7 +36,7 @@ export function ProgressWidget({ conversationId: propConversationId }: ProgressW
   }
 
   // Error state
-  if (progress.error) {
+  if (progress.error && isActive) {
     return (
       <Card className="w-full border-destructive" data-testid="card-progress-error">
         <CardHeader className="space-y-0 pb-4">
@@ -65,6 +47,7 @@ export function ProgressWidget({ conversationId: propConversationId }: ProgressW
           <CardDescription className="text-destructive">Unable to load progress</CardDescription>
         </CardHeader>
         <CardContent>
+          <p className="text-sm text-destructive mb-3">{progress.error}</p>
           <Button
             variant="outline"
             size="sm"
@@ -79,23 +62,25 @@ export function ProgressWidget({ conversationId: propConversationId }: ProgressW
   }
 
   // No active plan state
-  const hasActivePlan = progress.totalSteps > 0;
-  const hasGoal = !!progress.goal;
+  const hasActivePlan = progress.totalSteps > 0 && isActive;
+  const goalText = progress.goal || plan?.goal;
 
   return (
     <Card className="w-full" data-testid="card-progress-widget">
       <CardHeader className="space-y-0 pb-4">
         <CardTitle className="text-base font-medium">Progress</CardTitle>
-        {hasGoal && (
+        {goalText && (
           <CardDescription className="text-xs line-clamp-2" data-testid="text-goal">
-            Goal: {progress.goal}
+            Goal: {goalText}
           </CardDescription>
         )}
       </CardHeader>
       <CardContent className="space-y-4">
         {!hasActivePlan ? (
           <div className="text-sm text-muted-foreground" data-testid="text-no-plan">
-            No active plan yet. When you start a lead generation run, progress will appear here.
+            {status === 'pending_approval' 
+              ? "Plan ready for approval. Approve the plan to start execution."
+              : "No active plan running. When you approve a plan, progress will appear here."}
           </div>
         ) : (
           <>
