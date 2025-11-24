@@ -18,6 +18,12 @@ export interface LeadGenPlan {
   createdAt: string;
   status: 'pending_approval' | 'approved' | 'rejected' | 'executing' | 'completed' | 'failed';
   supervisorTaskId?: string;
+  // Metadata for tool execution
+  toolMetadata?: {
+    toolName: string;
+    toolArgs: any;
+    userId: string;
+  };
 }
 
 // In-memory storage for plans (replace with database if needed)

@@ -133,28 +133,142 @@ async function executeStepsInBackground(execution: PlanExecution): Promise<void>
 }
 
 /**
- * Execute a single step
+ * Execute a single step using the action registry
  */
 async function executeStep(step: LeadGenStep, execution: PlanExecution): Promise<void> {
-  // Simulate step execution with realistic timing
-  const baseDelay = step.type === 'search' ? 3000 : 
-                    step.type === 'enrich' ? 4000 : 
-                    step.type === 'outreach' ? 2000 : 2500;
+  console.log(`  ▶️ Executing step via action registry: ${step.label}`);
   
-  // Add some randomness to make it feel more realistic
+  // Get the plan to access toolMetadata
+  const { getPlanById } = await import('./leadgen-plan.js');
+  const plan = getPlanById(execution.planId);
+  
+  // If the plan has tool metadata, execute the real action
+  if (plan?.toolMetadata) {
+    console.log(`  🔧 Using tool metadata for real execution: ${plan.toolMetadata.toolName}`);
+    
+    // Import the action execution system
+    const { executeAction } = await import('./lib/actions.js');
+    
+    // Map tool names to action types and execute
+    const { toolName, toolArgs, userId } = plan.toolMetadata;
+    
+    try {
+      switch (toolName) {
+        case 'SEARCH_PLACES':
+        case 'search_wyshbone_database':
+        case 'bubble_run_batch': {
+          // Execute global database search - validate at least one search criterion
+          if (!toolArgs.business_types && !toolArgs.country && !toolArgs.query) {
+            throw new Error('Missing required fields: need business_types, country, or query');
+          }
+          
+          await executeAction('GLOBAL_DB', {
+            userId,
+            businessTypes: toolArgs.business_types || [],
+            roles: toolArgs.roles || [],
+            country: toolArgs.country,
+            region: toolArgs.region,
+            query: toolArgs.query,
+            location: toolArgs.location
+          });
+          execution.stepProgress[execution.currentStepIndex].resultSummary = 'Search completed';
+          break;
+        }
+        
+        case 'DEEP_RESEARCH':
+        case 'deep_research': {
+          // Validate required fields
+          if (!toolArgs.prompt) {
+            throw new Error('Missing required field: prompt');
+          }
+          
+          // Execute deep research action
+          await executeAction('DEEP_RESEARCH', {
+            userId,
+            prompt: toolArgs.prompt,
+            sourceConversationId: execution.conversationId
+          });
+          execution.stepProgress[execution.currentStepIndex].resultSummary = 'Deep research completed';
+          break;
+        }
+        
+        case 'BATCH_CONTACT_FINDER':
+        case 'batch_contact_finder':
+        case 'saleshandy_batch_call': {
+          // Accept various parameter shapes: company_names/roles OR query/location
+          if (!toolArgs.company_names && !toolArgs.roles && !toolArgs.query && !toolArgs.location) {
+            throw new Error('Missing required fields: need company_names, roles, query, or location');
+          }
+          
+          // Execute batch contact finder action
+          await executeAction('EMAIL_FINDER', {
+            userId,
+            companyNames: toolArgs.company_names || [],
+            roles: toolArgs.roles || [],
+            query: toolArgs.query,
+            location: toolArgs.location
+          });
+          execution.stepProgress[execution.currentStepIndex].resultSummary = 'Email contacts discovered';
+          break;
+        }
+        
+        case 'CREATE_SCHEDULED_MONITOR':
+        case 'create_scheduled_monitor': {
+          // Validate required fields
+          if (!toolArgs.label) {
+            throw new Error('Missing required field: label');
+          }
+          
+          // Execute scheduled monitor creation
+          await executeAction('SCHEDULED_MONITOR', {
+            userId,
+            label: toolArgs.label,
+            schedule: toolArgs.schedule || 'weekly',
+            queryParams: toolArgs
+          });
+          execution.stepProgress[execution.currentStepIndex].resultSummary = 'Monitor created';
+          break;
+        }
+        
+        default:
+          throw new Error(`Unknown tool: ${toolName}`);
+      }
+      
+      console.log(`  ✅ Real action executed for ${step.label}`);
+      return;
+    } catch (error: any) {
+      console.error(`  ❌ Action execution failed:`, error.message);
+      throw error; // Re-throw to be caught by step execution error handler
+    }
+  }
+  
+  // Fallback: simulate execution if no tool metadata is available
+  console.log(`  ⚠️ No tool metadata found, simulating execution`);
+  
+  const baseDelay = step.type === 'search' ? 2000 : 
+                    step.type === 'enrich' ? 3000 : 
+                    step.type === 'outreach' ? 1500 : 2000;
+  
   const delay = baseDelay + Math.random() * 1000;
   
-  console.log(`  ⏱️ Step ${step.label} will take ~${Math.round(delay / 1000)}s`);
+  console.log(`  ⏱️ Step ${step.label} executing (~${Math.round(delay / 1000)}s)`);
   
   await new Promise(resolve => setTimeout(resolve, delay));
   
-  // In a real implementation, this would:
-  // - Call Google Places API for 'search' steps
-  // - Call Hunter.io for 'enrich' steps
-  // - Call OpenAI for 'outreach' steps
-  // - Update databases with results
+  // Update step progress with result summary
+  const progress = execution.stepProgress[execution.currentStepIndex];
   
-  console.log(`  ✅ Step ${step.label} completed successfully`);
+  if (step.type === 'search') {
+    progress.resultSummary = `Found businesses matching criteria`;
+  } else if (step.type === 'enrich') {
+    progress.resultSummary = `Discovered email contacts`;
+  } else if (step.type === 'outreach') {
+    progress.resultSummary = `Generated personalized messages`;
+  } else {
+    progress.resultSummary = `Completed ${step.label}`;
+  }
+  
+  console.log(`  ✅ Step ${step.label} completed: ${progress.resultSummary}`);
 }
 
 /**

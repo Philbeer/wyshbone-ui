@@ -2427,8 +2427,83 @@ CRITICAL RULES:
           }
         }
 
-        // Process tool call if detected
-        if (isToolCall && toolCallBuffer.name === "deep_research") {
+        // ===========================
+        // ROUTE HEAVY TOOLS THROUGH PLAN SYSTEM
+        // ===========================
+        
+        // Define heavy tools that should go through the plan system
+        const heavyTools = new Set([
+          "SEARCH_PLACES",
+          "search_wyshbone_database",
+          "DEEP_RESEARCH",
+          "deep_research",
+          "BATCH_CONTACT_FINDER",
+          "batch_contact_finder",
+          "saleshandy_batch_call",
+          "CREATE_SCHEDULED_MONITOR",
+          "create_scheduled_monitor",
+          "bubble_run_batch",
+        ]);
+        
+        // If a heavy tool was called, route through plan system instead of direct execution
+        if (isToolCall && heavyTools.has(toolCallBuffer.name)) {
+          console.log(`🔄 Routing heavy tool ${toolCallBuffer.name} through plan system`);
+          
+          let toolArgs: any = {};
+          try {
+            toolArgs = JSON.parse(toolCallBuffer.arguments);
+            
+            // Import the plan-from-chat helper
+            const { createPlanFromToolCall } = await import('./plan-from-chat.js');
+            
+            // Create plan and auto-approve it
+            const result = await createPlanFromToolCall({
+              toolName: toolCallBuffer.name,
+              toolArgs,
+              userId: user.id,
+              sessionId,
+              conversationId,
+              storage
+            });
+            
+            console.log(`✅ Plan ${result.planId} created and executing for ${toolCallBuffer.name}`);
+            
+            // Stream the acknowledgment message back to chat
+            aiBuffer = result.message;
+            res.write(`data: ${JSON.stringify({ content: result.message })}\n\n`);
+            
+            // Save to conversation
+            appendMessage(sessionId, { role: "assistant", content: result.message });
+            await saveMessage(conversationId, "assistant", result.message);
+            console.log("💾 Saved plan acknowledgment to database");
+            
+            // Log tool call for Tower
+            toolCallsLog.push({
+              name: toolCallBuffer.name,
+              args: toolArgs,
+              result: { planId: result.planId }
+            });
+            
+          } catch (err: any) {
+            console.error(`❌ Error routing ${toolCallBuffer.name} through plan system:`, err.message);
+            aiBuffer = `Sorry, I couldn't start that task: ${err.message}`;
+            res.write(`data: ${JSON.stringify({ content: aiBuffer })}\n\n`);
+            
+            appendMessage(sessionId, { role: "assistant", content: aiBuffer });
+            await saveMessage(conversationId, "assistant", aiBuffer);
+            console.log("💾 Saved error message to database");
+            
+            // Log failed tool call for Tower
+            toolCallsLog.push({
+              name: toolCallBuffer.name,
+              args: toolArgs,
+              error: err.message
+            });
+          }
+        }
+        // TODO: REMOVE THIS LEGACY HANDLER - deep_research now routes through plan system above
+        // This code is unreachable for tools in heavyTools set but kept temporarily for safety
+        else if (isToolCall && toolCallBuffer.name === "deep_research") {
           console.log("🔬 Deep research tool call detected");
           console.log("📦 Arguments:", toolCallBuffer.arguments);
           
