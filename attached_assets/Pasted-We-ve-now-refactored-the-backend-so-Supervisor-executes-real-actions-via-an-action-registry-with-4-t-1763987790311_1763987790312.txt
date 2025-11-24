@@ -1,0 +1,260 @@
+We’ve now refactored the backend so Supervisor executes real actions via an action registry with 4 types:
+
+GLOBAL_DB
+
+EMAIL_FINDER
+
+DEEP_RESEARCH
+
+SCHEDULED_MONITOR
+
+The problem is: /api/chat still executes tools directly via executeAction, which means heavy work can bypass the plan system and never show in the Plan/Progress UI.
+
+I want you to force all serious work triggered from chat to go through Supervisor’s plan system, not direct tool execution.
+
+1. Current behaviour (what to change)
+
+In server/routes.ts (and related code), /api/chat:
+
+Streams GPT-5 responses via SSE.
+
+Handles delta.tool_calls and directly calls:
+
+executeAction({
+  action: toolCall.function.name,
+  params: JSON.parse(toolCall.function.arguments),
+  userId,
+  sessionId,
+  conversationId,
+  storage
+});
+
+
+Tools like:
+
+SEARCH_PLACES
+
+DEEP_RESEARCH
+
+BATCH_CONTACT_FINDER
+
+CREATE_SCHEDULED_MONITOR
+
+currently execute immediately from the chat route.
+
+This means:
+
+No lead-gen plan is created.
+
+Supervisor isn’t involved.
+
+The Progress widget never sees these actions.
+
+Behaviour is inconsistent with the new plan executor / action registry.
+
+2. Desired behaviour (high-level)
+
+I want:
+
+Any heavy action triggered via chat (search, deep research, batch/email, monitors) to be routed through the plan system, executed by Supervisor, and visible in the Progress widget.
+
+Concretely:
+
+Chat → identifies an action (tool).
+
+Instead of running the tool directly:
+
+Create a plan (using the existing plan generator; e.g. lead-gen plan).
+
+Auto-approve it (or mark as pending + immediately approve).
+
+Let Supervisor execute the steps via the action registry.
+
+Chat should return a short message like:
+
+“Got it — I’ve started a structured plan for this. You can track progress in the Plan panel.”
+
+No more direct executeAction calls for those heavy tools from /api/chat.
+
+3. Implementation details
+3.1. Introduce a helper to translate tool calls → plans
+
+Create a helper function somewhere appropriate (e.g. server/plan-from-chat.ts or inside server/plan-executor.ts / server/routes.ts if that’s simpler) that:
+
+Accepts:
+
+{
+  toolName: string;          // e.g. "SEARCH_PLACES", "DEEP_RESEARCH", "BATCH_CONTACT_FINDER", "CREATE_SCHEDULED_MONITOR"
+  toolArgs: any;             // parsed JSON arguments from the tool call
+  userId: string;
+  sessionId: string;
+  conversationId: string;
+  storage: IStorage;
+}
+
+
+Builds a lead-generation style plan using the canonical action types:
+
+SEARCH_PLACES → a GLOBAL_DB step
+
+BATCH_CONTACT_FINDER → GLOBAL_DB + EMAIL_FINDER chain
+
+DEEP_RESEARCH → DEEP_RESEARCH step (and optionally follow-up)
+
+CREATE_SCHEDULED_MONITOR → SCHEDULED_MONITOR
+
+It should either:
+
+Call the existing plan generator (if you have something like planLeadGenerationWithHistory / lead-gen plan functions), OR
+
+Assemble a minimal LeadGenPlan object that Supervisor can execute.
+
+It should then:
+
+Store the plan (using the same storage mechanism the existing /api/plan/start endpoint uses).
+
+Return the planId.
+
+Optionally you can just internally call the same logic used by /api/plan/start to avoid duplicating plan creation logic.
+
+3.2. Auto-approve the plan from chat
+
+After creating the plan, immediately approve it, as if the user clicked the Approve button in the UI:
+
+Reuse the same function that /api/plan/approve uses (e.g. startPlanExecution(planId)).
+
+This should kick off Supervisor’s execution loop, which now calls the real action executors.
+
+So the flow is:
+
+User asks something that triggers a tool.
+
+GPT emits a tool call.
+
+Chat route intercepts, does NOT call executeAction.
+
+Instead calls createPlanFromToolCall(...).
+
+Then calls the same execution function as /api/plan/approve.
+
+Returns a short acknowledgement to the chat stream.
+
+3.3. Change the tool-calling handler in /api/chat
+
+In server/routes.ts, where we handle:
+
+if (delta?.tool_calls) {
+  // currently:
+  const result = await executeAction({ ... });
+}
+
+
+Refactor this so that:
+
+For heavy tools, route through plans:
+
+const heavyTools = new Set([
+  "SEARCH_PLACES",
+  "DEEP_RESEARCH",
+  "BATCH_CONTACT_FINDER",
+  "CREATE_SCHEDULED_MONITOR"
+]);
+
+
+Pseudocode:
+
+for (const toolCall of delta.tool_calls) {
+  const toolName = toolCall.function.name;
+  const toolArgs = JSON.parse(toolCall.function.arguments);
+
+  if (heavyTools.has(toolName)) {
+    const planId = await createPlanFromToolCall({
+      toolName,
+      toolArgs,
+      userId: user.id,
+      sessionId,
+      conversationId,
+      storage
+    });
+
+    await startPlanExecution(planId); // same as /api/plan/approve
+
+    // Send a short assistant-side event back to the client so the user
+    // sees that a structured plan has started.
+    // Keep this concise - we don't want long rambling messages here.
+    const message = `Got it — I’ve started a structured plan for this. You can track the steps and results in the Plan panel.`;
+    // Stream this back in the SSE as an assistant content chunk.
+  } else {
+    // For any truly lightweight tools (if any), you *may* keep direct execution.
+    // But if in doubt, it's fine to block or log them for now.
+  }
+}
+
+
+IMPORTANT: You must remove or bypass the direct executeAction call for these four tools so they never execute outside the plan system.
+
+3.4. Preserve SSE streaming behaviour
+
+Do not break the existing streaming behaviour of /api/chat.
+
+Requirements:
+
+The user still sees the assistant’s natural-language answer stream in real-time.
+
+When a plan is created/executed, the assistant should emit a small, clear message explaining that a structured plan has started, rather than dumping raw JSON or internal state.
+
+You can send that message as one or more data: { content: "..." } chunks in the SSE stream.
+
+You do not need to stream step progress through /api/chat; that’s already handled by the Progress widget polling /api/plan-status.
+
+3.5. Keep Tower logging intact
+
+The code already calls completeRunLog (Tower) with runId, etc.
+
+Make sure that when a plan is created from chat, we still correctly log:
+
+userMessage
+
+assistantResponse (including the “I’ve started a structured plan” text)
+
+toolsUsed (e.g. ["GLOBAL_DB", "EMAIL_FINDER"] or the original tool names).
+
+Don’t remove Tower logging; just adapt it if necessary.
+
+4. Behaviour after your changes
+
+After this refactor, I should see the following:
+
+In the chat, if I type something like:
+
+“Find 50 dentists in London and get their emails”
+
+“Run a deep research on new craft beer bars in Bristol”
+
+“Set up a monitor every Monday for new pubs in Brighton”
+
+/api/chat will:
+
+Stream a short assistant reply like:
+
+“Got it — I’ve started a structured plan for this. You can track progress in the Plan panel.”
+
+Not directly call executeAction for SEARCH_PLACES, DEEP_RESEARCH, BATCH_CONTACT_FINDER, CREATE_SCHEDULED_MONITOR.
+
+The plan system will:
+
+Create a plan with steps (using GLOBAL_DB, EMAIL_FINDER, DEEP_RESEARCH, SCHEDULED_MONITOR).
+
+Auto-approve and execute it.
+
+/api/plan-status will show step-by-step progress + resultSummary values.
+
+The UI’s Progress widget will:
+
+Show each step with type, status, and result summary (as already implemented).
+
+Reflect the real work Supervisor is doing.
+
+From this point onward, all serious work will be driven by Supervisor plans, and the chat route will be a thin orchestrator, not a separate execution path.
+
+Please implement this refactor cleanly, keeping the existing structure and naming where possible, and add minimal, clear logging where helpful.
