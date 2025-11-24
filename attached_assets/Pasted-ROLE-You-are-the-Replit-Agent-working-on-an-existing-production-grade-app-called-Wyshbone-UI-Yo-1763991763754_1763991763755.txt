@@ -1,0 +1,661 @@
+ROLE: You are the Replit Agent working on an existing production-grade app called "Wyshbone UI".
+Your task is to add a new feature area called **Wyshbone CRM**, with the first vertical being **Brewery (BrewCRM)**.
+
+This CRM must:
+- Live INSIDE the existing Wyshbone UI app (not a separate app).
+- Respect and reuse the existing design system and layout.
+- Be multi-vertical from day one: core generic CRM + vertical-specific overlays (brewery first; animal physio and others later).
+- Be "agent-ready": core actions exposed as clean endpoints and TypeScript wrappers so a chat-based agent can call them later.
+
+============================================================
+SECTION 0 – ABSOLUTE RULES
+============================================================
+
+1. Do NOT break existing Wyshbone UI behaviour
+   - Do not disrupt the current chat flow, plan approval, progress widgets, or Tower integration.
+   - Do not rename or remove existing components, hooks or routes unless absolutely required and clearly justified.
+   - Prefer additive changes: new modules, routes, components and endpoints.
+
+2. Preserve the current visual identity
+   - Reuse the existing Tailwind / ShadCN design system and all established components (Button, Card, Badge, Input, Select, Table, Dialog, Tabs, etc.).
+   - Follow existing spacing, typography, colour tokens and card layouts so new screens feel like the same product.
+   - Do NOT introduce a competing UI kit or global style reset.
+
+3. Respect the current architecture
+   - Use TypeScript wherever the project already uses TS.
+   - Follow existing patterns for routing, API handlers, data fetching hooks, and auth.
+   - If there is an existing "workspace" or "account" model, extend it; do not create a parallel concept.
+
+4. Make it agent-ready
+   - All core business actions (create customer, product, order, batch, etc.) MUST have:
+     - a clean backend endpoint, and
+     - a small, strongly-typed frontend wrapper function.
+   - Later, an LLM agent will call those wrappers; for now, just implement them and keep signatures simple.
+
+5. Scope discipline
+   - Implement only v1 features defined below.
+   - Do NOT implement advanced ERP features, automated route optimisation, deep accounting integration, etc.
+   - Anything beyond v1 must be explicitly listed under “Non-goals / Backlog” and left as TODOs.
+
+============================================================
+SECTION 1 – MULTI-VERTICAL MODEL & PRODUCT OVERVIEW
+============================================================
+
+We are building **Wyshbone CRM** with multi-vertical support:
+
+- A **core CRM layer** (customers, orders, delivery runs, etc.) that is generic.
+- A set of **vertical-specific modules** which extend that core.
+- First implemented vertical: **Brewery (BrewCRM)**.
+- Future verticals: e.g. **animal physiotherapy / myotherapy**, coffee roasteries, etc.
+
+### 1.1 Workspace / Brewery / Vertical
+
+Extend the existing workspace/account model (or create a BrewCrmSettings table if no such model exists) with:
+
+- `industry_vertical` (enum/string)
+  - Allowed values for now: `"brewery"`, `"generic"`, `"animal_physio"`, `"other"`.
+  - Default for existing workspaces: `"generic"`.
+
+Usage:
+
+- If `industry_vertical === "brewery"`:
+  - Show full BrewCRM: Products, Batches, Containers, Duty, plus generic CRM pages.
+- If `industry_vertical === "generic"`:
+  - Show only generic CRM: Customers, Orders, Delivery Runs, generic Dashboard.
+  - Hide any brewery-specific fields (ABV, duty, beer-specific screens, container tracking).
+- For future verticals (e.g. `"animal_physio"`), we can add specialised screens later; just keep the model ready.
+
+### 1.2 Brewery vertical goals
+
+For `industry_vertical = "brewery"`, BrewCRM must support:
+
+- Products (beers)
+- Batches / Production
+- Finished goods inventory
+- Container tracking (casks/kegs)
+- Customers
+- Orders
+- Delivery runs
+- Duty reports
+- A brewery-focused Dashboard
+
+All of this must be end-to-end functional.
+
+============================================================
+SECTION 2 – NAVIGATION & "CRM MODE" LAYOUT
+============================================================
+
+Wyshbone UI currently has:
+
+- A left sidebar with items like "New Chat", "Previous Chats", "Deep Researches", etc.
+- A main content area with chat bubbles, panels, etc.
+- A chat input bar at the bottom.
+
+We are adding a **CRM mode** that replaces the main content area with CRM pages, but **keeps the left sidebar and the chat input bar**.
+
+### 2.1 High-level behaviour
+
+- Add a top-level navigation item such as:
+  - "CRM & Accounting" or "BrewCRM" (name can be aligned with existing IA).
+- When the user clicks this:
+  - Switch the main content area into **CRM mode**.
+  - In CRM mode:
+    - The left sidebar remains unchanged (New Chat, Deep Dives, etc.).
+    - The chat transcript **bubbles** are hidden.
+    - The chat **input bar stays visible** at the bottom (we will later use this for agentic commands like “add a new beer”, but for now it can behave as standard chat or be wired later).
+    - The main content area shows the CRM shell and pages.
+
+### 2.2 CRM internal navigation
+
+Inside CRM mode, the main content area should have its own sub-navigation (e.g. horizontal tabs or a vertical sub-menu) for:
+
+Generic CRM (visible for all verticals):
+1. Dashboard
+2. Customers
+3. Orders
+4. Delivery Runs
+5. Settings (generic CRM settings)
+
+Brewery-specific (visible only when `industry_vertical === "brewery"`):
+6. Products
+7. Batches / Production
+8. Inventory
+9. Containers
+10. Duty Reports
+11. Brewery Settings (duty rate, default warehouse, etc.)
+
+Re-use the existing layout/container components used elsewhere in Wyshbone UI (e.g. a `PageLayout` or similar).
+
+============================================================
+SECTION 3 – DATA MODEL
+============================================================
+
+Follow existing DB conventions. If a Supabase/Postgres layer exists, extend it accordingly.
+
+There are two conceptual layers:
+
+- **Core CRM entities** – generic.
+- **Brewery-specific entities** – only used for `industry_vertical = "brewery"`.
+
+You may use the naming below or adapt to existing patterns, but keep the relationships.
+
+### 3.1 Core CRM entities
+
+1) `CrmCustomer` (or extend existing "Customer" table)
+   - id (uuid)
+   - workspace_id (fk -> workspace/account)
+   - name (text)           // business name
+   - primary_contact_name (text, nullable)
+   - email (text, nullable)
+   - phone (text, nullable)
+   - address_line1 (text, nullable)
+   - address_line2 (text, nullable)
+   - city (text, nullable)
+   - postcode (text, nullable)
+   - country (text, default "United Kingdom")
+   - notes (text, nullable)
+   - created_at, updated_at
+
+2) `CrmOrder`
+   - id (uuid)
+   - workspace_id
+   - customer_id (fk -> CrmCustomer)
+   - order_number (text)             // simple incremental per workspace
+   - order_date (date)
+   - status (enum: "draft", "confirmed", "dispatched", "delivered", "cancelled")
+   - delivery_date (date, nullable)
+   - delivery_run_id (fk -> DeliveryRun, nullable)
+   - currency (text, default "GBP")
+   - total_amount (numeric, nullable – can be calculated from lines)
+   - notes (text, nullable)
+   - created_at, updated_at
+
+3) `CrmOrderLine`
+   - id (uuid)
+   - order_id (fk -> CrmOrder)
+   - generic_item_name (text)    // generic label, e.g. "Consultation", "Product X"
+   - generic_item_code (text, nullable)
+   - quantity_units (numeric)    // quantity (units, hours, etc.)
+   - unit_price (numeric)
+   - line_total (numeric)
+   - vertical_type (enum/string, nullable) // e.g. "brewery" when mapped to a Product
+   - vertical_ref_id (uuid, nullable)      // fk into vertical-specific table (e.g. BrewProduct)
+   - created_at, updated_at
+
+4) `CrmDeliveryRun`
+   - id (uuid)
+   - workspace_id
+   - name (text)                 // e.g. "London Central Route", or "Delivery Run – 2025-11-24"
+   - driver_name (text, nullable)
+   - vehicle (text, nullable)
+   - scheduled_date (date)
+   - status (enum: "planned", "in_progress", "completed", "cancelled")
+   - notes (text, nullable)
+   - created_at, updated_at
+
+5) Generic `CrmSettings`
+   - id (uuid)
+   - workspace_id
+   - industry_vertical (enum/string as above)
+   - default_country (text, default "United Kingdom")
+   - created_at, updated_at
+
+### 3.2 Brewery-specific entities (for vertical = "brewery")
+
+1) `BrewProduct`
+   - id (uuid)
+   - workspace_id
+   - name (text)
+   - style (text, nullable)
+   - sku (text, nullable, unique per workspace)
+   - abv (numeric)
+   - default_package_type (enum: "cask", "keg", "can", "bottle")
+   - default_package_size_litres (numeric)   // e.g. 40.9 for firkin
+   - duty_band (enum/string, e.g. "beer_standard", "beer_small_producer")
+   - is_active (boolean, default true)
+   - created_at, updated_at
+
+2) `BrewBatch`
+   - id (uuid)
+   - workspace_id
+   - product_id (fk -> BrewProduct)
+   - batch_code (text)   // e.g. LS2401
+   - brew_date (date)
+   - status (enum: "planned", "in_progress", "fermenting", "packaging", "packaged", "cancelled")
+   - planned_volume_litres (numeric)
+   - actual_volume_litres (numeric, nullable)
+   - notes (text, nullable)
+   - created_at, updated_at
+
+3) `BrewInventoryItem`
+   - id (uuid)
+   - workspace_id
+   - product_id
+   - batch_id (nullable)
+   - package_type (enum: "cask", "keg", "can", "bottle")
+   - package_size_litres (numeric)
+   - quantity_units (integer)
+   - location (text)           // e.g. "Cold Store", "Main Warehouse"
+   - created_at, updated_at
+
+4) `BrewContainer`
+   - id (uuid)
+   - workspace_id
+   - container_code (text)     // physical identifier
+   - container_type (enum: "cask", "keg")
+   - volume_litres (numeric)
+   - status (enum: "at_brewery", "with_customer", "lost", "retired")
+   - last_customer_id (fk -> CrmCustomer, nullable)
+   - last_outbound_date (date, nullable)
+   - last_return_date (date, nullable)
+   - notes (text, nullable)
+   - created_at, updated_at
+
+5) `BrewDutyReport`
+   - id (uuid)
+   - workspace_id
+   - period_start (date)
+   - period_end (date)
+   - total_litres (numeric)
+   - total_duty_amount (numeric)
+   - breakdown_json (jsonb)   // per product/abv band
+   - created_at, updated_at
+
+6) `BrewSettings`
+   - id (uuid)
+   - workspace_id
+   - default_warehouse_location (text, nullable)
+   - default_duty_rate_per_litre (numeric, nullable)
+   - created_at, updated_at
+
+NOTE: For other verticals (e.g. animal physio), we will later add their own tables like `PhysioService`, `PhysioAppointment`, etc. The core CRM entities stay shared.
+
+============================================================
+SECTION 4 – BACKEND API & ACTION ENDPOINTS
+============================================================
+
+Create REST or RPC-style endpoints under a clear namespace, following existing API conventions.
+
+### 4.1 Core CRM endpoints
+
+- `/api/crm/customers`       (GET list, POST create)
+- `/api/crm/customers/:id`   (GET, PUT/PATCH, DELETE/soft-delete)
+- `/api/crm/orders`
+- `/api/crm/orders/:id`
+- `/api/crm/delivery-runs`
+- `/api/crm/delivery-runs/:id`
+- `/api/crm/settings` (for CrmSettings)
+
+All list GETs:
+- Filter by `workspace_id` from authenticated user context.
+- Support basic filtering (search, date range, status) where obvious.
+
+### 4.2 Brewery vertical endpoints
+
+- `/api/brewcrm/products`
+- `/api/brewcrm/products/:id`
+- `/api/brewcrm/batches`
+- `/api/brewcrm/batches/:id`
+- `/api/brewcrm/inventory`
+- `/api/brewcrm/containers`
+- `/api/brewcrm/containers/:id`
+- `/api/brewcrm/duty-reports`
+- `/api/brewcrm/duty-reports/:id`
+- `/api/brewcrm/settings`
+
+Only allow access if `industry_vertical === "brewery"` for the current workspace.
+
+### 4.3 Agent-style action endpoints
+
+To make the system agent-ready, implement action endpoints that perform higher-level operations:
+
+1) `POST /api/crm/actions/create_customer`
+   - Body:
+     - name, primary_contact_name, email, phone, address fields
+   - Returns: created CrmCustomer.
+
+2) `POST /api/brewcrm/actions/create_product`
+   - Body:
+     - name, style, sku, abv, default_package_type, default_package_size_litres, duty_band
+   - Returns: created BrewProduct.
+
+3) `POST /api/brewcrm/actions/create_batch`
+   - Body:
+     - product_id
+     - batch_code
+     - brew_date
+     - planned_volume_litres
+   - Returns: created BrewBatch.
+
+4) `POST /api/crm/actions/create_order`
+   - Body:
+     - customer_id
+     - order_date
+     - optional delivery_date
+     - lines: [
+         { generic_item_name, generic_item_code, quantity_units, unit_price, vertical_type, vertical_ref_id }
+       ]
+   - For brewery vertical, vertical_type = "brewery" and vertical_ref_id = BrewProduct.id.
+   - Returns: created CrmOrder with lines.
+
+5) `POST /api/crm/actions/assign_order_to_delivery_run`
+   - Body:
+     - order_id
+     - delivery_run_id
+   - Returns: updated CrmOrder.
+
+6) `POST /api/crm/actions/mark_delivery_complete`
+   - Body:
+     - delivery_run_id
+     - optional actual_completion_date (default = today)
+   - Side effects:
+     - Set DeliveryRun.status = "completed".
+     - Set all associated CrmOrders to status "delivered".
+   - Returns: updated DeliveryRun.
+
+7) `POST /api/brewcrm/actions/generate_duty_report`
+   - Body:
+     - period_start
+     - period_end
+   - Behaviour:
+     - Aggregate packaged volumes by ABV/duty band from BrewBatch/BrewInventory/BrewProduct as appropriate.
+     - Calculate total duty_amount using BrewSettings.default_duty_rate_per_litre (simple model).
+     - Create BrewDutyReport row and return it.
+
+All action endpoints:
+- Validate workspace ownership from auth context.
+- Return structured JSON with `success`, `data`, and optionally `errors`.
+
+============================================================
+SECTION 5 – FRONTEND PAGES & UX
+============================================================
+
+All CRM pages render inside CRM mode (main content area) and use existing UI components.
+
+### 5.1 CRM Dashboard (generic + brewery overlays)
+
+- If `industry_vertical === "brewery"`:
+  - Show tiles/cards for:
+    - Today’s deliveries (count, link to Delivery Runs for today)
+    - Recent orders (last 5)
+    - Open batches (group by status)
+    - Stock summary (e.g. total casks per BrewProduct)
+    - Overdue containers with customers
+  - Provide quick action buttons:
+    - “New Order”
+    - “New Customer”
+    - “New Batch”
+    - “New Product”
+
+- If `industry_vertical !== "brewery"`:
+  - Show generic tiles:
+    - Today’s deliveries (if relevant)
+    - Recent orders
+    - Top customers
+    - Quick links to Customers / Orders
+
+### 5.2 Customers Page (shared)
+
+- Table of customers:
+  - Name, city, last order date, email, phone.
+- Filters:
+  - Search by name/postcode.
+- “Add Customer” button → modal or side panel with form.
+- Clicking a row shows details (either in a dedicated page or side panel) including notes and past orders.
+
+### 5.3 Orders Page (shared)
+
+- Table:
+  - Order number, customer, order date, delivery date, status, total amount.
+- Filters:
+  - Status, date range, customer.
+- “New Order” flow:
+  - Step 1: choose customer (dropdown/search).
+  - Step 2: add line items:
+    - For brewery vertical:
+      - Choose BrewProduct, package_type, package_size_litres, quantity_units, unit_price.
+      - Internally map to generic line with vertical reference.
+    - For generic vertical:
+      - Just generic_item_name, quantity, unit_price.
+  - Step 3: review summary & confirm.
+- Allow editing while in "draft"; confirmed orders should be partially locked.
+
+### 5.4 Delivery Runs Page (shared)
+
+- Overview:
+  - Cards: Active today, Planned, Completed today.
+- List of runs:
+  - name, scheduled_date, status, driver_name, order count.
+- Run detail view:
+  - List of orders assigned to that run, grouped by customer with addresses.
+  - Manual reordering controls (move up/down).
+- Actions:
+  - Create new run (name, date, driver, vehicle).
+  - Assign unassigned orders for that date into a run.
+
+### 5.5 Brewery-only pages
+
+These pages appear ONLY when `industry_vertical === "brewery"`.
+
+#### 5.5.1 Products
+
+- Table:
+  - Name, style, ABV, default package (type & size), active flag.
+- Actions:
+  - Add Product
+  - Edit Product
+  - Archive (set is_active = false)
+- Validate ABV and package size.
+
+#### 5.5.2 Batches / Production
+
+- Table:
+  - batch_code, product, brew_date, status, planned_volume, actual_volume.
+- Filters:
+  - status, product, date range.
+- “Plan Batch” form.
+- Ability to update status in a controlled way.
+- When status set to "packaged":
+  - Prompt the user to create BrewInventoryItems (how many casks/kegs/cans).
+
+#### 5.5.3 Inventory
+
+- Aggregated view:
+  - product, package_type, package_size, total quantity_units, location.
+- Filters:
+  - product, location, package_type.
+- Simple stock adjustment controls (increase/decrease with reason).
+
+#### 5.5.4 Containers
+
+- Table:
+  - container_code, container_type, volume, status, last_customer, last_outbound_date, last_return_date.
+- Filters:
+  - status.
+- “Add Container” form.
+- Manual updates of status and last_customer as needed.
+
+#### 5.5.5 Duty Reports
+
+- Table:
+  - period, total litres, total duty amount, created_at.
+- Generate Duty Report button:
+  - Opens a form (period_start, period_end), calls action endpoint, displays result.
+- Provide CSV export for the breakdown (can be simple).
+
+#### 5.5.6 Brewery Settings
+
+- Simple form:
+  - default_warehouse_location
+  - default_duty_rate_per_litre
+- Stored via BrewSettings.
+
+### 5.6 Generic CRM Settings (all verticals)
+
+- Basic panel:
+  - industry_vertical (dropdown; may be read-only if controlled elsewhere)
+  - default_country
+- For now this can be minimal; main purpose is to show vertical config exists.
+
+============================================================
+SECTION 6 – AGENT HOOKS & TOOL MAPPINGS (STUBS)
+============================================================
+
+We are not wiring the LLM agent fully in v1, but we MUST provide a clean set of frontend wrappers and a tool registry.
+
+### 6.1 Frontend action wrappers
+
+Create a module such as:
+
+- `src/modules/crm/agentActions.ts` (or similar path)
+
+Implement strongly typed functions:
+
+- `createCrmCustomer(params)`
+- `createBrewProduct(params)`
+- `createBrewBatch(params)`
+- `createCrmOrder(params)`
+- `assignOrderToDeliveryRun(params)`
+- `markDeliveryComplete(params)`
+- `generateBrewDutyReport(params)`
+
+Each function should:
+
+- Call the appropriate `/api/.../actions/...` endpoint.
+- Return a Promise with the typed response.
+- Handle errors (throw or return a structured error object).
+
+### 6.2 Tool registry (for future LLM use)
+
+In the same module (or a nearby one), create a simple registry object:
+
+```ts
+export const brewCrmTools = {
+  create_customer: {
+    description: "Create a new CRM customer with basic contact details",
+    handler: createCrmCustomer,
+  },
+  create_product: {
+    description: "Create a new brewery product (beer)",
+    handler: createBrewProduct,
+  },
+  create_batch: {
+    description: "Plan a new brewery batch",
+    handler: createBrewBatch,
+  },
+  create_order: {
+    description: "Create a new CRM order with line items",
+    handler: createCrmOrder,
+  },
+  assign_order_to_delivery_run: {
+    description: "Assign an order to a delivery run",
+    handler: assignOrderToDeliveryRun,
+  },
+  mark_delivery_complete: {
+    description: "Mark a delivery run as completed and deliver associated orders",
+    handler: markDeliveryComplete,
+  },
+  generate_duty_report: {
+    description: "Generate a brewery duty report for a given period",
+    handler: generateBrewDutyReport,
+  },
+};
+Do NOT wire this into any LLM integration yet unless a tool-calling system is already present; just export it so it’s ready.
+
+============================================================
+SECTION 7 – UX PRINCIPLES
+Simplicity first
+
+Target users are small teams who might otherwise use spreadsheets.
+
+Fewer, clearer forms beat many advanced options.
+
+Consistent terminology
+
+For generic verticals use neutral labels: Customer, Order, Delivery Run.
+
+For brewery vertical:
+
+Use "Beer" or "Product" consistently in UI copy, but keep DB names as in section 3.
+
+Use "Batch" and "Delivery Run" in titles and buttons.
+
+Easy “happy path”
+
+Brewery happy path:
+
+Create Product → Plan Batch → Mark Packaged → Create Order → Assign to Run → Mark Delivered → Generate Duty.
+
+Generic happy path:
+
+Create Customer → Create Order → Assign to Delivery Run → Mark Delivered.
+
+Feedback & errors
+
+Forms must validate required fields and show clear errors.
+
+Successful actions should show toasts/snackbars.
+
+============================================================
+SECTION 8 – NON-GOALS / BACKLOG (DO NOT IMPLEMENT NOW)
+Do NOT implement in v1:
+
+Multi-site operations and inter-site transfers.
+
+Advanced recipe management (raw materials depletion, multi-stage yeast handling, etc.).
+
+Automated AI-based route optimisation.
+
+Web shop / trade portal for customers.
+
+Deep credit control and complex pricing hierarchies.
+
+Full Xero or accounting integration (beyond basic placeholders).
+
+Sensor/tank integrations (temperature, density, etc.).
+
+Vertical-specific modules for non-brewery industries (animal physio, etc.) – just keep the vertical model ready.
+
+You may add TODO comments or a simple markdown file listing these future ideas.
+
+============================================================
+SECTION 9 – IMPLEMENTATION PLAN
+Extend workspace/settings with industry_vertical.
+
+Implement DB tables:
+
+Core CRM entities (CrmCustomer, CrmOrder, CrmOrderLine, CrmDeliveryRun, CrmSettings).
+
+Brewery vertical entities (BrewProduct, BrewBatch, BrewInventoryItem, BrewContainer, BrewDutyReport, BrewSettings).
+
+Implement backend endpoints for core CRM and BrewCRM.
+
+Implement the action endpoints in section 4.3.
+
+Implement CRM mode layout:
+
+Add top-level nav item.
+
+Add layout state to switch between chat view and CRM view.
+
+Hide chat transcript bubbles in CRM mode but keep chat input bar visible.
+
+Render CRM shell + internal navigation in the main content area.
+
+Build all CRM pages:
+
+Dashboard, Customers, Orders, Delivery Runs (for all verticals).
+
+Products, Batches, Inventory, Containers, Duty Reports, Brewery/CRM Settings (for brewery vertical).
+
+Create frontend action wrappers and the brewCrmTools registry.
+
+Smoke test each core flow for both:
+
+Generic vertical.
+
+Brewery vertical.
+
+Confirm that existing Wyshbone features still work and that the visual style remains consistent.
+
+END OF SPEC
