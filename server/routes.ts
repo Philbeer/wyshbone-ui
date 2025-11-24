@@ -7036,6 +7036,13 @@ ${run.outputText}`;
       }
       
       const { workspaceId } = req.params;
+      
+      // SECURITY: Verify workspace belongs to authenticated user
+      if (workspaceId !== auth.userId) {
+        console.warn(`🚫 User ${auth.userEmail} attempted to access customers for workspace ${workspaceId}`);
+        return res.status(403).json({ error: "Forbidden: Cannot access other workspaces' data" });
+      }
+      
       const customers = await storage.listCrmCustomers(workspaceId);
       
       res.json(customers);
@@ -7055,6 +7062,12 @@ ${run.outputText}`;
       
       const { workspaceId } = req.params;
       const { q } = req.query;
+      
+      // SECURITY: Verify workspace belongs to authenticated user
+      if (workspaceId !== auth.userId) {
+        console.warn(`🚫 User ${auth.userEmail} attempted to search customers for workspace ${workspaceId}`);
+        return res.status(403).json({ error: "Forbidden: Cannot access other workspaces' data" });
+      }
       
       if (!q || typeof q !== 'string') {
         return res.status(400).json({ error: "Search query required" });
@@ -7084,6 +7097,12 @@ ${run.outputText}`;
         return res.status(404).json({ error: "Customer not found" });
       }
       
+      // SECURITY: Verify customer belongs to authenticated user's workspace
+      if (customer.workspaceId !== auth.userId) {
+        console.warn(`🚫 User ${auth.userEmail} attempted to access customer ${id} owned by workspace ${customer.workspaceId}`);
+        return res.status(403).json({ error: "Forbidden: Cannot access other workspaces' data" });
+      }
+      
       res.json(customer);
     } catch (error: any) {
       console.error("Error getting customer:", error);
@@ -7099,20 +7118,34 @@ ${run.outputText}`;
         return res.status(401).json({ error: "Unauthorized" });
       }
       
+      // VALIDATION: Validate request body using Zod schema
+      const validationResult = insertCrmCustomerSchema.omit({ id: true, createdAt: true, updatedAt: true }).safeParse(req.body);
+      if (!validationResult.success) {
+        return res.status(400).json({ 
+          error: "Validation failed", 
+          details: validationResult.error.errors 
+        });
+      }
+      
+      const data = validationResult.data;
+      
+      // SECURITY: Force workspaceId to be the authenticated user's ID (1:1 mapping)
+      const workspaceId = auth.userId;
+      
       const now = Date.now();
       const customer = await storage.createCrmCustomer({
         id: `customer_${Date.now()}_${Math.random().toString(36).substring(7)}`,
-        workspaceId: req.body.workspaceId,
-        name: req.body.name,
-        primaryContactName: req.body.primaryContactName || null,
-        email: req.body.email || null,
-        phone: req.body.phone || null,
-        addressLine1: req.body.addressLine1 || null,
-        addressLine2: req.body.addressLine2 || null,
-        city: req.body.city || null,
-        postcode: req.body.postcode || null,
-        country: req.body.country || 'United Kingdom',
-        notes: req.body.notes || null,
+        workspaceId,
+        name: data.name,
+        primaryContactName: data.primaryContactName || null,
+        email: data.email || null,
+        phone: data.phone || null,
+        addressLine1: data.addressLine1 || null,
+        addressLine2: data.addressLine2 || null,
+        city: data.city || null,
+        postcode: data.postcode || null,
+        country: data.country || 'United Kingdom',
+        notes: data.notes || null,
         createdAt: now,
         updatedAt: now,
       });
@@ -7133,11 +7166,30 @@ ${run.outputText}`;
       }
       
       const { id } = req.params;
-      const customer = await storage.updateCrmCustomer(id, req.body);
       
-      if (!customer) {
+      // SECURITY: Verify customer exists and belongs to authenticated user's workspace
+      const existing = await storage.getCrmCustomer(id);
+      if (!existing) {
         return res.status(404).json({ error: "Customer not found" });
       }
+      if (existing.workspaceId !== auth.userId) {
+        console.warn(`🚫 User ${auth.userEmail} attempted to update customer ${id} owned by workspace ${existing.workspaceId}`);
+        return res.status(403).json({ error: "Forbidden: Cannot modify other workspaces' data" });
+      }
+      
+      // VALIDATION: Validate partial update using Zod schema (omit immutable fields)
+      const validationResult = insertCrmCustomerSchema.partial().omit({ id: true, workspaceId: true, createdAt: true }).safeParse(req.body);
+      if (!validationResult.success) {
+        return res.status(400).json({ 
+          error: "Validation failed", 
+          details: validationResult.error.errors 
+        });
+      }
+      
+      const customer = await storage.updateCrmCustomer(id, {
+        ...validationResult.data,
+        updatedAt: Date.now(),
+      });
       
       res.json(customer);
     } catch (error: any) {
@@ -7155,6 +7207,17 @@ ${run.outputText}`;
       }
       
       const { id } = req.params;
+      
+      // SECURITY: Verify customer exists and belongs to authenticated user's workspace
+      const existing = await storage.getCrmCustomer(id);
+      if (!existing) {
+        return res.status(404).json({ error: "Customer not found" });
+      }
+      if (existing.workspaceId !== auth.userId) {
+        console.warn(`🚫 User ${auth.userEmail} attempted to delete customer ${id} owned by workspace ${existing.workspaceId}`);
+        return res.status(403).json({ error: "Forbidden: Cannot delete other workspaces' data" });
+      }
+      
       const success = await storage.deleteCrmCustomer(id);
       
       res.json({ success });
@@ -7291,10 +7354,28 @@ ${run.outputText}`;
       const { workspaceId } = req.params;
       const { customerId, deliveryRunId } = req.query;
       
+      // SECURITY: Verify workspace belongs to authenticated user
+      if (workspaceId !== auth.userId) {
+        console.warn(`🚫 User ${auth.userEmail} attempted to access orders for workspace ${workspaceId}`);
+        return res.status(403).json({ error: "Forbidden: Cannot access other workspaces' data" });
+      }
+      
       let orders;
       if (customerId && typeof customerId === 'string') {
+        // SECURITY: Verify customer belongs to authenticated user's workspace before filtering
+        const customer = await storage.getCrmCustomer(customerId);
+        if (!customer || customer.workspaceId !== auth.userId) {
+          console.warn(`🚫 User ${auth.userEmail} attempted to access orders for customer ${customerId} not in their workspace`);
+          return res.status(403).json({ error: "Forbidden: Cannot access other workspaces' customers" });
+        }
         orders = await storage.listCrmOrdersByCustomer(customerId);
       } else if (deliveryRunId && typeof deliveryRunId === 'string') {
+        // SECURITY: Verify delivery run belongs to authenticated user's workspace before filtering
+        const deliveryRun = await storage.getCrmDeliveryRun(deliveryRunId);
+        if (!deliveryRun || deliveryRun.workspaceId !== auth.userId) {
+          console.warn(`🚫 User ${auth.userEmail} attempted to access orders for delivery run ${deliveryRunId} not in their workspace`);
+          return res.status(403).json({ error: "Forbidden: Cannot access other workspaces' delivery runs" });
+        }
         orders = await storage.listCrmOrdersByDeliveryRun(deliveryRunId);
       } else {
         orders = await storage.listCrmOrders(workspaceId);
@@ -7322,6 +7403,12 @@ ${run.outputText}`;
         return res.status(404).json({ error: "Order not found" });
       }
       
+      // SECURITY: Verify order belongs to authenticated user's workspace
+      if (order.workspaceId !== auth.userId) {
+        console.warn(`🚫 User ${auth.userEmail} attempted to access order ${id} owned by workspace ${order.workspaceId}`);
+        return res.status(403).json({ error: "Forbidden: Cannot access other workspaces' data" });
+      }
+      
       res.json(order);
     } catch (error: any) {
       console.error("Error getting order:", error);
@@ -7337,19 +7424,47 @@ ${run.outputText}`;
         return res.status(401).json({ error: "Unauthorized" });
       }
       
+      // VALIDATION: Validate request body using Zod schema
+      const validationResult = insertCrmOrderSchema.omit({ id: true, createdAt: true, updatedAt: true }).safeParse(req.body);
+      if (!validationResult.success) {
+        return res.status(400).json({ 
+          error: "Validation failed", 
+          details: validationResult.error.errors 
+        });
+      }
+      
+      const data = validationResult.data;
+      
+      // SECURITY: Force workspaceId to be the authenticated user's ID
+      const workspaceId = auth.userId;
+      
+      // SECURITY: Verify customer belongs to authenticated user's workspace
+      const customer = await storage.getCrmCustomer(data.customerId);
+      if (!customer || customer.workspaceId !== auth.userId) {
+        return res.status(403).json({ error: "Forbidden: Customer does not belong to your workspace" });
+      }
+      
+      // SECURITY: If deliveryRunId provided, verify it belongs to authenticated user's workspace
+      if (data.deliveryRunId) {
+        const deliveryRun = await storage.getCrmDeliveryRun(data.deliveryRunId);
+        if (!deliveryRun || deliveryRun.workspaceId !== auth.userId) {
+          return res.status(403).json({ error: "Forbidden: Delivery run does not belong to your workspace" });
+        }
+      }
+      
       const now = Date.now();
       const order = await storage.createCrmOrder({
         id: `order_${Date.now()}_${Math.random().toString(36).substring(7)}`,
-        workspaceId: req.body.workspaceId,
-        customerId: req.body.customerId,
-        orderNumber: req.body.orderNumber,
-        orderDate: req.body.orderDate,
-        status: req.body.status || 'draft',
-        deliveryDate: req.body.deliveryDate || null,
-        deliveryRunId: req.body.deliveryRunId || null,
-        currency: req.body.currency || 'GBP',
-        totalAmount: req.body.totalAmount || null,
-        notes: req.body.notes || null,
+        workspaceId,
+        customerId: data.customerId,
+        orderNumber: data.orderNumber,
+        orderDate: data.orderDate,
+        status: data.status || 'draft',
+        deliveryDate: data.deliveryDate || null,
+        deliveryRunId: data.deliveryRunId || null,
+        currency: data.currency || 'GBP',
+        totalAmount: data.totalAmount || null,
+        notes: data.notes || null,
         createdAt: now,
         updatedAt: now,
       });
@@ -7370,11 +7485,48 @@ ${run.outputText}`;
       }
       
       const { id } = req.params;
-      const order = await storage.updateCrmOrder(id, req.body);
       
-      if (!order) {
+      // SECURITY: Verify order exists and belongs to authenticated user's workspace
+      const existing = await storage.getCrmOrder(id);
+      if (!existing) {
         return res.status(404).json({ error: "Order not found" });
       }
+      if (existing.workspaceId !== auth.userId) {
+        console.warn(`🚫 User ${auth.userEmail} attempted to update order ${id} owned by workspace ${existing.workspaceId}`);
+        return res.status(403).json({ error: "Forbidden: Cannot modify other workspaces' data" });
+      }
+      
+      // VALIDATION: Validate partial update using Zod schema (omit immutable fields)
+      const validationResult = insertCrmOrderSchema.partial().omit({ id: true, workspaceId: true, createdAt: true }).safeParse(req.body);
+      if (!validationResult.success) {
+        return res.status(400).json({ 
+          error: "Validation failed", 
+          details: validationResult.error.errors 
+        });
+      }
+      
+      const data = validationResult.data;
+      
+      // SECURITY: If customerId is being updated, verify it belongs to authenticated user's workspace
+      if (data.customerId) {
+        const customer = await storage.getCrmCustomer(data.customerId);
+        if (!customer || customer.workspaceId !== auth.userId) {
+          return res.status(403).json({ error: "Forbidden: Customer does not belong to your workspace" });
+        }
+      }
+      
+      // SECURITY: If deliveryRunId is being updated, verify it belongs to authenticated user's workspace
+      if (data.deliveryRunId) {
+        const deliveryRun = await storage.getCrmDeliveryRun(data.deliveryRunId);
+        if (!deliveryRun || deliveryRun.workspaceId !== auth.userId) {
+          return res.status(403).json({ error: "Forbidden: Delivery run does not belong to your workspace" });
+        }
+      }
+      
+      const order = await storage.updateCrmOrder(id, {
+        ...data,
+        updatedAt: Date.now(),
+      });
       
       res.json(order);
     } catch (error: any) {
@@ -7392,6 +7544,17 @@ ${run.outputText}`;
       }
       
       const { id } = req.params;
+      
+      // SECURITY: Verify order exists and belongs to authenticated user's workspace
+      const existing = await storage.getCrmOrder(id);
+      if (!existing) {
+        return res.status(404).json({ error: "Order not found" });
+      }
+      if (existing.workspaceId !== auth.userId) {
+        console.warn(`🚫 User ${auth.userEmail} attempted to delete order ${id} owned by workspace ${existing.workspaceId}`);
+        return res.status(403).json({ error: "Forbidden: Cannot delete other workspaces' data" });
+      }
+      
       const success = await storage.deleteCrmOrder(id);
       
       res.json({ success });
