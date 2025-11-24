@@ -866,6 +866,14 @@ export function AppSidebar({
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={location.startsWith("/auth/crm")} data-testid="link-crm">
+                  <Link href="/auth/crm">
+                    <Link2 className="h-4 w-4" />
+                    <span>CRM & Accounting</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
                 <Collapsible open={showIntegrations} onOpenChange={setShowIntegrations}>
                   <CollapsibleTrigger asChild>
                     <SidebarMenuButton data-testid="button-toggle-integrations">
@@ -875,7 +883,7 @@ export function AppSidebar({
                         <ChevronRight className="h-4 w-4" />
                       )}
                       <Link2 className="h-4 w-4" />
-                      <span>CRM & Accounting</span>
+                      <span>Integrations</span>
                     </SidebarMenuButton>
                   </CollapsibleTrigger>
                   <CollapsibleContent className="mt-2">

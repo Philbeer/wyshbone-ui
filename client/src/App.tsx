@@ -67,7 +67,7 @@ function Router({
       <Route path="/debug" component={DebugPage} />
       <Route path="/batch-history" component={BatchHistoryPage} />
       <Route path="/batch/:id" component={BatchPipeline} />
-      <Route path="/crm/:rest*" component={CrmLayout} />
+      <Route path="/auth/crm/:rest*" component={CrmLayout} />
       <Route component={NotFound} />
     </Switch>
   );
