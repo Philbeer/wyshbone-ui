@@ -696,3 +696,285 @@ export const insertBatchJobSchema = createInsertSchema(batchJobs);
 export const selectBatchJobSchema = createSelectSchema(batchJobs);
 export type InsertBatchJob = z.infer<typeof insertBatchJobSchema>;
 export type SelectBatchJob = typeof batchJobs.$inferSelect;
+
+// ============= LEADGEN PLANS TABLE =============
+// Lead generation plans for UI-030 (plan approval before execution)
+export const leadGenPlans = pgTable("lead_gen_plans", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  sessionId: text("session_id").notNull(),
+  conversationId: text("conversation_id"),
+  goal: text("goal").notNull(),
+  steps: jsonb("steps").notNull(), // Array of LeadGenStep objects
+  status: text("status").notNull(), // 'pending_approval', 'approved', 'rejected', 'executing', 'completed', 'failed'
+  supervisorTaskId: text("supervisor_task_id"),
+  toolMetadata: jsonb("tool_metadata"), // { toolName, toolArgs, userId }
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+}, (table) => ({
+  userIdIdx: index("lead_gen_plans_user_id_idx").on(table.userId),
+  sessionIdIdx: index("lead_gen_plans_session_id_idx").on(table.sessionId),
+  statusIdx: index("lead_gen_plans_status_idx").on(table.status),
+}));
+
+export const insertLeadGenPlanSchema = createInsertSchema(leadGenPlans);
+export const selectLeadGenPlanSchema = createSelectSchema(leadGenPlans);
+export type InsertLeadGenPlan = z.infer<typeof insertLeadGenPlanSchema>;
+export type SelectLeadGenPlan = typeof leadGenPlans.$inferSelect;
+
+// ============= CRM TABLES =============
+// Core CRM Settings (multi-vertical support)
+export const crmSettings = pgTable("crm_settings", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull(), // User ID serves as workspace ID for now
+  industryVertical: text("industry_vertical").notNull().default("generic"), // 'generic', 'brewery', 'animal_physio', 'other'
+  defaultCountry: text("default_country").notNull().default("United Kingdom"),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+}, (table) => ({
+  workspaceIdIdx: index("crm_settings_workspace_id_idx").on(table.workspaceId),
+}));
+
+export const insertCrmSettingsSchema = createInsertSchema(crmSettings);
+export const selectCrmSettingsSchema = createSelectSchema(crmSettings);
+export type InsertCrmSettings = z.infer<typeof insertCrmSettingsSchema>;
+export type SelectCrmSettings = typeof crmSettings.$inferSelect;
+
+// CRM Customers (shared across all verticals)
+export const crmCustomers = pgTable("crm_customers", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull(),
+  name: text("name").notNull(),
+  primaryContactName: text("primary_contact_name"),
+  email: text("email"),
+  phone: text("phone"),
+  addressLine1: text("address_line1"),
+  addressLine2: text("address_line2"),
+  city: text("city"),
+  postcode: text("postcode"),
+  country: text("country").notNull().default("United Kingdom"),
+  notes: text("notes"),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+}, (table) => ({
+  workspaceIdIdx: index("crm_customers_workspace_id_idx").on(table.workspaceId),
+  nameIdx: index("crm_customers_name_idx").on(table.name),
+}));
+
+export const insertCrmCustomerSchema = createInsertSchema(crmCustomers);
+export const selectCrmCustomerSchema = createSelectSchema(crmCustomers);
+export type InsertCrmCustomer = z.infer<typeof insertCrmCustomerSchema>;
+export type SelectCrmCustomer = typeof crmCustomers.$inferSelect;
+
+// CRM Delivery Runs
+export const crmDeliveryRuns = pgTable("crm_delivery_runs", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull(),
+  name: text("name").notNull(),
+  driverName: text("driver_name"),
+  vehicle: text("vehicle"),
+  scheduledDate: bigint("scheduled_date", { mode: "number" }).notNull(), // Unix timestamp
+  status: text("status").notNull().default("planned"), // 'planned', 'in_progress', 'completed', 'cancelled'
+  notes: text("notes"),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+}, (table) => ({
+  workspaceIdIdx: index("crm_delivery_runs_workspace_id_idx").on(table.workspaceId),
+  statusIdx: index("crm_delivery_runs_status_idx").on(table.status),
+  scheduledDateIdx: index("crm_delivery_runs_scheduled_date_idx").on(table.scheduledDate),
+}));
+
+export const insertCrmDeliveryRunSchema = createInsertSchema(crmDeliveryRuns);
+export const selectCrmDeliveryRunSchema = createSelectSchema(crmDeliveryRuns);
+export type InsertCrmDeliveryRun = z.infer<typeof insertCrmDeliveryRunSchema>;
+export type SelectCrmDeliveryRun = typeof crmDeliveryRuns.$inferSelect;
+
+// CRM Orders
+export const crmOrders = pgTable("crm_orders", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull(),
+  customerId: text("customer_id").notNull(),
+  orderNumber: text("order_number").notNull(),
+  orderDate: bigint("order_date", { mode: "number" }).notNull(),
+  status: text("status").notNull().default("draft"), // 'draft', 'confirmed', 'dispatched', 'delivered', 'cancelled'
+  deliveryDate: bigint("delivery_date", { mode: "number" }),
+  deliveryRunId: text("delivery_run_id"),
+  currency: text("currency").notNull().default("GBP"),
+  totalAmount: integer("total_amount"), // In pence/cents
+  notes: text("notes"),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+}, (table) => ({
+  workspaceIdIdx: index("crm_orders_workspace_id_idx").on(table.workspaceId),
+  customerIdIdx: index("crm_orders_customer_id_idx").on(table.customerId),
+  deliveryRunIdIdx: index("crm_orders_delivery_run_id_idx").on(table.deliveryRunId),
+  statusIdx: index("crm_orders_status_idx").on(table.status),
+  orderDateIdx: index("crm_orders_order_date_idx").on(table.orderDate),
+}));
+
+export const insertCrmOrderSchema = createInsertSchema(crmOrders);
+export const selectCrmOrderSchema = createSelectSchema(crmOrders);
+export type InsertCrmOrder = z.infer<typeof insertCrmOrderSchema>;
+export type SelectCrmOrder = typeof crmOrders.$inferSelect;
+
+// CRM Order Lines
+export const crmOrderLines = pgTable("crm_order_lines", {
+  id: text("id").primaryKey(),
+  orderId: text("order_id").notNull(),
+  genericItemName: text("generic_item_name").notNull(),
+  genericItemCode: text("generic_item_code"),
+  quantityUnits: integer("quantity_units").notNull(),
+  unitPrice: integer("unit_price").notNull(), // In pence/cents
+  lineTotal: integer("line_total").notNull(), // In pence/cents
+  verticalType: text("vertical_type"), // 'brewery', 'animal_physio', etc.
+  verticalRefId: text("vertical_ref_id"), // FK to vertical-specific product table
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+}, (table) => ({
+  orderIdIdx: index("crm_order_lines_order_id_idx").on(table.orderId),
+  verticalRefIdIdx: index("crm_order_lines_vertical_ref_id_idx").on(table.verticalRefId),
+}));
+
+export const insertCrmOrderLineSchema = createInsertSchema(crmOrderLines);
+export const selectCrmOrderLineSchema = createSelectSchema(crmOrderLines);
+export type InsertCrmOrderLine = z.infer<typeof insertCrmOrderLineSchema>;
+export type SelectCrmOrderLine = typeof crmOrderLines.$inferSelect;
+
+// ============= BREWERY VERTICAL TABLES =============
+// Brewery Products (beers)
+export const brewProducts = pgTable("brew_products", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull(),
+  name: text("name").notNull(),
+  style: text("style"),
+  sku: text("sku"),
+  abv: integer("abv").notNull(), // Stored as basis points (e.g., 450 = 4.5%)
+  defaultPackageType: text("default_package_type").notNull(), // 'cask', 'keg', 'can', 'bottle'
+  defaultPackageSizeLitres: integer("default_package_size_litres").notNull(), // In millilitres (e.g., 40900 = 40.9L)
+  dutyBand: text("duty_band").notNull(), // 'beer_standard', 'beer_small_producer', etc.
+  isActive: integer("is_active").notNull().default(1), // 1 = true, 0 = false
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+}, (table) => ({
+  workspaceIdIdx: index("brew_products_workspace_id_idx").on(table.workspaceId),
+  skuIdx: index("brew_products_sku_idx").on(table.sku),
+  isActiveIdx: index("brew_products_is_active_idx").on(table.isActive),
+}));
+
+export const insertBrewProductSchema = createInsertSchema(brewProducts);
+export const selectBrewProductSchema = createSelectSchema(brewProducts);
+export type InsertBrewProduct = z.infer<typeof insertBrewProductSchema>;
+export type SelectBrewProduct = typeof brewProducts.$inferSelect;
+
+// Brewery Batches
+export const brewBatches = pgTable("brew_batches", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull(),
+  productId: text("product_id").notNull(),
+  batchCode: text("batch_code").notNull(),
+  brewDate: bigint("brew_date", { mode: "number" }).notNull(),
+  status: text("status").notNull().default("planned"), // 'planned', 'in_progress', 'fermenting', 'packaging', 'packaged', 'cancelled'
+  plannedVolumeLitres: integer("planned_volume_litres").notNull(), // In millilitres
+  actualVolumeLitres: integer("actual_volume_litres"), // In millilitres
+  notes: text("notes"),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+}, (table) => ({
+  workspaceIdIdx: index("brew_batches_workspace_id_idx").on(table.workspaceId),
+  productIdIdx: index("brew_batches_product_id_idx").on(table.productId),
+  statusIdx: index("brew_batches_status_idx").on(table.status),
+  batchCodeIdx: index("brew_batches_batch_code_idx").on(table.batchCode),
+}));
+
+export const insertBrewBatchSchema = createInsertSchema(brewBatches);
+export const selectBrewBatchSchema = createSelectSchema(brewBatches);
+export type InsertBrewBatch = z.infer<typeof insertBrewBatchSchema>;
+export type SelectBrewBatch = typeof brewBatches.$inferSelect;
+
+// Brewery Inventory Items
+export const brewInventoryItems = pgTable("brew_inventory_items", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull(),
+  productId: text("product_id").notNull(),
+  batchId: text("batch_id"),
+  packageType: text("package_type").notNull(), // 'cask', 'keg', 'can', 'bottle'
+  packageSizeLitres: integer("package_size_litres").notNull(), // In millilitres
+  quantityUnits: integer("quantity_units").notNull(),
+  location: text("location").notNull(),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+}, (table) => ({
+  workspaceIdIdx: index("brew_inventory_items_workspace_id_idx").on(table.workspaceId),
+  productIdIdx: index("brew_inventory_items_product_id_idx").on(table.productId),
+  batchIdIdx: index("brew_inventory_items_batch_id_idx").on(table.batchId),
+  locationIdx: index("brew_inventory_items_location_idx").on(table.location),
+}));
+
+export const insertBrewInventoryItemSchema = createInsertSchema(brewInventoryItems);
+export const selectBrewInventoryItemSchema = createSelectSchema(brewInventoryItems);
+export type InsertBrewInventoryItem = z.infer<typeof insertBrewInventoryItemSchema>;
+export type SelectBrewInventoryItem = typeof brewInventoryItems.$inferSelect;
+
+// Brewery Containers (casks/kegs tracking)
+export const brewContainers = pgTable("brew_containers", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull(),
+  containerCode: text("container_code").notNull(),
+  containerType: text("container_type").notNull(), // 'cask', 'keg'
+  volumeLitres: integer("volume_litres").notNull(), // In millilitres
+  status: text("status").notNull().default("at_brewery"), // 'at_brewery', 'with_customer', 'lost', 'retired'
+  lastCustomerId: text("last_customer_id"),
+  lastOutboundDate: bigint("last_outbound_date", { mode: "number" }),
+  lastReturnDate: bigint("last_return_date", { mode: "number" }),
+  notes: text("notes"),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+}, (table) => ({
+  workspaceIdIdx: index("brew_containers_workspace_id_idx").on(table.workspaceId),
+  containerCodeIdx: index("brew_containers_container_code_idx").on(table.containerCode),
+  statusIdx: index("brew_containers_status_idx").on(table.status),
+  lastCustomerIdIdx: index("brew_containers_last_customer_id_idx").on(table.lastCustomerId),
+}));
+
+export const insertBrewContainerSchema = createInsertSchema(brewContainers);
+export const selectBrewContainerSchema = createSelectSchema(brewContainers);
+export type InsertBrewContainer = z.infer<typeof insertBrewContainerSchema>;
+export type SelectBrewContainer = typeof brewContainers.$inferSelect;
+
+// Brewery Duty Reports
+export const brewDutyReports = pgTable("brew_duty_reports", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull(),
+  periodStart: bigint("period_start", { mode: "number" }).notNull(),
+  periodEnd: bigint("period_end", { mode: "number" }).notNull(),
+  totalLitres: integer("total_litres").notNull(), // In millilitres
+  totalDutyAmount: integer("total_duty_amount").notNull(), // In pence
+  breakdownJson: jsonb("breakdown_json").notNull(), // Per product/ABV band breakdown
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+}, (table) => ({
+  workspaceIdIdx: index("brew_duty_reports_workspace_id_idx").on(table.workspaceId),
+  periodStartIdx: index("brew_duty_reports_period_start_idx").on(table.periodStart),
+}));
+
+export const insertBrewDutyReportSchema = createInsertSchema(brewDutyReports);
+export const selectBrewDutyReportSchema = createSelectSchema(brewDutyReports);
+export type InsertBrewDutyReport = z.infer<typeof insertBrewDutyReportSchema>;
+export type SelectBrewDutyReport = typeof brewDutyReports.$inferSelect;
+
+// Brewery Settings
+export const brewSettings = pgTable("brew_settings", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull(),
+  defaultWarehouseLocation: text("default_warehouse_location"),
+  defaultDutyRatePerLitre: integer("default_duty_rate_per_litre"), // In pence per litre
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+}, (table) => ({
+  workspaceIdIdx: index("brew_settings_workspace_id_idx").on(table.workspaceId),
+}));
+
+export const insertBrewSettingsSchema = createInsertSchema(brewSettings);
+export const selectBrewSettingsSchema = createSelectSchema(brewSettings);
+export type InsertBrewSettings = z.infer<typeof insertBrewSettingsSchema>;
+export type SelectBrewSettings = typeof brewSettings.$inferSelect;
