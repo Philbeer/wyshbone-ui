@@ -329,12 +329,12 @@ export default function BrewCrmContainers() {
                       </FormControl>
                       <SelectContent>
                         <SelectItem value="none">None</SelectItem>
-                        {customers?.length === 0 ? (
+                        {!customers || customers.length === 0 ? (
                           <SelectItem value="no-customers" disabled>
-                            No customers found
+                            No customers available
                           </SelectItem>
                         ) : (
-                          customers?.map((customer: any) => (
+                          customers.map((customer: any) => (
                             <SelectItem key={customer.id} value={customer.id}>
                               {customer.name}
                             </SelectItem>

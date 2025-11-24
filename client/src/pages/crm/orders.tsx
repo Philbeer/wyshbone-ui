@@ -258,16 +258,20 @@ export default function CrmOrders() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Customer *</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value || undefined}>
+                      <Select 
+                        onValueChange={field.onChange} 
+                        value={field.value || undefined}
+                        disabled={!customers || customers.length === 0}
+                      >
                         <FormControl>
                           <SelectTrigger data-testid="select-customer">
-                            <SelectValue placeholder="Select customer" />
+                            <SelectValue placeholder={customers?.length === 0 ? "No customers available - create one first" : "Select customer"} />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
                           {customers?.length === 0 ? (
                             <SelectItem value="no-customers" disabled>
-                              No customers found
+                              No customers found - create a customer first
                             </SelectItem>
                           ) : (
                             customers?.map((customer: any) => (
@@ -371,12 +375,12 @@ export default function CrmOrders() {
                       </FormControl>
                       <SelectContent>
                         <SelectItem value="none">None</SelectItem>
-                        {deliveryRuns?.length === 0 ? (
+                        {!deliveryRuns || deliveryRuns.length === 0 ? (
                           <SelectItem value="no-runs" disabled>
-                            No delivery runs found
+                            No delivery runs available
                           </SelectItem>
                         ) : (
-                          deliveryRuns?.map((run: any) => (
+                          deliveryRuns.map((run: any) => (
                             <SelectItem key={run.id} value={run.id}>
                               {run.name}
                             </SelectItem>

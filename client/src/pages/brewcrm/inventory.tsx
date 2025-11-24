@@ -45,7 +45,7 @@ export default function BrewCrmInventory() {
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      productId: "",
+      productId: undefined,
       batchId: undefined,
       packageType: "cask",
       packageSizeLitres: 0,
@@ -96,7 +96,7 @@ export default function BrewCrmInventory() {
   const handleEdit = (item: any) => {
     setEditingItem(item);
     form.reset({
-      productId: item.productId || "",
+      productId: item.productId || undefined,
       batchId: item.batchId || undefined,
       packageType: item.packageType || "cask",
       packageSizeLitres: item.packageSizeLitres / 1000 || 0,
@@ -274,12 +274,12 @@ export default function BrewCrmInventory() {
                       </FormControl>
                       <SelectContent>
                         <SelectItem value="none">None</SelectItem>
-                        {batches?.length === 0 ? (
+                        {!batches || batches.length === 0 ? (
                           <SelectItem value="no-batches" disabled>
-                            No batches found
+                            No batches available
                           </SelectItem>
                         ) : (
-                          batches?.map((batch: any) => (
+                          batches.map((batch: any) => (
                             <SelectItem key={batch.id} value={batch.id}>
                               {batch.batchCode}
                             </SelectItem>

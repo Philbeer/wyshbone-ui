@@ -42,7 +42,7 @@ export default function BrewCrmBatches() {
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      productId: "",
+      productId: undefined,
       batchCode: "",
       brewDate: Date.now(),
       status: "planned",
@@ -94,7 +94,7 @@ export default function BrewCrmBatches() {
   const handleEdit = (batch: any) => {
     setEditingBatch(batch);
     form.reset({
-      productId: batch.productId || "",
+      productId: batch.productId || undefined,
       batchCode: batch.batchCode || "",
       brewDate: batch.brewDate,
       status: batch.status || "planned",
