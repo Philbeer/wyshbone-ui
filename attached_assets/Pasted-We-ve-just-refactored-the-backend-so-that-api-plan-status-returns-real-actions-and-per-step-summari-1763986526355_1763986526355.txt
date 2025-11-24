@@ -1,0 +1,142 @@
+We’ve just refactored the backend so that /api/plan-status returns real actions and per-step summaries. The Supervisor now executes real actions (GLOBAL_DB, EMAIL_FINDER, DEEP_RESEARCH, SCHEDULED_MONITOR) and each step includes a resultSummary in the plan object.
+
+I need the Wyshbone-UI to actually display these step results in the Progress widget so it “feels” like an agent doing real work, not just a bar moving.
+
+What’s true on the backend now
+
+Supervisor uses a canonical action registry with 4 action types:
+
+GLOBAL_DB
+
+EMAIL_FINDER
+
+DEEP_RESEARCH
+
+SCHEDULED_MONITOR
+
+/api/plan-status?planId=... now returns, in addition to the existing fields:
+
+steps: [{ id, type, status, label?, resultSummary?, ... }]
+where resultSummary is a short human-readable string like:
+
+"Found 20 leads via Google Places"
+
+"Processed 20 leads, found 0 emails (no Hunter key?)"
+
+"Monitor scheduled for Mondays at 09:00"
+
+"Deep research completed with 5 key insights"
+
+The server is already populating resultSummary for each step.
+
+What I want in the UI
+
+Please update the UI so the user can see these summaries in the Progress widget.
+
+Focus on:
+
+client/src/hooks/use-plan-progress.ts
+
+client/src/components/progress-widget.tsx
+
+Any shared types used to represent plan status/steps.
+
+1. Ensure the hook exposes step summaries
+
+Update usePlanProgress so that it:
+
+Parses the enriched /api/plan-status response.
+
+Exposes a structure like:
+
+type PlanStepProgress = {
+  id: string;
+  type: string;
+  status: 'pending' | 'executing' | 'completed' | 'failed';
+  label?: string;
+  resultSummary?: string;
+};
+
+type PlanProgress = {
+  totalSteps: number;
+  completedSteps: number;
+  currentStep?: PlanStepProgress | null;
+  status: 'idle' | 'pending_approval' | 'executing' | 'completed' | 'failed';
+  steps: PlanStepProgress[];
+};
+
+
+Make sure steps and currentStep include resultSummary when present.
+
+Preserve existing behaviour (polling, snapshot retention, etc.) and just enrich the data.
+
+2. Update ProgressWidget to render per-step result summaries
+
+In client/src/components/progress-widget.tsx:
+
+Keep the existing headline and progress bar.
+
+Under the bar, add a step list that shows at least:
+
+Step number (e.g. “Step 1”, “Step 2”)
+
+Step type or label (e.g. “GLOBAL_DB – Wyshbone Global Database Search”)
+
+Status pill/badge (executing, completed, failed)
+
+resultSummary when present.
+
+Something like:
+
+Step 1 — GLOBAL_DB (completed)
+Found 20 leads via Google Places
+
+Step 2 — EMAIL_FINDER (completed)
+Processed 20 leads, found 0 emails
+
+Step 3 — DEEP_RESEARCH (failed)
+No emails available to research
+
+
+Implementation details:
+
+Show steps in order.
+
+Make sure completed steps still show their summary even after execution finishes.
+
+For steps without a resultSummary, show a reasonable fallback like:
+
+“Running …”
+
+“Completed with no additional details”
+
+3. UX details
+
+Don’t remove any existing progress logic; only add the step list.
+
+If there are no steps yet (plan still being created), show a simple “No steps available yet” message.
+
+If the plan status is failed, make it obvious which step failed and include its resultSummary.
+
+4. Testing expectations
+
+After your changes, in Wyshbone-UI I should be able to:
+
+Enter a goal like:
+“Find 5 dentists in London and get their emails”
+
+Click “Start Working On This Goal” and then Approve Plan.
+
+Watch the Progress widget:
+
+The progress bar moves as steps execute.
+
+A list appears showing each step:
+
+Step 1 (GLOBAL_DB): resultSummary like “Found 20 dentists via Google Places”.
+
+Step 2 (EMAIL_FINDER): resultSummary like “Processed 20 leads; 0 emails found”.
+
+When the plan is completed, the step list and summaries remain visible so I can scroll back and see what the agent actually did.
+
+Please keep the existing [PLAN_PROGRESS_DEBUG] logging intact so I can still trace internal state.
