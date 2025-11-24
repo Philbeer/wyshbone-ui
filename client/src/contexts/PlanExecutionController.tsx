@@ -1,34 +1,72 @@
-import { createContext, useContext, useEffect, useRef, useState, ReactNode } from "react";
-import { usePlan } from "./PlanContext";
+import { createContext, useContext, ReactNode, useState, useEffect, useCallback } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { useUser } from './UserContext';
+import { addDevAuthParams } from '@/lib/queryClient';
 
 interface ExecutionState {
   isExecuting: boolean;
   shouldPoll: boolean;
+  activePlanId: string | null;
+  status: 'idle' | 'executing' | 'completed' | 'failed';
+  startExecution: (planId: string) => void;
 }
 
 const ExecutionContext = createContext<ExecutionState | undefined>(undefined);
 
+interface PlanStatusResponse {
+  status: 'executing' | 'completed' | 'failed';
+  planId: string;
+  goal?: string;
+}
+
 export function PlanExecutionProvider({ children }: { children: ReactNode }) {
-  const { plan, status } = usePlan();
-  const lastSeenStatusRef = useRef<string>('idle');
+  const { user } = useUser();
+  const [activePlanId, setActivePlanId] = useState<string | null>(null);
   
-  // Derive shouldPoll directly from status - no state needed!
+  // Query /api/plan-status to get current execution status
+  const { data: statusData } = useQuery<PlanStatusResponse>({
+    queryKey: ['/api/plan-status', activePlanId],
+    queryFn: async () => {
+      if (!activePlanId) throw new Error('No active plan');
+      
+      const url = addDevAuthParams(`/api/plan-status?planId=${encodeURIComponent(activePlanId)}`);
+      console.log(`[EXECUTION_CONTROLLER] fetching status for ${activePlanId}`);
+      const response = await fetch(url);
+      if (!response.ok) throw new Error('Failed to fetch plan status');
+      const data = await response.json();
+      console.log(`[EXECUTION_CONTROLLER] received status: ${data.status}`);
+      return data;
+    },
+    enabled: !!user && !!activePlanId,
+    refetchInterval: activePlanId ? 3000 : false,
+  });
+
+  const status = statusData?.status || (activePlanId ? 'executing' : 'idle');
   const shouldPoll = status === 'executing';
   
-  // Track status transitions for logging (optional)
+  // Clear activePlanId when status becomes terminal
   useEffect(() => {
-    if (status !== lastSeenStatusRef.current) {
-      console.log(`[EXECUTION_CONTROLLER] status transition: ${lastSeenStatusRef.current} → ${status}, shouldPoll: ${shouldPoll}`);
-      lastSeenStatusRef.current = status;
+    if (statusData && (statusData.status === 'completed' || statusData.status === 'failed')) {
+      console.log(`[EXECUTION_CONTROLLER] plan ${activePlanId} finished with status ${statusData.status}`);
+      // Keep activePlanId so progress widget can show final state
+      // It will be cleared when a new plan starts
     }
-  }, [status, shouldPoll]);
+  }, [statusData, activePlanId]);
+  
+  const startExecution = useCallback((planId: string) => {
+    console.log(`[EXECUTION_CONTROLLER] starting execution for plan ${planId}`);
+    setActivePlanId(planId);
+  }, []);
   
   const value: ExecutionState = {
     isExecuting: status === 'executing',
     shouldPoll,
+    activePlanId,
+    status,
+    startExecution,
   };
   
-  console.log(`[EXECUTION_CONTROLLER] state - status=${status}, planId=${plan?.id || 'null'}, shouldPoll=${shouldPoll}`);
+  console.log(`[EXECUTION_CONTROLLER] state - activePlanId=${activePlanId}, status=${status}, shouldPoll=${shouldPoll}`);
   
   return <ExecutionContext.Provider value={value}>{children}</ExecutionContext.Provider>;
 }
@@ -36,7 +74,7 @@ export function PlanExecutionProvider({ children }: { children: ReactNode }) {
 export function usePlanExecution() {
   const context = useContext(ExecutionContext);
   if (context === undefined) {
-    throw new Error('usePlanExecution must be used within a PlanExecutionProvider');
+    throw new Error('usePlanExecution must be used within PlanExecutionProvider');
   }
   return context;
 }

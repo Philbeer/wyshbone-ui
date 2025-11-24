@@ -6,6 +6,7 @@ import { usePlanForApproval } from "@/hooks/use-plan-for-approval";
 import { CheckCircle2, Clock, Zap, Users, Mail, AlertCircle, RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
+import { usePlanExecution } from "@/contexts/PlanExecutionController";
 
 const stepIcons: Record<string, typeof CheckCircle2> = {
   search: Zap,
@@ -25,6 +26,7 @@ export function PlanApprovalPanel() {
   const { loading, plan, approvePlan, regeneratePlan, approving, regenerating, error } = usePlanForApproval();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { startExecution } = usePlanExecution();
 
   console.log("📋 PlanApprovalPanel mounted, plan:", plan, "error:", error);
 
@@ -88,11 +90,15 @@ export function PlanApprovalPanel() {
     console.log(`[PLAN_DEBUG] PlanApprovalPanel: handleApprove called for plan ${plan.id}`);
     try {
       await approvePlan(plan.id);
+      console.log(`[PLAN_DEBUG] PlanApprovalPanel: plan ${plan.id} approved successfully, starting execution`);
+      
+      // Notify ExecutionController to start tracking this plan
+      startExecution(plan.id);
+      
       toast({
         title: "Plan Approved",
         description: "Wyshbone will now execute your plan.",
       });
-      console.log(`[PLAN_DEBUG] PlanApprovalPanel: plan ${plan.id} approved successfully via hook`);
     } catch (error) {
       console.error(`[PLAN_DEBUG] PlanApprovalPanel: failed to approve plan ${plan.id}:`, error);
       toast({

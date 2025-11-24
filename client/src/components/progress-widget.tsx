@@ -3,23 +3,19 @@ import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePlanProgress } from "@/hooks/use-plan-progress";
-import { usePlan } from "@/contexts/PlanContext";
 import { usePlanExecution } from "@/contexts/PlanExecutionController";
 import { AlertCircle, CheckCircle2, Clock, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatDistanceToNow } from "date-fns";
 
 export function ProgressWidget() {
-  // Get plan data from context
-  const { planId, status, plan } = usePlan();
-  
-  // Get polling state from execution controller
-  const { shouldPoll } = usePlanExecution();
+  // Get plan execution state (activePlanId, status, shouldPoll)
+  const { activePlanId, status, shouldPoll } = usePlanExecution();
   
   // Poll progress based on execution controller state
-  const progress = usePlanProgress(planId, shouldPoll);
+  const progress = usePlanProgress(activePlanId, shouldPoll);
 
-  console.log(`[PLAN_PROGRESS_DEBUG] render - planId=${planId}, status=${status}, shouldPoll=${shouldPoll}, progress={completedSteps:${progress.completedSteps}, totalSteps:${progress.totalSteps}, currentStep:${progress.currentStep?.label || 'none'}}`);
+  console.log(`[PLAN_PROGRESS_DEBUG] render - activePlanId=${activePlanId}, status=${status}, shouldPoll=${shouldPoll}, progress={completedSteps:${progress.completedSteps}, totalSteps:${progress.totalSteps}, currentStep:${progress.currentStep?.label || 'none'}}`);
 
   // Loading state
   if (progress.loading) {
@@ -67,7 +63,7 @@ export function ProgressWidget() {
   // Show progress when actively polling OR when showing terminal status
   const isTerminalStatus = status === 'completed' || status === 'failed';
   const hasActivePlan = progress.totalSteps > 0 && (shouldPoll || isTerminalStatus);
-  const goalText = progress.goal || plan?.goal;
+  const goalText = progress.goal;
 
   return (
     <Card className="w-full" data-testid="card-progress-widget">
@@ -82,9 +78,7 @@ export function ProgressWidget() {
       <CardContent className="space-y-4">
         {!hasActivePlan ? (
           <div className="text-sm text-muted-foreground" data-testid="text-no-plan">
-            {status === 'pending_approval' 
-              ? "Plan ready for approval. Approve the plan to start execution."
-              : "No active plan running. When you approve a plan, progress will appear here."}
+            No active plan running. When you approve a plan, progress will appear here.
           </div>
         ) : (
           <>
