@@ -1,0 +1,27 @@
+I’m still seeing occasional runtime crashes in the new CRM / BrewCRM UI (for example the “A <Select.Item /> must have a value prop that is not an empty string” error when opening forms).
+
+Please do a systematic sweep and harden all the CRM and BrewCRM forms so these runtime crashes don’t happen.
+
+1. Normalise ALL Select components:
+   - Search the codebase for all uses of the shadcn Select component (imported from "@/components/ui/select").
+   - Ensure that:
+     * No <SelectItem> uses value="" (empty string).
+     * The Select value passed from react-hook-form is either a real string ID or undefined, never "".
+       (e.g. use value={field.value ?? undefined} instead of value={field.value ?? ""}).
+     * If an options list is empty (e.g. no customers yet, no delivery runs, no products), the Select is disabled and shows a clear message like “No customers available – create one first” instead of crashing.
+
+2. Harden all CRM/BrewCRM dialogs and forms:
+   - For each page in /auth/crm and /auth/crm/brew (Customers, Orders, Delivery Runs, Products, Batches, Inventory, Containers, Duty Reports, Settings):
+     * Open the “New …” / “Edit …” dialog.
+     * Make sure the form renders without runtime errors even when the underlying tables are empty.
+     * Add defensive checks for all foreign key selects (customerId, deliveryRunId, productId, batchId, etc.) using the safe Select pattern above.
+
+3. Add a simple smoke-test / manual checklist:
+   - Implement a small utility or script (or at least comments) that documents the click-paths you’ve tested:
+     * New Customer, Edit Customer
+     * New Order, Edit Order
+     * New Delivery Run
+     * New Product, Batch, Inventory item, Container, Duty Report
+   - Make sure each of these forms can be opened and closed without any React runtime error in the console.
+
+Do NOT change unrelated non-CRM parts of the app. The goal is to eliminate these Select-related and other obvious runtime crashes across all CRM and BrewCRM forms so I don’t keep hitting them one by one.
