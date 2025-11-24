@@ -7439,6 +7439,41 @@ ${run.outputText}`;
     }
   });
   
+  // ============= HELPER: Recalculate Order Totals from Line Items =============
+  /**
+   * Recalculates order totals (subtotal, VAT, total) from all line items.
+   * Call this after any line item create/update/delete operation.
+   */
+  async function recalculateOrderTotals(orderId: string): Promise<void> {
+    // Get all line items for this order
+    const lines = await storage.listCrmOrderLinesByOrder(orderId);
+    
+    // Calculate totals from line items
+    let subtotalExVat = 0;
+    let vatTotal = 0;
+    let totalIncVat = 0;
+    
+    for (const line of lines) {
+      if (line.lineSubtotalExVat !== null && line.lineSubtotalExVat !== undefined) {
+        subtotalExVat += line.lineSubtotalExVat;
+      }
+      if (line.lineVatAmount !== null && line.lineVatAmount !== undefined) {
+        vatTotal += line.lineVatAmount;
+      }
+      if (line.lineTotalIncVat !== null && line.lineTotalIncVat !== undefined) {
+        totalIncVat += line.lineTotalIncVat;
+      }
+    }
+    
+    // Update the order with calculated totals
+    await storage.updateCrmOrder(orderId, {
+      subtotalExVat,
+      vatTotal,
+      totalIncVat,
+      totalAmount: totalIncVat, // Keep legacy field in sync
+    });
+  }
+  
   // GET /api/crm/orders/:workspaceId - List orders
   app.get("/api/crm/orders/:workspaceId", async (req, res) => {
     try {
@@ -7714,20 +7749,48 @@ ${run.outputText}`;
         return res.status(403).json({ error: "Forbidden: Order does not belong to your workspace" });
       }
       
+      // SECURITY: If productId is provided, verify it belongs to the workspace
+      if (data.productId) {
+        const product = await storage.getBrewProduct(data.productId);
+        if (!product || product.workspaceId !== auth.userId) {
+          return res.status(403).json({ error: "Forbidden: Product does not belong to your workspace" });
+        }
+      }
+      
+      // Calculate line totals from provided values
+      const quantity = data.quantity || 1;
+      const unitPriceExVat = data.unitPriceExVat || 0;
+      const vatRate = data.vatRate || 0;
+      
+      const lineSubtotalExVat = quantity * unitPriceExVat;
+      const lineVatAmount = Math.round(lineSubtotalExVat * (vatRate / 10000)); // vatRate is in basis points
+      const lineTotalIncVat = lineSubtotalExVat + lineVatAmount;
+      
       const now = Date.now();
       const line = await storage.createCrmOrderLine({
         id: `order_line_${Date.now()}_${Math.random().toString(36).substring(7)}`,
         orderId: data.orderId,
-        genericItemName: data.genericItemName,
+        productId: data.productId || null,
+        quantity,
+        unitPriceExVat,
+        vatRate,
+        lineSubtotalExVat,
+        lineVatAmount,
+        lineTotalIncVat,
+        // Legacy fields (optional)
+        genericItemName: data.genericItemName || null,
         genericItemCode: data.genericItemCode || null,
-        quantityUnits: data.quantityUnits,
-        unitPrice: data.unitPrice,
-        lineTotal: data.lineTotal,
+        quantityUnits: data.quantityUnits || null,
+        unitPrice: data.unitPrice || null,
+        lineTotal: data.lineTotal || null,
         verticalType: data.verticalType || null,
         verticalRefId: data.verticalRefId || null,
         createdAt: now,
         updatedAt: now,
       });
+      
+      // Recalculate order totals after creating line
+      await recalculateOrderTotals(data.orderId);
       
       res.json(line);
     } catch (error: any) {
@@ -7768,10 +7831,42 @@ ${run.outputText}`;
         });
       }
       
+      const data = validationResult.data;
+      
+      // SECURITY: If productId is being updated, verify it belongs to the workspace
+      if (data.productId) {
+        const product = await storage.getBrewProduct(data.productId);
+        if (!product || product.workspaceId !== auth.userId) {
+          return res.status(403).json({ error: "Forbidden: Product does not belong to your workspace" });
+        }
+      }
+      
+      // Recalculate line totals if any pricing fields are updated
+      let updateData = { ...data };
+      if (data.quantity !== undefined || data.unitPriceExVat !== undefined || data.vatRate !== undefined) {
+        const quantity = data.quantity !== undefined ? data.quantity : (existing.quantity || 1);
+        const unitPriceExVat = data.unitPriceExVat !== undefined ? data.unitPriceExVat : (existing.unitPriceExVat || 0);
+        const vatRate = data.vatRate !== undefined ? data.vatRate : (existing.vatRate || 0);
+        
+        const lineSubtotalExVat = quantity * unitPriceExVat;
+        const lineVatAmount = Math.round(lineSubtotalExVat * (vatRate / 10000));
+        const lineTotalIncVat = lineSubtotalExVat + lineVatAmount;
+        
+        updateData = {
+          ...updateData,
+          lineSubtotalExVat,
+          lineVatAmount,
+          lineTotalIncVat,
+        };
+      }
+      
       const line = await storage.updateCrmOrderLine(id, {
-        ...validationResult.data,
+        ...updateData,
         updatedAt: Date.now(),
       });
+      
+      // Recalculate order totals after updating line
+      await recalculateOrderTotals(existing.orderId);
       
       res.json(line);
     } catch (error: any) {
@@ -7803,7 +7898,13 @@ ${run.outputText}`;
         return res.status(403).json({ error: "Forbidden: Cannot modify other workspaces' data" });
       }
       
+      const orderId = existing.orderId; // Save before deletion
       const success = await storage.deleteCrmOrderLine(id);
+      
+      // Recalculate order totals after deleting line
+      if (success) {
+        await recalculateOrderTotals(orderId);
+      }
       
       res.json({ success });
     } catch (error: any) {
