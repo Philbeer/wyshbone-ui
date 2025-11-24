@@ -1,8 +1,7 @@
-// Helper to create and auto-approve plans from chat tool calls
-// This ensures all heavy actions go through the Supervisor's plan system
+// Helper to create plans from chat tool calls
+// Plans are created with pending_approval status and require user approval in the Plan panel
 
-import { createLeadGenPlan, approvePlan } from './leadgen-plan.js';
-import { startPlanExecution } from './leadgen-executor.js';
+import { createLeadGenPlan } from './leadgen-plan.js';
 import type { IStorage } from './storage';
 import type { LeadGenStep } from './leadgen-plan.js';
 
@@ -150,8 +149,8 @@ export async function createPlanFromToolCall(
       throw new Error(`Unknown tool: ${toolName}`);
   }
   
-  // Create the plan
-  const plan = createLeadGenPlan(sessionId, goal, conversationId);
+  // Create the plan (pending_approval status)
+  const plan = createLeadGenPlan(userId, sessionId, goal, conversationId);
   
   // Override the steps with our custom steps based on the tool
   plan.steps = steps;
@@ -164,22 +163,12 @@ export async function createPlanFromToolCall(
   };
   
   console.log(`✅ Created plan ${plan.id} for tool ${toolName}`);
+  console.log(`   📋 Plan details: userId=${userId}, sessionId=${sessionId}, conversationId=${conversationId}`);
+  console.log(`   📝 Goal: "${goal}"`);
+  console.log(`   🚦 Status: pending_approval - waiting for user approval in Plan panel`);
   
-  // Auto-approve the plan
-  const approvedPlan = approvePlan(plan.id);
-  if (!approvedPlan) {
-    throw new Error(`Failed to approve plan ${plan.id}`);
-  }
-  
-  console.log(`✅ Auto-approved plan ${plan.id}`);
-  
-  // Start execution (this kicks off Supervisor's execution loop)
-  await startPlanExecution(approvedPlan);
-  
-  console.log(`🚀 Started execution for plan ${plan.id}`);
-  
-  // Return a concise message for the chat stream
-  const message = `Got it — I've started a structured plan for this. You can track the steps and results in the Plan panel.`;
+  // Return a message for the chat stream
+  const message = `Got it — I've created a structured plan for this. Please review and approve it in the Plan panel to get started.`;
   
   return {
     planId: plan.id,

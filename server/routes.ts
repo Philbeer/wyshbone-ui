@@ -3849,12 +3849,17 @@ CRITICAL RULES:
         return res.status(401).json({ error: "Unauthorized" });
       }
       
-      // Get session ID
-      const sessionId = getSessionId(req);
+      console.log(`📋 GET /api/plan for userId: ${auth.userId}`);
       
-      // Get plan for this session
-      const { getPlanBySession } = await import('./leadgen-plan.js');
-      const plan = getPlanBySession(sessionId);
+      // Get plan for this user (by userId, not sessionId)
+      const { getPlanByUserId } = await import('./leadgen-plan.js');
+      const plan = getPlanByUserId(auth.userId);
+      
+      if (plan) {
+        console.log(`✅ Returning plan: ${plan.id}, status: ${plan.status}, goal: "${plan.goal}"`);
+      } else {
+        console.log(`ℹ️ No active plan found for user ${auth.userId}`);
+      }
       
       res.json(plan);
     } catch (error: any) {
@@ -3980,7 +3985,7 @@ CRITICAL RULES:
       
       // Create a new plan with the same goal
       const sessionId = getSessionId(req);
-      const newPlan = createLeadGenPlan(sessionId, oldPlan.goal, oldPlan.conversationId);
+      const newPlan = createLeadGenPlan(auth.userId, sessionId, oldPlan.goal, oldPlan.conversationId);
       
       console.log(`🔄 Plan regenerated: ${planId} → ${newPlan.id}`);
       
@@ -4012,9 +4017,9 @@ CRITICAL RULES:
       const { createLeadGenPlan } = await import('./leadgen-plan.js');
       
       const sessionId = getSessionId(req);
-      const newPlan = createLeadGenPlan(sessionId, goal, conversationId);
+      const newPlan = createLeadGenPlan(auth.userId, sessionId, goal, conversationId);
       
-      console.log(`🚀 Plan started: ${newPlan.id} for session ${sessionId}`);
+      console.log(`🚀 Plan started: ${newPlan.id} for user ${auth.userId}, session ${sessionId}`);
       
       res.json({
         success: true,
@@ -4049,9 +4054,9 @@ CRITICAL RULES:
       const { createLeadGenPlan } = await import('./leadgen-plan.js');
       
       const sessionId = getSessionId(req);
-      const newPlan = createLeadGenPlan(sessionId, goal, conversationId);
+      const newPlan = createLeadGenPlan(auth.userId, sessionId, goal, conversationId);
       
-      console.log(`🧪 Test plan created: ${newPlan.id} for session ${sessionId}`);
+      console.log(`🧪 Test plan created: ${newPlan.id} for user ${auth.userId}, session ${sessionId}`);
       
       res.json({
         success: true,

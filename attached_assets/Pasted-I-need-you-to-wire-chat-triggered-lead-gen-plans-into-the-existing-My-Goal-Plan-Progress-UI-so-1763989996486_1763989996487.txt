@@ -1,0 +1,153 @@
+I need you to wire chat-triggered lead-gen plans into the existing “My Goal / Plan / Progress” UI so that when Wyshbone says in chat “I’ve started a structured plan for this. You can track the steps and results in the Plan panel”, that is actually true.
+
+Current behaviour (important):
+
+The right-hand My Goal / Plan / Progress widgets already work if I create a plan via the goal panel and approve it:
+
+/api/plan returns the pending plan.
+
+/api/plan/approve moves it to executing.
+
+/api/plan-status is polled by the ExecutionController + Progress widget and shows real step progress + summaries.
+
+Supervisor / backend can now execute REAL actions (GLOBAL_DB, EMAIL_FINDER, SCHEDULED_MONITOR, DEEP_RESEARCH) and the Progress widget shows step summaries when a plan exists.
+
+From chat, when I type something like:
+“Find 30 pubs in West Sussex and get their emails”
+Wyshbone replies asking clarifying questions, then says:
+“Got it — I’ve started a structured plan for this. You can track the steps and results in the Plan panel.”
+but nothing appears in the Plan panel for the demo user.
+
+Control Tower does see these chat messages and logs them correctly for both demo and signed-in users.
+
+Goal:
+Make sure any structured plan that Supervisor / MEGA decides to run from chat is persisted as the canonical lead-gen plan for that user, so that:
+
+/api/plan returns it,
+
+the Plan Approval panel shows it (status pending_approval with the right steps),
+
+and once approved / auto-approved, the Progress widget shows execution as usual.
+
+What I want you to do
+
+Find where chat decides to create a structured plan
+
+Look in server/routes.ts, server/lib/agent-kernel.ts, and any lead-gen planning helpers.
+
+Identify the code path where:
+
+the user asks for something like “find X businesses and get their emails”
+
+the system interprets that as “I should build a multi-step plan”,
+
+and generates that plan (MEGA agent or lead-gen planner).
+
+Point out in comments / logs where the plan object is created today (even if it’s only in memory).
+
+Find the canonical plan storage + API that the My Goal panel uses
+
+Locate:
+
+The plan storage type/interface (e.g. in server/lead-gen-plan.ts, server/storage.ts, or similar).
+
+The /api/plan and /api/plan-status routes that the Plan panel and Progress widget use.
+
+Confirm:
+
+How a plan is created when I use the My Goal panel (probably something like storage.createLeadGenPlan or similar).
+
+How the plan is looked up: by userId, maybe also by sessionId or “active plan”.
+
+Ensure chat-triggered plans are persisted via the same mechanism
+
+Refactor the chat planning path so that when the agent says “I’ve started a structured plan for this” it actually calls the same storage function used by the goal panel, e.g.:
+
+create or update a LeadGenPlan row for that userId (and optionally link it to the current conversationId).
+
+populate:
+
+goal (the human wording, e.g. “Find 30 pubs in West Sussex and get their emails, target CEO”)
+
+steps with proper type (GLOBAL_DB, EMAIL_FINDER, etc.), labels, and initial status (likely pending_approval)
+
+any extra metadata already used by the Plan panel.
+
+IMPORTANT:
+
+Do not fork a second “plan” model just for chat. Everything should go through the same canonical plan storage that /api/plan uses.
+
+Make sure the plan is keyed by userId, not just sessionId, so that demo vs signed-in users both work and the UI sees the same thing.
+
+Connect Supervisor / executor to that same plan
+
+Ensure that when Supervisor starts executing a chat-triggered plan:
+
+It uses the same plan record (same planId) that /api/plan and /api/plan-status know about.
+
+Status transitions (pending_approval → executing → completed / failed) are reflected in the database so the UI widgets update correctly.
+
+If there’s a separate in-memory executor state, remove it or make sure it always syncs back to the canonical plan in storage.
+
+Wire chat replies to the actual plan ID
+
+When chat says “I’ve started a structured plan for this…”:
+
+Log the real planId in the server logs.
+
+Make sure /api/plan returns that planId for the current user.
+
+You do not need to change the wording right now; just ensure the text is truthful (a plan really exists and is visible to the Plan panel).
+
+Testing (please actually run these tests)
+
+Test A – Goal panel path (regression check):
+
+In the browser (demo user), create a goal via the right-hand panel.
+
+Approve the plan.
+
+Confirm:
+
+/api/plan returns the plan.
+
+/api/plan-status?planId=… shows progress.
+
+The Progress widget shows real step progress and summaries.
+
+Test B – Chat-triggered plan:
+
+In the chat, as demo user, send:
+“Find 5 pubs in West Sussex and get their emails, target CEO.”
+
+Answer any quick clarification question (e.g. “CEO”).
+
+Confirm in logs that a plan was created for that userId with a planId.
+
+Without touching the right-hand panel manually, verify:
+
+The Plan panel shows the new plan (goal text + steps) with status pending_approval (or auto-approved, depending on your design).
+
+After you approve it (if required), the Progress widget shows the same steps being executed with summaries.
+
+Repeat Test B as a signed-in user and as demo user and confirm both work identically.
+
+Code quality / notes
+
+Keep all plan types and status enums in one place (no duplicate string literals).
+
+Add clear console logs around:
+
+plan creation from chat (include userId, conversationId, planId, goal).
+
+/api/plan responses (log which planId is being returned).
+
+Do not change anything related to Tower logging, except optionally adding the planId to logs if it’s cheap to do so.
+
+When you’ve finished:
+
+Summarise exactly which files you changed.
+
+Paste one example JSON response from /api/plan after a chat-triggered plan, so I can sanity-check the shape.
+
+Tell me how to manually test in the browser (demo user vs signed-in user) to verify it’s working.

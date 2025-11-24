@@ -11,7 +11,8 @@ export interface LeadGenStep {
 
 export interface LeadGenPlan {
   id: string;
-  sessionId: string;
+  userId: string;  // Plans are keyed by userId for cross-session visibility
+  sessionId: string;  // Still track sessionId for reference
   conversationId?: string;
   goal: string;
   steps: LeadGenStep[];
@@ -30,6 +31,7 @@ export interface LeadGenPlan {
 const plans = new Map<string, LeadGenPlan>();
 
 export function createLeadGenPlan(
+  userId: string,
   sessionId: string,
   goal: string,
   conversationId?: string
@@ -64,6 +66,7 @@ export function createLeadGenPlan(
 
   const plan: LeadGenPlan = {
     id: planId,
+    userId,
     sessionId,
     conversationId,
     goal,
@@ -73,15 +76,30 @@ export function createLeadGenPlan(
   };
 
   plans.set(planId, plan);
-  console.log(`✅ Created LeadGenPlan: ${planId} for session ${sessionId}`);
+  console.log(`✅ Created LeadGenPlan: ${planId} for user ${userId}, session ${sessionId}`);
   
   return plan;
 }
 
+export function getPlanByUserId(userId: string): LeadGenPlan | null {
+  // Find the most recent active plan for this user (pending, approved, or executing)
+  // Exclude terminal states (completed, failed, rejected) so they don't persist in the UI
+  const activeStatuses: LeadGenPlan['status'][] = ['pending_approval', 'approved', 'executing'];
+  
+  const userPlans = Array.from(plans.values())
+    .filter(p => p.userId === userId && activeStatuses.includes(p.status))
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  
+  return userPlans[0] || null;
+}
+
+// Deprecated: Keep for backwards compatibility
 export function getPlanBySession(sessionId: string): LeadGenPlan | null {
-  // Find the most recent pending_approval plan for this session
+  // Deprecated - plans are now keyed by userId. This function exists for backwards compatibility.
+  const activeStatuses: LeadGenPlan['status'][] = ['pending_approval', 'approved', 'executing'];
+  
   const sessionPlans = Array.from(plans.values())
-    .filter(p => p.sessionId === sessionId && p.status === 'pending_approval')
+    .filter(p => p.sessionId === sessionId && activeStatuses.includes(p.status))
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   
   return sessionPlans[0] || null;
