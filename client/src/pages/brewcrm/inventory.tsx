@@ -253,19 +253,28 @@ export default function BrewCrmInventory() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Batch (Optional)</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value || ""}>
+                    <Select 
+                      onValueChange={(value) => field.onChange(value === "none" ? undefined : value)} 
+                      value={field.value || "none"}
+                    >
                       <FormControl>
                         <SelectTrigger data-testid="select-batch">
                           <SelectValue placeholder="Select batch" />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        <SelectItem value="">None</SelectItem>
-                        {batches?.map((batch: any) => (
-                          <SelectItem key={batch.id} value={batch.id}>
-                            {batch.batchCode}
+                        <SelectItem value="none">None</SelectItem>
+                        {batches?.length === 0 ? (
+                          <SelectItem value="no-batches" disabled>
+                            No batches found
                           </SelectItem>
-                        ))}
+                        ) : (
+                          batches?.map((batch: any) => (
+                            <SelectItem key={batch.id} value={batch.id}>
+                              {batch.batchCode}
+                            </SelectItem>
+                          ))
+                        )}
                       </SelectContent>
                     </Select>
                     <FormMessage />

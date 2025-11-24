@@ -47,7 +47,7 @@ export default function CrmOrders() {
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      customerId: "",
+      customerId: undefined,
       orderNumber: "",
       orderDate: Date.now(),
       status: "draft",
@@ -101,7 +101,7 @@ export default function CrmOrders() {
   const handleEdit = (order: any) => {
     setEditingOrder(order);
     form.reset({
-      customerId: order.customerId || "",
+      customerId: order.customerId || undefined,
       orderNumber: order.orderNumber || "",
       orderDate: order.orderDate,
       status: order.status || "draft",
@@ -258,18 +258,24 @@ export default function CrmOrders() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Customer *</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value}>
+                      <Select onValueChange={field.onChange} value={field.value || undefined}>
                         <FormControl>
                           <SelectTrigger data-testid="select-customer">
                             <SelectValue placeholder="Select customer" />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {customers?.map((customer: any) => (
-                            <SelectItem key={customer.id} value={customer.id}>
-                              {customer.name}
+                          {customers?.length === 0 ? (
+                            <SelectItem value="no-customers" disabled>
+                              No customers found
                             </SelectItem>
-                          ))}
+                          ) : (
+                            customers?.map((customer: any) => (
+                              <SelectItem key={customer.id} value={customer.id}>
+                                {customer.name}
+                              </SelectItem>
+                            ))
+                          )}
                         </SelectContent>
                       </Select>
                       <FormMessage />
@@ -354,19 +360,28 @@ export default function CrmOrders() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Delivery Run (Optional)</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value || ""}>
+                    <Select 
+                      onValueChange={(value) => field.onChange(value === "none" ? undefined : value)} 
+                      value={field.value || "none"}
+                    >
                       <FormControl>
                         <SelectTrigger data-testid="select-delivery-run">
                           <SelectValue placeholder="Select delivery run" />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        <SelectItem value="">None</SelectItem>
-                        {deliveryRuns?.map((run: any) => (
-                          <SelectItem key={run.id} value={run.id}>
-                            {run.name}
+                        <SelectItem value="none">None</SelectItem>
+                        {deliveryRuns?.length === 0 ? (
+                          <SelectItem value="no-runs" disabled>
+                            No delivery runs found
                           </SelectItem>
-                        ))}
+                        ) : (
+                          deliveryRuns?.map((run: any) => (
+                            <SelectItem key={run.id} value={run.id}>
+                              {run.name}
+                            </SelectItem>
+                          ))
+                        )}
                       </SelectContent>
                     </Select>
                     <FormMessage />

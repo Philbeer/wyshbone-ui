@@ -318,19 +318,28 @@ export default function BrewCrmContainers() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Last Customer (Optional)</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value || ""}>
+                    <Select 
+                      onValueChange={(value) => field.onChange(value === "none" ? undefined : value)} 
+                      value={field.value || "none"}
+                    >
                       <FormControl>
                         <SelectTrigger data-testid="select-last-customer">
                           <SelectValue placeholder="Select customer" />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        <SelectItem value="">None</SelectItem>
-                        {customers?.map((customer: any) => (
-                          <SelectItem key={customer.id} value={customer.id}>
-                            {customer.name}
+                        <SelectItem value="none">None</SelectItem>
+                        {customers?.length === 0 ? (
+                          <SelectItem value="no-customers" disabled>
+                            No customers found
                           </SelectItem>
-                        ))}
+                        ) : (
+                          customers?.map((customer: any) => (
+                            <SelectItem key={customer.id} value={customer.id}>
+                              {customer.name}
+                            </SelectItem>
+                          ))
+                        )}
                       </SelectContent>
                     </Select>
                     <FormMessage />
