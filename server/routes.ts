@@ -21,6 +21,17 @@ import {
   searchRequestSchema,
   createSessionRequestSchema,
   createIntegrationRequestSchema,
+  insertCrmSettingsSchema,
+  insertCrmCustomerSchema,
+  insertCrmDeliveryRunSchema,
+  insertCrmOrderSchema,
+  insertCrmOrderLineSchema,
+  insertBrewProductSchema,
+  insertBrewBatchSchema,
+  insertBrewInventoryItemSchema,
+  insertBrewContainerSchema,
+  insertBrewDutyReportSchema,
+  insertBrewSettingsSchema,
 } from "@shared/schema";
 import { storage } from "./storage";
 import cors from "cors";
@@ -6940,6 +6951,1513 @@ ${run.outputText}`;
       })}\n\n`);
       res.write(`data: [DONE]\n\n`);
       res.end();
+    }
+  });
+
+  // ============================================================
+  // CRM ROUTES (Core Multi-Vertical CRM)
+  // ============================================================
+  
+  // GET /api/crm/settings/:workspaceId - Get CRM settings
+  app.get("/api/crm/settings/:workspaceId", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { workspaceId } = req.params;
+      const settings = await storage.getCrmSettings(workspaceId);
+      
+      if (!settings) {
+        return res.status(404).json({ error: "Settings not found" });
+      }
+      
+      res.json(settings);
+    } catch (error: any) {
+      console.error("Error getting CRM settings:", error);
+      res.status(500).json({ error: error.message || "Failed to get settings" });
+    }
+  });
+  
+  // POST /api/crm/settings - Create CRM settings
+  app.post("/api/crm/settings", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const now = Date.now();
+      const settings = await storage.createCrmSettings({
+        id: `crm_settings_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+        workspaceId: req.body.workspaceId,
+        industryVertical: req.body.industryVertical || 'generic',
+        defaultCountry: req.body.defaultCountry || 'United Kingdom',
+        createdAt: now,
+        updatedAt: now,
+      });
+      
+      res.json(settings);
+    } catch (error: any) {
+      console.error("Error creating CRM settings:", error);
+      res.status(500).json({ error: error.message || "Failed to create settings" });
+    }
+  });
+  
+  // PATCH /api/crm/settings/:id - Update CRM settings
+  app.patch("/api/crm/settings/:id", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { id } = req.params;
+      const settings = await storage.updateCrmSettings(id, req.body);
+      
+      if (!settings) {
+        return res.status(404).json({ error: "Settings not found" });
+      }
+      
+      res.json(settings);
+    } catch (error: any) {
+      console.error("Error updating CRM settings:", error);
+      res.status(500).json({ error: error.message || "Failed to update settings" });
+    }
+  });
+  
+  // GET /api/crm/customers/:workspaceId - List customers
+  app.get("/api/crm/customers/:workspaceId", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { workspaceId } = req.params;
+      const customers = await storage.listCrmCustomers(workspaceId);
+      
+      res.json(customers);
+    } catch (error: any) {
+      console.error("Error listing customers:", error);
+      res.status(500).json({ error: error.message || "Failed to list customers" });
+    }
+  });
+  
+  // GET /api/crm/customers/search/:workspaceId - Search customers
+  app.get("/api/crm/customers/search/:workspaceId", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { workspaceId } = req.params;
+      const { q } = req.query;
+      
+      if (!q || typeof q !== 'string') {
+        return res.status(400).json({ error: "Search query required" });
+      }
+      
+      const customers = await storage.searchCrmCustomers(workspaceId, q);
+      
+      res.json(customers);
+    } catch (error: any) {
+      console.error("Error searching customers:", error);
+      res.status(500).json({ error: error.message || "Failed to search customers" });
+    }
+  });
+  
+  // GET /api/crm/customers/detail/:id - Get single customer
+  app.get("/api/crm/customers/detail/:id", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { id } = req.params;
+      const customer = await storage.getCrmCustomer(id);
+      
+      if (!customer) {
+        return res.status(404).json({ error: "Customer not found" });
+      }
+      
+      res.json(customer);
+    } catch (error: any) {
+      console.error("Error getting customer:", error);
+      res.status(500).json({ error: error.message || "Failed to get customer" });
+    }
+  });
+  
+  // POST /api/crm/customers - Create customer
+  app.post("/api/crm/customers", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const now = Date.now();
+      const customer = await storage.createCrmCustomer({
+        id: `customer_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+        workspaceId: req.body.workspaceId,
+        name: req.body.name,
+        primaryContactName: req.body.primaryContactName || null,
+        email: req.body.email || null,
+        phone: req.body.phone || null,
+        addressLine1: req.body.addressLine1 || null,
+        addressLine2: req.body.addressLine2 || null,
+        city: req.body.city || null,
+        postcode: req.body.postcode || null,
+        country: req.body.country || 'United Kingdom',
+        notes: req.body.notes || null,
+        createdAt: now,
+        updatedAt: now,
+      });
+      
+      res.json(customer);
+    } catch (error: any) {
+      console.error("Error creating customer:", error);
+      res.status(500).json({ error: error.message || "Failed to create customer" });
+    }
+  });
+  
+  // PATCH /api/crm/customers/:id - Update customer
+  app.patch("/api/crm/customers/:id", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { id } = req.params;
+      const customer = await storage.updateCrmCustomer(id, req.body);
+      
+      if (!customer) {
+        return res.status(404).json({ error: "Customer not found" });
+      }
+      
+      res.json(customer);
+    } catch (error: any) {
+      console.error("Error updating customer:", error);
+      res.status(500).json({ error: error.message || "Failed to update customer" });
+    }
+  });
+  
+  // DELETE /api/crm/customers/:id - Delete customer
+  app.delete("/api/crm/customers/:id", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { id } = req.params;
+      const success = await storage.deleteCrmCustomer(id);
+      
+      res.json({ success });
+    } catch (error: any) {
+      console.error("Error deleting customer:", error);
+      res.status(500).json({ error: error.message || "Failed to delete customer" });
+    }
+  });
+  
+  // GET /api/crm/delivery-runs/:workspaceId - List delivery runs
+  app.get("/api/crm/delivery-runs/:workspaceId", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { workspaceId } = req.params;
+      const { status } = req.query;
+      
+      let runs;
+      if (status && typeof status === 'string') {
+        runs = await storage.listCrmDeliveryRunsByStatus(workspaceId, status);
+      } else {
+        runs = await storage.listCrmDeliveryRuns(workspaceId);
+      }
+      
+      res.json(runs);
+    } catch (error: any) {
+      console.error("Error listing delivery runs:", error);
+      res.status(500).json({ error: error.message || "Failed to list delivery runs" });
+    }
+  });
+  
+  // GET /api/crm/delivery-runs/detail/:id - Get single delivery run
+  app.get("/api/crm/delivery-runs/detail/:id", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { id } = req.params;
+      const run = await storage.getCrmDeliveryRun(id);
+      
+      if (!run) {
+        return res.status(404).json({ error: "Delivery run not found" });
+      }
+      
+      res.json(run);
+    } catch (error: any) {
+      console.error("Error getting delivery run:", error);
+      res.status(500).json({ error: error.message || "Failed to get delivery run" });
+    }
+  });
+  
+  // POST /api/crm/delivery-runs - Create delivery run
+  app.post("/api/crm/delivery-runs", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const now = Date.now();
+      const run = await storage.createCrmDeliveryRun({
+        id: `delivery_run_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+        workspaceId: req.body.workspaceId,
+        name: req.body.name,
+        driverName: req.body.driverName || null,
+        vehicle: req.body.vehicle || null,
+        scheduledDate: req.body.scheduledDate,
+        status: req.body.status || 'planned',
+        notes: req.body.notes || null,
+        createdAt: now,
+        updatedAt: now,
+      });
+      
+      res.json(run);
+    } catch (error: any) {
+      console.error("Error creating delivery run:", error);
+      res.status(500).json({ error: error.message || "Failed to create delivery run" });
+    }
+  });
+  
+  // PATCH /api/crm/delivery-runs/:id - Update delivery run
+  app.patch("/api/crm/delivery-runs/:id", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { id } = req.params;
+      const run = await storage.updateCrmDeliveryRun(id, req.body);
+      
+      if (!run) {
+        return res.status(404).json({ error: "Delivery run not found" });
+      }
+      
+      res.json(run);
+    } catch (error: any) {
+      console.error("Error updating delivery run:", error);
+      res.status(500).json({ error: error.message || "Failed to update delivery run" });
+    }
+  });
+  
+  // DELETE /api/crm/delivery-runs/:id - Delete delivery run
+  app.delete("/api/crm/delivery-runs/:id", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { id } = req.params;
+      const success = await storage.deleteCrmDeliveryRun(id);
+      
+      res.json({ success });
+    } catch (error: any) {
+      console.error("Error deleting delivery run:", error);
+      res.status(500).json({ error: error.message || "Failed to delete delivery run" });
+    }
+  });
+  
+  // GET /api/crm/orders/:workspaceId - List orders
+  app.get("/api/crm/orders/:workspaceId", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { workspaceId } = req.params;
+      const { customerId, deliveryRunId } = req.query;
+      
+      let orders;
+      if (customerId && typeof customerId === 'string') {
+        orders = await storage.listCrmOrdersByCustomer(customerId);
+      } else if (deliveryRunId && typeof deliveryRunId === 'string') {
+        orders = await storage.listCrmOrdersByDeliveryRun(deliveryRunId);
+      } else {
+        orders = await storage.listCrmOrders(workspaceId);
+      }
+      
+      res.json(orders);
+    } catch (error: any) {
+      console.error("Error listing orders:", error);
+      res.status(500).json({ error: error.message || "Failed to list orders" });
+    }
+  });
+  
+  // GET /api/crm/orders/detail/:id - Get single order
+  app.get("/api/crm/orders/detail/:id", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { id } = req.params;
+      const order = await storage.getCrmOrder(id);
+      
+      if (!order) {
+        return res.status(404).json({ error: "Order not found" });
+      }
+      
+      res.json(order);
+    } catch (error: any) {
+      console.error("Error getting order:", error);
+      res.status(500).json({ error: error.message || "Failed to get order" });
+    }
+  });
+  
+  // POST /api/crm/orders - Create order
+  app.post("/api/crm/orders", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const now = Date.now();
+      const order = await storage.createCrmOrder({
+        id: `order_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+        workspaceId: req.body.workspaceId,
+        customerId: req.body.customerId,
+        orderNumber: req.body.orderNumber,
+        orderDate: req.body.orderDate,
+        status: req.body.status || 'draft',
+        deliveryDate: req.body.deliveryDate || null,
+        deliveryRunId: req.body.deliveryRunId || null,
+        currency: req.body.currency || 'GBP',
+        totalAmount: req.body.totalAmount || null,
+        notes: req.body.notes || null,
+        createdAt: now,
+        updatedAt: now,
+      });
+      
+      res.json(order);
+    } catch (error: any) {
+      console.error("Error creating order:", error);
+      res.status(500).json({ error: error.message || "Failed to create order" });
+    }
+  });
+  
+  // PATCH /api/crm/orders/:id - Update order
+  app.patch("/api/crm/orders/:id", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { id } = req.params;
+      const order = await storage.updateCrmOrder(id, req.body);
+      
+      if (!order) {
+        return res.status(404).json({ error: "Order not found" });
+      }
+      
+      res.json(order);
+    } catch (error: any) {
+      console.error("Error updating order:", error);
+      res.status(500).json({ error: error.message || "Failed to update order" });
+    }
+  });
+  
+  // DELETE /api/crm/orders/:id - Delete order
+  app.delete("/api/crm/orders/:id", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { id } = req.params;
+      const success = await storage.deleteCrmOrder(id);
+      
+      res.json({ success });
+    } catch (error: any) {
+      console.error("Error deleting order:", error);
+      res.status(500).json({ error: error.message || "Failed to delete order" });
+    }
+  });
+  
+  // GET /api/crm/order-lines/:orderId - List order lines for an order
+  app.get("/api/crm/order-lines/:orderId", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { orderId } = req.params;
+      const lines = await storage.listCrmOrderLinesByOrder(orderId);
+      
+      res.json(lines);
+    } catch (error: any) {
+      console.error("Error listing order lines:", error);
+      res.status(500).json({ error: error.message || "Failed to list order lines" });
+    }
+  });
+  
+  // POST /api/crm/order-lines - Create order line
+  app.post("/api/crm/order-lines", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const now = Date.now();
+      const line = await storage.createCrmOrderLine({
+        id: `order_line_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+        orderId: req.body.orderId,
+        genericItemName: req.body.genericItemName,
+        genericItemCode: req.body.genericItemCode || null,
+        quantityUnits: req.body.quantityUnits,
+        unitPrice: req.body.unitPrice,
+        lineTotal: req.body.lineTotal,
+        verticalType: req.body.verticalType || null,
+        verticalRefId: req.body.verticalRefId || null,
+        createdAt: now,
+        updatedAt: now,
+      });
+      
+      res.json(line);
+    } catch (error: any) {
+      console.error("Error creating order line:", error);
+      res.status(500).json({ error: error.message || "Failed to create order line" });
+    }
+  });
+  
+  // PATCH /api/crm/order-lines/:id - Update order line
+  app.patch("/api/crm/order-lines/:id", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { id } = req.params;
+      const line = await storage.updateCrmOrderLine(id, req.body);
+      
+      if (!line) {
+        return res.status(404).json({ error: "Order line not found" });
+      }
+      
+      res.json(line);
+    } catch (error: any) {
+      console.error("Error updating order line:", error);
+      res.status(500).json({ error: error.message || "Failed to update order line" });
+    }
+  });
+  
+  // DELETE /api/crm/order-lines/:id - Delete order line
+  app.delete("/api/crm/order-lines/:id", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { id } = req.params;
+      const success = await storage.deleteCrmOrderLine(id);
+      
+      res.json({ success });
+    } catch (error: any) {
+      console.error("Error deleting order line:", error);
+      res.status(500).json({ error: error.message || "Failed to delete order line" });
+    }
+  });
+  
+  // ============================================================
+  // BREWERY CRM ROUTES (Brewery Vertical Extensions)
+  // ============================================================
+  
+  // GET /api/brewcrm/settings/:workspaceId - Get brewery settings
+  app.get("/api/brewcrm/settings/:workspaceId", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { workspaceId } = req.params;
+      const settings = await storage.getBrewSettings(workspaceId);
+      
+      if (!settings) {
+        return res.status(404).json({ error: "Brewery settings not found" });
+      }
+      
+      res.json(settings);
+    } catch (error: any) {
+      console.error("Error getting brewery settings:", error);
+      res.status(500).json({ error: error.message || "Failed to get brewery settings" });
+    }
+  });
+  
+  // POST /api/brewcrm/settings - Create brewery settings
+  app.post("/api/brewcrm/settings", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const now = Date.now();
+      const settings = await storage.createBrewSettings({
+        id: `brew_settings_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+        workspaceId: req.body.workspaceId,
+        breweryLicense: req.body.breweryLicense || null,
+        taxOffice: req.body.taxOffice || null,
+        dutyReportingFrequency: req.body.dutyReportingFrequency || 'monthly',
+        defaultYeastType: req.body.defaultYeastType || null,
+        defaultMaltType: req.body.defaultMaltType || null,
+        defaultHopsType: req.body.defaultHopsType || null,
+        createdAt: now,
+        updatedAt: now,
+      });
+      
+      res.json(settings);
+    } catch (error: any) {
+      console.error("Error creating brewery settings:", error);
+      res.status(500).json({ error: error.message || "Failed to create brewery settings" });
+    }
+  });
+  
+  // PATCH /api/brewcrm/settings/:id - Update brewery settings
+  app.patch("/api/brewcrm/settings/:id", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { id } = req.params;
+      const settings = await storage.updateBrewSettings(id, req.body);
+      
+      if (!settings) {
+        return res.status(404).json({ error: "Brewery settings not found" });
+      }
+      
+      res.json(settings);
+    } catch (error: any) {
+      console.error("Error updating brewery settings:", error);
+      res.status(500).json({ error: error.message || "Failed to update brewery settings" });
+    }
+  });
+  
+  // GET /api/brewcrm/products/:workspaceId - List products
+  app.get("/api/brewcrm/products/:workspaceId", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { workspaceId } = req.params;
+      const products = await storage.listBrewProducts(workspaceId);
+      
+      res.json(products);
+    } catch (error: any) {
+      console.error("Error listing products:", error);
+      res.status(500).json({ error: error.message || "Failed to list products" });
+    }
+  });
+  
+  // GET /api/brewcrm/products/detail/:id - Get single product
+  app.get("/api/brewcrm/products/detail/:id", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { id } = req.params;
+      const product = await storage.getBrewProduct(id);
+      
+      if (!product) {
+        return res.status(404).json({ error: "Product not found" });
+      }
+      
+      res.json(product);
+    } catch (error: any) {
+      console.error("Error getting product:", error);
+      res.status(500).json({ error: error.message || "Failed to get product" });
+    }
+  });
+  
+  // POST /api/brewcrm/products - Create product
+  app.post("/api/brewcrm/products", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const now = Date.now();
+      const product = await storage.createBrewProduct({
+        id: `product_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+        workspaceId: req.body.workspaceId,
+        sku: req.body.sku,
+        name: req.body.name,
+        beerStyle: req.body.beerStyle || null,
+        abv: req.body.abv || null,
+        ibu: req.body.ibu || null,
+        description: req.body.description || null,
+        packageType: req.body.packageType || null,
+        packageSizeLiters: req.body.packageSizeLiters || null,
+        costPerUnit: req.body.costPerUnit || null,
+        sellingPricePerUnit: req.body.sellingPricePerUnit || null,
+        createdAt: now,
+        updatedAt: now,
+      });
+      
+      res.json(product);
+    } catch (error: any) {
+      console.error("Error creating product:", error);
+      res.status(500).json({ error: error.message || "Failed to create product" });
+    }
+  });
+  
+  // PATCH /api/brewcrm/products/:id - Update product
+  app.patch("/api/brewcrm/products/:id", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { id } = req.params;
+      const product = await storage.updateBrewProduct(id, req.body);
+      
+      if (!product) {
+        return res.status(404).json({ error: "Product not found" });
+      }
+      
+      res.json(product);
+    } catch (error: any) {
+      console.error("Error updating product:", error);
+      res.status(500).json({ error: error.message || "Failed to update product" });
+    }
+  });
+  
+  // DELETE /api/brewcrm/products/:id - Delete product
+  app.delete("/api/brewcrm/products/:id", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { id } = req.params;
+      const success = await storage.deleteBrewProduct(id);
+      
+      res.json({ success });
+    } catch (error: any) {
+      console.error("Error deleting product:", error);
+      res.status(500).json({ error: error.message || "Failed to delete product" });
+    }
+  });
+  
+  // GET /api/brewcrm/batches/:workspaceId - List batches
+  app.get("/api/brewcrm/batches/:workspaceId", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { workspaceId } = req.params;
+      const batches = await storage.listBrewBatches(workspaceId);
+      
+      res.json(batches);
+    } catch (error: any) {
+      console.error("Error listing batches:", error);
+      res.status(500).json({ error: error.message || "Failed to list batches" });
+    }
+  });
+  
+  // GET /api/brewcrm/batches/detail/:id - Get single batch
+  app.get("/api/brewcrm/batches/detail/:id", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { id } = req.params;
+      const batch = await storage.getBrewBatch(id);
+      
+      if (!batch) {
+        return res.status(404).json({ error: "Batch not found" });
+      }
+      
+      res.json(batch);
+    } catch (error: any) {
+      console.error("Error getting batch:", error);
+      res.status(500).json({ error: error.message || "Failed to get batch" });
+    }
+  });
+  
+  // POST /api/brewcrm/batches - Create batch
+  app.post("/api/brewcrm/batches", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const now = Date.now();
+      const batch = await storage.createBrewBatch({
+        id: `batch_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+        workspaceId: req.body.workspaceId,
+        batchNumber: req.body.batchNumber,
+        productId: req.body.productId,
+        brewDate: req.body.brewDate,
+        volumeLiters: req.body.volumeLiters,
+        status: req.body.status || 'brewing',
+        yeastType: req.body.yeastType || null,
+        maltType: req.body.maltType || null,
+        hopsType: req.body.hopsType || null,
+        notes: req.body.notes || null,
+        createdAt: now,
+        updatedAt: now,
+      });
+      
+      res.json(batch);
+    } catch (error: any) {
+      console.error("Error creating batch:", error);
+      res.status(500).json({ error: error.message || "Failed to create batch" });
+    }
+  });
+  
+  // PATCH /api/brewcrm/batches/:id - Update batch
+  app.patch("/api/brewcrm/batches/:id", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { id } = req.params;
+      const batch = await storage.updateBrewBatch(id, req.body);
+      
+      if (!batch) {
+        return res.status(404).json({ error: "Batch not found" });
+      }
+      
+      res.json(batch);
+    } catch (error: any) {
+      console.error("Error updating batch:", error);
+      res.status(500).json({ error: error.message || "Failed to update batch" });
+    }
+  });
+  
+  // DELETE /api/brewcrm/batches/:id - Delete batch
+  app.delete("/api/brewcrm/batches/:id", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { id } = req.params;
+      const success = await storage.deleteBrewBatch(id);
+      
+      res.json({ success });
+    } catch (error: any) {
+      console.error("Error deleting batch:", error);
+      res.status(500).json({ error: error.message || "Failed to delete batch" });
+    }
+  });
+  
+  // GET /api/brewcrm/inventory/:workspaceId - List inventory
+  app.get("/api/brewcrm/inventory/:workspaceId", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { workspaceId } = req.params;
+      const inventory = await storage.listBrewInventory(workspaceId);
+      
+      res.json(inventory);
+    } catch (error: any) {
+      console.error("Error listing inventory:", error);
+      res.status(500).json({ error: error.message || "Failed to list inventory" });
+    }
+  });
+  
+  // GET /api/brewcrm/inventory/product/:productId - Get inventory by product
+  app.get("/api/brewcrm/inventory/product/:productId", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { productId } = req.params;
+      const inventory = await storage.getBrewInventoryByProduct(productId);
+      
+      if (!inventory) {
+        return res.status(404).json({ error: "Inventory not found" });
+      }
+      
+      res.json(inventory);
+    } catch (error: any) {
+      console.error("Error getting inventory:", error);
+      res.status(500).json({ error: error.message || "Failed to get inventory" });
+    }
+  });
+  
+  // POST /api/brewcrm/inventory - Create or update inventory
+  app.post("/api/brewcrm/inventory", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const now = Date.now();
+      const inventory = await storage.createBrewInventory({
+        id: `inventory_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+        workspaceId: req.body.workspaceId,
+        productId: req.body.productId,
+        quantityOnHand: req.body.quantityOnHand || 0,
+        quantityAllocated: req.body.quantityAllocated || 0,
+        reorderLevel: req.body.reorderLevel || null,
+        createdAt: now,
+        updatedAt: now,
+      });
+      
+      res.json(inventory);
+    } catch (error: any) {
+      console.error("Error creating inventory:", error);
+      res.status(500).json({ error: error.message || "Failed to create inventory" });
+    }
+  });
+  
+  // PATCH /api/brewcrm/inventory/:id - Update inventory
+  app.patch("/api/brewcrm/inventory/:id", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { id } = req.params;
+      const inventory = await storage.updateBrewInventory(id, req.body);
+      
+      if (!inventory) {
+        return res.status(404).json({ error: "Inventory not found" });
+      }
+      
+      res.json(inventory);
+    } catch (error: any) {
+      console.error("Error updating inventory:", error);
+      res.status(500).json({ error: error.message || "Failed to update inventory" });
+    }
+  });
+  
+  // GET /api/brewcrm/containers/:workspaceId - List containers
+  app.get("/api/brewcrm/containers/:workspaceId", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { workspaceId } = req.params;
+      const containers = await storage.listBrewContainers(workspaceId);
+      
+      res.json(containers);
+    } catch (error: any) {
+      console.error("Error listing containers:", error);
+      res.status(500).json({ error: error.message || "Failed to list containers" });
+    }
+  });
+  
+  // GET /api/brewcrm/containers/detail/:id - Get single container
+  app.get("/api/brewcrm/containers/detail/:id", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { id } = req.params;
+      const container = await storage.getBrewContainer(id);
+      
+      if (!container) {
+        return res.status(404).json({ error: "Container not found" });
+      }
+      
+      res.json(container);
+    } catch (error: any) {
+      console.error("Error getting container:", error);
+      res.status(500).json({ error: error.message || "Failed to get container" });
+    }
+  });
+  
+  // POST /api/brewcrm/containers - Create container
+  app.post("/api/brewcrm/containers", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const now = Date.now();
+      const container = await storage.createBrewContainer({
+        id: `container_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+        workspaceId: req.body.workspaceId,
+        barcode: req.body.barcode,
+        containerType: req.body.containerType,
+        sizeLiters: req.body.sizeLiters,
+        batchId: req.body.batchId || null,
+        status: req.body.status || 'empty',
+        location: req.body.location || null,
+        notes: req.body.notes || null,
+        createdAt: now,
+        updatedAt: now,
+      });
+      
+      res.json(container);
+    } catch (error: any) {
+      console.error("Error creating container:", error);
+      res.status(500).json({ error: error.message || "Failed to create container" });
+    }
+  });
+  
+  // PATCH /api/brewcrm/containers/:id - Update container
+  app.patch("/api/brewcrm/containers/:id", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { id } = req.params;
+      const container = await storage.updateBrewContainer(id, req.body);
+      
+      if (!container) {
+        return res.status(404).json({ error: "Container not found" });
+      }
+      
+      res.json(container);
+    } catch (error: any) {
+      console.error("Error updating container:", error);
+      res.status(500).json({ error: error.message || "Failed to update container" });
+    }
+  });
+  
+  // DELETE /api/brewcrm/containers/:id - Delete container
+  app.delete("/api/brewcrm/containers/:id", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { id } = req.params;
+      const success = await storage.deleteBrewContainer(id);
+      
+      res.json({ success });
+    } catch (error: any) {
+      console.error("Error deleting container:", error);
+      res.status(500).json({ error: error.message || "Failed to delete container" });
+    }
+  });
+  
+  // GET /api/brewcrm/duty-reports/:workspaceId - List duty reports
+  app.get("/api/brewcrm/duty-reports/:workspaceId", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { workspaceId } = req.params;
+      const reports = await storage.listBrewDutyReports(workspaceId);
+      
+      res.json(reports);
+    } catch (error: any) {
+      console.error("Error listing duty reports:", error);
+      res.status(500).json({ error: error.message || "Failed to list duty reports" });
+    }
+  });
+  
+  // GET /api/brewcrm/duty-reports/detail/:id - Get single duty report
+  app.get("/api/brewcrm/duty-reports/detail/:id", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { id } = req.params;
+      const report = await storage.getBrewDutyReport(id);
+      
+      if (!report) {
+        return res.status(404).json({ error: "Duty report not found" });
+      }
+      
+      res.json(report);
+    } catch (error: any) {
+      console.error("Error getting duty report:", error);
+      res.status(500).json({ error: error.message || "Failed to get duty report" });
+    }
+  });
+  
+  // POST /api/brewcrm/duty-reports - Create duty report
+  app.post("/api/brewcrm/duty-reports", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const now = Date.now();
+      const report = await storage.createBrewDutyReport({
+        id: `duty_report_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+        workspaceId: req.body.workspaceId,
+        reportPeriod: req.body.reportPeriod,
+        volumeProducedLiters: req.body.volumeProducedLiters || 0,
+        volumeSoldLiters: req.body.volumeSoldLiters || 0,
+        dutyPaid: req.body.dutyPaid || 0,
+        status: req.body.status || 'draft',
+        submittedDate: req.body.submittedDate || null,
+        notes: req.body.notes || null,
+        createdAt: now,
+        updatedAt: now,
+      });
+      
+      res.json(report);
+    } catch (error: any) {
+      console.error("Error creating duty report:", error);
+      res.status(500).json({ error: error.message || "Failed to create duty report" });
+    }
+  });
+  
+  // PATCH /api/brewcrm/duty-reports/:id - Update duty report
+  app.patch("/api/brewcrm/duty-reports/:id", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { id } = req.params;
+      const report = await storage.updateBrewDutyReport(id, req.body);
+      
+      if (!report) {
+        return res.status(404).json({ error: "Duty report not found" });
+      }
+      
+      res.json(report);
+    } catch (error: any) {
+      console.error("Error updating duty report:", error);
+      res.status(500).json({ error: error.message || "Failed to update duty report" });
+    }
+  });
+  
+  // DELETE /api/brewcrm/duty-reports/:id - Delete duty report
+  app.delete("/api/brewcrm/duty-reports/:id", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { id } = req.params;
+      const success = await storage.deleteBrewDutyReport(id);
+      
+      res.json({ success });
+    } catch (error: any) {
+      console.error("Error deleting duty report:", error);
+      res.status(500).json({ error: error.message || "Failed to delete duty report" });
+    }
+  });
+  
+  // ============================================================
+  // AGENT ACTION ENDPOINTS (Natural Language Wrappers)
+  // ============================================================
+  
+  // POST /api/crm/actions/create-customer - Agent-friendly customer creation
+  app.post("/api/crm/actions/create-customer", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { workspaceId, name, contactName, email, phone, address, city, postcode, country, notes } = req.body;
+      
+      if (!workspaceId || !name) {
+        return res.status(400).json({ error: "Workspace ID and customer name are required" });
+      }
+      
+      const now = Date.now();
+      const customer = await storage.createCrmCustomer({
+        id: `customer_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+        workspaceId,
+        name,
+        primaryContactName: contactName || null,
+        email: email || null,
+        phone: phone || null,
+        addressLine1: address || null,
+        addressLine2: null,
+        city: city || null,
+        postcode: postcode || null,
+        country: country || 'United Kingdom',
+        notes: notes || null,
+        createdAt: now,
+        updatedAt: now,
+      });
+      
+      res.json({
+        success: true,
+        message: `Successfully created customer: ${name}`,
+        customer,
+      });
+    } catch (error: any) {
+      console.error("Error in create-customer action:", error);
+      res.status(500).json({ error: error.message || "Failed to create customer" });
+    }
+  });
+  
+  // POST /api/crm/actions/create-order - Agent-friendly order creation
+  app.post("/api/crm/actions/create-order", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { workspaceId, customerId, customerName, orderNumber, orderDate, deliveryDate, items, notes } = req.body;
+      
+      if (!workspaceId || (!customerId && !customerName)) {
+        return res.status(400).json({ error: "Workspace ID and customer info are required" });
+      }
+      
+      let finalCustomerId = customerId;
+      if (!finalCustomerId && customerName) {
+        const customers = await storage.searchCrmCustomers(workspaceId, customerName);
+        if (customers.length > 0) {
+          finalCustomerId = customers[0].id;
+        } else {
+          return res.status(404).json({ error: `Customer "${customerName}" not found` });
+        }
+      }
+      
+      const now = Date.now();
+      const autoOrderNumber = orderNumber || `ORD-${Date.now()}`;
+      
+      const order = await storage.createCrmOrder({
+        id: `order_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+        workspaceId,
+        customerId: finalCustomerId,
+        orderNumber: autoOrderNumber,
+        orderDate: orderDate || now,
+        status: 'draft',
+        deliveryDate: deliveryDate || null,
+        deliveryRunId: null,
+        currency: 'GBP',
+        totalAmount: null,
+        notes: notes || null,
+        createdAt: now,
+        updatedAt: now,
+      });
+      
+      if (items && Array.isArray(items)) {
+        for (const item of items) {
+          await storage.createCrmOrderLine({
+            id: `order_line_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+            orderId: order.id,
+            genericItemName: item.name || item.productName,
+            genericItemCode: item.code || item.sku || null,
+            quantityUnits: item.quantity || 1,
+            unitPrice: item.price || 0,
+            lineTotal: (item.quantity || 1) * (item.price || 0),
+            verticalType: item.verticalType || null,
+            verticalRefId: item.productId || null,
+            createdAt: now,
+            updatedAt: now,
+          });
+        }
+      }
+      
+      res.json({
+        success: true,
+        message: `Successfully created order ${autoOrderNumber}`,
+        order,
+      });
+    } catch (error: any) {
+      console.error("Error in create-order action:", error);
+      res.status(500).json({ error: error.message || "Failed to create order" });
+    }
+  });
+  
+  // POST /api/crm/actions/create-delivery-run - Agent-friendly delivery run creation
+  app.post("/api/crm/actions/create-delivery-run", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { workspaceId, name, driverName, vehicle, scheduledDate, notes } = req.body;
+      
+      if (!workspaceId || !name || !scheduledDate) {
+        return res.status(400).json({ error: "Workspace ID, name, and scheduled date are required" });
+      }
+      
+      const now = Date.now();
+      const run = await storage.createCrmDeliveryRun({
+        id: `delivery_run_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+        workspaceId,
+        name,
+        driverName: driverName || null,
+        vehicle: vehicle || null,
+        scheduledDate,
+        status: 'planned',
+        notes: notes || null,
+        createdAt: now,
+        updatedAt: now,
+      });
+      
+      res.json({
+        success: true,
+        message: `Successfully created delivery run: ${name}`,
+        deliveryRun: run,
+      });
+    } catch (error: any) {
+      console.error("Error in create-delivery-run action:", error);
+      res.status(500).json({ error: error.message || "Failed to create delivery run" });
+    }
+  });
+  
+  // POST /api/brewcrm/actions/create-product - Agent-friendly product creation
+  app.post("/api/brewcrm/actions/create-product", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { workspaceId, sku, name, beerStyle, abv, ibu, description, packageType, packageSize, cost, price } = req.body;
+      
+      if (!workspaceId || !name) {
+        return res.status(400).json({ error: "Workspace ID and product name are required" });
+      }
+      
+      const now = Date.now();
+      const product = await storage.createBrewProduct({
+        id: `product_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+        workspaceId,
+        sku: sku || `SKU-${Date.now()}`,
+        name,
+        beerStyle: beerStyle || null,
+        abv: abv || null,
+        ibu: ibu || null,
+        description: description || null,
+        packageType: packageType || null,
+        packageSizeLiters: packageSize || null,
+        costPerUnit: cost || null,
+        sellingPricePerUnit: price || null,
+        createdAt: now,
+        updatedAt: now,
+      });
+      
+      res.json({
+        success: true,
+        message: `Successfully created product: ${name}`,
+        product,
+      });
+    } catch (error: any) {
+      console.error("Error in create-product action:", error);
+      res.status(500).json({ error: error.message || "Failed to create product" });
+    }
+  });
+  
+  // POST /api/brewcrm/actions/create-batch - Agent-friendly batch creation
+  app.post("/api/brewcrm/actions/create-batch", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { workspaceId, batchNumber, productId, productName, brewDate, volumeLiters, yeastType, maltType, hopsType, notes } = req.body;
+      
+      if (!workspaceId || !batchNumber) {
+        return res.status(400).json({ error: "Workspace ID and batch number are required" });
+      }
+      
+      let finalProductId = productId;
+      if (!finalProductId && productName) {
+        const products = await storage.listBrewProducts(workspaceId);
+        const matchedProduct = products.find(p => p.name.toLowerCase().includes(productName.toLowerCase()));
+        if (matchedProduct) {
+          finalProductId = matchedProduct.id;
+        }
+      }
+      
+      if (!finalProductId) {
+        return res.status(400).json({ error: "Product ID or product name is required" });
+      }
+      
+      const now = Date.now();
+      const batch = await storage.createBrewBatch({
+        id: `batch_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+        workspaceId,
+        batchNumber,
+        productId: finalProductId,
+        brewDate: brewDate || now,
+        volumeLiters: volumeLiters || 0,
+        status: 'brewing',
+        yeastType: yeastType || null,
+        maltType: maltType || null,
+        hopsType: hopsType || null,
+        notes: notes || null,
+        createdAt: now,
+        updatedAt: now,
+      });
+      
+      res.json({
+        success: true,
+        message: `Successfully created batch: ${batchNumber}`,
+        batch,
+      });
+    } catch (error: any) {
+      console.error("Error in create-batch action:", error);
+      res.status(500).json({ error: error.message || "Failed to create batch" });
+    }
+  });
+  
+  // POST /api/brewcrm/actions/update-inventory - Agent-friendly inventory update
+  app.post("/api/brewcrm/actions/update-inventory", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { workspaceId, productId, productName, quantityChange, operation } = req.body;
+      
+      if (!workspaceId || (!productId && !productName) || !quantityChange) {
+        return res.status(400).json({ error: "Workspace ID, product info, and quantity change are required" });
+      }
+      
+      let finalProductId = productId;
+      if (!finalProductId && productName) {
+        const products = await storage.listBrewProducts(workspaceId);
+        const matchedProduct = products.find(p => p.name.toLowerCase().includes(productName.toLowerCase()));
+        if (matchedProduct) {
+          finalProductId = matchedProduct.id;
+        }
+      }
+      
+      if (!finalProductId) {
+        return res.status(404).json({ error: "Product not found" });
+      }
+      
+      let inventory = await storage.getBrewInventoryByProduct(finalProductId);
+      const now = Date.now();
+      
+      if (!inventory) {
+        inventory = await storage.createBrewInventory({
+          id: `inventory_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+          workspaceId,
+          productId: finalProductId,
+          quantityOnHand: 0,
+          quantityAllocated: 0,
+          reorderLevel: null,
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+      
+      const currentQty = inventory.quantityOnHand || 0;
+      const newQty = operation === 'set' ? quantityChange : currentQty + quantityChange;
+      
+      const updated = await storage.updateBrewInventory(inventory.id, {
+        quantityOnHand: Math.max(0, newQty),
+        updatedAt: now,
+      });
+      
+      res.json({
+        success: true,
+        message: `Successfully updated inventory. New quantity: ${updated?.quantityOnHand || 0}`,
+        inventory: updated,
+      });
+    } catch (error: any) {
+      console.error("Error in update-inventory action:", error);
+      res.status(500).json({ error: error.message || "Failed to update inventory" });
+    }
+  });
+  
+  // GET /api/crm/actions/search - Agent-friendly unified search
+  app.get("/api/crm/actions/search", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { workspaceId, query, type } = req.query;
+      
+      if (!workspaceId || !query || typeof query !== 'string') {
+        return res.status(400).json({ error: "Workspace ID and search query are required" });
+      }
+      
+      const results: any = {
+        customers: [],
+        orders: [],
+        products: [],
+      };
+      
+      if (!type || type === 'customers') {
+        results.customers = await storage.searchCrmCustomers(workspaceId as string, query);
+      }
+      
+      if (!type || type === 'products') {
+        const allProducts = await storage.listBrewProducts(workspaceId as string);
+        results.products = allProducts.filter(p => 
+          p.name.toLowerCase().includes(query.toLowerCase()) ||
+          (p.sku && p.sku.toLowerCase().includes(query.toLowerCase()))
+        );
+      }
+      
+      res.json({
+        success: true,
+        query,
+        results,
+      });
+    } catch (error: any) {
+      console.error("Error in search action:", error);
+      res.status(500).json({ error: error.message || "Failed to search" });
     }
   });
 

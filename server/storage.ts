@@ -17,11 +17,57 @@ import type {
   InsertBatchJob,
   SelectBatchJob,
   InsertUser,
-  SelectUser
+  SelectUser,
+  InsertLeadGenPlan,
+  SelectLeadGenPlan,
+  InsertCrmSettings,
+  SelectCrmSettings,
+  InsertCrmCustomer,
+  SelectCrmCustomer,
+  InsertCrmDeliveryRun,
+  SelectCrmDeliveryRun,
+  InsertCrmOrder,
+  SelectCrmOrder,
+  InsertCrmOrderLine,
+  SelectCrmOrderLine,
+  InsertBrewProduct,
+  SelectBrewProduct,
+  InsertBrewBatch,
+  SelectBrewBatch,
+  InsertBrewInventoryItem,
+  SelectBrewInventoryItem,
+  InsertBrewContainer,
+  SelectBrewContainer,
+  InsertBrewDutyReport,
+  SelectBrewDutyReport,
+  InsertBrewSettings,
+  SelectBrewSettings
 } from "@shared/schema";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
-import { deepResearchRuns, conversations, messages, facts, scheduledMonitors, userSessions, integrations, batchJobs, users } from "@shared/schema";
+import { 
+  deepResearchRuns, 
+  conversations, 
+  messages, 
+  facts, 
+  scheduledMonitors, 
+  userSessions, 
+  integrations, 
+  batchJobs, 
+  users,
+  leadGenPlans,
+  crmSettings,
+  crmCustomers,
+  crmDeliveryRuns,
+  crmOrders,
+  crmOrderLines,
+  brewProducts,
+  brewBatches,
+  brewInventoryItems,
+  brewContainers,
+  brewDutyReports,
+  brewSettings
+} from "@shared/schema";
 import { eq, or, and, desc, asc, lt, gt, ilike } from "drizzle-orm";
 
 export interface PendingBatchConfirmation {
@@ -170,6 +216,96 @@ export interface IStorage {
   
   // Demo user transfer methods
   transferUserData(fromUserId: string, toUserId: string): Promise<void>;
+  
+  // ============= LEADGEN PLANS CRUD METHODS =============
+  createLeadGenPlan(plan: InsertLeadGenPlan): Promise<SelectLeadGenPlan>;
+  getLeadGenPlan(id: string): Promise<SelectLeadGenPlan | null>;
+  listLeadGenPlans(userId: string): Promise<SelectLeadGenPlan[]>;
+  listActiveLeadGenPlans(userId: string): Promise<SelectLeadGenPlan[]>;
+  updateLeadGenPlan(id: string, updates: Partial<InsertLeadGenPlan>): Promise<SelectLeadGenPlan | null>;
+  deleteLeadGenPlan(id: string): Promise<boolean>;
+  
+  // ============= CRM SETTINGS CRUD METHODS =============
+  getCrmSettings(workspaceId: string): Promise<SelectCrmSettings | null>;
+  createCrmSettings(settings: InsertCrmSettings): Promise<SelectCrmSettings>;
+  updateCrmSettings(id: string, updates: Partial<InsertCrmSettings>): Promise<SelectCrmSettings | null>;
+  
+  // ============= CRM CUSTOMERS CRUD METHODS =============
+  createCrmCustomer(customer: InsertCrmCustomer): Promise<SelectCrmCustomer>;
+  getCrmCustomer(id: string): Promise<SelectCrmCustomer | null>;
+  listCrmCustomers(workspaceId: string): Promise<SelectCrmCustomer[]>;
+  searchCrmCustomers(workspaceId: string, searchTerm: string): Promise<SelectCrmCustomer[]>;
+  updateCrmCustomer(id: string, updates: Partial<InsertCrmCustomer>): Promise<SelectCrmCustomer | null>;
+  deleteCrmCustomer(id: string): Promise<boolean>;
+  
+  // ============= CRM DELIVERY RUNS CRUD METHODS =============
+  createCrmDeliveryRun(deliveryRun: InsertCrmDeliveryRun): Promise<SelectCrmDeliveryRun>;
+  getCrmDeliveryRun(id: string): Promise<SelectCrmDeliveryRun | null>;
+  listCrmDeliveryRuns(workspaceId: string): Promise<SelectCrmDeliveryRun[]>;
+  listCrmDeliveryRunsByStatus(workspaceId: string, status: string): Promise<SelectCrmDeliveryRun[]>;
+  updateCrmDeliveryRun(id: string, updates: Partial<InsertCrmDeliveryRun>): Promise<SelectCrmDeliveryRun | null>;
+  deleteCrmDeliveryRun(id: string): Promise<boolean>;
+  
+  // ============= CRM ORDERS CRUD METHODS =============
+  createCrmOrder(order: InsertCrmOrder): Promise<SelectCrmOrder>;
+  getCrmOrder(id: string): Promise<SelectCrmOrder | null>;
+  listCrmOrders(workspaceId: string): Promise<SelectCrmOrder[]>;
+  listCrmOrdersByCustomer(customerId: string): Promise<SelectCrmOrder[]>;
+  listCrmOrdersByDeliveryRun(deliveryRunId: string): Promise<SelectCrmOrder[]>;
+  updateCrmOrder(id: string, updates: Partial<InsertCrmOrder>): Promise<SelectCrmOrder | null>;
+  deleteCrmOrder(id: string): Promise<boolean>;
+  
+  // ============= CRM ORDER LINES CRUD METHODS =============
+  createCrmOrderLine(orderLine: InsertCrmOrderLine): Promise<SelectCrmOrderLine>;
+  getCrmOrderLine(id: string): Promise<SelectCrmOrderLine | null>;
+  listCrmOrderLinesByOrder(orderId: string): Promise<SelectCrmOrderLine[]>;
+  updateCrmOrderLine(id: string, updates: Partial<InsertCrmOrderLine>): Promise<SelectCrmOrderLine | null>;
+  deleteCrmOrderLine(id: string): Promise<boolean>;
+  
+  // ============= BREWERY PRODUCTS CRUD METHODS =============
+  createBrewProduct(product: InsertBrewProduct): Promise<SelectBrewProduct>;
+  getBrewProduct(id: string): Promise<SelectBrewProduct | null>;
+  listBrewProducts(workspaceId: string): Promise<SelectBrewProduct[]>;
+  listActiveBrewProducts(workspaceId: string): Promise<SelectBrewProduct[]>;
+  updateBrewProduct(id: string, updates: Partial<InsertBrewProduct>): Promise<SelectBrewProduct | null>;
+  deleteBrewProduct(id: string): Promise<boolean>;
+  
+  // ============= BREWERY BATCHES CRUD METHODS =============
+  createBrewBatch(batch: InsertBrewBatch): Promise<SelectBrewBatch>;
+  getBrewBatch(id: string): Promise<SelectBrewBatch | null>;
+  listBrewBatches(workspaceId: string): Promise<SelectBrewBatch[]>;
+  listBrewBatchesByProduct(productId: string): Promise<SelectBrewBatch[]>;
+  updateBrewBatch(id: string, updates: Partial<InsertBrewBatch>): Promise<SelectBrewBatch | null>;
+  deleteBrewBatch(id: string): Promise<boolean>;
+  
+  // ============= BREWERY INVENTORY CRUD METHODS =============
+  createBrewInventoryItem(item: InsertBrewInventoryItem): Promise<SelectBrewInventoryItem>;
+  getBrewInventoryItem(id: string): Promise<SelectBrewInventoryItem | null>;
+  listBrewInventoryItems(workspaceId: string): Promise<SelectBrewInventoryItem[]>;
+  listBrewInventoryItemsByProduct(productId: string): Promise<SelectBrewInventoryItem[]>;
+  listBrewInventoryItemsByBatch(batchId: string): Promise<SelectBrewInventoryItem[]>;
+  updateBrewInventoryItem(id: string, updates: Partial<InsertBrewInventoryItem>): Promise<SelectBrewInventoryItem | null>;
+  deleteBrewInventoryItem(id: string): Promise<boolean>;
+  
+  // ============= BREWERY CONTAINERS CRUD METHODS =============
+  createBrewContainer(container: InsertBrewContainer): Promise<SelectBrewContainer>;
+  getBrewContainer(id: string): Promise<SelectBrewContainer | null>;
+  listBrewContainers(workspaceId: string): Promise<SelectBrewContainer[]>;
+  listBrewContainersByStatus(workspaceId: string, status: string): Promise<SelectBrewContainer[]>;
+  updateBrewContainer(id: string, updates: Partial<InsertBrewContainer>): Promise<SelectBrewContainer | null>;
+  deleteBrewContainer(id: string): Promise<boolean>;
+  
+  // ============= BREWERY DUTY REPORTS CRUD METHODS =============
+  createBrewDutyReport(report: InsertBrewDutyReport): Promise<SelectBrewDutyReport>;
+  getBrewDutyReport(id: string): Promise<SelectBrewDutyReport | null>;
+  listBrewDutyReports(workspaceId: string): Promise<SelectBrewDutyReport[]>;
+  updateBrewDutyReport(id: string, updates: Partial<InsertBrewDutyReport>): Promise<SelectBrewDutyReport | null>;
+  deleteBrewDutyReport(id: string): Promise<boolean>;
+  
+  // ============= BREWERY SETTINGS CRUD METHODS =============
+  getBrewSettings(workspaceId: string): Promise<SelectBrewSettings | null>;
+  createBrewSettings(settings: InsertBrewSettings): Promise<SelectBrewSettings>;
+  updateBrewSettings(id: string, updates: Partial<InsertBrewSettings>): Promise<SelectBrewSettings | null>;
 }
 
 export class MemStorage implements IStorage {
@@ -1220,6 +1356,395 @@ export class DbStorage implements IStorage {
     await db.update(integrations)
       .set({ userId: toUserId })
       .where(eq(integrations.userId, fromUserId));
+  }
+  
+  // ============= LEADGEN PLANS CRUD METHODS =============
+  async createLeadGenPlan(plan: InsertLeadGenPlan): Promise<SelectLeadGenPlan> {
+    const [created] = await db.insert(leadGenPlans).values(plan).returning();
+    return created;
+  }
+  
+  async getLeadGenPlan(id: string): Promise<SelectLeadGenPlan | null> {
+    const [plan] = await db.select().from(leadGenPlans).where(eq(leadGenPlans.id, id));
+    return plan || null;
+  }
+  
+  async listLeadGenPlans(userId: string): Promise<SelectLeadGenPlan[]> {
+    return await db.select().from(leadGenPlans).where(eq(leadGenPlans.userId, userId)).orderBy(desc(leadGenPlans.createdAt));
+  }
+  
+  async listActiveLeadGenPlans(userId: string): Promise<SelectLeadGenPlan[]> {
+    return await db.select().from(leadGenPlans)
+      .where(and(
+        eq(leadGenPlans.userId, userId),
+        or(
+          eq(leadGenPlans.status, 'pending_approval'),
+          eq(leadGenPlans.status, 'in_progress')
+        )
+      ))
+      .orderBy(desc(leadGenPlans.createdAt));
+  }
+  
+  async updateLeadGenPlan(id: string, updates: Partial<InsertLeadGenPlan>): Promise<SelectLeadGenPlan | null> {
+    const [updated] = await db.update(leadGenPlans)
+      .set({ ...updates, updatedAt: Date.now() })
+      .where(eq(leadGenPlans.id, id))
+      .returning();
+    return updated || null;
+  }
+  
+  async deleteLeadGenPlan(id: string): Promise<boolean> {
+    const result = await db.delete(leadGenPlans).where(eq(leadGenPlans.id, id));
+    return true;
+  }
+  
+  // ============= CRM SETTINGS CRUD METHODS =============
+  async getCrmSettings(workspaceId: string): Promise<SelectCrmSettings | null> {
+    const [settings] = await db.select().from(crmSettings).where(eq(crmSettings.workspaceId, workspaceId));
+    return settings || null;
+  }
+  
+  async createCrmSettings(settings: InsertCrmSettings): Promise<SelectCrmSettings> {
+    const [created] = await db.insert(crmSettings).values(settings).returning();
+    return created;
+  }
+  
+  async updateCrmSettings(id: string, updates: Partial<InsertCrmSettings>): Promise<SelectCrmSettings | null> {
+    const [updated] = await db.update(crmSettings)
+      .set({ ...updates, updatedAt: Date.now() })
+      .where(eq(crmSettings.id, id))
+      .returning();
+    return updated || null;
+  }
+  
+  // ============= CRM CUSTOMERS CRUD METHODS =============
+  async createCrmCustomer(customer: InsertCrmCustomer): Promise<SelectCrmCustomer> {
+    const [created] = await db.insert(crmCustomers).values(customer).returning();
+    return created;
+  }
+  
+  async getCrmCustomer(id: string): Promise<SelectCrmCustomer | null> {
+    const [customer] = await db.select().from(crmCustomers).where(eq(crmCustomers.id, id));
+    return customer || null;
+  }
+  
+  async listCrmCustomers(workspaceId: string): Promise<SelectCrmCustomer[]> {
+    return await db.select().from(crmCustomers).where(eq(crmCustomers.workspaceId, workspaceId)).orderBy(crmCustomers.name);
+  }
+  
+  async searchCrmCustomers(workspaceId: string, searchTerm: string): Promise<SelectCrmCustomer[]> {
+    return await db.select().from(crmCustomers)
+      .where(and(
+        eq(crmCustomers.workspaceId, workspaceId),
+        or(
+          ilike(crmCustomers.name, `%${searchTerm}%`),
+          ilike(crmCustomers.email, `%${searchTerm}%`)
+        )
+      ))
+      .orderBy(crmCustomers.name);
+  }
+  
+  async updateCrmCustomer(id: string, updates: Partial<InsertCrmCustomer>): Promise<SelectCrmCustomer | null> {
+    const [updated] = await db.update(crmCustomers)
+      .set({ ...updates, updatedAt: Date.now() })
+      .where(eq(crmCustomers.id, id))
+      .returning();
+    return updated || null;
+  }
+  
+  async deleteCrmCustomer(id: string): Promise<boolean> {
+    const result = await db.delete(crmCustomers).where(eq(crmCustomers.id, id));
+    return true;
+  }
+  
+  // ============= CRM DELIVERY RUNS CRUD METHODS =============
+  async createCrmDeliveryRun(deliveryRun: InsertCrmDeliveryRun): Promise<SelectCrmDeliveryRun> {
+    const [created] = await db.insert(crmDeliveryRuns).values(deliveryRun).returning();
+    return created;
+  }
+  
+  async getCrmDeliveryRun(id: string): Promise<SelectCrmDeliveryRun | null> {
+    const [run] = await db.select().from(crmDeliveryRuns).where(eq(crmDeliveryRuns.id, id));
+    return run || null;
+  }
+  
+  async listCrmDeliveryRuns(workspaceId: string): Promise<SelectCrmDeliveryRun[]> {
+    return await db.select().from(crmDeliveryRuns).where(eq(crmDeliveryRuns.workspaceId, workspaceId)).orderBy(desc(crmDeliveryRuns.scheduledDate));
+  }
+  
+  async listCrmDeliveryRunsByStatus(workspaceId: string, status: string): Promise<SelectCrmDeliveryRun[]> {
+    return await db.select().from(crmDeliveryRuns)
+      .where(and(
+        eq(crmDeliveryRuns.workspaceId, workspaceId),
+        eq(crmDeliveryRuns.status, status)
+      ))
+      .orderBy(desc(crmDeliveryRuns.scheduledDate));
+  }
+  
+  async updateCrmDeliveryRun(id: string, updates: Partial<InsertCrmDeliveryRun>): Promise<SelectCrmDeliveryRun | null> {
+    const [updated] = await db.update(crmDeliveryRuns)
+      .set({ ...updates, updatedAt: Date.now() })
+      .where(eq(crmDeliveryRuns.id, id))
+      .returning();
+    return updated || null;
+  }
+  
+  async deleteCrmDeliveryRun(id: string): Promise<boolean> {
+    const result = await db.delete(crmDeliveryRuns).where(eq(crmDeliveryRuns.id, id));
+    return true;
+  }
+  
+  // ============= CRM ORDERS CRUD METHODS =============
+  async createCrmOrder(order: InsertCrmOrder): Promise<SelectCrmOrder> {
+    const [created] = await db.insert(crmOrders).values(order).returning();
+    return created;
+  }
+  
+  async getCrmOrder(id: string): Promise<SelectCrmOrder | null> {
+    const [order] = await db.select().from(crmOrders).where(eq(crmOrders.id, id));
+    return order || null;
+  }
+  
+  async listCrmOrders(workspaceId: string): Promise<SelectCrmOrder[]> {
+    return await db.select().from(crmOrders).where(eq(crmOrders.workspaceId, workspaceId)).orderBy(desc(crmOrders.orderDate));
+  }
+  
+  async listCrmOrdersByCustomer(customerId: string): Promise<SelectCrmOrder[]> {
+    return await db.select().from(crmOrders).where(eq(crmOrders.customerId, customerId)).orderBy(desc(crmOrders.orderDate));
+  }
+  
+  async listCrmOrdersByDeliveryRun(deliveryRunId: string): Promise<SelectCrmOrder[]> {
+    return await db.select().from(crmOrders).where(eq(crmOrders.deliveryRunId, deliveryRunId)).orderBy(desc(crmOrders.orderDate));
+  }
+  
+  async updateCrmOrder(id: string, updates: Partial<InsertCrmOrder>): Promise<SelectCrmOrder | null> {
+    const [updated] = await db.update(crmOrders)
+      .set({ ...updates, updatedAt: Date.now() })
+      .where(eq(crmOrders.id, id))
+      .returning();
+    return updated || null;
+  }
+  
+  async deleteCrmOrder(id: string): Promise<boolean> {
+    const result = await db.delete(crmOrders).where(eq(crmOrders.id, id));
+    return true;
+  }
+  
+  // ============= CRM ORDER LINES CRUD METHODS =============
+  async createCrmOrderLine(orderLine: InsertCrmOrderLine): Promise<SelectCrmOrderLine> {
+    const [created] = await db.insert(crmOrderLines).values(orderLine).returning();
+    return created;
+  }
+  
+  async getCrmOrderLine(id: string): Promise<SelectCrmOrderLine | null> {
+    const [line] = await db.select().from(crmOrderLines).where(eq(crmOrderLines.id, id));
+    return line || null;
+  }
+  
+  async listCrmOrderLinesByOrder(orderId: string): Promise<SelectCrmOrderLine[]> {
+    return await db.select().from(crmOrderLines).where(eq(crmOrderLines.orderId, orderId));
+  }
+  
+  async updateCrmOrderLine(id: string, updates: Partial<InsertCrmOrderLine>): Promise<SelectCrmOrderLine | null> {
+    const [updated] = await db.update(crmOrderLines)
+      .set({ ...updates, updatedAt: Date.now() })
+      .where(eq(crmOrderLines.id, id))
+      .returning();
+    return updated || null;
+  }
+  
+  async deleteCrmOrderLine(id: string): Promise<boolean> {
+    const result = await db.delete(crmOrderLines).where(eq(crmOrderLines.id, id));
+    return true;
+  }
+  
+  // ============= BREWERY PRODUCTS CRUD METHODS =============
+  async createBrewProduct(product: InsertBrewProduct): Promise<SelectBrewProduct> {
+    const [created] = await db.insert(brewProducts).values(product).returning();
+    return created;
+  }
+  
+  async getBrewProduct(id: string): Promise<SelectBrewProduct | null> {
+    const [product] = await db.select().from(brewProducts).where(eq(brewProducts.id, id));
+    return product || null;
+  }
+  
+  async listBrewProducts(workspaceId: string): Promise<SelectBrewProduct[]> {
+    return await db.select().from(brewProducts).where(eq(brewProducts.workspaceId, workspaceId)).orderBy(brewProducts.name);
+  }
+  
+  async listActiveBrewProducts(workspaceId: string): Promise<SelectBrewProduct[]> {
+    return await db.select().from(brewProducts)
+      .where(and(
+        eq(brewProducts.workspaceId, workspaceId),
+        eq(brewProducts.isActive, 1)
+      ))
+      .orderBy(brewProducts.name);
+  }
+  
+  async updateBrewProduct(id: string, updates: Partial<InsertBrewProduct>): Promise<SelectBrewProduct | null> {
+    const [updated] = await db.update(brewProducts)
+      .set({ ...updates, updatedAt: Date.now() })
+      .where(eq(brewProducts.id, id))
+      .returning();
+    return updated || null;
+  }
+  
+  async deleteBrewProduct(id: string): Promise<boolean> {
+    const result = await db.delete(brewProducts).where(eq(brewProducts.id, id));
+    return true;
+  }
+  
+  // ============= BREWERY BATCHES CRUD METHODS =============
+  async createBrewBatch(batch: InsertBrewBatch): Promise<SelectBrewBatch> {
+    const [created] = await db.insert(brewBatches).values(batch).returning();
+    return created;
+  }
+  
+  async getBrewBatch(id: string): Promise<SelectBrewBatch | null> {
+    const [batch] = await db.select().from(brewBatches).where(eq(brewBatches.id, id));
+    return batch || null;
+  }
+  
+  async listBrewBatches(workspaceId: string): Promise<SelectBrewBatch[]> {
+    return await db.select().from(brewBatches).where(eq(brewBatches.workspaceId, workspaceId)).orderBy(desc(brewBatches.brewDate));
+  }
+  
+  async listBrewBatchesByProduct(productId: string): Promise<SelectBrewBatch[]> {
+    return await db.select().from(brewBatches).where(eq(brewBatches.productId, productId)).orderBy(desc(brewBatches.brewDate));
+  }
+  
+  async updateBrewBatch(id: string, updates: Partial<InsertBrewBatch>): Promise<SelectBrewBatch | null> {
+    const [updated] = await db.update(brewBatches)
+      .set({ ...updates, updatedAt: Date.now() })
+      .where(eq(brewBatches.id, id))
+      .returning();
+    return updated || null;
+  }
+  
+  async deleteBrewBatch(id: string): Promise<boolean> {
+    const result = await db.delete(brewBatches).where(eq(brewBatches.id, id));
+    return true;
+  }
+  
+  // ============= BREWERY INVENTORY CRUD METHODS =============
+  async createBrewInventoryItem(item: InsertBrewInventoryItem): Promise<SelectBrewInventoryItem> {
+    const [created] = await db.insert(brewInventoryItems).values(item).returning();
+    return created;
+  }
+  
+  async getBrewInventoryItem(id: string): Promise<SelectBrewInventoryItem | null> {
+    const [item] = await db.select().from(brewInventoryItems).where(eq(brewInventoryItems.id, id));
+    return item || null;
+  }
+  
+  async listBrewInventoryItems(workspaceId: string): Promise<SelectBrewInventoryItem[]> {
+    return await db.select().from(brewInventoryItems).where(eq(brewInventoryItems.workspaceId, workspaceId));
+  }
+  
+  async listBrewInventoryItemsByProduct(productId: string): Promise<SelectBrewInventoryItem[]> {
+    return await db.select().from(brewInventoryItems).where(eq(brewInventoryItems.productId, productId));
+  }
+  
+  async listBrewInventoryItemsByBatch(batchId: string): Promise<SelectBrewInventoryItem[]> {
+    return await db.select().from(brewInventoryItems).where(eq(brewInventoryItems.batchId, batchId));
+  }
+  
+  async updateBrewInventoryItem(id: string, updates: Partial<InsertBrewInventoryItem>): Promise<SelectBrewInventoryItem | null> {
+    const [updated] = await db.update(brewInventoryItems)
+      .set({ ...updates, updatedAt: Date.now() })
+      .where(eq(brewInventoryItems.id, id))
+      .returning();
+    return updated || null;
+  }
+  
+  async deleteBrewInventoryItem(id: string): Promise<boolean> {
+    const result = await db.delete(brewInventoryItems).where(eq(brewInventoryItems.id, id));
+    return true;
+  }
+  
+  // ============= BREWERY CONTAINERS CRUD METHODS =============
+  async createBrewContainer(container: InsertBrewContainer): Promise<SelectBrewContainer> {
+    const [created] = await db.insert(brewContainers).values(container).returning();
+    return created;
+  }
+  
+  async getBrewContainer(id: string): Promise<SelectBrewContainer | null> {
+    const [container] = await db.select().from(brewContainers).where(eq(brewContainers.id, id));
+    return container || null;
+  }
+  
+  async listBrewContainers(workspaceId: string): Promise<SelectBrewContainer[]> {
+    return await db.select().from(brewContainers).where(eq(brewContainers.workspaceId, workspaceId)).orderBy(brewContainers.containerCode);
+  }
+  
+  async listBrewContainersByStatus(workspaceId: string, status: string): Promise<SelectBrewContainer[]> {
+    return await db.select().from(brewContainers)
+      .where(and(
+        eq(brewContainers.workspaceId, workspaceId),
+        eq(brewContainers.status, status)
+      ))
+      .orderBy(brewContainers.containerCode);
+  }
+  
+  async updateBrewContainer(id: string, updates: Partial<InsertBrewContainer>): Promise<SelectBrewContainer | null> {
+    const [updated] = await db.update(brewContainers)
+      .set({ ...updates, updatedAt: Date.now() })
+      .where(eq(brewContainers.id, id))
+      .returning();
+    return updated || null;
+  }
+  
+  async deleteBrewContainer(id: string): Promise<boolean> {
+    const result = await db.delete(brewContainers).where(eq(brewContainers.id, id));
+    return true;
+  }
+  
+  // ============= BREWERY DUTY REPORTS CRUD METHODS =============
+  async createBrewDutyReport(report: InsertBrewDutyReport): Promise<SelectBrewDutyReport> {
+    const [created] = await db.insert(brewDutyReports).values(report).returning();
+    return created;
+  }
+  
+  async getBrewDutyReport(id: string): Promise<SelectBrewDutyReport | null> {
+    const [report] = await db.select().from(brewDutyReports).where(eq(brewDutyReports.id, id));
+    return report || null;
+  }
+  
+  async listBrewDutyReports(workspaceId: string): Promise<SelectBrewDutyReport[]> {
+    return await db.select().from(brewDutyReports).where(eq(brewDutyReports.workspaceId, workspaceId)).orderBy(desc(brewDutyReports.periodStart));
+  }
+  
+  async updateBrewDutyReport(id: string, updates: Partial<InsertBrewDutyReport>): Promise<SelectBrewDutyReport | null> {
+    const [updated] = await db.update(brewDutyReports)
+      .set({ ...updates, updatedAt: Date.now() })
+      .where(eq(brewDutyReports.id, id))
+      .returning();
+    return updated || null;
+  }
+  
+  async deleteBrewDutyReport(id: string): Promise<boolean> {
+    const result = await db.delete(brewDutyReports).where(eq(brewDutyReports.id, id));
+    return true;
+  }
+  
+  // ============= BREWERY SETTINGS CRUD METHODS =============
+  async getBrewSettings(workspaceId: string): Promise<SelectBrewSettings | null> {
+    const [settings] = await db.select().from(brewSettings).where(eq(brewSettings.workspaceId, workspaceId));
+    return settings || null;
+  }
+  
+  async createBrewSettings(settings: InsertBrewSettings): Promise<SelectBrewSettings> {
+    const [created] = await db.insert(brewSettings).values(settings).returning();
+    return created;
+  }
+  
+  async updateBrewSettings(id: string, updates: Partial<InsertBrewSettings>): Promise<SelectBrewSettings | null> {
+    const [updated] = await db.update(brewSettings)
+      .set({ ...updates, updatedAt: Date.now() })
+      .where(eq(brewSettings.id, id))
+      .returning();
+    return updated || null;
   }
 }
 
