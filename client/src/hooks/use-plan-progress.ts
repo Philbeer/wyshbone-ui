@@ -3,6 +3,14 @@ import { useUser } from "@/contexts/UserContext";
 import { addDevAuthParams } from "@/lib/queryClient";
 import { useRef, useEffect } from "react";
 
+export interface PlanStepProgress {
+  id: string;
+  type: string;
+  status: "pending" | "executing" | "completed" | "failed";
+  label?: string;
+  resultSummary?: string;
+}
+
 export interface PlanProgress {
   loading: boolean;
   error?: string;
@@ -10,11 +18,9 @@ export interface PlanProgress {
   planId: string | null;
   totalSteps: number;
   completedSteps: number;
-  currentStep?: {
-    id: string;
-    label: string;
-    status: "pending" | "running" | "completed" | "failed";
-  } | null;
+  currentStep?: PlanStepProgress | null;
+  status: "idle" | "pending_approval" | "executing" | "completed" | "failed";
+  steps: PlanStepProgress[];
   lastUpdatedAt?: string;
   percentComplete: number;
 }
@@ -24,11 +30,9 @@ interface PlanStatusResponse {
   planId: string | null;
   totalSteps: number;
   completedSteps: number;
-  currentStep?: {
-    id: string;
-    label: string;
-    status: "pending" | "running" | "completed" | "failed";
-  } | null;
+  currentStep?: PlanStepProgress | null;
+  status?: "idle" | "pending_approval" | "executing" | "completed" | "failed";
+  steps?: PlanStepProgress[];
   lastUpdatedAt: string;
 }
 
@@ -75,11 +79,15 @@ export function usePlanProgress(planId: string | null, isActive: boolean): PlanP
     }
   }, [data]);
 
-  // Clear snapshot when planId changes (null or different ID)
+  // Clear snapshot only when planId changes to a different non-null plan
+  // When planId becomes null (plan completed), retain the snapshot so terminal plans can show their summaries
   useEffect(() => {
     if (planId !== lastPlanIdRef.current) {
-      console.log(`[PLAN_PROGRESS_DEBUG] clearing snapshot - planId changed from ${lastPlanIdRef.current} to ${planId}`);
-      lastDataRef.current = null;
+      // Only clear snapshot if we're switching to a new plan (not null)
+      if (planId !== null) {
+        console.log(`[PLAN_PROGRESS_DEBUG] clearing snapshot - planId changed from ${lastPlanIdRef.current} to ${planId}`);
+        lastDataRef.current = null;
+      }
       lastPlanIdRef.current = planId;
     }
   }, [planId]);
@@ -104,6 +112,8 @@ export function usePlanProgress(planId: string | null, isActive: boolean): PlanP
     totalSteps: currentData?.totalSteps || 0,
     completedSteps: currentData?.completedSteps || 0,
     currentStep: currentData?.currentStep || null,
+    status: currentData?.status || "idle",
+    steps: currentData?.steps || [],
     lastUpdatedAt: currentData?.lastUpdatedAt,
     percentComplete,
   };

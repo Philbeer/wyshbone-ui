@@ -60,9 +60,9 @@ export function ProgressWidget() {
     );
   }
 
-  // Show progress when actively polling OR when showing terminal status
-  const isTerminalStatus = status === 'completed' || status === 'failed';
-  const hasActivePlan = progress.totalSteps > 0 && (shouldPoll || isTerminalStatus);
+  // Show progress when we have steps data (even if not actively polling)
+  // This ensures terminal/completed plans still show their step summaries
+  const hasActivePlan = progress.steps.length > 0 || progress.totalSteps > 0;
   const goalText = progress.goal;
 
   return (
@@ -95,39 +95,82 @@ export function ProgressWidget() {
               <Progress value={progress.percentComplete} data-testid="progress-bar" />
             </div>
 
-            {/* Current Step */}
-            {progress.currentStep && (
-              <div className="space-y-2">
-                <div className="text-xs font-medium text-muted-foreground">Currently:</div>
-                <div className="flex items-center gap-2">
-                  {progress.currentStep.status === "running" && (
-                    <Loader2 className="h-4 w-4 animate-spin text-primary" data-testid="icon-running" />
-                  )}
-                  {progress.currentStep.status === "completed" && (
-                    <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-500" data-testid="icon-completed" />
-                  )}
-                  {progress.currentStep.status === "pending" && (
-                    <Clock className="h-4 w-4 text-muted-foreground" data-testid="icon-pending" />
-                  )}
-                  {progress.currentStep.status === "failed" && (
-                    <AlertCircle className="h-4 w-4 text-destructive" data-testid="icon-failed" />
-                  )}
-                  <span className="text-sm" data-testid={`text-current-step-${progress.currentStep.status}`}>
-                    {progress.currentStep.label}
-                  </span>
-                  <Badge
-                    variant={
-                      progress.currentStep.status === "running" ? "default" :
-                      progress.currentStep.status === "completed" ? "default" :
-                      progress.currentStep.status === "failed" ? "destructive" :
-                      "secondary"
-                    }
-                    className="text-xs"
-                    data-testid={`badge-status-${progress.currentStep.status}`}
-                  >
-                    {progress.currentStep.status}
-                  </Badge>
+            {/* Step List */}
+            {progress.steps.length > 0 ? (
+              <div className="space-y-3">
+                <div className="text-xs font-medium text-muted-foreground">Steps:</div>
+                <div className="space-y-3">
+                  {progress.steps.map((step, index) => (
+                    <div
+                      key={step.id}
+                      className="space-y-1 pb-3 border-b border-border last:border-0 last:pb-0"
+                      data-testid={`step-${index}`}
+                    >
+                      <div className="flex items-center gap-2">
+                        {step.status === "executing" && (
+                          <Loader2 className="h-4 w-4 animate-spin text-primary flex-shrink-0" data-testid={`icon-executing-${index}`} />
+                        )}
+                        {step.status === "completed" && (
+                          <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-500 flex-shrink-0" data-testid={`icon-completed-${index}`} />
+                        )}
+                        {step.status === "pending" && (
+                          <Clock className="h-4 w-4 text-muted-foreground flex-shrink-0" data-testid={`icon-pending-${index}`} />
+                        )}
+                        {step.status === "failed" && (
+                          <AlertCircle className="h-4 w-4 text-destructive flex-shrink-0" data-testid={`icon-failed-${index}`} />
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-sm font-medium" data-testid={`text-step-label-${index}`}>
+                              Step {index + 1} — {step.type}
+                            </span>
+                            <Badge
+                              variant={
+                                step.status === "executing" ? "default" :
+                                step.status === "completed" ? "default" :
+                                step.status === "failed" ? "destructive" :
+                                "secondary"
+                              }
+                              className="text-xs"
+                              data-testid={`badge-status-${index}`}
+                            >
+                              {step.status}
+                            </Badge>
+                          </div>
+                          {step.label && (
+                            <div className="text-xs text-muted-foreground mt-1" data-testid={`text-step-type-${index}`}>
+                              {step.label}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      {step.resultSummary && (
+                        <div className="text-sm text-foreground ml-6 mt-1" data-testid={`text-result-summary-${index}`}>
+                          {step.resultSummary}
+                        </div>
+                      )}
+                      {!step.resultSummary && step.status === "executing" && (
+                        <div className="text-sm text-muted-foreground ml-6 mt-1 italic" data-testid={`text-running-${index}`}>
+                          Running...
+                        </div>
+                      )}
+                      {!step.resultSummary && step.status === "pending" && (
+                        <div className="text-sm text-muted-foreground ml-6 mt-1 italic" data-testid={`text-pending-${index}`}>
+                          Waiting to start...
+                        </div>
+                      )}
+                      {!step.resultSummary && step.status === "completed" && (
+                        <div className="text-sm text-muted-foreground ml-6 mt-1 italic" data-testid={`text-no-details-${index}`}>
+                          Completed with no additional details
+                        </div>
+                      )}
+                    </div>
+                  ))}
                 </div>
+              </div>
+            ) : (
+              <div className="text-sm text-muted-foreground" data-testid="text-no-steps">
+                No steps available yet
               </div>
             )}
 

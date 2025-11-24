@@ -10,6 +10,7 @@ export interface StepProgress {
   startedAt?: string;
   completedAt?: string;
   error?: string;
+  resultSummary?: string;
 }
 
 export interface PlanExecution {

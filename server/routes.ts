@@ -3649,6 +3649,8 @@ CRITICAL RULES:
           totalSteps: 0,
           completedSteps: 0,
           currentStep: null,
+          status: 'idle',
+          steps: [],
           lastUpdatedAt: new Date().toISOString()
         });
       }
@@ -3660,6 +3662,18 @@ CRITICAL RULES:
       const currentStepProgress = execution.stepProgress.find(s => s.status === 'running') ||
                                   execution.stepProgress.find(s => s.status === 'pending');
       
+      // Build enriched steps array with resultSummary
+      const steps = execution.stepProgress.map((progress, index) => {
+        const step = execution.steps[index];
+        return {
+          id: progress.stepId,
+          type: step.type,
+          label: step.label,
+          status: progress.status === 'running' ? 'executing' : progress.status,
+          resultSummary: progress.resultSummary
+        };
+      });
+      
       // Build response based on execution data
       const response = {
         goal: goal || null,
@@ -3668,9 +3682,13 @@ CRITICAL RULES:
         completedSteps,
         currentStep: currentStepProgress ? {
           id: currentStepProgress.stepId,
+          type: execution.steps[currentStepProgress.stepIndex].type,
           label: execution.steps[currentStepProgress.stepIndex].label,
-          status: currentStepProgress.status
+          status: currentStepProgress.status === 'running' ? 'executing' : currentStepProgress.status,
+          resultSummary: currentStepProgress.resultSummary
         } : null,
+        status: execution.status,
+        steps,
         lastUpdatedAt: execution.startedAt
       };
       
