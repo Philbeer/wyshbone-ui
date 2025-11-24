@@ -174,7 +174,7 @@ export const locationHints = pgTable("location_hints", {
 // Location Hints insert/select schemas
 export const insertLocationHintSchema = createInsertSchema(locationHints);
 export const selectLocationHintSchema = createSelectSchema(locationHints);
-export type InsertLocationHint = z.infer<typeof insertLocationHintSchema>;
+export type InsertLocationHint = typeof locationHints.$inferInsert;
 export type SelectLocationHint = typeof locationHints.$inferSelect;
 
 // Deep Research Drizzle table
@@ -255,7 +255,7 @@ export type DeepResearchRunSummary = z.infer<typeof deepResearchRunSummarySchema
 // Deep Research Drizzle insert/select schemas
 export const insertDeepResearchRunSchema = createInsertSchema(deepResearchRuns);
 export const selectDeepResearchRunSchema = createSelectSchema(deepResearchRuns);
-export type InsertDeepResearchRun = z.infer<typeof insertDeepResearchRunSchema>;
+export type InsertDeepResearchRun = typeof deepResearchRuns.$inferInsert;
 export type SelectDeepResearchRun = typeof deepResearchRuns.$inferSelect;
 
 // ============= MEMORY SYSTEM TABLES =============
@@ -304,19 +304,19 @@ export const facts = pgTable("facts", {
 // Conversation insert/select schemas
 export const insertConversationSchema = createInsertSchema(conversations);
 export const selectConversationSchema = createSelectSchema(conversations);
-export type InsertConversation = z.infer<typeof insertConversationSchema>;
+export type InsertConversation = typeof conversations.$inferInsert;
 export type SelectConversation = typeof conversations.$inferSelect;
 
 // Message insert/select schemas
 export const insertMessageSchema = createInsertSchema(messages);
 export const selectMessageSchema = createSelectSchema(messages);
-export type InsertMessage = z.infer<typeof insertMessageSchema>;
+export type InsertMessage = typeof messages.$inferInsert;
 export type SelectMessage = typeof messages.$inferSelect;
 
 // Fact insert/select schemas
 export const insertFactSchema = createInsertSchema(facts);
 export const selectFactSchema = createSelectSchema(facts);
-export type InsertFact = z.infer<typeof insertFactSchema>;
+export type InsertFact = typeof facts.$inferInsert;
 export type SelectFact = typeof facts.$inferSelect;
 
 // ============= SCHEDULED MONITORS TABLE =============
@@ -399,7 +399,7 @@ export type ScheduledMonitorCreateRequest = z.infer<typeof scheduledMonitorCreat
 // Scheduled Monitor Drizzle insert/select schemas
 export const insertScheduledMonitorSchema = createInsertSchema(scheduledMonitors);
 export const selectScheduledMonitorSchema = createSelectSchema(scheduledMonitors);
-export type InsertScheduledMonitor = z.infer<typeof insertScheduledMonitorSchema>;
+export type InsertScheduledMonitor = typeof scheduledMonitors.$inferInsert;
 export type SelectScheduledMonitor = typeof scheduledMonitors.$inferSelect;
 
 // Users table for authentication and subscription management
@@ -512,7 +512,7 @@ export type UpdateProfileRequest = z.infer<typeof updateProfileRequestSchema>;
 // User Drizzle insert/select schemas
 export const insertUserSchema = createInsertSchema(users);
 export const selectUserSchema = createSelectSchema(users);
-export type InsertUser = z.infer<typeof insertUserSchema>;
+export type InsertUser = typeof users.$inferInsert;
 export type SelectUser = typeof users.$inferSelect;
 
 // User Sessions table for secure multi-tenant authentication
@@ -591,7 +591,7 @@ export type CreateIntegrationRequest = z.infer<typeof createIntegrationRequestSc
 // Integration Drizzle insert/select schemas
 export const insertIntegrationSchema = createInsertSchema(integrations);
 export const selectIntegrationSchema = createSelectSchema(integrations);
-export type InsertIntegration = z.infer<typeof insertIntegrationSchema>;
+export type InsertIntegration = typeof integrations.$inferInsert;
 export type SelectIntegration = typeof integrations.$inferSelect;
 
 // Batch Jobs table for Google Places + Hunter.io + SalesHandy pipeline
@@ -694,7 +694,7 @@ export type BatchJobResponse = z.infer<typeof batchJobResponseSchema>;
 // Batch Job Drizzle insert/select schemas
 export const insertBatchJobSchema = createInsertSchema(batchJobs);
 export const selectBatchJobSchema = createSelectSchema(batchJobs);
-export type InsertBatchJob = z.infer<typeof insertBatchJobSchema>;
+export type InsertBatchJob = typeof batchJobs.$inferInsert;
 export type SelectBatchJob = typeof batchJobs.$inferSelect;
 
 // ============= LEADGEN PLANS TABLE =============
@@ -719,7 +719,7 @@ export const leadGenPlans = pgTable("lead_gen_plans", {
 
 export const insertLeadGenPlanSchema = createInsertSchema(leadGenPlans);
 export const selectLeadGenPlanSchema = createSelectSchema(leadGenPlans);
-export type InsertLeadGenPlan = z.infer<typeof insertLeadGenPlanSchema>;
+export type InsertLeadGenPlan = typeof leadGenPlans.$inferInsert;
 export type SelectLeadGenPlan = typeof leadGenPlans.$inferSelect;
 
 // ============= CRM TABLES =============
@@ -737,7 +737,7 @@ export const crmSettings = pgTable("crm_settings", {
 
 export const insertCrmSettingsSchema = createInsertSchema(crmSettings);
 export const selectCrmSettingsSchema = createSelectSchema(crmSettings);
-export type InsertCrmSettings = z.infer<typeof insertCrmSettingsSchema>;
+export type InsertCrmSettings = typeof crmSettings.$inferInsert;
 export type SelectCrmSettings = typeof crmSettings.$inferSelect;
 
 // CRM Customers (shared across all verticals)
@@ -763,7 +763,7 @@ export const crmCustomers = pgTable("crm_customers", {
 
 export const insertCrmCustomerSchema = createInsertSchema(crmCustomers);
 export const selectCrmCustomerSchema = createSelectSchema(crmCustomers);
-export type InsertCrmCustomer = z.infer<typeof insertCrmCustomerSchema>;
+export type InsertCrmCustomer = typeof crmCustomers.$inferInsert;
 export type SelectCrmCustomer = typeof crmCustomers.$inferSelect;
 
 // CRM Delivery Runs
@@ -786,7 +786,7 @@ export const crmDeliveryRuns = pgTable("crm_delivery_runs", {
 
 export const insertCrmDeliveryRunSchema = createInsertSchema(crmDeliveryRuns);
 export const selectCrmDeliveryRunSchema = createSelectSchema(crmDeliveryRuns);
-export type InsertCrmDeliveryRun = z.infer<typeof insertCrmDeliveryRunSchema>;
+export type InsertCrmDeliveryRun = typeof crmDeliveryRuns.$inferInsert;
 export type SelectCrmDeliveryRun = typeof crmDeliveryRuns.$inferSelect;
 
 // CRM Orders
@@ -814,7 +814,7 @@ export const crmOrders = pgTable("crm_orders", {
 
 export const insertCrmOrderSchema = createInsertSchema(crmOrders);
 export const selectCrmOrderSchema = createSelectSchema(crmOrders);
-export type InsertCrmOrder = z.infer<typeof insertCrmOrderSchema>;
+export type InsertCrmOrder = typeof crmOrders.$inferInsert;
 export type SelectCrmOrder = typeof crmOrders.$inferSelect;
 
 // CRM Order Lines
@@ -837,7 +837,7 @@ export const crmOrderLines = pgTable("crm_order_lines", {
 
 export const insertCrmOrderLineSchema = createInsertSchema(crmOrderLines);
 export const selectCrmOrderLineSchema = createSelectSchema(crmOrderLines);
-export type InsertCrmOrderLine = z.infer<typeof insertCrmOrderLineSchema>;
+export type InsertCrmOrderLine = typeof crmOrderLines.$inferInsert;
 export type SelectCrmOrderLine = typeof crmOrderLines.$inferSelect;
 
 // ============= BREWERY VERTICAL TABLES =============
@@ -863,7 +863,7 @@ export const brewProducts = pgTable("brew_products", {
 
 export const insertBrewProductSchema = createInsertSchema(brewProducts);
 export const selectBrewProductSchema = createSelectSchema(brewProducts);
-export type InsertBrewProduct = z.infer<typeof insertBrewProductSchema>;
+export type InsertBrewProduct = typeof brewProducts.$inferInsert;
 export type SelectBrewProduct = typeof brewProducts.$inferSelect;
 
 // Brewery Batches
@@ -888,7 +888,7 @@ export const brewBatches = pgTable("brew_batches", {
 
 export const insertBrewBatchSchema = createInsertSchema(brewBatches);
 export const selectBrewBatchSchema = createSelectSchema(brewBatches);
-export type InsertBrewBatch = z.infer<typeof insertBrewBatchSchema>;
+export type InsertBrewBatch = typeof brewBatches.$inferInsert;
 export type SelectBrewBatch = typeof brewBatches.$inferSelect;
 
 // Brewery Inventory Items
@@ -912,7 +912,7 @@ export const brewInventoryItems = pgTable("brew_inventory_items", {
 
 export const insertBrewInventoryItemSchema = createInsertSchema(brewInventoryItems);
 export const selectBrewInventoryItemSchema = createSelectSchema(brewInventoryItems);
-export type InsertBrewInventoryItem = z.infer<typeof insertBrewInventoryItemSchema>;
+export type InsertBrewInventoryItem = typeof brewInventoryItems.$inferInsert;
 export type SelectBrewInventoryItem = typeof brewInventoryItems.$inferSelect;
 
 // Brewery Containers (casks/kegs tracking)
@@ -938,7 +938,7 @@ export const brewContainers = pgTable("brew_containers", {
 
 export const insertBrewContainerSchema = createInsertSchema(brewContainers);
 export const selectBrewContainerSchema = createSelectSchema(brewContainers);
-export type InsertBrewContainer = z.infer<typeof insertBrewContainerSchema>;
+export type InsertBrewContainer = typeof brewContainers.$inferInsert;
 export type SelectBrewContainer = typeof brewContainers.$inferSelect;
 
 // Brewery Duty Reports
@@ -959,7 +959,7 @@ export const brewDutyReports = pgTable("brew_duty_reports", {
 
 export const insertBrewDutyReportSchema = createInsertSchema(brewDutyReports);
 export const selectBrewDutyReportSchema = createSelectSchema(brewDutyReports);
-export type InsertBrewDutyReport = z.infer<typeof insertBrewDutyReportSchema>;
+export type InsertBrewDutyReport = typeof brewDutyReports.$inferInsert;
 export type SelectBrewDutyReport = typeof brewDutyReports.$inferSelect;
 
 // Brewery Settings
@@ -976,5 +976,5 @@ export const brewSettings = pgTable("brew_settings", {
 
 export const insertBrewSettingsSchema = createInsertSchema(brewSettings);
 export const selectBrewSettingsSchema = createSelectSchema(brewSettings);
-export type InsertBrewSettings = z.infer<typeof insertBrewSettingsSchema>;
+export type InsertBrewSettings = typeof brewSettings.$inferInsert;
 export type SelectBrewSettings = typeof brewSettings.$inferSelect;
