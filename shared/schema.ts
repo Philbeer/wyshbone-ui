@@ -800,7 +800,10 @@ export const crmOrders = pgTable("crm_orders", {
   deliveryDate: bigint("delivery_date", { mode: "number" }),
   deliveryRunId: text("delivery_run_id"),
   currency: text("currency").notNull().default("GBP"),
-  totalAmount: integer("total_amount"), // In pence/cents
+  subtotalExVat: integer("subtotal_ex_vat").default(0), // In pence/cents - calculated from line items
+  vatTotal: integer("vat_total").default(0), // In pence/cents - calculated from line items
+  totalIncVat: integer("total_inc_vat").default(0), // In pence/cents - calculated from line items
+  totalAmount: integer("total_amount"), // DEPRECATED: kept for backwards compatibility, use totalIncVat
   notes: text("notes"),
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
   updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
@@ -821,17 +824,26 @@ export type SelectCrmOrder = typeof crmOrders.$inferSelect;
 export const crmOrderLines = pgTable("crm_order_lines", {
   id: text("id").primaryKey(),
   orderId: text("order_id").notNull(),
-  genericItemName: text("generic_item_name").notNull(),
+  productId: text("product_id"), // FK to brew_products or other vertical product tables
+  quantity: integer("quantity").notNull().default(1),
+  unitPriceExVat: integer("unit_price_ex_vat").notNull(), // In pence/cents
+  vatRate: integer("vat_rate").notNull().default(0), // Stored as basis points (e.g., 2000 = 20%, 500 = 5%)
+  lineSubtotalExVat: integer("line_subtotal_ex_vat").notNull(), // quantity * unitPriceExVat (pence/cents)
+  lineVatAmount: integer("line_vat_amount").notNull(), // lineSubtotalExVat * vatRate (pence/cents)
+  lineTotalIncVat: integer("line_total_inc_vat").notNull(), // lineSubtotalExVat + lineVatAmount (pence/cents)
+  // Legacy fields - kept for backwards compatibility
+  genericItemName: text("generic_item_name"),
   genericItemCode: text("generic_item_code"),
-  quantityUnits: integer("quantity_units").notNull(),
-  unitPrice: integer("unit_price").notNull(), // In pence/cents
-  lineTotal: integer("line_total").notNull(), // In pence/cents
-  verticalType: text("vertical_type"), // 'brewery', 'animal_physio', etc.
-  verticalRefId: text("vertical_ref_id"), // FK to vertical-specific product table
+  quantityUnits: integer("quantity_units"),
+  unitPrice: integer("unit_price"),
+  lineTotal: integer("line_total"),
+  verticalType: text("vertical_type"),
+  verticalRefId: text("vertical_ref_id"),
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
   updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
 }, (table) => ({
   orderIdIdx: index("crm_order_lines_order_id_idx").on(table.orderId),
+  productIdIdx: index("crm_order_lines_product_id_idx").on(table.productId),
   verticalRefIdIdx: index("crm_order_lines_vertical_ref_id_idx").on(table.verticalRefId),
 }));
 
@@ -852,6 +864,8 @@ export const brewProducts = pgTable("brew_products", {
   defaultPackageType: text("default_package_type").notNull(), // 'cask', 'keg', 'can', 'bottle'
   defaultPackageSizeLitres: integer("default_package_size_litres").notNull(), // In millilitres (e.g., 40900 = 40.9L)
   dutyBand: text("duty_band").notNull(), // 'beer_standard', 'beer_small_producer', etc.
+  defaultUnitPriceExVat: integer("default_unit_price_ex_vat").default(0), // In pence/cents - used for order line defaults
+  defaultVatRate: integer("default_vat_rate").default(2000), // Stored as basis points (e.g., 2000 = 20%, 500 = 5%)
   isActive: integer("is_active").notNull().default(1), // 1 = true, 0 = false
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
   updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
