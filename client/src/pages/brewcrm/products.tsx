@@ -341,7 +341,7 @@ export default function BrewCrmProducts() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Status *</FormLabel>
-                    <Select onValueChange={(v) => field.onChange(parseInt(v))} value={field.value.toString()}>
+                    <Select onValueChange={(v) => field.onChange(parseInt(v))} value={field.value?.toString() ?? "1"}>
                       <FormControl>
                         <SelectTrigger data-testid="select-is-active">
                           <SelectValue />

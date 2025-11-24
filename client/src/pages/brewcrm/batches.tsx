@@ -237,18 +237,28 @@ export default function BrewCrmBatches() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Product *</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value}>
+                      <Select 
+                        onValueChange={field.onChange} 
+                        value={field.value || undefined}
+                        disabled={!products || products.length === 0}
+                      >
                         <FormControl>
                           <SelectTrigger data-testid="select-product">
-                            <SelectValue placeholder="Select product" />
+                            <SelectValue placeholder={products?.length === 0 ? "No products available - create one first" : "Select product"} />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {products?.map((product: any) => (
-                            <SelectItem key={product.id} value={product.id}>
-                              {product.name}
+                          {products?.length === 0 ? (
+                            <SelectItem value="no-products" disabled>
+                              No products found - create a product first
                             </SelectItem>
-                          ))}
+                          ) : (
+                            products?.map((product: any) => (
+                              <SelectItem key={product.id} value={product.id}>
+                                {product.name}
+                              </SelectItem>
+                            ))
+                          )}
                         </SelectContent>
                       </Select>
                       <FormMessage />
