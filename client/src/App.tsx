@@ -15,6 +15,7 @@ import BatchHistoryPage from "@/pages/batch-history";
 import AuthPage from "@/pages/auth";
 import PricingPage from "@/pages/pricing";
 import AccountPage from "@/pages/account";
+import CrmLayout from "@/pages/crm";
 import NotFound from "@/pages/not-found";
 import CountryHint from "@/components/CountryHint";
 import { LoginDialog } from "@/components/LoginDialog";
@@ -66,6 +67,7 @@ function Router({
       <Route path="/debug" component={DebugPage} />
       <Route path="/batch-history" component={BatchHistoryPage} />
       <Route path="/batch/:id" component={BatchPipeline} />
+      <Route path="/crm/:rest*" component={CrmLayout} />
       <Route component={NotFound} />
     </Switch>
   );
