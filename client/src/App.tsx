@@ -22,6 +22,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { UserProvider, useUser } from "@/contexts/UserContext";
 import { SidebarFlashProvider } from "@/contexts/SidebarFlashContext";
 import { PlanProvider } from "@/contexts/PlanContext";
+import { PlanExecutionProvider } from "@/contexts/PlanExecutionController";
 import { MyGoalsPanel } from "@/components/my-goals-panel";
 import { PlanApprovalPanel } from "@/components/plan-approval-panel";
 import { ProgressWidget } from "@/components/progress-widget";
@@ -377,9 +378,10 @@ function AppContent() {
   return (
     <QueryClientProvider client={queryClient}>
       <PlanProvider>
-        <TooltipProvider>
-          <SidebarProvider style={style as React.CSSProperties}>
-            <AppLayout
+        <PlanExecutionProvider>
+          <TooltipProvider>
+            <SidebarProvider style={style as React.CSSProperties}>
+              <AppLayout
               defaultCountry={defaultCountry}
               setDefaultCountry={setDefaultCountry}
               runs={runs}
@@ -398,10 +400,11 @@ function AppContent() {
               handleNewChat={handleNewChat}
               handleLoadConversation={handleLoadConversation}
             />
-            <CountryHint />
-          </SidebarProvider>
-          <Toaster />
-        </TooltipProvider>
+              <CountryHint />
+            </SidebarProvider>
+            <Toaster />
+          </TooltipProvider>
+        </PlanExecutionProvider>
       </PlanProvider>
     </QueryClientProvider>
   );

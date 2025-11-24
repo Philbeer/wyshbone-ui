@@ -3,20 +3,23 @@ import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePlanProgress } from "@/hooks/use-plan-progress";
-import { usePlanForApproval } from "@/hooks/use-plan-for-approval";
+import { usePlan } from "@/contexts/PlanContext";
+import { usePlanExecution } from "@/contexts/PlanExecutionController";
 import { AlertCircle, CheckCircle2, Clock, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatDistanceToNow } from "date-fns";
 
 export function ProgressWidget() {
-  // Get planId and status from the plan approval hook
-  const { planId, status, plan } = usePlanForApproval();
+  // Get plan data from context
+  const { planId, status, plan } = usePlan();
   
-  // Only poll progress when we have a planId and status is executing
-  const isActive = status === 'executing';
-  const progress = usePlanProgress(planId, isActive);
+  // Get polling state from execution controller
+  const { shouldPoll } = usePlanExecution();
+  
+  // Poll progress based on execution controller state
+  const progress = usePlanProgress(planId, shouldPoll);
 
-  console.log(`[PLAN_PROGRESS_DEBUG] render - planId=${planId}, status=${status}, isActive=${isActive}, progress={completedSteps:${progress.completedSteps}, totalSteps:${progress.totalSteps}, currentStep:${progress.currentStep?.label || 'none'}}`);
+  console.log(`[PLAN_PROGRESS_DEBUG] render - planId=${planId}, status=${status}, shouldPoll=${shouldPoll}, progress={completedSteps:${progress.completedSteps}, totalSteps:${progress.totalSteps}, currentStep:${progress.currentStep?.label || 'none'}}`);
 
   // Loading state
   if (progress.loading) {
@@ -36,7 +39,7 @@ export function ProgressWidget() {
   }
 
   // Error state
-  if (progress.error && isActive) {
+  if (progress.error && shouldPoll) {
     return (
       <Card className="w-full border-destructive" data-testid="card-progress-error">
         <CardHeader className="space-y-0 pb-4">
@@ -61,8 +64,9 @@ export function ProgressWidget() {
     );
   }
 
-  // No active plan state
-  const hasActivePlan = progress.totalSteps > 0 && isActive;
+  // Show progress when actively polling OR when showing terminal status
+  const isTerminalStatus = status === 'completed' || status === 'failed';
+  const hasActivePlan = progress.totalSteps > 0 && (shouldPoll || isTerminalStatus);
   const goalText = progress.goal || plan?.goal;
 
   return (

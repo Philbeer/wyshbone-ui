@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useUser } from "@/contexts/UserContext";
 import { addDevAuthParams } from "@/lib/queryClient";
+import { useRef, useEffect } from "react";
 
 export interface PlanProgress {
   loading: boolean;
@@ -33,6 +34,10 @@ interface PlanStatusResponse {
 
 export function usePlanProgress(planId: string | null, isActive: boolean): PlanProgress {
   const { user } = useUser();
+  
+  // Retain last successful data snapshot even when polling stops
+  const lastDataRef = useRef<PlanStatusResponse | null>(null);
+  const lastPlanIdRef = useRef<string | null>(null);
 
   console.log(`[PLAN_PROGRESS_DEBUG] hook called - planId=${planId}, isActive=${isActive}, enabled=${!!user && !!planId && isActive}`);
 
@@ -53,33 +58,53 @@ export function usePlanProgress(planId: string | null, isActive: boolean): PlanP
         throw new Error(`Failed to fetch plan status: ${response.statusText}`);
       }
       
-      const data = await response.json();
-      console.log(`[PLAN_PROGRESS_DEBUG] received response - status=${data.status}, completedSteps=${data.completedSteps}, totalSteps=${data.totalSteps}, currentStep=${data.currentStep?.label || 'none'}`);
-      return data;
+      const responseData = await response.json();
+      console.log(`[PLAN_PROGRESS_DEBUG] received response - status=${responseData.status}, completedSteps=${responseData.completedSteps}, totalSteps=${responseData.totalSteps}, currentStep=${responseData.currentStep?.label || 'none'}`);
+      return responseData;
     },
     enabled: !!user && !!planId && isActive,
     refetchInterval: isActive ? 5000 : false, // Poll every 5 seconds only when active
     staleTime: 3000,
   });
 
+  // Update snapshot when we get new data
+  useEffect(() => {
+    if (data) {
+      lastDataRef.current = data;
+      console.log(`[PLAN_PROGRESS_DEBUG] updated snapshot - totalSteps=${data.totalSteps}, completedSteps=${data.completedSteps}`);
+    }
+  }, [data]);
+
+  // Clear snapshot when planId changes (null or different ID)
+  useEffect(() => {
+    if (planId !== lastPlanIdRef.current) {
+      console.log(`[PLAN_PROGRESS_DEBUG] clearing snapshot - planId changed from ${lastPlanIdRef.current} to ${planId}`);
+      lastDataRef.current = null;
+      lastPlanIdRef.current = planId;
+    }
+  }, [planId]);
+
   if (isActive && planId) {
     console.log(`[PLAN_PROGRESS_DEBUG] polling status - isLoading=${isLoading}, hasData=${!!data}, error=${error ? String(error) : 'none'}`);
   }
 
+  // Use current data if available, otherwise use last snapshot
+  const currentData = data || lastDataRef.current;
+
   // Calculate percent complete
-  const percentComplete = data?.totalSteps
-    ? Math.round((data.completedSteps / data.totalSteps) * 100)
+  const percentComplete = currentData?.totalSteps
+    ? Math.round((currentData.completedSteps / currentData.totalSteps) * 100)
     : 0;
 
   return {
     loading: isLoading,
     error: error ? String(error) : undefined,
-    goal: data?.goal || null,
-    planId: data?.planId || null,
-    totalSteps: data?.totalSteps || 0,
-    completedSteps: data?.completedSteps || 0,
-    currentStep: data?.currentStep || null,
-    lastUpdatedAt: data?.lastUpdatedAt,
+    goal: currentData?.goal || null,
+    planId: currentData?.planId || null,
+    totalSteps: currentData?.totalSteps || 0,
+    completedSteps: currentData?.completedSteps || 0,
+    currentStep: currentData?.currentStep || null,
+    lastUpdatedAt: currentData?.lastUpdatedAt,
     percentComplete,
   };
 }
