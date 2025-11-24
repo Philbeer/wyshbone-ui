@@ -4,7 +4,7 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useUser } from "@/contexts/UserContext";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
@@ -15,11 +15,21 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertCrmOrderSchema } from "@shared/schema";
 import { z } from "zod";
-import { Plus, Pencil, Trash2 } from "lucide-react";
+import { Plus, Pencil, Trash2, Save } from "lucide-react";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
-const formSchema = insertCrmOrderSchema.omit({ id: true, workspaceId: true, createdAt: true, updatedAt: true });
+const formSchema = insertCrmOrderSchema.omit({ 
+  id: true, 
+  workspaceId: true, 
+  createdAt: true, 
+  updatedAt: true,
+  subtotalExVat: true,
+  vatTotal: true,
+  totalIncVat: true,
+  totalAmount: true,
+});
 
 export default function CrmOrders() {
   const { user } = useUser();
@@ -44,6 +54,11 @@ export default function CrmOrders() {
     enabled: !!workspaceId,
   });
 
+  const { data: products } = useQuery({
+    queryKey: ['/api/brewcrm/products', workspaceId],
+    enabled: !!workspaceId,
+  });
+
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
@@ -54,7 +69,6 @@ export default function CrmOrders() {
       deliveryDate: undefined,
       deliveryRunId: undefined,
       currency: "GBP",
-      totalAmount: 0,
       notes: "",
     },
   });
@@ -108,7 +122,6 @@ export default function CrmOrders() {
       deliveryDate: order.deliveryDate || undefined,
       deliveryRunId: order.deliveryRunId || undefined,
       currency: order.currency || "GBP",
-      totalAmount: order.totalAmount / 100 || 0,
       notes: order.notes || "",
     });
     setIsDialogOpen(true);
@@ -121,15 +134,10 @@ export default function CrmOrders() {
   };
 
   const onSubmit = (formValues: z.infer<typeof formSchema>) => {
-    const payload = {
-      ...formValues,
-      totalAmount: Math.round(formValues.totalAmount * 100),
-    };
-    
     if (editingOrder) {
-      updateMutation.mutate({ id: editingOrder.id, ...payload });
+      updateMutation.mutate({ id: editingOrder.id, ...formValues });
     } else {
-      createMutation.mutate(payload);
+      createMutation.mutate(formValues);
     }
   };
 
@@ -154,7 +162,7 @@ export default function CrmOrders() {
       <div className="flex justify-between items-center mb-6">
         <div>
           <h2 className="text-2xl font-semibold" data-testid="text-orders-title">Orders</h2>
-          <p className="text-sm text-muted-foreground">Manage customer orders</p>
+          <p className="text-sm text-muted-foreground">Manage customer orders with VAT calculations</p>
         </div>
         <Button onClick={handleAddNew} data-testid="button-add-order">
           <Plus className="w-4 h-4 mr-2" />
@@ -177,14 +185,16 @@ export default function CrmOrders() {
                 <TableHead>Customer</TableHead>
                 <TableHead>Order Date</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead>Total</TableHead>
+                <TableHead className="text-right">Subtotal (ex VAT)</TableHead>
+                <TableHead className="text-right">VAT</TableHead>
+                <TableHead className="text-right">Total (inc VAT)</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {orders?.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center text-muted-foreground">
+                  <TableCell colSpan={8} className="text-center text-muted-foreground">
                     No orders found. Create your first order to get started.
                   </TableCell>
                 </TableRow>
@@ -199,7 +209,15 @@ export default function CrmOrders() {
                         {order.status}
                       </Badge>
                     </TableCell>
-                    <TableCell>£{((order.totalAmount || 0) / 100).toFixed(2)}</TableCell>
+                    <TableCell className="text-right">
+                      £{((order.subtotalExVat || 0) / 100).toFixed(2)}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      £{((order.vatTotal || 0) / 100).toFixed(2)}
+                    </TableCell>
+                    <TableCell className="text-right font-medium">
+                      £{((order.totalIncVat || 0) / 100).toFixed(2)}
+                    </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-2">
                         <Button
@@ -229,208 +247,203 @@ export default function CrmOrders() {
       )}
 
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle data-testid="text-dialog-title">
-              {editingOrder ? "Edit Order" : "Add Order"}
+              {editingOrder ? `Edit Order: ${editingOrder.orderNumber}` : "Create New Order"}
             </DialogTitle>
           </DialogHeader>
           <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <FormField
-                  control={form.control}
-                  name="orderNumber"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Order Number *</FormLabel>
-                      <FormControl>
-                        <Input {...field} data-testid="input-order-number" />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg">Order Information</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-3 gap-4">
+                    <FormField
+                      control={form.control}
+                      name="orderNumber"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Order Number *</FormLabel>
+                          <FormControl>
+                            <Input {...field} data-testid="input-order-number" />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
 
-                <FormField
-                  control={form.control}
-                  name="customerId"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Customer *</FormLabel>
-                      <Select 
-                        onValueChange={field.onChange} 
-                        value={field.value || undefined}
-                        disabled={!customers || customers.length === 0}
-                      >
+                    <FormField
+                      control={form.control}
+                      name="customerId"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Customer *</FormLabel>
+                          <Select 
+                            onValueChange={field.onChange} 
+                            value={field.value || undefined}
+                            disabled={!customers || customers.length === 0}
+                          >
+                            <FormControl>
+                              <SelectTrigger data-testid="select-customer">
+                                <SelectValue placeholder={customers?.length === 0 ? "No customers available" : "Select customer"} />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              {customers?.map((customer: any) => (
+                                <SelectItem key={customer.id} value={customer.id}>
+                                  {customer.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name="status"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Status *</FormLabel>
+                          <Select onValueChange={field.onChange} value={field.value}>
+                            <FormControl>
+                              <SelectTrigger data-testid="select-status">
+                                <SelectValue />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value="draft">Draft</SelectItem>
+                              <SelectItem value="confirmed">Confirmed</SelectItem>
+                              <SelectItem value="dispatched">Dispatched</SelectItem>
+                              <SelectItem value="delivered">Delivered</SelectItem>
+                              <SelectItem value="cancelled">Cancelled</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4 mt-4">
+                    <FormField
+                      control={form.control}
+                      name="deliveryRunId"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Delivery Run (Optional)</FormLabel>
+                          <Select 
+                            onValueChange={(value) => field.onChange(value === "none" ? undefined : value)}
+                            value={field.value || "none"}
+                            disabled={!deliveryRuns || deliveryRuns.length === 0}
+                          >
+                            <FormControl>
+                              <SelectTrigger data-testid="select-delivery-run">
+                                <SelectValue placeholder={deliveryRuns?.length === 0 ? "No delivery runs available" : "Select delivery run"} />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value="none">No delivery run</SelectItem>
+                              {deliveryRuns?.map((run: any) => (
+                                <SelectItem key={run.id} value={run.id}>
+                                  {run.runName} - {new Date(run.plannedDate).toLocaleDateString()}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name="currency"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Currency *</FormLabel>
+                          <Select onValueChange={field.onChange} value={field.value}>
+                            <FormControl>
+                              <SelectTrigger data-testid="select-currency">
+                                <SelectValue />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value="GBP">GBP (£)</SelectItem>
+                              <SelectItem value="USD">USD ($)</SelectItem>
+                              <SelectItem value="EUR">EUR (€)</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+
+                  <FormField
+                    control={form.control}
+                    name="notes"
+                    render={({ field }) => (
+                      <FormItem className="mt-4">
+                        <FormLabel>Notes (Optional)</FormLabel>
                         <FormControl>
-                          <SelectTrigger data-testid="select-customer">
-                            <SelectValue placeholder={customers?.length === 0 ? "No customers available - create one first" : "Select customer"} />
-                          </SelectTrigger>
+                          <Textarea 
+                            {...field} 
+                            value={field.value || ""}
+                            placeholder="Add any notes about this order..."
+                            data-testid="input-notes" 
+                            className="resize-none"
+                            rows={3}
+                          />
                         </FormControl>
-                        <SelectContent>
-                          {customers?.length === 0 ? (
-                            <SelectItem value="no-customers" disabled>
-                              No customers found - create a customer first
-                            </SelectItem>
-                          ) : (
-                            customers?.map((customer: any) => (
-                              <SelectItem key={customer.id} value={customer.id}>
-                                {customer.name}
-                              </SelectItem>
-                            ))
-                          )}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </CardContent>
+              </Card>
 
-              <div className="grid grid-cols-2 gap-4">
-                <FormField
-                  control={form.control}
-                  name="status"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Status *</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value}>
-                        <FormControl>
-                          <SelectTrigger data-testid="select-status">
-                            <SelectValue />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectItem value="draft">Draft</SelectItem>
-                          <SelectItem value="confirmed">Confirmed</SelectItem>
-                          <SelectItem value="dispatched">Dispatched</SelectItem>
-                          <SelectItem value="delivered">Delivered</SelectItem>
-                          <SelectItem value="cancelled">Cancelled</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+              {editingOrder && <OrderLineItemsEditor orderId={editingOrder.id} products={products} />}
 
-                <FormField
-                  control={form.control}
-                  name="currency"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Currency *</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value}>
-                        <FormControl>
-                          <SelectTrigger data-testid="select-currency">
-                            <SelectValue />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectItem value="GBP">GBP</SelectItem>
-                          <SelectItem value="USD">USD</SelectItem>
-                          <SelectItem value="EUR">EUR</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-
-              <FormField
-                control={form.control}
-                name="totalAmount"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Total Amount (£) *</FormLabel>
-                    <FormControl>
-                      <Input
-                        {...field}
-                        type="number"
-                        step="0.01"
-                        onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
-                        data-testid="input-total-amount"
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="deliveryRunId"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Delivery Run (Optional)</FormLabel>
-                    <Select 
-                      onValueChange={(value) => field.onChange(value === "none" ? undefined : value)} 
-                      value={field.value || "none"}
-                    >
-                      <FormControl>
-                        <SelectTrigger data-testid="select-delivery-run">
-                          <SelectValue placeholder="Select delivery run" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectItem value="none">None</SelectItem>
-                        {!deliveryRuns || deliveryRuns.length === 0 ? (
-                          <SelectItem value="no-runs" disabled>
-                            No delivery runs available
-                          </SelectItem>
-                        ) : (
-                          deliveryRuns.map((run: any) => (
-                            <SelectItem key={run.id} value={run.id}>
-                              {run.name}
-                            </SelectItem>
-                          ))
-                        )}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="notes"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Notes</FormLabel>
-                    <FormControl>
-                      <Textarea {...field} value={field.value || ""} rows={3} data-testid="input-notes" />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)} data-testid="button-cancel">
+              <div className="flex justify-end gap-2">
+                <Button 
+                  type="button" 
+                  variant="outline" 
+                  onClick={() => setIsDialogOpen(false)}
+                  data-testid="button-cancel"
+                >
                   Cancel
                 </Button>
-                <Button type="submit" disabled={createMutation.isPending || updateMutation.isPending} data-testid="button-submit">
-                  {createMutation.isPending || updateMutation.isPending ? "Saving..." : editingOrder ? "Update" : "Create"}
+                <Button 
+                  type="submit" 
+                  disabled={createMutation.isPending || updateMutation.isPending}
+                  data-testid="button-save-order"
+                >
+                  <Save className="w-4 h-4 mr-2" />
+                  {editingOrder ? "Update Order" : "Create Order"}
                 </Button>
-              </DialogFooter>
+              </div>
             </form>
           </Form>
         </DialogContent>
       </Dialog>
 
-      <AlertDialog open={!!deletingOrderId} onOpenChange={() => setDeletingOrderId(null)}>
+      <AlertDialog open={!!deletingOrderId} onOpenChange={(open) => !open && setDeletingOrderId(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogTitle>Delete Order</AlertDialogTitle>
             <AlertDialogDescription>
-              This action cannot be undone. This will permanently delete the order.
+              Are you sure you want to delete this order? This action cannot be undone and will also delete all associated line items.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel data-testid="button-cancel-delete">Cancel</AlertDialogCancel>
-            <AlertDialogAction
+            <AlertDialogAction 
               onClick={() => deletingOrderId && deleteMutation.mutate(deletingOrderId)}
               data-testid="button-confirm-delete"
             >
@@ -440,5 +453,263 @@ export default function CrmOrders() {
         </AlertDialogContent>
       </AlertDialog>
     </div>
+  );
+}
+
+function OrderLineItemsEditor({ orderId, products }: { orderId: string; products: any[] }) {
+  const { toast } = useToast();
+  const [editingLineId, setEditingLineId] = useState<string | null>(null);
+  const [newLineData, setNewLineData] = useState({
+    productId: "",
+    quantity: 1,
+    unitPriceExVat: 0,
+    vatRate: 2000,
+  });
+
+  const { data: lineItems, isLoading } = useQuery({
+    queryKey: ['/api/crm/order-lines', orderId],
+    enabled: !!orderId,
+  });
+
+  const { data: order } = useQuery({
+    queryKey: ['/api/crm/orders/detail', orderId],
+    queryFn: () => fetch(`/api/crm/orders/detail/${orderId}`, {
+      headers: { 'x-session-id': localStorage.getItem('sessionId') || '' },
+    }).then(res => res.json()),
+    enabled: !!orderId,
+  });
+
+  const createLineMutation = useMutation({
+    mutationFn: (data: any) => apiRequest('POST', '/api/crm/order-lines', data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/crm/order-lines', orderId] });
+      queryClient.invalidateQueries({ queryKey: ['/api/crm/orders/detail', orderId] });
+      queryClient.invalidateQueries({ queryKey: ['/api/crm/orders'] });
+      toast({ title: "Line item added successfully" });
+      setNewLineData({ productId: "", quantity: 1, unitPriceExVat: 0, vatRate: 2000 });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to add line item", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const updateLineMutation = useMutation({
+    mutationFn: ({ id, ...data }: any) => apiRequest('PATCH', `/api/crm/order-lines/${id}`, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/crm/order-lines', orderId] });
+      queryClient.invalidateQueries({ queryKey: ['/api/crm/orders/detail', orderId] });
+      queryClient.invalidateQueries({ queryKey: ['/api/crm/orders'] });
+      toast({ title: "Line item updated successfully" });
+      setEditingLineId(null);
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to update line item", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const deleteLineMutation = useMutation({
+    mutationFn: (id: string) => apiRequest('DELETE', `/api/crm/order-lines/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/crm/order-lines', orderId] });
+      queryClient.invalidateQueries({ queryKey: ['/api/crm/orders/detail', orderId] });
+      queryClient.invalidateQueries({ queryKey: ['/api/crm/orders'] });
+      toast({ title: "Line item deleted successfully" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to delete line item", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const handleAddLine = () => {
+    if (!newLineData.productId) {
+      toast({ title: "Please select a product", variant: "destructive" });
+      return;
+    }
+    
+    createLineMutation.mutate({
+      orderId,
+      productId: newLineData.productId,
+      quantity: newLineData.quantity,
+      unitPriceExVat: Math.round(newLineData.unitPriceExVat * 100),
+      vatRate: newLineData.vatRate,
+    });
+  };
+
+  const handleProductChange = (productId: string) => {
+    const product = products?.find((p: any) => p.id === productId);
+    if (product) {
+      setNewLineData({
+        productId,
+        quantity: 1,
+        unitPriceExVat: (product.defaultUnitPriceExVat || 0) / 100,
+        vatRate: product.defaultVatRate || 2000,
+      });
+    }
+  };
+
+  const getProductName = (productId: string) => {
+    const product = products?.find((p: any) => p.id === productId);
+    return product?.productName || "Unknown Product";
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-lg">Line Items</CardTitle>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <Skeleton className="h-32 w-full" />
+        ) : (
+          <>
+            <div className="border rounded-md mb-4">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Product</TableHead>
+                    <TableHead className="text-right">Qty</TableHead>
+                    <TableHead className="text-right">Unit Price (ex VAT)</TableHead>
+                    <TableHead className="text-right">VAT Rate</TableHead>
+                    <TableHead className="text-right">Subtotal (ex VAT)</TableHead>
+                    <TableHead className="text-right">VAT</TableHead>
+                    <TableHead className="text-right">Total (inc VAT)</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {lineItems?.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={8} className="text-center text-muted-foreground">
+                        No line items yet. Add products below.
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    lineItems?.map((line: any) => (
+                      <TableRow key={line.id} data-testid={`row-line-${line.id}`}>
+                        <TableCell>{getProductName(line.productId)}</TableCell>
+                        <TableCell className="text-right">{line.quantity}</TableCell>
+                        <TableCell className="text-right">£{((line.unitPriceExVat || 0) / 100).toFixed(2)}</TableCell>
+                        <TableCell className="text-right">{((line.vatRate || 0) / 100).toFixed(1)}%</TableCell>
+                        <TableCell className="text-right">£{((line.lineSubtotalExVat || 0) / 100).toFixed(2)}</TableCell>
+                        <TableCell className="text-right">£{((line.lineVatAmount || 0) / 100).toFixed(2)}</TableCell>
+                        <TableCell className="text-right font-medium">£{((line.lineTotalIncVat || 0) / 100).toFixed(2)}</TableCell>
+                        <TableCell className="text-right">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => deleteLineMutation.mutate(line.id)}
+                            data-testid={`button-delete-line-${line.id}`}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+
+            <div className="border rounded-md p-4 space-y-4 bg-muted/30">
+              <h4 className="font-medium">Add Line Item</h4>
+              <div className="grid grid-cols-4 gap-4">
+                <div>
+                  <label className="text-sm font-medium">Product *</label>
+                  <Select 
+                    value={newLineData.productId} 
+                    onValueChange={handleProductChange}
+                    disabled={!products || products.length === 0}
+                  >
+                    <SelectTrigger data-testid="select-new-product">
+                      <SelectValue placeholder={products?.length === 0 ? "No products available" : "Select product"} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {products?.map((product: any) => (
+                        <SelectItem key={product.id} value={product.id}>
+                          {product.productName}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div>
+                  <label className="text-sm font-medium">Quantity *</label>
+                  <Input
+                    type="number"
+                    min="1"
+                    value={newLineData.quantity}
+                    onChange={(e) => setNewLineData({ ...newLineData, quantity: parseInt(e.target.value) || 1 })}
+                    data-testid="input-new-quantity"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-sm font-medium">Unit Price (ex VAT)</label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={newLineData.unitPriceExVat}
+                    onChange={(e) => setNewLineData({ ...newLineData, unitPriceExVat: parseFloat(e.target.value) || 0 })}
+                    data-testid="input-new-price"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-sm font-medium">VAT Rate (%)</label>
+                  <Select 
+                    value={newLineData.vatRate.toString()} 
+                    onValueChange={(value) => setNewLineData({ ...newLineData, vatRate: parseInt(value) })}
+                  >
+                    <SelectTrigger data-testid="select-new-vat">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="0">0% (Zero rated)</SelectItem>
+                      <SelectItem value="500">5% (Reduced)</SelectItem>
+                      <SelectItem value="2000">20% (Standard)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="flex justify-end">
+                <Button 
+                  type="button" 
+                  onClick={handleAddLine}
+                  disabled={!newLineData.productId || createLineMutation.isPending}
+                  data-testid="button-add-line"
+                >
+                  <Plus className="w-4 h-4 mr-2" />
+                  Add Line Item
+                </Button>
+              </div>
+            </div>
+
+            {order && (
+              <div className="mt-6 border-t pt-4">
+                <div className="flex justify-end">
+                  <div className="space-y-2 min-w-72">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Subtotal (ex VAT):</span>
+                      <span className="font-medium">£{((order.subtotalExVat || 0) / 100).toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">VAT:</span>
+                      <span className="font-medium">£{((order.vatTotal || 0) / 100).toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-lg font-semibold border-t pt-2">
+                      <span>Total (inc VAT):</span>
+                      <span>£{((order.totalIncVat || 0) / 100).toFixed(2)}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </CardContent>
+    </Card>
   );
 }
