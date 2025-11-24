@@ -21,6 +21,7 @@ import { LoginDialog } from "@/components/LoginDialog";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { UserProvider, useUser } from "@/contexts/UserContext";
 import { SidebarFlashProvider } from "@/contexts/SidebarFlashContext";
+import { PlanProvider } from "@/contexts/PlanContext";
 import { MyGoalsPanel } from "@/components/my-goals-panel";
 import { PlanApprovalPanel } from "@/components/plan-approval-panel";
 import { ProgressWidget } from "@/components/progress-widget";
@@ -375,31 +376,33 @@ function AppContent() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <SidebarProvider style={style as React.CSSProperties}>
-          <AppLayout
-            defaultCountry={defaultCountry}
-            setDefaultCountry={setDefaultCountry}
-            runs={runs}
-            conversations={conversations}
-            handleSelectRun={handleSelectRun}
-            handleSelectConversation={handleSelectConversation}
-            handleRunRun={handleRunRun}
-            handleNewChatClick={handleNewChatClick}
-            newChatCallbackRef={newChatCallbackRef}
-            theme={theme}
-            toggleTheme={toggleTheme}
-            handleInjectSystemMessage={handleInjectSystemMessage}
-            addRun={addRun}
-            updateRun={updateRun}
-            getActiveRunId={getActiveRunId}
-            handleNewChat={handleNewChat}
-            handleLoadConversation={handleLoadConversation}
-          />
-          <CountryHint />
-        </SidebarProvider>
-        <Toaster />
-      </TooltipProvider>
+      <PlanProvider>
+        <TooltipProvider>
+          <SidebarProvider style={style as React.CSSProperties}>
+            <AppLayout
+              defaultCountry={defaultCountry}
+              setDefaultCountry={setDefaultCountry}
+              runs={runs}
+              conversations={conversations}
+              handleSelectRun={handleSelectRun}
+              handleSelectConversation={handleSelectConversation}
+              handleRunRun={handleRunRun}
+              handleNewChatClick={handleNewChatClick}
+              newChatCallbackRef={newChatCallbackRef}
+              theme={theme}
+              toggleTheme={toggleTheme}
+              handleInjectSystemMessage={handleInjectSystemMessage}
+              addRun={addRun}
+              updateRun={updateRun}
+              getActiveRunId={getActiveRunId}
+              handleNewChat={handleNewChat}
+              handleLoadConversation={handleLoadConversation}
+            />
+            <CountryHint />
+          </SidebarProvider>
+          <Toaster />
+        </TooltipProvider>
+      </PlanProvider>
     </QueryClientProvider>
   );
 }

@@ -1,0 +1,113 @@
+We still have a bug in the plan-execution UI. Backend is fine; the issue is entirely in the React UI.
+
+Current behaviour
+
+I can set a goal (e.g. “find pubs in west sussex”) and click “Start Working On This Goal”.
+
+A plan is created and I see [PLAN_DEBUG] logs like:
+
+hook state - planId=plan_..., status=pending_approval, plan from query=plan_...
+
+[PLAN_PROGRESS_DEBUG] hook called - planId=plan_..., status=pending_approval, isActive=false
+
+[PLAN_PROGRESS_DEBUG] render - ... status=pending_approval, isActive=false, progress={completedSteps:0, totalSteps:0, currentStep:none}
+
+The “Plan for Your Goal” card on the right shows the plan and an Approve button.
+
+After I click Approve Plan, the UI does not show any visible progress and (from my side) it is not obvious that /api/plan-status is being called correctly.
+
+We previously changed:
+
+client/src/hooks/use-plan-for-approval.ts
+
+client/src/hooks/use-plan-progress.ts
+
+client/src/components/progress-widget.tsx
+
+client/src/components/plan-approval-panel.tsx
+
+to add [PLAN_DEBUG] and [PLAN_PROGRESS_DEBUG] logs and to persist activePlanId + activeStatus locally so that when /api/plan starts returning null after approval, the UI still keeps the last planId + status.
+
+What I need you to do
+
+Run the app end-to-end and reproduce:
+
+Start the UI in Preview.
+
+Open DevTools (Console + Network).
+
+Set a goal, click “Start Working On This Goal”, then open the plan panel and click Approve Plan.
+
+Verify the approve flow:
+
+In Console, filter for approvePlan.
+
+Confirm that clicking Approve Plan logs:
+
+[PLAN_DEBUG] approvePlan called for planId=...
+
+[PLAN_DEBUG] after approvePlan - planId=..., status=executing
+
+If these logs do not appear, fix the wiring of the Approve button in plan-approval-panel.tsx so it actually calls the approvePlan mutation and updates local state.
+
+Verify progress polling:
+
+Once status is executing, usePlanProgress(planId, isActive) should be called with:
+
+planId = activePlanId
+
+isActive = (status === "executing")
+
+In the Network tab, filtered by plan-status, confirm we see repeating requests:
+
+GET /api/plan-status?planId=<activePlanId>
+
+If these requests are not happening, fix use-plan-progress.ts or progress-widget.tsx so that polling is enabled whenever status === "executing" and planId is not null.
+
+State-machine rules (enforce these):
+
+idle → no plan.
+
+pending_approval → plan created, waiting for user to approve.
+
+executing → after approvePlan succeeds; keep activePlanId and start polling /api/plan-status.
+
+Terminal states (completed, failed) → stop polling and display final status.
+
+usePlanForApproval must not clear activePlanId or activeStatus just because the /api/plan query returns null after approval.
+
+ProgressWidget behaviour:
+
+While status is executing:
+
+Show a progress bar.
+
+Show currentStep, completedSteps, totalSteps from /api/plan-status.
+
+When execution finishes:
+
+Show final status and stop polling.
+
+Deliverables:
+
+Apply whatever code changes are needed in the relevant hooks/components to make this work reliably.
+
+Keep the existing [PLAN_DEBUG] / [PLAN_PROGRESS_DEBUG] logging so we can see:
+
+approvePlan called
+
+status transitions
+
+polling start/stop
+
+/api/plan-status responses
+
+At the end, give me a short summary listing:
+
+Files changed
+
+The exact bug you found (e.g. wrong dependencies / wrong props / approve button not wired / progress widget conditions wrong)
+
+How you verified that after approving a plan, /api/plan-status is called and progress is visible in the UI.
+
+The goal: When I click Approve Plan, the Progress card should start live polling /api/plan-status and show step-by-step execution until completion.
