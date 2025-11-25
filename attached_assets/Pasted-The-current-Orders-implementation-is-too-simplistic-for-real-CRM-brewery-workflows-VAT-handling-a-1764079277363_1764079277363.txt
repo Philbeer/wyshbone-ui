@@ -1,0 +1,140 @@
+The current Orders implementation is too simplistic for real CRM, brewery workflows, VAT handling, and future Xero export. Please upgrade the Orders system to a full parent–child order structure with line items, VAT, calculated totals, and product defaults.
+
+Below is the full specification. Please follow it exactly:
+
+---
+
+## 1. Data Model Requirements
+
+### Order Header (crm_orders)
+Keep existing fields:
+- order_number
+- customer_id
+- delivery_run_id
+- status
+- notes
+
+Add or confirm the following fields (extend Drizzle schema if missing):
+- subtotal_ex_vat (integer, smallest currency unit)
+- vat_total (integer)
+- total_inc_vat (integer)
+- order_date (date)
+- currency (string, default “GBP”)
+
+Totals must NOT be typed by the user. They must be computed from line items.
+
+### Order Lines (crm_order_lines)
+Use the existing table and extend if required. Each order line should include:
+
+- order_id (FK)
+- product_id (FK)
+- quantity (number)
+- unit_price_ex_vat (integer, pennies)
+- vat_rate (decimal, e.g. 0, 0.05, 0.20)
+
+And calculated fields:
+- line_subtotal_ex_vat = quantity * unit_price_ex_vat
+- line_vat_amount = line_subtotal_ex_vat * vat_rate
+- line_total_inc_vat = line_subtotal_ex_vat + line_vat_amount
+
+If these columns don’t exist, please add them to the schema.
+
+### Product Defaults (brew_products)
+Extend brew_products (if missing) with:
+- default_unit_price_ex_vat (integer)
+- default_vat_rate (decimal)
+
+These are used to pre-fill new order lines.
+
+---
+
+## 2. Backend Behaviour
+
+### Order Creation / Editing Flow
+When the user creates or edits an order:
+
+1. Create/update the order header WITHOUT totals.
+2. Create/update/delete the line items using the existing crm_order_lines API routes.
+3. Recalculate:
+   - subtotal_ex_vat = SUM(all line_subtotal_ex_vat)
+   - vat_total = SUM(all line_vat_amount)
+   - total_inc_vat = subtotal_ex_vat + vat_total
+4. Save these totals back to the crm_orders record.
+
+Totals must always be authoritative and derived from lines.
+
+### Validation
+- Validate product_id, customer_id, delivery_run_id all belong to the current workspace/userId.
+- Validate all Select fields.
+- Ensure price, quantity, and vat_rate are numeric and properly converted from the UI.
+
+---
+
+## 3. Frontend Requirements (CRM UI)
+
+Please rebuild the Orders UI so it behaves like a real order-entry form:
+
+### Order Header section:
+- Order Number
+- Customer (Select)
+- Delivery Run (Select)
+- Status (Select)
+- Notes
+- Order Date (default: today)
+
+DO NOT show “Total Amount” as an editable field. Totals come from the lines.
+
+### Order Line Editor section:
+Add a table or list of order lines with:
+
+Column: Product (Select from brew_products)
+- On selecting a product, auto-fill:
+  - unit_price_ex_vat ← product.default_unit_price_ex_vat
+  - vat_rate ← product.default_vat_rate
+
+Column: Quantity  
+Column: Unit Price ex VAT  
+Column: VAT Rate  
+Calculated display-only columns:
+- Line Subtotal ex VAT  
+- Line VAT  
+- Line Total inc VAT  
+
+Allow:
+- Add line
+- Remove line
+- Edit any editable field and auto-recompute totals
+
+### Totals Section (read-only):
+- Subtotal ex VAT
+- VAT Total
+- Total inc VAT
+
+These update in real time as the user edits lines.
+
+### UX Constraints:
+- All Select components must use the hardened Select pattern (no empty string values).
+- If no customers/products exist, disable the form and show clear messages.
+- Ensure all dialogs open and close without runtime errors.
+
+---
+
+## 4. API Integration
+- Use existing crm_orders and crm_order_lines routes.
+- If schema changes are needed, update the Drizzle schema and migrations accordingly.
+- Maintain workspace isolation and Zod validation everywhere.
+
+---
+
+## 5. Do NOT Break Anything
+- Do NOT modify non-CRM parts of Wyshbone.
+- Keep the UI styling, theme, components, layouts consistent.
+- Maintain the CRM mode layout (left sidebar stays, chat panel hidden).
+- Keep navigation and routing unchanged except for necessary additions inside the Orders UI.
+
+---
+
+## Goal
+Give Wyshbone a fully functional, VAT-aware, line-item-based order system suitable for real brewery workflows and later seamless export to Xero.
+
+Please proceed with implementing this complete specification.
