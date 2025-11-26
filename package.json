@@ -25,6 +25,7 @@
     "drizzle-zod": "^0.8.3",
     "express": "^4.21.2",
     "express-session": "^1.18.1",
+    "fast-glob": "^3.3.3",
     "memorystore": "^1.6.7",
     "openai": "^6.1.0",
     "p-queue": "^9.0.0",
@@ -53,3 +54,4 @@
     "bufferutil": "^4.0.8"
   }
 }
+
