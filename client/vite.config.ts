@@ -10,10 +10,18 @@ export default defineConfig({
       "@shared": path.resolve(import.meta.dirname, "..", "shared"),
       "@assets": path.resolve(import.meta.dirname, "..", "attached_assets"),
     },
+    // Ensure shared folder imports resolve from client's node_modules
+    dedupe: ["zod", "react", "react-dom"],
+  },
+  optimizeDeps: {
+    include: ["zod"],
   },
   build: {
     outDir: "dist",
     emptyOutDir: true,
+    commonjsOptions: {
+      include: [/shared/, /node_modules/],
+    },
   },
 });
 
