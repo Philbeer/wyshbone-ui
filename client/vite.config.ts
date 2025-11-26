@@ -11,10 +11,10 @@ export default defineConfig({
       "@assets": path.resolve(import.meta.dirname, "..", "attached_assets"),
     },
     // Ensure shared folder imports resolve from client's node_modules
-    dedupe: ["zod", "react", "react-dom"],
+    dedupe: ["zod", "react", "react-dom", "drizzle-orm", "drizzle-zod"],
   },
   optimizeDeps: {
-    include: ["zod"],
+    include: ["zod", "drizzle-orm", "drizzle-zod"],
   },
   build: {
     outDir: "dist",
