@@ -215,8 +215,13 @@ async function fetchUrlContent(url: string): Promise<string> {
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
-  // Enable CORS for all routes
-  app.use(cors());
+  // Enable CORS for all routes - allow Vercel frontend
+  app.use(cors({
+    origin: true, // Allow all origins
+    credentials: true, // Allow cookies/credentials
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-session-id'],
+  }));
 
   // ===========================
   // AUTH ROUTES
