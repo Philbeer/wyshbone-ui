@@ -32,6 +32,7 @@
     "passport-local": "^1.0.0",
     "postgres": "^3.4.7",
     "resend": "^6.3.0",
+    "stripe": "^19.3.0",
     "ws": "^8.18.0",
     "zod": "^3.24.2",
     "zod-validation-error": "^3.4.0"
