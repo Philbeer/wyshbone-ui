@@ -1,6 +1,7 @@
 import { createRoot } from "react-dom/client";
 import App from "./App";
 import "./index.css";
+import { buildApiUrl } from "@/lib/queryClient";
 
 // ----- BOOTSTRAP: Session Reset & Validation -----
 // This runs BEFORE React renders to ensure clean session state
@@ -53,7 +54,7 @@ if (userId && userEmail && !sid) {
 else if (sid) {
   console.log("🔐 Validating session ID before app render...");
   
-  fetch(`/api/validate-session/${sid}`, { credentials: "include" })
+  fetch(buildApiUrl(`/api/validate-session/${sid}`), { credentials: "include" })
     .then(res => {
       if (!res.ok) {
         throw new Error(`Session validation failed: ${res.status}`);

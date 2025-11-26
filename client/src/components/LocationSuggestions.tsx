@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState, useRef } from "react";
 import { useDebounce } from "@/hooks/useDebounce";
+import { buildApiUrl } from "@/lib/queryClient";
 import { MapPin, Loader2 } from "lucide-react";
 
 interface LocationHint {
@@ -127,7 +128,7 @@ export function LocationSuggestions({
         params.append("country", countryName);
       }
       
-      const response = await fetch(`/api/location-hints/search?${params.toString()}`);
+      const response = await fetch(buildApiUrl(`/api/location-hints/search?${params.toString()}`));
       
       if (!response.ok) {
         throw new Error("Failed to fetch location suggestions");

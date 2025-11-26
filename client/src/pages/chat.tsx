@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { apiRequest, addDevAuthParams } from "@/lib/queryClient";
+import { apiRequest, addDevAuthParams, buildApiUrl } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Send, User, CheckCircle2, Search, Building2, HelpCircle } from "lucide-react";
@@ -221,7 +221,7 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
       
       setIsLoadingHistory(true);
       try {
-        const response = await fetch(`/api/debug/conversations/${storedConversationId}/messages`);
+        const response = await fetch(buildApiUrl(`/api/debug/conversations/${storedConversationId}/messages`));
         if (response.ok) {
           const data = await response.json();
           const historicalMessages: Message[] = data.messages.map((msg: any) => ({
@@ -284,7 +284,7 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
 
       for (const [messageId, batchId] of Array.from(batchJobTracking.entries())) {
         try {
-          const response = await fetch(addDevAuthParams(`/api/batch/${batchId}`));
+          const response = await fetch(buildApiUrl(addDevAuthParams(`/api/batch/${batchId}`)));
           if (response.ok) {
             const job = await response.json();
             
@@ -418,7 +418,7 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
         setIsLoadingHistory(true);
         try {
           const url = addDevAuthParams(`/api/conversations/${newConversationId}/messages`);
-          const response = await fetch(url);
+          const response = await fetch(buildApiUrl(url));
           if (response.ok) {
             const messages = await response.json();
             const loadedMessages: DisplayMessage[] = messages.map((msg: any) => ({
@@ -461,7 +461,7 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
       abortControllerRef.current = new AbortController();
 
       // Send conversation to /api/chat endpoint (GPT-5 with web search)
-      const response = await fetch(addDevAuthParams("/api/chat"), {
+      const response = await fetch(buildApiUrl(addDevAuthParams("/api/chat")), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -735,7 +735,7 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
         localStorage.setItem('currentConversationId', currentConversationId);
       }
 
-      const response = await fetch(addDevAuthParams("/agent/chat"), {
+      const response = await fetch(buildApiUrl(addDevAuthParams("/agent/chat")), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -1024,7 +1024,7 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
                           onClick={async () => {
                             // Start Very Deep Program (multi-iteration)
                             try {
-                              const response = await fetch(addDevAuthParams("/api/very-deep-program"), {
+                              const response = await fetch(buildApiUrl(addDevAuthParams("/api/very-deep-program")), {
                                 method: "POST",
                                 headers: { "Content-Type": "application/json" },
                                 body: JSON.stringify({

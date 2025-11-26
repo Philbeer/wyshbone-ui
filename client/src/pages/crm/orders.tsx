@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { queryClient, apiRequest } from "@/lib/queryClient";
+import { queryClient, apiRequest, buildApiUrl } from "@/lib/queryClient";
 import { useUser } from "@/contexts/UserContext";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
@@ -921,7 +921,7 @@ function OrderLineItemsEditor({ orderId, products }: OrderLineItemsEditorProps) 
 
   const { data: order } = useQuery<SelectCrmOrder>({
     queryKey: ['/api/crm/orders/detail', orderId],
-    queryFn: () => fetch(`/api/crm/orders/detail/${orderId}`, {
+    queryFn: () => fetch(buildApiUrl(`/api/crm/orders/detail/${orderId}`), {
       headers: { 'x-session-id': localStorage.getItem('sessionId') || '' },
     }).then(res => res.json()),
     enabled: !!orderId,

@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from "react";
-import { queryClient } from "@/lib/queryClient";
+import { queryClient, buildApiUrl } from "@/lib/queryClient";
 
 export interface User {
   id: string;
@@ -82,7 +82,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
         
         try {
           // Request a session ID from the backend
-          const response = await fetch("/api/auth/url-session", {
+          const response = await fetch(buildApiUrl("/api/auth/url-session"), {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ user_id: userId, user_email: userEmail })
@@ -140,7 +140,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
       // Priority 4: No auth found - auto-create a unique demo user
       console.log("🎭 No authentication found, creating demo user...");
       try {
-        const response = await fetch("/api/auth/demo", {
+        const response = await fetch(buildApiUrl("/api/auth/demo"), {
           method: "POST",
           headers: { "Content-Type": "application/json" }
         });

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { buildApiUrl } from "@/lib/queryClient";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
@@ -59,7 +60,7 @@ export default function DebugPage() {
     queryKey: ["/api/debug/conversations", selectedConversation, "messages"],
     queryFn: async () => {
       if (!selectedConversation) throw new Error("No conversation selected");
-      const response = await fetch(`/api/debug/conversations/${selectedConversation}/messages`);
+      const response = await fetch(buildApiUrl(`/api/debug/conversations/${selectedConversation}/messages`));
       if (!response.ok) throw new Error("Failed to fetch messages");
       return response.json();
     },
@@ -79,7 +80,7 @@ export default function DebugPage() {
     queryKey: ["/api/facts", user?.id, "search", debouncedSearchQuery],
     queryFn: async () => {
       if (!user?.id) throw new Error("User not authenticated");
-      const response = await fetch(`/api/facts/${user.id}/search?q=${encodeURIComponent(debouncedSearchQuery)}`);
+      const response = await fetch(buildApiUrl(`/api/facts/${user.id}/search?q=${encodeURIComponent(debouncedSearchQuery)}`));
       if (!response.ok) throw new Error("Failed to search facts");
       return response.json();
     },

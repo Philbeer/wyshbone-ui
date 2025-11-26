@@ -1,5 +1,16 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
+// Get API base URL from environment (for separate backend deployment)
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
+
+// Helper to build full API URL (exported for use in components)
+export function buildApiUrl(path: string): string {
+  if (API_BASE_URL && path.startsWith("/api")) {
+    return `${API_BASE_URL}${path}`;
+  }
+  return path;
+}
+
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
     const text = (await res.text()) || res.statusText;
@@ -72,7 +83,10 @@ export async function apiRequest(
   // In development, always add URL params as fallback (for compatibility)
   const authedUrl = addDevAuthParams(url);
   
-  const res = await fetch(authedUrl, {
+  // Use full API URL for separate backend deployment
+  const fullUrl = buildApiUrl(authedUrl);
+  
+  const res = await fetch(fullUrl, {
     method,
     headers,
     body: data ? JSON.stringify(data) : undefined,
@@ -101,7 +115,10 @@ export const getQueryFn: <T>(options: {
     // In development, always add URL params as fallback (for compatibility)
     const url = addDevAuthParams(queryKey.join("/") as string);
     
-    const res = await fetch(url, {
+    // Use full API URL for separate backend deployment
+    const fullUrl = buildApiUrl(url);
+    
+    const res = await fetch(fullUrl, {
       headers,
       credentials: "include",
     });
