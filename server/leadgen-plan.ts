@@ -1,5 +1,9 @@
 // LeadGen Plan structures and utilities for UI-030
 // This adds a plan approval step before Supervisor execution
+// Now persists to database via storage layer
+
+import { storage } from './storage';
+import type { InsertLeadGenPlan, SelectLeadGenPlan } from '../shared/schema';
 
 export interface LeadGenStep {
   id: string;
@@ -27,15 +31,46 @@ export interface LeadGenPlan {
   };
 }
 
-// In-memory storage for plans (replace with database if needed)
-const plans = new Map<string, LeadGenPlan>();
+// Convert database row to LeadGenPlan interface
+function dbRowToPlan(row: SelectLeadGenPlan): LeadGenPlan {
+  return {
+    id: row.id,
+    userId: row.userId,
+    sessionId: row.sessionId,
+    conversationId: row.conversationId || undefined,
+    goal: row.goal,
+    steps: row.steps as LeadGenStep[],
+    createdAt: new Date(row.createdAt).toISOString(),
+    status: row.status as LeadGenPlan['status'],
+    supervisorTaskId: row.supervisorTaskId || undefined,
+    toolMetadata: row.toolMetadata as LeadGenPlan['toolMetadata'] | undefined,
+  };
+}
 
-export function createLeadGenPlan(
+// Convert LeadGenPlan interface to database insert format
+function planToDbRow(plan: LeadGenPlan): InsertLeadGenPlan {
+  const now = Date.now();
+  return {
+    id: plan.id,
+    userId: plan.userId,
+    sessionId: plan.sessionId,
+    conversationId: plan.conversationId || null,
+    goal: plan.goal,
+    steps: plan.steps,
+    status: plan.status,
+    supervisorTaskId: plan.supervisorTaskId || null,
+    toolMetadata: plan.toolMetadata || null,
+    createdAt: new Date(plan.createdAt).getTime(),
+    updatedAt: now,
+  };
+}
+
+export async function createLeadGenPlan(
   userId: string,
   sessionId: string,
   goal: string,
   conversationId?: string
-): LeadGenPlan {
+): Promise<LeadGenPlan> {
   const planId = `plan_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
   
   // Generate steps based on the goal
@@ -75,73 +110,109 @@ export function createLeadGenPlan(
     status: 'pending_approval'
   };
 
-  plans.set(planId, plan);
-  console.log(`✅ Created LeadGenPlan: ${planId} for user ${userId}, session ${sessionId}`);
+  // Persist to database
+  try {
+    await storage.createLeadGenPlan(planToDbRow(plan));
+    console.log(`✅ Created LeadGenPlan: ${planId} for user ${userId}, session ${sessionId}`);
+  } catch (error) {
+    console.error(`❌ Failed to create LeadGenPlan in database: ${error}`);
+    throw error;
+  }
   
   return plan;
 }
 
-export function getPlanByUserId(userId: string): LeadGenPlan | null {
+export async function getPlanByUserId(userId: string): Promise<LeadGenPlan | null> {
   // Find the most recent active plan for this user (pending, approved, or executing)
   // Exclude terminal states (completed, failed, rejected) so they don't persist in the UI
   const activeStatuses: LeadGenPlan['status'][] = ['pending_approval', 'approved', 'executing'];
   
-  const userPlans = Array.from(plans.values())
-    .filter(p => p.userId === userId && activeStatuses.includes(p.status))
-    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  
-  return userPlans[0] || null;
+  try {
+    const plans = await storage.listLeadGenPlans(userId);
+    const activePlans = plans
+      .filter(p => activeStatuses.includes(p.status as LeadGenPlan['status']))
+      .sort((a, b) => b.createdAt - a.createdAt);
+    
+    return activePlans.length > 0 ? dbRowToPlan(activePlans[0]) : null;
+  } catch (error) {
+    console.error(`Error getting plan by userId ${userId}:`, error);
+    return null;
+  }
 }
 
 // Deprecated: Keep for backwards compatibility
-export function getPlanBySession(sessionId: string): LeadGenPlan | null {
+export async function getPlanBySession(sessionId: string): Promise<LeadGenPlan | null> {
   // Deprecated - plans are now keyed by userId. This function exists for backwards compatibility.
-  const activeStatuses: LeadGenPlan['status'][] = ['pending_approval', 'approved', 'executing'];
-  
-  const sessionPlans = Array.from(plans.values())
-    .filter(p => p.sessionId === sessionId && activeStatuses.includes(p.status))
-    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  
-  return sessionPlans[0] || null;
+  console.warn('getPlanBySession is deprecated - use getPlanByUserId instead');
+  // We can't efficiently query by sessionId with current storage interface
+  // Return null for now - callers should migrate to getPlanByUserId
+  return null;
 }
 
-export function getPlanById(planId: string): LeadGenPlan | null {
-  return plans.get(planId) || null;
-}
-
-export function approvePlan(planId: string): LeadGenPlan | null {
-  const plan = plans.get(planId);
-  if (!plan) {
+export async function getPlanById(planId: string): Promise<LeadGenPlan | null> {
+  try {
+    const row = await storage.getLeadGenPlan(planId);
+    return row ? dbRowToPlan(row) : null;
+  } catch (error) {
+    console.error(`Error getting plan ${planId}:`, error);
     return null;
   }
-  
-  plan.status = 'approved';
-  plans.set(planId, plan);
-  
-  console.log(`✅ Plan approved: ${planId}`);
-  return plan;
 }
 
-export function rejectPlan(planId: string): LeadGenPlan | null {
-  const plan = plans.get(planId);
-  if (!plan) {
-    return null;
-  }
-  
-  plan.status = 'rejected';
-  plans.set(planId, plan);
-  
-  console.log(`❌ Plan rejected: ${planId}`);
-  return plan;
-}
-
-export function updatePlanStatus(planId: string, status: LeadGenPlan['status'], supervisorTaskId?: string): void {
-  const plan = plans.get(planId);
-  if (plan) {
-    plan.status = status;
-    if (supervisorTaskId) {
-      plan.supervisorTaskId = supervisorTaskId;
+export async function approvePlan(planId: string): Promise<LeadGenPlan | null> {
+  try {
+    const updated = await storage.updateLeadGenPlan(planId, { status: 'approved' });
+    if (!updated) {
+      return null;
     }
-    plans.set(planId, plan);
+    
+    console.log(`✅ Plan approved: ${planId}`);
+    return dbRowToPlan(updated);
+  } catch (error) {
+    console.error(`Error approving plan ${planId}:`, error);
+    return null;
+  }
+}
+
+export async function rejectPlan(planId: string): Promise<LeadGenPlan | null> {
+  try {
+    const updated = await storage.updateLeadGenPlan(planId, { status: 'rejected' });
+    if (!updated) {
+      return null;
+    }
+    
+    console.log(`❌ Plan rejected: ${planId}`);
+    return dbRowToPlan(updated);
+  } catch (error) {
+    console.error(`Error rejecting plan ${planId}:`, error);
+    return null;
+  }
+}
+
+export async function updatePlanStatus(
+  planId: string, 
+  status: LeadGenPlan['status'], 
+  supervisorTaskId?: string
+): Promise<void> {
+  try {
+    const updates: Partial<InsertLeadGenPlan> = { status };
+    if (supervisorTaskId) {
+      updates.supervisorTaskId = supervisorTaskId;
+    }
+    await storage.updateLeadGenPlan(planId, updates);
+  } catch (error) {
+    console.error(`Error updating plan status for ${planId}:`, error);
+  }
+}
+
+// Helper to update plan with custom metadata (for tool execution context)
+export async function updatePlanMetadata(
+  planId: string,
+  toolMetadata: LeadGenPlan['toolMetadata']
+): Promise<void> {
+  try {
+    await storage.updateLeadGenPlan(planId, { toolMetadata });
+  } catch (error) {
+    console.error(`Error updating plan metadata for ${planId}:`, error);
   }
 }

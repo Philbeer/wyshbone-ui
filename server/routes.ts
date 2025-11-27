@@ -740,8 +740,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             quantity: 1,
           },
         ],
-        success_url: `${process.env.REPLIT_DEV_DOMAIN || 'http://localhost:5000'}/account?session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: `${process.env.REPLIT_DEV_DOMAIN || 'http://localhost:5000'}/pricing`,
+        success_url: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/account?session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/pricing`,
         metadata: {
           userId: user.id,
           tier,
@@ -3864,7 +3864,7 @@ CRITICAL RULES:
       
       // Get plan for this user (by userId, not sessionId)
       const { getPlanByUserId } = await import('./leadgen-plan.js');
-      const plan = getPlanByUserId(auth.userId);
+      const plan = await getPlanByUserId(auth.userId);
       
       if (plan) {
         console.log(`✅ Returning plan: ${plan.id}, status: ${plan.status}, goal: "${plan.goal}"`);
@@ -3899,7 +3899,7 @@ CRITICAL RULES:
       const { approvePlan, getPlanById, updatePlanStatus } = await import('./leadgen-plan.js');
       
       // Get the plan first to validate it exists
-      const plan = getPlanById(planId);
+      const plan = await getPlanById(planId);
       if (!plan) {
         console.error(`❌ Plan not found: ${planId}`);
         return res.status(404).json({ error: "Plan not found" });
@@ -3908,7 +3908,7 @@ CRITICAL RULES:
       console.log(`✅ Found plan: ${planId}, status: ${plan.status}`);
       
       // Approve the plan
-      const approvedPlan = approvePlan(planId);
+      const approvedPlan = await approvePlan(planId);
       
       if (!approvedPlan) {
         console.error(`❌ Failed to approve plan: ${planId}`);
@@ -3945,7 +3945,7 @@ CRITICAL RULES:
         const execution = await startPlanExecution(approvedPlan);
         
         // Update plan status to executing
-        updatePlanStatus(planId, 'executing');
+        await updatePlanStatus(planId, 'executing');
         
         console.log(`✅ Plan ${planId} approved and SUP-002 execution started`);
         console.log(`  📊 Execution has ${execution.steps.length} steps to complete`);
@@ -3987,16 +3987,16 @@ CRITICAL RULES:
       const { getPlanById, rejectPlan, createLeadGenPlan } = await import('./leadgen-plan.js');
       
       // Reject the old plan
-      const oldPlan = getPlanById(planId);
+      const oldPlan = await getPlanById(planId);
       if (!oldPlan) {
         return res.status(404).json({ error: "Plan not found" });
       }
       
-      rejectPlan(planId);
+      await rejectPlan(planId);
       
       // Create a new plan with the same goal
       const sessionId = getSessionId(req);
-      const newPlan = createLeadGenPlan(auth.userId, sessionId, oldPlan.goal, oldPlan.conversationId);
+      const newPlan = await createLeadGenPlan(auth.userId, sessionId, oldPlan.goal, oldPlan.conversationId);
       
       console.log(`🔄 Plan regenerated: ${planId} → ${newPlan.id}`);
       
@@ -4028,7 +4028,7 @@ CRITICAL RULES:
       const { createLeadGenPlan } = await import('./leadgen-plan.js');
       
       const sessionId = getSessionId(req);
-      const newPlan = createLeadGenPlan(auth.userId, sessionId, goal, conversationId);
+      const newPlan = await createLeadGenPlan(auth.userId, sessionId, goal, conversationId);
       
       console.log(`🚀 Plan started: ${newPlan.id} for user ${auth.userId}, session ${sessionId}`);
       
@@ -4065,7 +4065,7 @@ CRITICAL RULES:
       const { createLeadGenPlan } = await import('./leadgen-plan.js');
       
       const sessionId = getSessionId(req);
-      const newPlan = createLeadGenPlan(auth.userId, sessionId, goal, conversationId);
+      const newPlan = await createLeadGenPlan(auth.userId, sessionId, goal, conversationId);
       
       console.log(`🧪 Test plan created: ${newPlan.id} for user ${auth.userId}, session ${sessionId}`);
       
@@ -5470,44 +5470,8 @@ Return structured data with the EXACT placeId provided above: "${placeId}"`;
     }
   });
 
-  // ===========================
-  // GET /api/regions/list
-  // ===========================
-  app.get("/api/regions/list", async (req, res) => {
-    try {
-      const { country, granularity, region_filter } = req.query;
-
-      if (!country || !granularity) {
-        return res.status(400).json({ 
-          error: "Missing required parameters: country and granularity" 
-        });
-      }
-
-      if (country !== 'UK' && country !== 'US') {
-        return res.status(400).json({ 
-          error: "Invalid country. Must be 'UK' or 'US'" 
-        });
-      }
-
-      if (!['county', 'borough', 'state'].includes(String(granularity))) {
-        return res.status(400).json({ 
-          error: "Invalid granularity. Must be 'county', 'borough', or 'state'" 
-        });
-      }
-
-      const { getRegions } = await import('./regions');
-      const regionsResult = await getRegions(
-        country as string,
-        granularity as string,
-        region_filter as string | undefined
-      );
-
-      return res.json(regionsResult);
-    } catch (e: any) {
-      console.error("regions/list error:", e);
-      return res.status(500).json({ error: e.message || "Failed to load regions" });
-    }
-  });
+  // NOTE: /api/regions/list is already registered above at line ~5240
+  // Duplicate removed - see that route for region listing
 
   // ===========================
   // GET /api/location-hints/search

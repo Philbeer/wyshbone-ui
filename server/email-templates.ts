@@ -66,11 +66,8 @@ export function formatMonitorResultEmail(
 
   const subject = `Wyshbone AI Monitor Results: ${monitorLabel} - ${formattedDate}`;
 
-  const baseUrl = `https://${
-    process.env.REPLIT_DEV_DOMAIN ||
-    (process.env.REPLIT_DOMAINS?.split(',')[0]) ||
-    'your-app.replit.app'
-  }`;
+  // FRONTEND_URL should be the public URL of the frontend (e.g., https://wyshbone.vercel.app)
+  const baseUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
 
   // Build authenticated link with user_id and user_email for automatic authentication
   const params = new URLSearchParams();

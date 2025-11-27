@@ -1,0 +1,65 @@
+---
+name: no_ask_for_safe_git
+description: |
+  Let Cursor auto-run normal git and file operations, but NEVER auto-run destructive
+  git / delete commands. Those always require explicit approval.
+
+deny:
+  # ==== HIGH-RISK GIT HISTORY CHANGES (ALWAYS CONFIRM) ====
+  - "git reset *"
+  - "git clean *"
+  - "git reflog expire*"
+  - "git filter-branch*"
+  - "git rebase --hard*"
+  - "git push --force*"
+  - "git push -f*"
+
+  # ==== GIT DELETES: BRANCHES, TAGS, FILES (ALWAYS CONFIRM) ====
+  - "git branch -d*"
+  - "git branch -D*"
+  - "git branch --delete*"
+  - "git tag -d*"
+  - "git rm*"
+
+  # ==== FILESYSTEM DELETES (ALWAYS CONFIRM) ====
+  - "rm -rf*"
+  - "rm -r *"
+  - "rm *"
+  - "del *"
+  - "rmdir *"
+  - "Remove-Item*"
+  - "unlink *"
+  - "find * -delete*"
+  - "shred *"
+
+allow:
+  # Safe / normal git commands – OK to auto-run
+  - "git status*"
+  - "git diff*"
+  - "git log*"
+  - "git add*"
+  - "git commit*"
+  - "git checkout*"
+  - "git switch*"
+  - "git pull*"
+  - "git push*"
+
+  # Safe shell / file commands – OK to auto-run
+  - "ls*"
+  - "dir*"
+  - "pwd*"
+  - "cd*"
+  - "cat*"
+  - "type *"
+
+  # File editing / writing – OK to auto-run (we still have git as safety net)
+  - "code edit*"
+  - "file write*"
+  - "file update*"
+  - "file create*"
+  - "file modify*"
+  - "print*"
+
+behavior:
+  # Default: auto-run everything EXCEPT what matches deny[]
+  ask_for_approval: false

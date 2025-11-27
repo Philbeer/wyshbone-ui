@@ -760,8 +760,15 @@ export class MemStorage implements IStorage {
   async transferUserData(fromUserId: string, toUserId: string): Promise<void> {}
 }
 
-// Database connection for Supabase
-const queryClient = postgres(process.env.DATABASE_URL!);
+// Database connection validation and setup
+if (!process.env.DATABASE_URL) {
+  console.error('❌ FATAL: DATABASE_URL environment variable is not set.');
+  console.error('   Please set DATABASE_URL in your .env or .env.local file.');
+  console.error('   Example: DATABASE_URL=postgres://user:pass@host:5432/dbname');
+  throw new Error('DATABASE_URL is required but not set. Check your environment configuration.');
+}
+
+const queryClient = postgres(process.env.DATABASE_URL);
 const db = drizzle(queryClient);
 
 export class DbStorage implements IStorage {

@@ -1,9 +1,10 @@
 // Helper to create plans from chat tool calls
 // Plans are created with pending_approval status and require user approval in the Plan panel
 
-import { createLeadGenPlan } from './leadgen-plan.js';
+import { createLeadGenPlan, updatePlanMetadata } from './leadgen-plan.js';
 import type { IStorage } from './storage';
 import type { LeadGenStep } from './leadgen-plan.js';
+import { storage } from './storage';
 
 interface CreatePlanFromToolCallParams {
   toolName: string;
@@ -150,17 +151,23 @@ export async function createPlanFromToolCall(
   }
   
   // Create the plan (pending_approval status)
-  const plan = createLeadGenPlan(userId, sessionId, goal, conversationId);
+  const plan = await createLeadGenPlan(userId, sessionId, goal, conversationId);
   
-  // Override the steps with our custom steps based on the tool
-  plan.steps = steps;
-  
-  // Store tool metadata for execution
-  plan.toolMetadata = {
+  // Update the plan with custom steps and tool metadata in database
+  const toolMetadata = {
     toolName,
     toolArgs,
     userId
   };
+  
+  await storage.updateLeadGenPlan(plan.id, {
+    steps: steps,
+    toolMetadata: toolMetadata
+  });
+  
+  // Update local plan object for logging
+  plan.steps = steps;
+  plan.toolMetadata = toolMetadata;
   
   console.log(`✅ Created plan ${plan.id} for tool ${toolName}`);
   console.log(`   📋 Plan details: userId=${userId}, sessionId=${sessionId}, conversationId=${conversationId}`);

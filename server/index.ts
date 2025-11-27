@@ -5,6 +5,7 @@ dotenv.config();
 
 // Now import everything else AFTER env vars are loaded
 import express, { type Request, Response, NextFunction } from "express";
+import cors from "cors";
 import { registerRoutes } from "./routes";
 import { nangoRouter } from "./routes/nango";
 
@@ -21,6 +22,28 @@ function log(message: string, source = "express") {
 
 const app = express();
 
+// CORS configuration for cross-origin requests (Vercel frontend → Render backend)
+const allowedOrigins = [
+  'http://localhost:3000',
+  'http://localhost:5173',
+  'http://localhost:5000',
+  process.env.FRONTEND_URL, // e.g., https://wyshbone.vercel.app
+].filter(Boolean) as string[];
+
+app.use(cors({
+  origin: (origin, callback) => {
+    // Allow requests with no origin (like mobile apps or curl)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin) || origin.endsWith('.vercel.app')) {
+      return callback(null, true);
+    }
+    callback(new Error('Not allowed by CORS'));
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+}));
+
 // Capture raw body for webhook signature verification
 app.use(express.json({
   verify: (req: any, _res, buf, encoding) => {
@@ -33,6 +56,16 @@ app.use(express.urlencoded({ extended: false }));
 
 // Mount Nango router
 app.use(nangoRouter);
+
+// Health check endpoint for load balancers and monitoring
+app.get('/health', (_req, res) => {
+  res.status(200).json({
+    status: 'healthy',
+    service: 'wyshbone-ui',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime()
+  });
+});
 
 app.use((req, res, next) => {
   const start = Date.now();

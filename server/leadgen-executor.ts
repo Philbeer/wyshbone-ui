@@ -113,7 +113,7 @@ async function executeStepsInBackground(execution: PlanExecution): Promise<void>
       executions.set(execution.planId, execution);
       
       // Persist failure status back to plan
-      updatePlanStatus(execution.planId, 'failed');
+      await updatePlanStatus(execution.planId, 'failed');
       
       console.log(`💾 Persisted failed status to plan ${execution.planId}`);
       return;
@@ -126,7 +126,7 @@ async function executeStepsInBackground(execution: PlanExecution): Promise<void>
   executions.set(execution.planId, execution);
   
   // Persist completion status back to plan
-  updatePlanStatus(execution.planId, 'completed');
+  await updatePlanStatus(execution.planId, 'completed');
   
   console.log(`🎉 Plan execution completed for ${execution.planId}`);
   console.log(`💾 Persisted completed status to plan ${execution.planId}`);
@@ -140,7 +140,7 @@ async function executeStep(step: LeadGenStep, execution: PlanExecution): Promise
   
   // Get the plan to access toolMetadata
   const { getPlanById } = await import('./leadgen-plan.js');
-  const plan = getPlanById(execution.planId);
+  const plan = await getPlanById(execution.planId);
   
   // If the plan has tool metadata, execute the real action
   if (plan?.toolMetadata) {
