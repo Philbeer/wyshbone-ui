@@ -461,17 +461,11 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
       abortControllerRef.current = new AbortController();
 
       // Send conversation to /api/chat endpoint (GPT-5 with web search)
-      const sessionId = localStorage.getItem('wyshbone_sid');
-      const headers: Record<string, string> = {
-        "Content-Type": "application/json",
-      };
-      if (sessionId) {
-        headers["x-session-id"] = sessionId;
-      }
-      
       const response = await fetch(buildApiUrl(addDevAuthParams("/api/chat")), {
         method: "POST",
-        headers,
+        headers: {
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({
           messages: conversationMessages,
           user: { id: user.id, email: user.email },
@@ -741,17 +735,11 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
         localStorage.setItem('currentConversationId', currentConversationId);
       }
 
-      const sessionId = localStorage.getItem('wyshbone_sid');
-      const headers: Record<string, string> = {
-        "Content-Type": "application/json",
-      };
-      if (sessionId) {
-        headers["x-session-id"] = sessionId;
-      }
-      
       const response = await fetch(buildApiUrl(addDevAuthParams("/agent/chat")), {
         method: "POST",
-        headers,
+        headers: {
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({
           text: messageContent,
           conversationId: currentConversationId,
@@ -1036,15 +1024,9 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
                           onClick={async () => {
                             // Start Very Deep Program (multi-iteration)
                             try {
-                              const sessionId = localStorage.getItem('wyshbone_sid');
-                              const headers: Record<string, string> = { "Content-Type": "application/json" };
-                              if (sessionId) {
-                                headers["x-session-id"] = sessionId;
-                              }
-                              
                               const response = await fetch(buildApiUrl(addDevAuthParams("/api/very-deep-program")), {
                                 method: "POST",
-                                headers,
+                                headers: { "Content-Type": "application/json" },
                                 body: JSON.stringify({
                                   ...parsed.data,
                                   conversationId,
