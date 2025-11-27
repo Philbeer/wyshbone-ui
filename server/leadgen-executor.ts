@@ -1,7 +1,30 @@
-// SUP-002: LeadGen Plan Execution System
-// This handles step-by-step execution of approved plans with real-time progress tracking
+/**
+ * SUP-002: LeadGen Plan Execution System
+ * 
+ * ARCHITECTURE DECISION (Phase 3):
+ * ================================
+ * Plans are executed LOCALLY in the UI backend for simplicity and reliability.
+ * 
+ * Flow:
+ * 1. User approves plan in UI → POST /api/plan/approve
+ * 2. UI backend executes steps via this executor
+ * 3. Progress is tracked in-memory and synced to plan status in database
+ * 4. Results are logged to Tower for analytics (if TOWER_URL configured)
+ * 
+ * Why local execution (not via Supervisor)?
+ * - Simpler debugging (single codebase)
+ * - No network latency between services
+ * - Supervisor focuses on background tasks (monitors, signals)
+ * 
+ * The Supervisor CAN execute plans via its own executor for:
+ * - Background/scheduled plan execution
+ * - Plans triggered by signals/monitors
+ * 
+ * Both executors log to Tower for unified analytics.
+ */
 
 import type { LeadGenPlan, LeadGenStep } from './leadgen-plan.js';
+import { logRunToTower, startRunLog, completeRunLog } from './lib/towerClient.js';
 
 export interface StepProgress {
   stepId: string;
@@ -36,6 +59,8 @@ const executions = new Map<string, PlanExecution>();
 export async function startPlanExecution(plan: LeadGenPlan): Promise<PlanExecution> {
   console.log(`🚀 Starting execution for plan ${plan.id}`);
   
+  const startTime = Date.now();
+  
   // Initialize execution state
   const execution: PlanExecution = {
     planId: plan.id,
@@ -55,8 +80,19 @@ export async function startPlanExecution(plan: LeadGenPlan): Promise<PlanExecuti
   
   executions.set(plan.id, execution);
   
+  // Log plan start to Tower (non-blocking)
+  logPlanExecutionToTower({
+    planId: plan.id,
+    userId: plan.userId,
+    userEmail: '', // Will be filled by Tower from userId lookup
+    goal: plan.goal,
+    status: 'started',
+    steps: plan.steps.map(s => ({ id: s.id, label: s.label, status: 'pending' })),
+    startedAt: startTime,
+  }).catch(err => console.warn('Tower plan start log failed:', err.message));
+  
   // Start background execution
-  executeStepsInBackground(execution).catch(error => {
+  executeStepsInBackground(execution, startTime).catch(error => {
     console.error(`❌ Plan execution failed for ${plan.id}:`, error);
     execution.status = 'failed';
     execution.error = error.message;
@@ -69,11 +105,14 @@ export async function startPlanExecution(plan: LeadGenPlan): Promise<PlanExecuti
 /**
  * Background executor that processes steps sequentially
  */
-async function executeStepsInBackground(execution: PlanExecution): Promise<void> {
+async function executeStepsInBackground(execution: PlanExecution, startTime: number = Date.now()): Promise<void> {
   console.log(`⚙️ Background executor started for plan ${execution.planId}`);
   
   // Import updatePlanStatus to persist state back to leadgen-plan
-  const { updatePlanStatus } = await import('./leadgen-plan.js');
+  const { updatePlanStatus, getPlanById } = await import('./leadgen-plan.js');
+  
+  // Get plan for userId (needed for Tower logging)
+  const plan = await getPlanById(execution.planId);
   
   for (let i = 0; i < execution.steps.length; i++) {
     const step = execution.steps[i];
@@ -115,6 +154,26 @@ async function executeStepsInBackground(execution: PlanExecution): Promise<void>
       // Persist failure status back to plan
       await updatePlanStatus(execution.planId, 'failed');
       
+      // Log failure to Tower
+      if (plan) {
+        logPlanExecutionToTower({
+          planId: execution.planId,
+          userId: plan.userId,
+          userEmail: '',
+          goal: execution.goal,
+          status: 'error',
+          steps: execution.stepProgress.map(sp => ({
+            id: sp.stepId,
+            label: execution.steps[sp.stepIndex]?.label || sp.stepId,
+            status: sp.status,
+            error: sp.error,
+          })),
+          startedAt: startTime,
+          completedAt: Date.now(),
+          error: execution.error,
+        }).catch(err => console.warn('Tower plan error log failed:', err.message));
+      }
+      
       console.log(`💾 Persisted failed status to plan ${execution.planId}`);
       return;
     }
@@ -127,6 +186,24 @@ async function executeStepsInBackground(execution: PlanExecution): Promise<void>
   
   // Persist completion status back to plan
   await updatePlanStatus(execution.planId, 'completed');
+  
+  // Log success to Tower
+  if (plan) {
+    logPlanExecutionToTower({
+      planId: execution.planId,
+      userId: plan.userId,
+      userEmail: '',
+      goal: execution.goal,
+      status: 'success',
+      steps: execution.stepProgress.map(sp => ({
+        id: sp.stepId,
+        label: execution.steps[sp.stepIndex]?.label || sp.stepId,
+        status: sp.status,
+      })),
+      startedAt: startTime,
+      completedAt: Date.now(),
+    }).catch(err => console.warn('Tower plan success log failed:', err.message));
+  }
   
   console.log(`🎉 Plan execution completed for ${execution.planId}`);
   console.log(`💾 Persisted completed status to plan ${execution.planId}`);

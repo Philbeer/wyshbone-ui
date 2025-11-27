@@ -212,3 +212,78 @@ export function logToolCall(
   
   console.log(`🔧 Tool call logged: ${toolName}`);
 }
+
+/**
+ * Log a plan execution to Tower
+ * Used by the UI plan executor to track plan runs
+ */
+export async function logPlanExecutionToTower(params: {
+  planId: string;
+  userId: string;
+  userEmail: string;
+  goal: string;
+  status: 'started' | 'success' | 'error' | 'partial';
+  steps?: Array<{
+    id: string;
+    label: string;
+    status: string;
+    error?: string;
+  }>;
+  startedAt: number;
+  completedAt?: number;
+  error?: string;
+}): Promise<void> {
+  if (!isTowerLoggingEnabled()) {
+    return;
+  }
+
+  try {
+    const endpoint = `${TOWER_URL}/tower/runs/log`;
+    
+    const payload = {
+      runId: params.planId,
+      conversationId: params.planId, // Use planId as conversation grouping
+      userId: params.userId,
+      source: 'plan_executor',
+      status: params.status,
+      request: {
+        inputText: params.goal,
+      },
+      response: {
+        outputText: params.status === 'success' 
+          ? `Plan completed successfully with ${params.steps?.length || 0} steps`
+          : params.error || 'Plan execution in progress',
+      },
+      meta: {
+        planId: params.planId,
+        goal: params.goal,
+        stepCount: params.steps?.length || 0,
+        steps: params.steps,
+        userEmail: params.userEmail,
+      },
+      startedAt: params.startedAt,
+      completedAt: params.completedAt,
+      durationMs: params.completedAt ? params.completedAt - params.startedAt : undefined,
+    };
+
+    console.log(`📡 Logging plan ${params.planId} to Tower (${params.status})`);
+
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${TOWER_API_KEY}`,
+        'X-Source': 'wyshbone-ui-plan',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      console.warn(`⚠️ Tower plan logging failed: ${response.status}`);
+    } else {
+      console.log(`✅ Plan ${params.planId} logged to Tower`);
+    }
+  } catch (error: any) {
+    console.warn(`⚠️ Tower plan logging error: ${error.message}`);
+  }
+}

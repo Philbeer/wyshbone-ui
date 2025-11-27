@@ -330,6 +330,18 @@ services:
 - [x] 2.4 Create .env.example templates (added to manual checklist)
 - [x] 2.5 Add TOWER_URL to Supervisor (added HTTP POST logging)
 
+### Phase 3 Checklist ✅ COMPLETED
+- [x] 3.1 Document plan execution architecture (UI-local execution as primary)
+- [x] 3.2 Add Tower logging to UI plan execution
+- [x] 3.3 Fix Hunter API key inconsistency (standardized on HUNTER_API_KEY)
+- [x] 3.4 Simplified Supervisor Resend client (removed Replit connector API)
+
+### Phase 4 Checklist ✅ COMPLETED
+- [x] 4.1 Add logPlanExecutionToTower() function to towerClient
+- [x] 4.2 Integrate Tower logging into UI plan executor (start/success/error)
+- [x] 4.3 Add /api/tower/webhook/evaluation endpoint for receiving results
+- [x] 4.4 Add /api/tower/webhook/alert endpoint for receiving alerts
+
 ---
 
 **Total Issues Found:** 36  
@@ -342,7 +354,7 @@ services:
 
 ### Git Commands (Run When Ready)
 - [ ] `git add .`
-- [ ] `git commit -m "Cursor Phase 1 & 2 fixes + architecture cleanup"`
+- [ ] `git commit -m "Cursor Phase 1-4 complete: DB persistence, Replit migration, Tower integration"`
 - [ ] `git push origin main` (when ready to deploy)
 
 ### UI Repository (wyshbone-ui root)

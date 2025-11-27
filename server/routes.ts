@@ -9238,6 +9238,95 @@ ${run.outputText}`;
     }
   });
 
+  // ===========================
+  // Tower Webhook Endpoints
+  // ===========================
+  
+  /**
+   * POST /api/tower/webhook/evaluation
+   * Receives evaluation results from Tower after it analyzes a run
+   * This allows Tower to push feedback back to the UI
+   */
+  app.post("/api/tower/webhook/evaluation", async (req, res) => {
+    try {
+      // Verify the request is from Tower using API key
+      const authHeader = req.headers['x-tower-api-key'] || req.headers['authorization'];
+      const expectedKey = process.env.TOWER_API_KEY || process.env.EXPORT_KEY;
+      
+      if (!expectedKey) {
+        console.warn('⚠️ Tower webhook received but no TOWER_API_KEY configured');
+        return res.status(500).json({ error: "Tower integration not configured" });
+      }
+      
+      const providedKey = typeof authHeader === 'string' 
+        ? authHeader.replace('Bearer ', '') 
+        : '';
+        
+      if (providedKey !== expectedKey) {
+        return res.status(401).json({ error: "Invalid API key" });
+      }
+      
+      const { runId, planId, conversationId, evaluation } = req.body;
+      
+      console.log(`📥 Tower evaluation received for ${runId || planId || conversationId}`);
+      console.log(`   Evaluation type: ${evaluation?.type || 'unknown'}`);
+      console.log(`   Score: ${evaluation?.score || 'N/A'}`);
+      
+      // Store the evaluation for display in UI (future enhancement)
+      // For now, just log it
+      if (evaluation) {
+        console.log(`   Summary: ${evaluation.summary || 'No summary'}`);
+        if (evaluation.issues?.length > 0) {
+          console.log(`   Issues: ${evaluation.issues.length}`);
+        }
+      }
+      
+      res.json({ 
+        success: true, 
+        message: "Evaluation received",
+        runId: runId || planId || conversationId 
+      });
+    } catch (error: any) {
+      console.error("Error processing Tower webhook:", error);
+      res.status(500).json({ error: error.message || "Failed to process evaluation" });
+    }
+  });
+  
+  /**
+   * POST /api/tower/webhook/alert
+   * Receives alert notifications from Tower (e.g., anomalies, failures)
+   */
+  app.post("/api/tower/webhook/alert", async (req, res) => {
+    try {
+      const authHeader = req.headers['x-tower-api-key'] || req.headers['authorization'];
+      const expectedKey = process.env.TOWER_API_KEY || process.env.EXPORT_KEY;
+      
+      if (!expectedKey || (typeof authHeader === 'string' && authHeader.replace('Bearer ', '') !== expectedKey)) {
+        return res.status(401).json({ error: "Invalid API key" });
+      }
+      
+      const { alertType, severity, message, runId, userId, timestamp } = req.body;
+      
+      console.log(`🚨 Tower alert received: ${alertType}`);
+      console.log(`   Severity: ${severity || 'info'}`);
+      console.log(`   Message: ${message}`);
+      if (runId) console.log(`   Run: ${runId}`);
+      if (userId) console.log(`   User: ${userId}`);
+      
+      // Future: Store alerts and/or send notifications
+      // For now, just acknowledge receipt
+      
+      res.json({ 
+        success: true, 
+        message: "Alert received",
+        alertType 
+      });
+    } catch (error: any) {
+      console.error("Error processing Tower alert:", error);
+      res.status(500).json({ error: error.message || "Failed to process alert" });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }
