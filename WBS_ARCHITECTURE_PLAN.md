@@ -350,12 +350,181 @@ services:
 
 ---
 
+## 🚀 DEPLOYMENT GUIDE (Step-by-Step)
+
+### PART 1: Deploy Supervisor to Render
+
+**Step 1: Create Render Account**
+- [ ] Go to https://render.com
+- [ ] Click **"Get Started for Free"** (top right)
+- [ ] Sign up with GitHub (recommended) or email
+
+**Step 2: Create New Web Service for Supervisor**
+- [ ] Click **"New +"** button (top right)
+- [ ] Select **"Web Service"**
+- [ ] Connect your GitHub account if not already connected
+- [ ] Find and select your `wyshbone-supervisor` repository
+- [ ] Click **"Connect"**
+
+**Step 3: Configure Supervisor Service**
+Fill in these exact values:
+
+| Field | Value |
+|-------|-------|
+| **Name** | `wyshbone-supervisor` |
+| **Region** | `Oregon (US West)` or closest to you |
+| **Branch** | `main` |
+| **Root Directory** | `supervisor` |
+| **Runtime** | `Node` |
+| **Build Command** | `npm install && npm run build` |
+| **Start Command** | `npm start` |
+| **Instance Type** | `Free` (or `Starter` for better performance) |
+
+**Step 4: Add Environment Variables**
+- [ ] Scroll down to **"Environment Variables"**
+- [ ] Click **"Add Environment Variable"** for each:
+
+| Key | Value |
+|-----|-------|
+| `NODE_ENV` | `production` |
+| `DATABASE_URL` | Your Neon/Supabase Postgres URL |
+| `SUPABASE_URL` | `https://your-project.supabase.co` |
+| `SUPABASE_SERVICE_ROLE_KEY` | Your Supabase service role key |
+| `GOOGLE_PLACES_API_KEY` | Your Google API key |
+| `HUNTER_API_KEY` | Your Hunter.io API key |
+| `RESEND_API_KEY` | Your Resend API key |
+| `FRONTEND_URL` | `https://your-app.vercel.app` (update after Vercel deploy) |
+| `TOWER_URL` | Leave blank for now (fill after Tower deploy) |
+| `TOWER_API_KEY` | Leave blank for now |
+
+**Step 5: Deploy**
+- [ ] Click **"Create Web Service"** button
+- [ ] Wait for build to complete (2-5 minutes)
+- [ ] Copy your Supervisor URL: `https://wyshbone-supervisor.onrender.com`
+
+---
+
+### PART 2: Deploy Tower to Render
+
+**Step 1: Create New Web Service for Tower**
+- [ ] Click **"New +"** button (top right)
+- [ ] Select **"Web Service"**
+- [ ] Find and select your `wyshbone-tower` repository (or same repo if monorepo)
+- [ ] Click **"Connect"**
+
+**Step 2: Configure Tower Service**
+Fill in these exact values:
+
+| Field | Value |
+|-------|-------|
+| **Name** | `wyshbone-tower` |
+| **Region** | Same as Supervisor |
+| **Branch** | `main` |
+| **Root Directory** | `tower` |
+| **Runtime** | `Node` |
+| **Build Command** | `npm install` |
+| **Start Command** | `node server.js` |
+| **Instance Type** | `Free` (or `Starter`) |
+
+**Step 3: Add Environment Variables**
+- [ ] Click **"Add Environment Variable"** for each:
+
+| Key | Value |
+|-----|-------|
+| `NODE_ENV` | `production` |
+| `DATABASE_URL` | Your Tower Neon Postgres URL (separate DB) |
+| `OPENAI_API_KEY` | Your OpenAI API key |
+| `FRONTEND_URL` | `https://your-app.vercel.app` |
+| `UI_URL` | Your UI backend URL (if separate from Vercel) |
+| `SUPERVISOR_URL` | `https://wyshbone-supervisor.onrender.com` |
+| `EXPORT_KEY` | Generate a random string (e.g., `tower_abc123xyz789`) |
+
+**Step 4: Deploy**
+- [ ] Click **"Create Web Service"** button
+- [ ] Wait for build to complete (2-5 minutes)
+- [ ] Copy your Tower URL: `https://wyshbone-tower.onrender.com`
+
+---
+
+### PART 3: Update Supervisor with Tower URL
+
+- [ ] Go back to Render Dashboard → `wyshbone-supervisor`
+- [ ] Click **"Environment"** tab (left sidebar)
+- [ ] Update these variables:
+
+| Key | Value |
+|-----|-------|
+| `TOWER_URL` | `https://wyshbone-tower.onrender.com` |
+| `TOWER_API_KEY` | Same `EXPORT_KEY` you set for Tower |
+
+- [ ] Click **"Save Changes"**
+- [ ] Service will auto-redeploy
+
+---
+
+### PART 4: Update Vercel Environment Variables
+
+**Step 1: Open Vercel Project Settings**
+- [ ] Go to https://vercel.com
+- [ ] Click on your `wyshbone-ui` project
+- [ ] Click **"Settings"** tab (top nav)
+- [ ] Click **"Environment Variables"** (left sidebar)
+
+**Step 2: Add/Update Variables**
+- [ ] Click **"Add New"** for each:
+
+| Key | Value | Environment |
+|-----|-------|-------------|
+| `TOWER_URL` | `https://wyshbone-tower.onrender.com` | Production |
+| `TOWER_API_KEY` | Same `EXPORT_KEY` from Tower | Production |
+| `SUPERVISOR_URL` | `https://wyshbone-supervisor.onrender.com` | Production |
+
+**Step 3: Redeploy**
+- [ ] Go to **"Deployments"** tab
+- [ ] Click the **"..."** menu on latest deployment
+- [ ] Click **"Redeploy"**
+- [ ] Wait for deploy to complete
+
+---
+
+### PART 5: Verify Everything Works
+
+**Test Health Endpoints:**
+- [ ] Open: `https://wyshbone-supervisor.onrender.com/health` → Should show `{"status":"healthy"}`
+- [ ] Open: `https://wyshbone-tower.onrender.com/health` → Should show `{"status":"healthy"}`
+- [ ] Open your Vercel app → Should load without errors
+
+**Test Tower Connection:**
+- [ ] Open: `https://wyshbone-tower.onrender.com/status` → Should show dashboard
+
+---
+
 ## Manual Setup Checklist (Do Not Run Automatically)
 
 ### Git Commands (Run When Ready)
 - [ ] `git add .`
 - [ ] `git commit -m "Cursor Phase 1-4 complete: DB persistence, Replit migration, Tower integration"`
 - [ ] `git push origin main` (when ready to deploy)
+
+### Local Development Setup
+To run wyshbone-ui locally, you need TWO terminal windows:
+
+**Terminal 1 - Backend (Express API):**
+```bash
+cd wyshbone-ui
+npm run dev
+# Runs on http://localhost:5000
+```
+
+**Terminal 2 - Frontend (Vite React):**
+```bash
+cd wyshbone-ui/client
+npm run dev
+# Runs on http://localhost:5173
+# API calls are proxied to localhost:5000
+```
+
+Then open http://localhost:5173 in your browser.
 
 ### UI Repository (wyshbone-ui root)
 - [ ] `npm install` — Install new cors dependency

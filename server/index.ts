@@ -1,9 +1,10 @@
-// CRITICAL: Load environment variables FIRST before any other imports
+// CRITICAL: Load environment variables FIRST
+// Using import syntax ensures this runs before other modules are evaluated
+import "dotenv/config";
 import dotenv from "dotenv";
-dotenv.config({ path: '.env.local', override: true }); // Override cached Replit secrets
-dotenv.config();
+// Also load .env.local for local overrides
+dotenv.config({ path: '.env.local', override: true });
 
-// Now import everything else AFTER env vars are loaded
 import express, { type Request, Response, NextFunction } from "express";
 import cors from "cors";
 import { registerRoutes } from "./routes";
@@ -41,7 +42,7 @@ app.use(cors({
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'x-session-id']
 }));
 
 // Capture raw body for webhook signature verification
@@ -117,10 +118,11 @@ app.use((req, res, next) => {
   // this serves both the API and the client.
   // It is the only port that is not firewalled.
   const port = parseInt(process.env.PORT || '5000', 10);
+  // Use 127.0.0.1 for Windows dev (0.0.0.0 causes ENOTSUP), 0.0.0.0 for production
+  const host = process.env.NODE_ENV === 'development' ? '127.0.0.1' : '0.0.0.0';
   server.listen({
     port,
-    host: "0.0.0.0",
-    reusePort: true,
+    host,
   }, async () => {
     log(`serving on port ${port}`);
     
