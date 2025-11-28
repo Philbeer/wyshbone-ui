@@ -69,6 +69,45 @@ app.get('/health', (_req, res) => {
   });
 });
 
+// Client error reporting endpoint - receives browser errors for debugging
+interface ClientErrorPayload {
+  message?: string;
+  stack?: string;
+  url?: string;
+  line?: number;
+  column?: number;
+  href?: string;
+  userAgent?: string;
+  type?: string;
+  timestamp?: string;
+}
+
+app.post('/api/client-error', (req, res) => {
+  try {
+    const payload = req.body as ClientErrorPayload;
+    const timestamp = payload.timestamp || new Date().toISOString();
+    const type = payload.type || 'unknown';
+    const message = payload.message || 'No message';
+    const href = payload.href || 'unknown';
+    
+    // Log with clear tag for easy filtering in logs
+    console.log(`[CLIENT_ERROR] ${timestamp} ${type} "${message}" @ ${href}`);
+    console.log(`[CLIENT_ERROR] Stack: ${payload.stack || 'No stack trace'}`);
+    console.log(`[CLIENT_ERROR] Details:`, JSON.stringify({
+      url: payload.url,
+      line: payload.line,
+      column: payload.column,
+      userAgent: payload.userAgent?.substring(0, 100),
+    }));
+  } catch (err) {
+    // Log what we can even if parsing fails
+    console.log(`[CLIENT_ERROR] Failed to parse error payload:`, req.body);
+  }
+  
+  // Always return 204 quickly
+  res.status(204).send();
+});
+
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;

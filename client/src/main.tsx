@@ -2,6 +2,10 @@ import { createRoot } from "react-dom/client";
 import App from "./App";
 import "./index.css";
 import { buildApiUrl } from "@/lib/queryClient";
+import { initClientErrorReporting } from "@/utils/clientErrorReporter";
+
+// Initialize client error reporting FIRST (before anything can fail)
+initClientErrorReporting();
 
 // ----- BOOTSTRAP: Session Reset & Validation -----
 // This runs BEFORE React renders to ensure clean session state
