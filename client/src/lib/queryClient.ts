@@ -3,6 +3,9 @@ import { QueryClient, QueryFunction } from "@tanstack/react-query";
 // Get API base URL from environment (for separate backend deployment)
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
 
+// Debug: log what API base URL is being used
+console.log("🌐 API_BASE_URL:", API_BASE_URL || "(empty - using same origin)");
+
 // Helper to build full API URL (exported for use in components)
 export function buildApiUrl(path: string): string {
   if (API_BASE_URL && path.startsWith("/api")) {

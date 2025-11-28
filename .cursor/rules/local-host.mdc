@@ -1,0 +1,4 @@
+---
+alwaysApply: true
+---
+Never push to GitHub or trigger deployment unless I explicitly say ‘deploy now’. For normal fixes, just edit the code and run a local dev server so I can test at localhost.
