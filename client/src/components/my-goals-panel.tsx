@@ -105,9 +105,11 @@ export function MyGoalsPanel() {
     }
   };
 
-  // SIMPLIFIED LOGIC: Show Start button whenever goal text exists (non-empty)
-  // Don't depend on hasGoal flag - just check if there's text
-  const showStartButton = localGoal.trim().length > 0 && !plan;
+  // Show Start button when:
+  // 1. Goal text exists
+  // 2. AND either no plan OR plan is not pending approval (so user can start fresh)
+  // This ensures button shows for demo users, signed-in users, every time
+  const showStartButton = localGoal.trim().length > 0 && (!plan || plan.status !== 'pending_approval');
 
   return (
     <Card className="h-full flex flex-col" data-testid="card-my-goals">
