@@ -1,0 +1,29 @@
+When handling Git operations, follow these rules strictly:
+
+1. Never stage, commit, or suggest committing any environment or secret-related files.
+   This includes:
+   - .env
+   - .env.local
+   - .env.*
+   - Any file containing API keys, tokens, credentials, or environment variables.
+   If such a file is tracked, automatically remove it from Git tracking using
+   "git rm --cached" and keep the file on disk.
+
+2. For all other files:
+   - Identify changes that should be committed (modified, added, or untracked files
+     that are not ignored by .gitignore).
+   - Stage and commit these safe changes with a clear commit message summarizing the
+     update.
+   - Ignore and do NOT commit any files listed in .gitignore or file types that are
+     typically build artifacts (dist, build output, logs, temporary files, etc).
+
+3. After safely committing the appropriate changes:
+   - Tell me how many commits my branch is ahead of the remote.
+   - If I instruct “push to GitHub” or “push”, perform a "git push origin <current-branch>"
+     after summarizing the commits that will be pushed.
+
+4. Before pushing, always display a summary of what is being committed and confirm that
+   no sensitive files are included.
+
+5. If Git is in a conflicted or inconsistent state, pause and show me the issue clearly
+   before taking any automatic action.
