@@ -1,6 +1,8 @@
 /**
  * Client-side error reporting utility
  * Captures browser errors and sends them to the backend for logging
+ * 
+ * Uses fetch (not sendBeacon) for reliability and debuggability
  */
 
 import { buildApiUrl } from "@/lib/queryClient";
@@ -18,30 +20,40 @@ export interface ClientErrorPayload {
 }
 
 /**
- * Send error payload to backend - never throws
+ * Send error payload to backend using fetch
+ * Logs debug info so we can see what's happening
  */
-function sendErrorToBackend(payload: ClientErrorPayload): void {
+async function sendErrorToBackend(payload: ClientErrorPayload): Promise<void> {
+  const endpoint = buildApiUrl("/api/client-error");
+  const jsonPayload = JSON.stringify(payload);
+  
+  // Debug: log what we're about to send
+  console.debug(
+    `📤 [ClientErrorReporter] Sending ${payload.type} to ${endpoint}:`,
+    payload.message
+  );
+  
   try {
-    const jsonPayload = JSON.stringify(payload);
-    const url = buildApiUrl("/api/client-error");
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: jsonPayload,
+      keepalive: true,
+    });
     
-    // Prefer sendBeacon for reliability (works even during page unload)
-    if (navigator.sendBeacon) {
-      const blob = new Blob([jsonPayload], { type: "application/json" });
-      navigator.sendBeacon(url, blob);
+    if (!response.ok) {
+      console.warn(
+        `⚠️ [ClientErrorReporter] Backend returned ${response.status} ${response.statusText}`
+      );
     } else {
-      // Fallback to fetch with keepalive
-      fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: jsonPayload,
-        keepalive: true,
-      }).catch(() => {
-        // Silently ignore - don't cause error loops
-      });
+      console.debug(`✅ [ClientErrorReporter] Error reported successfully`);
     }
-  } catch {
-    // Silently ignore any errors in the reporting itself
+  } catch (err) {
+    // Log the failure but don't throw - we don't want error reporting to cause more errors
+    console.warn(
+      `⚠️ [ClientErrorReporter] Failed to send error to backend:`,
+      err instanceof Error ? err.message : err
+    );
   }
 }
 
@@ -97,5 +109,18 @@ export function initClientErrorReporting(): void {
     
     sendErrorToBackend(payload);
   });
+  
+  // Expose manual test hook for debugging
+  (window as any).testClientErrorReport = () => {
+    console.log("🧪 Sending manual test error report...");
+    sendErrorToBackend({
+      message: "Manual test client error",
+      href: window.location.href,
+      userAgent: navigator.userAgent,
+      type: "error",
+      timestamp: new Date().toISOString(),
+    });
+  };
+  
+  console.log("💡 Tip: Run window.testClientErrorReport() to test error reporting");
 }
-

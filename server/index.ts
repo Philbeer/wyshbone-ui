@@ -83,7 +83,21 @@ interface ClientErrorPayload {
 }
 
 app.post('/api/client-error', (req, res) => {
+  // ALWAYS log that we received a request (helps debug if requests are arriving)
+  console.log(`[CLIENT_ERROR] ===== RECEIVED REQUEST =====`);
+  console.log(`[CLIENT_ERROR] Method: ${req.method}, URL: ${req.originalUrl}`);
+  console.log(`[CLIENT_ERROR] Content-Type: ${req.headers['content-type']}`);
+  console.log(`[CLIENT_ERROR] Origin: ${req.headers['origin']}`);
+  
   try {
+    // Check if body was parsed
+    if (!req.body || typeof req.body !== 'object' || Object.keys(req.body).length === 0) {
+      console.log(`[CLIENT_ERROR] ⚠️ Body was empty or not parsed:`, req.body);
+      console.log(`[CLIENT_ERROR] Raw body type:`, typeof req.body);
+      res.status(204).send();
+      return;
+    }
+    
     const payload = req.body as ClientErrorPayload;
     const timestamp = payload.timestamp || new Date().toISOString();
     const type = payload.type || 'unknown';
@@ -91,20 +105,29 @@ app.post('/api/client-error', (req, res) => {
     const href = payload.href || 'unknown';
     
     // Log with clear tag for easy filtering in logs
-    console.log(`[CLIENT_ERROR] ${timestamp} ${type} "${message}" @ ${href}`);
-    console.log(`[CLIENT_ERROR] Stack: ${payload.stack || 'No stack trace'}`);
-    console.log(`[CLIENT_ERROR] Details:`, JSON.stringify({
-      url: payload.url,
-      line: payload.line,
-      column: payload.column,
-      userAgent: payload.userAgent?.substring(0, 100),
-    }));
+    console.log(`[CLIENT_ERROR] 🔴 ${timestamp} ${type} "${message}"`);
+    console.log(`[CLIENT_ERROR] 📍 Location: ${href}`);
+    
+    if (payload.stack) {
+      console.log(`[CLIENT_ERROR] 📋 Stack trace:`);
+      // Split stack into lines for readability
+      payload.stack.split('\n').slice(0, 10).forEach(line => {
+        console.log(`[CLIENT_ERROR]    ${line}`);
+      });
+    }
+    
+    if (payload.url || payload.line || payload.column) {
+      console.log(`[CLIENT_ERROR] 📄 Source: ${payload.url || 'unknown'}:${payload.line || '?'}:${payload.column || '?'}`);
+    }
+    
+    console.log(`[CLIENT_ERROR] ===== END ERROR =====`);
   } catch (err) {
     // Log what we can even if parsing fails
-    console.log(`[CLIENT_ERROR] Failed to parse error payload:`, req.body);
+    console.log(`[CLIENT_ERROR] ❌ Failed to parse error payload:`, err);
+    console.log(`[CLIENT_ERROR] Raw body:`, req.body);
   }
   
-  // Always return 204 quickly
+  // Always return 204 quickly - never fail this endpoint
   res.status(204).send();
 });
 
