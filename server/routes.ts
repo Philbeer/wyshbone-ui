@@ -34,7 +34,6 @@ import {
   insertBrewSettingsSchema,
 } from "@shared/schema";
 import { storage } from "./storage";
-import cors from "cors";
 import * as cheerio from "cheerio";
 import { neon } from "@neondatabase/serverless";
 import { createXeroOAuthRouter } from "./routes/xero-oauth";
@@ -215,8 +214,7 @@ async function fetchUrlContent(url: string): Promise<string> {
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
-  // Enable CORS for all routes
-  app.use(cors());
+  // CORS is configured in index.ts - don't override here
 
   // ===========================
   // AUTH ROUTES
