@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useUser } from "@/contexts/UserContext";
-import { addDevAuthParams, buildApiUrl } from "@/lib/queryClient";
+import { authedFetch } from "@/lib/queryClient";
 import { useRef, useEffect } from "react";
 
 export interface PlanStepProgress {
@@ -53,10 +53,9 @@ export function usePlanProgress(planId: string | null, isActive: boolean): PlanP
       }
       
       // Build URL with planId query parameter
-      const url = buildApiUrl(addDevAuthParams(`/api/plan-status?planId=${encodeURIComponent(planId)}`));
-      console.log(`[PLAN_PROGRESS_DEBUG] fetching /api/plan-status for planId=${planId}, url=${url}`);
+      console.log(`[PLAN_PROGRESS_DEBUG] fetching /api/plan-status for planId=${planId}`);
       
-      const response = await fetch(url);
+      const response = await authedFetch(`/api/plan-status?planId=${encodeURIComponent(planId)}`);
       if (!response.ok) {
         console.error(`[PLAN_PROGRESS_DEBUG] fetch failed - status=${response.status}, statusText=${response.statusText}`);
         throw new Error(`Failed to fetch plan status: ${response.statusText}`);

@@ -34,8 +34,8 @@ function getUserFromStorage() {
   return null;
 }
 
-// Helper to get session ID from localStorage
-function getSessionId(): string | null {
+// Helper to get session ID from localStorage (exported for use in components)
+export function getSessionId(): string | null {
   try {
     const sessionId = localStorage.getItem('wyshbone_sid');
     return sessionId || null;
@@ -43,6 +43,28 @@ function getSessionId(): string | null {
     console.error('Failed to get session ID from localStorage:', e);
     return null;
   }
+}
+
+// Helper for authenticated fetch with session header and proper URL building
+export async function authedFetch(
+  url: string,
+  options: RequestInit = {}
+): Promise<Response> {
+  const sessionId = getSessionId();
+  const headers = new Headers(options.headers);
+  
+  if (sessionId) {
+    headers.set("x-session-id", sessionId);
+  }
+  
+  const authedUrl = addDevAuthParams(url);
+  const fullUrl = buildApiUrl(authedUrl);
+  
+  return fetch(fullUrl, {
+    ...options,
+    headers,
+    credentials: "include",
+  });
 }
 
 // Helper to add development auth parameters to URL (exported for use in components)

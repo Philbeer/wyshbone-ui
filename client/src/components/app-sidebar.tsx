@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { useUser } from "@/contexts/UserContext";
-import { addDevAuthParams, buildApiUrl } from "@/lib/queryClient";
+import { authedFetch, buildApiUrl, addDevAuthParams } from "@/lib/queryClient";
 import { useSidebarFlash } from "@/contexts/SidebarFlashContext";
 import {
   Sidebar,
@@ -590,8 +590,7 @@ export function AppSidebar({
     // Track view for deep research runs (for summarization feature)
     if (run && run.runType === "deep_research") {
       try {
-        const url = buildApiUrl(addDevAuthParams(`/api/deep-research/${id}/view`));
-        const response = await fetch(url, {
+        const response = await authedFetch(`/api/deep-research/${id}/view`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -625,8 +624,7 @@ export function AppSidebar({
     // Handle deep research runs via API
     if (ref.runType === "deep_research") {
       try {
-        const url = buildApiUrl(addDevAuthParams(`/api/deep-research/${id}/stop`));
-        const response = await fetch(url, {
+        const response = await authedFetch(`/api/deep-research/${id}/stop`, {
           method: "POST",
         });
         if (response.ok) {
@@ -674,8 +672,7 @@ export function AppSidebar({
     // Handle deep research runs via API
     if (ref.runType === "deep_research") {
       try {
-        const url = buildApiUrl(addDevAuthParams(`/api/deep-research/${id}/duplicate`));
-        const response = await fetch(url, {
+        const response = await authedFetch(`/api/deep-research/${id}/duplicate`, {
           method: "POST",
         });
         if (response.ok) {
@@ -993,8 +990,7 @@ function ScheduledMonitorsSection({ userId, onSelectConversation }: { userId: st
     
     setIsDeleting(true);
     try {
-      const url = buildApiUrl(addDevAuthParams(`/api/scheduled-monitors/${deletingMonitor.id}`));
-      const response = await fetch(url, {
+      const response = await authedFetch(`/api/scheduled-monitors/${deletingMonitor.id}`, {
         method: 'DELETE',
       });
       
@@ -1042,8 +1038,7 @@ function ScheduledMonitorsSection({ userId, onSelectConversation }: { userId: st
       // Override email address for dev testing
       const emailAddress = sendToPhil ? 'phil@listersbrewery.com' : editForm.emailAddress;
       
-      const url = buildApiUrl(addDevAuthParams(`/api/scheduled-monitors/${editingMonitor.id}`));
-      const response = await fetch(url, {
+      const response = await authedFetch(`/api/scheduled-monitors/${editingMonitor.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1286,8 +1281,7 @@ function ScheduledMonitorsSection({ userId, onSelectConversation }: { userId: st
           
           try {
             // Fetch the single conversation thread for this monitor
-            const url = buildApiUrl(addDevAuthParams(`/api/monitors/${monitor.id}/conversation`));
-            const response = await fetch(url);
+            const response = await authedFetch(`/api/monitors/${monitor.id}/conversation`);
             
             if (!response.ok) {
               if (response.status === 404) {
@@ -1444,8 +1438,7 @@ function IntegrationsSection({ userId }: { userId: string }) {
   
   const handleDisconnect = async (integrationId: string) => {
     try {
-      const url = buildApiUrl(addDevAuthParams(`/api/integrations/${integrationId}`));
-      const response = await fetch(url, {
+      const response = await authedFetch(`/api/integrations/${integrationId}`, {
         method: 'DELETE',
       });
       

@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { apiRequest, addDevAuthParams, buildApiUrl } from "@/lib/queryClient";
+import { apiRequest, authedFetch } from "@/lib/queryClient";
 import { useState } from "react";
 
 export interface UserGoalData {
@@ -18,9 +18,8 @@ export function useUserGoal() {
   } = useQuery<UserGoalData>({
     queryKey: ["/api/goal"],
     queryFn: async () => {
-      const url = buildApiUrl(addDevAuthParams("/api/goal"));
-      console.log("🔍 Fetching user goal from", url);
-      const response = await fetch(url);
+      console.log("🔍 Fetching user goal");
+      const response = await authedFetch("/api/goal");
       if (!response.ok) {
         throw new Error("Failed to fetch goal");
       }

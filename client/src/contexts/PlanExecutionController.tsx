@@ -1,7 +1,7 @@
 import { createContext, useContext, ReactNode, useState, useEffect, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useUser } from './UserContext';
-import { addDevAuthParams, buildApiUrl } from '@/lib/queryClient';
+import { authedFetch } from '@/lib/queryClient';
 
 interface ExecutionState {
   isExecuting: boolean;
@@ -29,9 +29,8 @@ export function PlanExecutionProvider({ children }: { children: ReactNode }) {
     queryFn: async () => {
       if (!activePlanId) throw new Error('No active plan');
       
-      const url = buildApiUrl(addDevAuthParams(`/api/plan-status?planId=${encodeURIComponent(activePlanId)}`));
       console.log(`[EXECUTION_CONTROLLER] fetching status for ${activePlanId}`);
-      const response = await fetch(url);
+      const response = await authedFetch(`/api/plan-status?planId=${encodeURIComponent(activePlanId)}`);
       if (!response.ok) throw new Error('Failed to fetch plan status');
       const data = await response.json();
       console.log(`[EXECUTION_CONTROLLER] received status: ${data.status}`);
