@@ -24,7 +24,7 @@
  */
 
 import type { LeadGenPlan, LeadGenStep } from './leadgen-plan.js';
-import { logRunToTower, startRunLog, completeRunLog } from './lib/towerClient.js';
+import { logRunToTower, startRunLog, completeRunLog, logPlanExecutionToTower } from './lib/towerClient.js';
 
 export interface StepProgress {
   stepId: string;
