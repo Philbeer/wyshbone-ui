@@ -461,10 +461,12 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
       abortControllerRef.current = new AbortController();
 
       // Send conversation to /api/chat endpoint (GPT-5 with web search)
+      const sessionId = localStorage.getItem('wyshbone_sid');
       const response = await fetch(buildApiUrl(addDevAuthParams("/api/chat")), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          ...(sessionId ? { "x-session-id": sessionId } : {}),
         },
         body: JSON.stringify({
           messages: conversationMessages,
@@ -473,6 +475,7 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
           conversationId: conversationId,
         }),
         signal: abortControllerRef.current.signal,
+        credentials: "include",
       });
 
       if (!response.ok) {
@@ -735,15 +738,18 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
         localStorage.setItem('currentConversationId', currentConversationId);
       }
 
+      const megaSessionId = localStorage.getItem('wyshbone_sid');
       const response = await fetch(buildApiUrl(addDevAuthParams("/agent/chat")), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          ...(megaSessionId ? { "x-session-id": megaSessionId } : {}),
         },
         body: JSON.stringify({
           text: messageContent,
           conversationId: currentConversationId,
         }),
+        credentials: "include",
       });
 
       clearTimeout(slowWarningTimeout);
