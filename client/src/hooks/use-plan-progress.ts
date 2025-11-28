@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useUser } from "@/contexts/UserContext";
-import { addDevAuthParams } from "@/lib/queryClient";
+import { addDevAuthParams, buildApiUrl } from "@/lib/queryClient";
 import { useRef, useEffect } from "react";
 
 export interface PlanStepProgress {
@@ -53,7 +53,7 @@ export function usePlanProgress(planId: string | null, isActive: boolean): PlanP
       }
       
       // Build URL with planId query parameter
-      const url = addDevAuthParams(`/api/plan-status?planId=${encodeURIComponent(planId)}`);
+      const url = buildApiUrl(addDevAuthParams(`/api/plan-status?planId=${encodeURIComponent(planId)}`));
       console.log(`[PLAN_PROGRESS_DEBUG] fetching /api/plan-status for planId=${planId}, url=${url}`);
       
       const response = await fetch(url);

@@ -1,5 +1,5 @@
 import { Switch, Route, useLocation } from "wouter";
-import { queryClient, addDevAuthParams } from "./lib/queryClient";
+import { queryClient, addDevAuthParams, buildApiUrl } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -129,7 +129,7 @@ function AppContent() {
   useEffect(() => {
     const fetchConversations = async () => {
       try {
-        const url = addDevAuthParams(`/api/conversations/${user.id}`);
+        const url = buildApiUrl(addDevAuthParams(`/api/conversations/${user.id}`));
         const response = await fetch(url);
         if (response.ok) {
           const data = await response.json();
@@ -143,7 +143,7 @@ function AppContent() {
     // Regenerate labels on first load (one-time)
     const regenerateLabels = async () => {
       try {
-        const url = addDevAuthParams("/api/conversations/regenerate-labels");
+        const url = buildApiUrl(addDevAuthParams("/api/conversations/regenerate-labels"));
         const response = await fetch(url, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -181,7 +181,7 @@ function AppContent() {
   useEffect(() => {
     const fetchDeepResearchRuns = async () => {
       try {
-        const url = addDevAuthParams(`/api/deep-research?userId=${encodeURIComponent(user.id)}`);
+        const url = buildApiUrl(addDevAuthParams(`/api/deep-research?userId=${encodeURIComponent(user.id)}`));
         const response = await fetch(url, {
           cache: 'no-store',
           headers: {
@@ -354,7 +354,7 @@ function AppContent() {
     // Handle deep research runs - fetch and display output
     if (run.runType === "deep_research" && run.status === "completed") {
       try {
-        const url = addDevAuthParams(`/api/deep-research/${id}`);
+        const url = buildApiUrl(addDevAuthParams(`/api/deep-research/${id}`));
         const response = await fetch(url);
         if (!response.ok) {
           throw new Error("Failed to fetch research output");
