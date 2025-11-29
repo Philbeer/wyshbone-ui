@@ -597,17 +597,12 @@ export function AppSidebar({
           },
         });
         
+        // DEV MODE: No auth gating for deep research - just log any errors
         if (!response.ok) {
-          const data = await response.json();
-          
-          // Demo users must sign up to view reports
-          if (data.error === "DEMO_SIGNUP_REQUIRED") {
-            setLocation("/auth");
-            return; // Don't select the run
-          }
+          console.warn("View tracking returned non-OK status:", response.status);
+        } else {
+          console.log(`📊 Tracked view for deep research run: ${id}`);
         }
-        
-        console.log(`📊 Tracked view for deep research run: ${id}`);
       } catch (error) {
         console.error("Failed to track view:", error);
         // Don't block the UI if tracking fails

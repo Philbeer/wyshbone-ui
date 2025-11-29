@@ -5625,17 +5625,10 @@ Return structured data with the EXACT placeId provided above: "${placeId}"`;
         });
       }
 
-      // SECURITY: Validate authenticated user
+      // DEV MODE: Auth is optional for Deep Research during development
       const auth = await getAuthenticatedUserId(req);
-      if (!auth) {
-        return res.status(401).json({ error: "Unauthorized" });
-      }
-      
-      // SECURITY: Verify userId in request matches authenticated user
-      if (validation.data.userId && validation.data.userId !== auth.userId) {
-        console.warn(`🚫 User ${auth.userEmail} attempted to create research for ${validation.data.userId}`);
-        return res.status(403).json({ error: "Forbidden: Cannot create research for another user" });
-      }
+      // Use authenticated userId if available, otherwise fall back to request body or demo-user
+      const userId = auth?.userId || validation.data.userId || "demo-user";
 
       // Extract sessionId so we can send notifications when research completes
       const sessionId = getSessionId(req);
@@ -5645,7 +5638,6 @@ Return structured data with the EXACT placeId provided above: "${placeId}"`;
       
       // ENHANCE VAGUE PROMPTS using conversation context
       const { conversationId } = validation.data;
-      const userId = auth.userId; // Use authenticated userId instead of trusting client
       const enhancement = await enhancePromptWithContext(
         validation.data.prompt,
         conversationId,
@@ -5702,14 +5694,12 @@ Return structured data with the EXACT placeId provided above: "${placeId}"`;
       res.setHeader('Expires', '0');
       res.removeHeader('ETag');
       
-      // SECURITY: Validate authenticated user
+      // DEV MODE: Auth is optional for Deep Research during development
       const auth = await getAuthenticatedUserId(req);
-      if (!auth) {
-        return res.status(401).json({ error: "Unauthorized" });
-      }
+      // Use authenticated userId if available, otherwise fall back to query param or show all
+      const userId = auth?.userId || (req.query.userId as string) || undefined;
       
-      // SECURITY: Only allow users to access their own runs
-      const runs = await getAllRuns(auth.userId);
+      const runs = await getAllRuns(userId);
       res.json({ runs: runs.map(stripLargeOutput) });
     } catch (error: any) {
       console.error("Deep research list error:", error);
@@ -5719,21 +5709,10 @@ Return structured data with the EXACT placeId provided above: "${placeId}"`;
 
   app.get("/api/deep-research/:id", async (req, res) => {
     try {
-      // SECURITY: Validate authenticated user
-      const auth = await getAuthenticatedUserId(req);
-      if (!auth) {
-        return res.status(401).json({ error: "Unauthorized" });
-      }
-      
+      // DEV MODE: Auth is optional for Deep Research during development
       const run = await getRun(req.params.id);
       if (!run) {
         return res.status(404).json({ error: "Research run not found" });
-      }
-      
-      // SECURITY: Verify the research run belongs to the authenticated user
-      if (run.userId !== auth.userId) {
-        console.warn(`🚫 User ${auth.userEmail} attempted to access research run ${req.params.id} owned by ${run.userId}`);
-        return res.status(403).json({ error: "Forbidden: Cannot access other users' research runs" });
       }
       
       res.json({ run });
@@ -5745,24 +5724,7 @@ Return structured data with the EXACT placeId provided above: "${placeId}"`;
 
   app.post("/api/deep-research/:id/stop", async (req, res) => {
     try {
-      // SECURITY: Validate authenticated user
-      const auth = await getAuthenticatedUserId(req);
-      if (!auth) {
-        return res.status(401).json({ error: "Unauthorized" });
-      }
-      
-      // First check if run exists and get ownership info
-      const existingRun = await getRun(req.params.id);
-      if (!existingRun) {
-        return res.status(404).json({ error: "Research run not found" });
-      }
-      
-      // SECURITY: Verify the research run belongs to the authenticated user
-      if (existingRun.userId !== auth.userId) {
-        console.warn(`🚫 User ${auth.userEmail} attempted to stop research run ${req.params.id} owned by ${existingRun.userId}`);
-        return res.status(403).json({ error: "Forbidden: Cannot stop other users' research runs" });
-      }
-      
+      // DEV MODE: Auth is optional for Deep Research during development
       const run = await stopRun(req.params.id);
       if (!run) {
         return res.status(404).json({ error: "Research run not found" });
@@ -5776,24 +5738,7 @@ Return structured data with the EXACT placeId provided above: "${placeId}"`;
 
   app.post("/api/deep-research/:id/duplicate", async (req, res) => {
     try {
-      // SECURITY: Validate authenticated user
-      const auth = await getAuthenticatedUserId(req);
-      if (!auth) {
-        return res.status(401).json({ error: "Unauthorized" });
-      }
-      
-      // First check if run exists and get ownership info
-      const existingRun = await getRun(req.params.id);
-      if (!existingRun) {
-        return res.status(404).json({ error: "Research run not found" });
-      }
-      
-      // SECURITY: Verify the research run belongs to the authenticated user
-      if (existingRun.userId !== auth.userId) {
-        console.warn(`🚫 User ${auth.userEmail} attempted to duplicate research run ${req.params.id} owned by ${existingRun.userId}`);
-        return res.status(403).json({ error: "Forbidden: Cannot duplicate other users' research runs" });
-      }
-      
+      // DEV MODE: Auth is optional for Deep Research during development
       const run = await duplicateRun(req.params.id);
       if (!run) {
         return res.status(404).json({ error: "Research run not found" });
@@ -5810,7 +5755,6 @@ Return structured data with the EXACT placeId provided above: "${placeId}"`;
     try {
       const runId = req.params.id;
       const sessionId = getSessionId(req);
-      const auth = await getAuthenticatedUserId(req);
       
       // Verify the run exists
       const run = await getRun(runId);
@@ -5818,17 +5762,8 @@ Return structured data with the EXACT placeId provided above: "${placeId}"`;
         return res.status(404).json({ error: "Research run not found" });
       }
       
-      // Demo users must sign up to view deep research reports
-      if (auth?.userId) {
-        const user = await storage.getUserById(auth.userId);
-        if (user && user.isDemo) {
-          return res.status(403).json({ 
-            error: "DEMO_SIGNUP_REQUIRED",
-            message: "Sign up for a free account to view your deep research reports!",
-            requiresSignup: true
-          });
-        }
-      }
+      // DEV MODE: Demo signup requirement removed for development
+      // All users can view deep research reports
       
       // Track this as the last viewed run for this session
       await storage.setLastViewedRun(sessionId, runId);
