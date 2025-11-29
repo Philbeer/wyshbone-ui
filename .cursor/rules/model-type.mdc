@@ -1,0 +1,12 @@
+---
+alwaysApply: true
+---
+
+# Model Selection Rule
+When doing large refactors or touching many files at once, prefer the strongest model available  
+(Max Mode / Opus / top-tier). Avoid small models for multi-file refactors.
+
+For simple one-file edits, it’s OK to use cheaper models.
+
+
+---

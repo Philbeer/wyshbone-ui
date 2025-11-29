@@ -1,0 +1,8 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/cursor-ai/commands/main/command.schema.json
+
+name: api
+description: Start the Wyshbone backend API server.
+
+run: |
+  cd "C:/Users/Phil Waite/Documents/GitHub/wyshbone-ui"
+  npm run server
