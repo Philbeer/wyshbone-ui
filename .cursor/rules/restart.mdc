@@ -1,0 +1,25 @@
+Wyshbone dev servers (backend + UI)
+
+This project has:
+
+npm run dev → backend (Node/Express) using tsx watch server/index.ts
+
+npm run dev:ui → frontend (Vite on port 5173)
+
+npm run dev:all → runs both concurrently.
+
+Assume that during development, I will start npm run dev:all once and leave it running.
+
+When you change backend or shared code, do NOT tell me “Stop the backend and run npm run dev again.” The watcher will reload automatically.
+
+Only if there are clear errors that require a restart (e.g. the terminal is dead or ports are not listening), you may:
+
+Open the Terminal,
+
+Suggest this single command:
+
+npm run dev:all
+
+In that case, write the command yourself in the terminal and just ask me to click “Run”, instead of asking me what to type.---
+alwaysApply: true
+---

@@ -866,6 +866,7 @@ export const brewProducts = pgTable("brew_products", {
   dutyBand: text("duty_band").notNull(), // 'beer_standard', 'beer_small_producer', etc.
   defaultUnitPriceExVat: integer("default_unit_price_ex_vat").default(0), // In pence/cents - used for order line defaults
   defaultVatRate: integer("default_vat_rate").default(2000), // Stored as basis points (e.g., 2000 = 20%, 500 = 5%)
+  minimumStockUnits: integer("minimum_stock_units").default(0), // Minimum stock level for alerts
   isActive: integer("is_active").notNull().default(1), // 1 = true, 0 = false
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
   updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
@@ -937,8 +938,10 @@ export const brewContainers = pgTable("brew_containers", {
   containerType: text("container_type").notNull(), // 'cask', 'keg'
   volumeLitres: integer("volume_litres").notNull(), // In millilitres
   status: text("status").notNull().default("at_brewery"), // 'at_brewery', 'with_customer', 'lost', 'retired'
+  qrCode: text("qr_code"), // QR code for scanning/tracking
   lastCustomerId: text("last_customer_id"),
   lastOutboundDate: bigint("last_outbound_date", { mode: "number" }),
+  expectedReturnDate: bigint("expected_return_date", { mode: "number" }), // When container should be returned
   lastReturnDate: bigint("last_return_date", { mode: "number" }),
   notes: text("notes"),
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
@@ -948,6 +951,7 @@ export const brewContainers = pgTable("brew_containers", {
   containerCodeIdx: index("brew_containers_container_code_idx").on(table.containerCode),
   statusIdx: index("brew_containers_status_idx").on(table.status),
   lastCustomerIdIdx: index("brew_containers_last_customer_id_idx").on(table.lastCustomerId),
+  qrCodeIdx: index("brew_containers_qr_code_idx").on(table.qrCode),
 }));
 
 export const insertBrewContainerSchema = createInsertSchema(brewContainers);

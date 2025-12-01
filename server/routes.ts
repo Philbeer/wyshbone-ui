@@ -6893,7 +6893,7 @@ ${run.outputText}`;
       }
       
       // VALIDATION: Validate request body using Zod schema
-      const validationResult = insertCrmSettingsSchema.omit({ id: true, createdAt: true, updatedAt: true }).safeParse(req.body);
+      const validationResult = insertCrmSettingsSchema.omit({ id: true, workspaceId: true, createdAt: true, updatedAt: true }).safeParse(req.body);
       if (!validationResult.success) {
         return res.status(400).json({ 
           error: "Validation failed", 
@@ -7056,7 +7056,7 @@ ${run.outputText}`;
       }
       
       // VALIDATION: Validate request body using Zod schema
-      const validationResult = insertCrmCustomerSchema.omit({ id: true, createdAt: true, updatedAt: true }).safeParse(req.body);
+      const validationResult = insertCrmCustomerSchema.omit({ id: true, workspaceId: true, createdAt: true, updatedAt: true }).safeParse(req.body);
       if (!validationResult.success) {
         return res.status(400).json({ 
           error: "Validation failed", 
@@ -7232,7 +7232,7 @@ ${run.outputText}`;
       }
       
       // VALIDATION: Validate request body using Zod schema
-      const validationResult = insertCrmDeliveryRunSchema.omit({ id: true, createdAt: true, updatedAt: true }).safeParse(req.body);
+      const validationResult = insertCrmDeliveryRunSchema.omit({ id: true, workspaceId: true, createdAt: true, updatedAt: true }).safeParse(req.body);
       if (!validationResult.success) {
         return res.status(400).json({ 
           error: "Validation failed", 
@@ -7453,7 +7453,7 @@ ${run.outputText}`;
       }
       
       // VALIDATION: Validate request body using Zod schema
-      const validationResult = insertCrmOrderSchema.omit({ id: true, createdAt: true, updatedAt: true }).safeParse(req.body);
+      const validationResult = insertCrmOrderSchema.omit({ id: true, workspaceId: true, createdAt: true, updatedAt: true }).safeParse(req.body);
       if (!validationResult.success) {
         return res.status(400).json({ 
           error: "Validation failed", 
@@ -7629,8 +7629,15 @@ ${run.outputText}`;
         return res.status(401).json({ error: "Unauthorized" });
       }
       
-      // VALIDATION: Validate request body using Zod schema
-      const validationResult = insertCrmOrderLineSchema.omit({ id: true, createdAt: true, updatedAt: true }).safeParse(req.body);
+      // VALIDATION: Validate request body using Zod schema (omit calculated fields that server computes)
+      const validationResult = insertCrmOrderLineSchema.omit({ 
+        id: true, 
+        createdAt: true, 
+        updatedAt: true,
+        lineSubtotalExVat: true,
+        lineVatAmount: true,
+        lineTotalIncVat: true,
+      }).safeParse(req.body);
       if (!validationResult.success) {
         return res.status(400).json({ 
           error: "Validation failed", 
@@ -7852,7 +7859,7 @@ ${run.outputText}`;
       }
       
       // VALIDATION: Validate request body using Zod schema
-      const validationResult = insertBrewSettingsSchema.omit({ id: true, createdAt: true, updatedAt: true }).safeParse(req.body);
+      const validationResult = insertBrewSettingsSchema.omit({ id: true, workspaceId: true, createdAt: true, updatedAt: true }).safeParse(req.body);
       if (!validationResult.success) {
         return res.status(400).json({ 
           error: "Validation failed", 
@@ -7988,9 +7995,12 @@ ${run.outputText}`;
         return res.status(401).json({ error: "Unauthorized" });
       }
       
-      // VALIDATION: Validate request body using Zod schema
-      const validationResult = insertBrewProductSchema.omit({ id: true, createdAt: true, updatedAt: true }).safeParse(req.body);
+      console.log("📦 POST /api/brewcrm/products - Request body:", JSON.stringify(req.body, null, 2));
+      
+      // VALIDATION: Validate request body using Zod schema (omit server-side fields)
+      const validationResult = insertBrewProductSchema.omit({ id: true, workspaceId: true, createdAt: true, updatedAt: true }).safeParse(req.body);
       if (!validationResult.success) {
+        console.log("❌ Validation failed:", JSON.stringify(validationResult.error.errors, null, 2));
         return res.status(400).json({ 
           error: "Validation failed", 
           details: validationResult.error.errors 
@@ -8006,16 +8016,17 @@ ${run.outputText}`;
       const product = await storage.createBrewProduct({
         id: `product_${Date.now()}_${Math.random().toString(36).substring(7)}`,
         workspaceId,
-        sku: data.sku,
         name: data.name,
-        beerStyle: data.beerStyle || null,
-        abv: data.abv || null,
-        ibu: data.ibu || null,
-        description: data.description || null,
-        packageType: data.packageType || null,
-        packageSizeLiters: data.packageSizeLiters || null,
-        costPerUnit: data.costPerUnit || null,
-        sellingPricePerUnit: data.sellingPricePerUnit || null,
+        style: data.style || null,
+        sku: data.sku || null,
+        abv: data.abv,
+        defaultPackageType: data.defaultPackageType,
+        defaultPackageSizeLitres: data.defaultPackageSizeLitres,
+        dutyBand: data.dutyBand,
+        defaultUnitPriceExVat: data.defaultUnitPriceExVat || 0,
+        defaultVatRate: data.defaultVatRate || 2000,
+        minimumStockUnits: data.minimumStockUnits || 0,
+        isActive: data.isActive ?? 1,
         createdAt: now,
         updatedAt: now,
       });
@@ -8159,7 +8170,7 @@ ${run.outputText}`;
       }
       
       // VALIDATION: Validate request body using Zod schema
-      const validationResult = insertBrewBatchSchema.omit({ id: true, createdAt: true, updatedAt: true }).safeParse(req.body);
+      const validationResult = insertBrewBatchSchema.omit({ id: true, workspaceId: true, createdAt: true, updatedAt: true }).safeParse(req.body);
       if (!validationResult.success) {
         return res.status(400).json({ 
           error: "Validation failed", 
@@ -8349,7 +8360,7 @@ ${run.outputText}`;
       }
       
       // VALIDATION: Validate request body using Zod schema
-      const validationResult = insertBrewInventorySchema.omit({ id: true, createdAt: true, updatedAt: true }).safeParse(req.body);
+      const validationResult = insertBrewInventorySchema.omit({ id: true, workspaceId: true, createdAt: true, updatedAt: true }).safeParse(req.body);
       if (!validationResult.success) {
         return res.status(400).json({ 
           error: "Validation failed", 
@@ -8500,7 +8511,7 @@ ${run.outputText}`;
       }
       
       // VALIDATION: Validate request body using Zod schema
-      const validationResult = insertBrewContainerSchema.omit({ id: true, createdAt: true, updatedAt: true }).safeParse(req.body);
+      const validationResult = insertBrewContainerSchema.omit({ id: true, workspaceId: true, createdAt: true, updatedAt: true }).safeParse(req.body);
       if (!validationResult.success) {
         return res.status(400).json({ 
           error: "Validation failed", 
@@ -8667,7 +8678,7 @@ ${run.outputText}`;
       }
       
       // VALIDATION: Validate request body using Zod schema
-      const validationResult = insertBrewDutyReportSchema.omit({ id: true, createdAt: true, updatedAt: true }).safeParse(req.body);
+      const validationResult = insertBrewDutyReportSchema.omit({ id: true, workspaceId: true, createdAt: true, updatedAt: true }).safeParse(req.body);
       if (!validationResult.success) {
         return res.status(400).json({ 
           error: "Validation failed", 

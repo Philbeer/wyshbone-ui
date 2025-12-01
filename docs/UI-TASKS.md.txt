@@ -1,0 +1,90 @@
+# Wyshbone UI – Task Plan (UI Series)
+
+This document tracks the main UI tasks for Wyshbone.
+
+---
+
+## UI-1 – Brew CRM Dashboard Polish
+Goal: Ensure all dashboard tiles show meaningful, correct data.
+
+Includes:
+- Fix misleading stats (e.g. upcoming deliveries showing “None” when alerts exist)
+- Hide or remove tiles that show incorrect or placeholder values
+- Ensure every visible metric is either accurate or removed entirely
+
+---
+
+## UI-2 – Brew CRM Orders UX
+Goal: Improve the order creation/editing experience.
+
+Includes:
+- Validate required fields (no silent failures)
+- Clear, friendly error messages
+- Improve line item creation flow
+- Prevent broken or partially-saved orders
+
+---
+
+## UI-3 – Navigation & Layout Cleanup
+Goal: Make CRM navigation clean, predictable, and consistent.
+
+Includes:
+- Review left-hand navigation
+- Remove dead links or placeholder areas
+- Fix Brewery CRM / Generic CRM toggle behaviour
+- Ensure mobile/laptop views align
+
+---
+
+## UI-4 – Lead Generation Features
+Goal: Connect the “Goal” panel to real lead-generation flows.
+
+Includes:
+- Improve copywriting / clarity
+- Make it brewery-relevant
+- Hook into search and suggestion features
+- Integrate with Supervisor/Tower decision agents later
+
+---
+
+## UI-5 – Deep Research & Monitors UX
+Goal: Make advanced tools understandable and usable.
+
+Includes:
+- Improve empty states (no blank screens)
+- Add loading indicators
+- Add tooltips / explanations
+- Improve “previous runs” and “today” sections
+
+---
+
+## UI-6 – Error & Loading States
+Goal: Standardise error handling and loading visuals across the UI.
+
+Includes:
+- Loading spinners
+- Toasts / notification styles
+- Error boundaries
+- Graceful fallback screens
+
+---
+
+## UI-7 – Mobile & Small Screen Support
+Goal: Improve usability on small laptops + tablets.
+
+Includes:
+- Fix layout issues
+- Ensure key CRM pages are scrollable and responsive
+- Improve table views on small screens
+
+---
+
+## UI-8 – Global Styling Consistency
+Goal: Standardise design across all CRM areas.
+
+Includes:
+- Buttons (primary/secondary)
+- Inputs and form layouts
+- Cards and panels
+- Tables and spacing
+- Consistent use of Tailwind classes
