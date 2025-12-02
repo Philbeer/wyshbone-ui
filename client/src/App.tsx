@@ -24,9 +24,11 @@ import { UserProvider, useUser } from "@/contexts/UserContext";
 import { SidebarFlashProvider } from "@/contexts/SidebarFlashContext";
 import { PlanProvider } from "@/contexts/PlanContext";
 import { PlanExecutionProvider } from "@/contexts/PlanExecutionController";
+import { AgentStatusProvider, useAgentStatus } from "@/contexts/AgentStatusContext";
 import { MyGoalsPanel } from "@/components/my-goals-panel";
 import { PlanApprovalPanel } from "@/components/plan-approval-panel";
 import { ProgressWidget } from "@/components/progress-widget";
+import { AgentStatusBadge } from "@/components/AgentStatusBadge";
 
 // No demo runs - users only see their own data
 const DEMO_RUNS: RunItem[] = [];
@@ -408,6 +410,14 @@ function AppContent() {
   );
 }
 
+/**
+ * Wrapper component that connects AgentStatusBadge to context
+ */
+function AgentStatusBadgeWrapper() {
+  const { status } = useAgentStatus();
+  return <AgentStatusBadge status={status} className="mr-2" />;
+}
+
 function AppLayout({
   defaultCountry,
   setDefaultCountry,
@@ -506,6 +516,7 @@ function AppLayout({
             className="flex items-center gap-0.5 sidebar:gap-1 ml-auto"
             style={{ marginRight: userMenuMargin }}
           >
+            <AgentStatusBadgeWrapper />
             <LoginDialog />
             {showNewTabButton && (
               <Button
@@ -556,7 +567,9 @@ function App() {
   return (
     <UserProvider>
       <SidebarFlashProvider>
-        <AppContent />
+        <AgentStatusProvider>
+          <AppContent />
+        </AgentStatusProvider>
       </SidebarFlashProvider>
     </UserProvider>
   );
