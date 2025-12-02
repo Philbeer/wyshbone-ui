@@ -2,6 +2,7 @@ import { createContext, useContext, ReactNode } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useUser } from "@/contexts/UserContext";
 import { apiRequest } from "@/lib/queryClient";
+import { publishEvent } from "@/lib/events";
 
 export interface LeadGenStep {
   id: string;
@@ -60,12 +61,22 @@ export function PlanProvider({ children }: { children: ReactNode }) {
       const data = await response.json();
       
       console.log(`[PLAN_DEBUG] startPlan response:`, data);
-      return data;
+      return { data, goal };
     },
-    onSuccess: () => {
+    onSuccess: ({ data, goal }) => {
       // Just invalidate - let the backend provide the new plan
       console.log(`[PLAN_DEBUG] startPlan succeeded - invalidating queries`);
       queryClient.invalidateQueries({ queryKey: ["/api/plan"] });
+
+      // Publish event for plan created
+      if (data?.plan?.id) {
+        publishEvent("PLAN_CREATED", {
+          planId: data.plan.id,
+          sessionId: data.plan.sessionId,
+          goal,
+          stepCount: data.plan.steps?.length || 0,
+        });
+      }
     },
     onError: (error) => {
       console.error(`[PLAN_DEBUG] startPlan failed:`, error);
@@ -83,10 +94,16 @@ export function PlanProvider({ children }: { children: ReactNode }) {
       console.log(`[PLAN_DEBUG] approvePlan API response:`, data);
       return { data, planId };
     },
-    onSuccess: () => {
+    onSuccess: ({ planId }) => {
       // Just invalidate - let the backend update the status
       console.log(`[PLAN_DEBUG] approvePlan succeeded - invalidating queries`);
       queryClient.invalidateQueries({ queryKey: ["/api/plan"] });
+
+      // Publish event for plan approved
+      publishEvent("PLAN_APPROVED", {
+        planId,
+        sessionId: plan?.sessionId,
+      });
     },
     onError: (error) => {
       console.error(`[PLAN_DEBUG] approvePlan failed:`, error);

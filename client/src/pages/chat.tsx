@@ -16,6 +16,7 @@ import { AddToXeroDialog } from "@/components/AddToXeroDialog";
 import { useSidebarFlash } from "@/contexts/SidebarFlashContext";
 import { subscribeSupervisorMessages, type SupervisorMessage } from "@/lib/supabase";
 import { useUserGoal } from "@/hooks/use-user-goal";
+import { publishEvent } from "@/lib/events";
 
 type Message = ChatMessage & {
   id: string;
@@ -115,6 +116,14 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
           return prev;
         }
         return [...prev, displayMessage];
+      });
+
+      // Publish event for message received from supervisor
+      publishEvent("CHAT_MESSAGE_RECEIVED", {
+        conversationId: supervisorMessage.conversation_id,
+        messageId: supervisorMessage.id,
+        content: supervisorMessage.content,
+        source: "supervisor",
       });
       
       // Clear waiting state and timeout
@@ -894,6 +903,14 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
     // Update UI state immediately
     setMessages((prev) => [...prev, userMessage]);
     setInput("");
+
+    // Publish event for message sent
+    publishEvent("CHAT_MESSAGE_SENT", {
+      conversationId: conversationId || "pending",
+      messageId: userMessage.id,
+      content: messageContent,
+      mode: chatMode,
+    });
 
     // Route to MEGA agent if in MEGA mode
     if (chatMode === "mega") {
