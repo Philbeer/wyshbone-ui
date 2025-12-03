@@ -1,4 +1,4 @@
-import { Globe, MessageSquare, Bug, FilePlus, MessagesSquare, ChevronDown, ChevronRight, Clock, Edit2, Trash2, Mail, Link2, User, CreditCard, History } from "lucide-react";
+import { Globe, MessageSquare, Bug, FilePlus, MessagesSquare, ChevronDown, ChevronRight, Clock, Edit2, Trash2, Mail, Link2, User, CreditCard, History, Users } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
@@ -862,6 +862,14 @@ export function AppSidebar({
                   <Link href="/auth/crm">
                     <Link2 className="h-4 w-4" />
                     <span>CRM & Accounting</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={location === "/leads"} data-testid="link-leads">
+                  <Link href="/leads">
+                    <Users className="h-4 w-4" />
+                    <span>Leads</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
