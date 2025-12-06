@@ -32,5 +32,18 @@ export const breweryLabels: VerticalLabels = {
   // Brewery-specific fields
   field_beer_range: "Beer Range",
   field_primary_style: "Primary Beer Style",
+
+  // UI-14: Brewery-specific field labels for lead detail/cards
+  brewery_info_title: "Pub & Beer Info",
+  field_pub_type: "Pub Type",
+  field_rotation_style: "Rotation",
+  field_cask_bias: "Cask / Keg Bias",
+  field_cask_lines: "Cask Lines",
+  field_keg_lines: "Keg Lines",
+  field_serves_food: "Kitchen",
+  field_has_beer_garden: "Outdoor Space",
+  field_venue_notes: "Notes",
+  badge_serves_food: "Serves food",
+  badge_beer_garden: "Beer garden",
 };
 

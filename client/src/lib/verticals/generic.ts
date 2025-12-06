@@ -31,5 +31,18 @@ export const genericLabels: VerticalLabels = {
   // Generic field labels (not used in generic mode, but required by type)
   field_beer_range: "Product Range",
   field_primary_style: "Primary Style",
+
+  // UI-14: Generic fallbacks for brewery labels (not typically shown in generic mode)
+  brewery_info_title: "Business Info",
+  field_pub_type: "Business Type",
+  field_rotation_style: "Style",
+  field_cask_bias: "Preference",
+  field_cask_lines: "Primary Lines",
+  field_keg_lines: "Secondary Lines",
+  field_serves_food: "Services Food",
+  field_has_beer_garden: "Outdoor Space",
+  field_venue_notes: "Notes",
+  badge_serves_food: "Serves food",
+  badge_beer_garden: "Outdoor space",
 };
 

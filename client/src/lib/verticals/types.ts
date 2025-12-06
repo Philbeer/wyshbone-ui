@@ -33,7 +33,19 @@ export type VerticalLabelKey =
   | "empty_leads_description"
   // Fields (for future vertical-specific fields)
   | "field_beer_range"
-  | "field_primary_style";
+  | "field_primary_style"
+  // UI-14: Brewery-specific field labels for lead detail/cards
+  | "brewery_info_title"
+  | "field_pub_type"
+  | "field_rotation_style"
+  | "field_cask_bias"
+  | "field_cask_lines"
+  | "field_keg_lines"
+  | "field_serves_food"
+  | "field_has_beer_garden"
+  | "field_venue_notes"
+  | "badge_serves_food"
+  | "badge_beer_garden";
 
 /**
  * Complete set of labels for a vertical

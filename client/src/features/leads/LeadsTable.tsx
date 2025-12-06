@@ -16,8 +16,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ChevronLeft, ChevronRight, Eye, Trash2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Eye, Trash2, Beer, UtensilsCrossed, TreeDeciduous } from "lucide-react";
 import type { Lead, LeadSource, LeadStatus } from "./types";
+import { getBrewerySummaryLine, extractBreweryLeadFields } from "./breweryLeadFields";
 
 const PAGE_SIZE = 10;
 
@@ -30,6 +31,8 @@ interface LeadsTableProps {
   businessNameLabel?: string;
   /** Vertical-aware plural label for leads (default: "leads") */
   leadLabelPlural?: string;
+  /** Whether to show brewery-specific info (default: false) */
+  showBreweryInfo?: boolean;
 }
 
 /**
@@ -94,6 +97,38 @@ function getStatusSelectClasses(status: LeadStatus): string {
   }
 }
 
+/**
+ * UI-14: Compact brewery info display for table rows
+ */
+function BreweryInfoCell({ lead }: { lead: Lead }) {
+  const breweryFields = extractBreweryLeadFields(lead);
+  const summaryLine = getBrewerySummaryLine(lead);
+  
+  if (!breweryFields.hasBreweryData) {
+    return <span className="text-muted-foreground text-xs">—</span>;
+  }
+  
+  return (
+    <div className="flex flex-col gap-0.5">
+      {summaryLine && (
+        <span className="text-xs text-foreground">{summaryLine}</span>
+      )}
+      <div className="flex items-center gap-1.5">
+        {breweryFields.servesFood && (
+          <span title="Serves food" className="text-orange-600">
+            <UtensilsCrossed className="h-3 w-3" />
+          </span>
+        )}
+        {breweryFields.hasBeerGarden && (
+          <span title="Beer garden" className="text-green-600">
+            <TreeDeciduous className="h-3 w-3" />
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function LeadsTable({ 
   leads, 
   onView, 
@@ -101,6 +136,7 @@ export function LeadsTable({
   onStatusChange,
   businessNameLabel = "Business Name",
   leadLabelPlural = "leads",
+  showBreweryInfo = false,
 }: LeadsTableProps) {
   const [currentPage, setCurrentPage] = useState(1);
 
@@ -133,6 +169,14 @@ export function LeadsTable({
           <TableRow>
             <TableHead>{businessNameLabel}</TableHead>
             <TableHead>Location</TableHead>
+            {showBreweryInfo && (
+              <TableHead>
+                <span className="flex items-center gap-1">
+                  <Beer className="h-3.5 w-3.5" />
+                  Pub Info
+                </span>
+              </TableHead>
+            )}
             <TableHead>Source</TableHead>
             <TableHead>Status</TableHead>
             <TableHead className="text-right">Actions</TableHead>
@@ -143,6 +187,11 @@ export function LeadsTable({
             <TableRow key={lead.id} data-testid={`row-lead-${lead.id}`}>
               <TableCell className="font-medium">{lead.businessName}</TableCell>
               <TableCell>{lead.location}</TableCell>
+              {showBreweryInfo && (
+                <TableCell>
+                  <BreweryInfoCell lead={lead} />
+                </TableCell>
+              )}
               <TableCell>{getSourceBadge(lead.source)}</TableCell>
               <TableCell>
                 {onStatusChange ? (

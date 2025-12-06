@@ -1,9 +1,11 @@
+import { useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Users } from "lucide-react";
 import {
   LeadsTable,
   LeadsTableSkeleton,
   LeadsError,
+  LeadDetailPanel,
   useLeads,
 } from "@/features/leads";
 import type { Lead, LeadStatus } from "@/features/leads";
@@ -12,7 +14,9 @@ import { useVerticalLabels } from "@/lib/verticals";
 
 export default function LeadsPage() {
   const { toast } = useToast();
-  const { labels } = useVerticalLabels();
+  const { labels, verticalId } = useVerticalLabels();
+  const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
+  const [detailPanelOpen, setDetailPanelOpen] = useState(false);
   const {
     leads,
     isLoading,
@@ -23,10 +27,11 @@ export default function LeadsPage() {
   } = useLeads();
 
   /**
-   * Handle View action - logs lead to console for now
+   * Handle View action - opens lead detail panel
    */
   const handleView = (lead: Lead) => {
-    console.log("View lead:", lead);
+    setSelectedLead(lead);
+    setDetailPanelOpen(true);
   };
 
   /**
@@ -110,11 +115,19 @@ export default function LeadsPage() {
                 onStatusChange={handleStatusChange}
                 businessNameLabel={labels.table_business_name}
                 leadLabelPlural={labels.lead_plural}
+                showBreweryInfo={verticalId === "brewery"}
               />
             </div>
           </Card>
         )}
       </div>
+      
+      {/* Lead Detail Panel */}
+      <LeadDetailPanel
+        lead={selectedLead}
+        open={detailPanelOpen}
+        onOpenChange={setDetailPanelOpen}
+      />
     </div>
   );
 }
