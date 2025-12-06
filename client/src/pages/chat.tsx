@@ -17,6 +17,7 @@ import { useSidebarFlash } from "@/contexts/SidebarFlashContext";
 import { subscribeSupervisorMessages, type SupervisorMessage } from "@/lib/supabase";
 import { useUserGoal } from "@/hooks/use-user-goal";
 import { publishEvent } from "@/lib/events";
+import { getCurrentVerticalId } from "@/contexts/VerticalContext";
 
 type Message = ChatMessage & {
   id: string;
@@ -167,10 +168,15 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
 
   const startDeepResearch = async (request: DeepResearchCreateRequest) => {
     try {
+      // UI-16: Include current vertical in deep research request
+      const verticalId = getCurrentVerticalId();
+      console.log(`🔬 Starting deep research with vertical: ${verticalId}`);
+      
       const response = await apiRequest("POST", "/api/deep-research", {
         ...request,
         conversationId,
-        userId: user.id
+        userId: user.id,
+        verticalId,
       });
 
       const data = await response.json();

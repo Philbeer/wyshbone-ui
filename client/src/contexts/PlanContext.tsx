@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useUser } from "@/contexts/UserContext";
 import { apiRequest } from "@/lib/queryClient";
 import { publishEvent } from "@/lib/events";
+import { getCurrentVerticalId } from "@/contexts/VerticalContext";
 
 export interface LeadGenStep {
   id: string;
@@ -53,10 +54,13 @@ export function PlanProvider({ children }: { children: ReactNode }) {
   // Mutation to start a new plan
   const startPlanMutation = useMutation({
     mutationFn: async (goal: string) => {
-      console.log(`[PLAN_DEBUG] startPlan called with goal:`, goal.substring(0, 50) + "...");
+      // UI-16: Include current vertical in plan request
+      const verticalId = getCurrentVerticalId();
+      console.log(`[PLAN_DEBUG] startPlan called with goal:`, goal.substring(0, 50) + "...", `vertical: ${verticalId}`);
       
       const response = await apiRequest("POST", "/api/plan/start", {
         goal,
+        verticalId,
       });
       const data = await response.json();
       

@@ -28,6 +28,8 @@ import { SidebarFlashProvider } from "@/contexts/SidebarFlashContext";
 import { PlanProvider } from "@/contexts/PlanContext";
 import { PlanExecutionProvider } from "@/contexts/PlanExecutionController";
 import { AgentStatusProvider, useAgentStatus } from "@/contexts/AgentStatusContext";
+import { VerticalProvider } from "@/contexts/VerticalContext";
+import { VerticalIndicator } from "@/components/VerticalSelector";
 import { MyGoalsPanel } from "@/components/my-goals-panel";
 import { PlanApprovalPanel } from "@/components/plan-approval-panel";
 import { ProgressWidget } from "@/components/progress-widget";
@@ -522,6 +524,7 @@ function AppLayout({
             className="flex items-center gap-0.5 sidebar:gap-1 ml-auto"
             style={{ marginRight: userMenuMargin }}
           >
+            <VerticalIndicator />
             <AgentStatusBadgeWrapper />
             <LoginDialog />
             {showNewTabButton && (
@@ -572,11 +575,13 @@ function AppLayout({
 function App() {
   return (
     <UserProvider>
-      <SidebarFlashProvider>
-        <AgentStatusProvider>
-          <AppContent />
-        </AgentStatusProvider>
-      </SidebarFlashProvider>
+      <VerticalProvider>
+        <SidebarFlashProvider>
+          <AgentStatusProvider>
+            <AppContent />
+          </AgentStatusProvider>
+        </SidebarFlashProvider>
+      </VerticalProvider>
     </UserProvider>
   );
 }

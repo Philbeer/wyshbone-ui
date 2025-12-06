@@ -1,4 +1,4 @@
-import { Globe, MessageSquare, Bug, FilePlus, MessagesSquare, ChevronDown, ChevronRight, Clock, Edit2, Trash2, Mail, Link2, User, CreditCard, History, Users, Sparkles } from "lucide-react";
+import { Globe, MessageSquare, Bug, FilePlus, MessagesSquare, ChevronDown, ChevronRight, Clock, Edit2, Trash2, Mail, Link2, User, CreditCard, History, Users, Sparkles, Factory } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
@@ -6,6 +6,7 @@ import { useUser } from "@/contexts/UserContext";
 import { authedFetch, buildApiUrl, addDevAuthParams } from "@/lib/queryClient";
 import { useSidebarFlash } from "@/contexts/SidebarFlashContext";
 import { useVerticalLabels } from "@/lib/verticals";
+import { VerticalSelector } from "@/components/VerticalSelector";
 import {
   Sidebar,
   SidebarContent,
@@ -784,6 +785,16 @@ export function AppSidebar({
                 </Select>
               </SidebarMenuItem>
             </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        <SidebarGroup>
+          <SidebarGroupLabel className="flex items-center gap-2 ml-5">
+            <Factory className="h-4 w-4" />
+            Industry Vertical
+          </SidebarGroupLabel>
+          <SidebarGroupContent>
+            <VerticalSelector />
           </SidebarGroupContent>
         </SidebarGroup>
 
