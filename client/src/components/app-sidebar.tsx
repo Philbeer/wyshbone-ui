@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useUser } from "@/contexts/UserContext";
 import { authedFetch, buildApiUrl, addDevAuthParams } from "@/lib/queryClient";
 import { useSidebarFlash } from "@/contexts/SidebarFlashContext";
+import { useVerticalLabels } from "@/lib/verticals";
 import {
   Sidebar,
   SidebarContent,
@@ -520,6 +521,7 @@ export function AppSidebar({
   const { user } = useUser();
   const [location, setLocation] = useLocation();
   const { lastTriggerBySection } = useSidebarFlash();
+  const { labels } = useVerticalLabels();
   const [showArchived, setShowArchived] = useState(false);
   const [localRuns, setLocalRuns] = useState<RunItem[]>(runs);
   const [showPreviousChats, setShowPreviousChats] = useState(false);
@@ -869,7 +871,7 @@ export function AppSidebar({
                 <SidebarMenuButton asChild isActive={location === "/leads"} data-testid="link-leads">
                   <Link href="/leads">
                     <Users className="h-4 w-4" />
-                    <span>Leads</span>
+                    <span>{labels.nav_leads}</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>

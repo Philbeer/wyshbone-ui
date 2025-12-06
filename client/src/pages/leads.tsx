@@ -8,9 +8,11 @@ import {
 } from "@/features/leads";
 import type { Lead, LeadStatus } from "@/features/leads";
 import { useToast } from "@/hooks/use-toast";
+import { useVerticalLabels } from "@/lib/verticals";
 
 export default function LeadsPage() {
   const { toast } = useToast();
+  const { labels } = useVerticalLabels();
   const {
     leads,
     isLoading,
@@ -64,9 +66,9 @@ export default function LeadsPage() {
       <div className="max-w-5xl mx-auto space-y-6">
         {/* Page Header */}
         <div>
-          <h1 className="text-3xl font-bold mb-2">Leads</h1>
+          <h1 className="text-3xl font-bold mb-2">{labels.lead_plural_cap}</h1>
           <p className="text-muted-foreground">
-            View and manage AI-generated leads.
+            View and manage AI-generated {labels.lead_plural}.
           </p>
         </div>
 
@@ -89,9 +91,9 @@ export default function LeadsPage() {
           <Card data-testid="card-leads-empty">
             <CardContent className="flex flex-col items-center justify-center py-12">
               <Users className="h-12 w-12 text-muted-foreground mb-4" />
-              <h3 className="text-lg font-semibold mb-2">No leads yet</h3>
+              <h3 className="text-lg font-semibold mb-2">{labels.empty_leads_title}</h3>
               <p className="text-sm text-muted-foreground text-center max-w-md">
-                AI-generated leads will appear here once connected to the lead generation pipeline.
+                {labels.empty_leads_description}
               </p>
             </CardContent>
           </Card>
@@ -106,6 +108,8 @@ export default function LeadsPage() {
                 onView={handleView}
                 onDelete={handleDelete}
                 onStatusChange={handleStatusChange}
+                businessNameLabel={labels.table_business_name}
+                leadLabelPlural={labels.lead_plural}
               />
             </div>
           </Card>

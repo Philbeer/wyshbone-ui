@@ -26,6 +26,10 @@ interface LeadsTableProps {
   onView?: (lead: Lead) => void;
   onDelete?: (leadId: string) => void;
   onStatusChange?: (leadId: string, newStatus: LeadStatus) => void;
+  /** Vertical-aware label for the business name column (default: "Business Name") */
+  businessNameLabel?: string;
+  /** Vertical-aware plural label for leads (default: "leads") */
+  leadLabelPlural?: string;
 }
 
 /**
@@ -90,7 +94,14 @@ function getStatusSelectClasses(status: LeadStatus): string {
   }
 }
 
-export function LeadsTable({ leads, onView, onDelete, onStatusChange }: LeadsTableProps) {
+export function LeadsTable({ 
+  leads, 
+  onView, 
+  onDelete, 
+  onStatusChange,
+  businessNameLabel = "Business Name",
+  leadLabelPlural = "leads",
+}: LeadsTableProps) {
   const [currentPage, setCurrentPage] = useState(1);
 
   // Calculate pagination values
@@ -120,7 +131,7 @@ export function LeadsTable({ leads, onView, onDelete, onStatusChange }: LeadsTab
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>Business Name</TableHead>
+            <TableHead>{businessNameLabel}</TableHead>
             <TableHead>Location</TableHead>
             <TableHead>Source</TableHead>
             <TableHead>Status</TableHead>
@@ -187,7 +198,7 @@ export function LeadsTable({ leads, onView, onDelete, onStatusChange }: LeadsTab
       {totalPages > 1 && (
         <div className="flex items-center justify-between px-2">
           <p className="text-sm text-muted-foreground">
-            Showing {startIndex + 1}–{Math.min(endIndex, leads.length)} of {leads.length} leads
+            Showing {startIndex + 1}–{Math.min(endIndex, leads.length)} of {leads.length} {leadLabelPlural}
           </p>
           <div className="flex items-center gap-2">
             <Button
