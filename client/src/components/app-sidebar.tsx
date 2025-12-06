@@ -1,4 +1,4 @@
-import { Globe, MessageSquare, Bug, FilePlus, MessagesSquare, ChevronDown, ChevronRight, Clock, Edit2, Trash2, Mail, Link2, User, CreditCard, History, Users, Sparkles, Factory } from "lucide-react";
+import { Globe, MessageSquare, Bug, FilePlus, MessagesSquare, ChevronDown, ChevronRight, Clock, Edit2, Trash2, Mail, Link2, User, CreditCard, History, Users, Sparkles, Factory, HelpCircle } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
@@ -7,6 +7,7 @@ import { authedFetch, buildApiUrl, addDevAuthParams } from "@/lib/queryClient";
 import { useSidebarFlash } from "@/contexts/SidebarFlashContext";
 import { useVerticalLabels } from "@/lib/verticals";
 import { VerticalSelector } from "@/components/VerticalSelector";
+import { useOnboardingTourContext } from "@/contexts/OnboardingTourContext";
 import {
   Sidebar,
   SidebarContent,
@@ -504,6 +505,27 @@ const RunRow: React.FC<{
   );
 };
 
+/**
+ * UI-17: Tour Button Component
+ * Shows a "Take a Tour" button that opens the onboarding walkthrough.
+ */
+function TourButton() {
+  const { startTour, hasCompletedTour } = useOnboardingTourContext();
+  
+  return (
+    <SidebarMenuItem>
+      <SidebarMenuButton
+        onClick={startTour}
+        data-testid="button-start-tour"
+        className="text-muted-foreground hover:text-foreground"
+      >
+        <HelpCircle className="h-4 w-4" />
+        <span>{hasCompletedTour ? 'Restart Tour' : 'Take a Tour'}</span>
+      </SidebarMenuButton>
+    </SidebarMenuItem>
+  );
+}
+
 export function AppSidebar({ 
   defaultCountry, 
   onCountryChange,
@@ -788,7 +810,7 @@ export function AppSidebar({
           </SidebarGroupContent>
         </SidebarGroup>
 
-        <SidebarGroup>
+        <SidebarGroup data-tour-id="vertical">
           <SidebarGroupLabel className="flex items-center gap-2 ml-5">
             <Factory className="h-4 w-4" />
             Industry Vertical
@@ -886,7 +908,7 @@ export function AppSidebar({
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
-              <SidebarMenuItem>
+              <SidebarMenuItem data-tour-id="nudges">
                 <SidebarMenuButton asChild isActive={location === "/nudges"} data-testid="link-nudges">
                   <Link href="/nudges">
                     <Sparkles className="h-4 w-4" />
@@ -917,6 +939,7 @@ export function AppSidebar({
                   </CollapsibleContent>
                 </Collapsible>
               </SidebarMenuItem>
+              <TourButton />
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>

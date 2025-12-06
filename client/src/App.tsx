@@ -30,6 +30,8 @@ import { PlanExecutionProvider } from "@/contexts/PlanExecutionController";
 import { AgentStatusProvider, useAgentStatus } from "@/contexts/AgentStatusContext";
 import { VerticalProvider } from "@/contexts/VerticalContext";
 import { VerticalIndicator } from "@/components/VerticalSelector";
+import { OnboardingTourProvider } from "@/contexts/OnboardingTourContext";
+import { OnboardingTour } from "@/components/onboarding/OnboardingTour";
 import { MyGoalsPanel } from "@/components/my-goals-panel";
 import { PlanApprovalPanel } from "@/components/plan-approval-panel";
 import { ProgressWidget } from "@/components/progress-widget";
@@ -550,7 +552,7 @@ function AppLayout({
           </div>
         </header>
         <main className="flex-1 overflow-hidden flex">
-          <div className="flex-1 min-w-0">
+          <div className="flex-1 min-w-0" data-tour-id="chat">
             <Router 
               defaultCountry={defaultCountry} 
               onInjectSystemMessage={handleInjectSystemMessage}
@@ -561,7 +563,7 @@ function AppLayout({
               onLoadConversation={handleLoadConversation}
             />
           </div>
-          <div className="hidden xl:flex w-80 border-l p-4 flex-col gap-4 overflow-y-auto">
+          <div className="hidden xl:flex w-80 border-l p-4 flex-col gap-4 overflow-y-auto" data-tour-id="actions">
             <MyGoalsPanel />
             <PlanApprovalPanel />
             <ProgressWidget />
@@ -576,11 +578,14 @@ function App() {
   return (
     <UserProvider>
       <VerticalProvider>
-        <SidebarFlashProvider>
-          <AgentStatusProvider>
-            <AppContent />
-          </AgentStatusProvider>
-        </SidebarFlashProvider>
+        <OnboardingTourProvider>
+          <SidebarFlashProvider>
+            <AgentStatusProvider>
+              <AppContent />
+              <OnboardingTour />
+            </AgentStatusProvider>
+          </SidebarFlashProvider>
+        </OnboardingTourProvider>
       </VerticalProvider>
     </UserProvider>
   );
