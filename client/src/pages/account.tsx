@@ -7,10 +7,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
-import { Loader2, CreditCard, TrendingUp, Package, AlertCircle, Building2, Save } from "lucide-react";
+import { Loader2, CreditCard, TrendingUp, Package, AlertCircle, Building2, Save, Beer, ArrowRight } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useState } from "react";
+import { useVerticalLabels } from "@/lib/verticals";
 
 const TIER_CONFIG: Record<string, { displayName: string; color: string; monitors: number; deepResearch: number }> = {
   free: { displayName: "Free", color: "secondary", monitors: 2, deepResearch: 2 },
@@ -23,6 +24,7 @@ const TIER_CONFIG: Record<string, { displayName: string; color: string; monitors
 export default function Account() {
   const { toast } = useToast();
   const [, setLocation] = useLocation();
+  const { verticalId } = useVerticalLabels();
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [profileForm, setProfileForm] = useState({
     companyName: "",
@@ -295,6 +297,37 @@ export default function Account() {
             </CardFooter>
           )}
         </Card>
+
+        {/* Brewery Onboarding Card - Only shown for brewery vertical */}
+        {verticalId === "brewery" && (
+          <Card className="mb-6" data-testid="card-brewery-onboarding">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Beer className="w-5 h-5 text-amber-600" />
+                Brewery Setup
+              </CardTitle>
+              <CardDescription>
+                Configure your pub preferences and target territory
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground">
+                Run the brewery onboarding wizard to set up or update your pub profile preferences and target regions for lead generation.
+              </p>
+            </CardContent>
+            <CardFooter>
+              <Button 
+                variant="outline" 
+                onClick={() => setLocation("/onboarding/brewery")}
+                data-testid="button-run-onboarding"
+              >
+                <Beer className="w-4 h-4 mr-2" />
+                Run Brewery Onboarding
+                <ArrowRight className="w-4 h-4 ml-2" />
+              </Button>
+            </CardFooter>
+          </Card>
+        )}
 
         {/* Current Plan Card */}
         <Card className="mb-6" data-testid="card-current-plan">

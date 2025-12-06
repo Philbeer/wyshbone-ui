@@ -44,5 +44,22 @@ export const genericLabels: VerticalLabels = {
   field_venue_notes: "Notes",
   badge_serves_food: "Serves food",
   badge_beer_garden: "Outdoor space",
+
+  // UI-15: Generic onboarding labels (fallbacks)
+  onboarding_welcome_title: "Welcome to Wyshbone",
+  onboarding_welcome_subtitle: "Let's get you set up to find new leads.",
+  onboarding_welcome_bullet_1: "Define your ideal customer profile",
+  onboarding_welcome_bullet_2: "Set your target territory",
+  onboarding_welcome_bullet_3: "Start finding leads that match",
+  onboarding_step2_title: "Your Ideal Customers",
+  onboarding_step2_subtitle: "Tell us about the customers you want to work with.",
+  onboarding_step3_title: "Where You Want to Grow",
+  onboarding_step3_subtitle: "Define your target territory for finding new leads.",
+  onboarding_finish_button: "Start finding leads",
+  onboarding_field_preferred_pub_type: "Preferred business type",
+  onboarding_field_beer_range_pref: "Product range preference",
+  onboarding_field_rotation_pref: "Style preference",
+  onboarding_field_country: "Country",
+  onboarding_field_regions: "Target regions or cities",
 };
 

@@ -45,7 +45,23 @@ export type VerticalLabelKey =
   | "field_has_beer_garden"
   | "field_venue_notes"
   | "badge_serves_food"
-  | "badge_beer_garden";
+  | "badge_beer_garden"
+  // UI-15: Onboarding wizard labels
+  | "onboarding_welcome_title"
+  | "onboarding_welcome_subtitle"
+  | "onboarding_welcome_bullet_1"
+  | "onboarding_welcome_bullet_2"
+  | "onboarding_welcome_bullet_3"
+  | "onboarding_step2_title"
+  | "onboarding_step2_subtitle"
+  | "onboarding_step3_title"
+  | "onboarding_step3_subtitle"
+  | "onboarding_finish_button"
+  | "onboarding_field_preferred_pub_type"
+  | "onboarding_field_beer_range_pref"
+  | "onboarding_field_rotation_pref"
+  | "onboarding_field_country"
+  | "onboarding_field_regions";
 
 /**
  * Complete set of labels for a vertical

@@ -19,6 +19,7 @@ import CrmLayout from "@/pages/crm";
 import LeadsPage from "@/pages/leads";
 import NudgesPage from "@/pages/nudges";
 import NotFound from "@/pages/not-found";
+import { BreweryOnboardingWizard } from "@/features/onboarding";
 import CountryHint from "@/components/CountryHint";
 import { LoginDialog } from "@/components/LoginDialog";
 import { useState, useEffect, useRef, useCallback } from "react";
@@ -74,6 +75,7 @@ function Router({
       <Route path="/auth/crm" nest component={CrmLayout} />
       <Route path="/leads" component={LeadsPage} />
       <Route path="/nudges" component={NudgesPage} />
+      <Route path="/onboarding/brewery" component={BreweryOnboardingWizard} />
       <Route component={NotFound} />
     </Switch>
   );

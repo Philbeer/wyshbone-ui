@@ -45,5 +45,22 @@ export const breweryLabels: VerticalLabels = {
   field_venue_notes: "Notes",
   badge_serves_food: "Serves food",
   badge_beer_garden: "Beer garden",
+
+  // UI-15: Onboarding wizard labels
+  onboarding_welcome_title: "Welcome to Wyshbone for Breweries",
+  onboarding_welcome_subtitle: "Let's get you set up to find new pubs for your beer.",
+  onboarding_welcome_bullet_1: "Define your ideal pub profile",
+  onboarding_welcome_bullet_2: "Set your target territory",
+  onboarding_welcome_bullet_3: "Start finding pubs that match",
+  onboarding_step2_title: "Your Ideal Pubs",
+  onboarding_step2_subtitle: "Tell us about the pubs you want to work with.",
+  onboarding_step3_title: "Where You Want to Grow",
+  onboarding_step3_subtitle: "Define your target territory for finding new pubs.",
+  onboarding_finish_button: "Start finding pubs",
+  onboarding_field_preferred_pub_type: "Preferred pub type",
+  onboarding_field_beer_range_pref: "Beer range preference",
+  onboarding_field_rotation_pref: "Rotation preference",
+  onboarding_field_country: "Country",
+  onboarding_field_regions: "Target regions or cities",
 };
 
