@@ -508,6 +508,7 @@ const RunRow: React.FC<{
 /**
  * UI-17: Tour Button Component
  * Shows a "Take a Tour" button that opens the onboarding walkthrough.
+ * UI-19: Improved label copy
  */
 function TourButton() {
   const { startTour, hasCompletedTour } = useOnboardingTourContext();
@@ -518,9 +519,10 @@ function TourButton() {
         onClick={startTour}
         data-testid="button-start-tour"
         className="text-muted-foreground hover:text-foreground"
+        title="Quick walkthrough of Wyshbone's main features"
       >
         <HelpCircle className="h-4 w-4" />
-        <span>{hasCompletedTour ? 'Restart Tour' : 'Take a Tour'}</span>
+        <span>{hasCompletedTour ? 'Show me around again' : 'Show me around'}</span>
       </SidebarMenuButton>
     </SidebarMenuItem>
   );

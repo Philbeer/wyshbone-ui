@@ -23,33 +23,35 @@ export interface TourStep {
 /**
  * The tour steps in order. Keep copy short and practical.
  * Phil already knows what Wyshbone is; he just needs to know where to click.
+ * 
+ * UI-19: Polished copy to be clearer and less dev-speak.
  */
 export const TOUR_STEPS: TourStep[] = [
   {
     id: 'chat',
-    title: 'Chat with Wyshbone',
-    body: 'Type what you want Wyshbone to do — find leads, run research, send emails. This is your main command center.',
+    title: 'Ask Wyshbone Anything',
+    body: 'This is where you tell Wyshbone what you need. Try "Find 30 pubs in Sussex" or "Research the micropub market".',
     target: 'chat',
     position: 'center',
   },
   {
     id: 'vertical',
-    title: 'Choose Your Vertical',
-    body: 'Select your industry (e.g. Breweries) so plans and searches use the right terminology and logic.',
+    title: 'Your Industry',
+    body: 'Choose your industry here. This helps Wyshbone use the right language and find the right kinds of leads.',
     target: 'vertical',
     position: 'left',
   },
   {
     id: 'nudges',
-    title: 'Nudges & Suggestions',
-    body: 'Wyshbone\'s "subconscious" shows suggestions here — stale leads, follow-ups, and proactive ideas.',
+    title: 'Suggestions from Wyshbone',
+    body: 'Wyshbone keeps an eye on your leads and suggests actions — like following up with stale contacts or new opportunities.',
     target: 'nudges',
     position: 'left',
   },
   {
     id: 'actions',
-    title: 'Side Panel Actions',
-    body: 'Your goals, pending plans, and progress summaries appear here. Quick access to what needs attention.',
+    title: 'Your Goals & Progress',
+    body: 'Set your sales goal here and track progress. Wyshbone will help you work towards it.',
     target: 'actions',
     position: 'right',
   },

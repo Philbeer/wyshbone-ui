@@ -190,7 +190,8 @@ export function WhatJustHappenedPanel({ isOpen, onClose, conversationId }: WhatJ
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       console.error('[WhatJustHappened] Error loading runs:', errorMessage);
-      setError("Couldn't load Tower logs. Please check Tower is running.");
+      // UI-19: User-friendly error message
+      setError("Couldn't load activity. Is Wyshbone's backend running?");
     } finally {
       setIsLoading(false);
     }
@@ -208,7 +209,7 @@ export function WhatJustHappenedPanel({ isOpen, onClose, conversationId }: WhatJ
       <SheetContent side="right" className="w-[400px] sm:w-[450px]">
         <SheetHeader className="mb-4">
           <div className="flex items-center justify-between">
-            <SheetTitle className="text-lg">What just happened?</SheetTitle>
+            <SheetTitle className="text-lg">Recent Activity</SheetTitle>
             <Button
               variant="ghost"
               size="sm"
@@ -221,7 +222,7 @@ export function WhatJustHappenedPanel({ isOpen, onClose, conversationId }: WhatJ
             </Button>
           </div>
           <SheetDescription>
-            Recent activity from Wyshbone's background processes
+            Here's what Wyshbone has been working on behind the scenes
           </SheetDescription>
         </SheetHeader>
 
@@ -252,10 +253,10 @@ export function WhatJustHappenedPanel({ isOpen, onClose, conversationId }: WhatJ
             <div className="flex flex-col items-center justify-center py-8 text-center">
               <Clock className="h-8 w-8 text-muted-foreground/50 mb-2" />
               <p className="text-sm text-muted-foreground">
-                No recent runs yet.
+                No activity yet
               </p>
               <p className="text-xs text-muted-foreground mt-1">
-                Ask Wyshbone to do something and then check here again.
+                When you ask Wyshbone to do something, the progress will show up here.
               </p>
             </div>
           )}

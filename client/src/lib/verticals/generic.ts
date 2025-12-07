@@ -24,9 +24,9 @@ export const genericLabels: VerticalLabels = {
   // Table headers
   table_business_name: "Business Name",
 
-  // Empty states
-  empty_leads_title: "No leads yet",
-  empty_leads_description: "AI-generated leads will appear here once connected to the lead generation pipeline.",
+  // Empty states - UI-19: More actionable copy
+  empty_leads_title: "No leads saved yet",
+  empty_leads_description: "Ask Wyshbone to find leads for you in the chat, and they'll appear here. Try asking for leads in a specific area.",
 
   // Generic field labels (not used in generic mode, but required by type)
   field_beer_range: "Product Range",

@@ -71,8 +71,8 @@ export default function NudgesPage() {
         <div>
           <h1 className="text-3xl font-bold mb-2">Nudges</h1>
           <p className="text-muted-foreground">
-            Wyshbone's subconscious suggests important follow-ups and actions 
-            so you don't lose good leads. Items here need your attention.
+            Wyshbone keeps track of your leads and suggests actions you might want to take — 
+            like following up with contacts you haven't spoken to in a while.
           </p>
         </div>
 

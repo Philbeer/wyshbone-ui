@@ -1,6 +1,8 @@
 import { useState } from "react";
+import { Link } from "wouter";
 import { Card, CardContent } from "@/components/ui/card";
-import { Users } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Users, MessageSquare } from "lucide-react";
 import {
   LeadsTable,
   LeadsTableSkeleton,
@@ -91,15 +93,21 @@ export default function LeadsPage() {
           <LeadsError message={error} onRetry={refetch} />
         )}
 
-        {/* Empty State */}
+        {/* Empty State - UI-19: Added navigation to chat */}
         {!isLoading && !error && leads.length === 0 && (
           <Card data-testid="card-leads-empty">
             <CardContent className="flex flex-col items-center justify-center py-12">
               <Users className="h-12 w-12 text-muted-foreground mb-4" />
               <h3 className="text-lg font-semibold mb-2">{labels.empty_leads_title}</h3>
-              <p className="text-sm text-muted-foreground text-center max-w-md">
+              <p className="text-sm text-muted-foreground text-center max-w-md mb-6">
                 {labels.empty_leads_description}
               </p>
+              <Button asChild variant="default">
+                <Link href="/">
+                  <MessageSquare className="h-4 w-4 mr-2" />
+                  Go to Chat
+                </Link>
+              </Button>
             </CardContent>
           </Card>
         )}

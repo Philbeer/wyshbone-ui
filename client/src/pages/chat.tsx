@@ -1015,6 +1015,38 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
               </div>
               <h2 className="text-xl font-semibold mb-6">Loading...</h2>
             </div>
+          ) : messages.length === 0 && !isLoadingHistory ? (
+            /* UI-19: Welcome state with sample prompts */
+            <div className="flex flex-col items-center justify-center h-full min-h-[400px] text-center px-4">
+              <div className="w-20 h-20 rounded-full overflow-hidden mb-6 shadow-lg">
+                <img src={wyshboneLogo} alt="Wyshbone" className="w-full h-full object-cover" />
+              </div>
+              <h2 className="text-2xl font-semibold mb-2">What can I help you with?</h2>
+              <p className="text-muted-foreground mb-8 max-w-md">
+                Tell me what you need — I can find leads, research markets, draft emails, and more.
+              </p>
+              
+              {/* Sample prompt chips */}
+              <div className="flex flex-wrap justify-center gap-2 max-w-xl">
+                {[
+                  "Find 30 pubs in Yorkshire that serve cask ale",
+                  "Deep research on the micropub market in Manchester",
+                  "Find decision-makers at breweries in Wales",
+                  "Draft an intro email for a new pub contact",
+                ].map((prompt, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => {
+                      setInput(prompt);
+                      textareaRef.current?.focus();
+                    }}
+                    className="px-3 py-2 text-sm rounded-lg border border-border bg-card hover:bg-accent hover:border-primary/50 transition-colors text-left"
+                  >
+                    {prompt}
+                  </button>
+                ))}
+              </div>
+            </div>
           ) : (
             messages
               .filter((message) => {
@@ -1343,24 +1375,25 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
                 🚀 MEGA
               </Button>
               <span className="text-xs text-muted-foreground ml-2">
-                {chatMode === "mega" ? "Action-first AI with follow-up suggestions" : "Streaming chat with web search"}
+                {chatMode === "mega" ? "Takes action immediately, suggests next steps" : "Conversational, can search the web"}
               </span>
             </div>
             
             <div className="flex items-center gap-2">
-              {/* UI-18: What just happened? button */}
+              {/* UI-18: What just happened? button - shows recent Tower activity */}
               <Button
                 variant="ghost"
                 size="sm"
                 onClick={() => setWhatJustHappenedOpen(true)}
                 className="flex items-center gap-1 text-muted-foreground hover:text-foreground"
                 data-testid="button-what-just-happened"
+                title="View recent Wyshbone activity"
               >
                 <Activity className="h-3 w-3" />
-                <span className="hidden sm:inline">What just happened?</span>
+                <span className="hidden sm:inline">Activity log</span>
               </Button>
               
-              {/* Functions Panel Toggle - only show when panel is hidden */}
+              {/* Quick Actions Panel Toggle - only show when panel is hidden */}
               {!showFunctionsPanel && (
                 <Button
                   variant="outline"
@@ -1368,9 +1401,10 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
                   onClick={() => setShowFunctionsPanel(true)}
                   className="flex items-center gap-1"
                   data-testid="button-show-functions"
+                  title="Show quick action buttons"
                 >
                   <HelpCircle className="h-3 w-3" />
-                  <span className="hidden sm:inline">Show functions</span>
+                  <span className="hidden sm:inline">Quick actions</span>
                 </Button>
               )}
             </div>
@@ -1414,7 +1448,7 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
               value={input}
               onChange={handleInputChange}
               onKeyDown={handleKeyDown}
-              placeholder="Type your message..."
+              placeholder="Tell Wyshbone what you need — find leads, research a market, draft an email..."
               className="resize-none border-0 bg-transparent text-[15px] focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 min-h-[48px] max-h-[200px]"
               rows={1}
               data-testid="input-message"

@@ -25,9 +25,9 @@ export const breweryLabels: VerticalLabels = {
   // Table headers
   table_business_name: "Pub Name",
 
-  // Empty states
-  empty_leads_title: "No pubs yet",
-  empty_leads_description: "AI-generated pub leads will appear here once connected to the lead generation pipeline.",
+  // Empty states - UI-19: More actionable copy
+  empty_leads_title: "No pubs saved yet",
+  empty_leads_description: "Ask Wyshbone to find pubs for you in the chat, and they'll appear here. Try: \"Find 30 freehouses in Sussex.\"",
 
   // Brewery-specific fields
   field_beer_range: "Beer Range",
