@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
 import type { Lead, LeadStatus } from "./types";
 import { mockLeads } from "./mockLeads";
+import { isDemoMode } from "@/hooks/useDemoMode";
+import { demoSavedLeads } from "@/demo/demoData";
 
 /**
  * Simulated delay for mock API calls (ms)
@@ -27,11 +29,15 @@ export interface UseLeadsResult {
   refetch: () => void;
   deleteLead: (leadId: string) => Promise<void>;
   updateLeadStatus: (leadId: string, newStatus: LeadStatus) => Promise<void>;
+  /** UI-20: Whether we're showing demo data */
+  isDemoData: boolean;
 }
 
 /**
  * Custom hook for managing leads data with loading and error states.
  * Simulates API behavior with mock data for UI development.
+ * 
+ * UI-20: In demo mode, returns demo leads instead of mock/real data.
  * 
  * Usage:
  * - Toggle SIMULATE_FETCH_ERROR to test error UI
@@ -42,17 +48,29 @@ export function useLeads(): UseLeadsResult {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isDemoData, setIsDemoData] = useState(false);
 
   /**
    * Simulates fetching leads from API
+   * UI-20: In demo mode, use demo data instead
    */
   const fetchLeads = useCallback(async () => {
     setIsLoading(true);
     setError(null);
 
+    // UI-20: Check demo mode
+    const inDemoMode = isDemoMode();
+    setIsDemoData(inDemoMode);
+
     try {
       // Simulate network delay
       await new Promise((resolve) => setTimeout(resolve, SIMULATED_DELAY));
+
+      // UI-20: In demo mode, use demo leads
+      if (inDemoMode) {
+        setLeads(demoSavedLeads);
+        return;
+      }
 
       // Simulate error if flag is set
       if (SIMULATE_FETCH_ERROR) {
@@ -123,6 +141,7 @@ export function useLeads(): UseLeadsResult {
     refetch,
     deleteLead,
     updateLeadStatus,
+    isDemoData,
   };
 }
 

@@ -10,8 +10,10 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
-import { Loader2, ExternalLink, RefreshCw, Clock, AlertCircle, CheckCircle2, Play, XCircle } from 'lucide-react';
+import { Loader2, ExternalLink, RefreshCw, Clock, AlertCircle, CheckCircle2, Play, XCircle, FlaskConical } from 'lucide-react';
 import { fetchRecentTowerRuns, fetchRecentTowerRunsForConversation, type TowerRunSummary } from '@/api/towerClient';
+import { isDemoMode } from '@/hooks/useDemoMode';
+import { demoTowerRuns } from '@/demo/demoData';
 
 interface WhatJustHappenedPanelProps {
   isOpen: boolean;
@@ -166,10 +168,22 @@ export function WhatJustHappenedPanel({ isOpen, onClose, conversationId }: WhatJ
   const [runs, setRuns] = useState<TowerRunSummary[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showingDemoData, setShowingDemoData] = useState(false);
 
   const loadRuns = async () => {
     setIsLoading(true);
     setError(null);
+    
+    // UI-20: Check demo mode
+    const inDemoMode = isDemoMode();
+    setShowingDemoData(inDemoMode);
+    
+    if (inDemoMode) {
+      // Demo mode: use static demo data
+      setRuns(demoTowerRuns);
+      setIsLoading(false);
+      return;
+    }
     
     try {
       let fetchedRuns: TowerRunSummary[];
@@ -224,6 +238,13 @@ export function WhatJustHappenedPanel({ isOpen, onClose, conversationId }: WhatJ
           <SheetDescription>
             Here's what Wyshbone has been working on behind the scenes
           </SheetDescription>
+          {/* UI-20: Demo mode indicator */}
+          {showingDemoData && (
+            <div className="mt-2 flex items-center gap-2 text-xs text-amber-600 bg-amber-50 dark:bg-amber-950/30 px-2 py-1 rounded">
+              <FlaskConical className="h-3 w-3" />
+              Showing demo activity data
+            </div>
+          )}
         </SheetHeader>
 
         <div className="flex-1 overflow-y-auto pr-1">

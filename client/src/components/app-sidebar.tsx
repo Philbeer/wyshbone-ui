@@ -1,4 +1,4 @@
-import { Globe, MessageSquare, Bug, FilePlus, MessagesSquare, ChevronDown, ChevronRight, Clock, Edit2, Trash2, Mail, Link2, User, CreditCard, History, Users, Sparkles, Factory, HelpCircle } from "lucide-react";
+import { Globe, MessageSquare, Bug, FilePlus, MessagesSquare, ChevronDown, ChevronRight, Clock, Edit2, Trash2, Mail, Link2, User, CreditCard, History, Users, Sparkles, Factory, HelpCircle, FlaskConical } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
@@ -8,6 +8,7 @@ import { useSidebarFlash } from "@/contexts/SidebarFlashContext";
 import { useVerticalLabels } from "@/lib/verticals";
 import { VerticalSelector } from "@/components/VerticalSelector";
 import { useOnboardingTourContext } from "@/contexts/OnboardingTourContext";
+import { useDemoModeContext } from "@/contexts/DemoModeContext";
 import {
   Sidebar,
   SidebarContent,
@@ -528,6 +529,31 @@ function TourButton() {
   );
 }
 
+/**
+ * UI-20: Demo Mode Toggle Button
+ * Allows users to toggle demo mode on/off from the sidebar.
+ */
+function DemoModeToggle() {
+  const { demoMode, enableDemoMode, disableDemoMode } = useDemoModeContext();
+  
+  return (
+    <SidebarMenuItem>
+      <SidebarMenuButton
+        onClick={() => demoMode ? disableDemoMode() : enableDemoMode()}
+        data-testid="button-toggle-demo"
+        className={demoMode 
+          ? "text-amber-600 hover:text-amber-700 bg-amber-50 dark:bg-amber-950/30" 
+          : "text-muted-foreground hover:text-foreground"
+        }
+        title={demoMode ? "Exit demo mode and use real data" : "Try Wyshbone with sample brewery data"}
+      >
+        <FlaskConical className="h-4 w-4" />
+        <span>{demoMode ? 'Exit Demo Mode' : 'Try Demo Mode'}</span>
+      </SidebarMenuButton>
+    </SidebarMenuItem>
+  );
+}
+
 export function AppSidebar({ 
   defaultCountry, 
   onCountryChange,
@@ -942,6 +968,7 @@ export function AppSidebar({
                 </Collapsible>
               </SidebarMenuItem>
               <TourButton />
+              <DemoModeToggle />
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>

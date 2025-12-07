@@ -1,6 +1,8 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { authedFetch, apiRequest } from "@/lib/queryClient";
+import { isDemoMode } from "@/hooks/useDemoMode";
+import { demoNudges as demoNudgesData } from "@/demo/demoData";
 import type { SubconNudge, NudgeStatus, NudgeType } from "./types";
 
 /**
@@ -108,6 +110,8 @@ export interface UseNudgesResult {
   snoozeNudge: (nudgeId: string, remindAt?: string) => Promise<void>;
   /** Returns true if a mutation is in progress for the given nudge */
   isNudgePending: (nudgeId: string) => boolean;
+  /** UI-20: Whether we're showing demo data */
+  isDemoData: boolean;
 }
 
 /**
@@ -119,6 +123,8 @@ export interface UseNudgesResult {
  * - Refetch function for retry/refresh
  * - Action handlers: dismissNudge, snoozeNudge
  * 
+ * UI-20: In demo mode, returns demo nudges and handles actions locally.
+ * 
  * The Supervisor endpoints (SUP-10-13) provide:
  *   - GET /api/subconscious/nudges - List nudges
  *   - POST /api/subconscious/nudges/:id/handle - Mark as handled
@@ -127,25 +133,36 @@ export interface UseNudgesResult {
  */
 export function useNudges(): UseNudgesResult {
   const queryClient = useQueryClient();
+  const inDemoMode = isDemoMode();
+  
+  // UI-20: Local state for demo mode nudges (allows dismiss/snooze without backend)
+  const [demoNudges, setDemoNudges] = useState<SubconNudge[]>(demoNudgesData);
   
   const {
     data: rawNudges,
-    isLoading,
+    isLoading: apiIsLoading,
     isError,
     error,
     refetch: queryRefetch,
   } = useQuery<SubconNudge[], Error>({
     queryKey: NUDGES_QUERY_KEY,
     queryFn: fetchNudges,
+    // UI-20: Disable query in demo mode
+    enabled: !inDemoMode,
     // Nudges may update frequently; allow some refetch on focus
     staleTime: 30_000, // Consider data stale after 30 seconds
     refetchOnWindowFocus: true,
   });
+  
+  // UI-20: In demo mode, use demo nudges; loading is instant
+  const isLoading = inDemoMode ? false : apiIsLoading;
 
   // Sort nudges: most important/newest first
+  // UI-20: Use demo nudges in demo mode
   const nudges = useMemo(() => {
-    return sortNudges(rawNudges ?? []);
-  }, [rawNudges]);
+    const source = inDemoMode ? demoNudges : (rawNudges ?? []);
+    return sortNudges(source);
+  }, [rawNudges, demoNudges, inDemoMode]);
 
   // Wrap refetch for a cleaner API
   const refetch = useCallback(() => {
@@ -185,23 +202,38 @@ export function useNudges(): UseNudgesResult {
 
   /**
    * Dismiss a nudge - wrapper around the mutation.
-   * The mutation handles success/error; caller should handle toast feedback.
+   * UI-20: In demo mode, just update local state.
    */
   const dismissNudge = useCallback(async (nudgeId: string): Promise<void> => {
+    if (inDemoMode) {
+      // Demo mode: update local state
+      setDemoNudges(prev => prev.filter(n => n.id !== nudgeId));
+      return;
+    }
     await dismissMutation.mutateAsync(nudgeId);
-  }, [dismissMutation]);
+  }, [dismissMutation, inDemoMode]);
 
   /**
    * Snooze a nudge - wrapper around the mutation.
+   * UI-20: In demo mode, just update local state.
    * @param nudgeId - The nudge to snooze
    * @param remindAt - Optional ISO date string; defaults to 24 hours from now
    */
   const snoozeNudge = useCallback(async (nudgeId: string, remindAt?: string): Promise<void> => {
+    if (inDemoMode) {
+      // Demo mode: update local state to show snoozed status
+      setDemoNudges(prev => prev.map(n => 
+        n.id === nudgeId 
+          ? { ...n, status: 'snoozed' as NudgeStatus, remindAt: remindAt ?? getDefaultSnoozeTime() }
+          : n
+      ));
+      return;
+    }
     await snoozeMutation.mutateAsync({
       nudgeId,
       remindAt: remindAt ?? getDefaultSnoozeTime(),
     });
-  }, [snoozeMutation]);
+  }, [snoozeMutation, inDemoMode]);
 
   /**
    * Check if a specific nudge has a pending mutation.
@@ -217,11 +249,12 @@ export function useNudges(): UseNudgesResult {
   return {
     nudges,
     isLoading,
-    isError,
-    error: error ?? null,
+    isError: inDemoMode ? false : isError,
+    error: inDemoMode ? null : (error ?? null),
     refetch,
     dismissNudge,
     snoozeNudge,
     isNudgePending,
+    isDemoData: inDemoMode,
   };
 }

@@ -32,6 +32,8 @@ import { VerticalProvider } from "@/contexts/VerticalContext";
 import { VerticalIndicator } from "@/components/VerticalSelector";
 import { OnboardingTourProvider } from "@/contexts/OnboardingTourContext";
 import { OnboardingTour } from "@/components/onboarding/OnboardingTour";
+import { DemoModeProvider } from "@/contexts/DemoModeContext";
+import { DemoModeBanner } from "@/components/DemoModeBanner";
 import { MyGoalsPanel } from "@/components/my-goals-panel";
 import { PlanApprovalPanel } from "@/components/plan-approval-panel";
 import { ProgressWidget } from "@/components/progress-widget";
@@ -485,7 +487,10 @@ function AppLayout({
   };
 
   return (
-    <div className="flex h-screen w-full overflow-hidden">
+    <div className="flex flex-col h-screen w-full overflow-hidden">
+      {/* UI-20: Demo mode banner at the top of the screen */}
+      <DemoModeBanner />
+      <div className="flex flex-1 overflow-hidden">
       <AppSidebar 
         defaultCountry={defaultCountry} 
         onCountryChange={setDefaultCountry}
@@ -570,6 +575,7 @@ function AppLayout({
           </div>
         </main>
       </div>
+      </div>
     </div>
   );
 }
@@ -578,14 +584,16 @@ function App() {
   return (
     <UserProvider>
       <VerticalProvider>
-        <OnboardingTourProvider>
-          <SidebarFlashProvider>
-            <AgentStatusProvider>
-              <AppContent />
-              <OnboardingTour />
-            </AgentStatusProvider>
-          </SidebarFlashProvider>
-        </OnboardingTourProvider>
+        <DemoModeProvider>
+          <OnboardingTourProvider>
+            <SidebarFlashProvider>
+              <AgentStatusProvider>
+                <AppContent />
+                <OnboardingTour />
+              </AgentStatusProvider>
+            </SidebarFlashProvider>
+          </OnboardingTourProvider>
+        </DemoModeProvider>
       </VerticalProvider>
     </UserProvider>
   );
