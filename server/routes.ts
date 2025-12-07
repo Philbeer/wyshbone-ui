@@ -9260,6 +9260,118 @@ ${run.outputText}`;
     }
   });
 
+  // ===========================
+  // UI-18: Tower proxy endpoints for "What just happened?" viewer
+  // ===========================
+  
+  const TOWER_URL = process.env.TOWER_URL || '';
+  const TOWER_API_KEY = process.env.TOWER_API_KEY || process.env.EXPORT_KEY || '';
+
+  /**
+   * GET /api/tower/runs
+   * Proxy to Tower's /tower/runs endpoint for fetching recent runs
+   */
+  app.get("/api/tower/runs", async (req, res) => {
+    if (!TOWER_URL) {
+      return res.status(503).json({ error: "Tower not configured" });
+    }
+
+    try {
+      const limit = req.query.limit || '10';
+      const conversationId = req.query.conversationId as string | undefined;
+      
+      let url = `${TOWER_URL}/tower/runs?limit=${limit}`;
+      
+      // Note: Tower may not support conversationId filtering directly
+      // If needed, we filter client-side
+      
+      console.log(`📡 [TowerProxy] Fetching runs from ${url}`);
+      
+      const response = await fetch(url, {
+        headers: {
+          'Authorization': `Bearer ${TOWER_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`❌ [TowerProxy] Tower returned ${response.status}: ${errorText}`);
+        return res.status(response.status).json({ error: `Tower error: ${response.status}` });
+      }
+
+      let runs = await response.json();
+      
+      // Filter by conversationId if provided (client-side filtering)
+      if (conversationId && Array.isArray(runs)) {
+        runs = runs.filter((run: any) => 
+          run.meta?.conversationId === conversationId
+        );
+      }
+
+      res.json(runs);
+    } catch (error: any) {
+      console.error("❌ [TowerProxy] Error fetching runs:", error.message);
+      res.status(503).json({ error: "Failed to connect to Tower" });
+    }
+  });
+
+  /**
+   * GET /api/tower/runs/live
+   * Proxy to Tower's /tower/runs/live endpoint for live_user runs only
+   */
+  app.get("/api/tower/runs/live", async (req, res) => {
+    if (!TOWER_URL) {
+      return res.status(503).json({ error: "Tower not configured" });
+    }
+
+    try {
+      const limit = req.query.limit || '10';
+      const url = `${TOWER_URL}/tower/runs/live?limit=${limit}`;
+      
+      console.log(`📡 [TowerProxy] Fetching live runs from ${url}`);
+      
+      const response = await fetch(url, {
+        headers: {
+          'Authorization': `Bearer ${TOWER_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`❌ [TowerProxy] Tower returned ${response.status}: ${errorText}`);
+        return res.status(response.status).json({ error: `Tower error: ${response.status}` });
+      }
+
+      const runs = await response.json();
+      res.json(runs);
+    } catch (error: any) {
+      console.error("❌ [TowerProxy] Error fetching live runs:", error.message);
+      res.status(503).json({ error: "Failed to connect to Tower" });
+    }
+  });
+
+  /**
+   * GET /api/tower/dashboard
+   * Redirect to Tower dashboard (for "Open in Tower" links)
+   */
+  app.get("/api/tower/dashboard", (req, res) => {
+    if (!TOWER_URL) {
+      return res.status(503).json({ error: "Tower not configured" });
+    }
+
+    const runId = req.query.runId as string | undefined;
+    
+    // Redirect to Tower's dashboard
+    // Tower dashboard is typically at /dashboard
+    const dashboardUrl = runId 
+      ? `${TOWER_URL}/dashboard?runId=${encodeURIComponent(runId)}`
+      : `${TOWER_URL}/dashboard`;
+    
+    res.redirect(dashboardUrl);
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }

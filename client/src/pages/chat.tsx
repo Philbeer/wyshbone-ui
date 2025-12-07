@@ -3,7 +3,7 @@ import { useMutation } from "@tanstack/react-query";
 import { apiRequest, addDevAuthParams, buildApiUrl } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Send, User, CheckCircle2, Search, Building2, HelpCircle } from "lucide-react";
+import { Send, User, CheckCircle2, Search, Building2, HelpCircle, Activity } from "lucide-react";
 import type { ChatMessage, AddNoteResponse, DeepResearchCreateRequest } from "@shared/schema";
 import wyshboneLogo from "@assets/wyshbone-logo_1759667581806.png";
 import { LocationSuggestions } from "@/components/LocationSuggestions";
@@ -18,6 +18,7 @@ import { subscribeSupervisorMessages, type SupervisorMessage } from "@/lib/supab
 import { useUserGoal } from "@/hooks/use-user-goal";
 import { publishEvent } from "@/lib/events";
 import { getCurrentVerticalId } from "@/contexts/VerticalContext";
+import { WhatJustHappenedPanel } from "@/components/tower/WhatJustHappenedPanel";
 
 type Message = ChatMessage & {
   id: string;
@@ -76,6 +77,9 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
   
   // Functions panel visibility control (default hidden to not interfere with agentic flow)
   const [showFunctionsPanel, setShowFunctionsPanel] = useState(false);
+  
+  // UI-18: "What just happened?" Tower log viewer
+  const [isWhatJustHappenedOpen, setWhatJustHappenedOpen] = useState(false);
   
   // MEGA Agent mode toggle
   const [chatMode, setChatMode] = useState<"standard" | "mega">(() => {
@@ -1343,19 +1347,33 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
               </span>
             </div>
             
-            {/* Functions Panel Toggle - only show when panel is hidden */}
-            {!showFunctionsPanel && (
+            <div className="flex items-center gap-2">
+              {/* UI-18: What just happened? button */}
               <Button
-                variant="outline"
+                variant="ghost"
                 size="sm"
-                onClick={() => setShowFunctionsPanel(true)}
-                className="flex items-center gap-1"
-                data-testid="button-show-functions"
+                onClick={() => setWhatJustHappenedOpen(true)}
+                className="flex items-center gap-1 text-muted-foreground hover:text-foreground"
+                data-testid="button-what-just-happened"
               >
-                <HelpCircle className="h-3 w-3" />
-                <span className="hidden sm:inline">Show functions</span>
+                <Activity className="h-3 w-3" />
+                <span className="hidden sm:inline">What just happened?</span>
               </Button>
-            )}
+              
+              {/* Functions Panel Toggle - only show when panel is hidden */}
+              {!showFunctionsPanel && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowFunctionsPanel(true)}
+                  className="flex items-center gap-1"
+                  data-testid="button-show-functions"
+                >
+                  <HelpCircle className="h-3 w-3" />
+                  <span className="hidden sm:inline">Show functions</span>
+                </Button>
+              )}
+            </div>
           </div>
 
           {/* MEGA Chips (Follow-up suggestions) */}
@@ -1423,6 +1441,13 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
       />
       
       {/* Add to Xero features temporarily removed for layout debugging */}
+      
+      {/* UI-18: What just happened? Tower log viewer */}
+      <WhatJustHappenedPanel
+        isOpen={isWhatJustHappenedOpen}
+        onClose={() => setWhatJustHappenedOpen(false)}
+        conversationId={conversationId}
+      />
     </div>
   );
 }
