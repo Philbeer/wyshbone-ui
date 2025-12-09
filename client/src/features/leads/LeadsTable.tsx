@@ -58,6 +58,15 @@ function getSourceBadge(source: LeadSource) {
           Database
         </Badge>
       );
+    case "supervisor":
+      return (
+        <Badge
+          variant="outline"
+          className="bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-800"
+        >
+          Supervisor
+        </Badge>
+      );
     case "manual":
       return (
         <Badge variant="secondary">

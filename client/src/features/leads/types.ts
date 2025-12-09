@@ -1,9 +1,9 @@
 /**
- * Lead type definition for UI-6: Mock leads data
+ * Lead type definition for V1-1.1: Real Supabase lead data
  * Extended in UI-14 to support brewery-specific fields for pubs/venues.
  */
 
-export type LeadSource = "google" | "database" | "manual";
+export type LeadSource = "google" | "database" | "manual" | "supervisor";
 
 export type LeadStatus = "new" | "contacted" | "qualified" | "do_not_contact";
 
@@ -20,10 +20,7 @@ export type CaskBias = "cask-led" | "keg-led" | "balanced";
 /**
  * UI-14: Brewery-specific metadata for leads (pubs/venues).
  * These fields are optional and only shown when vertical = "brewery".
- * 
- * NOTE: When backend schema is extended for brewery fields, these will
- * map to backend data. For now, they can be stored in a metadata object
- * or as direct optional fields.
+ * Stored as JSONB in Supabase `brewery_metadata` column.
  */
 export interface BreweryLeadMetadata {
   /** Pub type - freehouse, tied house, pubco, group, independent */
@@ -53,10 +50,18 @@ export interface Lead {
   source: LeadSource;
   status: LeadStatus;
   
+  /** Contact email (optional) */
+  email?: string;
+  /** Contact phone (optional) */
+  phone?: string;
+  /** Business website (optional) */
+  website?: string;
+  /** Additional notes */
+  notes?: string;
+  
   /**
    * UI-14: Optional brewery-specific metadata for leads.
    * Only populated/rendered when vertical = "brewery".
    */
   breweryMetadata?: BreweryLeadMetadata;
 }
-

@@ -1,26 +1,19 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import type { Lead, LeadStatus } from "./types";
-import { mockLeads } from "./mockLeads";
-import { isDemoMode } from "@/hooks/useDemoMode";
-import { demoSavedLeads } from "@/demo/demoData";
+import { getSupabaseClient } from "@/lib/supabase";
+import { apiRequest } from "@/lib/queryClient";
+import type { RealtimeChannel } from "@supabase/supabase-js";
 
 /**
- * Simulated delay for mock API calls (ms)
- * Set to 0 to disable loading simulation
+ * V1-1.1: useLeads hook with real Supabase data and realtime subscriptions.
+ * 
+ * Architecture:
+ * - READS: Direct Supabase queries to the `leads` table (owned by Supervisor)
+ * - WRITES: Stage changes go through Supervisor's POST /api/lead/update endpoint
+ * - REALTIME: Supabase realtime subscriptions reflect Supervisor writes
+ * 
+ * This ensures Supervisor owns business logic for lead mutations.
  */
-const SIMULATED_DELAY = 800;
-
-/**
- * Toggle to simulate fetch error for testing
- * Set to true to test error UI
- */
-const SIMULATE_FETCH_ERROR = false;
-
-/**
- * Toggle to simulate action errors for testing
- * Set to true to test action error handling
- */
-const SIMULATE_ACTION_ERROR = false;
 
 export interface UseLeadsResult {
   leads: Lead[];
@@ -29,62 +22,160 @@ export interface UseLeadsResult {
   refetch: () => void;
   deleteLead: (leadId: string) => Promise<void>;
   updateLeadStatus: (leadId: string, newStatus: LeadStatus) => Promise<void>;
-  /** UI-20: Whether we're showing demo data */
-  isDemoData: boolean;
+  /** Whether realtime is connected */
+  isRealtimeConnected: boolean;
 }
 
 /**
- * Custom hook for managing leads data with loading and error states.
- * Simulates API behavior with mock data for UI development.
- * 
- * UI-20: In demo mode, returns demo leads instead of mock/real data.
+ * Map Supabase row to Lead type
+ */
+function mapSupabaseLeadToLead(row: any): Lead {
+  return {
+    id: row.id,
+    businessName: row.business_name,
+    location: row.location,
+    source: row.source,
+    status: row.status,
+    email: row.email || undefined,
+    phone: row.phone || undefined,
+    website: row.website || undefined,
+    notes: row.notes || undefined,
+    breweryMetadata: row.brewery_metadata || undefined,
+  };
+}
+
+/**
+ * Custom hook for managing leads data with Supabase reads and Supervisor writes.
  * 
  * Usage:
- * - Toggle SIMULATE_FETCH_ERROR to test error UI
- * - Toggle SIMULATE_ACTION_ERROR to test action error handling
- * - Adjust SIMULATED_DELAY to control loading time
+ * ```tsx
+ * const { leads, isLoading, error, refetch, deleteLead, updateLeadStatus } = useLeads();
+ * ```
  */
 export function useLeads(): UseLeadsResult {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [isDemoData, setIsDemoData] = useState(false);
+  const [isRealtimeConnected, setIsRealtimeConnected] = useState(false);
+  const channelRef = useRef<RealtimeChannel | null>(null);
 
   /**
-   * Simulates fetching leads from API
-   * UI-20: In demo mode, use demo data instead
+   * Fetch leads from Supabase (READ operation - direct Supabase access)
    */
   const fetchLeads = useCallback(async () => {
+    const supabase = getSupabaseClient();
+    
+    if (!supabase) {
+      setError("Supabase not configured. Please check your environment variables.");
+      setIsLoading(false);
+      return;
+    }
+
     setIsLoading(true);
     setError(null);
 
-    // UI-20: Check demo mode
-    const inDemoMode = isDemoMode();
-    setIsDemoData(inDemoMode);
-
     try {
-      // Simulate network delay
-      await new Promise((resolve) => setTimeout(resolve, SIMULATED_DELAY));
+      const { data, error: fetchError } = await supabase
+        .from("leads")
+        .select("*")
+        .order("created_at", { ascending: false });
 
-      // UI-20: In demo mode, use demo leads
-      if (inDemoMode) {
-        setLeads(demoSavedLeads);
-        return;
+      if (fetchError) {
+        throw new Error(fetchError.message);
       }
 
-      // Simulate error if flag is set
-      if (SIMULATE_FETCH_ERROR) {
-        throw new Error("Failed to fetch leads. Please try again.");
-      }
-
-      // Set mock data
-      setLeads(mockLeads);
+      const mappedLeads = (data || []).map(mapSupabaseLeadToLead);
+      setLeads(mappedLeads);
     } catch (err) {
-      const message = err instanceof Error ? err.message : "An unexpected error occurred";
+      const message = err instanceof Error ? err.message : "Failed to fetch leads";
+      console.error("[useLeads] Fetch error:", message);
       setError(message);
       setLeads([]);
     } finally {
       setIsLoading(false);
+    }
+  }, []);
+
+  /**
+   * Set up realtime subscription for lead changes.
+   * This reflects Supervisor writes in real-time.
+   */
+  const setupRealtimeSubscription = useCallback(() => {
+    const supabase = getSupabaseClient();
+    
+    if (!supabase) {
+      console.warn("[useLeads] Supabase not configured, skipping realtime");
+      return;
+    }
+
+    // Clean up existing subscription
+    if (channelRef.current) {
+      supabase.removeChannel(channelRef.current);
+    }
+
+    console.log("[useLeads] Setting up realtime subscription for leads table");
+
+    const channel = supabase
+      .channel("leads-realtime")
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "leads",
+        },
+        (payload) => {
+          console.log("[useLeads] Realtime INSERT:", payload.new);
+          const newLead = mapSupabaseLeadToLead(payload.new);
+          setLeads((prev) => [newLead, ...prev]);
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "leads",
+        },
+        (payload) => {
+          console.log("[useLeads] Realtime UPDATE:", payload.new);
+          const updatedLead = mapSupabaseLeadToLead(payload.new);
+          setLeads((prev) =>
+            prev.map((lead) => (lead.id === updatedLead.id ? updatedLead : lead))
+          );
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "DELETE",
+          schema: "public",
+          table: "leads",
+        },
+        (payload) => {
+          console.log("[useLeads] Realtime DELETE:", payload.old);
+          const deletedId = (payload.old as any).id;
+          setLeads((prev) => prev.filter((lead) => lead.id !== deletedId));
+        }
+      )
+      .subscribe((status) => {
+        console.log("[useLeads] Realtime subscription status:", status);
+        setIsRealtimeConnected(status === "SUBSCRIBED");
+      });
+
+    channelRef.current = channel;
+  }, []);
+
+  /**
+   * Clean up realtime subscription
+   */
+  const cleanupRealtimeSubscription = useCallback(() => {
+    const supabase = getSupabaseClient();
+    if (channelRef.current && supabase) {
+      console.log("[useLeads] Cleaning up realtime subscription");
+      supabase.removeChannel(channelRef.current);
+      channelRef.current = null;
+      setIsRealtimeConnected(false);
     }
   }, []);
 
@@ -96,43 +187,84 @@ export function useLeads(): UseLeadsResult {
   }, [fetchLeads]);
 
   /**
-   * Delete a lead by ID
-   * @throws Error if deletion fails
+   * Delete a lead.
+   * 
+   * TODO: Route deletes through Supervisor once endpoint exists.
+   * Currently using direct Supabase delete as Supervisor does not yet expose
+   * a DELETE /api/lead/:id endpoint.
    */
   const deleteLead = useCallback(async (leadId: string): Promise<void> => {
-    // Simulate network delay for the action
-    await new Promise((resolve) => setTimeout(resolve, 300));
-
-    if (SIMULATE_ACTION_ERROR) {
-      throw new Error("Failed to delete lead. Please try again.");
+    const supabase = getSupabaseClient();
+    
+    if (!supabase) {
+      throw new Error("Supabase not configured");
     }
 
-    setLeads((prevLeads) => prevLeads.filter((lead) => lead.id !== leadId));
-  }, []);
+    // Optimistic update
+    setLeads((prev) => prev.filter((lead) => lead.id !== leadId));
+
+    try {
+      // TODO: Route deletes through Supervisor once endpoint exists.
+      // For now, delete directly via Supabase.
+      const { error: deleteError } = await supabase
+        .from("leads")
+        .delete()
+        .eq("id", leadId);
+
+      if (deleteError) {
+        throw new Error(deleteError.message);
+      }
+
+      console.log("[useLeads] Lead deleted:", leadId);
+    } catch (err) {
+      // Revert optimistic update on error
+      console.error("[useLeads] Delete error:", err);
+      await fetchLeads(); // Refetch to restore correct state
+      throw err;
+    }
+  }, [fetchLeads]);
 
   /**
-   * Update a lead's status
-   * @throws Error if update fails
+   * Update a lead's status via Supervisor's POST /api/lead/update endpoint.
+   * 
+   * The UI does NOT write directly to Supabase for stage changes.
+   * Instead, we call the Supervisor endpoint and rely on realtime
+   * subscriptions to reflect the change in the UI.
    */
   const updateLeadStatus = useCallback(async (leadId: string, newStatus: LeadStatus): Promise<void> => {
-    // Simulate network delay for the action
-    await new Promise((resolve) => setTimeout(resolve, 300));
-
-    if (SIMULATE_ACTION_ERROR) {
-      throw new Error("Failed to update lead status. Please try again.");
-    }
-
-    setLeads((prevLeads) =>
-      prevLeads.map((lead) =>
+    // Optimistic update for responsive UI
+    setLeads((prev) =>
+      prev.map((lead) =>
         lead.id === leadId ? { ...lead, status: newStatus } : lead
       )
     );
-  }, []);
 
-  // Initial fetch on mount
+    try {
+      // Call Supervisor endpoint for stage updates via shared API helper
+      await apiRequest("POST", "/api/lead/update", {
+        lead_id: leadId,
+        updates: { status: newStatus },
+      });
+
+      console.log("[useLeads] Lead status updated via Supervisor:", leadId, newStatus);
+      // Note: Realtime subscription will confirm the update from Supabase
+    } catch (err) {
+      // Revert optimistic update on error
+      console.error("[useLeads] Update error:", err);
+      await fetchLeads(); // Refetch to restore correct state
+      throw err;
+    }
+  }, [fetchLeads]);
+
+  // Initial fetch and realtime setup
   useEffect(() => {
     fetchLeads();
-  }, [fetchLeads]);
+    setupRealtimeSubscription();
+
+    return () => {
+      cleanupRealtimeSubscription();
+    };
+  }, [fetchLeads, setupRealtimeSubscription, cleanupRealtimeSubscription]);
 
   return {
     leads,
@@ -141,7 +273,6 @@ export function useLeads(): UseLeadsResult {
     refetch,
     deleteLead,
     updateLeadStatus,
-    isDemoData,
+    isRealtimeConnected,
   };
 }
-

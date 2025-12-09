@@ -39,7 +39,7 @@ type WizardStep = 1 | 2 | 3;
 function StepIndicator({ currentStep }: { currentStep: WizardStep }) {
   const steps = [
     { num: 1, label: "Welcome" },
-    { num: 2, label: "Ideal Pubs" },
+    { num: 2, label: "Ideal Leads" },
     { num: 3, label: "Territory" },
   ];
 
@@ -328,7 +328,7 @@ function StepTerritory({
             onChange={(e) => onUpdate({ focusRegions: e.target.value })}
           />
           <p className="text-xs text-muted-foreground">
-            Enter the regions, counties, or cities where you want to find pubs
+            Enter the regions, counties, or cities where you want to find leads
           </p>
         </div>
       </div>

@@ -2,11 +2,11 @@
  * Vertical Labels System
  * 
  * Provides industry-specific UI labels based on the user's CRM settings.
- * Currently supports: brewery (pubs/venues), generic (leads/businesses)
+ * Currently supports: brewery (leads/venues), generic (leads/businesses)
  * 
  * Usage:
  *   const { labels, isLoading } = useVerticalLabels();
- *   // labels.nav_leads → "Pubs" (brewery) or "Leads" (generic)
+ *   // labels.nav_leads → "Leads" (brewery) or "Leads" (generic)
  */
 
 import { useQuery } from "@tanstack/react-query";
