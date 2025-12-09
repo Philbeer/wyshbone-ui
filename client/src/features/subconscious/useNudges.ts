@@ -1,15 +1,26 @@
-import { useCallback, useMemo, useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { authedFetch, apiRequest } from "@/lib/queryClient";
-import { isDemoMode } from "@/hooks/useDemoMode";
-import { demoNudges as demoNudgesData } from "@/demo/demoData";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { getSupabaseClient } from "@/lib/supabase";
+import { apiRequest } from "@/lib/queryClient";
+import type { RealtimeChannel } from "@supabase/supabase-js";
 import type { SubconNudge, NudgeStatus, NudgeType } from "./types";
 
 /**
- * Backend DTO shape from Supervisor /api/subconscious/nudges endpoint.
- * This may differ from the UI-side SubconNudge type (e.g., snake_case vs camelCase).
+ * V1-1.2: useNudges hook with REAL Supabase data from subcon_nudges table.
+ * 
+ * Architecture:
+ * - READS: Direct Supabase queries to the `subcon_nudges` table
+ * - WRITES: Actions (dismiss/snooze) go through Supervisor API endpoints
+ * - REALTIME: Supabase realtime subscriptions for INSERT/UPDATE/DELETE events
+ * 
+ * This replaces the previous API-based approach with direct Supabase access
+ * for reads, matching the pattern used by useLeads.ts.
  */
-interface NudgeDTO {
+
+/**
+ * Supabase row shape from subcon_nudges table.
+ * Uses snake_case to match database columns.
+ */
+interface SubconNudgeRow {
   id: string;
   title: string;
   summary: string;
@@ -21,25 +32,26 @@ interface NudgeDTO {
   lead_name?: string;
   remind_at?: string;
   metadata?: Record<string, unknown>;
+  user_id?: string;
 }
 
 /**
- * Maps a backend NudgeDTO to the UI SubconNudge type.
+ * Maps a Supabase row to the UI SubconNudge type.
  * Handles snake_case → camelCase conversion and type coercion.
  */
-function mapNudgeFromDTO(dto: NudgeDTO): SubconNudge {
+function mapSupabaseRowToNudge(row: SubconNudgeRow): SubconNudge {
   return {
-    id: dto.id,
-    title: dto.title,
-    summary: dto.summary,
-    createdAt: dto.created_at,
-    status: dto.status as NudgeStatus,
-    type: dto.type as NudgeType,
-    importanceScore: dto.importance_score,
-    leadId: dto.lead_id,
-    leadName: dto.lead_name,
-    remindAt: dto.remind_at,
-    metadata: dto.metadata,
+    id: row.id,
+    title: row.title,
+    summary: row.summary,
+    createdAt: row.created_at,
+    status: row.status as NudgeStatus,
+    type: row.type as NudgeType,
+    importanceScore: row.importance_score,
+    leadId: row.lead_id,
+    leadName: row.lead_name,
+    remindAt: row.remind_at,
+    metadata: row.metadata,
   };
 }
 
@@ -67,28 +79,6 @@ function sortNudges(nudges: SubconNudge[]): SubconNudge[] {
 }
 
 /**
- * Fetches nudges from the Supervisor API.
- */
-async function fetchNudges(): Promise<SubconNudge[]> {
-  const response = await authedFetch("/api/subconscious/nudges");
-  
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Failed to fetch nudges: ${response.status} ${text || response.statusText}`);
-  }
-  
-  const data = await response.json();
-  
-  // Backend may return { nudges: [...] } or just an array
-  const nudgeDTOs: NudgeDTO[] = Array.isArray(data) ? data : (data.nudges ?? []);
-  
-  return nudgeDTOs.map(mapNudgeFromDTO);
-}
-
-/** Query key for nudges - used for cache invalidation */
-const NUDGES_QUERY_KEY = ["/api/subconscious/nudges"];
-
-/**
  * Default snooze duration: 24 hours from now.
  * Returns an ISO string for the remindAt field.
  */
@@ -110,151 +100,268 @@ export interface UseNudgesResult {
   snoozeNudge: (nudgeId: string, remindAt?: string) => Promise<void>;
   /** Returns true if a mutation is in progress for the given nudge */
   isNudgePending: (nudgeId: string) => boolean;
-  /** UI-20: Whether we're showing demo data */
-  isDemoData: boolean;
+  /** Whether realtime is connected */
+  isRealtimeConnected: boolean;
 }
 
 /**
- * useNudges - Hook for fetching and managing nudges from the Subconscious Engine.
+ * useNudges - Hook for fetching and managing nudges from Supabase subcon_nudges table.
  * 
- * Fetches nudges from GET /api/subconscious/nudges and provides:
+ * Fetches nudges directly from Supabase and provides:
  * - Sorted list of nudges (by importance, then by date)
  * - Loading and error states
  * - Refetch function for retry/refresh
- * - Action handlers: dismissNudge, snoozeNudge
+ * - Realtime updates on INSERT/UPDATE/DELETE
+ * - Action handlers: dismissNudge, snoozeNudge (via Supervisor API)
  * 
- * UI-20: In demo mode, returns demo nudges and handles actions locally.
- * 
- * The Supervisor endpoints (SUP-10-13) provide:
- *   - GET /api/subconscious/nudges - List nudges
- *   - POST /api/subconscious/nudges/:id/handle - Mark as handled
- *   - POST /api/subconscious/nudges/:id/dismiss - Dismiss nudge
- *   - POST /api/subconscious/nudges/:id/snooze - Snooze with remindAt
+ * Action endpoints (Supervisor):
+ *   - POST /api/subcon/nudge/:id/dismiss - Dismiss nudge
+ *   - POST /api/subcon/nudge/:id/snooze - Snooze with remindAt
  */
 export function useNudges(): UseNudgesResult {
-  const queryClient = useQueryClient();
-  const inDemoMode = isDemoMode();
-  
-  // UI-20: Local state for demo mode nudges (allows dismiss/snooze without backend)
-  const [demoNudges, setDemoNudges] = useState<SubconNudge[]>(demoNudgesData);
-  
-  const {
-    data: rawNudges,
-    isLoading: apiIsLoading,
-    isError,
-    error,
-    refetch: queryRefetch,
-  } = useQuery<SubconNudge[], Error>({
-    queryKey: NUDGES_QUERY_KEY,
-    queryFn: fetchNudges,
-    // UI-20: Disable query in demo mode
-    enabled: !inDemoMode,
-    // Nudges may update frequently; allow some refetch on focus
-    staleTime: 30_000, // Consider data stale after 30 seconds
-    refetchOnWindowFocus: true,
-  });
-  
-  // UI-20: In demo mode, use demo nudges; loading is instant
-  const isLoading = inDemoMode ? false : apiIsLoading;
-
-  // Sort nudges: most important/newest first
-  // UI-20: Use demo nudges in demo mode
-  const nudges = useMemo(() => {
-    const source = inDemoMode ? demoNudges : (rawNudges ?? []);
-    return sortNudges(source);
-  }, [rawNudges, demoNudges, inDemoMode]);
-
-  // Wrap refetch for a cleaner API
-  const refetch = useCallback(() => {
-    queryRefetch();
-  }, [queryRefetch]);
+  const [nudges, setNudges] = useState<SubconNudge[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isError, setIsError] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+  const [isRealtimeConnected, setIsRealtimeConnected] = useState(false);
+  const [pendingNudgeIds, setPendingNudgeIds] = useState<Set<string>>(new Set());
+  const channelRef = useRef<RealtimeChannel | null>(null);
 
   /**
-   * Mutation: Dismiss a nudge
-   * POST /api/subconscious/nudges/:id/dismiss
+   * Fetch nudges from Supabase (READ operation - direct Supabase access)
+   * Only fetches active nudges (status not 'dismissed' or 'handled')
    */
-  const dismissMutation = useMutation({
-    mutationFn: async (nudgeId: string) => {
-      await apiRequest("POST", `/api/subconscious/nudges/${nudgeId}/dismiss`);
-    },
-    onSuccess: () => {
-      // Refetch the nudges list to reflect the change
-      queryClient.invalidateQueries({ queryKey: NUDGES_QUERY_KEY });
-    },
-  });
-
-  /**
-   * Mutation: Snooze a nudge
-   * POST /api/subconscious/nudges/:id/snooze
-   * Body: { remind_at: ISO string }
-   */
-  const snoozeMutation = useMutation({
-    mutationFn: async ({ nudgeId, remindAt }: { nudgeId: string; remindAt: string }) => {
-      await apiRequest("POST", `/api/subconscious/nudges/${nudgeId}/snooze`, {
-        remind_at: remindAt,
-      });
-    },
-    onSuccess: () => {
-      // Refetch the nudges list to reflect the change
-      queryClient.invalidateQueries({ queryKey: NUDGES_QUERY_KEY });
-    },
-  });
-
-  /**
-   * Dismiss a nudge - wrapper around the mutation.
-   * UI-20: In demo mode, just update local state.
-   */
-  const dismissNudge = useCallback(async (nudgeId: string): Promise<void> => {
-    if (inDemoMode) {
-      // Demo mode: update local state
-      setDemoNudges(prev => prev.filter(n => n.id !== nudgeId));
+  const fetchNudges = useCallback(async () => {
+    const supabase = getSupabaseClient();
+    
+    if (!supabase) {
+      setError(new Error("Supabase not configured. Please check your environment variables."));
+      setIsError(true);
+      setIsLoading(false);
       return;
     }
-    await dismissMutation.mutateAsync(nudgeId);
-  }, [dismissMutation, inDemoMode]);
+
+    setIsLoading(true);
+    setIsError(false);
+    setError(null);
+
+    try {
+      const { data, error: fetchError } = await supabase
+        .from("subcon_nudges")
+        .select("*")
+        .not("status", "in", '("dismissed","handled")')
+        .order("created_at", { ascending: false });
+
+      if (fetchError) {
+        throw new Error(fetchError.message);
+      }
+
+      const mappedNudges = (data || []).map(mapSupabaseRowToNudge);
+      setNudges(mappedNudges);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to fetch nudges";
+      console.error("[useNudges] Fetch error:", message);
+      setError(err instanceof Error ? err : new Error(message));
+      setIsError(true);
+      setNudges([]);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
 
   /**
-   * Snooze a nudge - wrapper around the mutation.
-   * UI-20: In demo mode, just update local state.
+   * Set up realtime subscription for nudge changes.
+   * Reflects Supervisor writes and new nudges in real-time.
+   */
+  const setupRealtimeSubscription = useCallback(() => {
+    const supabase = getSupabaseClient();
+    
+    if (!supabase) {
+      console.warn("[useNudges] Supabase not configured, skipping realtime");
+      return;
+    }
+
+    // Clean up existing subscription
+    if (channelRef.current) {
+      supabase.removeChannel(channelRef.current);
+    }
+
+    console.log("[useNudges] Setting up realtime subscription for subcon_nudges table");
+
+    const channel = supabase
+      .channel("subcon-nudges-realtime")
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "subcon_nudges",
+        },
+        (payload) => {
+          console.log("[useNudges] Realtime INSERT:", payload.new);
+          const newNudge = mapSupabaseRowToNudge(payload.new as SubconNudgeRow);
+          // Only add if not dismissed/handled
+          if (newNudge.status !== "dismissed" && newNudge.status !== "handled") {
+            setNudges((prev) => [newNudge, ...prev]);
+          }
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "subcon_nudges",
+        },
+        (payload) => {
+          console.log("[useNudges] Realtime UPDATE:", payload.new);
+          const updatedNudge = mapSupabaseRowToNudge(payload.new as SubconNudgeRow);
+          
+          // If nudge is now dismissed/handled, remove from list
+          if (updatedNudge.status === "dismissed" || updatedNudge.status === "handled") {
+            setNudges((prev) => prev.filter((nudge) => nudge.id !== updatedNudge.id));
+          } else {
+            // Otherwise update in place
+            setNudges((prev) =>
+              prev.map((nudge) => (nudge.id === updatedNudge.id ? updatedNudge : nudge))
+            );
+          }
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "DELETE",
+          schema: "public",
+          table: "subcon_nudges",
+        },
+        (payload) => {
+          console.log("[useNudges] Realtime DELETE:", payload.old);
+          const deletedId = (payload.old as SubconNudgeRow).id;
+          setNudges((prev) => prev.filter((nudge) => nudge.id !== deletedId));
+        }
+      )
+      .subscribe((status) => {
+        console.log("[useNudges] Realtime subscription status:", status);
+        setIsRealtimeConnected(status === "SUBSCRIBED");
+      });
+
+    channelRef.current = channel;
+  }, []);
+
+  /**
+   * Clean up realtime subscription
+   */
+  const cleanupRealtimeSubscription = useCallback(() => {
+    const supabase = getSupabaseClient();
+    if (channelRef.current && supabase) {
+      console.log("[useNudges] Cleaning up realtime subscription");
+      supabase.removeChannel(channelRef.current);
+      channelRef.current = null;
+      setIsRealtimeConnected(false);
+    }
+  }, []);
+
+  /**
+   * Refetch nudges data
+   */
+  const refetch = useCallback(() => {
+    fetchNudges();
+  }, [fetchNudges]);
+
+  /**
+   * Dismiss a nudge via Supervisor API.
+   * POST /api/subcon/nudge/:id/dismiss
+   */
+  const dismissNudge = useCallback(async (nudgeId: string): Promise<void> => {
+    // Mark as pending
+    setPendingNudgeIds((prev) => new Set(prev).add(nudgeId));
+
+    // Optimistic update - remove from UI immediately
+    setNudges((prev) => prev.filter((nudge) => nudge.id !== nudgeId));
+
+    try {
+      await apiRequest("POST", `/api/subcon/nudge/${nudgeId}/dismiss`, { id: nudgeId });
+      console.log("[useNudges] Nudge dismissed via Supervisor:", nudgeId);
+      // Realtime subscription will confirm the update from Supabase
+    } catch (err) {
+      console.error("[useNudges] Dismiss error:", err);
+      // Revert optimistic update on error by refetching
+      await fetchNudges();
+      throw err;
+    } finally {
+      setPendingNudgeIds((prev) => {
+        const next = new Set(prev);
+        next.delete(nudgeId);
+        return next;
+      });
+    }
+  }, [fetchNudges]);
+
+  /**
+   * Snooze a nudge via Supervisor API.
+   * POST /api/subcon/nudge/:id/snooze
    * @param nudgeId - The nudge to snooze
    * @param remindAt - Optional ISO date string; defaults to 24 hours from now
    */
   const snoozeNudge = useCallback(async (nudgeId: string, remindAt?: string): Promise<void> => {
-    if (inDemoMode) {
-      // Demo mode: update local state to show snoozed status
-      setDemoNudges(prev => prev.map(n => 
-        n.id === nudgeId 
-          ? { ...n, status: 'snoozed' as NudgeStatus, remindAt: remindAt ?? getDefaultSnoozeTime() }
-          : n
-      ));
-      return;
+    // Mark as pending
+    setPendingNudgeIds((prev) => new Set(prev).add(nudgeId));
+
+    // Optimistic update - update status to snoozed and remove from active list
+    setNudges((prev) => prev.filter((nudge) => nudge.id !== nudgeId));
+
+    try {
+      await apiRequest("POST", `/api/subcon/nudge/${nudgeId}/snooze`, {
+        id: nudgeId,
+        remind_at: remindAt ?? getDefaultSnoozeTime(),
+      });
+      console.log("[useNudges] Nudge snoozed via Supervisor:", nudgeId);
+      // Realtime subscription will confirm the update from Supabase
+    } catch (err) {
+      console.error("[useNudges] Snooze error:", err);
+      // Revert optimistic update on error by refetching
+      await fetchNudges();
+      throw err;
+    } finally {
+      setPendingNudgeIds((prev) => {
+        const next = new Set(prev);
+        next.delete(nudgeId);
+        return next;
+      });
     }
-    await snoozeMutation.mutateAsync({
-      nudgeId,
-      remindAt: remindAt ?? getDefaultSnoozeTime(),
-    });
-  }, [snoozeMutation, inDemoMode]);
+  }, [fetchNudges]);
 
   /**
    * Check if a specific nudge has a pending mutation.
    * Used to disable buttons while an action is in progress.
    */
   const isNudgePending = useCallback((nudgeId: string): boolean => {
-    // Check if this specific nudge is being mutated
-    const dismissPending = dismissMutation.isPending && dismissMutation.variables === nudgeId;
-    const snoozePending = snoozeMutation.isPending && snoozeMutation.variables?.nudgeId === nudgeId;
-    return dismissPending || snoozePending;
-  }, [dismissMutation.isPending, dismissMutation.variables, snoozeMutation.isPending, snoozeMutation.variables]);
+    return pendingNudgeIds.has(nudgeId);
+  }, [pendingNudgeIds]);
+
+  // Sort nudges: most important/newest first (memoized)
+  const sortedNudges = useMemo(() => sortNudges(nudges), [nudges]);
+
+  // Initial fetch and realtime setup
+  useEffect(() => {
+    fetchNudges();
+    setupRealtimeSubscription();
+
+    return () => {
+      cleanupRealtimeSubscription();
+    };
+  }, [fetchNudges, setupRealtimeSubscription, cleanupRealtimeSubscription]);
 
   return {
-    nudges,
+    nudges: sortedNudges,
     isLoading,
-    isError: inDemoMode ? false : isError,
-    error: inDemoMode ? null : (error ?? null),
+    isError,
+    error,
     refetch,
     dismissNudge,
     snoozeNudge,
     isNudgePending,
-    isDemoData: inDemoMode,
+    isRealtimeConnected,
   };
 }

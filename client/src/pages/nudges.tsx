@@ -9,8 +9,9 @@ import type { SubconNudge, NudgeActions } from "@/features/subconscious";
  * which identifies leads that need attention (stale leads, follow-ups, etc.)
  * 
  * UI-10: Panel shell with layout, empty state
- * UI-11: Real data fetching from Supervisor API with sorting
+ * UI-11: Real data fetching from Supabase subcon_nudges table with sorting
  * UI-12: Nudge actions (Open lead, Dismiss, Remind me later)
+ * V1-1.2: Real Supabase data with realtime subscriptions (no more mocks)
  */
 export default function NudgesPage() {
   const { 

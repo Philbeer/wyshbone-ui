@@ -8,7 +8,6 @@
  */
 
 import type { Lead } from '@/features/leads/types';
-import type { SubconNudge } from '@/features/subconscious/types';
 import type { TowerRunSummary } from '@/api/towerClient';
 
 // ==========================================
@@ -290,70 +289,10 @@ export const demoLeadFinderResults: Lead[] = [
 ];
 
 // ==========================================
-// Demo Nudges
+// Demo Tower Runs (for "What just happened?")
 // ==========================================
 
 const now = new Date();
-
-export const demoNudges: SubconNudge[] = [
-  {
-    id: 'demo-nudge-1',
-    title: 'Stale lead: The Dog & Duck',
-    summary: 'You added The Dog & Duck 32 days ago but haven\'t made contact yet. The landlord was noted as "keen on trying new breweries" - worth a call?',
-    createdAt: new Date(now.getTime() - 2 * 60 * 60 * 1000).toISOString(), // 2 hours ago
-    status: 'new',
-    type: 'stale_lead',
-    importanceScore: 85,
-    leadId: 'demo-lead-1',
-    leadName: 'The Dog & Duck',
-  },
-  {
-    id: 'demo-nudge-2',
-    title: 'Hot prospect: The Malt House opened your email',
-    summary: 'The Malt House opened your intro email twice yesterday. This could be a good time to follow up with a call or another email.',
-    createdAt: new Date(now.getTime() - 5 * 60 * 60 * 1000).toISOString(), // 5 hours ago
-    status: 'new',
-    type: 'engagement',
-    importanceScore: 92,
-    leadId: 'demo-lead-2',
-    leadName: 'The Malt House',
-  },
-  {
-    id: 'demo-nudge-3',
-    title: 'Follow up: The Plough Inn quote request',
-    summary: 'The Plough Inn asked for a price list 10 days ago. Have you sent it? If so, it might be time to check if they have questions.',
-    createdAt: new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString(), // 1 day ago
-    status: 'new',
-    type: 'follow_up',
-    importanceScore: 78,
-    leadId: 'demo-lead-7',
-    leadName: 'The Plough Inn',
-  },
-  {
-    id: 'demo-nudge-4',
-    title: 'Insight: Craft beer trend in Bradford',
-    summary: 'Bradford has seen a 23% increase in craft beer bar openings this year. The Hop & Vine in your pipeline could be a gateway to this market.',
-    createdAt: new Date(now.getTime() - 48 * 60 * 60 * 1000).toISOString(), // 2 days ago
-    status: 'seen',
-    type: 'insight',
-    importanceScore: 65,
-    leadId: 'demo-lead-8',
-    leadName: 'The Hop & Vine',
-  },
-  {
-    id: 'demo-nudge-5',
-    title: 'Reminder: Beer festival season approaching',
-    summary: 'Summer beer festival season starts next month. Consider reaching out to pubs about festival specials or cask orders.',
-    createdAt: new Date(now.getTime() - 72 * 60 * 60 * 1000).toISOString(), // 3 days ago
-    status: 'new',
-    type: 'reminder',
-    importanceScore: 70,
-  },
-];
-
-// ==========================================
-// Demo Tower Runs (for "What just happened?")
-// ==========================================
 
 export const demoTowerRuns: TowerRunSummary[] = [
   {
