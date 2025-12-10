@@ -6,7 +6,11 @@
  * 
  * Note: This calls the UI backend which proxies to Tower, since the Tower
  * URL may not be accessible directly from the browser.
+ * 
+ * V1-1.3: Refactored to use authedFetch for consistent API handling.
  */
+
+import { authedFetch, handleApiError } from "@/lib/queryClient";
 
 /**
  * Summary of a Tower run for display in the UI
@@ -81,18 +85,17 @@ export async function fetchRecentTowerRunsForConversation(
 ): Promise<TowerRunSummary[]> {
   try {
     // Call our backend proxy endpoint which talks to Tower
-    const response = await fetch(`/api/tower/runs?conversationId=${encodeURIComponent(conversationId)}&limit=${limit}`);
+    const response = await authedFetch(`/api/tower/runs?conversationId=${encodeURIComponent(conversationId)}&limit=${limit}`);
     
     if (!response.ok) {
-      console.error(`[TowerClient] Failed to fetch runs for conversation ${conversationId}: ${response.status}`);
       throw new Error(`Tower API returned ${response.status}`);
     }
     
     const runs: TowerRunResponse[] = await response.json();
     return runs.map(mapTowerRunToSummary);
   } catch (error) {
-    console.error('[TowerClient] Error fetching conversation runs:', error);
-    throw error;
+    const message = handleApiError(error, `fetch Tower runs for conversation ${conversationId}`);
+    throw new Error(message);
   }
 }
 
@@ -102,18 +105,17 @@ export async function fetchRecentTowerRunsForConversation(
 export async function fetchRecentTowerRuns(limit: number = 10): Promise<TowerRunSummary[]> {
   try {
     // Call our backend proxy endpoint which talks to Tower
-    const response = await fetch(`/api/tower/runs?limit=${limit}`);
+    const response = await authedFetch(`/api/tower/runs?limit=${limit}`);
     
     if (!response.ok) {
-      console.error(`[TowerClient] Failed to fetch recent runs: ${response.status}`);
       throw new Error(`Tower API returned ${response.status}`);
     }
     
     const runs: TowerRunResponse[] = await response.json();
     return runs.map(mapTowerRunToSummary);
   } catch (error) {
-    console.error('[TowerClient] Error fetching recent runs:', error);
-    throw error;
+    const message = handleApiError(error, "fetch recent Tower runs");
+    throw new Error(message);
   }
 }
 
@@ -122,18 +124,17 @@ export async function fetchRecentTowerRuns(limit: number = 10): Promise<TowerRun
  */
 export async function fetchRecentLiveUserRuns(limit: number = 10): Promise<TowerRunSummary[]> {
   try {
-    const response = await fetch(`/api/tower/runs/live?limit=${limit}`);
+    const response = await authedFetch(`/api/tower/runs/live?limit=${limit}`);
     
     if (!response.ok) {
-      console.error(`[TowerClient] Failed to fetch live user runs: ${response.status}`);
       throw new Error(`Tower API returned ${response.status}`);
     }
     
     const runs: TowerRunResponse[] = await response.json();
     return runs.map(mapTowerRunToSummary);
   } catch (error) {
-    console.error('[TowerClient] Error fetching live user runs:', error);
-    throw error;
+    const message = handleApiError(error, "fetch live user Tower runs");
+    throw new Error(message);
   }
 }
 

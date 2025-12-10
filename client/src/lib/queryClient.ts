@@ -1,3 +1,46 @@
+/**
+ * V1-1.3: Unified API Client & Error Handling
+ * ============================================
+ * 
+ * This module provides the canonical API helpers for all Supervisor-facing UI actions.
+ * All API calls should go through these helpers for consistent behavior.
+ * 
+ * ## When to use each helper:
+ * 
+ * ### `apiRequest(method, url, data?)` - For mutations (POST/PUT/PATCH/DELETE)
+ *   - Use for any action that modifies server state
+ *   - Automatically sets Content-Type: application/json for requests with body
+ *   - Throws on non-2xx responses with error message
+ *   - Example: await apiRequest("POST", "/api/plan/approve", { planId })
+ * 
+ * ### `authedFetch(url, options?)` - For reads (GET) or custom requests
+ *   - Use for GET requests, especially with react-query
+ *   - Use when you need access to the raw Response object
+ *   - Does NOT automatically throw on error - check response.ok yourself
+ *   - Example: const response = await authedFetch("/api/goal")
+ * 
+ * ### `handleApiError(error, context)` - Unified error handler
+ *   - Use in catch blocks for user-facing API actions
+ *   - Logs error to console with context
+ *   - Returns a user-friendly error message
+ *   - Example: catch (err) { const msg = handleApiError(err, "approve plan"); toast({ title: msg }) }
+ * 
+ * ## Error handling pattern:
+ * ```ts
+ * try {
+ *   await apiRequest("POST", "/api/some/endpoint", data);
+ *   // Success handling...
+ * } catch (error) {
+ *   const message = handleApiError(error, "operation name");
+ *   toast({ title: "Operation failed", description: message, variant: "destructive" });
+ * }
+ * ```
+ * 
+ * ## Base URL:
+ * - Set VITE_API_BASE_URL for separate backend deployment
+ * - If not set, uses same-origin (relative URLs)
+ */
+
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
 // Get API base URL from environment (for separate backend deployment)
@@ -19,6 +62,66 @@ async function throwIfResNotOk(res: Response) {
     const text = (await res.text()) || res.statusText;
     throw new Error(`${res.status}: ${text}`);
   }
+}
+
+/**
+ * Unified API error handler for user-facing actions.
+ * 
+ * Use this in catch blocks when calling apiRequest or authedFetch for
+ * actions that should show feedback to the user.
+ * 
+ * @param error - The caught error (can be Error, string, or unknown)
+ * @param context - Short description of the operation (e.g., "save goal", "approve plan")
+ * @returns User-friendly error message string
+ * 
+ * @example
+ * try {
+ *   await apiRequest("POST", "/api/plan/approve", { planId });
+ * } catch (error) {
+ *   const message = handleApiError(error, "approve plan");
+ *   toast({ title: "Failed to approve plan", description: message, variant: "destructive" });
+ * }
+ */
+export function handleApiError(error: unknown, context: string): string {
+  // Extract message from various error types
+  let message: string;
+  
+  if (error instanceof Error) {
+    message = error.message;
+  } else if (typeof error === "string") {
+    message = error;
+  } else {
+    message = "An unexpected error occurred";
+  }
+  
+  // Log with context for debugging
+  console.error(`[API Error] ${context}:`, message);
+  
+  // Parse common HTTP error patterns for better user messages
+  if (message.includes("401")) {
+    return "You are not authenticated. Please log in again.";
+  }
+  if (message.includes("403")) {
+    return "You don't have permission to perform this action.";
+  }
+  if (message.includes("404")) {
+    return "The requested resource was not found.";
+  }
+  if (message.includes("500") || message.includes("502") || message.includes("503")) {
+    return "Server error. Please try again later.";
+  }
+  if (message.includes("Failed to fetch") || message.includes("NetworkError")) {
+    return "Network error. Please check your connection.";
+  }
+  
+  // Return the raw message if it doesn't contain status codes (likely already user-friendly)
+  // or strip the status code prefix for cleaner display
+  const statusMatch = message.match(/^\d{3}:\s*(.+)$/);
+  if (statusMatch) {
+    return statusMatch[1];
+  }
+  
+  return message;
 }
 
 // Helper to get current user from localStorage for development auth

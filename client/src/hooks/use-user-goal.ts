@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { apiRequest, authedFetch } from "@/lib/queryClient";
+import { apiRequest, authedFetch, handleApiError } from "@/lib/queryClient";
 import { useState } from "react";
 
 export interface UserGoalData {
@@ -42,8 +42,8 @@ export function useUserGoal() {
       // Immediately update the cache with the new goal data
       queryClient.setQueryData(["/api/goal"], data);
     },
-    onError: (error: any) => {
-      console.error("❌ Goal save failed:", error);
+    onError: (error: unknown) => {
+      handleApiError(error, "save goal");
     },
   });
 

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { Lead, LeadStatus } from "./types";
 import { getSupabaseClient } from "@/lib/supabase";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, handleApiError } from "@/lib/queryClient";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 
 /**
@@ -87,8 +87,7 @@ export function useLeads(): UseLeadsResult {
       const mappedLeads = (data || []).map(mapSupabaseLeadToLead);
       setLeads(mappedLeads);
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to fetch leads";
-      console.error("[useLeads] Fetch error:", message);
+      const message = handleApiError(err, "fetch leads");
       setError(message);
       setLeads([]);
     } finally {
@@ -218,7 +217,7 @@ export function useLeads(): UseLeadsResult {
       console.log("[useLeads] Lead deleted:", leadId);
     } catch (err) {
       // Revert optimistic update on error
-      console.error("[useLeads] Delete error:", err);
+      handleApiError(err, "delete lead");
       await fetchLeads(); // Refetch to restore correct state
       throw err;
     }
@@ -250,7 +249,7 @@ export function useLeads(): UseLeadsResult {
       // Note: Realtime subscription will confirm the update from Supabase
     } catch (err) {
       // Revert optimistic update on error
-      console.error("[useLeads] Update error:", err);
+      handleApiError(err, "update lead status");
       await fetchLeads(); // Refetch to restore correct state
       throw err;
     }

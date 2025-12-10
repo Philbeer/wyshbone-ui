@@ -1,7 +1,7 @@
 import { createContext, useContext, ReactNode } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useUser } from "@/contexts/UserContext";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, handleApiError } from "@/lib/queryClient";
 import { publishEvent } from "@/lib/events";
 import { getCurrentVerticalId } from "@/contexts/VerticalContext";
 
@@ -83,7 +83,7 @@ export function PlanProvider({ children }: { children: ReactNode }) {
       }
     },
     onError: (error) => {
-      console.error(`[PLAN_DEBUG] startPlan failed:`, error);
+      handleApiError(error, "start plan");
     },
   });
 
@@ -110,7 +110,7 @@ export function PlanProvider({ children }: { children: ReactNode }) {
       });
     },
     onError: (error) => {
-      console.error(`[PLAN_DEBUG] approvePlan failed:`, error);
+      handleApiError(error, "approve plan");
     },
   });
 
@@ -131,7 +131,7 @@ export function PlanProvider({ children }: { children: ReactNode }) {
       queryClient.invalidateQueries({ queryKey: ["/api/plan"] });
     },
     onError: (error) => {
-      console.error(`❌ PlanContext: regeneration failed:`, error);
+      handleApiError(error, "regenerate plan");
     },
   });
 

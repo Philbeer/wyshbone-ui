@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { apiRequest, addDevAuthParams, buildApiUrl } from "@/lib/queryClient";
+import { apiRequest, authedFetch, addDevAuthParams, buildApiUrl, handleApiError } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Send, User, CheckCircle2, Search, Building2, HelpCircle, Activity } from "lucide-react";
@@ -240,7 +240,7 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
       
       setIsLoadingHistory(true);
       try {
-        const response = await fetch(buildApiUrl(`/api/debug/conversations/${storedConversationId}/messages`));
+        const response = await authedFetch(`/api/debug/conversations/${storedConversationId}/messages`);
         if (response.ok) {
           const data = await response.json();
           const historicalMessages: Message[] = data.messages.map((msg: any) => ({
@@ -255,7 +255,7 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
           }
         }
       } catch (error) {
-        console.error('Failed to load conversation history:', error);
+        handleApiError(error, "load conversation history");
       } finally {
         setIsLoadingHistory(false);
       }
@@ -303,7 +303,7 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
 
       for (const [messageId, batchId] of Array.from(batchJobTracking.entries())) {
         try {
-          const response = await fetch(buildApiUrl(addDevAuthParams(`/api/batch/${batchId}`)));
+          const response = await authedFetch(`/api/batch/${batchId}`);
           if (response.ok) {
             const job = await response.json();
             
@@ -436,8 +436,7 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
         // Load conversation messages
         setIsLoadingHistory(true);
         try {
-          const url = addDevAuthParams(`/api/conversations/${newConversationId}/messages`);
-          const response = await fetch(buildApiUrl(url));
+          const response = await authedFetch(`/api/conversations/${newConversationId}/messages`);
           if (response.ok) {
             const messages = await response.json();
             const loadedMessages: DisplayMessage[] = messages.map((msg: any) => ({
@@ -453,7 +452,7 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
             console.error("Failed to load conversation history");
           }
         } catch (error) {
-          console.error("Error loading conversation:", error);
+          handleApiError(error, "load conversation");
         } finally {
           setIsLoadingHistory(false);
         }
@@ -1089,19 +1088,11 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
                           onClick={async () => {
                             // Start Very Deep Program (multi-iteration)
                             try {
-                              const response = await fetch(buildApiUrl(addDevAuthParams("/api/very-deep-program")), {
-                                method: "POST",
-                                headers: { "Content-Type": "application/json" },
-                                body: JSON.stringify({
-                                  ...parsed.data,
-                                  conversationId,
-                                  userId: user.id
-                                }),
+                              await apiRequest("POST", "/api/very-deep-program", {
+                                ...parsed.data,
+                                conversationId,
+                                userId: user.id
                               });
-                              
-                              if (!response.ok) {
-                                throw new Error("Failed to start Very Deep Program");
-                              }
                               
                               // Remove confirmation message and show notification
                               setMessages((prev) => prev.filter((m) => m.id !== message.id));
@@ -1111,9 +1102,10 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
                                 description: "Running 3 sequential research passes. This will take several minutes...",
                               });
                             } catch (error) {
+                              const message = handleApiError(error, "start Very Deep Dive");
                               toast({
                                 title: "Error",
-                                description: "Failed to start Very Deep Dive. Please try again.",
+                                description: message,
                                 variant: "destructive",
                               });
                             }

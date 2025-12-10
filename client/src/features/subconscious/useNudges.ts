@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { getSupabaseClient } from "@/lib/supabase";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, handleApiError } from "@/lib/queryClient";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import type { SubconNudge, NudgeStatus, NudgeType } from "./types";
 
@@ -159,9 +159,8 @@ export function useNudges(): UseNudgesResult {
       const mappedNudges = (data || []).map(mapSupabaseRowToNudge);
       setNudges(mappedNudges);
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to fetch nudges";
-      console.error("[useNudges] Fetch error:", message);
-      setError(err instanceof Error ? err : new Error(message));
+      const message = handleApiError(err, "fetch nudges");
+      setError(new Error(message));
       setIsError(true);
       setNudges([]);
     } finally {
@@ -285,7 +284,7 @@ export function useNudges(): UseNudgesResult {
       console.log("[useNudges] Nudge dismissed via Supervisor:", nudgeId);
       // Realtime subscription will confirm the update from Supabase
     } catch (err) {
-      console.error("[useNudges] Dismiss error:", err);
+      handleApiError(err, "dismiss nudge");
       // Revert optimistic update on error by refetching
       await fetchNudges();
       throw err;
@@ -319,7 +318,7 @@ export function useNudges(): UseNudgesResult {
       console.log("[useNudges] Nudge snoozed via Supervisor:", nudgeId);
       // Realtime subscription will confirm the update from Supabase
     } catch (err) {
-      console.error("[useNudges] Snooze error:", err);
+      handleApiError(err, "snooze nudge");
       // Revert optimistic update on error by refetching
       await fetchNudges();
       throw err;
