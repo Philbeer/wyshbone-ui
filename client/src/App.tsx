@@ -102,7 +102,8 @@ function AppContent() {
   const prevUserIdRef = useRef<string>(user.id);
   
   const [defaultCountry, setDefaultCountry] = useState<string>(() => {
-    const stored = localStorage.getItem('defaultCountry') || 'US';
+    // V1: Default to GB (United Kingdom) instead of US
+    const stored = localStorage.getItem('defaultCountry') || 'GB';
     console.log(`🌍 Initializing default country: ${stored}`);
     return stored;
   });

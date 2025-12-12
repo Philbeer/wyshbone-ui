@@ -52,7 +52,7 @@ interface ChatPageProps {
   onLoadConversation?: (fn: (conversationId: string) => void) => void;
 }
 
-export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage, addRun, updateRun, getActiveRunId, onNewChat, onLoadConversation }: ChatPageProps) {
+export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage, addRun, updateRun, getActiveRunId, onNewChat, onLoadConversation }: ChatPageProps) {
   const { user } = useUser();
   const { toast } = useToast();
   const { trigger: triggerSidebarFlash } = useSidebarFlash();

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import {
   Table,
   TableBody,
@@ -9,6 +9,18 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   Select,
   SelectContent,
@@ -16,9 +28,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ChevronLeft, ChevronRight, Eye, Trash2, Beer, UtensilsCrossed, TreeDeciduous } from "lucide-react";
+import { ChevronLeft, ChevronRight, Eye, Trash2, Building2, Home, GlassWater, Loader2 } from "lucide-react";
 import type { Lead, LeadSource, LeadStatus } from "./types";
-import { getBrewerySummaryLine, extractBreweryLeadFields } from "./breweryLeadFields";
+import { shouldShowPubFields, hasAnyPubLead } from "@/verticals/isBreweryLead";
+import { getCardDisplayFields, formatFieldForCard, type BreweryFieldKey } from "@/verticals/brewery/schema";
 
 const PAGE_SIZE = 10;
 
@@ -31,8 +44,6 @@ interface LeadsTableProps {
   businessNameLabel?: string;
   /** Vertical-aware plural label for leads (default: "leads") */
   leadLabelPlural?: string;
-  /** Whether to show brewery-specific info (default: false) */
-  showBreweryInfo?: boolean;
 }
 
 /**
@@ -107,34 +118,150 @@ function getStatusSelectClasses(status: LeadStatus): string {
 }
 
 /**
- * UI-14: Compact brewery info display for table rows
+ * V1-1.4: Compact brewery info display for table rows
+ * Shows key brewery fields as badges/text
+ * Only shows for entity types that warrant brewery-specific fields
  */
 function BreweryInfoCell({ lead }: { lead: Lead }) {
-  const breweryFields = extractBreweryLeadFields(lead);
-  const summaryLine = getBrewerySummaryLine(lead);
+  // Only show for leads with pub/venue entity type
+  if (!shouldShowPubFields(lead)) {
+    return <span className="text-muted-foreground text-xs">—</span>;
+  }
+
+  // Get fields marked for card display
+  const cardFields = getCardDisplayFields();
   
-  if (!breweryFields.hasBreweryData) {
+  // Build display items
+  const displayItems: string[] = [];
+  
+  for (const field of cardFields) {
+    const value = lead[field.key as keyof Lead];
+    const formatted = formatFieldForCard(field.key, value as any);
+    if (formatted) {
+      displayItems.push(formatted);
+    }
+  }
+  
+  if (displayItems.length === 0) {
     return <span className="text-muted-foreground text-xs">—</span>;
   }
   
   return (
     <div className="flex flex-col gap-0.5">
-      {summaryLine && (
-        <span className="text-xs text-foreground">{summaryLine}</span>
-      )}
-      <div className="flex items-center gap-1.5">
-        {breweryFields.servesFood && (
-          <span title="Serves food" className="text-orange-600">
-            <UtensilsCrossed className="h-3 w-3" />
-          </span>
+      <div className="flex flex-wrap items-center gap-1">
+        {/* Freehouse badge */}
+        {lead.is_freehouse && (
+          <Badge 
+            variant="outline" 
+            className="text-[10px] px-1.5 py-0 h-5 bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950 dark:text-amber-300"
+          >
+            <Home className="h-2.5 w-2.5 mr-0.5" />
+            Freehouse
+          </Badge>
         )}
-        {breweryFields.hasBeerGarden && (
-          <span title="Beer garden" className="text-green-600">
-            <TreeDeciduous className="h-3 w-3" />
-          </span>
+        {/* Taproom badge */}
+        {lead.has_taproom && (
+          <Badge 
+            variant="outline" 
+            className="text-[10px] px-1.5 py-0 h-5 bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300"
+          >
+            <GlassWater className="h-2.5 w-2.5 mr-0.5" />
+            Taproom
+          </Badge>
         )}
       </div>
+      {/* Cask/Keg lines as text */}
+      {(lead.cask_lines || lead.keg_lines) && (
+        <span className="text-xs text-muted-foreground">
+          {[
+            lead.cask_lines ? `${lead.cask_lines} cask` : null,
+            lead.keg_lines ? `${lead.keg_lines} keg` : null,
+          ].filter(Boolean).join(' · ')}
+        </span>
+      )}
     </div>
+  );
+}
+
+/**
+ * Delete confirmation dialog with checkbox safety
+ */
+function DeleteConfirmationDialog({
+  open,
+  onOpenChange,
+  leadName,
+  onConfirm,
+  isDeleting,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  leadName: string;
+  onConfirm: () => void;
+  isDeleting: boolean;
+}) {
+  const [confirmed, setConfirmed] = useState(false);
+
+  // Reset checkbox when dialog opens/closes
+  const handleOpenChange = (newOpen: boolean) => {
+    if (!newOpen) {
+      setConfirmed(false);
+    }
+    onOpenChange(newOpen);
+  };
+
+  return (
+    <AlertDialog open={open} onOpenChange={handleOpenChange}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete lead?</AlertDialogTitle>
+          <AlertDialogDescription className="space-y-3">
+            <span className="block">
+              This will permanently delete <strong>{leadName}</strong>. This cannot be undone.
+            </span>
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        
+        {/* Confirmation checkbox */}
+        <div className="flex items-center space-x-2 py-2">
+          <Checkbox
+            id="confirm-delete"
+            checked={confirmed}
+            onCheckedChange={(checked) => setConfirmed(checked === true)}
+            disabled={isDeleting}
+          />
+          <Label
+            htmlFor="confirm-delete"
+            className="text-sm font-normal cursor-pointer"
+          >
+            I understand this is permanent
+          </Label>
+        </div>
+        
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            onClick={(e) => {
+              e.preventDefault(); // Prevent auto-close
+              onConfirm();
+            }}
+            disabled={!confirmed || isDeleting}
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+          >
+            {isDeleting ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Deleting...
+              </>
+            ) : (
+              <>
+                <Trash2 className="h-4 w-4 mr-2" />
+                Delete
+              </>
+            )}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
 
@@ -145,9 +272,17 @@ export function LeadsTable({
   onStatusChange,
   businessNameLabel = "Business Name",
   leadLabelPlural = "leads",
-  showBreweryInfo = false,
 }: LeadsTableProps) {
   const [currentPage, setCurrentPage] = useState(1);
+  
+  // Show pub info column if ANY lead in the list has pub fields
+  // This is based on lead_entity_type, NOT industry_vertical
+  const showPubInfo = hasAnyPubLead(leads);
+  
+  // Delete confirmation dialog state
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [pendingDeleteLead, setPendingDeleteLead] = useState<Lead | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Calculate pagination values
   const totalPages = Math.ceil(leads.length / PAGE_SIZE);
@@ -168,6 +303,29 @@ export function LeadsTable({
     setCurrentPage((prev) => Math.min(prev + 1, totalPages));
   };
 
+  // Open delete confirmation dialog
+  const handleDeleteClick = useCallback((lead: Lead) => {
+    setPendingDeleteLead(lead);
+    setDeleteDialogOpen(true);
+  }, []);
+
+  // Execute delete after confirmation
+  const handleConfirmDelete = useCallback(async () => {
+    if (!pendingDeleteLead || !onDelete) return;
+    
+    setIsDeleting(true);
+    try {
+      await onDelete(pendingDeleteLead.id);
+      setDeleteDialogOpen(false);
+      setPendingDeleteLead(null);
+    } catch (error) {
+      // Error is handled by parent (toast), keep dialog open
+      console.error('[LeadsTable] Delete failed:', error);
+    } finally {
+      setIsDeleting(false);
+    }
+  }, [pendingDeleteLead, onDelete]);
+
   const isFirstPage = currentPage === 1;
   const isLastPage = currentPage >= totalPages;
 
@@ -178,11 +336,11 @@ export function LeadsTable({
           <TableRow>
             <TableHead>{businessNameLabel}</TableHead>
             <TableHead>Location</TableHead>
-            {showBreweryInfo && (
+            {showPubInfo && (
               <TableHead>
                 <span className="flex items-center gap-1">
-                  <Beer className="h-3.5 w-3.5" />
-                  Pub Info
+                  <Building2 className="h-3.5 w-3.5" />
+                  Venue Info
                 </span>
               </TableHead>
             )}
@@ -196,7 +354,7 @@ export function LeadsTable({
             <TableRow key={lead.id} data-testid={`row-lead-${lead.id}`}>
               <TableCell className="font-medium">{lead.businessName}</TableCell>
               <TableCell>{lead.location}</TableCell>
-              {showBreweryInfo && (
+              {showPubInfo && (
                 <TableCell>
                   <BreweryInfoCell lead={lead} />
                 </TableCell>
@@ -239,7 +397,7 @@ export function LeadsTable({
                   <Button
                     variant="destructive"
                     size="sm"
-                    onClick={() => onDelete?.(lead.id)}
+                    onClick={() => handleDeleteClick(lead)}
                     data-testid={`btn-delete-${lead.id}`}
                   >
                     <Trash2 className="h-3.5 w-3.5 mr-1" />
@@ -285,6 +443,15 @@ export function LeadsTable({
           </div>
         </div>
       )}
+      
+      {/* Delete Confirmation Dialog */}
+      <DeleteConfirmationDialog
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+        leadName={pendingDeleteLead?.businessName ?? ''}
+        onConfirm={handleConfirmDelete}
+        isDeleting={isDeleting}
+      />
     </div>
   );
 }
