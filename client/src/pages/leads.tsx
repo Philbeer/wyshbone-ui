@@ -16,6 +16,7 @@ import {
 import type { Lead, LeadStatus, LeadUpdatePayload, LeadFiltersState } from "@/features/leads";
 import { useToast } from "@/hooks/use-toast";
 import { useVerticalLabels } from "@/lib/verticals";
+import { useRefreshLeadsOnSearch } from "@/hooks/use-plan-step-watcher";
 
 export default function LeadsPage() {
   const { toast } = useToast();
@@ -32,6 +33,9 @@ export default function LeadsPage() {
     updateLeadStatus,
     updateLead,
   } = useLeads();
+  
+  // Auto-refresh leads when search step completes
+  useRefreshLeadsOnSearch(refetch);
   
   // Apply filters to leads
   const filteredLeads = useMemo(() => {

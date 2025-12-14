@@ -43,17 +43,23 @@ export function PlanExecutionProvider({ children }: { children: ReactNode }) {
   const status = statusData?.status || (activePlanId ? 'executing' : 'idle');
   const shouldPoll = status === 'executing';
   
-  // Clear activePlanId when status becomes terminal
+  // Log when status becomes terminal
   useEffect(() => {
     if (statusData && (statusData.status === 'completed' || statusData.status === 'failed')) {
-      console.log(`[EXECUTION_CONTROLLER] plan ${activePlanId} finished with status ${statusData.status}`);
+      console.log(`\n========================================`);
+      console.log(`🏁 [EXECUTION_CONTROLLER] Execution finished!`);
+      console.log(`   Plan: ${activePlanId}`);
+      console.log(`   Status: ${statusData.status}`);
+      console.log(`========================================\n`);
       // Keep activePlanId so progress widget can show final state
       // It will be cleared when a new plan starts
     }
   }, [statusData, activePlanId]);
   
   const startExecution = useCallback((planId: string) => {
-    console.log(`[EXECUTION_CONTROLLER] starting execution for plan ${planId}`);
+    console.log(`\n========================================`);
+    console.log(`▶️ [EXECUTION_CONTROLLER] Starting to poll status for plan ${planId}`);
+    console.log(`========================================\n`);
     setActivePlanId(planId);
   }, []);
   

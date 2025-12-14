@@ -90,17 +90,40 @@ export function PlanProvider({ children }: { children: ReactNode }) {
   // Mutation to approve a plan
   const approveMutation = useMutation({
     mutationFn: async (planId: string) => {
-      console.log(`[PLAN_DEBUG] approvePlan called for planId=${planId}`);
+      console.log(`[PLAN_CONTEXT] Calling POST /api/plan/approve for planId=${planId}`);
       
       const response = await apiRequest("POST", "/api/plan/approve", { planId });
+      
+      // Check HTTP status first
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`[PLAN_CONTEXT] HTTP error ${response.status}:`, errorText);
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
+      }
+      
       const data = await response.json();
       
-      console.log(`[PLAN_DEBUG] approvePlan API response:`, data);
-      return { data, planId };
+      console.log(`[PLAN_CONTEXT] /api/plan/approve response:`, data);
+      console.log(`   ok: ${data.ok}`);
+      console.log(`   success: ${data.success}`);
+      console.log(`   Status: ${data.status}`);
+      console.log(`   PlanId: ${data.planId}`);
+      
+      // Accept response if ok OR success is true (backwards compatibility)
+      if (data.ok || data.success) {
+        console.log(`✅ [PLAN_CONTEXT] Approval successful`);
+        return { data, planId, success: true };
+      }
+      
+      // If we got here, response was 200 but body indicates failure
+      console.error(`[PLAN_CONTEXT] Response body indicates failure:`, data);
+      throw new Error(data.error || 'Approval failed');
     },
-    onSuccess: ({ planId }) => {
-      // Just invalidate - let the backend update the status
-      console.log(`[PLAN_DEBUG] approvePlan succeeded - invalidating queries`);
+    onSuccess: ({ data, planId }) => {
+      console.log(`✅ [PLAN_CONTEXT] Plan approved and execution started on backend`);
+      console.log(`   Backend status: ${data.status}`);
+      
+      // Invalidate plan query so UI updates
       queryClient.invalidateQueries({ queryKey: ["/api/plan"] });
 
       // Publish event for plan approved
@@ -110,6 +133,7 @@ export function PlanProvider({ children }: { children: ReactNode }) {
       });
     },
     onError: (error) => {
+      console.error(`❌ [PLAN_CONTEXT] Approve plan failed:`, error);
       handleApiError(error, "approve plan");
     },
   });

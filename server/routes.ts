@@ -50,6 +50,36 @@ import { getUserGoal, setUserGoal, hasUserGoal } from './userGoalHelper';
 
 const sql = neon(process.env.DATABASE_URL!);
 
+// ============================================
+// STRIPE CONFIGURATION (optional for dev)
+// ============================================
+const isStripeEnabled = !!process.env.STRIPE_SECRET_KEY;
+let stripe: Stripe | null = null;
+
+if (isStripeEnabled) {
+  stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+    apiVersion: "2024-11-20.acacia",
+  });
+  console.log('✅ Stripe initialized');
+} else {
+  console.warn('⚠️  Stripe disabled: STRIPE_SECRET_KEY not set');
+  console.warn('   Stripe-related endpoints will return 501 Not Configured');
+}
+
+/**
+ * Middleware to check if Stripe is enabled
+ * Returns 501 if Stripe is not configured
+ */
+function requireStripe(req: import("express").Request, res: import("express").Response, next: import("express").NextFunction) {
+  if (!isStripeEnabled || !stripe) {
+    return res.status(501).json({
+      error: 'Stripe not configured',
+      message: 'This endpoint requires STRIPE_SECRET_KEY to be set. Stripe features are disabled in this environment.',
+    });
+  }
+  next();
+}
+
 // Export API key generation/validation
 const EXPORT_KEY = process.env.EXPORT_KEY || (() => {
   const generatedKey = randomBytes(16).toString('hex');
@@ -76,12 +106,7 @@ const EXPORT_KEY = process.env.EXPORT_KEY || (() => {
 })();
 
 // Initialize Stripe
-if (!process.env.STRIPE_SECRET_KEY) {
-  throw new Error('Missing required Stripe secret: STRIPE_SECRET_KEY');
-}
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
-  apiVersion: "2024-11-20.acacia",
-});
+// Stripe initialization moved above (see isStripeEnabled)
 
 // Helper to identify each user's session (Bubble should send x-session-id)
 function getSessionId(req: import("express").Request) {
@@ -678,7 +703,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ===========================
 
   // POST /api/subscription/create - Create Stripe subscription
-  app.post("/api/subscription/create", async (req, res) => {
+  app.post("/api/subscription/create", requireStripe, async (req, res) => {
     try {
       const auth = await getAuthenticatedUserId(req);
       if (!auth) {
@@ -718,7 +743,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Create or retrieve Stripe customer
       let customerId = user.stripeCustomerId;
       if (!customerId) {
-        const customer = await stripe.customers.create({
+        const customer = await stripe!.customers.create({
           email: user.email,
           name: user.name || undefined,
           metadata: { userId: user.id },
@@ -728,7 +753,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Create Stripe Checkout Session
-      const session = await stripe.checkout.sessions.create({
+      const session = await stripe!.checkout.sessions.create({
         customer: customerId,
         mode: 'subscription',
         payment_method_types: ['card'],
@@ -756,7 +781,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // GET /api/subscription/status - Get subscription status
-  app.get("/api/subscription/status", async (req, res) => {
+  app.get("/api/subscription/status", requireStripe, async (req, res) => {
     try {
       const auth = await getAuthenticatedUserId(req);
       if (!auth) {
@@ -781,7 +806,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Fetch from Stripe
-      const subscription = await stripe.subscriptions.retrieve(user.stripeSubscriptionId);
+      const subscription = await stripe!.subscriptions.retrieve(user.stripeSubscriptionId);
       
       res.json({
         tier: user.subscriptionTier,
@@ -800,7 +825,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // POST /api/subscription/cancel - Cancel subscription
-  app.post("/api/subscription/cancel", async (req, res) => {
+  app.post("/api/subscription/cancel", requireStripe, async (req, res) => {
     try {
       const auth = await getAuthenticatedUserId(req);
       if (!auth) {
@@ -812,7 +837,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "No active subscription" });
       }
 
-      await stripe.subscriptions.cancel(user.stripeSubscriptionId);
+      await stripe!.subscriptions.cancel(user.stripeSubscriptionId);
       
       await storage.updateUser(user.id, {
         subscriptionStatus: "cancelled",
@@ -3693,11 +3718,22 @@ CRITICAL RULES:
   // ===========================
   
   // GET /api/plan-status - Get current plan/goal execution status (UI-020)
+  // Now reads from DATABASE FIRST for crash-safety, falls back to in-memory
   app.get("/api/plan-status", async (req, res) => {
+    console.log(`📥 [PLAN] GET /api/plan-status received`);
+    
     try {
-      // SECURITY: Validate authenticated user
-      const auth = await getAuthenticatedUserId(req);
+      // SECURITY: Validate authenticated user (with dev-only bypass)
+      let auth = await getAuthenticatedUserId(req);
+      
+      // DEV ONLY: Allow bypass for plan status loading
+      if (!auth && process.env.NODE_ENV === 'development') {
+        console.warn(`⚠️ DEV MODE: Bypassing auth for GET /api/plan-status`);
+        auth = { userId: 'dev-user', userEmail: 'dev-bypass@localhost' };
+      }
+      
       if (!auth) {
+        console.log(`❌ [PLAN] Unauthorized request`);
         return res.status(401).json({ error: "Unauthorized" });
       }
       
@@ -3707,12 +3743,50 @@ CRITICAL RULES:
       // Get current goal
       const goal = await getUserGoal(sessionId);
       
-      // Check for active plan execution using the leadgen-executor
-      const { getExecutionBySession, getExecutionByConversation, getPlanExecution } = await import('./leadgen-executor.js');
-      
-      // Try to get execution by planId first (if provided), then conversation ID, then session
       const planId = req.query.planId as string | undefined;
       const conversationId = req.query.conversationId as string | undefined;
+      
+      // CRASH-SAFE: Read from database first if planId is provided
+      if (planId) {
+        const { getPlanExecutionStatus } = await import('./leadgen-plan.js');
+        const dbStatus = await getPlanExecutionStatus(planId);
+        
+        if (dbStatus) {
+          // Build response from persisted step data
+          const currentStep = dbStatus.steps.find(s => s.stepStatus === 'running') ||
+                             dbStatus.steps.find(s => !s.stepStatus || s.stepStatus === 'pending');
+          
+          const steps = dbStatus.steps.map(step => ({
+            id: step.id,
+            type: step.type,
+            label: step.label,
+            status: step.stepStatus === 'running' ? 'executing' : (step.stepStatus || 'pending'),
+            resultSummary: step.resultSummary,
+            leadsCreated: step.leadsCreated,
+          }));
+          
+          return res.json({
+            goal: dbStatus.goal || goal || null,
+            planId: planId,
+            totalSteps: dbStatus.totalSteps,
+            completedSteps: dbStatus.completedSteps,
+            currentStep: currentStep ? {
+              id: currentStep.id,
+              type: currentStep.type,
+              label: currentStep.label,
+              status: currentStep.stepStatus === 'running' ? 'executing' : (currentStep.stepStatus || 'pending'),
+              resultSummary: currentStep.resultSummary,
+            } : null,
+            status: dbStatus.status,
+            steps,
+            lastUpdatedAt: new Date().toISOString(),
+            error: dbStatus.error,
+          });
+        }
+      }
+      
+      // Fallback: Check in-memory execution state (for backwards compatibility)
+      const { getExecutionBySession, getExecutionByConversation, getPlanExecution } = await import('./leadgen-executor.js');
       
       let execution = planId 
         ? getPlanExecution(planId)
@@ -3785,10 +3859,20 @@ CRITICAL RULES:
   
   // GET /api/goal - Get current user's goal
   app.get("/api/goal", async (req, res) => {
+    console.log(`📥 [GOAL] GET /api/goal received`);
+    
     try {
-      // SECURITY: Validate authenticated user
-      const auth = await getAuthenticatedUserId(req);
+      // SECURITY: Validate authenticated user (with dev-only bypass)
+      let auth = await getAuthenticatedUserId(req);
+      
+      // DEV ONLY: Allow bypass for goal fetching
+      if (!auth && process.env.NODE_ENV === 'development') {
+        console.warn(`⚠️ DEV MODE: Bypassing auth for GET /api/goal`);
+        auth = { userId: 'dev-user', userEmail: 'dev-bypass@localhost' };
+      }
+      
       if (!auth) {
+        console.log(`❌ [GOAL] Unauthorized request`);
         return res.status(401).json({ error: "Unauthorized" });
       }
       
@@ -3808,10 +3892,69 @@ CRITICAL RULES:
   
   // PUT /api/goal - Update current user's goal
   app.put("/api/goal", async (req, res) => {
+    console.log(`📥 [GOAL] PUT /api/goal received`);
+    
     try {
-      // SECURITY: Validate authenticated user
-      const auth = await getAuthenticatedUserId(req);
+      // SECURITY: Validate authenticated user (with dev-only bypass)
+      let auth = await getAuthenticatedUserId(req);
+      
+      // DEV ONLY: Allow bypass for goal saving
+      if (!auth && process.env.NODE_ENV === 'development') {
+        console.warn(`⚠️ DEV MODE: Bypassing auth for PUT /api/goal`);
+        auth = { userId: 'dev-user', userEmail: 'dev-bypass@localhost' };
+      }
+      
       if (!auth) {
+        console.log(`❌ [GOAL] Unauthorized request`);
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { goal } = req.body;
+      
+      if (typeof goal !== 'string') {
+        return res.status(400).json({ error: "Goal must be a string" });
+      }
+      
+      const trimmedGoal = goal.trim();
+      
+      if (trimmedGoal === '') {
+        return res.status(400).json({ error: "Goal cannot be empty" });
+      }
+      
+      // Get session ID (same as UI-001 and other routes)
+      const sessionId = getSessionId(req);
+      await setUserGoal(sessionId, trimmedGoal);
+      
+      console.log(`✅ Goal saved for session ${sessionId}: "${trimmedGoal.substring(0, 50)}${trimmedGoal.length > 50 ? '...' : ''}"`);
+      console.log(`📋 Goal hasGoal=true after save`);
+      
+      // Return format matching GET /api/goal
+      res.json({
+        goal: trimmedGoal,
+        hasGoal: true
+      });
+    } catch (error: any) {
+      console.error("❌ Error updating goal:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+  
+  // POST /api/goal - Create/update current user's goal (mirrors PUT for frontend compatibility)
+  app.post("/api/goal", async (req, res) => {
+    console.log(`📥 [GOAL] POST /api/goal received`);
+    
+    try {
+      // SECURITY: Validate authenticated user (with dev-only bypass)
+      let auth = await getAuthenticatedUserId(req);
+      
+      // DEV ONLY: Allow bypass for goal saving
+      if (!auth && process.env.NODE_ENV === 'development') {
+        console.warn(`⚠️ DEV MODE: Bypassing auth for POST /api/goal`);
+        auth = { userId: 'dev-user', userEmail: 'dev-bypass@localhost' };
+      }
+      
+      if (!auth) {
+        console.log(`❌ [GOAL] Unauthorized request`);
         return res.status(401).json({ error: "Unauthorized" });
       }
       
@@ -3846,15 +3989,91 @@ CRITICAL RULES:
   });
 
   // ===========================
+  // CAPABILITIES API
+  // ===========================
+  
+  // GET /api/capabilities - Return available actions and feature flags
+  app.get("/api/capabilities", async (req, res) => {
+    try {
+      // No auth required for capabilities - this is public config info
+      
+      // Check which services are configured
+      const hasHunterApiKey = !!(process.env.HUNTER_API_KEY || process.env.HUNTER_IO_API_KEY);
+      const hasGooglePlacesKey = !!process.env.GOOGLE_PLACES_API_KEY;
+      const hasSalesHandy = !!(process.env.SALESHANDY_API_KEY && process.env.SALESHANDY_TEAM_EMAIL);
+      const hasSupabase = isSupabaseConfigured();
+      
+      // Define available step types with labels
+      const stepTypes = {
+        places_search: {
+          enabled: hasGooglePlacesKey,
+          label: "Search Businesses",
+          description: "Find businesses matching your criteria via Google Places"
+        },
+        deep_research: {
+          enabled: true, // Always available (uses OpenAI)
+          label: "Deep Research",
+          description: "In-depth research on a topic or company"
+        },
+        email_enrich: {
+          enabled: hasHunterApiKey,
+          label: "Enrich Emails",
+          description: "Find verified email addresses via Hunter.io"
+        },
+        draft_outreach: {
+          enabled: true, // Always available (uses OpenAI)
+          label: "Draft Outreach",
+          description: "Generate personalized outreach messages"
+        }
+      };
+      
+      // Quick actions that users can trigger from UI
+      const quickActions = [
+        { id: "places_search", label: "Find Leads", enabled: stepTypes.places_search.enabled },
+        { id: "deep_research", label: "Research", enabled: stepTypes.deep_research.enabled },
+        { id: "email_enrich", label: "Find Emails", enabled: stepTypes.email_enrich.enabled },
+        { id: "draft_outreach", label: "Draft Messages", enabled: stepTypes.draft_outreach.enabled }
+      ].filter(a => a.enabled);
+      
+      // Feature flags
+      const flags = {
+        outreach_send_enabled: hasSalesHandy,
+        realtime_leads_enabled: hasSupabase,
+        monitor_enabled: hasSupabase,
+        plan_approval_required: true // Always require plan approval for now
+      };
+      
+      res.json({
+        stepTypes,
+        quickActions,
+        flags
+      });
+    } catch (error: any) {
+      console.error("Error fetching capabilities:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ===========================
   // PLAN APPROVAL API (UI-030)
   // ===========================
   
   // GET /api/plan - Get current leadgen plan for approval
   app.get("/api/plan", async (req, res) => {
+    console.log(`📥 [PLAN] GET /api/plan received`);
+    
     try {
-      // SECURITY: Validate authenticated user
-      const auth = await getAuthenticatedUserId(req);
+      // SECURITY: Validate authenticated user (with dev-only bypass)
+      let auth = await getAuthenticatedUserId(req);
+      
+      // DEV ONLY: Allow bypass for plan loading
+      if (!auth && process.env.NODE_ENV === 'development') {
+        console.warn(`⚠️ DEV MODE: Bypassing auth for GET /api/plan`);
+        auth = { userId: 'dev-user', userEmail: 'dev-bypass@localhost' };
+      }
+      
       if (!auth) {
+        console.log(`❌ [PLAN] Unauthorized request`);
         return res.status(401).json({ error: "Unauthorized" });
       }
       
@@ -3879,91 +4098,119 @@ CRITICAL RULES:
   
   // POST /api/plan/approve - Approve a plan and trigger execution
   app.post("/api/plan/approve", async (req, res) => {
+    console.log(`📥 [APPROVE_API] POST /api/plan/approve received`);
+    console.log(`📥 [APPROVE_API] Body:`, JSON.stringify(req.body || {}));
+    
     try {
-      // SECURITY: Validate authenticated user
-      const auth = await getAuthenticatedUserId(req);
-      if (!auth) {
-        return res.status(401).json({ error: "Unauthorized" });
-      }
+      const { planId } = req.body || {};
       
-      const { planId } = req.body;
-      
-      console.log(`📋 /api/plan/approve called for planId: ${planId}`);
-      
+      // Validate planId first (before auth, so we can give a clear error)
       if (!planId) {
-        return res.status(400).json({ error: "Plan ID is required" });
+        console.log(`❌ [APPROVE_API] Missing planId in request body`);
+        return res.status(400).json({ error: "Plan ID is required", ok: false });
       }
+      
+      // SECURITY: Validate authenticated user (with dev-only bypass)
+      let auth = await getAuthenticatedUserId(req);
+      
+      // DEV ONLY: Allow bypass for plan approval
+      if (!auth && process.env.NODE_ENV === 'development') {
+        console.warn(`⚠️ DEV MODE: Bypassing auth for POST /api/plan/approve`);
+        auth = { userId: 'dev-user', userEmail: 'dev-bypass@localhost' };
+      }
+      
+      if (!auth) {
+        console.log(`❌ [APPROVE_API] Unauthorized request`);
+        return res.status(401).json({ error: "Unauthorized", ok: false });
+      }
+      
+      console.log(`[APPROVE_API] planId: ${planId}, userId: ${auth.userId}`);
       
       const { approvePlan, getPlanById, updatePlanStatus } = await import('./leadgen-plan.js');
+      const { startPlanExecution, getPlanExecution } = await import('./leadgen-executor.js');
       
       // Get the plan first to validate it exists
       const plan = await getPlanById(planId);
       if (!plan) {
-        console.error(`❌ Plan not found: ${planId}`);
-        return res.status(404).json({ error: "Plan not found" });
+        console.error(`❌ [APPROVE_API] Plan not found: ${planId}`);
+        return res.status(404).json({ error: "Plan not found", ok: false });
       }
       
-      console.log(`✅ Found plan: ${planId}, status: ${plan.status}`);
+      console.log(`✅ [APPROVE_API] Found plan: ${planId}`);
+      console.log(`   Status: ${plan.status}`);
+      console.log(`   Goal: ${plan.goal}`);
+      console.log(`   Steps: ${plan.steps.map((s: any) => s.type).join(' → ')}`);
       
-      // Approve the plan
+      // Guard against duplicate execution
+      const existingExecution = getPlanExecution(planId);
+      if (existingExecution) {
+        console.log(`⚠️ [APPROVE_API] Execution already exists for plan ${planId}, status: ${existingExecution.status}`);
+        return res.json({
+          ok: true,
+          success: true,  // For legacy UI compatibility
+          planId: plan.id,
+          status: existingExecution.status
+        });
+      }
+      
+      // Approve the plan FIRST (persist to DB)
       const approvedPlan = await approvePlan(planId);
       
       if (!approvedPlan) {
-        console.error(`❌ Failed to approve plan: ${planId}`);
-        return res.status(404).json({ error: "Plan not found" });
+        console.error(`❌ [APPROVE_API] Failed to approve plan: ${planId}`);
+        return res.status(404).json({ error: "Failed to approve plan", ok: false });
       }
       
-      console.log(`✅ Plan approved: ${planId}`);
+      // Update debug state
+      const { debugOnPlanApproval } = await import('./debugState.js');
+      debugOnPlanApproval(planId);
       
-      // Trigger SUP-002 execution using the leadgen-executor
-      try {
-        const { startPlanExecution, getPlanExecution } = await import('./leadgen-executor.js');
+      console.log(`✅ [APPROVE_API] Plan approved and persisted`);
+      
+      // Update plan status to executing
+      await updatePlanStatus(planId, 'executing');
+      
+      // Return success IMMEDIATELY (decouple execution from HTTP response)
+      console.log(`✅ [APPROVE_API] Returning 200 OK immediately, execution will run async`);
+      res.json({
+        ok: true,
+        success: true,  // For legacy UI compatibility
+        planId: approvedPlan.id,
+        status: 'executing'
+      });
+      
+      // Kick off execution ASYNCHRONOUSLY (after response sent)
+      // This ensures approval never fails due to execution errors
+      setImmediate(async () => {
+        console.log(`\n🏃 [APPROVE_API] Starting async execution for plan ${planId}...`);
         
-        // Guard against duplicate execution
-        const existingExecution = getPlanExecution(planId);
-        if (existingExecution) {
-          console.log(`⚠️ Execution already exists for plan ${planId}, status: ${existingExecution.status}`);
+        try {
+          await startPlanExecution(approvedPlan);
+          console.log(`✅ [APPROVE_API] Async execution completed for plan ${planId}`);
+        } catch (executionError: any) {
+          console.error(`❌ [APPROVE_API] Async execution failed for plan ${planId}:`, executionError.message);
           
-          // If execution is still running, return current state
-          if (existingExecution.status === 'executing') {
-            return res.json({
-              planId: approvedPlan.id,
-              status: 'executing'
-            });
+          // Update plan status to failed (don't crash server)
+          try {
+            await updatePlanStatus(planId, 'failed');
+            console.log(`💾 [APPROVE_API] Plan ${planId} status updated to 'failed'`);
+          } catch (updateError: any) {
+            console.error(`❌ [APPROVE_API] Failed to update plan status:`, updateError.message);
           }
-          
-          // If execution completed or failed, allow viewing the result
-          return res.json({
-            planId: approvedPlan.id,
-            status: existingExecution.status
-          });
         }
-        
-        // Start background execution
-        const execution = await startPlanExecution(approvedPlan);
-        
-        // Update plan status to executing
-        await updatePlanStatus(planId, 'executing');
-        
-        console.log(`✅ Plan ${planId} approved and SUP-002 execution started`);
-        console.log(`  📊 Execution has ${execution.steps.length} steps to complete`);
-        
-        // Return success response
-        res.json({
-          planId: approvedPlan.id,
-          status: 'executing'
-        });
-      } catch (executionError: any) {
-        console.error(`❌ Failed to start execution for plan ${planId}:`, executionError);
-        
-        // Plan is approved but execution failed to start
-        return res.status(500).json({ 
-          error: `Plan approved but failed to start execution: ${executionError.message}` 
-        });
-      }
+      });
+      
     } catch (error: any) {
-      console.error("❌ Error approving plan:", error);
-      res.status(500).json({ error: error.message });
+      console.error(`❌ [APPROVE_API] Error approving plan:`, error);
+      console.error(`❌ [APPROVE_API] Stack:`, error.stack);
+      
+      // Return JSON error (never crash)
+      const isDev = process.env.NODE_ENV === 'development';
+      res.status(500).json({ 
+        ok: false,
+        error: isDev ? error.message : 'Failed to approve plan',
+        ...(isDev && { stack: error.stack })
+      });
     }
   });
   
@@ -4006,6 +4253,19 @@ CRITICAL RULES:
       console.error("Error regenerating plan:", error);
       res.status(500).json({ error: error.message });
     }
+  });
+  
+  // GET /api/debug/last-plan - DEV ONLY: Get debug info about the last plan execution
+  app.get("/api/debug/last-plan", async (req, res) => {
+    // DEV ONLY - only allow in development
+    if (process.env.NODE_ENV !== 'development') {
+      return res.status(403).json({ error: "Debug endpoint only available in development" });
+    }
+    
+    const { getDebugState } = await import('./debugState.js');
+    const debugState = getDebugState();
+    
+    res.json(debugState);
   });
   
   // POST /api/plan/start - Create a new plan for the current goal (SUP-001)
@@ -4075,6 +4335,216 @@ CRITICAL RULES:
       console.error("Error creating test plan:", error);
       res.status(500).json({ error: error.message });
     }
+  });
+
+  // =========================================
+  // LEGACY ROUTE ALIASES
+  // UI calls /approve, /start, /plan, /plan-status
+  // These redirect to the /api/plan/* handlers
+  // =========================================
+  
+  // Legacy: POST /approve → /api/plan/approve
+  // Handles: POST /approve?planId=xxx or POST /approve with body { planId }
+  app.post("/approve", async (req, res) => {
+    console.log(`🔀 [LEGACY] POST /approve → delegating to /api/plan/approve handler`);
+    
+    // Merge query params into body (UI may pass planId in query string)
+    const planId = req.body?.planId || req.query?.planId;
+    if (planId) {
+      req.body = { ...req.body, planId };
+    }
+    console.log(`   planId: ${planId}`);
+    
+    // Forward to the same logic as /api/plan/approve
+    // We inline the delegation here to avoid Express router issues
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      if (!planId) {
+        return res.status(400).json({ error: "Plan ID is required" });
+      }
+      
+      const { approvePlan, getPlanById, updatePlanStatus } = await import('./leadgen-plan.js');
+      const { startPlanExecution, getPlanExecution } = await import('./leadgen-executor.js');
+      
+      const plan = await getPlanById(planId as string);
+      if (!plan) {
+        return res.status(404).json({ error: "Plan not found" });
+      }
+      
+      // Guard against duplicate execution
+      const existingExecution = getPlanExecution(planId as string);
+      if (existingExecution) {
+        return res.json({
+          ok: true,
+          success: true,
+          planId: plan.id,
+          status: existingExecution.status
+        });
+      }
+      
+      // Approve and persist
+      const approvedPlan = await approvePlan(planId as string);
+      if (!approvedPlan) {
+        return res.status(404).json({ error: "Plan not found" });
+      }
+      
+      await updatePlanStatus(planId as string, 'executing');
+      
+      // Return success IMMEDIATELY
+      res.json({
+        ok: true,
+        success: true,
+        planId: approvedPlan.id,
+        status: 'executing'
+      });
+      
+      // Kick off execution asynchronously
+      setImmediate(async () => {
+        try {
+          await startPlanExecution(approvedPlan);
+        } catch (err: any) {
+          console.error(`❌ [LEGACY /approve] Async execution failed:`, err.message);
+          try {
+            await updatePlanStatus(planId as string, 'failed');
+          } catch {}
+        }
+      });
+      
+    } catch (error: any) {
+      console.error(`❌ [LEGACY /approve] Error:`, error.message);
+      res.status(500).json({ 
+        error: process.env.NODE_ENV === 'development' ? error.message : 'Failed to approve plan'
+      });
+    }
+  });
+  
+  // Legacy: GET /approve (some UIs use GET with query params)
+  app.get("/approve", async (req, res) => {
+    console.log(`🔀 [LEGACY] GET /approve → delegating to approve handler`);
+    
+    const planId = req.query?.planId as string;
+    console.log(`   planId: ${planId}`);
+    
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      if (!planId) {
+        return res.status(400).json({ error: "Plan ID is required" });
+      }
+      
+      const { approvePlan, getPlanById, updatePlanStatus } = await import('./leadgen-plan.js');
+      const { startPlanExecution, getPlanExecution } = await import('./leadgen-executor.js');
+      
+      const plan = await getPlanById(planId);
+      if (!plan) {
+        return res.status(404).json({ error: "Plan not found" });
+      }
+      
+      // Guard against duplicate execution
+      const existingExecution = getPlanExecution(planId);
+      if (existingExecution) {
+        return res.json({
+          ok: true,
+          success: true,
+          planId: plan.id,
+          status: existingExecution.status
+        });
+      }
+      
+      // Approve and persist
+      const approvedPlan = await approvePlan(planId);
+      if (!approvedPlan) {
+        return res.status(404).json({ error: "Plan not found" });
+      }
+      
+      await updatePlanStatus(planId, 'executing');
+      
+      // Return success IMMEDIATELY
+      res.json({
+        ok: true,
+        success: true,
+        planId: approvedPlan.id,
+        status: 'executing'
+      });
+      
+      // Kick off execution asynchronously
+      setImmediate(async () => {
+        try {
+          await startPlanExecution(approvedPlan);
+        } catch (err: any) {
+          console.error(`❌ [LEGACY GET /approve] Async execution failed:`, err.message);
+          try {
+            await updatePlanStatus(planId, 'failed');
+          } catch {}
+        }
+      });
+      
+    } catch (error: any) {
+      console.error(`❌ [LEGACY GET /approve] Error:`, error.message);
+      res.status(500).json({ 
+        error: process.env.NODE_ENV === 'development' ? error.message : 'Failed to approve plan'
+      });
+    }
+  });
+  
+  // Legacy: POST /start → /api/plan/start
+  app.post("/start", (req, res, next) => {
+    console.log(`🔀 [LEGACY] POST /start → /api/plan/start`);
+    // Merge query params into body
+    req.body = { ...req.query, ...req.body };
+    req.url = '/api/plan/start';
+    app._router.handle(req, res, next);
+  });
+  
+  // Legacy: GET /start (some UIs use GET with query params)
+  app.get("/start", (req, res, next) => {
+    console.log(`🔀 [LEGACY] GET /start → POST /api/plan/start`);
+    req.body = { ...req.query, ...req.body };
+    req.method = 'POST';
+    req.url = '/api/plan/start';
+    app._router.handle(req, res, next);
+  });
+  
+  // Legacy: GET /plan-status → /api/plan-status
+  app.get("/plan-status", (req, res, next) => {
+    console.log(`🔀 [LEGACY] GET /plan-status → /api/plan-status`);
+    req.url = '/api/plan-status';
+    app._router.handle(req, res, next);
+  });
+  
+  // Legacy: GET /plan → /api/plan
+  app.get("/plan", (req, res, next) => {
+    console.log(`🔀 [LEGACY] GET /plan → /api/plan`);
+    req.url = '/api/plan';
+    app._router.handle(req, res, next);
+  });
+  
+  // Legacy: POST /plan → /api/plan/start (create new plan)
+  app.post("/plan", (req, res, next) => {
+    console.log(`🔀 [LEGACY] POST /plan → /api/plan/start`);
+    req.url = '/api/plan/start';
+    app._router.handle(req, res, next);
+  });
+  
+  // Legacy: GET /plans → /api/plan (list plans)
+  app.get("/plans", (req, res, next) => {
+    console.log(`🔀 [LEGACY] GET /plans → /api/plan`);
+    req.url = '/api/plan';
+    app._router.handle(req, res, next);
+  });
+  
+  // Legacy: GET /status → /api/plan-status
+  app.get("/status", (req, res, next) => {
+    console.log(`🔀 [LEGACY] GET /status → /api/plan-status`);
+    req.url = '/api/plan-status';
+    app._router.handle(req, res, next);
   });
 
   // =========================================
@@ -6263,6 +6733,34 @@ ${run.outputText}`;
   });
 
   // Debug endpoints for viewing persistent memory
+  // GET /api/debug/supabase - Debug Supabase configuration
+  app.get("/api/debug/supabase", async (_req, res) => {
+    try {
+      const { isSupabaseConfigured, getSupabaseUrlForLogging } = await import('./supabase-client.js');
+      
+      const supabaseUrl = process.env.SUPABASE_URL || '(not set)';
+      const hasServiceRoleKey = !!process.env.SUPABASE_SERVICE_ROLE_KEY;
+      const isConfigured = isSupabaseConfigured();
+      const urlForLogging = getSupabaseUrlForLogging();
+      
+      console.log(`[DEBUG] /api/debug/supabase called`);
+      console.log(`   SUPABASE_URL: ${urlForLogging}`);
+      console.log(`   SUPABASE_SERVICE_ROLE_KEY: ${hasServiceRoleKey ? 'set (masked)' : 'NOT SET'}`);
+      console.log(`   isConfigured: ${isConfigured}`);
+      
+      res.json({
+        supabaseUrl: urlForLogging,
+        hasServiceRoleKey,
+        isConfigured,
+        // Also include the raw URL (first 50 chars) for debugging
+        rawUrlPrefix: supabaseUrl.substring(0, 50) + (supabaseUrl.length > 50 ? '...' : ''),
+      });
+    } catch (error: any) {
+      console.error("Debug supabase error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   app.get("/api/debug/conversations", async (_req, res) => {
     try {
       const conversations = await storage.listAllConversations();

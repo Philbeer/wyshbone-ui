@@ -1,9 +1,6 @@
 // CRITICAL: Load environment variables FIRST
-// Using import syntax ensures this runs before other modules are evaluated
-import "dotenv/config";
-import dotenv from "dotenv";
-// Also load .env.local for local overrides
-dotenv.config({ path: '.env.local', override: true });
+// This must be the very first import - it validates env and exits if missing
+import './env.js';
 
 import express, { type Request, Response, NextFunction } from "express";
 import cors from "cors";
@@ -27,7 +24,9 @@ const app = express();
 const allowedOrigins = [
   'http://localhost:3000',
   'http://localhost:5173',
+  'http://localhost:5177',
   'http://localhost:5000',
+  'http://localhost:5001',
   process.env.FRONTEND_URL, // e.g., https://wyshbone.vercel.app
 ].filter(Boolean) as string[];
 

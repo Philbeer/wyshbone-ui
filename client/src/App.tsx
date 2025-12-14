@@ -29,6 +29,7 @@ import { PlanProvider } from "@/contexts/PlanContext";
 import { PlanExecutionProvider } from "@/contexts/PlanExecutionController";
 import { AgentStatusProvider, useAgentStatus } from "@/contexts/AgentStatusContext";
 import { VerticalProvider } from "@/contexts/VerticalContext";
+import { CapabilitiesProvider } from "@/contexts/CapabilitiesContext";
 import { VerticalIndicator } from "@/components/VerticalSelector";
 import { OnboardingTourProvider } from "@/contexts/OnboardingTourContext";
 import { OnboardingTour } from "@/components/onboarding/OnboardingTour";
@@ -390,35 +391,37 @@ function AppContent() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <PlanProvider>
-        <PlanExecutionProvider>
-          <TooltipProvider>
-            <SidebarProvider style={style as React.CSSProperties}>
-              <AppLayout
-              defaultCountry={defaultCountry}
-              setDefaultCountry={setDefaultCountry}
-              runs={runs}
-              conversations={conversations}
-              handleSelectRun={handleSelectRun}
-              handleSelectConversation={handleSelectConversation}
-              handleRunRun={handleRunRun}
-              handleNewChatClick={handleNewChatClick}
-              newChatCallbackRef={newChatCallbackRef}
-              theme={theme}
-              toggleTheme={toggleTheme}
-              handleInjectSystemMessage={handleInjectSystemMessage}
-              addRun={addRun}
-              updateRun={updateRun}
-              getActiveRunId={getActiveRunId}
-              handleNewChat={handleNewChat}
-              handleLoadConversation={handleLoadConversation}
-            />
-              <CountryHint />
-            </SidebarProvider>
-            <Toaster />
-          </TooltipProvider>
-        </PlanExecutionProvider>
-      </PlanProvider>
+      <CapabilitiesProvider>
+        <PlanProvider>
+          <PlanExecutionProvider>
+            <TooltipProvider>
+              <SidebarProvider style={style as React.CSSProperties}>
+                <AppLayout
+                  defaultCountry={defaultCountry}
+                  setDefaultCountry={setDefaultCountry}
+                  runs={runs}
+                  conversations={conversations}
+                  handleSelectRun={handleSelectRun}
+                  handleSelectConversation={handleSelectConversation}
+                  handleRunRun={handleRunRun}
+                  handleNewChatClick={handleNewChatClick}
+                  newChatCallbackRef={newChatCallbackRef}
+                  theme={theme}
+                  toggleTheme={toggleTheme}
+                  handleInjectSystemMessage={handleInjectSystemMessage}
+                  addRun={addRun}
+                  updateRun={updateRun}
+                  getActiveRunId={getActiveRunId}
+                  handleNewChat={handleNewChat}
+                  handleLoadConversation={handleLoadConversation}
+                />
+                <CountryHint />
+              </SidebarProvider>
+              <Toaster />
+            </TooltipProvider>
+          </PlanExecutionProvider>
+        </PlanProvider>
+      </CapabilitiesProvider>
     </QueryClientProvider>
   );
 }

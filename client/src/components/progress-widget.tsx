@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePlanProgress } from "@/hooks/use-plan-progress";
 import { usePlanExecution } from "@/contexts/PlanExecutionController";
+import { useCapabilities } from "@/contexts/CapabilitiesContext";
 import { AlertCircle, CheckCircle2, Clock, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatDistanceToNow } from "date-fns";
@@ -11,6 +12,9 @@ import { formatDistanceToNow } from "date-fns";
 export function ProgressWidget() {
   // Get plan execution state (activePlanId, status, shouldPoll)
   const { activePlanId, status, shouldPoll } = usePlanExecution();
+  
+  // Get capabilities for step labels
+  const { getStepLabel } = useCapabilities();
   
   // Poll progress based on execution controller state
   const progress = usePlanProgress(activePlanId, shouldPoll);
@@ -122,7 +126,7 @@ export function ProgressWidget() {
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className="text-sm font-medium" data-testid={`text-step-label-${index}`}>
-                              Step {index + 1} — {step.type}
+                              Step {index + 1} — {getStepLabel(step.type)}
                             </span>
                             <Badge
                               variant={
@@ -137,7 +141,7 @@ export function ProgressWidget() {
                               {step.status}
                             </Badge>
                           </div>
-                          {step.label && (
+                          {step.label && step.label !== step.type && (
                             <div className="text-xs text-muted-foreground mt-1" data-testid={`text-step-type-${index}`}>
                               {step.label}
                             </div>
@@ -160,8 +164,13 @@ export function ProgressWidget() {
                         </div>
                       )}
                       {!step.resultSummary && step.status === "completed" && (
-                        <div className="text-sm text-muted-foreground ml-6 mt-1 italic" data-testid={`text-no-details-${index}`}>
-                          Completed with no additional details
+                        <div className="text-sm text-amber-600 dark:text-amber-500 ml-6 mt-1 italic" data-testid={`text-no-details-${index}`}>
+                          No output recorded
+                        </div>
+                      )}
+                      {!step.resultSummary && step.status === "failed" && (
+                        <div className="text-sm text-destructive ml-6 mt-1 italic" data-testid={`text-failed-${index}`}>
+                          Step failed — check logs for details
                         </div>
                       )}
                     </div>

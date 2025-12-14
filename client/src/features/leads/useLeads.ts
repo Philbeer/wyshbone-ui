@@ -116,6 +116,12 @@ function mapSupabaseLeadToLead(row: any): Lead {
     
     // Legacy JSONB metadata (backwards compat)
     breweryMetadata: row.brewery_metadata || undefined,
+    
+    // Draft outreach fields
+    draft_outreach_subject: row.draft_outreach_subject ?? null,
+    draft_outreach_body: row.draft_outreach_body ?? null,
+    draft_outreach_persona: row.draft_outreach_persona ?? null,
+    draft_outreach_generated_at: row.draft_outreach_generated_at ?? null,
   };
 }
 

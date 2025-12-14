@@ -85,7 +85,7 @@ function scoreResult(place: GPlace, targetName: string, targetAddress?: string) 
 }
 
 export async function searchPlaceId({
-  apiKey = process.env.GOOGLE_MAPS_API_KEY!,
+  apiKey = process.env.GOOGLE_PLACES_API_KEY || process.env.GOOGLE_MAPS_API_KEY,
   textQuery,          // e.g., "The Fisherman's Joy, 43 Queen Street, Arundel BN18 9JG"
   region = "GB",      // bias/normalization
   locationBias,       // optional: { lat, lng, radiusMeters }
@@ -97,7 +97,7 @@ export async function searchPlaceId({
   locationBias?: { lat: number; lng: number; radiusMeters: number };
   fieldMask?: string;
 }) {
-  if (!apiKey) throw new Error("Missing GOOGLE_MAPS_API_KEY");
+  if (!apiKey) throw new Error("Missing GOOGLE_PLACES_API_KEY (or GOOGLE_MAPS_API_KEY)");
 
   const body: Record<string, any> = {
     textQuery,
@@ -143,7 +143,7 @@ export async function searchPlaces({
   radiusMeters,
   maxResults = 30,
   typesFilter,
-  apiKey = process.env.GOOGLE_MAPS_API_KEY!,
+  apiKey = process.env.GOOGLE_PLACES_API_KEY || process.env.GOOGLE_MAPS_API_KEY,
   region = "GB",
 }: {
   query: string;
@@ -156,7 +156,7 @@ export async function searchPlaces({
   apiKey?: string;
   region?: string;
 }) {
-  if (!apiKey) throw new Error("Missing GOOGLE_MAPS_API_KEY");
+  if (!apiKey) throw new Error("Missing GOOGLE_PLACES_API_KEY (or GOOGLE_MAPS_API_KEY)");
 
   let locationBias: { lat: number; lng: number; radiusMeters: number } | undefined;
 
@@ -303,7 +303,7 @@ export async function searchPlaces({
 export async function verifyVenue({
   name,
   address,
-  apiKey = process.env.GOOGLE_MAPS_API_KEY!,
+  apiKey = process.env.GOOGLE_PLACES_API_KEY || process.env.GOOGLE_MAPS_API_KEY,
   region = "GB",
   locationBias,
 }: {

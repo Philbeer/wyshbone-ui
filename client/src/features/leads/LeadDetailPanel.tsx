@@ -29,7 +29,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { MapPin, Pencil, Save, X, Loader2, User, Tag, Building2 } from "lucide-react";
+import { MapPin, Pencil, Save, X, Loader2, User, Tag, Building2, Mail, Copy, Check, AlertTriangle } from "lucide-react";
+import { useCapabilities } from "@/contexts/CapabilitiesContext";
 import type { Lead } from "./types";
 import { useVerticalLabels } from "@/lib/verticals";
 import {
@@ -325,6 +326,130 @@ function PubDetailsSection({
 }
 
 /**
+ * Draft Outreach Section - shows AI-generated outreach for this lead
+ */
+function DraftOutreachSection({ lead }: { lead: Lead }) {
+  const { canSendOutreach } = useCapabilities();
+  const [copiedField, setCopiedField] = useState<'subject' | 'body' | null>(null);
+  
+  const hasDraft = !!(lead.draft_outreach_subject || lead.draft_outreach_body);
+  
+  const handleCopy = async (field: 'subject' | 'body', text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedField(field);
+      setTimeout(() => setCopiedField(null), 2000);
+    } catch (err) {
+      console.error('Failed to copy:', err);
+    }
+  };
+  
+  return (
+    <section className="space-y-3">
+      <div className="flex items-center gap-2">
+        <Mail className="h-4 w-4 text-muted-foreground" />
+        <h3 className="text-sm font-semibold">Draft Outreach</h3>
+      </div>
+      
+      {!hasDraft ? (
+        <div className="bg-muted/30 rounded-lg p-4 text-center">
+          <p className="text-sm text-muted-foreground">
+            No draft generated yet.
+          </p>
+          <p className="text-xs text-muted-foreground mt-1">
+            Drafts are created when the "Draft Outreach" step runs in a plan.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {/* Subject */}
+          {lead.draft_outreach_subject && (
+            <div className="space-y-1">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs text-muted-foreground uppercase">Subject</Label>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 px-2"
+                  onClick={() => handleCopy('subject', lead.draft_outreach_subject!)}
+                >
+                  {copiedField === 'subject' ? (
+                    <Check className="h-3 w-3 text-green-600" />
+                  ) : (
+                    <Copy className="h-3 w-3" />
+                  )}
+                </Button>
+              </div>
+              <div className="text-sm font-medium bg-muted/50 rounded-md p-2">
+                {lead.draft_outreach_subject}
+              </div>
+            </div>
+          )}
+          
+          {/* Body */}
+          {lead.draft_outreach_body && (
+            <div className="space-y-1">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs text-muted-foreground uppercase">Body</Label>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 px-2"
+                  onClick={() => handleCopy('body', lead.draft_outreach_body!)}
+                >
+                  {copiedField === 'body' ? (
+                    <Check className="h-3 w-3 text-green-600" />
+                  ) : (
+                    <Copy className="h-3 w-3" />
+                  )}
+                </Button>
+              </div>
+              <div className="text-sm bg-muted/50 rounded-md p-2 whitespace-pre-wrap max-h-48 overflow-y-auto">
+                {lead.draft_outreach_body}
+              </div>
+            </div>
+          )}
+          
+          {/* Persona */}
+          {lead.draft_outreach_persona && (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <span>Persona:</span>
+              <Badge variant="secondary" className="text-xs">
+                {lead.draft_outreach_persona}
+              </Badge>
+            </div>
+          )}
+          
+          {/* Send CTA or upsell */}
+          <div className="pt-2">
+            {canSendOutreach ? (
+              <Button variant="default" size="sm" className="w-full">
+                <Mail className="h-4 w-4 mr-2" />
+                Send via SalesHandy
+              </Button>
+            ) : (
+              <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg p-3">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-500 mt-0.5 flex-shrink-0" />
+                  <div>
+                    <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
+                      Connect an outreach system
+                    </p>
+                    <p className="text-xs text-amber-700 dark:text-amber-300 mt-0.5">
+                      Send drafts automatically by connecting SalesHandy or another outreach tool.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+/**
  * Initialize draft from lead values
  */
 function initializeDraftFromLead(lead: Lead): LeadDraft {
@@ -584,6 +709,11 @@ export function LeadDetailPanel({
             </p>
           </section>
         )}
+        
+        <Separator className="my-4" />
+        
+        {/* Draft Outreach Section */}
+        <DraftOutreachSection lead={lead} />
       </SheetContent>
     </Sheet>
   );
