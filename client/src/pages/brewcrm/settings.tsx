@@ -13,7 +13,7 @@ import { DATA_SOURCE } from "@/lib/brewcrmService";
 export default function BrewCrmSettingsPage() {
   const { user } = useUser();
   const { toast } = useToast();
-  
+
   const [showClearDialog, setShowClearDialog] = useState(false);
   const [defaultHlpa, setDefaultHlpa] = useState('4500');
   
@@ -94,7 +94,7 @@ export default function BrewCrmSettingsPage() {
     };
     reader.readAsText(file);
   };
-  
+
   return (
     <div className="p-6">
       <div className="mb-6">
@@ -107,10 +107,10 @@ export default function BrewCrmSettingsPage() {
         </p>
         <p className="text-xs text-muted-foreground mt-1">Data Source: {DATA_SOURCE}</p>
       </div>
-      
+
       {/* General Settings */}
       <Card className="mb-6">
-        <CardHeader>
+          <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Settings className="h-5 w-5" />
             General Settings
@@ -118,7 +118,7 @@ export default function BrewCrmSettingsPage() {
           <CardDescription>
             Default values used across the application
           </CardDescription>
-        </CardHeader>
+          </CardHeader>
         <CardContent className="space-y-4">
           <div>
             <Label>Default HLPA (Annual Production)</Label>
@@ -147,32 +147,32 @@ export default function BrewCrmSettingsPage() {
             <p className="text-sm text-muted-foreground mt-1">
               All data is scoped to this workspace ID
             </p>
-          </div>
-        </CardContent>
-      </Card>
+            </div>
+          </CardContent>
+        </Card>
       
       {/* Data Management */}
       <Card className="mb-6">
-        <CardHeader>
+          <CardHeader>
           <CardTitle>Data Management</CardTitle>
           <CardDescription>
             Export, import, or clear all Brew CRM data
           </CardDescription>
-        </CardHeader>
+          </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex gap-4">
             <Button variant="outline" onClick={handleExportData}>
               <Download className="h-4 w-4 mr-2" />
               Export All Data
             </Button>
-            
+
             <div className="relative">
-              <Input
+                        <Input
                 type="file"
                 accept=".json"
                 onChange={handleImportData}
                 className="absolute inset-0 opacity-0 cursor-pointer"
-              />
+                        />
               <Button variant="outline">
                 <Upload className="h-4 w-4 mr-2" />
                 Import Data
@@ -187,7 +187,7 @@ export default function BrewCrmSettingsPage() {
             >
               <Trash2 className="h-4 w-4 mr-2" />
               Clear All Data
-            </Button>
+                </Button>
             <p className="text-sm text-muted-foreground mt-2">
               This will permanently delete all products, customers, orders, routes, stock, and containers.
             </p>
@@ -220,8 +220,8 @@ export default function BrewCrmSettingsPage() {
               </div>
             </div>
           </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
       
       {/* Clear Data Confirmation */}
       <AlertDialog open={showClearDialog} onOpenChange={setShowClearDialog}>

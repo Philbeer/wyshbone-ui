@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { pgTable, text, integer, jsonb, bigint, index, serial } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, jsonb, bigint, index, serial, numeric, date, timestamp, uuid } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 
@@ -992,3 +992,33 @@ export const insertBrewSettingsSchema = createInsertSchema(brewSettings);
 export const selectBrewSettingsSchema = createSelectSchema(brewSettings);
 export type InsertBrewSettings = typeof brewSettings.$inferInsert;
 export type SelectBrewSettings = typeof brewSettings.$inferSelect;
+
+// ============= BREWERY DUTY LOOKUP BANDS =============
+// Stores UK HMRC duty rate bands for piecewise linear relief calculation
+//
+// Terminology:
+//   annual_hl = Annual hectolitres of PRODUCT (beer/cider volume), NOT pure alcohol
+//
+// Relief calculation formula:
+//   relief_total = c + m * (annual_hl - threshold_hl)
+//   rate_per_hl = base_rate_per_hl - (relief_total / annual_hl)
+//
+// Query pattern: Find band where threshold_hl <= annual_hl, ORDER BY threshold_hl DESC LIMIT 1
+// NOTE: Indexes are defined in SQL only (drizzle/brew_duty_lookup_bands.sql)
+export const brewDutyLookupBands = pgTable("brew_duty_lookup_bands", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  regime: text("regime").notNull().default("UK"),
+  dutyCategoryKey: text("duty_category_key").notNull(),
+  thresholdHl: numeric("threshold_hl").notNull().default("0"),
+  m: numeric("m").notNull(),
+  c: numeric("c").notNull(),
+  baseRatePerHl: numeric("base_rate_per_hl").notNull(),
+  effectiveFrom: date("effective_from").notNull(),
+  effectiveTo: date("effective_to"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const insertBrewDutyLookupBandSchema = createInsertSchema(brewDutyLookupBands);
+export const selectBrewDutyLookupBandSchema = createSelectSchema(brewDutyLookupBands);
+export type InsertBrewDutyLookupBand = typeof brewDutyLookupBands.$inferInsert;
+export type SelectBrewDutyLookupBand = typeof brewDutyLookupBands.$inferSelect;

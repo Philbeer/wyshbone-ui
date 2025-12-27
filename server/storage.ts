@@ -41,7 +41,8 @@ import type {
   InsertBrewDutyReport,
   SelectBrewDutyReport,
   InsertBrewSettings,
-  SelectBrewSettings
+  SelectBrewSettings,
+  SelectBrewDutyLookupBand
 } from "@shared/schema";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
@@ -66,9 +67,10 @@ import {
   brewInventoryItems,
   brewContainers,
   brewDutyReports,
-  brewSettings
+  brewSettings,
+  brewDutyLookupBands
 } from "@shared/schema";
-import { eq, or, and, desc, asc, lt, gt, ilike } from "drizzle-orm";
+import { eq, or, and, desc, asc, lt, gt, lte, gte, isNull, sql } from "drizzle-orm";
 
 export interface PendingBatchConfirmation {
   business_types: string[];
@@ -306,6 +308,9 @@ export interface IStorage {
   getBrewSettings(workspaceId: string): Promise<SelectBrewSettings | null>;
   createBrewSettings(settings: InsertBrewSettings): Promise<SelectBrewSettings>;
   updateBrewSettings(id: string, updates: Partial<InsertBrewSettings>): Promise<SelectBrewSettings | null>;
+  
+  // ============= BREWERY DUTY LOOKUP BANDS METHODS =============
+  listActiveDutyLookupBands(regime?: string): Promise<SelectBrewDutyLookupBand[]>;
 }
 
 export class MemStorage implements IStorage {
@@ -758,6 +763,8 @@ export class MemStorage implements IStorage {
   async resetUsageCounters(userId: string): Promise<void> {}
   async deleteUser(id: string): Promise<boolean> { return false; }
   async transferUserData(fromUserId: string, toUserId: string): Promise<void> {}
+  
+  async listActiveDutyLookupBands(regime?: string): Promise<SelectBrewDutyLookupBand[]> { return []; }
 }
 
 // Database connection validation and setup
@@ -1752,6 +1759,34 @@ export class DbStorage implements IStorage {
       .where(eq(brewSettings.id, id))
       .returning();
     return updated || null;
+  }
+  
+  // ============= BREWERY DUTY LOOKUP BANDS METHODS =============
+  async listActiveDutyLookupBands(regime: string = 'UK'): Promise<SelectBrewDutyLookupBand[]> {
+    try {
+      // Fetch all bands for the regime, then filter in JS for date validity
+      // This is more robust than complex date comparisons in SQL
+      const allBands = await db.select()
+        .from(brewDutyLookupBands)
+        .where(eq(brewDutyLookupBands.regime, regime))
+        .orderBy(brewDutyLookupBands.dutyCategoryKey, desc(brewDutyLookupBands.thresholdHl));
+      
+      // Filter for active bands (effective_from <= today AND (effective_to IS NULL OR effective_to >= today))
+      const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+      const activeBands = allBands.filter(band => {
+        const fromDate = band.effectiveFrom;
+        const toDate = band.effectiveTo;
+        const isAfterStart = fromDate <= today;
+        const isBeforeEnd = !toDate || toDate >= today;
+        return isAfterStart && isBeforeEnd;
+      });
+      
+      console.log(`[DutyLookup] Found ${allBands.length} total bands, ${activeBands.length} active for regime=${regime}`);
+      return activeBands;
+    } catch (error: any) {
+      console.error("[DutyLookup] Error fetching duty lookup bands:", error);
+      throw error;
+    }
   }
 }
 
