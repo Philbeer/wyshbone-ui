@@ -233,18 +233,18 @@ export default function BrewCrmSettings() {
   };
 
   const formatCategoryName = (key: string): string => {
-    // Map category keys to user-friendly display names
+    // Map category keys to user-friendly display names (UK alcohol duty legislation)
     const displayNames: Record<string, string> = {
       // Non-draught (smallpack) categories
-      'beer_smallpack_lt_3_5': 'Non-draught beer <3.5%',
-      'beer_smallpack_3_5_to_8_5': 'Non-draught beer >3.5%, <8.5%',
+      'beer_smallpack_lt_3_5': 'Non-draught beer and cider <3.5%',
+      'beer_smallpack_3_5_to_8_5': 'Non-draught beer ≥3.5% to <8.5%',
       'cider_smallpack_lt_3_5': 'Non-draught cider <3.5%',
-      'cider_smallpack_3_5_to_8_5': 'Non-draught cider >3.5%, <8.5%',
+      'cider_smallpack_3_5_to_8_5': 'Non-draught cider ≥3.5% to <8.5%',
       // Draught categories
-      'beer_draught_lt_3_5': 'Draught beer <3.5%',
-      'beer_draught_3_5_to_8_5': 'Draught beer >3.5%, <8.5%',
+      'beer_draught_lt_3_5': 'Draught beer and cider <3.5%',
+      'beer_draught_3_5_to_8_5': 'Draught beer ≥3.5% to <8.5%',
       'cider_draught_lt_3_5': 'Draught cider <3.5%',
-      'cider_draught_3_5_to_8_5': 'Draught cider >3.5%, <8.5%',
+      'cider_draught_3_5_to_8_5': 'Draught cider ≥3.5% to <8.5%',
     };
     
     // Return mapped name or fallback to formatted key
