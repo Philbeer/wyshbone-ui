@@ -241,7 +241,7 @@ export default function BrewCrmSettings() {
       'cider_smallpack_lt_3_5': 'Non-draught cider <3.5%',
       'cider_smallpack_3_5_to_8_5': 'Non-draught cider ≥3.5% to <8.5%',
       // Draught categories
-      'beer_draught_lt_3_5': 'Draught beer and cider <3.5%',
+      'beer_draught_lt_3_5': 'Draught beer <3.5%',
       'beer_draught_3_5_to_8_5': 'Draught beer ≥3.5% to <8.5%',
       'cider_draught_lt_3_5': 'Draught cider <3.5%',
       'cider_draught_3_5_to_8_5': 'Draught cider ≥3.5% to <8.5%',
