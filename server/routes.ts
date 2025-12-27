@@ -8772,6 +8772,34 @@ ${run.outputText}`;
     }
   });
   
+  // GET /api/brewcrm/duty-lookup-bands - List active duty lookup bands
+  app.get("/api/brewcrm/duty-lookup-bands", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const regime = (req.query.regime as string) || 'UK';
+      console.log(`[API] Fetching duty lookup bands for regime=${regime}, user=${auth.userEmail}`);
+      
+      const bands = await storage.listActiveDutyLookupBands(regime);
+      console.log(`[API] Returning ${bands.length} duty lookup bands`);
+      
+      res.json(bands);
+    } catch (error: any) {
+      console.error("Error fetching duty lookup bands:", error);
+      console.error("Error stack:", error.stack);
+      // Check if it's a "relation does not exist" error (table not created yet)
+      if (error.message?.includes('relation') && error.message?.includes('does not exist')) {
+        return res.status(500).json({ 
+          error: "Duty lookup bands table not found. Please run the SQL migration: drizzle/brew_duty_lookup_bands.sql" 
+        });
+      }
+      res.status(500).json({ error: error.message || "Failed to fetch duty lookup bands" });
+    }
+  });
+  
   // ============================================================
   // AGENT ACTION ENDPOINTS (Natural Language Wrappers)
   // ============================================================
