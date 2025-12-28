@@ -27,6 +27,7 @@ import type { LeadGenPlan, LeadGenStep } from './leadgen-plan.js';
 import { logRunToTower, startRunLog, completeRunLog, logPlanExecutionToTower } from './lib/towerClient.js';
 import { persistLeadsToSupabase, type LeadToUpsert } from './supabase-client.js';
 import { updateStepProgress, updatePlanStatus as persistPlanStatus, getPlanExecutionStatus } from './leadgen-plan.js';
+import { isDemoMode } from './demo-config.js';
 import { 
   debugOnExecutionStart, 
   debugOnStepProgress, 
@@ -634,13 +635,18 @@ async function executeSimulatedStep(step: LeadGenStep, execution: PlanExecution)
   console.log(`  ⚠️ [PLAN_EXEC] Simulating execution for step type: ${step.type}`);
   console.log(`  📍 GOOGLE_PLACES: SIMULATED (API key not available or SIMULATE_TOOLS=true)`);
   
-  const baseDelay = step.type === 'search' ? 2000 : 
-                    step.type === 'enrich' ? 3000 : 
-                    step.type === 'outreach' ? 1500 : 2000;
+  // FAST DEV MODE: Use minimal delays in demo/dev mode for instant feedback
+  const fastMode = isDemoMode();
   
-  const delay = baseDelay + Math.random() * 1000;
+  const baseDelay = fastMode 
+    ? 100 // ~100ms in dev mode
+    : (step.type === 'search' ? 2000 : 
+       step.type === 'enrich' ? 3000 : 
+       step.type === 'outreach' ? 1500 : 2000);
   
-  console.log(`  ⏱️ [PLAN_EXEC] Step ${step.label} simulating (~${Math.round(delay / 1000)}s)`);
+  const delay = fastMode ? baseDelay : baseDelay + Math.random() * 1000;
+  
+  console.log(`  ⏱️ [PLAN_EXEC] Step ${step.label} ${fastMode ? '(FAST MODE)' : 'simulating'} (~${Math.round(delay)}ms)`);
   
   await new Promise(resolve => setTimeout(resolve, delay));
   

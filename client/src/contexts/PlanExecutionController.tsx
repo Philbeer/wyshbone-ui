@@ -3,6 +3,10 @@ import { useQuery } from '@tanstack/react-query';
 import { useUser } from './UserContext';
 import { authedFetch } from '@/lib/queryClient';
 
+// FAST DEV MODE: Use fast polling in development
+const IS_DEV = import.meta.env.MODE === 'development';
+const EXECUTION_POLL_INTERVAL = IS_DEV ? 300 : 3000; // 300ms in dev, 3s in prod
+
 interface ExecutionState {
   isExecuting: boolean;
   shouldPoll: boolean;
@@ -37,7 +41,7 @@ export function PlanExecutionProvider({ children }: { children: ReactNode }) {
       return data;
     },
     enabled: !!user && !!activePlanId,
-    refetchInterval: activePlanId ? 3000 : false,
+    refetchInterval: activePlanId ? EXECUTION_POLL_INTERVAL : false, // Fast in dev
   });
 
   const status = statusData?.status || (activePlanId ? 'executing' : 'idle');

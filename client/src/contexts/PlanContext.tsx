@@ -5,6 +5,10 @@ import { apiRequest, handleApiError } from "@/lib/queryClient";
 import { publishEvent } from "@/lib/events";
 import { getCurrentVerticalId } from "@/contexts/VerticalContext";
 
+// FAST DEV MODE: Use fast polling in development
+const IS_DEV = import.meta.env.MODE === 'development';
+const PLAN_POLL_INTERVAL = IS_DEV ? 500 : 5000; // 500ms in dev, 5s in prod
+
 export interface LeadGenStep {
   id: string;
   type: 'search' | 'enrich' | 'outreach' | 'fallback';
@@ -47,8 +51,8 @@ export function PlanProvider({ children }: { children: ReactNode }) {
   const { data: plan, isLoading, error } = useQuery<LeadGenPlan | null>({
     queryKey: ["/api/plan"],
     enabled: !!user,
-    refetchInterval: 5000, // Poll every 5 seconds for plan updates
-    staleTime: 3000,
+    refetchInterval: PLAN_POLL_INTERVAL, // Fast in dev, slow in prod
+    staleTime: IS_DEV ? 200 : 3000,
   });
 
   // Mutation to start a new plan
