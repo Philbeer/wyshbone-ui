@@ -59,8 +59,22 @@ export function buildApiUrl(path: string): string {
 
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
-    const text = (await res.text()) || res.statusText;
-    throw new Error(`${res.status}: ${text}`);
+    let errorMessage = res.statusText;
+    try {
+      const text = await res.text();
+      if (text) {
+        // Try to parse JSON error response
+        try {
+          const json = JSON.parse(text);
+          errorMessage = json.error || json.message || text;
+        } catch {
+          errorMessage = text;
+        }
+      }
+    } catch {
+      // Failed to read response body
+    }
+    throw new Error(`${res.status}: ${errorMessage}`);
   }
 }
 
@@ -97,28 +111,33 @@ export function handleApiError(error: unknown, context: string): string {
   // Log with context for debugging
   console.error(`[API Error] ${context}:`, message);
   
-  // Parse common HTTP error patterns for better user messages
-  if (message.includes("401")) {
-    return "You are not authenticated. Please log in again.";
-  }
-  if (message.includes("403")) {
-    return "You don't have permission to perform this action.";
-  }
-  if (message.includes("404")) {
-    return "The requested resource was not found.";
-  }
-  if (message.includes("500") || message.includes("502") || message.includes("503")) {
-    return "Server error. Please try again later.";
-  }
-  if (message.includes("Failed to fetch") || message.includes("NetworkError")) {
-    return "Network error. Please check your connection.";
+  // Check for HTTP status code format: "500: error message"
+  const statusMatch = message.match(/^(\d{3}):\s*(.*)$/);
+  if (statusMatch) {
+    const status = statusMatch[1];
+    const serverMessage = statusMatch[2]?.trim();
+    
+    // If server provided a meaningful message, use it
+    if (serverMessage && serverMessage !== 'Internal Server Error' && serverMessage !== 'OK') {
+      return serverMessage;
+    }
+    
+    // Otherwise show HTTP status
+    return `HTTP ${status}`;
   }
   
-  // Return the raw message if it doesn't contain status codes (likely already user-friendly)
-  // or strip the status code prefix for cleaner display
-  const statusMatch = message.match(/^\d{3}:\s*(.+)$/);
-  if (statusMatch) {
-    return statusMatch[1];
+  // Handle specific auth errors (without status prefix)
+  if (message.includes("401") || message.toLowerCase().includes("unauthorized")) {
+    return "You are not authenticated. Please log in again.";
+  }
+  if (message.includes("403") || message.toLowerCase().includes("forbidden")) {
+    return "You don't have permission to perform this action.";
+  }
+  
+  // Handle network errors (actual fetch failures, not CORS-blocked responses)
+  // Note: CORS rejections that return 500 will have a status code and be handled above
+  if (message.includes("Failed to fetch") || message.includes("NetworkError") || message.includes("net::")) {
+    return "Network error. Please check your connection.";
   }
   
   return message;
