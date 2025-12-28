@@ -1784,7 +1784,71 @@ export class DbStorage implements IStorage {
       console.log(`[DutyLookup] Found ${allBands.length} total bands, ${activeBands.length} active for regime=${regime}`);
       return activeBands;
     } catch (error: any) {
+      // If DNS resolution or DB connection fails, fall back to Supabase REST API
+      if (error.message?.includes('ENOTFOUND') || error.message?.includes('getaddrinfo') || error.cause?.code === 'ENOTFOUND') {
+        console.warn('[DutyLookup] Database DNS resolution failed, trying Supabase REST API fallback...');
+        return this.listActiveDutyLookupBandsViaRest(regime);
+      }
       console.error("[DutyLookup] Error fetching duty lookup bands:", error);
+      throw error;
+    }
+  }
+  
+  // Fallback method using Supabase REST API when database connection fails
+  private async listActiveDutyLookupBandsViaRest(regime: string = 'UK'): Promise<SelectBrewDutyLookupBand[]> {
+    const SUPABASE_URL = process.env.SUPABASE_URL;
+    const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    
+    if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+      throw new Error('Supabase credentials not configured for REST API fallback');
+    }
+    
+    try {
+      const response = await fetch(
+        `${SUPABASE_URL}/rest/v1/brew_duty_lookup_bands?regime=eq.${encodeURIComponent(regime)}&order=duty_category_key.asc,threshold_hl.desc`,
+        {
+          headers: {
+            'apikey': SUPABASE_SERVICE_ROLE_KEY,
+            'Authorization': `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+          },
+        }
+      );
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Supabase REST API error: ${response.status} ${errorText}`);
+      }
+      
+      const allBands = await response.json();
+      
+      // Filter for active bands (effective_from <= today AND (effective_to IS NULL OR effective_to >= today))
+      const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+      const activeBands = allBands.filter((band: any) => {
+        const fromDate = band.effective_from;
+        const toDate = band.effective_to;
+        const isAfterStart = fromDate <= today;
+        const isBeforeEnd = !toDate || toDate >= today;
+        return isAfterStart && isBeforeEnd;
+      });
+      
+      // Map snake_case from REST API to camelCase expected by the app
+      const mappedBands = activeBands.map((band: any) => ({
+        id: band.id,
+        regime: band.regime,
+        dutyCategoryKey: band.duty_category_key,
+        thresholdHl: band.threshold_hl,
+        m: band.m,
+        c: band.c,
+        baseRatePerHl: band.base_rate_per_hl,
+        effectiveFrom: band.effective_from,
+        effectiveTo: band.effective_to,
+        createdAt: band.created_at,
+      }));
+      
+      console.log(`[DutyLookup] REST API fallback: Found ${allBands.length} total bands, ${mappedBands.length} active for regime=${regime}`);
+      return mappedBands;
+    } catch (error: any) {
+      console.error('[DutyLookup] Supabase REST API fallback failed:', error.message);
       throw error;
     }
   }

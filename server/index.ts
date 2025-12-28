@@ -1,3 +1,8 @@
+// CRITICAL: Configure DNS resolution FIRST (before any network imports)
+// Some Supabase endpoints only have IPv6 addresses - prefer IPv6 to avoid ENOTFOUND errors
+import dns from 'node:dns';
+dns.setDefaultResultOrder('ipv6first');
+
 // CRITICAL: Load environment variables FIRST
 // This must be the very first import - it validates env and exits if missing
 import './env.js';

@@ -9271,15 +9271,22 @@ ${run.outputText}`;
   });
   
   // GET /api/brewcrm/duty-lookup-bands - List active duty lookup bands
+  // NOTE: Duty bands are public reference data (UK alcohol duty legislation).
+  // In development/demo mode, allow unauthenticated access to enable duty calculator.
+  // In production, authentication is required for audit/logging purposes.
   app.get("/api/brewcrm/duty-lookup-bands", async (req, res) => {
     try {
       const auth = await getAuthenticatedUserId(req);
-      if (!auth) {
+      const isDev = process.env.NODE_ENV === 'development';
+      
+      // In production, require auth. In development, allow unauthenticated access.
+      if (!auth && !isDev) {
         return res.status(401).json({ error: "Unauthorized" });
       }
       
       const regime = (req.query.regime as string) || 'UK';
-      console.log(`[API] Fetching duty lookup bands for regime=${regime}, user=${auth.userEmail}`);
+      const userInfo = auth?.userEmail || 'anonymous (dev mode)';
+      console.log(`[API] Fetching duty lookup bands for regime=${regime}, user=${userInfo}`);
       
       const bands = await storage.listActiveDutyLookupBands(regime);
       console.log(`[API] Returning ${bands.length} duty lookup bands`);

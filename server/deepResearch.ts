@@ -914,17 +914,22 @@ export function getAllPrograms(): VeryDeepProgram[] {
 }
 
 async function pollAllPendingRuns(): Promise<void> {
-  const pending = await storage.listPendingDeepResearchRuns();
-  for (const r of pending) {
-    if (r.status === "stopped") continue;
-    await pollOneRun(r as DeepResearchRun);
-  }
-  
-  // Also advance any running programs
-  for (const program of activePrograms.values()) {
-    if (program.status === "running") {
-      await advanceProgram(program);
+  try {
+    const pending = await storage.listPendingDeepResearchRuns();
+    for (const r of pending) {
+      if (r.status === "stopped") continue;
+      await pollOneRun(r as DeepResearchRun);
     }
+    
+    // Also advance any running programs
+    for (const program of activePrograms.values()) {
+      if (program.status === "running") {
+        await advanceProgram(program);
+      }
+    }
+  } catch (error) {
+    // Log but don't crash - database might be temporarily unavailable
+    console.error('❌ Error in deep research polling:', error instanceof Error ? error.message : error);
   }
 }
 
