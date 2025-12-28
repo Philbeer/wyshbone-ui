@@ -18,6 +18,35 @@ const conversations = new Map<string, Conversation>();
 const venueCaches = new Map<string, VenueCache>();
 const runIds = new Map<string, string>();
 
+// ================================================================================
+// IN-MEMORY FALLBACK FOR CHAT (when database is unavailable)
+// ================================================================================
+// This allows chat to work even when the database fails (DNS issues, downtime, etc.)
+// Messages are stored in memory and chat always responds.
+// ================================================================================
+
+interface InMemoryMessage {
+  id: string;
+  conversationId: string;
+  role: "user" | "assistant" | "system";
+  content: string;
+  createdAt: number;
+}
+
+interface InMemoryConversation {
+  id: string;
+  userId: string;
+  label: string;
+  createdAt: number;
+}
+
+// In-memory chat storage (fallback when DB unavailable)
+const inMemoryConversations = new Map<string, InMemoryConversation>();
+const inMemoryMessages = new Map<string, InMemoryMessage[]>(); // conversationId -> messages
+
+// Track if DB is currently available (for logging)
+let dbAvailable = true;
+
 export const SYSTEM_PROMPT: ChatMessage = {
   role: "system",
   content:
@@ -236,20 +265,58 @@ export async function getOrCreateConversation(
   userId: string,
   conversationId?: string
 ): Promise<string> {
-  if (conversationId) {
-    const existing = await storage.getConversation(conversationId);
-    if (existing) return conversationId;
+  // Try database first
+  try {
+    if (conversationId) {
+      const existing = await storage.getConversation(conversationId);
+      if (existing) {
+        if (!dbAvailable) {
+          console.log('✅ Database connection restored');
+          dbAvailable = true;
+        }
+        return conversationId;
+      }
+    }
+
+    const newId = randomUUID();
+    await storage.createConversation({
+      id: newId,
+      userId,
+      label: "New Chat",
+      createdAt: Date.now(),
+    });
+
+    if (!dbAvailable) {
+      console.log('✅ Database connection restored');
+      dbAvailable = true;
+    }
+    return newId;
+  } catch (error) {
+    // Database unavailable - use in-memory fallback
+    if (dbAvailable) {
+      console.warn('⚠️ Database unavailable for chat - using in-memory fallback');
+      dbAvailable = false;
+    }
+    
+    // Check in-memory cache for existing conversation
+    if (conversationId) {
+      const existing = inMemoryConversations.get(conversationId);
+      if (existing) return conversationId;
+    }
+    
+    // Create new conversation in memory
+    const newId = conversationId || randomUUID();
+    inMemoryConversations.set(newId, {
+      id: newId,
+      userId,
+      label: "New Chat",
+      createdAt: Date.now(),
+    });
+    inMemoryMessages.set(newId, []);
+    
+    console.log(`💾 Created in-memory conversation: ${newId}`);
+    return newId;
   }
-
-  const newId = randomUUID();
-  await storage.createConversation({
-    id: newId,
-    userId,
-    label: "New Chat",
-    createdAt: Date.now(),
-  });
-
-  return newId;
 }
 
 export async function updateConversationLabel(
@@ -263,10 +330,21 @@ export async function updateConversationLabel(
         : truncated)
     : truncated;
   
-  const conversation = await storage.getConversation(conversationId);
-  if (conversation && (conversation.label === "New Chat" || conversation.label === "Conversation")) {
-    await storage.updateConversation(conversationId, { label });
-    console.log(`📝 Updated conversation label to: "${label}"`);
+  // Try database first (best-effort, don't block chat)
+  try {
+    const conversation = await storage.getConversation(conversationId);
+    if (conversation && (conversation.label === "New Chat" || conversation.label === "Conversation")) {
+      await storage.updateConversation(conversationId, { label });
+      console.log(`📝 Updated conversation label to: "${label}"`);
+    }
+  } catch (error) {
+    // Best-effort: Update in-memory if DB fails
+    const inMemConv = inMemoryConversations.get(conversationId);
+    if (inMemConv && (inMemConv.label === "New Chat" || inMemConv.label === "Conversation")) {
+      inMemConv.label = label;
+      console.log(`📝 Updated in-memory conversation label to: "${label}"`);
+    }
+    // Don't throw - label update is non-critical
   }
 }
 
@@ -275,23 +353,69 @@ export async function saveMessage(
   role: "user" | "assistant" | "system",
   content: string
 ): Promise<void> {
-  await storage.createMessage({
-    id: randomUUID(),
-    conversationId,
-    role,
-    content,
-    createdAt: Date.now(),
-  });
+  const messageId = randomUUID();
+  const createdAt = Date.now();
+  
+  // Try database first (best-effort)
+  try {
+    await storage.createMessage({
+      id: messageId,
+      conversationId,
+      role,
+      content,
+      createdAt,
+    });
+    // DB write succeeded
+    return;
+  } catch (error) {
+    // Database unavailable - save to in-memory fallback
+    if (dbAvailable) {
+      console.warn('⚠️ Database unavailable for message save - using in-memory fallback');
+      dbAvailable = false;
+    }
+    
+    // Ensure conversation exists in memory
+    if (!inMemoryMessages.has(conversationId)) {
+      inMemoryMessages.set(conversationId, []);
+    }
+    
+    // Save message to memory
+    const messages = inMemoryMessages.get(conversationId)!;
+    messages.push({
+      id: messageId,
+      conversationId,
+      role,
+      content,
+      createdAt,
+    });
+    
+    console.log(`💾 Saved message to in-memory (conversation: ${conversationId}, role: ${role})`);
+    // Don't throw - message save is best-effort for chat continuity
+  }
 }
 
 export async function loadConversationHistory(
   conversationId: string,
   maxMessages: number = 14
 ): Promise<ChatMessage[]> {
-  // Load messages from local database (UI messages)
-  const localMessages = await storage.listMessages(conversationId);
+  // Try to load messages from database, fall back to in-memory
+  let localMessages: Array<{ id: string; conversationId: string; role: string; content: string; createdAt: number }> = [];
   
-  // Load Supervisor messages from Supabase (if configured)
+  try {
+    localMessages = await storage.listMessages(conversationId);
+  } catch (error) {
+    // Database unavailable - use in-memory messages
+    if (dbAvailable) {
+      console.warn('⚠️ Database unavailable for history load - using in-memory fallback');
+      dbAvailable = false;
+    }
+    
+    const inMemMsgs = inMemoryMessages.get(conversationId) || [];
+    localMessages = inMemMsgs;
+    console.log(`📚 Loaded ${localMessages.length} messages from in-memory cache`);
+  }
+  
+  // Load Supervisor messages from Supabase (if configured) - best-effort
   let supervisorMessages: any[] = [];
   try {
     const { getSupervisorMessages, isSupabaseConfigured } = await import('./supabase-client');
@@ -302,6 +426,7 @@ export async function loadConversationHistory(
     }
   } catch (error) {
     console.warn('⚠️ Failed to load Supervisor messages:', error);
+    // Don't fail - Supervisor messages are optional
   }
   
   // Merge and sort all messages by timestamp

@@ -1045,8 +1045,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       if (isNewSearch) {
         console.log("🆕 Detected new search - clearing session context");
-        await storage.clearPendingConfirmation(sessionId);
-        await storage.clearPartialWorkflow(sessionId);
+        // Best-effort: Clear session context (don't block chat if DB fails)
+        try {
+          await storage.clearPendingConfirmation(sessionId);
+          await storage.clearPartialWorkflow(sessionId);
+        } catch (err) {
+          console.warn('⚠️ Failed to clear session context (non-critical):', err);
+        }
         resetConversation(sessionId); // Clear in-memory session cache
       }
 
@@ -1091,37 +1096,50 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const conversationHistory = await loadConversationHistory(conversationId);
       console.log(`📚 Loaded ${conversationHistory.length} messages from conversation history`);
 
-      // 3) Get user context for personalization
-      const currentUser = await storage.getUserById(user.id);
+      // 3) Get user context for personalization (best-effort, don't block chat)
       let userSessionContext: SessionContext | undefined = undefined;
-      
-      if (currentUser) {
-        // Explicitly map database user fields to avoid type casting issues
-        userSessionContext = buildSessionContext({
-          companyName: currentUser.companyName ?? null,
-          companyDomain: currentUser.companyDomain ?? null,
-          roleHint: currentUser.roleHint ?? null,
-          primaryObjective: currentUser.primaryObjective ?? null,
-          secondaryObjectives: currentUser.secondaryObjectives ?? null,
-          targetMarkets: currentUser.targetMarkets ?? null,
-          productsOrServices: currentUser.productsOrServices ?? null,
-          preferences: currentUser.preferences ?? null,
-          inferredIndustry: currentUser.inferredIndustry ?? null,
-          confidence: currentUser.confidence ?? null,
-        } as any);
-        
-        console.log(`🎯 User context loaded: company=${userSessionContext.companyName || 'N/A'}, industry=${userSessionContext.inferredIndustry || 'N/A'}`);
-      } else {
-        console.log(`⚠️ User ${user.id} not found in database, using default prompt`);
+      try {
+        const currentUser = await storage.getUserById(user.id);
+        if (currentUser) {
+          // Explicitly map database user fields to avoid type casting issues
+          userSessionContext = buildSessionContext({
+            companyName: currentUser.companyName ?? null,
+            companyDomain: currentUser.companyDomain ?? null,
+            roleHint: currentUser.roleHint ?? null,
+            primaryObjective: currentUser.primaryObjective ?? null,
+            secondaryObjectives: currentUser.secondaryObjectives ?? null,
+            targetMarkets: currentUser.targetMarkets ?? null,
+            productsOrServices: currentUser.productsOrServices ?? null,
+            preferences: currentUser.preferences ?? null,
+            inferredIndustry: currentUser.inferredIndustry ?? null,
+            confidence: currentUser.confidence ?? null,
+          } as any);
+          
+          console.log(`🎯 User context loaded: company=${userSessionContext.companyName || 'N/A'}, industry=${userSessionContext.inferredIndustry || 'N/A'}`);
+        } else {
+          console.log(`⚠️ User ${user.id} not found in database, using default prompt`);
+        }
+      } catch (err) {
+        console.warn('⚠️ Failed to load user context (chat will proceed with default prompt):', err);
       }
 
       // 4) Build context with facts (personalized system prompt if context available)
-      const memoryMessages = await buildContextWithFacts(user.id, conversationHistory, 20, userSessionContext);
-      console.log(`🧠 Built context with facts for user ${user.id}`);
+      // Best-effort: If facts lookup fails, proceed with basic history
+      let memoryMessages = conversationHistory;
+      try {
+        memoryMessages = await buildContextWithFacts(user.id, conversationHistory, 20, userSessionContext);
+        console.log(`🧠 Built context with facts for user ${user.id}`);
+      } catch (err) {
+        console.warn('⚠️ Failed to build context with facts (using basic history):', err);
+      }
       
       // Also keep in-memory conversation for backwards compatibility with existing features
       appendMessage(sessionId, { role: "user", content: latestUserText });
-      await maybeSummarize(sessionId, openai);
+      try {
+        await maybeSummarize(sessionId, openai);
+      } catch (err) {
+        console.warn('⚠️ Failed to summarize conversation (non-critical):', err);
+      }
 
       // Stream from OpenAI using Responses API with GPT-5
       let aiBuffer = "";
@@ -1134,14 +1152,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const isCommand = /^(status|pause|stop|resume|cancel)\s+job/i.test(latestUserText) || 
                         /^\//.test(latestUserText) ||
                         /^(help|hi|hello)$/i.test(latestUserText.trim());
-      const isAwaitingGoal = await storage.isAwaitingGoal(sessionId);
-      const hasGoal = await storage.hasUserGoal(sessionId);
+      
+      // Best-effort: Goal state lookup (default to not awaiting if DB fails)
+      let isAwaitingGoal = false;
+      let hasGoal = false;
+      try {
+        isAwaitingGoal = await storage.isAwaitingGoal(sessionId);
+        hasGoal = await storage.hasUserGoal(sessionId);
+      } catch (err) {
+        console.warn('⚠️ Failed to check goal state (proceeding without goal capture):', err);
+      }
 
       if (isAwaitingGoal && !isCommand) {
         // User is providing their goal - capture it
         console.log("🎯 Capturing user goal:", latestUserText.substring(0, 100));
-        await storage.setUserGoal(sessionId, latestUserText);
-        await storage.setAwaitingGoal(sessionId, false);
+        // Best-effort: Save goal to DB (don't block chat if it fails)
+        try {
+          await storage.setUserGoal(sessionId, latestUserText);
+          await storage.setAwaitingGoal(sessionId, false);
+        } catch (err) {
+          console.warn('⚠️ Failed to save user goal (non-critical):', err);
+        }
         
         const confirmationMsg = `Got it! I'll use "${latestUserText}" as your goal for this session. How can I help you achieve it?`;
         appendMessage(sessionId, { role: "assistant", content: confirmationMsg });
