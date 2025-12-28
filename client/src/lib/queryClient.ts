@@ -57,16 +57,28 @@ export function buildApiUrl(path: string): string {
   return path;
 }
 
+// Structured API error from backend
+interface ApiErrorResponse {
+  code?: string;
+  message?: string;
+  error?: string;
+  hint?: string;
+}
+
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
     let errorMessage = res.statusText;
+    let hint: string | undefined;
+    
     try {
       const text = await res.text();
       if (text) {
         // Try to parse JSON error response
         try {
-          const json = JSON.parse(text);
-          errorMessage = json.error || json.message || text;
+          const json: ApiErrorResponse = JSON.parse(text);
+          // Use message or error field
+          errorMessage = json.message || json.error || text;
+          hint = json.hint;
         } catch {
           errorMessage = text;
         }
@@ -74,7 +86,10 @@ async function throwIfResNotOk(res: Response) {
     } catch {
       // Failed to read response body
     }
-    throw new Error(`${res.status}: ${errorMessage}`);
+    
+    // Include hint in error message if provided
+    const fullMessage = hint ? `${errorMessage} (Hint: ${hint})` : errorMessage;
+    throw new Error(`${res.status}: ${fullMessage}`);
   }
 }
 
@@ -96,7 +111,18 @@ async function throwIfResNotOk(res: Response) {
  *   toast({ title: "Failed to approve plan", description: message, variant: "destructive" });
  * }
  */
+/**
+ * Unified API error handler for user-facing actions.
+ * 
+ * Error Classification:
+ * - 401: Auth required (different messages for dev vs prod)
+ * - 500 with message: Shows server error message + hint if available
+ * - Network error (no response): CORS/connection blocked
+ * - Other: Shows raw message
+ */
 export function handleApiError(error: unknown, context: string): string {
+  const isDev = import.meta.env.MODE === 'development';
+  
   // Extract message from various error types
   let message: string;
   
@@ -117,27 +143,61 @@ export function handleApiError(error: unknown, context: string): string {
     const status = statusMatch[1];
     const serverMessage = statusMatch[2]?.trim();
     
+    // Handle specific status codes
+    if (status === '401') {
+      return isDev 
+        ? 'Unauthorized - demo auth may not be working. Check backend logs.'
+        : 'Please log in to continue.';
+    }
+    
+    if (status === '403') {
+      return "You don't have permission to perform this action.";
+    }
+    
+    // For 500 errors, show the server message if meaningful
+    if (status === '500') {
+      if (serverMessage && 
+          serverMessage !== 'Internal Server Error' && 
+          serverMessage !== 'OK' &&
+          !serverMessage.startsWith('Failed query:')) {
+        return serverMessage;
+      }
+      // For raw SQL errors in dev, make it clearer
+      if (isDev && serverMessage?.includes('Failed query:')) {
+        return 'Database error. Check server logs for details.';
+      }
+      return 'Server error. Please try again.';
+    }
+    
     // If server provided a meaningful message, use it
     if (serverMessage && serverMessage !== 'Internal Server Error' && serverMessage !== 'OK') {
       return serverMessage;
     }
     
     // Otherwise show HTTP status
-    return `HTTP ${status}`;
+    return `HTTP ${status} error`;
   }
   
   // Handle specific auth errors (without status prefix)
   if (message.includes("401") || message.toLowerCase().includes("unauthorized")) {
-    return "You are not authenticated. Please log in again.";
+    return isDev 
+      ? 'Unauthorized - demo auth may not be working. Check backend logs.'
+      : 'Please log in to continue.';
   }
   if (message.includes("403") || message.toLowerCase().includes("forbidden")) {
     return "You don't have permission to perform this action.";
   }
   
-  // Handle network errors (actual fetch failures, not CORS-blocked responses)
-  // Note: CORS rejections that return 500 will have a status code and be handled above
-  if (message.includes("Failed to fetch") || message.includes("NetworkError") || message.includes("net::")) {
-    return "Network error. Please check your connection.";
+  // TRUE network/CORS errors - these happen when fetch() itself fails
+  // (browser blocked the request, no internet, server not reachable)
+  if (message.includes("Failed to fetch") || 
+      message.includes("NetworkError") || 
+      message.includes("net::") ||
+      message.includes("Load failed")) {
+    // This is genuinely a network issue - could be CORS, could be offline
+    return isDev
+      ? 'Network error: Server may be down, or CORS is blocking. Is backend running on port 5001?'
+      : 'Network error. Please check your connection.';
   }
   
   return message;

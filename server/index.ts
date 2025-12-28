@@ -11,6 +11,7 @@ import express, { type Request, Response, NextFunction } from "express";
 import cors from "cors";
 import { registerRoutes } from "./routes";
 import { nangoRouter } from "./routes/nango";
+import { logDemoConfig } from "./demo-config";
 
 // Simple log function (no Vite dependency for production)
 function log(message: string, source = "express") {
@@ -172,6 +173,9 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // Log demo mode configuration
+  logDemoConfig();
+  
   const server = await registerRoutes(app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {

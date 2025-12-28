@@ -15,6 +15,8 @@ import {
   getOrCreateRunId,
   resetRunId,
 } from "./memory";
+import { getDemoConfig, isDemoMode, DEMO_USER_ID, DEMO_USER_EMAIL, logDemoConfig } from "./demo-config";
+import { analyzeDatabaseError, createAuthError, createApiError, type ApiError } from "./error-helpers";
 import {
   chatRequestSchema,
   addNoteRequestSchema,
@@ -113,26 +115,22 @@ function getSessionId(req: import("express").Request) {
   return (req.headers["x-session-id"] as string) || req.ip || "anon";
 }
 
-// Demo user constants for dev/demo mode
-const DEMO_USER_ID = 'demo-user';
-const DEMO_USER_EMAIL = 'demo@wyshbone.com';
-
 // SECURITY: Centralized authentication for all API routes
 // 
 // Authentication Priority:
 // 1. Session header (x-session-id) - production auth
-// 2. URL params (user_id + user_email) - dev mode only
-// 3. Demo-user fallback - dev mode only, provides default identity
+// 2. URL params (user_id + user_email) - demo/dev mode only
+// 3. Demo-user fallback - demo/dev mode only, provides default identity
 //
-// In development mode (NODE_ENV=development):
+// In demo mode (DEMO_MODE=true or NODE_ENV=development):
 // - All requests get a valid user identity
 // - No per-route bypasses needed
 // - Production auth is NOT weakened (session validation still works)
 //
 async function getAuthenticatedUserId(req: import("express").Request): Promise<{ userId: string; userEmail: string } | null> {
-  const isDev = process.env.NODE_ENV === 'development';
+  const demoConfig = getDemoConfig();
   
-  // 1. Try session-based auth first (works in both dev and prod)
+  // 1. Try session-based auth first (works in all modes)
   const sessionId = req.headers["x-session-id"] as string | undefined;
   if (sessionId) {
     try {
@@ -150,27 +148,27 @@ async function getAuthenticatedUserId(req: import("express").Request): Promise<{
     }
   }
   
-  // 2. DEV MODE: Allow URL parameters for testing
-  if (isDev) {
+  // 2. DEMO MODE: Allow URL parameters for testing
+  if (demoConfig.enabled) {
     const urlUserId = (req.params.userId || req.query.userId || req.query.user_id) as string | undefined;
     const urlUserEmail = req.query.user_email as string | undefined;
     
     if (urlUserId && urlUserEmail) {
-      console.log(`✅ DEV MODE: URL auth for ${urlUserEmail}`);
+      console.log(`✅ DEMO MODE: URL auth for ${urlUserEmail}`);
       return { userId: urlUserId, userEmail: urlUserEmail };
     }
     
     if (urlUserId) {
-      console.log(`✅ DEV MODE: URL userId ${urlUserId}`);
+      console.log(`✅ DEMO MODE: URL userId ${urlUserId}`);
       return { userId: urlUserId, userEmail: `${urlUserId}@dev.local` };
     }
   }
   
-  // 3. DEV MODE FALLBACK: Provide demo-user identity when no other auth
-  // This ensures all API routes work in dev/demo without per-route bypasses
-  if (isDev) {
-    console.log(`✅ DEV MODE: Fallback to demo-user`);
-    return { userId: DEMO_USER_ID, userEmail: DEMO_USER_EMAIL };
+  // 3. DEMO MODE FALLBACK: Provide demo-user identity when no other auth
+  // This ensures all API routes work in demo mode without per-route bypasses
+  if (demoConfig.enabled) {
+    console.log(`✅ DEMO MODE: Fallback to ${demoConfig.user.email}`);
+    return { userId: demoConfig.user.id, userEmail: demoConfig.user.email };
   }
   
   // Production: No valid auth found
@@ -6142,7 +6140,15 @@ Return structured data with the EXACT placeId provided above: "${placeId}"`;
       res.json({ runs: runs.map(stripLargeOutput) });
     } catch (error: any) {
       console.error("Deep research list error:", error);
-      res.status(500).json({ error: error.message || "Failed to list research runs" });
+      
+      // In demo mode, return empty runs if database is unavailable
+      if (isDemoMode() && (error.cause?.code === 'ENOTFOUND' || error.message?.includes('ENOTFOUND'))) {
+        console.warn('[DeepResearch] Database unavailable in demo mode, returning empty runs');
+        return res.json({ runs: [] });
+      }
+      
+      const apiError = analyzeDatabaseError(error, 'list deep research');
+      res.status(500).json(apiError);
     }
   });
 
