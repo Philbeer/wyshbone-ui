@@ -26,10 +26,16 @@ function log(message: string, source = "express") {
 const app = express();
 
 // CORS configuration for cross-origin requests (Vercel frontend → Render backend)
+// Vite may use ports 5173-5179 depending on availability
 const allowedOrigins = [
   'http://localhost:3000',
   'http://localhost:5173',
+  'http://localhost:5174',
+  'http://localhost:5175',
+  'http://localhost:5176',
   'http://localhost:5177',
+  'http://localhost:5178',
+  'http://localhost:5179',
   'http://localhost:5000',
   'http://localhost:5001',
   process.env.FRONTEND_URL, // e.g., https://wyshbone.vercel.app
