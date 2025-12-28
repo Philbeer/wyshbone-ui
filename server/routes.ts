@@ -117,84 +117,65 @@ function getSessionId(req: import("express").Request) {
 const DEMO_USER_ID = 'demo-user';
 const DEMO_USER_EMAIL = 'demo@wyshbone.com';
 
-// Check if request is for demo-user (centralized detection)
-function isDemoUserRequest(req: import("express").Request): boolean {
-  // Check URL path params (e.g., /api/conversations/:userId)
-  if (req.params.userId === DEMO_USER_ID || req.params.id === DEMO_USER_ID) {
-    return true;
-  }
-  // Check query params
-  if (req.query.userId === DEMO_USER_ID || req.query.user_id === DEMO_USER_ID) {
-    return true;
-  }
-  return false;
-}
-
-// SECURITY: Authentication middleware to validate session and extract userId
+// SECURITY: Centralized authentication for all API routes
 // 
-// Dev/Demo Mode Handling (centralized):
-// - In development mode (NODE_ENV=development), demo-user requests are auto-authenticated
-// - This allows the UI to work without requiring real auth in dev/demo scenarios
-// - Production mode always requires valid session authentication
+// Authentication Priority:
+// 1. Session header (x-session-id) - production auth
+// 2. URL params (user_id + user_email) - dev mode only
+// 3. Demo-user fallback - dev mode only, provides default identity
+//
+// In development mode (NODE_ENV=development):
+// - All requests get a valid user identity
+// - No per-route bypasses needed
+// - Production auth is NOT weakened (session validation still works)
 //
 async function getAuthenticatedUserId(req: import("express").Request): Promise<{ userId: string; userEmail: string } | null> {
   const isDev = process.env.NODE_ENV === 'development';
   
-  // Development fallback: allow URL parameters for testing ONLY
-  const urlUserId = (req.params.userId || req.query.userId || req.query.user_id) as string | undefined;
-  const urlUserEmail = req.query.user_email as string | undefined;
+  // 1. Try session-based auth first (works in both dev and prod)
+  const sessionId = req.headers["x-session-id"] as string | undefined;
+  if (sessionId) {
+    try {
+      const session = await storage.getSession(sessionId);
+      if (session) {
+        console.log(`✅ Session valid for user: ${session.userEmail}`);
+        return {
+          userId: session.userId,
+          userEmail: session.userEmail
+        };
+      }
+      console.log(`❌ Session not found: ${sessionId}`);
+    } catch (error) {
+      console.error("Session validation error:", error);
+    }
+  }
   
-  // Debug logging (reduced verbosity)
-  console.log('🔍 Auth check:', {
-    env: process.env.NODE_ENV,
-    urlUserId: urlUserId || '(none)',
-    hasSessionHeader: !!req.headers["x-session-id"],
-    isDemoRequest: isDemoUserRequest(req)
-  });
+  // 2. DEV MODE: Allow URL parameters for testing
+  if (isDev) {
+    const urlUserId = (req.params.userId || req.query.userId || req.query.user_id) as string | undefined;
+    const urlUserEmail = req.query.user_email as string | undefined;
+    
+    if (urlUserId && urlUserEmail) {
+      console.log(`✅ DEV MODE: URL auth for ${urlUserEmail}`);
+      return { userId: urlUserId, userEmail: urlUserEmail };
+    }
+    
+    if (urlUserId) {
+      console.log(`✅ DEV MODE: URL userId ${urlUserId}`);
+      return { userId: urlUserId, userEmail: `${urlUserId}@dev.local` };
+    }
+  }
   
-  // DEV MODE: Recognize demo-user requests automatically (centralized demo auth)
-  // This avoids per-route hacks while keeping production auth secure
-  if (isDev && isDemoUserRequest(req)) {
-    console.log(`✅ DEV MODE: Auto-authenticating demo-user request`);
+  // 3. DEV MODE FALLBACK: Provide demo-user identity when no other auth
+  // This ensures all API routes work in dev/demo without per-route bypasses
+  if (isDev) {
+    console.log(`✅ DEV MODE: Fallback to demo-user`);
     return { userId: DEMO_USER_ID, userEmail: DEMO_USER_EMAIL };
   }
   
-  // DEV MODE: Allow URL params with both userId and email
-  if (isDev && urlUserId && urlUserEmail) {
-    console.warn(`⚠️ DEV MODE: Using URL auth for ${urlUserEmail} - DISABLE IN PRODUCTION`);
-    return { userId: urlUserId, userEmail: urlUserEmail };
-  }
-  
-  // Production path: validate session
-  const sessionId = req.headers["x-session-id"] as string | undefined;
-  if (!sessionId) {
-    // In dev mode without demo-user, still allow if we have at least a userId
-    if (isDev && urlUserId) {
-      console.warn(`⚠️ DEV MODE: Using URL userId without email: ${urlUserId}`);
-      return { userId: urlUserId, userEmail: `${urlUserId}@dev.local` };
-    }
-    console.log('❌ No session ID and no valid dev auth params');
-    return null;
-  }
-  
-  try {
-    // Validate session and get user info
-    console.log(`🔍 Validating session: ${sessionId}`);
-    const session = await storage.getSession(sessionId);
-    if (!session) {
-      console.log(`❌ Session not found in database: ${sessionId}`);
-      return null;
-    }
-    
-    console.log(`✅ Session valid for user: ${session.userEmail}`);
-    return {
-      userId: session.userId,
-      userEmail: session.userEmail
-    };
-  } catch (error) {
-    console.error("Session validation error:", error);
-    return null;
-  }
+  // Production: No valid auth found
+  console.log('❌ No valid authentication');
+  return null;
 }
 
 // Helper to validate export key for Tower testing
@@ -3759,15 +3740,7 @@ CRITICAL RULES:
     console.log(`📥 [PLAN] GET /api/plan-status received`);
     
     try {
-      // SECURITY: Validate authenticated user (with dev-only bypass)
-      let auth = await getAuthenticatedUserId(req);
-      
-      // DEV ONLY: Allow bypass for plan status loading
-      if (!auth && process.env.NODE_ENV === 'development') {
-        console.warn(`⚠️ DEV MODE: Bypassing auth for GET /api/plan-status`);
-        auth = { userId: 'dev-user', userEmail: 'dev-bypass@localhost' };
-      }
-      
+      const auth = await getAuthenticatedUserId(req);
       if (!auth) {
         console.log(`❌ [PLAN] Unauthorized request`);
         return res.status(401).json({ error: "Unauthorized" });
@@ -3898,15 +3871,7 @@ CRITICAL RULES:
     console.log(`📥 [GOAL] GET /api/goal received`);
     
     try {
-      // SECURITY: Validate authenticated user (with dev-only bypass)
-      let auth = await getAuthenticatedUserId(req);
-      
-      // DEV ONLY: Allow bypass for goal fetching
-      if (!auth && process.env.NODE_ENV === 'development') {
-        console.warn(`⚠️ DEV MODE: Bypassing auth for GET /api/goal`);
-        auth = { userId: 'dev-user', userEmail: 'dev-bypass@localhost' };
-      }
-      
+      const auth = await getAuthenticatedUserId(req);
       if (!auth) {
         console.log(`❌ [GOAL] Unauthorized request`);
         return res.status(401).json({ error: "Unauthorized" });
@@ -3931,15 +3896,7 @@ CRITICAL RULES:
     console.log(`📥 [GOAL] PUT /api/goal received`);
     
     try {
-      // SECURITY: Validate authenticated user (with dev-only bypass)
-      let auth = await getAuthenticatedUserId(req);
-      
-      // DEV ONLY: Allow bypass for goal saving
-      if (!auth && process.env.NODE_ENV === 'development') {
-        console.warn(`⚠️ DEV MODE: Bypassing auth for PUT /api/goal`);
-        auth = { userId: 'dev-user', userEmail: 'dev-bypass@localhost' };
-      }
-      
+      const auth = await getAuthenticatedUserId(req);
       if (!auth) {
         console.log(`❌ [GOAL] Unauthorized request`);
         return res.status(401).json({ error: "Unauthorized" });
@@ -3980,15 +3937,7 @@ CRITICAL RULES:
     console.log(`📥 [GOAL] POST /api/goal received`);
     
     try {
-      // SECURITY: Validate authenticated user (with dev-only bypass)
-      let auth = await getAuthenticatedUserId(req);
-      
-      // DEV ONLY: Allow bypass for goal saving
-      if (!auth && process.env.NODE_ENV === 'development') {
-        console.warn(`⚠️ DEV MODE: Bypassing auth for POST /api/goal`);
-        auth = { userId: 'dev-user', userEmail: 'dev-bypass@localhost' };
-      }
-      
+      const auth = await getAuthenticatedUserId(req);
       if (!auth) {
         console.log(`❌ [GOAL] Unauthorized request`);
         return res.status(401).json({ error: "Unauthorized" });
@@ -4099,15 +4048,7 @@ CRITICAL RULES:
     console.log(`📥 [PLAN] GET /api/plan received`);
     
     try {
-      // SECURITY: Validate authenticated user (with dev-only bypass)
-      let auth = await getAuthenticatedUserId(req);
-      
-      // DEV ONLY: Allow bypass for plan loading
-      if (!auth && process.env.NODE_ENV === 'development') {
-        console.warn(`⚠️ DEV MODE: Bypassing auth for GET /api/plan`);
-        auth = { userId: 'dev-user', userEmail: 'dev-bypass@localhost' };
-      }
-      
+      const auth = await getAuthenticatedUserId(req);
       if (!auth) {
         console.log(`❌ [PLAN] Unauthorized request`);
         return res.status(401).json({ error: "Unauthorized" });
@@ -4146,15 +4087,7 @@ CRITICAL RULES:
         return res.status(400).json({ error: "Plan ID is required", ok: false });
       }
       
-      // SECURITY: Validate authenticated user (with dev-only bypass)
-      let auth = await getAuthenticatedUserId(req);
-      
-      // DEV ONLY: Allow bypass for plan approval
-      if (!auth && process.env.NODE_ENV === 'development') {
-        console.warn(`⚠️ DEV MODE: Bypassing auth for POST /api/plan/approve`);
-        auth = { userId: 'dev-user', userEmail: 'dev-bypass@localhost' };
-      }
-      
+      const auth = await getAuthenticatedUserId(req);
       if (!auth) {
         console.log(`❌ [APPROVE_API] Unauthorized request`);
         return res.status(401).json({ error: "Unauthorized", ok: false });
