@@ -1,14 +1,26 @@
 import { storage } from './storage';
 import { executeMonitorAndNotify } from './monitor-executor';
+import { withTimeout, shouldSkipDbOperation, recordDbFailure, recordDbSuccess } from './db-utils';
 
 const POLL_INTERVAL = 15 * 1000; // Check every 15 seconds
+const DB_TIMEOUT_MS = 3000; // 3 second timeout for DB operations
 
 async function checkAndExecuteMonitors() {
+  // Skip if in backoff mode due to recent DB failures
+  if (shouldSkipDbOperation()) {
+    return; // Silently skip - backoff message already logged
+  }
+
   try {
     const now = Date.now();
     
-    // Get all active monitors across all users
-    const monitors = await storage.listActiveScheduledMonitors();
+    // Get all active monitors across all users (with timeout)
+    const monitors = await withTimeout(
+      storage.listActiveScheduledMonitors(),
+      DB_TIMEOUT_MS,
+      'listActiveScheduledMonitors'
+    );
+    recordDbSuccess(); // DB is working
     
     console.log(`🔍 Checking ${monitors.length} monitors at ${new Date(now).toLocaleTimeString('en-GB')}`);
     
@@ -58,8 +70,14 @@ async function checkAndExecuteMonitors() {
         }
       }
     }
-  } catch (error) {
-    console.error('❌ Error in monitor worker:', error);
+  } catch (error: any) {
+    recordDbFailure();
+    // Only log once per backoff period, not every poll
+    if (error.message?.includes('timed out')) {
+      console.warn('⚠️ Monitor worker: DB timed out, entering backoff');
+    } else {
+      console.error('❌ Monitor worker error:', error.message);
+    }
   }
 }
 

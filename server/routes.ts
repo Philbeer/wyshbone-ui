@@ -17,6 +17,7 @@ import {
 } from "./memory";
 import { getDemoConfig, isDemoMode, DEMO_USER_ID, DEMO_USER_EMAIL, logDemoConfig } from "./demo-config";
 import { analyzeDatabaseError, createAuthError, createApiError, type ApiError } from "./error-helpers";
+import { withTimeout } from "./db-utils";
 import {
   chatRequestSchema,
   addNoteRequestSchema,
@@ -1856,6 +1857,7 @@ ${run.outputText}`;
       // INTENT CLASSIFICATION
       // Determine if user wants deep research, bubble workflow, or if unclear
       // ===========================
+      console.log(`⏱️ [CHAT] starting intent classification at ${Date.now() - runStartTime}ms`);
       const intentClassificationPrompt = [
         {
           role: "system" as const,
@@ -1897,9 +1899,9 @@ Examples:
         });
 
         userIntent = JSON.parse(intentResp.choices[0]?.message?.content || "{}");
-        console.log("🎯 Intent classification:", userIntent);
+        console.log(`⏱️ [CHAT] intent classified at ${Date.now() - runStartTime}ms:`, userIntent.intent);
       } catch (err: any) {
-        console.error("❌ Intent classification error:", err.message);
+        console.error(`⏱️ [CHAT] intent classification failed at ${Date.now() - runStartTime}ms:`, err.message);
         // Continue with normal flow if classification fails
       }
 
@@ -2194,8 +2196,20 @@ CRITICAL RULES:
       
       // Fetch existing ACTIVE monitors and inject as LATEST system message (after conversation history)
       // This ensures the AI sees current state, not historical conversation
-      const existingMonitors = await storage.listScheduledMonitors(user.id);
-      const activeMonitors = existingMonitors.filter(m => m.isActive === 1);
+      // Best-effort with 1.5s timeout: Don't block chat if DB fails or is slow
+      const monitorsStartTime = Date.now();
+      let existingMonitors: any[] = [];
+      try {
+        existingMonitors = await withTimeout(
+          storage.listScheduledMonitors(user.id),
+          1500,
+          'listScheduledMonitors'
+        );
+        console.log(`⏱️ [CHAT] monitors loaded in ${Date.now() - monitorsStartTime}ms (${existingMonitors.length} found)`);
+      } catch (err: any) {
+        console.warn(`⚠️ [CHAT] monitors skipped after ${Date.now() - monitorsStartTime}ms:`, err.message);
+      }
+      const activeMonitors = (existingMonitors ?? []).filter(m => m.isActive === 1);
       
       let monitorStateMessage = '';
       if (activeMonitors.length > 0) {
@@ -2468,7 +2482,7 @@ CRITICAL RULES:
       }
       // type === 'skip': Continue normally (not a lead request)
 
-      console.log(`🌐 Calling Chat Completions API with function calling and GPT-5...`);
+      console.log(`⏱️ [CHAT] starting OpenAI stream at ${Date.now() - runStartTime}ms`);
       
       try {
         // Call OpenAI Chat Completions API with streaming - GPT-5 for current knowledge (Aug 2025 cutoff)
@@ -2478,6 +2492,7 @@ CRITICAL RULES:
           tools,
           stream: true,
         });
+        console.log(`⏱️ [CHAT] OpenAI stream connected at ${Date.now() - runStartTime}ms`);
 
         console.log("✅ Chat Completions API stream started");
         
@@ -3453,10 +3468,11 @@ CRITICAL RULES:
       );
 
       // End stream
+      console.log(`⏱️ [CHAT] stream finished at ${Date.now() - runStartTime}ms`);
       res.write(`data: [DONE]\n\n`);
       res.end();
     } catch (error: any) {
-      console.error("Chat error:", error);
+      console.error(`⏱️ [CHAT] ERROR at ${Date.now() - runStartTime}ms:`, error.message);
       
       // 🏢 TOWER: Log error completion
       try {

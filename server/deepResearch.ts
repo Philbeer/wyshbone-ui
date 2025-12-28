@@ -2,11 +2,13 @@ import type { DeepResearchRun, DeepResearchCreateRequest, DeepResearchRunSummary
 import { storage } from "./storage";
 import { appendMessage, loadConversationHistory } from "./memory";
 import { openai } from "./openai";
+import { withTimeout, shouldSkipDbOperation, recordDbFailure, recordDbSuccess } from "./db-utils";
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
 const OPENAI_BASE = "https://api.openai.com/v1";
 const OPENAI_MODEL = "gpt-4o";
 const POLL_INTERVAL_MS = 3000; // Poll every 3 seconds for faster status updates
+const DB_TIMEOUT_MS = 3000; // 3 second timeout for DB operations in polling
 
 // ===========================
 // Depth Guidelines based on Intensity
@@ -914,8 +916,19 @@ export function getAllPrograms(): VeryDeepProgram[] {
 }
 
 async function pollAllPendingRuns(): Promise<void> {
+  // Skip if in backoff mode due to recent DB failures
+  if (shouldSkipDbOperation()) {
+    return; // Silently skip - backoff message already logged
+  }
+
   try {
-    const pending = await storage.listPendingDeepResearchRuns();
+    const pending = await withTimeout(
+      storage.listPendingDeepResearchRuns(),
+      DB_TIMEOUT_MS,
+      'listPendingDeepResearchRuns'
+    );
+    recordDbSuccess(); // DB is working
+    
     for (const r of pending) {
       if (r.status === "stopped") continue;
       await pollOneRun(r as DeepResearchRun);
@@ -927,9 +940,14 @@ async function pollAllPendingRuns(): Promise<void> {
         await advanceProgram(program);
       }
     }
-  } catch (error) {
-    // Log but don't crash - database might be temporarily unavailable
-    console.error('❌ Error in deep research polling:', error instanceof Error ? error.message : error);
+  } catch (error: any) {
+    recordDbFailure();
+    // Only log once per backoff period, not every poll
+    if (error.message?.includes('timed out')) {
+      console.warn('⚠️ Deep research polling: DB timed out, entering backoff');
+    } else {
+      console.error('❌ Deep research polling error:', error.message);
+    }
   }
 }
 
