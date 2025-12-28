@@ -576,11 +576,21 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                   )
                 );
               }
+              
+              // Handle error from server - must re-throw to outer catch
               if (parsed.error) {
-                throw new Error(parsed.error);
+                console.error('❌ Server error received:', parsed.error);
+                // Re-throw with a special marker so outer catch can handle it
+                const serverError = new Error(parsed.error);
+                (serverError as any).isServerError = true;
+                throw serverError;
               }
-            } catch (e) {
-              // Skip invalid JSON lines
+            } catch (e: any) {
+              // If this is a server error, propagate it to the outer catch
+              if (e.isServerError) {
+                throw e;
+              }
+              // Skip invalid JSON lines (not an error from server)
               if (data !== '[DONE]') {
                 console.warn('Failed to parse SSE data:', data);
               }
@@ -690,19 +700,37 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
       
       setIsStreaming(false);
     } catch (error: any) {
+      console.error('❌ Chat stream error:', error);
       setIsStreaming(false);
       
       // Remove the empty assistant message
       setMessages((prev) => prev.filter((msg) => msg.id !== assistantMessageId));
       
-      // Add error message
+      // Create user-friendly error message
+      let userMessage = error.message || 'Unknown error';
+      
+      // Simplify verbose database errors
+      if (userMessage.includes('Failed query:')) {
+        userMessage = 'Database connection failed. Please try again.';
+      } else if (userMessage.includes('getaddrinfo ENOTFOUND')) {
+        userMessage = 'Cannot connect to server. Please check your connection.';
+      }
+      
+      // Add error message to chat
       const errorMessage: SystemMessage = {
         id: crypto.randomUUID(),
         type: "system",
-        content: `Failed to get response: ${error.message}`,
+        content: `❌ ${userMessage}`,
         timestamp: new Date(),
       };
       setMessages((prev) => [...prev, errorMessage]);
+      
+      // Also show toast for visibility
+      toast({
+        title: "Error",
+        description: userMessage,
+        variant: "destructive",
+      });
     }
   };
 

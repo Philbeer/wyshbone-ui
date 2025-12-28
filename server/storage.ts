@@ -886,22 +886,176 @@ export class DbStorage implements IStorage {
   }
 
   async createConversation(conversation: InsertConversation): Promise<SelectConversation> {
-    const [newConv] = await db.insert(conversations).values(conversation).returning();
-    return newConv;
+    try {
+      const [newConv] = await db.insert(conversations).values(conversation).returning();
+      return newConv;
+    } catch (error: any) {
+      // Fallback to REST API on DNS failure
+      if (error.cause?.code === 'ENOTFOUND' || error.message?.includes('getaddrinfo ENOTFOUND')) {
+        console.warn("[Conversation] Database DNS failed, using REST API fallback...");
+        return await this.createConversationViaRest(conversation);
+      }
+      throw error;
+    }
+  }
+
+  private async createConversationViaRest(conversation: InsertConversation): Promise<SelectConversation> {
+    const SUPABASE_URL = process.env.SUPABASE_URL;
+    const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+      throw new Error('Supabase credentials not configured for REST API fallback');
+    }
+
+    // created_at is stored as bigint (Unix timestamp in milliseconds)
+    const createdAtMs = typeof conversation.createdAt === 'number' 
+      ? conversation.createdAt 
+      : Date.now();
+
+    const response = await fetch(`${SUPABASE_URL}/rest/v1/conversations`, {
+      method: 'POST',
+      headers: {
+        'apikey': SUPABASE_SERVICE_ROLE_KEY,
+        'Authorization': `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+        'Content-Type': 'application/json',
+        'Prefer': 'return=representation',
+      },
+      body: JSON.stringify({
+        id: conversation.id,
+        user_id: conversation.userId,
+        label: conversation.label,
+        type: conversation.type || 'chat',
+        monitor_id: conversation.monitorId,
+        run_sequence: conversation.runSequence,
+        created_at: createdAtMs,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorBody = await response.json().catch(() => ({}));
+      throw new Error(`Failed to create conversation via REST API: ${errorBody.message || response.statusText}`);
+    }
+
+    const [created] = await response.json();
+    console.log(`[Conversation] REST API create succeeded: ${created.id}`);
+    return {
+      ...created,
+      userId: created.user_id,
+      monitorId: created.monitor_id,
+      runSequence: created.run_sequence,
+      createdAt: typeof created.created_at === 'number' ? created.created_at : Date.now(),
+    };
   }
 
   async getConversation(id: string): Promise<SelectConversation | null> {
-    const [conv] = await db.select().from(conversations).where(eq(conversations.id, id));
-    return conv || null;
+    try {
+      const [conv] = await db.select().from(conversations).where(eq(conversations.id, id));
+      return conv || null;
+    } catch (error: any) {
+      // Fallback to REST API on DNS failure
+      if (error.cause?.code === 'ENOTFOUND' || error.message?.includes('getaddrinfo ENOTFOUND')) {
+        console.warn("[Conversation] Database DNS failed, using REST API fallback...");
+        return await this.getConversationViaRest(id);
+      }
+      throw error;
+    }
+  }
+
+  private async getConversationViaRest(id: string): Promise<SelectConversation | null> {
+    const SUPABASE_URL = process.env.SUPABASE_URL;
+    const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+      throw new Error('Supabase credentials not configured for REST API fallback');
+    }
+
+    const response = await fetch(`${SUPABASE_URL}/rest/v1/conversations?id=eq.${encodeURIComponent(id)}&select=*`, {
+      method: 'GET',
+      headers: {
+        'apikey': SUPABASE_SERVICE_ROLE_KEY,
+        'Authorization': `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to get conversation via REST API: ${response.statusText}`);
+    }
+
+    const rows = await response.json();
+    if (rows.length === 0) return null;
+    
+    const conv = rows[0];
+    return {
+      ...conv,
+      userId: conv.user_id,
+      monitorId: conv.monitor_id,
+      runSequence: conv.run_sequence,
+      createdAt: typeof conv.created_at === 'number' ? conv.created_at : Date.now(),
+    };
   }
 
   async updateConversation(id: string, updates: Partial<InsertConversation>): Promise<SelectConversation | null> {
-    const [updated] = await db
-      .update(conversations)
-      .set(updates)
-      .where(eq(conversations.id, id))
-      .returning();
-    return updated || null;
+    try {
+      const [updated] = await db
+        .update(conversations)
+        .set(updates)
+        .where(eq(conversations.id, id))
+        .returning();
+      return updated || null;
+    } catch (error: any) {
+      // Fallback to REST API on DNS failure
+      if (error.cause?.code === 'ENOTFOUND' || error.message?.includes('getaddrinfo ENOTFOUND')) {
+        console.warn("[Conversation] Database DNS failed, using REST API fallback for update...");
+        return await this.updateConversationViaRest(id, updates);
+      }
+      throw error;
+    }
+  }
+
+  private async updateConversationViaRest(id: string, updates: Partial<InsertConversation>): Promise<SelectConversation | null> {
+    const SUPABASE_URL = process.env.SUPABASE_URL;
+    const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+      throw new Error('Supabase credentials not configured for REST API fallback');
+    }
+
+    // Map to snake_case for Supabase
+    const payload: Record<string, any> = {};
+    if (updates.label !== undefined) payload.label = updates.label;
+    if (updates.type !== undefined) payload.type = updates.type;
+    if (updates.userId !== undefined) payload.user_id = updates.userId;
+    if (updates.monitorId !== undefined) payload.monitor_id = updates.monitorId;
+    if (updates.runSequence !== undefined) payload.run_sequence = updates.runSequence;
+
+    const response = await fetch(`${SUPABASE_URL}/rest/v1/conversations?id=eq.${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: {
+        'apikey': SUPABASE_SERVICE_ROLE_KEY,
+        'Authorization': `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+        'Content-Type': 'application/json',
+        'Prefer': 'return=representation',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const errorBody = await response.json().catch(() => ({}));
+      throw new Error(`Failed to update conversation via REST API: ${errorBody.message || response.statusText}`);
+    }
+
+    const rows = await response.json();
+    if (rows.length === 0) return null;
+
+    const conv = rows[0];
+    console.log(`[Conversation] REST API update succeeded: ${conv.id}`);
+    return {
+      ...conv,
+      userId: conv.user_id,
+      monitorId: conv.monitor_id,
+      runSequence: conv.run_sequence,
+      createdAt: typeof conv.created_at === 'number' ? conv.created_at : Date.now(),
+    };
   }
 
   async listConversations(userId: string): Promise<SelectConversation[]> {
@@ -946,16 +1100,108 @@ export class DbStorage implements IStorage {
   }
 
   async createMessage(message: InsertMessage): Promise<SelectMessage> {
-    const [newMsg] = await db.insert(messages).values(message).returning();
-    return newMsg;
+    try {
+      const [newMsg] = await db.insert(messages).values(message).returning();
+      return newMsg;
+    } catch (error: any) {
+      // Fallback to REST API on DNS failure
+      if (error.cause?.code === 'ENOTFOUND' || error.message?.includes('getaddrinfo ENOTFOUND')) {
+        console.warn("[Message] Database DNS failed, using REST API fallback...");
+        return await this.createMessageViaRest(message);
+      }
+      throw error;
+    }
+  }
+
+  private async createMessageViaRest(message: InsertMessage): Promise<SelectMessage> {
+    const SUPABASE_URL = process.env.SUPABASE_URL;
+    const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+      throw new Error('Supabase credentials not configured for REST API fallback');
+    }
+
+    // created_at is stored as bigint (Unix timestamp in milliseconds)
+    const createdAtMs = typeof message.createdAt === 'number' 
+      ? message.createdAt 
+      : Date.now();
+
+    const response = await fetch(`${SUPABASE_URL}/rest/v1/messages`, {
+      method: 'POST',
+      headers: {
+        'apikey': SUPABASE_SERVICE_ROLE_KEY,
+        'Authorization': `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+        'Content-Type': 'application/json',
+        'Prefer': 'return=representation',
+      },
+      body: JSON.stringify({
+        id: message.id,
+        conversation_id: message.conversationId,
+        role: message.role,
+        content: message.content,
+        created_at: createdAtMs,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorBody = await response.json().catch(() => ({}));
+      throw new Error(`Failed to create message via REST API: ${errorBody.message || response.statusText}`);
+    }
+
+    const [created] = await response.json();
+    return {
+      ...created,
+      conversationId: created.conversation_id,
+      createdAt: typeof created.created_at === 'number' ? created.created_at : Date.now(),
+    };
   }
 
   async listMessages(conversationId: string): Promise<SelectMessage[]> {
-    return db
-      .select()
-      .from(messages)
-      .where(eq(messages.conversationId, conversationId))
-      .orderBy(asc(messages.createdAt));
+    try {
+      return await db
+        .select()
+        .from(messages)
+        .where(eq(messages.conversationId, conversationId))
+        .orderBy(asc(messages.createdAt));
+    } catch (error: any) {
+      // Fallback to REST API on DNS failure
+      if (error.cause?.code === 'ENOTFOUND' || error.message?.includes('getaddrinfo ENOTFOUND')) {
+        console.warn("[Message] Database DNS failed, using REST API fallback...");
+        return await this.listMessagesViaRest(conversationId);
+      }
+      throw error;
+    }
+  }
+
+  private async listMessagesViaRest(conversationId: string): Promise<SelectMessage[]> {
+    const SUPABASE_URL = process.env.SUPABASE_URL;
+    const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+      throw new Error('Supabase credentials not configured for REST API fallback');
+    }
+
+    const response = await fetch(
+      `${SUPABASE_URL}/rest/v1/messages?conversation_id=eq.${encodeURIComponent(conversationId)}&order=created_at.asc`, 
+      {
+        method: 'GET',
+        headers: {
+          'apikey': SUPABASE_SERVICE_ROLE_KEY,
+          'Authorization': `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+        },
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(`Failed to list messages via REST API: ${response.statusText}`);
+    }
+
+    const rows = await response.json();
+    return rows.map((msg: any) => ({
+      ...msg,
+      conversationId: msg.conversation_id,
+      createdAt: typeof msg.created_at === 'number' ? msg.created_at : Date.now(),
+    }));
   }
 
   async createFact(fact: InsertFact): Promise<SelectFact> {
