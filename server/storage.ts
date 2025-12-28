@@ -905,15 +905,24 @@ export class DbStorage implements IStorage {
   }
 
   async listConversations(userId: string): Promise<SelectConversation[]> {
-    // Exclude monitor_run conversations - those are accessed via monitors in sidebar
-    return db
-      .select()
-      .from(conversations)
-      .where(and(
-        eq(conversations.userId, userId),
-        eq(conversations.type, "chat")
-      ))
-      .orderBy(desc(conversations.createdAt));
+    try {
+      // Exclude monitor_run conversations - those are accessed via monitors in sidebar
+      return await db
+        .select()
+        .from(conversations)
+        .where(and(
+          eq(conversations.userId, userId),
+          eq(conversations.type, "chat")
+        ))
+        .orderBy(desc(conversations.createdAt));
+    } catch (error: any) {
+      // In dev mode with demo-user, return empty array on DNS failure
+      if (error.cause?.code === 'ENOTFOUND' && userId === 'demo-user') {
+        console.warn("[Conversations] Database DNS failed for demo-user, returning empty array");
+        return [];
+      }
+      throw error;
+    }
   }
 
   async listAllConversations(): Promise<SelectConversation[]> {

@@ -113,23 +113,54 @@ function getSessionId(req: import("express").Request) {
   return (req.headers["x-session-id"] as string) || req.ip || "anon";
 }
 
+// Demo user constants for dev/demo mode
+const DEMO_USER_ID = 'demo-user';
+const DEMO_USER_EMAIL = 'demo@wyshbone.com';
+
+// Check if request is for demo-user (centralized detection)
+function isDemoUserRequest(req: import("express").Request): boolean {
+  // Check URL path params (e.g., /api/conversations/:userId)
+  if (req.params.userId === DEMO_USER_ID || req.params.id === DEMO_USER_ID) {
+    return true;
+  }
+  // Check query params
+  if (req.query.userId === DEMO_USER_ID || req.query.user_id === DEMO_USER_ID) {
+    return true;
+  }
+  return false;
+}
+
 // SECURITY: Authentication middleware to validate session and extract userId
+// 
+// Dev/Demo Mode Handling (centralized):
+// - In development mode (NODE_ENV=development), demo-user requests are auto-authenticated
+// - This allows the UI to work without requiring real auth in dev/demo scenarios
+// - Production mode always requires valid session authentication
+//
 async function getAuthenticatedUserId(req: import("express").Request): Promise<{ userId: string; userEmail: string } | null> {
+  const isDev = process.env.NODE_ENV === 'development';
+  
   // Development fallback: allow URL parameters for testing ONLY
   const urlUserId = (req.params.userId || req.query.userId || req.query.user_id) as string | undefined;
   const urlUserEmail = req.query.user_email as string | undefined;
   
-  // Debug logging
+  // Debug logging (reduced verbosity)
   console.log('🔍 Auth check:', {
     env: process.env.NODE_ENV,
-    urlUserId,
-    urlUserEmail,
-    query: req.query,
-    hasSessionHeader: !!req.headers["x-session-id"]
+    urlUserId: urlUserId || '(none)',
+    hasSessionHeader: !!req.headers["x-session-id"],
+    isDemoRequest: isDemoUserRequest(req)
   });
   
-  // If development mode and URL params present, allow (but warn)
-  if (process.env.NODE_ENV === 'development' && urlUserId && urlUserEmail) {
+  // DEV MODE: Recognize demo-user requests automatically (centralized demo auth)
+  // This avoids per-route hacks while keeping production auth secure
+  if (isDev && isDemoUserRequest(req)) {
+    console.log(`✅ DEV MODE: Auto-authenticating demo-user request`);
+    return { userId: DEMO_USER_ID, userEmail: DEMO_USER_EMAIL };
+  }
+  
+  // DEV MODE: Allow URL params with both userId and email
+  if (isDev && urlUserId && urlUserEmail) {
     console.warn(`⚠️ DEV MODE: Using URL auth for ${urlUserEmail} - DISABLE IN PRODUCTION`);
     return { userId: urlUserId, userEmail: urlUserEmail };
   }
@@ -137,6 +168,11 @@ async function getAuthenticatedUserId(req: import("express").Request): Promise<{
   // Production path: validate session
   const sessionId = req.headers["x-session-id"] as string | undefined;
   if (!sessionId) {
+    // In dev mode without demo-user, still allow if we have at least a userId
+    if (isDev && urlUserId) {
+      console.warn(`⚠️ DEV MODE: Using URL userId without email: ${urlUserId}`);
+      return { userId: urlUserId, userEmail: `${urlUserId}@dev.local` };
+    }
     console.log('❌ No session ID and no valid dev auth params');
     return null;
   }
@@ -9272,21 +9308,16 @@ ${run.outputText}`;
   
   // GET /api/brewcrm/duty-lookup-bands - List active duty lookup bands
   // NOTE: Duty bands are public reference data (UK alcohol duty legislation).
-  // In development/demo mode, allow unauthenticated access to enable duty calculator.
-  // In production, authentication is required for audit/logging purposes.
+  // Auth is handled centrally via getAuthenticatedUserId (supports dev/demo mode).
   app.get("/api/brewcrm/duty-lookup-bands", async (req, res) => {
     try {
       const auth = await getAuthenticatedUserId(req);
-      const isDev = process.env.NODE_ENV === 'development';
-      
-      // In production, require auth. In development, allow unauthenticated access.
-      if (!auth && !isDev) {
+      if (!auth) {
         return res.status(401).json({ error: "Unauthorized" });
       }
       
       const regime = (req.query.regime as string) || 'UK';
-      const userInfo = auth?.userEmail || 'anonymous (dev mode)';
-      console.log(`[API] Fetching duty lookup bands for regime=${regime}, user=${userInfo}`);
+      console.log(`[API] Fetching duty lookup bands for regime=${regime}, user=${auth.userEmail}`);
       
       const bands = await storage.listActiveDutyLookupBands(regime);
       console.log(`[API] Returning ${bands.length} duty lookup bands`);
