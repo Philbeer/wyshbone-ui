@@ -1382,43 +1382,313 @@ export class DbStorage implements IStorage {
   }
   
   // ============= LEADGEN PLANS CRUD METHODS =============
+  // With REST API fallback for DNS/connectivity issues
+  
   async createLeadGenPlan(plan: InsertLeadGenPlan): Promise<SelectLeadGenPlan> {
-    const [created] = await db.insert(leadGenPlans).values(plan).returning();
-    return created;
+    try {
+      const [created] = await db.insert(leadGenPlans).values(plan).returning();
+      return created;
+    } catch (error: any) {
+      if (error.cause?.code === 'ENOTFOUND') {
+        console.warn('[LeadGenPlan] Database DNS failed, using REST API fallback...');
+        return this.createLeadGenPlanViaRest(plan);
+      }
+      throw error;
+    }
+  }
+  
+  private async createLeadGenPlanViaRest(plan: InsertLeadGenPlan): Promise<SelectLeadGenPlan> {
+    const SUPABASE_URL = process.env.SUPABASE_URL;
+    const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    
+    if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+      throw new Error('Supabase credentials not configured for REST API fallback');
+    }
+    
+    // Convert camelCase to snake_case for REST API
+    const payload = {
+      id: plan.id,
+      user_id: plan.userId,
+      session_id: plan.sessionId,
+      conversation_id: plan.conversationId || null,
+      goal: plan.goal,
+      steps: plan.steps,
+      status: plan.status,
+      supervisor_task_id: plan.supervisorTaskId || null,
+      tool_metadata: plan.toolMetadata || null,
+      created_at: plan.createdAt,
+      updated_at: plan.updatedAt,
+    };
+    
+    const response = await fetch(`${SUPABASE_URL}/rest/v1/lead_gen_plans`, {
+      method: 'POST',
+      headers: {
+        'apikey': SUPABASE_SERVICE_ROLE_KEY,
+        'Authorization': `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+        'Content-Type': 'application/json',
+        'Prefer': 'return=representation',
+      },
+      body: JSON.stringify(payload),
+    });
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('[LeadGenPlan] REST API create failed:', errorText);
+      throw new Error(`REST API create failed: ${response.status} ${errorText}`);
+    }
+    
+    const [created] = await response.json();
+    console.log('[LeadGenPlan] REST API create succeeded:', created.id);
+    
+    // Convert snake_case back to camelCase
+    return {
+      id: created.id,
+      userId: created.user_id,
+      sessionId: created.session_id,
+      conversationId: created.conversation_id,
+      goal: created.goal,
+      steps: created.steps,
+      status: created.status,
+      supervisorTaskId: created.supervisor_task_id,
+      toolMetadata: created.tool_metadata,
+      createdAt: created.created_at,
+      updatedAt: created.updated_at,
+    };
   }
   
   async getLeadGenPlan(id: string): Promise<SelectLeadGenPlan | null> {
-    const [plan] = await db.select().from(leadGenPlans).where(eq(leadGenPlans.id, id));
-    return plan || null;
+    try {
+      const [plan] = await db.select().from(leadGenPlans).where(eq(leadGenPlans.id, id));
+      return plan || null;
+    } catch (error: any) {
+      if (error.cause?.code === 'ENOTFOUND') {
+        console.warn('[LeadGenPlan] Database DNS failed, using REST API fallback...');
+        return this.getLeadGenPlanViaRest(id);
+      }
+      throw error;
+    }
+  }
+  
+  private async getLeadGenPlanViaRest(id: string): Promise<SelectLeadGenPlan | null> {
+    const SUPABASE_URL = process.env.SUPABASE_URL;
+    const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    
+    if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+      throw new Error('Supabase credentials not configured');
+    }
+    
+    const response = await fetch(
+      `${SUPABASE_URL}/rest/v1/lead_gen_plans?id=eq.${encodeURIComponent(id)}`,
+      {
+        headers: {
+          'apikey': SUPABASE_SERVICE_ROLE_KEY,
+          'Authorization': `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+        },
+      }
+    );
+    
+    if (!response.ok) {
+      throw new Error(`REST API get failed: ${response.status}`);
+    }
+    
+    const results = await response.json();
+    if (!results || results.length === 0) return null;
+    
+    const plan = results[0];
+    return {
+      id: plan.id,
+      userId: plan.user_id,
+      sessionId: plan.session_id,
+      conversationId: plan.conversation_id,
+      goal: plan.goal,
+      steps: plan.steps,
+      status: plan.status,
+      supervisorTaskId: plan.supervisor_task_id,
+      toolMetadata: plan.tool_metadata,
+      createdAt: plan.created_at,
+      updatedAt: plan.updated_at,
+    };
   }
   
   async listLeadGenPlans(userId: string): Promise<SelectLeadGenPlan[]> {
-    return await db.select().from(leadGenPlans).where(eq(leadGenPlans.userId, userId)).orderBy(desc(leadGenPlans.createdAt));
+    try {
+      return await db.select().from(leadGenPlans).where(eq(leadGenPlans.userId, userId)).orderBy(desc(leadGenPlans.createdAt));
+    } catch (error: any) {
+      if (error.cause?.code === 'ENOTFOUND') {
+        console.warn('[LeadGenPlan] Database DNS failed, using REST API fallback...');
+        return this.listLeadGenPlansViaRest(userId);
+      }
+      throw error;
+    }
+  }
+  
+  private async listLeadGenPlansViaRest(userId: string): Promise<SelectLeadGenPlan[]> {
+    const SUPABASE_URL = process.env.SUPABASE_URL;
+    const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    
+    if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+      throw new Error('Supabase credentials not configured');
+    }
+    
+    const response = await fetch(
+      `${SUPABASE_URL}/rest/v1/lead_gen_plans?user_id=eq.${encodeURIComponent(userId)}&order=created_at.desc`,
+      {
+        headers: {
+          'apikey': SUPABASE_SERVICE_ROLE_KEY,
+          'Authorization': `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+        },
+      }
+    );
+    
+    if (!response.ok) {
+      throw new Error(`REST API list failed: ${response.status}`);
+    }
+    
+    const results = await response.json();
+    return (results || []).map((plan: any) => ({
+      id: plan.id,
+      userId: plan.user_id,
+      sessionId: plan.session_id,
+      conversationId: plan.conversation_id,
+      goal: plan.goal,
+      steps: plan.steps,
+      status: plan.status,
+      supervisorTaskId: plan.supervisor_task_id,
+      toolMetadata: plan.tool_metadata,
+      createdAt: plan.created_at,
+      updatedAt: plan.updated_at,
+    }));
   }
   
   async listActiveLeadGenPlans(userId: string): Promise<SelectLeadGenPlan[]> {
-    return await db.select().from(leadGenPlans)
-      .where(and(
-        eq(leadGenPlans.userId, userId),
-        or(
-          eq(leadGenPlans.status, 'pending_approval'),
-          eq(leadGenPlans.status, 'in_progress')
-        )
-      ))
-      .orderBy(desc(leadGenPlans.createdAt));
+    try {
+      return await db.select().from(leadGenPlans)
+        .where(and(
+          eq(leadGenPlans.userId, userId),
+          or(
+            eq(leadGenPlans.status, 'pending_approval'),
+            eq(leadGenPlans.status, 'in_progress')
+          )
+        ))
+        .orderBy(desc(leadGenPlans.createdAt));
+    } catch (error: any) {
+      if (error.cause?.code === 'ENOTFOUND') {
+        console.warn('[LeadGenPlan] Database DNS failed, using REST API fallback...');
+        const all = await this.listLeadGenPlansViaRest(userId);
+        return all.filter(p => p.status === 'pending_approval' || p.status === 'in_progress');
+      }
+      throw error;
+    }
   }
   
   async updateLeadGenPlan(id: string, updates: Partial<InsertLeadGenPlan>): Promise<SelectLeadGenPlan | null> {
-    const [updated] = await db.update(leadGenPlans)
-      .set({ ...updates, updatedAt: Date.now() })
-      .where(eq(leadGenPlans.id, id))
-      .returning();
-    return updated || null;
+    try {
+      const [updated] = await db.update(leadGenPlans)
+        .set({ ...updates, updatedAt: Date.now() })
+        .where(eq(leadGenPlans.id, id))
+        .returning();
+      return updated || null;
+    } catch (error: any) {
+      if (error.cause?.code === 'ENOTFOUND') {
+        console.warn('[LeadGenPlan] Database DNS failed, using REST API fallback...');
+        return this.updateLeadGenPlanViaRest(id, updates);
+      }
+      throw error;
+    }
+  }
+  
+  private async updateLeadGenPlanViaRest(id: string, updates: Partial<InsertLeadGenPlan>): Promise<SelectLeadGenPlan | null> {
+    const SUPABASE_URL = process.env.SUPABASE_URL;
+    const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    
+    if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+      throw new Error('Supabase credentials not configured');
+    }
+    
+    // Convert camelCase to snake_case
+    const payload: any = { updated_at: Date.now() };
+    if (updates.userId !== undefined) payload.user_id = updates.userId;
+    if (updates.sessionId !== undefined) payload.session_id = updates.sessionId;
+    if (updates.conversationId !== undefined) payload.conversation_id = updates.conversationId;
+    if (updates.goal !== undefined) payload.goal = updates.goal;
+    if (updates.steps !== undefined) payload.steps = updates.steps;
+    if (updates.status !== undefined) payload.status = updates.status;
+    if (updates.supervisorTaskId !== undefined) payload.supervisor_task_id = updates.supervisorTaskId;
+    if (updates.toolMetadata !== undefined) payload.tool_metadata = updates.toolMetadata;
+    
+    const response = await fetch(
+      `${SUPABASE_URL}/rest/v1/lead_gen_plans?id=eq.${encodeURIComponent(id)}`,
+      {
+        method: 'PATCH',
+        headers: {
+          'apikey': SUPABASE_SERVICE_ROLE_KEY,
+          'Authorization': `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+          'Content-Type': 'application/json',
+          'Prefer': 'return=representation',
+        },
+        body: JSON.stringify(payload),
+      }
+    );
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`REST API update failed: ${response.status} ${errorText}`);
+    }
+    
+    const results = await response.json();
+    if (!results || results.length === 0) return null;
+    
+    const plan = results[0];
+    console.log('[LeadGenPlan] REST API update succeeded:', plan.id);
+    
+    return {
+      id: plan.id,
+      userId: plan.user_id,
+      sessionId: plan.session_id,
+      conversationId: plan.conversation_id,
+      goal: plan.goal,
+      steps: plan.steps,
+      status: plan.status,
+      supervisorTaskId: plan.supervisor_task_id,
+      toolMetadata: plan.tool_metadata,
+      createdAt: plan.created_at,
+      updatedAt: plan.updated_at,
+    };
   }
   
   async deleteLeadGenPlan(id: string): Promise<boolean> {
-    const result = await db.delete(leadGenPlans).where(eq(leadGenPlans.id, id));
-    return true;
+    try {
+      await db.delete(leadGenPlans).where(eq(leadGenPlans.id, id));
+      return true;
+    } catch (error: any) {
+      if (error.cause?.code === 'ENOTFOUND') {
+        console.warn('[LeadGenPlan] Database DNS failed, using REST API fallback...');
+        return this.deleteLeadGenPlanViaRest(id);
+      }
+      throw error;
+    }
+  }
+  
+  private async deleteLeadGenPlanViaRest(id: string): Promise<boolean> {
+    const SUPABASE_URL = process.env.SUPABASE_URL;
+    const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    
+    if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+      throw new Error('Supabase credentials not configured');
+    }
+    
+    const response = await fetch(
+      `${SUPABASE_URL}/rest/v1/lead_gen_plans?id=eq.${encodeURIComponent(id)}`,
+      {
+        method: 'DELETE',
+        headers: {
+          'apikey': SUPABASE_SERVICE_ROLE_KEY,
+          'Authorization': `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+        },
+      }
+    );
+    
+    return response.ok;
   }
   
   // ============= CRM SETTINGS CRUD METHODS =============
