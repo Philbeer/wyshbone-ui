@@ -71,6 +71,7 @@ import {
   brewDutyLookupBands
 } from "@shared/schema";
 import { eq, or, and, desc, asc, lt, gt, lte, gte, isNull, sql } from "drizzle-orm";
+import { shouldSkipDrizzle } from "./db-utils";
 
 export interface PendingBatchConfirmation {
   business_types: string[];
@@ -856,6 +857,10 @@ export class DbStorage implements IStorage {
   }
 
   async listDeepResearchRuns(userId?: string): Promise<SelectDeepResearchRun[]> {
+    // Skip Drizzle in demo mode to avoid 20-30s DNS timeouts
+    if (shouldSkipDrizzle()) {
+      return [];
+    }
     if (userId) {
       return db.select().from(deepResearchRuns).where(eq(deepResearchRuns.userId, userId)).orderBy(desc(deepResearchRuns.createdAt));
     }
@@ -878,6 +883,10 @@ export class DbStorage implements IStorage {
   }
 
   async listPendingDeepResearchRuns(): Promise<SelectDeepResearchRun[]> {
+    // Skip Drizzle in demo mode to avoid 20-30s DNS timeouts
+    if (shouldSkipDrizzle()) {
+      return [];
+    }
     return db
       .select()
       .from(deepResearchRuns)
@@ -1059,6 +1068,11 @@ export class DbStorage implements IStorage {
   }
 
   async listConversations(userId: string): Promise<SelectConversation[]> {
+    // Skip Drizzle in demo mode to avoid 20-30s DNS timeouts
+    if (shouldSkipDrizzle()) {
+      console.log('[Conversations] Demo mode: returning empty array');
+      return [];
+    }
     try {
       // Exclude monitor_run conversations - those are accessed via monitors in sidebar
       return await db
@@ -1329,6 +1343,10 @@ export class DbStorage implements IStorage {
   }
 
   async listScheduledMonitors(userId: string): Promise<SelectScheduledMonitor[]> {
+    // Skip Drizzle in demo mode to avoid 20-30s DNS timeouts
+    if (shouldSkipDrizzle()) {
+      return [];
+    }
     return db
       .select()
       .from(scheduledMonitors)
@@ -1337,6 +1355,10 @@ export class DbStorage implements IStorage {
   }
 
   async listActiveScheduledMonitors(): Promise<SelectScheduledMonitor[]> {
+    // Skip Drizzle in demo mode to avoid 20-30s DNS timeouts
+    if (shouldSkipDrizzle()) {
+      return [];
+    }
     return db
       .select()
       .from(scheduledMonitors)
@@ -1539,6 +1561,10 @@ export class DbStorage implements IStorage {
   }
 
   async getUserById(id: string): Promise<SelectUser | null> {
+    // Skip Drizzle in demo mode to avoid 20-30s DNS timeouts
+    if (shouldSkipDrizzle()) {
+      return null;
+    }
     const [user] = await db.select()
       .from(users)
       .where(eq(users.id, id));

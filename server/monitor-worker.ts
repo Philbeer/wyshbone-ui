@@ -1,25 +1,21 @@
 import { storage } from './storage';
 import { executeMonitorAndNotify } from './monitor-executor';
-import { withTimeout, shouldSkipDbOperation, recordDbFailure, recordDbSuccess } from './db-utils';
+import { shouldSkipDrizzle, recordDbFailure, recordDbSuccess } from './db-utils';
 
 const POLL_INTERVAL = 15 * 1000; // Check every 15 seconds
-const DB_TIMEOUT_MS = 3000; // 3 second timeout for DB operations
 
 async function checkAndExecuteMonitors() {
-  // Skip if in backoff mode due to recent DB failures
-  if (shouldSkipDbOperation()) {
-    return; // Silently skip - backoff message already logged
+  // Skip Drizzle operations entirely in demo mode or backoff
+  // This avoids 20-30 second DNS timeouts
+  if (shouldSkipDrizzle()) {
+    return; // Skip silently - message logged once in shouldSkipDrizzle
   }
 
   try {
     const now = Date.now();
     
-    // Get all active monitors across all users (with timeout)
-    const monitors = await withTimeout(
-      storage.listActiveScheduledMonitors(),
-      DB_TIMEOUT_MS,
-      'listActiveScheduledMonitors'
-    );
+    // Get all active monitors across all users
+    const monitors = await storage.listActiveScheduledMonitors();
     recordDbSuccess(); // DB is working
     
     console.log(`🔍 Checking ${monitors.length} monitors at ${new Date(now).toLocaleTimeString('en-GB')}`);
