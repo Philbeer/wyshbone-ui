@@ -13,7 +13,10 @@
     "db:push": "drizzle-kit push",
     "test:env": "tsx scripts/test-env.ts",
     "test:smoke": "playwright test tests/demo-smoke.spec.ts",
-    "test:smoke:ui": "playwright test tests/demo-smoke.spec.ts --ui"
+    "test:smoke:ui": "playwright test tests/demo-smoke.spec.ts --ui",
+    "smoke": "playwright test tests/ui-smoke.spec.ts",
+    "smoke:ui": "playwright test tests/ui-smoke.spec.ts --ui",
+    "smoke:headed": "playwright test tests/ui-smoke.spec.ts --headed"
   },
   "dependencies": {
     "@neondatabase/serverless": "^0.10.4",

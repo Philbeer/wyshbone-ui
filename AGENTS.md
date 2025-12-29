@@ -103,6 +103,15 @@ npm run db:push
 
 # Build for production
 npm run build
+
+# Run UI smoke test (requires dev server running)
+npm run smoke
+
+# Run UI smoke test with browser visible
+npm run smoke:headed
+
+# Run UI smoke test with Playwright UI
+npm run smoke:ui
 ```
 
 ---
@@ -141,15 +150,32 @@ wyshbone-ui/
 | Products page | `client/src/pages/crm/products.tsx` |
 | Orders page | `client/src/pages/crm/orders.tsx` |
 | Stock page | `client/src/pages/crm/stock.tsx` |
+| UI Smoke Tests | `tests/ui-smoke.spec.ts` |
+| Playwright Config | `playwright.config.ts` |
 
 ---
 
 ## Rules Reminder
 
 1. **No deployments** without explicit "deploy now" instruction
-2. **Always run smoke tests** before saying "done"
+2. **Always run smoke tests** before saying "done" - use `npm run smoke` for automated testing
 3. **Fix failures** before completing tasks
 4. **Include QA report** with every task completion
+
+## Automated Smoke Test
+
+The `npm run smoke` command runs Playwright tests covering the 8-step QA checklist:
+
+1. **Boot FE+BE** - Verifies page loads
+2. **Create Product** - Tests add product form
+3. **List Products** - Verifies product appears in table
+4. **Edit Product** - Tests edit functionality
+5. **Create Order** - Tests add order form
+6. **Add Line Item** - Tests line item functionality
+7. **Refresh & Persistence** - Verifies data persists after reload
+8. **Console/Network** - Checks for 404/500 errors
+
+**Prerequisites:** Run `npm run dev` first, then in another terminal run `npm run smoke`
 
 ---
 
