@@ -12,6 +12,7 @@ import cors from "cors";
 import { registerRoutes } from "./routes";
 import { nangoRouter } from "./routes/nango";
 import { logDemoConfig } from "./demo-config";
+import { runSchemaHealthCheck } from "./schema-check";
 
 // Simple log function (no Vite dependency for production)
 function log(message: string, source = "express") {
@@ -175,6 +176,9 @@ app.use((req, res, next) => {
 (async () => {
   // Log demo mode configuration
   logDemoConfig();
+  
+  // Run non-fatal schema health check (logs warnings if CRM tables missing)
+  await runSchemaHealthCheck();
   
   const server = await registerRoutes(app);
 
