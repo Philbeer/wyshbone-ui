@@ -30,6 +30,10 @@ import type {
   SelectCrmOrder,
   InsertCrmOrderLine,
   SelectCrmOrderLine,
+  InsertCrmProduct,
+  SelectCrmProduct,
+  InsertCrmStock,
+  SelectCrmStock,
   InsertBrewProduct,
   SelectBrewProduct,
   InsertBrewBatch,
@@ -62,6 +66,8 @@ import {
   crmDeliveryRuns,
   crmOrders,
   crmOrderLines,
+  crmProducts,
+  crmStock,
   brewProducts,
   brewBatches,
   brewInventoryItems,
@@ -263,6 +269,23 @@ export interface IStorage {
   listCrmOrderLinesByOrder(orderId: string): Promise<SelectCrmOrderLine[]>;
   updateCrmOrderLine(id: string, updates: Partial<InsertCrmOrderLine>): Promise<SelectCrmOrderLine | null>;
   deleteCrmOrderLine(id: string): Promise<boolean>;
+  
+  // ============= GENERIC CRM PRODUCTS CRUD METHODS =============
+  createCrmProduct(product: InsertCrmProduct): Promise<SelectCrmProduct>;
+  getCrmProduct(id: string): Promise<SelectCrmProduct | null>;
+  listCrmProducts(workspaceId: string): Promise<SelectCrmProduct[]>;
+  listActiveCrmProducts(workspaceId: string): Promise<SelectCrmProduct[]>;
+  updateCrmProduct(id: string, updates: Partial<InsertCrmProduct>): Promise<SelectCrmProduct | null>;
+  deleteCrmProduct(id: string): Promise<boolean>;
+  
+  // ============= GENERIC CRM STOCK CRUD METHODS =============
+  createCrmStock(stock: InsertCrmStock): Promise<SelectCrmStock>;
+  getCrmStock(id: string): Promise<SelectCrmStock | null>;
+  getCrmStockByProduct(productId: string, location?: string): Promise<SelectCrmStock | null>;
+  listCrmStock(workspaceId: string): Promise<SelectCrmStock[]>;
+  listCrmStockByProduct(productId: string): Promise<SelectCrmStock[]>;
+  updateCrmStock(id: string, updates: Partial<InsertCrmStock>): Promise<SelectCrmStock | null>;
+  deleteCrmStock(id: string): Promise<boolean>;
   
   // ============= BREWERY PRODUCTS CRUD METHODS =============
   createBrewProduct(product: InsertBrewProduct): Promise<SelectBrewProduct>;
@@ -1848,6 +1871,85 @@ export class DbStorage implements IStorage {
   
   async deleteCrmOrderLine(id: string): Promise<boolean> {
     const result = await db.delete(crmOrderLines).where(eq(crmOrderLines.id, id));
+    return true;
+  }
+  
+  // ============= GENERIC CRM PRODUCTS CRUD METHODS =============
+  async createCrmProduct(product: InsertCrmProduct): Promise<SelectCrmProduct> {
+    const [created] = await db.insert(crmProducts).values(product).returning();
+    return created;
+  }
+  
+  async getCrmProduct(id: string): Promise<SelectCrmProduct | null> {
+    const [product] = await db.select().from(crmProducts).where(eq(crmProducts.id, id));
+    return product || null;
+  }
+  
+  async listCrmProducts(workspaceId: string): Promise<SelectCrmProduct[]> {
+    return await db.select().from(crmProducts).where(eq(crmProducts.workspaceId, workspaceId)).orderBy(crmProducts.name);
+  }
+  
+  async listActiveCrmProducts(workspaceId: string): Promise<SelectCrmProduct[]> {
+    return await db.select().from(crmProducts)
+      .where(and(
+        eq(crmProducts.workspaceId, workspaceId),
+        eq(crmProducts.isActive, 1)
+      ))
+      .orderBy(crmProducts.name);
+  }
+  
+  async updateCrmProduct(id: string, updates: Partial<InsertCrmProduct>): Promise<SelectCrmProduct | null> {
+    const [updated] = await db.update(crmProducts)
+      .set(updates)
+      .where(eq(crmProducts.id, id))
+      .returning();
+    return updated || null;
+  }
+  
+  async deleteCrmProduct(id: string): Promise<boolean> {
+    await db.delete(crmProducts).where(eq(crmProducts.id, id));
+    return true;
+  }
+  
+  // ============= GENERIC CRM STOCK CRUD METHODS =============
+  async createCrmStock(stock: InsertCrmStock): Promise<SelectCrmStock> {
+    const [created] = await db.insert(crmStock).values(stock).returning();
+    return created;
+  }
+  
+  async getCrmStock(id: string): Promise<SelectCrmStock | null> {
+    const [stock] = await db.select().from(crmStock).where(eq(crmStock.id, id));
+    return stock || null;
+  }
+  
+  async getCrmStockByProduct(productId: string, location?: string): Promise<SelectCrmStock | null> {
+    if (location) {
+      const [stock] = await db.select().from(crmStock)
+        .where(and(eq(crmStock.productId, productId), eq(crmStock.location, location)));
+      return stock || null;
+    }
+    const [stock] = await db.select().from(crmStock).where(eq(crmStock.productId, productId));
+    return stock || null;
+  }
+  
+  async listCrmStock(workspaceId: string): Promise<SelectCrmStock[]> {
+    return await db.select().from(crmStock).where(eq(crmStock.workspaceId, workspaceId));
+  }
+  
+  async listCrmStockByProduct(productId: string): Promise<SelectCrmStock[]> {
+    return await db.select().from(crmStock).where(eq(crmStock.productId, productId));
+  }
+  
+  async updateCrmStock(id: string, updates: Partial<InsertCrmStock>): Promise<SelectCrmStock | null> {
+    const [updated] = await db.update(crmStock)
+      .set(updates)
+      .where(eq(crmStock.id, id))
+      .returning();
+    return updated || null;
+  }
+  
+  async deleteCrmStock(id: string): Promise<boolean> {
+    await db.delete(crmStock).where(eq(crmStock.id, id));
     return true;
   }
   

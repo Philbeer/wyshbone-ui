@@ -7809,6 +7809,327 @@ ${run.outputText}`;
     }
   });
   
+  // ============================================================
+  // GENERIC CRM PRODUCTS ROUTES
+  // ============================================================
+  
+  // GET /api/crm/products/:workspaceId - List products
+  app.get("/api/crm/products/:workspaceId", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { workspaceId } = req.params;
+      
+      // SECURITY: Verify workspace belongs to authenticated user
+      if (workspaceId !== auth.userId) {
+        console.warn(`🚫 User ${auth.userEmail} attempted to access products for workspace ${workspaceId}`);
+        return res.status(403).json({ error: "Forbidden: Cannot access other workspaces' data" });
+      }
+      
+      const products = await storage.listCrmProducts(workspaceId);
+      
+      res.json(products);
+    } catch (error: any) {
+      console.error("Error listing products:", error);
+      res.status(500).json({ error: error.message || "Failed to list products" });
+    }
+  });
+  
+  // GET /api/crm/products/detail/:id - Get single product
+  app.get("/api/crm/products/detail/:id", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { id } = req.params;
+      const product = await storage.getCrmProduct(id);
+      
+      if (!product) {
+        return res.status(404).json({ error: "Product not found" });
+      }
+      
+      // SECURITY: Verify product belongs to authenticated user's workspace
+      if (product.workspaceId !== auth.userId) {
+        console.warn(`🚫 User ${auth.userEmail} attempted to access product ${id} owned by workspace ${product.workspaceId}`);
+        return res.status(403).json({ error: "Forbidden: Cannot access other workspaces' data" });
+      }
+      
+      res.json(product);
+    } catch (error: any) {
+      console.error("Error getting product:", error);
+      res.status(500).json({ error: error.message || "Failed to get product" });
+    }
+  });
+  
+  // POST /api/crm/products - Create product
+  app.post("/api/crm/products", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const data = req.body;
+      
+      // SECURITY: Force workspaceId to be the authenticated user's ID
+      const workspaceId = auth.userId;
+      
+      const now = Date.now();
+      const product = await storage.createCrmProduct({
+        id: `crm_product_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+        workspaceId,
+        name: data.name,
+        sku: data.sku || null,
+        description: data.description || null,
+        category: data.category || null,
+        unitType: data.unitType || 'each',
+        defaultUnitPriceExVat: data.defaultUnitPriceExVat || 0,
+        defaultVatRate: data.defaultVatRate || 2000,
+        isActive: data.isActive ?? 1,
+        trackStock: data.trackStock ?? 0,
+        createdAt: now,
+        updatedAt: now,
+      });
+      
+      res.json(product);
+    } catch (error: any) {
+      console.error("Error creating product:", error);
+      res.status(500).json({ error: error.message || "Failed to create product" });
+    }
+  });
+  
+  // PATCH /api/crm/products/:id - Update product
+  app.patch("/api/crm/products/:id", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { id } = req.params;
+      
+      // SECURITY: Verify product exists and belongs to authenticated user's workspace
+      const existing = await storage.getCrmProduct(id);
+      if (!existing) {
+        return res.status(404).json({ error: "Product not found" });
+      }
+      if (existing.workspaceId !== auth.userId) {
+        console.warn(`🚫 User ${auth.userEmail} attempted to update product ${id} owned by workspace ${existing.workspaceId}`);
+        return res.status(403).json({ error: "Forbidden: Cannot modify other workspaces' data" });
+      }
+      
+      const data = req.body;
+      
+      const product = await storage.updateCrmProduct(id, {
+        ...data,
+        updatedAt: Date.now(),
+      });
+      
+      res.json(product);
+    } catch (error: any) {
+      console.error("Error updating product:", error);
+      res.status(500).json({ error: error.message || "Failed to update product" });
+    }
+  });
+  
+  // DELETE /api/crm/products/:id - Delete product
+  app.delete("/api/crm/products/:id", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { id } = req.params;
+      
+      // SECURITY: Verify product exists and belongs to authenticated user's workspace
+      const existing = await storage.getCrmProduct(id);
+      if (!existing) {
+        return res.status(404).json({ error: "Product not found" });
+      }
+      if (existing.workspaceId !== auth.userId) {
+        console.warn(`🚫 User ${auth.userEmail} attempted to delete product ${id} owned by workspace ${existing.workspaceId}`);
+        return res.status(403).json({ error: "Forbidden: Cannot delete other workspaces' data" });
+      }
+      
+      const success = await storage.deleteCrmProduct(id);
+      
+      res.json({ success });
+    } catch (error: any) {
+      console.error("Error deleting product:", error);
+      res.status(500).json({ error: error.message || "Failed to delete product" });
+    }
+  });
+  
+  // ============================================================
+  // GENERIC CRM STOCK ROUTES
+  // ============================================================
+  
+  // GET /api/crm/stock/:workspaceId - List stock
+  app.get("/api/crm/stock/:workspaceId", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { workspaceId } = req.params;
+      
+      // SECURITY: Verify workspace belongs to authenticated user
+      if (workspaceId !== auth.userId) {
+        console.warn(`🚫 User ${auth.userEmail} attempted to access stock for workspace ${workspaceId}`);
+        return res.status(403).json({ error: "Forbidden: Cannot access other workspaces' data" });
+      }
+      
+      const stock = await storage.listCrmStock(workspaceId);
+      
+      res.json(stock);
+    } catch (error: any) {
+      console.error("Error listing stock:", error);
+      res.status(500).json({ error: error.message || "Failed to list stock" });
+    }
+  });
+  
+  // GET /api/crm/stock/detail/:id - Get single stock record
+  app.get("/api/crm/stock/detail/:id", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { id } = req.params;
+      const stock = await storage.getCrmStock(id);
+      
+      if (!stock) {
+        return res.status(404).json({ error: "Stock record not found" });
+      }
+      
+      // SECURITY: Verify stock belongs to authenticated user's workspace
+      if (stock.workspaceId !== auth.userId) {
+        console.warn(`🚫 User ${auth.userEmail} attempted to access stock ${id} owned by workspace ${stock.workspaceId}`);
+        return res.status(403).json({ error: "Forbidden: Cannot access other workspaces' data" });
+      }
+      
+      res.json(stock);
+    } catch (error: any) {
+      console.error("Error getting stock:", error);
+      res.status(500).json({ error: error.message || "Failed to get stock" });
+    }
+  });
+  
+  // POST /api/crm/stock - Create stock record
+  app.post("/api/crm/stock", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const data = req.body;
+      
+      // SECURITY: Verify product belongs to authenticated user's workspace
+      if (data.productId) {
+        const product = await storage.getCrmProduct(data.productId);
+        if (!product || product.workspaceId !== auth.userId) {
+          return res.status(403).json({ error: "Forbidden: Product does not belong to your workspace" });
+        }
+      }
+      
+      // SECURITY: Force workspaceId to be the authenticated user's ID
+      const workspaceId = auth.userId;
+      
+      const now = Date.now();
+      const stock = await storage.createCrmStock({
+        id: `crm_stock_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+        workspaceId,
+        productId: data.productId,
+        location: data.location || 'Main Warehouse',
+        quantityOnHand: data.quantityOnHand || 0,
+        quantityReserved: data.quantityReserved || 0,
+        reorderLevel: data.reorderLevel || 0,
+        reorderQuantity: data.reorderQuantity || 0,
+        costPricePerUnit: data.costPricePerUnit || 0,
+        notes: data.notes || null,
+        createdAt: now,
+        updatedAt: now,
+      });
+      
+      res.json(stock);
+    } catch (error: any) {
+      console.error("Error creating stock:", error);
+      res.status(500).json({ error: error.message || "Failed to create stock" });
+    }
+  });
+  
+  // PATCH /api/crm/stock/:id - Update stock record
+  app.patch("/api/crm/stock/:id", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { id } = req.params;
+      
+      // SECURITY: Verify stock exists and belongs to authenticated user's workspace
+      const existing = await storage.getCrmStock(id);
+      if (!existing) {
+        return res.status(404).json({ error: "Stock record not found" });
+      }
+      if (existing.workspaceId !== auth.userId) {
+        console.warn(`🚫 User ${auth.userEmail} attempted to update stock ${id} owned by workspace ${existing.workspaceId}`);
+        return res.status(403).json({ error: "Forbidden: Cannot modify other workspaces' data" });
+      }
+      
+      const data = req.body;
+      
+      const stock = await storage.updateCrmStock(id, {
+        ...data,
+        updatedAt: Date.now(),
+      });
+      
+      res.json(stock);
+    } catch (error: any) {
+      console.error("Error updating stock:", error);
+      res.status(500).json({ error: error.message || "Failed to update stock" });
+    }
+  });
+  
+  // DELETE /api/crm/stock/:id - Delete stock record
+  app.delete("/api/crm/stock/:id", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { id } = req.params;
+      
+      // SECURITY: Verify stock exists and belongs to authenticated user's workspace
+      const existing = await storage.getCrmStock(id);
+      if (!existing) {
+        return res.status(404).json({ error: "Stock record not found" });
+      }
+      if (existing.workspaceId !== auth.userId) {
+        console.warn(`🚫 User ${auth.userEmail} attempted to delete stock ${id} owned by workspace ${existing.workspaceId}`);
+        return res.status(403).json({ error: "Forbidden: Cannot delete other workspaces' data" });
+      }
+      
+      const success = await storage.deleteCrmStock(id);
+      
+      res.json({ success });
+    } catch (error: any) {
+      console.error("Error deleting stock:", error);
+      res.status(500).json({ error: error.message || "Failed to delete stock" });
+    }
+  });
+  
   // ============= HELPER: Recalculate Order Totals from Line Items =============
   /**
    * Recalculates order totals (subtotal, VAT, total) from all line items.
@@ -8120,9 +8441,19 @@ ${run.outputText}`;
       }
       
       // SECURITY: If productId is provided, verify it belongs to the workspace
+      // First check CRM products, then fall back to Brew products for brewery vertical
       if (data.productId) {
-        const product = await storage.getBrewProduct(data.productId);
-        if (!product || product.workspaceId !== auth.userId) {
+        let productValid = false;
+        const crmProduct = await storage.getCrmProduct(data.productId);
+        if (crmProduct && crmProduct.workspaceId === auth.userId) {
+          productValid = true;
+        } else {
+          const brewProduct = await storage.getBrewProduct(data.productId);
+          if (brewProduct && brewProduct.workspaceId === auth.userId) {
+            productValid = true;
+          }
+        }
+        if (!productValid) {
           return res.status(403).json({ error: "Forbidden: Product does not belong to your workspace" });
         }
       }
@@ -8204,9 +8535,19 @@ ${run.outputText}`;
       const data = validationResult.data;
       
       // SECURITY: If productId is being updated, verify it belongs to the workspace
+      // First check CRM products, then fall back to Brew products for brewery vertical
       if (data.productId) {
-        const product = await storage.getBrewProduct(data.productId);
-        if (!product || product.workspaceId !== auth.userId) {
+        let productValid = false;
+        const crmProduct = await storage.getCrmProduct(data.productId);
+        if (crmProduct && crmProduct.workspaceId === auth.userId) {
+          productValid = true;
+        } else {
+          const brewProduct = await storage.getBrewProduct(data.productId);
+          if (brewProduct && brewProduct.workspaceId === auth.userId) {
+            productValid = true;
+          }
+        }
+        if (!productValid) {
           return res.status(403).json({ error: "Forbidden: Product does not belong to your workspace" });
         }
       }

@@ -801,9 +801,17 @@ export const crmOrders = pgTable("crm_orders", {
   deliveryRunId: text("delivery_run_id"),
   currency: text("currency").notNull().default("GBP"),
   subtotalExVat: integer("subtotal_ex_vat").default(0), // In pence/cents - calculated from line items
+  discountType: text("discount_type").default("none"), // 'none', 'percentage', 'fixed'
+  discountValue: integer("discount_value").default(0), // Percentage (basis points) or fixed amount (pence)
+  discountAmount: integer("discount_amount").default(0), // Calculated discount in pence/cents
+  shippingExVat: integer("shipping_ex_vat").default(0), // Shipping cost ex VAT in pence/cents
+  shippingVatRate: integer("shipping_vat_rate").default(2000), // VAT rate for shipping in basis points
+  shippingVatAmount: integer("shipping_vat_amount").default(0), // VAT on shipping in pence/cents
   vatTotal: integer("vat_total").default(0), // In pence/cents - calculated from line items
   totalIncVat: integer("total_inc_vat").default(0), // In pence/cents - calculated from line items
   totalAmount: integer("total_amount"), // DEPRECATED: kept for backwards compatibility, use totalIncVat
+  xeroInvoiceId: text("xero_invoice_id"), // Xero invoice reference if exported
+  xeroExportedAt: bigint("xero_exported_at", { mode: "number" }), // When exported to Xero
   notes: text("notes"),
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
   updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
@@ -824,7 +832,8 @@ export type SelectCrmOrder = typeof crmOrders.$inferSelect;
 export const crmOrderLines = pgTable("crm_order_lines", {
   id: text("id").primaryKey(),
   orderId: text("order_id").notNull(),
-  productId: text("product_id"), // FK to brew_products or other vertical product tables
+  productId: text("product_id"), // FK to crm_products or vertical product tables
+  description: text("description"), // Editable override of product name/description
   quantity: integer("quantity").notNull().default(1),
   unitPriceExVat: integer("unit_price_ex_vat").notNull(), // In pence/cents
   vatRate: integer("vat_rate").notNull().default(0), // Stored as basis points (e.g., 2000 = 20%, 500 = 5%)
@@ -993,32 +1002,56 @@ export const selectBrewSettingsSchema = createSelectSchema(brewSettings);
 export type InsertBrewSettings = typeof brewSettings.$inferInsert;
 export type SelectBrewSettings = typeof brewSettings.$inferSelect;
 
-// ============= BREWERY DUTY LOOKUP BANDS =============
-// Stores UK HMRC duty rate bands for piecewise linear relief calculation
-//
-// Terminology:
-//   annual_hl = Annual hectolitres of PRODUCT (beer/cider volume), NOT pure alcohol
-//
-// Relief calculation formula:
-//   relief_total = c + m * (annual_hl - threshold_hl)
-//   rate_per_hl = base_rate_per_hl - (relief_total / annual_hl)
-//
-// Query pattern: Find band where threshold_hl <= annual_hl, ORDER BY threshold_hl DESC LIMIT 1
-// NOTE: Indexes are defined in SQL only (drizzle/brew_duty_lookup_bands.sql)
-export const brewDutyLookupBands = pgTable("brew_duty_lookup_bands", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  regime: text("regime").notNull().default("UK"),
-  dutyCategoryKey: text("duty_category_key").notNull(),
-  thresholdHl: numeric("threshold_hl").notNull().default("0"),
-  m: numeric("m").notNull(),
-  c: numeric("c").notNull(),
-  baseRatePerHl: numeric("base_rate_per_hl").notNull(),
-  effectiveFrom: date("effective_from").notNull(),
-  effectiveTo: date("effective_to"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+// ============= GENERIC CRM PRODUCTS TABLE =============
+// Generic products for non-brewery verticals
+export const crmProducts = pgTable("crm_products", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull(),
+  name: text("name").notNull(),
+  sku: text("sku"),
+  description: text("description"),
+  category: text("category"), // e.g., 'Services', 'Goods', 'Digital'
+  unitType: text("unit_type").notNull().default("each"), // 'each', 'hour', 'kg', 'litre', 'pack'
+  defaultUnitPriceExVat: integer("default_unit_price_ex_vat").default(0), // In pence/cents
+  defaultVatRate: integer("default_vat_rate").default(2000), // Stored as basis points (e.g., 2000 = 20%)
+  isActive: integer("is_active").notNull().default(1), // 1 = true, 0 = false
+  trackStock: integer("track_stock").notNull().default(0), // 1 = track inventory, 0 = don't track
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+}, (table) => ({
+  workspaceIdIdx: index("crm_products_workspace_id_idx").on(table.workspaceId),
+  skuIdx: index("crm_products_sku_idx").on(table.sku),
+  isActiveIdx: index("crm_products_is_active_idx").on(table.isActive),
+  categoryIdx: index("crm_products_category_idx").on(table.category),
+}));
 
-export const insertBrewDutyLookupBandSchema = createInsertSchema(brewDutyLookupBands);
-export const selectBrewDutyLookupBandSchema = createSelectSchema(brewDutyLookupBands);
-export type InsertBrewDutyLookupBand = typeof brewDutyLookupBands.$inferInsert;
-export type SelectBrewDutyLookupBand = typeof brewDutyLookupBands.$inferSelect;
+export const insertCrmProductSchema = createInsertSchema(crmProducts);
+export const selectCrmProductSchema = createSelectSchema(crmProducts);
+export type InsertCrmProduct = typeof crmProducts.$inferInsert;
+export type SelectCrmProduct = typeof crmProducts.$inferSelect;
+
+// ============= GENERIC CRM STOCK/INVENTORY TABLE =============
+// Generic stock tracking for non-brewery verticals
+export const crmStock = pgTable("crm_stock", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull(),
+  productId: text("product_id").notNull(), // FK to crm_products
+  location: text("location").notNull().default("Main Warehouse"),
+  quantityOnHand: integer("quantity_on_hand").notNull().default(0),
+  quantityReserved: integer("quantity_reserved").notNull().default(0), // Reserved for pending orders
+  reorderLevel: integer("reorder_level").default(0), // Alert when stock falls below this
+  reorderQuantity: integer("reorder_quantity").default(0), // Suggested reorder amount
+  costPricePerUnit: integer("cost_price_per_unit").default(0), // In pence/cents - for profit tracking
+  notes: text("notes"),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+}, (table) => ({
+  workspaceIdIdx: index("crm_stock_workspace_id_idx").on(table.workspaceId),
+  productIdIdx: index("crm_stock_product_id_idx").on(table.productId),
+  locationIdx: index("crm_stock_location_idx").on(table.location),
+}));
+
+export const insertCrmStockSchema = createInsertSchema(crmStock);
+export const selectCrmStockSchema = createSelectSchema(crmStock);
+export type InsertCrmStock = typeof crmStock.$inferInsert;
+export type SelectCrmStock = typeof crmStock.$inferSelect;

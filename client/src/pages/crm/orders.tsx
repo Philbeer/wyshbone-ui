@@ -14,11 +14,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Plus, Pencil, Trash2, Save, Check, X } from "lucide-react";
+import { Plus, Pencil, Trash2, Save, Check, X, FileOutput, ExternalLink } from "lucide-react";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import type { SelectCrmOrder, SelectCrmOrderLine, SelectCrmCustomer, SelectCrmDeliveryRun, SelectBrewProduct } from "@shared/schema";
+import { Separator } from "@/components/ui/separator";
+import type { SelectCrmOrder, SelectCrmOrderLine, SelectCrmCustomer, SelectCrmDeliveryRun, SelectCrmProduct } from "@shared/schema";
 
 const orderFormSchema = z.object({
   orderNumber: z.string().min(1, "Order number is required"),
@@ -26,6 +27,10 @@ const orderFormSchema = z.object({
   status: z.string().default("draft"),
   deliveryRunId: z.string().optional().nullable(),
   currency: z.string().default("GBP"),
+  discountType: z.string().default("none"),
+  discountValue: z.number().default(0),
+  shippingExVat: z.number().default(0),
+  shippingVatRate: z.number().default(2000),
   notes: z.string().optional().nullable(),
   orderDate: z.number().default(() => Date.now()),
   deliveryDate: z.number().optional().nullable(),
@@ -36,6 +41,7 @@ type OrderFormValues = z.infer<typeof orderFormSchema>;
 interface LocalLineItem {
   tempId: string;
   productId: string;
+  description: string;
   quantity: number;
   unitPriceExVat: number;
   vatRate: number;
@@ -59,6 +65,43 @@ function calculateLineTotals(quantity: number, unitPriceExVat: number, vatRate: 
   return { lineSubtotalExVat, lineVatAmount, lineTotalIncVat };
 }
 
+function calculateOrderTotals(
+  lineItems: { lineSubtotalExVat: number; lineVatAmount: number }[],
+  discountType: string,
+  discountValue: number,
+  shippingExVat: number,
+  shippingVatRate: number
+) {
+  const subtotalExVat = lineItems.reduce((acc, line) => acc + line.lineSubtotalExVat, 0);
+  const itemsVatTotal = lineItems.reduce((acc, line) => acc + line.lineVatAmount, 0);
+  
+  // Calculate discount
+  let discountAmount = 0;
+  if (discountType === "percentage" && discountValue > 0) {
+    discountAmount = Math.round(subtotalExVat * (discountValue / 10000));
+  } else if (discountType === "fixed" && discountValue > 0) {
+    discountAmount = discountValue;
+  }
+  
+  // Shipping VAT
+  const shippingVatAmount = Math.round(shippingExVat * (shippingVatRate / 10000));
+  
+  // Final totals
+  const subtotalAfterDiscount = subtotalExVat - discountAmount;
+  const vatTotal = itemsVatTotal + shippingVatAmount;
+  const totalIncVat = subtotalAfterDiscount + vatTotal + shippingExVat;
+  
+  return {
+    subtotalExVat,
+    discountAmount,
+    subtotalAfterDiscount,
+    shippingExVat,
+    shippingVatAmount,
+    vatTotal,
+    totalIncVat,
+  };
+}
+
 export default function CrmOrders() {
   const { user } = useUser();
   const workspaceId = user.id;
@@ -67,6 +110,7 @@ export default function CrmOrders() {
   const [editingOrder, setEditingOrder] = useState<SelectCrmOrder | null>(null);
   const [deletingOrderId, setDeletingOrderId] = useState<string | null>(null);
   const [localLineItems, setLocalLineItems] = useState<LocalLineItem[]>([]);
+  const [exportingOrderId, setExportingOrderId] = useState<string | null>(null);
 
   const { data: orders = [], isLoading } = useQuery<SelectCrmOrder[]>({
     queryKey: ['/api/crm/orders', workspaceId],
@@ -83,8 +127,9 @@ export default function CrmOrders() {
     enabled: !!workspaceId,
   });
 
-  const { data: products = [] } = useQuery<SelectBrewProduct[]>({
-    queryKey: ['/api/brewcrm/products', workspaceId],
+  // Use Generic CRM products
+  const { data: products = [] } = useQuery<SelectCrmProduct[]>({
+    queryKey: ['/api/crm/products', workspaceId],
     enabled: !!workspaceId,
   });
 
@@ -98,19 +143,33 @@ export default function CrmOrders() {
       deliveryDate: undefined,
       deliveryRunId: undefined,
       currency: "GBP",
+      discountType: "none",
+      discountValue: 0,
+      shippingExVat: 0,
+      shippingVatRate: 2000,
       notes: "",
     },
   });
 
+  const watchDiscountType = form.watch("discountType");
+  const watchDiscountValue = form.watch("discountValue");
+  const watchShippingExVat = form.watch("shippingExVat");
+  const watchShippingVatRate = form.watch("shippingVatRate");
+
   const createMutation = useMutation({
     mutationFn: async (data: OrderFormValues) => {
-      const response = await apiRequest('POST', '/api/crm/orders', data);
+      const response = await apiRequest('POST', '/api/crm/orders', {
+        ...data,
+        discountValue: Math.round((data.discountValue || 0) * (data.discountType === "percentage" ? 100 : 1)),
+        shippingExVat: Math.round((data.shippingExVat || 0) * 100),
+      });
       const orderData = await response.json() as SelectCrmOrder;
       
       for (const line of localLineItems) {
         await apiRequest('POST', '/api/crm/order-lines', {
           orderId: orderData.id,
           productId: line.productId,
+          description: line.description || null,
           quantity: line.quantity,
           unitPriceExVat: line.unitPriceExVat,
           vatRate: line.vatRate,
@@ -131,7 +190,11 @@ export default function CrmOrders() {
 
   const updateMutation = useMutation({
     mutationFn: ({ id, ...data }: OrderFormValues & { id: string }) => 
-      apiRequest('PATCH', `/api/crm/orders/${id}`, data),
+      apiRequest('PATCH', `/api/crm/orders/${id}`, {
+        ...data,
+        discountValue: Math.round((data.discountValue || 0) * (data.discountType === "percentage" ? 100 : 1)),
+        shippingExVat: Math.round((data.shippingExVat || 0) * 100),
+      }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/crm/orders'] });
       toast({ title: "Order updated successfully" });
@@ -154,6 +217,29 @@ export default function CrmOrders() {
     },
   });
 
+  const exportToXeroMutation = useMutation({
+    mutationFn: async (orderId: string) => {
+      const response = await apiRequest('POST', `/api/crm/orders/${orderId}/export-xero`);
+      return response.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/crm/orders'] });
+      toast({ 
+        title: "Exported to Xero", 
+        description: data.invoiceNumber ? `Invoice ${data.invoiceNumber} created` : "Invoice created successfully" 
+      });
+      setExportingOrderId(null);
+    },
+    onError: (error: Error) => {
+      toast({ 
+        title: "Failed to export to Xero", 
+        description: error.message || "Please check your Xero connection", 
+        variant: "destructive" 
+      });
+      setExportingOrderId(null);
+    },
+  });
+
   const handleCloseDialog = () => {
     setIsDialogOpen(false);
     setEditingOrder(null);
@@ -172,6 +258,10 @@ export default function CrmOrders() {
       deliveryDate: order.deliveryDate || undefined,
       deliveryRunId: order.deliveryRunId || undefined,
       currency: order.currency || "GBP",
+      discountType: (order as any).discountType || "none",
+      discountValue: ((order as any).discountValue || 0) / ((order as any).discountType === "percentage" ? 100 : 1),
+      shippingExVat: ((order as any).shippingExVat || 0) / 100,
+      shippingVatRate: (order as any).shippingVatRate || 2000,
       notes: order.notes || "",
     });
     setIsDialogOpen(true);
@@ -188,6 +278,10 @@ export default function CrmOrders() {
       deliveryDate: undefined,
       deliveryRunId: undefined,
       currency: "GBP",
+      discountType: "none",
+      discountValue: 0,
+      shippingExVat: 0,
+      shippingVatRate: 2000,
       notes: "",
     });
     setIsDialogOpen(true);
@@ -201,11 +295,12 @@ export default function CrmOrders() {
     }
   };
 
-  const handleAddLocalLine = useCallback((productId: string, quantity: number, unitPriceExVat: number, vatRate: number) => {
+  const handleAddLocalLine = useCallback((productId: string, description: string, quantity: number, unitPriceExVat: number, vatRate: number) => {
     const totals = calculateLineTotals(quantity, unitPriceExVat, vatRate);
     const newLine: LocalLineItem = {
       tempId: `temp_${Date.now()}_${Math.random().toString(36).substring(7)}`,
       productId,
+      description,
       quantity,
       unitPriceExVat,
       vatRate,
@@ -235,17 +330,21 @@ export default function CrmOrders() {
   }, []);
 
   const localTotals = useMemo(() => {
-    return localLineItems.reduce((acc, line) => ({
-      subtotalExVat: acc.subtotalExVat + line.lineSubtotalExVat,
-      vatTotal: acc.vatTotal + line.lineVatAmount,
-      totalIncVat: acc.totalIncVat + line.lineTotalIncVat,
-    }), { subtotalExVat: 0, vatTotal: 0, totalIncVat: 0 });
-  }, [localLineItems]);
+    return calculateOrderTotals(
+      localLineItems,
+      watchDiscountType,
+      watchDiscountType === "percentage" ? watchDiscountValue * 100 : watchDiscountValue * 100,
+      watchShippingExVat * 100,
+      watchShippingVatRate
+    );
+  }, [localLineItems, watchDiscountType, watchDiscountValue, watchShippingExVat, watchShippingVatRate]);
 
   const getStatusBadgeVariant = (status: string): "secondary" | "default" | "outline" | "destructive" => {
     switch (status) {
       case "draft": return "secondary";
       case "confirmed": return "default";
+      case "invoiced": return "outline";
+      case "paid": return "default";
       case "dispatched": return "outline";
       case "delivered": return "default";
       case "cancelled": return "destructive";
@@ -304,13 +403,14 @@ export default function CrmOrders() {
                 <TableHead className="text-right">Subtotal (ex VAT)</TableHead>
                 <TableHead className="text-right">VAT</TableHead>
                 <TableHead className="text-right">Total (inc VAT)</TableHead>
+                <TableHead>Xero</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {orders.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center text-muted-foreground">
+                  <TableCell colSpan={9} className="text-center text-muted-foreground">
                     No orders found. Create your first order to get started.
                   </TableCell>
                 </TableRow>
@@ -333,6 +433,28 @@ export default function CrmOrders() {
                     </TableCell>
                     <TableCell className="text-right font-medium">
                       {formatCurrency(order.totalIncVat || 0)}
+                    </TableCell>
+                    <TableCell>
+                      {(order as any).xeroInvoiceId ? (
+                        <Badge variant="outline" className="text-green-600">
+                          <Check className="w-3 h-3 mr-1" />
+                          Exported
+                        </Badge>
+                      ) : (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setExportingOrderId(order.id);
+                            exportToXeroMutation.mutate(order.id);
+                          }}
+                          disabled={exportToXeroMutation.isPending && exportingOrderId === order.id}
+                          data-testid={`button-export-xero-${order.id}`}
+                        >
+                          <FileOutput className="w-4 h-4 mr-1" />
+                          {exportToXeroMutation.isPending && exportingOrderId === order.id ? "..." : "Xero"}
+                        </Button>
+                      )}
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-2">
@@ -435,6 +557,8 @@ export default function CrmOrders() {
                             <SelectContent>
                               <SelectItem value="draft">Draft</SelectItem>
                               <SelectItem value="confirmed">Confirmed</SelectItem>
+                              <SelectItem value="invoiced">Invoiced</SelectItem>
+                              <SelectItem value="paid">Paid</SelectItem>
                               <SelectItem value="dispatched">Dispatched</SelectItem>
                               <SelectItem value="delivered">Delivered</SelectItem>
                               <SelectItem value="cancelled">Cancelled</SelectItem>
@@ -540,6 +664,120 @@ export default function CrmOrders() {
                 />
               )}
 
+              {/* Discount and Shipping */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg">Discount & Shipping</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-2 gap-6">
+                    <div>
+                      <h4 className="font-medium mb-3">Discount</h4>
+                      <div className="grid grid-cols-2 gap-4">
+                        <FormField
+                          control={form.control}
+                          name="discountType"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Discount Type</FormLabel>
+                              <Select onValueChange={field.onChange} value={field.value || "none"}>
+                                <FormControl>
+                                  <SelectTrigger data-testid="select-discount-type">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  <SelectItem value="none">No Discount</SelectItem>
+                                  <SelectItem value="percentage">Percentage</SelectItem>
+                                  <SelectItem value="fixed">Fixed Amount</SelectItem>
+                                </SelectContent>
+                              </Select>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+
+                        <FormField
+                          control={form.control}
+                          name="discountValue"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>
+                                {watchDiscountType === "percentage" ? "Percentage (%)" : "Amount (£)"}
+                              </FormLabel>
+                              <FormControl>
+                                <Input
+                                  {...field}
+                                  type="number"
+                                  step={watchDiscountType === "percentage" ? "0.1" : "0.01"}
+                                  min="0"
+                                  disabled={watchDiscountType === "none"}
+                                  onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
+                                  data-testid="input-discount-value"
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <h4 className="font-medium mb-3">Shipping</h4>
+                      <div className="grid grid-cols-2 gap-4">
+                        <FormField
+                          control={form.control}
+                          name="shippingExVat"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Shipping (ex VAT)</FormLabel>
+                              <FormControl>
+                                <Input
+                                  {...field}
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
+                                  onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
+                                  data-testid="input-shipping"
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+
+                        <FormField
+                          control={form.control}
+                          name="shippingVatRate"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Shipping VAT Rate</FormLabel>
+                              <Select 
+                                onValueChange={(v) => field.onChange(parseInt(v))} 
+                                value={field.value?.toString() || "2000"}
+                              >
+                                <FormControl>
+                                  <SelectTrigger data-testid="select-shipping-vat">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  <SelectItem value="0">0%</SelectItem>
+                                  <SelectItem value="500">5%</SelectItem>
+                                  <SelectItem value="2000">20%</SelectItem>
+                                </SelectContent>
+                              </Select>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
               <div className="flex justify-end gap-2">
                 <Button 
                   type="button" 
@@ -587,24 +825,26 @@ export default function CrmOrders() {
 }
 
 interface LocalLineItemsEditorProps {
-  products: SelectBrewProduct[];
+  products: SelectCrmProduct[];
   lineItems: LocalLineItem[];
-  onAddLine: (productId: string, quantity: number, unitPriceExVat: number, vatRate: number) => void;
+  onAddLine: (productId: string, description: string, quantity: number, unitPriceExVat: number, vatRate: number) => void;
   onRemoveLine: (tempId: string) => void;
   onUpdateLine: (tempId: string, updates: Partial<LocalLineItem>) => void;
-  totals: { subtotalExVat: number; vatTotal: number; totalIncVat: number };
+  totals: ReturnType<typeof calculateOrderTotals>;
 }
 
 function LocalLineItemsEditor({ products, lineItems, onAddLine, onRemoveLine, onUpdateLine, totals }: LocalLineItemsEditorProps) {
   const { toast } = useToast();
   const [newLineData, setNewLineData] = useState({
     productId: "",
+    description: "",
     quantity: 1,
     unitPriceExVat: 0,
     vatRate: 2000,
   });
   const [editingTempId, setEditingTempId] = useState<string | null>(null);
-  const [editData, setEditData] = useState<{ quantity: number; unitPriceExVat: number; vatRate: number }>({
+  const [editData, setEditData] = useState<{ description: string; quantity: number; unitPriceExVat: number; vatRate: number }>({
+    description: "",
     quantity: 1,
     unitPriceExVat: 0,
     vatRate: 2000,
@@ -617,11 +857,12 @@ function LocalLineItemsEditor({ products, lineItems, onAddLine, onRemoveLine, on
     }
     onAddLine(
       newLineData.productId,
+      newLineData.description,
       newLineData.quantity,
       Math.round(newLineData.unitPriceExVat * 100),
       newLineData.vatRate
     );
-    setNewLineData({ productId: "", quantity: 1, unitPriceExVat: 0, vatRate: 2000 });
+    setNewLineData({ productId: "", description: "", quantity: 1, unitPriceExVat: 0, vatRate: 2000 });
   };
 
   const handleProductChange = (productId: string) => {
@@ -629,6 +870,7 @@ function LocalLineItemsEditor({ products, lineItems, onAddLine, onRemoveLine, on
     if (product) {
       setNewLineData({
         productId,
+        description: product.name, // Default description to product name
         quantity: 1,
         unitPriceExVat: (product.defaultUnitPriceExVat || 0) / 100,
         vatRate: product.defaultVatRate || 2000,
@@ -644,6 +886,7 @@ function LocalLineItemsEditor({ products, lineItems, onAddLine, onRemoveLine, on
   const startEditing = (line: LocalLineItem) => {
     setEditingTempId(line.tempId);
     setEditData({
+      description: line.description,
       quantity: line.quantity,
       unitPriceExVat: line.unitPriceExVat / 100,
       vatRate: line.vatRate,
@@ -653,6 +896,7 @@ function LocalLineItemsEditor({ products, lineItems, onAddLine, onRemoveLine, on
   const saveEditing = () => {
     if (editingTempId) {
       onUpdateLine(editingTempId, {
+        description: editData.description,
         quantity: editData.quantity,
         unitPriceExVat: Math.round(editData.unitPriceExVat * 100),
         vatRate: editData.vatRate,
@@ -665,7 +909,9 @@ function LocalLineItemsEditor({ products, lineItems, onAddLine, onRemoveLine, on
     setEditingTempId(null);
   };
 
-  const hasNoProducts = products.length === 0;
+  // Filter to only active products
+  const activeProducts = products.filter((p: any) => p.isActive === 1);
+  const hasNoProducts = activeProducts.length === 0;
 
   return (
     <Card>
@@ -676,7 +922,7 @@ function LocalLineItemsEditor({ products, lineItems, onAddLine, onRemoveLine, on
         {hasNoProducts && (
           <div className="mb-4 p-4 border rounded-md bg-muted/30">
             <p className="text-sm text-muted-foreground">
-              You need to create at least one product before you can add line items.
+              You need to create at least one active product before you can add line items.
             </p>
           </div>
         )}
@@ -686,6 +932,7 @@ function LocalLineItemsEditor({ products, lineItems, onAddLine, onRemoveLine, on
             <TableHeader>
               <TableRow>
                 <TableHead>Product</TableHead>
+                <TableHead>Description</TableHead>
                 <TableHead className="text-right">Qty</TableHead>
                 <TableHead className="text-right">Unit Price (ex VAT)</TableHead>
                 <TableHead className="text-right">VAT Rate</TableHead>
@@ -698,7 +945,7 @@ function LocalLineItemsEditor({ products, lineItems, onAddLine, onRemoveLine, on
             <TableBody>
               {lineItems.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center text-muted-foreground">
+                  <TableCell colSpan={9} className="text-center text-muted-foreground">
                     No line items yet. Add products below.
                   </TableCell>
                 </TableRow>
@@ -708,6 +955,14 @@ function LocalLineItemsEditor({ products, lineItems, onAddLine, onRemoveLine, on
                     <TableCell>{getProductName(line.productId)}</TableCell>
                     {editingTempId === line.tempId ? (
                       <>
+                        <TableCell>
+                          <Input
+                            value={editData.description}
+                            onChange={(e) => setEditData({ ...editData, description: e.target.value })}
+                            className="w-40"
+                            data-testid="input-edit-description"
+                          />
+                        </TableCell>
                         <TableCell className="text-right">
                           <Input
                             type="number"
@@ -758,6 +1013,7 @@ function LocalLineItemsEditor({ products, lineItems, onAddLine, onRemoveLine, on
                       </>
                     ) : (
                       <>
+                        <TableCell className="text-sm text-muted-foreground">{line.description || "-"}</TableCell>
                         <TableCell className="text-right">{line.quantity}</TableCell>
                         <TableCell className="text-right">{formatCurrency(line.unitPriceExVat)}</TableCell>
                         <TableCell className="text-right">{formatVatRate(line.vatRate)}</TableCell>
@@ -795,7 +1051,7 @@ function LocalLineItemsEditor({ products, lineItems, onAddLine, onRemoveLine, on
 
         <div className="border rounded-md p-4 space-y-4 bg-muted/30">
           <h4 className="font-medium">Add Line Item</h4>
-          <div className="grid grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="text-sm font-medium">Product *</label>
               <Select 
@@ -808,7 +1064,7 @@ function LocalLineItemsEditor({ products, lineItems, onAddLine, onRemoveLine, on
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="__none__" disabled>Select product</SelectItem>
-                  {products.map((product) => (
+                  {activeProducts.map((product: any) => (
                     <SelectItem key={product.id} value={product.id}>
                       {product.name}
                     </SelectItem>
@@ -817,6 +1073,18 @@ function LocalLineItemsEditor({ products, lineItems, onAddLine, onRemoveLine, on
               </Select>
             </div>
 
+            <div>
+              <label className="text-sm font-medium">Description (Override)</label>
+              <Input
+                value={newLineData.description}
+                onChange={(e) => setNewLineData({ ...newLineData, description: e.target.value })}
+                placeholder="Line item description"
+                data-testid="input-new-description"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-4 gap-4">
             <div>
               <label className="text-sm font-medium">Quantity *</label>
               <Input
@@ -856,18 +1124,19 @@ function LocalLineItemsEditor({ products, lineItems, onAddLine, onRemoveLine, on
                 </SelectContent>
               </Select>
             </div>
-          </div>
 
-          <div className="flex justify-end">
-            <Button 
-              type="button" 
-              onClick={handleAddLine}
-              disabled={!newLineData.productId || hasNoProducts}
-              data-testid="button-add-line"
-            >
-              <Plus className="w-4 h-4 mr-2" />
-              Add Line Item
-            </Button>
+            <div className="flex items-end">
+              <Button 
+                type="button" 
+                onClick={handleAddLine}
+                disabled={!newLineData.productId || hasNoProducts}
+                data-testid="button-add-line"
+                className="w-full"
+              >
+                <Plus className="w-4 h-4 mr-2" />
+                Add Line Item
+              </Button>
+            </div>
           </div>
         </div>
 
@@ -878,11 +1147,24 @@ function LocalLineItemsEditor({ products, lineItems, onAddLine, onRemoveLine, on
                 <span className="text-muted-foreground">Subtotal (ex VAT):</span>
                 <span className="font-medium" data-testid="text-local-subtotal">{formatCurrency(totals.subtotalExVat)}</span>
               </div>
+              {totals.discountAmount > 0 && (
+                <div className="flex justify-between text-sm gap-4 text-green-600">
+                  <span>Discount:</span>
+                  <span className="font-medium">-{formatCurrency(totals.discountAmount)}</span>
+                </div>
+              )}
+              {totals.shippingExVat > 0 && (
+                <div className="flex justify-between text-sm gap-4">
+                  <span className="text-muted-foreground">Shipping:</span>
+                  <span className="font-medium">{formatCurrency(totals.shippingExVat)}</span>
+                </div>
+              )}
               <div className="flex justify-between text-sm gap-4">
                 <span className="text-muted-foreground">VAT:</span>
                 <span className="font-medium" data-testid="text-local-vat">{formatCurrency(totals.vatTotal)}</span>
               </div>
-              <div className="flex justify-between text-lg font-semibold border-t pt-2 gap-4">
+              <Separator />
+              <div className="flex justify-between text-lg font-semibold gap-4">
                 <span>Total (inc VAT):</span>
                 <span data-testid="text-local-total">{formatCurrency(totals.totalIncVat)}</span>
               </div>
@@ -896,23 +1178,26 @@ function LocalLineItemsEditor({ products, lineItems, onAddLine, onRemoveLine, on
 
 interface OrderLineItemsEditorProps {
   orderId: string;
-  products: SelectBrewProduct[];
+  products: SelectCrmProduct[];
 }
 
 function OrderLineItemsEditor({ orderId, products }: OrderLineItemsEditorProps) {
   const { toast } = useToast();
   const [editingLineId, setEditingLineId] = useState<string | null>(null);
-  const [editData, setEditData] = useState<{ quantity: number; unitPriceExVat: number; vatRate: number }>({
+  const [editData, setEditData] = useState<{ description: string; quantity: number; unitPriceExVat: number; vatRate: number }>({
+    description: "",
     quantity: 1,
     unitPriceExVat: 0,
     vatRate: 2000,
   });
   const [newLineData, setNewLineData] = useState({
     productId: "",
+    description: "",
     quantity: 1,
     unitPriceExVat: 0,
     vatRate: 2000,
   });
+  const [deletingLineId, setDeletingLineId] = useState<string | null>(null);
 
   const { data: lineItems = [], isLoading } = useQuery<SelectCrmOrderLine[]>({
     queryKey: ['/api/crm/order-lines', orderId],
@@ -928,14 +1213,14 @@ function OrderLineItemsEditor({ orderId, products }: OrderLineItemsEditorProps) 
   });
 
   const createLineMutation = useMutation({
-    mutationFn: (data: { orderId: string; productId: string; quantity: number; unitPriceExVat: number; vatRate: number }) => 
+    mutationFn: (data: { orderId: string; productId: string; description?: string; quantity: number; unitPriceExVat: number; vatRate: number }) => 
       apiRequest('POST', '/api/crm/order-lines', data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/crm/order-lines', orderId] });
       queryClient.invalidateQueries({ queryKey: ['/api/crm/orders/detail', orderId] });
       queryClient.invalidateQueries({ queryKey: ['/api/crm/orders'] });
       toast({ title: "Line item added successfully" });
-      setNewLineData({ productId: "", quantity: 1, unitPriceExVat: 0, vatRate: 2000 });
+      setNewLineData({ productId: "", description: "", quantity: 1, unitPriceExVat: 0, vatRate: 2000 });
     },
     onError: (error: Error) => {
       toast({ title: "Failed to add line item", description: error.message, variant: "destructive" });
@@ -943,7 +1228,7 @@ function OrderLineItemsEditor({ orderId, products }: OrderLineItemsEditorProps) 
   });
 
   const updateLineMutation = useMutation({
-    mutationFn: ({ id, ...data }: { id: string; quantity: number; unitPriceExVat: number; vatRate: number }) => 
+    mutationFn: ({ id, ...data }: { id: string; description?: string; quantity: number; unitPriceExVat: number; vatRate: number }) => 
       apiRequest('PATCH', `/api/crm/order-lines/${id}`, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/crm/order-lines', orderId] });
@@ -964,6 +1249,7 @@ function OrderLineItemsEditor({ orderId, products }: OrderLineItemsEditorProps) 
       queryClient.invalidateQueries({ queryKey: ['/api/crm/orders/detail', orderId] });
       queryClient.invalidateQueries({ queryKey: ['/api/crm/orders'] });
       toast({ title: "Line item deleted successfully" });
+      setDeletingLineId(null);
     },
     onError: (error: Error) => {
       toast({ title: "Failed to delete line item", description: error.message, variant: "destructive" });
@@ -979,6 +1265,7 @@ function OrderLineItemsEditor({ orderId, products }: OrderLineItemsEditorProps) 
     createLineMutation.mutate({
       orderId,
       productId: newLineData.productId,
+      description: newLineData.description || null,
       quantity: newLineData.quantity,
       unitPriceExVat: Math.round(newLineData.unitPriceExVat * 100),
       vatRate: newLineData.vatRate,
@@ -990,6 +1277,7 @@ function OrderLineItemsEditor({ orderId, products }: OrderLineItemsEditorProps) 
     if (product) {
       setNewLineData({
         productId,
+        description: product.name, // Default description to product name
         quantity: 1,
         unitPriceExVat: (product.defaultUnitPriceExVat || 0) / 100,
         vatRate: product.defaultVatRate || 2000,
@@ -1006,6 +1294,7 @@ function OrderLineItemsEditor({ orderId, products }: OrderLineItemsEditorProps) 
   const startEditing = (line: SelectCrmOrderLine) => {
     setEditingLineId(line.id);
     setEditData({
+      description: (line as any).description || "",
       quantity: line.quantity,
       unitPriceExVat: (line.unitPriceExVat || 0) / 100,
       vatRate: line.vatRate,
@@ -1016,6 +1305,7 @@ function OrderLineItemsEditor({ orderId, products }: OrderLineItemsEditorProps) 
     if (editingLineId) {
       updateLineMutation.mutate({
         id: editingLineId,
+        description: editData.description || null,
         quantity: editData.quantity,
         unitPriceExVat: Math.round(editData.unitPriceExVat * 100),
         vatRate: editData.vatRate,
@@ -1027,7 +1317,8 @@ function OrderLineItemsEditor({ orderId, products }: OrderLineItemsEditorProps) 
     setEditingLineId(null);
   };
 
-  const hasNoProducts = products.length === 0;
+  const activeProducts = products.filter((p: any) => p.isActive === 1);
+  const hasNoProducts = activeProducts.length === 0;
 
   return (
     <Card>
@@ -1042,7 +1333,7 @@ function OrderLineItemsEditor({ orderId, products }: OrderLineItemsEditorProps) 
             {hasNoProducts && (
               <div className="mb-4 p-4 border rounded-md bg-muted/30">
                 <p className="text-sm text-muted-foreground">
-                  You need to create at least one product before you can add line items.
+                  You need to create at least one active product before you can add line items.
                 </p>
               </div>
             )}
@@ -1052,6 +1343,7 @@ function OrderLineItemsEditor({ orderId, products }: OrderLineItemsEditorProps) 
                 <TableHeader>
                   <TableRow>
                     <TableHead>Product</TableHead>
+                    <TableHead>Description</TableHead>
                     <TableHead className="text-right">Qty</TableHead>
                     <TableHead className="text-right">Unit Price (ex VAT)</TableHead>
                     <TableHead className="text-right">VAT Rate</TableHead>
@@ -1064,7 +1356,7 @@ function OrderLineItemsEditor({ orderId, products }: OrderLineItemsEditorProps) 
                 <TableBody>
                   {lineItems.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={8} className="text-center text-muted-foreground">
+                      <TableCell colSpan={9} className="text-center text-muted-foreground">
                         No line items yet. Add products below.
                       </TableCell>
                     </TableRow>
@@ -1074,6 +1366,14 @@ function OrderLineItemsEditor({ orderId, products }: OrderLineItemsEditorProps) 
                         <TableCell>{getProductName(line.productId)}</TableCell>
                         {editingLineId === line.id ? (
                           <>
+                            <TableCell>
+                              <Input
+                                value={editData.description}
+                                onChange={(e) => setEditData({ ...editData, description: e.target.value })}
+                                className="w-40"
+                                data-testid="input-edit-line-description"
+                              />
+                            </TableCell>
                             <TableCell className="text-right">
                               <Input
                                 type="number"
@@ -1135,6 +1435,7 @@ function OrderLineItemsEditor({ orderId, products }: OrderLineItemsEditorProps) 
                           </>
                         ) : (
                           <>
+                            <TableCell className="text-sm text-muted-foreground">{(line as any).description || "-"}</TableCell>
                             <TableCell className="text-right">{line.quantity}</TableCell>
                             <TableCell className="text-right">{formatCurrency(line.unitPriceExVat || 0)}</TableCell>
                             <TableCell className="text-right">{formatVatRate(line.vatRate)}</TableCell>
@@ -1154,8 +1455,7 @@ function OrderLineItemsEditor({ orderId, products }: OrderLineItemsEditorProps) 
                                 <Button
                                   variant="ghost"
                                   size="icon"
-                                  onClick={() => deleteLineMutation.mutate(line.id)}
-                                  disabled={deleteLineMutation.isPending}
+                                  onClick={() => setDeletingLineId(line.id)}
                                   data-testid={`button-delete-line-${line.id}`}
                                 >
                                   <Trash2 className="w-4 h-4" />
@@ -1173,7 +1473,7 @@ function OrderLineItemsEditor({ orderId, products }: OrderLineItemsEditorProps) 
 
             <div className="border rounded-md p-4 space-y-4 bg-muted/30">
               <h4 className="font-medium">Add Line Item</h4>
-              <div className="grid grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="text-sm font-medium">Product *</label>
                   <Select 
@@ -1186,7 +1486,7 @@ function OrderLineItemsEditor({ orderId, products }: OrderLineItemsEditorProps) 
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="__none__" disabled>Select product</SelectItem>
-                      {products.map((product) => (
+                      {activeProducts.map((product: any) => (
                         <SelectItem key={product.id} value={product.id}>
                           {product.name}
                         </SelectItem>
@@ -1195,6 +1495,18 @@ function OrderLineItemsEditor({ orderId, products }: OrderLineItemsEditorProps) 
                   </Select>
                 </div>
 
+                <div>
+                  <label className="text-sm font-medium">Description (Override)</label>
+                  <Input
+                    value={newLineData.description}
+                    onChange={(e) => setNewLineData({ ...newLineData, description: e.target.value })}
+                    placeholder="Line item description"
+                    data-testid="input-new-description"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-4 gap-4">
                 <div>
                   <label className="text-sm font-medium">Quantity *</label>
                   <Input
@@ -1234,18 +1546,19 @@ function OrderLineItemsEditor({ orderId, products }: OrderLineItemsEditorProps) 
                     </SelectContent>
                   </Select>
                 </div>
-              </div>
 
-              <div className="flex justify-end">
-                <Button 
-                  type="button" 
-                  onClick={handleAddLine}
-                  disabled={!newLineData.productId || createLineMutation.isPending || hasNoProducts}
-                  data-testid="button-add-line"
-                >
-                  <Plus className="w-4 h-4 mr-2" />
-                  Add Line Item
-                </Button>
+                <div className="flex items-end">
+                  <Button 
+                    type="button" 
+                    onClick={handleAddLine}
+                    disabled={!newLineData.productId || createLineMutation.isPending || hasNoProducts}
+                    data-testid="button-add-line"
+                    className="w-full"
+                  >
+                    <Plus className="w-4 h-4 mr-2" />
+                    Add Line Item
+                  </Button>
+                </div>
               </div>
             </div>
 
@@ -1257,11 +1570,24 @@ function OrderLineItemsEditor({ orderId, products }: OrderLineItemsEditorProps) 
                       <span className="text-muted-foreground">Subtotal (ex VAT):</span>
                       <span className="font-medium" data-testid="text-order-subtotal">{formatCurrency(order.subtotalExVat || 0)}</span>
                     </div>
+                    {(order as any).discountAmount > 0 && (
+                      <div className="flex justify-between text-sm gap-4 text-green-600">
+                        <span>Discount:</span>
+                        <span className="font-medium">-{formatCurrency((order as any).discountAmount)}</span>
+                      </div>
+                    )}
+                    {(order as any).shippingExVat > 0 && (
+                      <div className="flex justify-between text-sm gap-4">
+                        <span className="text-muted-foreground">Shipping:</span>
+                        <span className="font-medium">{formatCurrency((order as any).shippingExVat)}</span>
+                      </div>
+                    )}
                     <div className="flex justify-between text-sm gap-4">
                       <span className="text-muted-foreground">VAT:</span>
                       <span className="font-medium" data-testid="text-order-vat">{formatCurrency(order.vatTotal || 0)}</span>
                     </div>
-                    <div className="flex justify-between text-lg font-semibold border-t pt-2 gap-4">
+                    <Separator />
+                    <div className="flex justify-between text-lg font-semibold gap-4">
                       <span>Total (inc VAT):</span>
                       <span data-testid="text-order-total">{formatCurrency(order.totalIncVat || 0)}</span>
                     </div>
@@ -1272,6 +1598,26 @@ function OrderLineItemsEditor({ orderId, products }: OrderLineItemsEditorProps) 
           </>
         )}
       </CardContent>
+
+      {/* Delete Line Item Confirmation */}
+      <AlertDialog open={!!deletingLineId} onOpenChange={() => setDeletingLineId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Line Item</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this line item? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={() => deletingLineId && deleteLineMutation.mutate(deletingLineId)}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Card>
   );
 }
