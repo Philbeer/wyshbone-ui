@@ -1,0 +1,201 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e2]:
+  - generic [ref=e5]:
+    - generic [ref=e9]:
+      - generic [ref=e10]:
+        - generic [ref=e11]:
+          - img [ref=e12]
+          - text: Default Country
+        - list [ref=e16]:
+          - listitem [ref=e17]:
+            - combobox [ref=e18] [cursor=pointer]:
+              - generic: United Kingdom
+              - img [ref=e19]
+      - generic [ref=e21]:
+        - generic [ref=e22]:
+          - img [ref=e23]
+          - text: Industry Vertical
+        - combobox [ref=e27] [cursor=pointer]:
+          - generic: Breweries
+          - img [ref=e28]
+      - generic [ref=e30]:
+        - generic [ref=e31]: Navigation
+        - list [ref=e33]:
+          - listitem [ref=e34]:
+            - button "New Chat" [ref=e35] [cursor=pointer]:
+              - img [ref=e36]
+              - generic [ref=e39]: New Chat
+          - listitem [ref=e40]:
+            - button "Previous Chats" [ref=e42] [cursor=pointer]:
+              - img [ref=e43]
+              - generic [ref=e45]: Previous Chats
+          - listitem [ref=e46]:
+            - link "Memory Debug" [ref=e47] [cursor=pointer]:
+              - /url: /debug
+              - img [ref=e48]
+              - generic [ref=e57]: Memory Debug
+          - listitem [ref=e58]:
+            - link "Account" [ref=e59] [cursor=pointer]:
+              - /url: /account
+              - img [ref=e60]
+              - generic [ref=e63]: Account
+          - listitem [ref=e64]:
+            - link "Pricing" [ref=e65] [cursor=pointer]:
+              - /url: /pricing
+              - img [ref=e66]
+              - generic [ref=e68]: Pricing
+          - listitem [ref=e69]:
+            - link "CRM & Accounting" [ref=e70] [cursor=pointer]:
+              - /url: /auth/crm
+              - img [ref=e71]
+              - generic [ref=e74]: CRM & Accounting
+          - listitem [ref=e75]:
+            - link "Leads" [ref=e76] [cursor=pointer]:
+              - /url: /leads
+              - img [ref=e77]
+              - generic [ref=e82]: Leads
+          - listitem [ref=e83]:
+            - link "Nudges" [ref=e84] [cursor=pointer]:
+              - /url: /nudges
+              - img [ref=e85]
+              - generic [ref=e87]: Nudges
+          - listitem [ref=e88]:
+            - button "Integrations" [ref=e90] [cursor=pointer]:
+              - img [ref=e91]
+              - img [ref=e93]
+              - generic [ref=e96]: Integrations
+          - listitem [ref=e97]:
+            - button "Show me around" [ref=e98] [cursor=pointer]:
+              - img [ref=e99]
+              - generic [ref=e102]: Show me around
+          - listitem [ref=e103]:
+            - button "Try Demo Mode" [ref=e104] [cursor=pointer]:
+              - img [ref=e105]
+              - generic [ref=e107]: Try Demo Mode
+      - generic [ref=e108]:
+        - generic [ref=e109]: Monitors
+        - list [ref=e111]:
+          - listitem [ref=e112]:
+            - button "Scheduled Monitors" [ref=e114] [cursor=pointer]:
+              - img [ref=e115]
+              - img [ref=e117]
+              - generic [ref=e120]: Scheduled Monitors
+          - listitem [ref=e121]:
+            - link "Email Finder Runs" [ref=e122] [cursor=pointer]:
+              - /url: /batch-history
+              - img [ref=e123]
+              - generic [ref=e127]: Email Finder Runs
+      - generic [ref=e128]:
+        - generic [ref=e129]: Deep Researches
+        - generic [ref=e130]:
+          - paragraph [ref=e131]: Deep dive research reports. Click to view. Use Stop to cancel. Menu for more actions.
+          - generic [ref=e132]:
+            - heading "Today (0)" [level=3] [ref=e133]:
+              - text: Today
+              - generic [ref=e134]: (0)
+            - generic [ref=e135]: No runs.
+          - generic [ref=e136]:
+            - heading "Previous (0)" [level=3] [ref=e137]:
+              - text: Previous
+              - generic [ref=e138]: (0)
+            - generic [ref=e139]: No runs.
+    - generic [ref=e140]:
+      - banner [ref=e141]:
+        - button "Toggle Sidebar" [ref=e142] [cursor=pointer]:
+          - img
+          - generic [ref=e143]: Toggle Sidebar
+        - generic [ref=e144]:
+          - generic [ref=e145]:
+            - img [ref=e146]
+            - generic [ref=e148]: "Vertical: Breweries"
+          - generic [ref=e149]: Idle
+          - button "Demo User" [ref=e151] [cursor=pointer]:
+            - img
+            - generic [ref=e152]: Demo User
+          - button [ref=e153] [cursor=pointer]:
+            - img
+      - main [ref=e154]:
+        - generic [ref=e156]:
+          - generic [ref=e157]:
+            - generic [ref=e158]:
+              - generic [ref=e159]:
+                - heading "CRM System" [level=1] [ref=e160]
+                - paragraph [ref=e161]: Manage customers, orders, products, and stock
+              - tablist [ref=e163]:
+                - tab "Generic CRM" [selected] [ref=e164] [cursor=pointer]:
+                  - img [ref=e165]
+                  - text: Generic CRM
+                - tab "Brewery CRM" [ref=e169] [cursor=pointer]:
+                  - img [ref=e170]
+                  - text: Brewery CRM
+            - generic [ref=e174]:
+              - link "Dashboard" [ref=e175] [cursor=pointer]:
+                - /url: /auth/crm/
+                - img
+                - text: Dashboard
+              - link "Products" [ref=e176] [cursor=pointer]:
+                - /url: /auth/crm/products
+                - img
+                - text: Products
+              - link "Customers" [ref=e177] [cursor=pointer]:
+                - /url: /auth/crm/customers
+                - img
+                - text: Customers
+              - link "Orders" [ref=e178] [cursor=pointer]:
+                - /url: /auth/crm/orders
+                - img
+                - text: Orders
+              - link "Delivery Runs" [ref=e179] [cursor=pointer]:
+                - /url: /auth/crm/delivery-runs
+                - img
+                - text: Delivery Runs
+              - link "Stock" [ref=e180] [cursor=pointer]:
+                - /url: /auth/crm/stock
+                - img
+                - text: Stock
+              - link "Settings" [ref=e181] [cursor=pointer]:
+                - /url: /auth/crm/settings
+                - img
+                - text: Settings
+          - generic [ref=e184]:
+            - generic [ref=e185]:
+              - heading "Products" [level=2] [ref=e186]
+              - paragraph [ref=e187]: Manage your product catalog
+            - button "Add Product" [ref=e188] [cursor=pointer]:
+              - img
+              - text: Add Product
+        - generic [ref=e195]:
+          - generic [ref=e196]:
+            - generic [ref=e197]:
+              - generic [ref=e198]: My Goal
+              - generic [ref=e199]: Wyshbone uses this goal to plan and run lead generation on your behalf.
+            - generic [ref=e200]:
+              - 'textbox "Describe your main sales/lead goal here... For example: • Find 50 new pubs in Yorkshire that might stock craft IPA • Identify dental practices in Manchester for our equipment • Discover coffee shops in London that opened in 2024" [ref=e201]':
+                - /placeholder: "Describe your main sales/lead goal here... \r\n\r\nFor example:\r\n• Find 50 new pubs in Yorkshire that might stock craft IPA\r\n• Identify dental practices in Manchester for our equipment\r\n• Discover coffee shops in London that opened in 2024"
+              - button "Save goal" [disabled]:
+                - img
+                - text: Save goal
+          - generic [ref=e210]:
+            - generic [ref=e212]: Progress
+            - generic [ref=e214]: No active plan running. When you approve a plan, progress will appear here.
+  - region "Notifications (F8)":
+    - list
+  - dialog "Onboarding tour" [ref=e215]:
+    - generic [ref=e217]:
+      - generic [ref=e219]:
+        - generic [ref=e220]:
+          - img [ref=e222]
+          - generic [ref=e225]: Ask Wyshbone Anything
+        - button "Skip tour" [ref=e226] [cursor=pointer]:
+          - img
+      - paragraph [ref=e228]: This is where you tell Wyshbone what you need. Try "Find 30 pubs in Sussex" or "Research the micropub market".
+      - generic [ref=e229]:
+        - generic [ref=e235]: 1 of 4
+        - generic [ref=e236]:
+          - button "Skip" [ref=e237] [cursor=pointer]
+          - button "Next" [ref=e238] [cursor=pointer]:
+            - text: Next
+            - img
+```

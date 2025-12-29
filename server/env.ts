@@ -171,10 +171,12 @@ if (validation.warnings.length > 0) {
 
 console.log(`${'='.repeat(60)}\n`);
 
-// Fail fast if required vars are missing
+// Handle missing required vars
+const isDev = process.env.NODE_ENV === 'development';
+
 if (!validation.valid) {
   console.error(`\n${'!'.repeat(60)}`);
-  console.error(`❌ FATAL: Missing required environment variables:`);
+  console.error(`❌ ${isDev ? 'WARNING' : 'FATAL'}: Missing required environment variables:`);
   console.error(`${'!'.repeat(60)}`);
   for (const key of validation.missing) {
     console.error(`   • ${key}`);
@@ -191,7 +193,13 @@ if (!validation.valid) {
   console.error(`   OPENAI_API_KEY=sk-...`);
   console.error(`${'!'.repeat(60)}\n`);
   
-  process.exit(1);
+  // In development mode, warn but continue (stub behavior available)
+  if (isDev) {
+    console.warn(`\n⚠️  DEV MODE: Continuing with missing env vars. Some features will use stub responses.\n`);
+  } else {
+    // In production, fail fast
+    process.exit(1);
+  }
 }
 
 // Export for use by other modules

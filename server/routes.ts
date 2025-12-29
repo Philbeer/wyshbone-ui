@@ -650,6 +650,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // POST /agent/chat - MEGA Agent Kernel (Hybrid Mode)
   // This runs alongside the standard chat for testing/comparison
   app.post("/agent/chat", async (req, res) => {
+    // DEV MODE: Check for missing OPENAI_API_KEY and return helpful error
+    if (!process.env.OPENAI_API_KEY) {
+      console.warn('⚠️ OPENAI_API_KEY not set - agent chat unavailable');
+      return res.status(503).json({
+        ok: false,
+        error: 'Chat unavailable: OPENAI_API_KEY not configured',
+        natural: '⚠️ **Chat unavailable**: OPENAI_API_KEY is not configured.\n\nTo fix this:\n1. Create a `.env.local` file in the repo root\n2. Add: `OPENAI_API_KEY=sk-your-key-here`\n3. Restart the dev server\n\n*Other features (CRM, products, orders) should still work.*',
+        plan: null,
+      });
+    }
+    
     try {
       const auth = await getAuthenticatedUserId(req);
       if (!auth) {
@@ -973,6 +984,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ===========================
   app.post("/api/chat", async (req, res) => {
     console.log('🎯 POST /api/chat received', { query: req.query, hasBody: !!req.body });
+    
+    // DEV MODE: Check for missing OPENAI_API_KEY and return helpful stub response
+    if (!process.env.OPENAI_API_KEY) {
+      console.warn('⚠️ OPENAI_API_KEY not set - returning stub response');
+      res.setHeader('Content-Type', 'text/plain');
+      res.setHeader('Transfer-Encoding', 'chunked');
+      res.write('⚠️ **Chat unavailable**: OPENAI_API_KEY is not configured.\n\n');
+      res.write('To fix this:\n');
+      res.write('1. Create a `.env.local` file in the repo root\n');
+      res.write('2. Add: `OPENAI_API_KEY=sk-your-key-here`\n');
+      res.write('3. Restart the dev server\n\n');
+      res.write('*Other features (CRM, products, orders) should still work.*');
+      res.end();
+      return;
+    }
     
     // 🏢 TOWER: Declare variables at top level for error handler access
     let runId = '';

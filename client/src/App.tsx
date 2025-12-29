@@ -35,6 +35,7 @@ import { OnboardingTourProvider } from "@/contexts/OnboardingTourContext";
 import { OnboardingTour } from "@/components/onboarding/OnboardingTour";
 import { DemoModeProvider } from "@/contexts/DemoModeContext";
 import { DemoModeBanner } from "@/components/DemoModeBanner";
+import { DevBanner } from "@/components/DevBanner";
 import { MyGoalsPanel } from "@/components/my-goals-panel";
 import { PlanApprovalPanel } from "@/components/plan-approval-panel";
 import { ProgressWidget } from "@/components/progress-widget";
@@ -492,6 +493,8 @@ function AppLayout({
 
   return (
     <div className="flex flex-col h-screen w-full overflow-hidden">
+      {/* Dev mode banner showing backend status (only in development) */}
+      <DevBanner />
       {/* UI-20: Demo mode banner at the top of the screen */}
       <DemoModeBanner />
       <div className="flex flex-1 overflow-hidden">
