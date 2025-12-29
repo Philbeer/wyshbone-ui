@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { pgTable, text, integer, jsonb, bigint, index, serial, numeric, date, timestamp, uuid } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, jsonb, bigint, index, serial, numeric, date, timestamp, uuid, real } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 
@@ -984,6 +984,27 @@ export const insertBrewDutyReportSchema = createInsertSchema(brewDutyReports);
 export const selectBrewDutyReportSchema = createSelectSchema(brewDutyReports);
 export type InsertBrewDutyReport = typeof brewDutyReports.$inferInsert;
 export type SelectBrewDutyReport = typeof brewDutyReports.$inferSelect;
+
+// Brewery Duty Lookup Bands (for UK duty calculations)
+export const brewDutyLookupBands = pgTable("brew_duty_lookup_bands", {
+  id: text("id").primaryKey(),
+  regime: text("regime").notNull().default("UK"), // e.g., 'UK', 'EU'
+  dutyCategoryKey: text("duty_category_key").notNull(), // e.g., 'beer_standard', 'beer_small_producer'
+  thresholdHl: integer("threshold_hl").notNull().default(0), // Hectolitres threshold for this band
+  m: real("m").notNull(), // Multiplier for duty calculation
+  c: real("c").notNull(), // Constant for duty calculation
+  baseRatePerHl: real("base_rate_per_hl").notNull(), // Base rate per hectolitre in pounds
+  effectiveFrom: text("effective_from").notNull(), // Date string YYYY-MM-DD
+  effectiveTo: text("effective_to"), // Date string YYYY-MM-DD, null if current
+}, (table) => ({
+  regimeIdx: index("brew_duty_lookup_bands_regime_idx").on(table.regime),
+  categoryIdx: index("brew_duty_lookup_bands_category_idx").on(table.dutyCategoryKey),
+}));
+
+export const insertBrewDutyLookupBandSchema = createInsertSchema(brewDutyLookupBands);
+export const selectBrewDutyLookupBandSchema = createSelectSchema(brewDutyLookupBands);
+export type InsertBrewDutyLookupBand = typeof brewDutyLookupBands.$inferInsert;
+export type SelectBrewDutyLookupBand = typeof brewDutyLookupBands.$inferSelect;
 
 // Brewery Settings
 export const brewSettings = pgTable("brew_settings", {
