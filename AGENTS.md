@@ -9,86 +9,30 @@ Wyshbone UI is a CRM application with:
 - **Backend**: Express API (server/)
 - **Database**: Drizzle ORM with PostgreSQL/Supabase
 
-## Mandatory QA Gate
+## Testing Strategy
 
-> ⚠️ **CRITICAL**: You MUST complete the smoke test before declaring ANY task "done".
+### Local Development (Fast)
 
-See `.cursor/rules/qa-gate.mdc` for the complete rules. Summary below.
+For most local changes, smoke tests are **NOT required**. Use fast checks:
 
----
-
-## QA Checklist (Run Before Every "Done")
-
-### Generic Smoke Test
-
-Every task completion requires verification of core functionality:
-
-| # | Test | What to Check |
-|---|------|---------------|
-| 1 | **Boot FE+BE** | `npm run dev` starts without errors |
-| 2 | **Create Product** | Add product form works, no 404/500, no hang |
-| 3 | **List Products** | Products page shows the new product |
-| 4 | **Edit Product** | Edit and save works without errors |
-| 5 | **Create Order** | Add order form works |
-| 6 | **Add Line Item** | Can add product as line item to order |
-| 7 | **Refresh Test** | Hard refresh - all data persists |
-| 8 | **Console/Network** | No 404, no 500, no red console errors |
-
-### Task-Specific Checks
-
-Add 1–3 additional checks based on what you changed:
-
-- Modified a form? → Test that specific form's CRUD
-- Changed an API route? → Test that endpoint directly
-- Updated a shared component? → Test all pages using it
-- Touched auth? → Test login/logout flow
-
----
-
-## Failure Protocol
-
-If ANY test fails:
-
-1. **Identify**: Which endpoint/component failed? What's the error?
-2. **Fix**: Update the code to resolve the issue
-3. **Re-test**: Run the FULL smoke test again
-4. **Repeat**: Until all tests pass
-
-**Never** mark a task done with failing tests.
-
----
-
-## Required Deliverable
-
-Every completed task MUST include a QA Report:
-
-```markdown
-## QA Report
-
-### Generic Smoke Test
-| Step | Test | Result |
-|------|------|--------|
-| 1 | Boot FE+BE | ✅ |
-| 2 | Create Product | ✅ |
-| 3 | List Products | ✅ |
-| 4 | Edit Product | ✅ |
-| 5 | Create Order | ✅ |
-| 6 | Add Line Item | ✅ |
-| 7 | Refresh & Persistence | ✅ |
-| 8 | No Console/Network Errors | ✅ |
-
-### Task-Specific Checks
-| Check | Result |
-|-------|--------|
-| [Your specific test 1] | ✅/❌ |
-| [Your specific test 2] | ✅/❌ |
-
-### Issues Found & Fixed
-- None (or list what was fixed)
-
-### Files Changed
-- list/of/files.ts
+```bash
+npm run check      # TypeScript typecheck
 ```
+
+### CI/CD (Automatic)
+
+Smoke tests run automatically in GitHub Actions on:
+- Push to main/develop branches
+- Pull requests
+
+### Manual Smoke Tests
+
+Run `npm run smoke` only when:
+- User explicitly requests it
+- Making significant CRM changes
+- Before major deployments
+
+See `.cursor/rules/qa-gate.mdc` for details.
 
 ---
 
@@ -158,22 +102,20 @@ wyshbone-ui/
 ## Rules Reminder
 
 1. **No deployments** without explicit "deploy now" instruction
-2. **Always run smoke tests** before saying "done" - use `npm run smoke` for automated testing
-3. **Fix failures** before completing tasks
-4. **Include QA report** with every task completion
+2. **Smoke tests are optional locally** - they run in CI automatically
+3. **Run `npm run smoke` only when requested** or for major CRM changes
+4. **Fast local checks**: Use `npm run check` for TypeScript validation
 
-## Automated Smoke Test
+## Smoke Test (Optional Locally, Auto in CI)
 
-The `npm run smoke` command runs Playwright tests covering the 8-step QA checklist:
+The `npm run smoke` command runs Playwright tests covering core CRM flows.
 
-1. **Boot FE+BE** - Verifies page loads
-2. **Create Product** - Tests add product form
-3. **List Products** - Verifies product appears in table
-4. **Edit Product** - Tests edit functionality
-5. **Create Order** - Tests add order form
-6. **Add Line Item** - Tests line item functionality
-7. **Refresh & Persistence** - Verifies data persists after reload
-8. **Console/Network** - Checks for 404/500 errors
+**When to use locally:**
+- User explicitly requests smoke tests
+- Major changes to products/orders/customers
+- Before deployment
+
+**CI runs automatically** on push to main/develop and on PRs.
 
 **Prerequisites:** Run `npm run dev` first, then in another terminal run `npm run smoke`
 

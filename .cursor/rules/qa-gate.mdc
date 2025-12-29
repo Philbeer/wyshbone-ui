@@ -1,153 +1,56 @@
 ---
-alwaysApply: true
+alwaysApply: false
 name: qa_gate
 description: |
-  Mandatory QA gate for all agent tasks. Agent MUST complete smoke tests
-  before marking any task as done.
+  QA guidelines for agent tasks. Smoke tests are OPTIONAL for local development
+  and run automatically in CI. Only run when explicitly requested or for major changes.
 ---
 
-# QA Gate: Mandatory Smoke Test Before "Done"
+# QA Guidelines
 
-## CRITICAL RULE
+## Local Development (Default)
 
-**You are NOT allowed to say "done", "complete", "finished", or similar until you have:**
+For most local changes, **skip smoke tests**. Use fast checks only:
 
-1. Run the Generic Smoke Test (see below)
-2. Run 1–3 task-specific checks based on what you changed
-3. Produced a QA Report with ✅/❌ checklist
-
----
-
-## Generic Smoke Test Checklist
-
-Before declaring ANY task complete, you MUST verify all of the following:
-
-### Step 1: Boot FE + BE
 ```bash
-npm run dev
+npm run check      # TypeScript typecheck (fast)
 ```
-- Wait for both frontend and backend to be ready
-- Frontend should be at http://localhost:5173 (or configured port)
-- Backend API should respond
 
-### Step 2: Create Product
-- Navigate to Products page
-- Click "Add Product" 
-- Fill form and submit
-- **MUST NOT hang**
-- **MUST NOT return 404 or 500**
-- Product should appear in list
+**Smoke tests (`npm run smoke`) are NOT required for every task.**
 
-### Step 3: List Products
-- Refresh the Products page
-- Previously created product MUST appear
-- No console errors, no network 404/500
+## When to Run Smoke Tests
 
-### Step 4: Edit Product
-- Click edit on a product
-- Change a field and save
-- **Save MUST work** (no errors)
-- Changes should persist
+Run smoke tests ONLY when:
+1. User explicitly requests it ("run smoke", "full QA", "test everything")
+2. Making significant changes to core CRM flows (products, orders, customers)
+3. User says "done" or "ship it" on a major feature
 
-### Step 5: Create Order
-- Navigate to Orders page
-- Click "Add Order"
-- Fill form and submit
-- **MUST work** (no 404/500)
+## CI Automation
 
-### Step 6: Add Line Item
-- Open an order
-- Add a line item with a product
-- **MUST work** (no errors)
+Smoke tests run automatically in GitHub Actions on:
+- Push to main/develop branches
+- Pull requests
 
-### Step 7: Refresh & Persistence
-- Hard refresh the page (Ctrl+Shift+R / Cmd+Shift+R)
-- All data created above MUST still be visible
-- No data loss
+## If Smoke Tests Are Requested
 
-### Step 8: Console/Network Check
-- Open browser DevTools (F12)
-- Check Console tab: **NO red errors related to your changes**
-- Check Network tab: **NO 404 or 500 responses**
-
----
-
-## Task-Specific Checks
-
-After the Generic Smoke Test passes, add 1–3 additional checks specific to what you changed:
-
-**Examples:**
-- If you modified the Customer form → test Create/Edit Customer
-- If you changed Stock page → verify stock levels update correctly
-- If you touched authentication → test login/logout flow
-- If you modified API routes → test those specific endpoints
-- If you changed a component → test all pages using that component
-
----
-
-## Failure Protocol
-
-If ANY smoke test step fails:
-
-1. **IDENTIFY** the failing endpoint and exact error (copy the error message)
-2. **DIAGNOSE** the root cause (check server logs, network response, code)
-3. **FIX** the root cause in code
-4. **RE-RUN** the entire smoke test from Step 1
-5. **REPEAT** until all steps pass
-
-**DO NOT** move on or declare "done" with any failing tests.
-
----
-
-## QA Report Format
-
-Every task completion MUST include this report:
+Run `npm run smoke` and report results:
 
 ```markdown
 ## QA Report
 
-### Generic Smoke Test
-| Step | Test | Result |
-|------|------|--------|
-| 1 | Boot FE+BE | ✅/❌ |
-| 2 | Create Product | ✅/❌ |
-| 3 | List Products | ✅/❌ |
-| 4 | Edit Product | ✅/❌ |
-| 5 | Create Order | ✅/❌ |
-| 6 | Add Line Item | ✅/❌ |
-| 7 | Refresh & Persistence | ✅/❌ |
-| 8 | No Console/Network Errors | ✅/❌ |
-
-### Task-Specific Checks
-| Check | Result |
-|-------|--------|
-| [describe check 1] | ✅/❌ |
-| [describe check 2] | ✅/❌ |
-| [describe check 3] | ✅/❌ |
-
-### Issues Found & Fixed
-- [Issue 1]: [How it was fixed]
-- [Issue 2]: [How it was fixed]
-- (or "None" if all passed first time)
-
-### Files Changed
-- `path/to/file1.ts`
-- `path/to/file2.tsx`
-- ...
+| Step | Result |
+|------|--------|
+| 1. Boot FE+BE | ✅/❌ |
+| 2. Create Product | ✅/❌ |
+| 3. List Products | ✅/❌ |
+| 4. Edit Product | ✅/❌ |
+| 5. Create Order | ✅/❌ |
+| 6. Add Line Item | ✅/❌ |
+| 7. Refresh | ✅/❌ |
+| 8. No Errors | ✅/❌ |
 ```
 
----
+## Skipping QA
 
-## Exceptions
-
-The smoke test may be abbreviated ONLY if:
-- The task is documentation-only (no code changes)
-- The task explicitly requests skipping QA (user says "skip QA")
-
-Even then, state clearly: "QA skipped per user request" or "No code changes, QA not applicable"
-
----
-
-## Remember
-
-The QA gate exists to catch regressions before the user sees them. Take the extra 2 minutes to verify. It saves hours of debugging later.
+For documentation-only changes or when user says "skip QA", state:
+> "QA skipped - no code changes" or "QA skipped per user request"
