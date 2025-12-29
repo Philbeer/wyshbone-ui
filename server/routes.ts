@@ -7352,6 +7352,18 @@ ${run.outputText}`;
       
       res.json(settings);
     } catch (error: any) {
+      // Demo mode fallback: return default settings
+      if (error.cause?.code === 'ENOTFOUND' && req.params.workspaceId === 'demo-user') {
+        console.warn('[CRM] Database DNS failed for demo-user settings, returning defaults');
+        return res.json({
+          id: 'demo-settings',
+          workspaceId: 'demo-user',
+          industryVertical: 'breweries',
+          defaultCountry: 'GB',
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        });
+      }
       console.error("Error getting CRM settings:", error);
       res.status(500).json({ error: error.message || "Failed to get settings" });
     }
@@ -7457,6 +7469,11 @@ ${run.outputText}`;
       
       res.json(customers);
     } catch (error: any) {
+      // Demo mode fallback: return empty array
+      if (error.cause?.code === 'ENOTFOUND' && req.params.workspaceId === 'demo-user') {
+        console.warn('[CRM] Database DNS failed for demo-user customers, returning empty array');
+        return res.json([]);
+      }
       console.error("Error listing customers:", error);
       res.status(500).json({ error: error.message || "Failed to list customers" });
     }
@@ -7833,6 +7850,11 @@ ${run.outputText}`;
       
       res.json(products);
     } catch (error: any) {
+      // Demo mode fallback: return empty array if database is unavailable
+      if (error.cause?.code === 'ENOTFOUND' && req.params.workspaceId === 'demo-user') {
+        console.warn('[CRM] Database DNS failed for demo-user products, returning empty array');
+        return res.json([]);
+      }
       console.error("Error listing products:", error);
       res.status(500).json({ error: error.message || "Failed to list products" });
     }
@@ -7868,34 +7890,64 @@ ${run.outputText}`;
   
   // POST /api/crm/products - Create product
   app.post("/api/crm/products", async (req, res) => {
-    try {
-      const auth = await getAuthenticatedUserId(req);
-      if (!auth) {
-        return res.status(401).json({ error: "Unauthorized" });
+    const auth = await getAuthenticatedUserId(req);
+    if (!auth) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    
+    const data = req.body;
+    
+    // SECURITY: Force workspaceId to be the authenticated user's ID
+    const workspaceId = auth.userId;
+    
+    const now = Date.now();
+    const productData = {
+      id: `crm_product_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+      workspaceId,
+      name: data.name,
+      sku: data.sku || null,
+      description: data.description || null,
+      category: data.category || null,
+      unitType: data.unitType || 'each',
+      defaultUnitPriceExVat: data.defaultUnitPriceExVat || 0,
+      defaultVatRate: data.defaultVatRate || 2000,
+      isActive: data.isActive ?? 1,
+      trackStock: data.trackStock ?? 0,
+      createdAt: now,
+      updatedAt: now,
+    };
+    
+    // In demo mode, use a timeout to fail fast if DB is unreachable
+    if (isDemoMode()) {
+      const DB_TIMEOUT_MS = 8000; // 8 second timeout for demo mode
+      const timeoutPromise = new Promise<never>((_, reject) => 
+        setTimeout(() => reject(new Error('DB_TIMEOUT')), DB_TIMEOUT_MS)
+      );
+      
+      try {
+        const product = await Promise.race([
+          storage.createCrmProduct(productData),
+          timeoutPromise
+        ]);
+        return res.json(product);
+      } catch (error: any) {
+        // Return mock product for demo mode when DB fails or times out
+        if (error.message === 'DB_TIMEOUT' || error.cause?.code === 'ENOTFOUND') {
+          console.warn('[CRM] Database unavailable in demo mode, returning mock product');
+          const mockProduct = {
+            ...productData,
+            id: `crm_product_demo_${now}`,
+            workspaceId: 'demo-user',
+          };
+          return res.json(mockProduct);
+        }
+        throw error; // Re-throw other errors
       }
-      
-      const data = req.body;
-      
-      // SECURITY: Force workspaceId to be the authenticated user's ID
-      const workspaceId = auth.userId;
-      
-      const now = Date.now();
-      const product = await storage.createCrmProduct({
-        id: `crm_product_${Date.now()}_${Math.random().toString(36).substring(7)}`,
-        workspaceId,
-        name: data.name,
-        sku: data.sku || null,
-        description: data.description || null,
-        category: data.category || null,
-        unitType: data.unitType || 'each',
-        defaultUnitPriceExVat: data.defaultUnitPriceExVat || 0,
-        defaultVatRate: data.defaultVatRate || 2000,
-        isActive: data.isActive ?? 1,
-        trackStock: data.trackStock ?? 0,
-        createdAt: now,
-        updatedAt: now,
-      });
-      
+    }
+    
+    // Normal mode - no timeout wrapper
+    try {
+      const product = await storage.createCrmProduct(productData);
       res.json(product);
     } catch (error: any) {
       console.error("Error creating product:", error);
@@ -7932,6 +7984,11 @@ ${run.outputText}`;
       
       res.json(product);
     } catch (error: any) {
+      // Demo mode fallback: return mock updated product
+      if (error.cause?.code === 'ENOTFOUND' && isDemoMode()) {
+        console.warn('[CRM] Database DNS failed for demo-user, returning mock updated product');
+        return res.json({ id, ...req.body, updatedAt: Date.now() });
+      }
       console.error("Error updating product:", error);
       res.status(500).json({ error: error.message || "Failed to update product" });
     }
@@ -7961,6 +8018,11 @@ ${run.outputText}`;
       
       res.json({ success });
     } catch (error: any) {
+      // Demo mode fallback: return success
+      if (error.cause?.code === 'ENOTFOUND' && isDemoMode()) {
+        console.warn('[CRM] Database DNS failed for demo-user, returning mock delete success');
+        return res.json({ success: true });
+      }
       console.error("Error deleting product:", error);
       res.status(500).json({ error: error.message || "Failed to delete product" });
     }
@@ -8205,6 +8267,11 @@ ${run.outputText}`;
       
       res.json(orders);
     } catch (error: any) {
+      // Demo mode fallback: return empty array
+      if (error.cause?.code === 'ENOTFOUND' && req.params.workspaceId === 'demo-user') {
+        console.warn('[CRM] Database DNS failed for demo-user orders, returning empty array');
+        return res.json([]);
+      }
       console.error("Error listing orders:", error);
       res.status(500).json({ error: error.message || "Failed to list orders" });
     }

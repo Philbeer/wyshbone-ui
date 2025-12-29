@@ -798,7 +798,12 @@ if (!process.env.DATABASE_URL) {
   throw new Error('DATABASE_URL is required but not set. Check your environment configuration.');
 }
 
-const queryClient = postgres(process.env.DATABASE_URL);
+// Set faster connection and query timeout for quicker fallback in demo mode
+const queryClient = postgres(process.env.DATABASE_URL, {
+  connect_timeout: 5, // 5 second connection timeout (default is much longer)
+  idle_timeout: 10,
+  max_lifetime: 60 * 30,
+});
 const db = drizzle(queryClient);
 
 export class DbStorage implements IStorage {
