@@ -238,7 +238,7 @@ test.describe('UI Smoke Test Suite', () => {
     const productPayload = {
       name: TEST_PRODUCT.name,
       sku: TEST_PRODUCT.sku,
-      defaultUnitPriceExVat: parseFloat(TEST_PRODUCT.price),
+      defaultUnitPriceExVat: Math.round(parseFloat(TEST_PRODUCT.price) * 100), // Convert to pence
       category: TEST_PRODUCT.category,
       unitType: 'each',
       defaultVatRate: 2000, // 20%
@@ -259,25 +259,48 @@ test.describe('UI Smoke Test Suite', () => {
     console.log(`📥 API Response Status: ${apiStatus}`);
     console.log(`📥 API Response Body (first 500 chars): ${apiBody.substring(0, 500)}`);
     
-    // Assert success (200 or 201)
+    // Assert success (200 or 201) or meaningful error
     if (apiStatus >= 400) {
+      // Parse error response to get structured error info
+      let errorInfo = apiBody;
+      try {
+        const errorJson = JSON.parse(apiBody);
+        errorInfo = `Code: ${errorJson.code || 'N/A'}, Message: ${errorJson.message || errorJson.error || apiBody}`;
+        if (errorJson.hint) {
+          errorInfo += `\nHint: ${errorJson.hint}`;
+        }
+      } catch {
+        // Not JSON, use raw body
+      }
+      
       console.log('\n❌ ═══════════════════════════════════════════════════════════');
       console.log(`❌ PRODUCT CREATE FAILED`);
       console.log(`❌ POST ${API_URL}/api/crm/products`);
       console.log(`❌ Status: ${apiStatus}`);
-      console.log(`❌ Body: ${apiBody}`);
+      console.log(`❌ Error: ${errorInfo}`);
       console.log('❌ ═══════════════════════════════════════════════════════════\n');
     }
     
     expect(apiStatus, `Expected 200/201 but got ${apiStatus}. Body: ${apiBody.substring(0, 200)}`).toBeLessThan(300);
     
-    // Parse response to get product ID
+    // Parse response to get product ID and validate structure
     try {
       const createdProduct = JSON.parse(apiBody);
+      
+      // Validate required fields are present
+      expect(createdProduct.id, 'Product should have an ID').toBeTruthy();
+      expect(createdProduct.name, 'Product should have name').toBe(TEST_PRODUCT.name);
+      expect(createdProduct.sku, 'Product should have SKU').toBe(TEST_PRODUCT.sku);
+      
       createdProductId = createdProduct.id;
       console.log(`✅ Product created with ID: ${createdProductId}`);
-    } catch {
-      console.log('⚠️ Could not parse product ID from response');
+      
+      // Check if it's a mock product (demo mode fallback)
+      if (createdProduct.id.includes('demo')) {
+        console.log('📝 Note: Product created as mock (demo mode fallback - DB table may not exist)');
+      }
+    } catch (parseError) {
+      console.log('⚠️ Could not parse product from response:', parseError);
     }
     
     // =========================================================================

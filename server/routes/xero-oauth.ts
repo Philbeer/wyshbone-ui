@@ -1,6 +1,7 @@
-import { Router, type Request } from "express";
+import { Router, type Request, type Response } from "express";
 import { randomBytes, createHmac } from "crypto";
 import type { IStorage } from "../storage";
+import { XeroClient } from "xero-node";
 
 // Secret for signing OAuth state tokens (REQUIRED in production)
 const STATE_SECRET = process.env.OAUTH_STATE_SECRET || (() => {
@@ -91,7 +92,8 @@ const XERO_CLIENT_SECRET = process.env.XERO_CLIENT_SECRET;
 
 // Calculate base URL for OAuth redirects
 // BACKEND_URL should be the public URL of this backend (e.g., https://wyshbone-api.onrender.com)
-const BASE_URL = process.env.BACKEND_URL || "http://localhost:5000";
+// In development, backend runs on port 5001
+const BASE_URL = process.env.BACKEND_URL || `http://localhost:${process.env.PORT || 5001}`;
 
 const REDIRECT_URI = `${BASE_URL}/api/integrations/xero/callback`;
 
@@ -445,6 +447,340 @@ export function createXeroOAuthRouter(storage: IStorage) {
     } catch (error: any) {
       console.error("Error creating test contact:", error);
       res.status(500).json({ error: error.message || "Failed to create test contact" });
+    }
+  });
+
+  // ============================================
+  // XERO SYNC - CONNECTION STATUS
+  // ============================================
+
+  // Get Xero connection status for the workspace
+  router.get("/status", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req, storage);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized - please log in" });
+      }
+
+      // First check our dedicated xero_connections table
+      const connection = await storage.getXeroConnection(auth.userId);
+      
+      if (connection && connection.isConnected) {
+        return res.json({
+          connected: true,
+          tenantName: connection.tenantName,
+          lastImportAt: connection.lastImportAt,
+        });
+      }
+
+      // Fallback to integrations table (legacy)
+      const integrations = await storage.listIntegrations(auth.userId);
+      const xeroIntegration = integrations.find((i) => i.provider === "xero");
+      
+      if (!xeroIntegration) {
+        return res.json({ connected: false });
+      }
+
+      const metadata = xeroIntegration.metadata as any;
+      res.json({
+        connected: true,
+        tenantName: metadata?.tenantName || "Unknown",
+        lastImportAt: null,
+      });
+    } catch (error) {
+      console.error("Error getting Xero status:", error);
+      res.status(500).json({ error: "Failed to get status" });
+    }
+  });
+
+  // ============================================
+  // XERO SYNC - CUSTOMER IMPORT
+  // ============================================
+
+  // Helper to get valid access token with auto-refresh
+  async function getValidAccessToken(workspaceId: string): Promise<{ accessToken: string; tenantId: string } | null> {
+    // Check dedicated xero_connections first
+    const connection = await storage.getXeroConnection(workspaceId);
+    
+    if (connection && connection.isConnected) {
+      // Check if token expired
+      if (connection.tokenExpiresAt && new Date() >= connection.tokenExpiresAt) {
+        console.log("🔄 Refreshing expired Xero token (xero_connections)...");
+        
+        const refreshResponse = await fetch(XERO_TOKEN_URL, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+            Authorization: `Basic ${Buffer.from(`${XERO_CLIENT_ID}:${XERO_CLIENT_SECRET}`).toString("base64")}`,
+          },
+          body: new URLSearchParams({
+            grant_type: "refresh_token",
+            refresh_token: connection.refreshToken,
+          }),
+        });
+
+        if (!refreshResponse.ok) {
+          console.error("Token refresh failed");
+          return null;
+        }
+
+        const tokens = await refreshResponse.json();
+        await storage.updateXeroTokens(
+          workspaceId,
+          tokens.access_token,
+          tokens.refresh_token,
+          new Date(Date.now() + (tokens.expires_in * 1000))
+        );
+
+        return { accessToken: tokens.access_token, tenantId: connection.tenantId };
+      }
+
+      return { accessToken: connection.accessToken, tenantId: connection.tenantId };
+    }
+
+    // Fallback to integrations table
+    const integrations = await storage.listIntegrations(workspaceId);
+    const xeroIntegration = integrations.find((i) => i.provider === "xero");
+    
+    if (!xeroIntegration) return null;
+
+    const metadata = xeroIntegration.metadata as any;
+    const tenantId = metadata?.tenantId;
+    if (!tenantId) return null;
+
+    let accessToken = xeroIntegration.accessToken;
+    const expiresAt = xeroIntegration.expiresAt || 0;
+
+    if (Date.now() >= expiresAt) {
+      console.log("🔄 Refreshing expired Xero token (integrations)...");
+      
+      const refreshResponse = await fetch(XERO_TOKEN_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          Authorization: `Basic ${Buffer.from(`${XERO_CLIENT_ID}:${XERO_CLIENT_SECRET}`).toString("base64")}`,
+        },
+        body: new URLSearchParams({
+          grant_type: "refresh_token",
+          refresh_token: xeroIntegration.refreshToken!,
+        }),
+      });
+
+      if (!refreshResponse.ok) {
+        console.error("Token refresh failed");
+        return null;
+      }
+
+      const tokens = await refreshResponse.json();
+      await storage.updateIntegration(xeroIntegration.id, {
+        accessToken: tokens.access_token,
+        refreshToken: tokens.refresh_token,
+        expiresAt: Date.now() + (tokens.expires_in * 1000),
+        updatedAt: Date.now(),
+      });
+
+      accessToken = tokens.access_token;
+    }
+
+    return { accessToken, tenantId };
+  }
+
+  // Start customer import job
+  router.post("/import/customers", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req, storage);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized - please log in" });
+      }
+
+      // Verify Xero connection
+      const tokenData = await getValidAccessToken(auth.userId);
+      if (!tokenData) {
+        return res.status(400).json({ error: "Xero not connected. Please connect Xero first." });
+      }
+
+      // Create import job
+      const job = await storage.createXeroImportJob({
+        workspaceId: auth.userId,
+        jobType: "customers",
+        status: "pending",
+      });
+
+      // Start async import (don't wait for completion)
+      importCustomersFromXero(auth.userId, job.id, tokenData.accessToken, tokenData.tenantId).catch(error => {
+        console.error("Customer import failed:", error);
+        storage.updateXeroImportJob(job.id, auth.userId, {
+          status: "failed",
+          errorMessage: error.message,
+          completedAt: new Date(),
+        });
+      });
+
+      res.status(202).json({ jobId: job.id, message: "Import started" });
+    } catch (error: any) {
+      console.error("Failed to start import:", error);
+      res.status(500).json({ error: "Failed to start import" });
+    }
+  });
+
+  // Background import function
+  async function importCustomersFromXero(workspaceId: string, jobId: number, accessToken: string, tenantId: string) {
+    // Update job status
+    await storage.updateXeroImportJob(jobId, workspaceId, {
+      status: "running",
+      startedAt: new Date(),
+    });
+
+    try {
+      // Fetch all contacts from Xero
+      const contactsResponse = await fetch("https://api.xero.com/api.xro/2.0/Contacts", {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "xero-tenant-id": tenantId,
+          Accept: "application/json",
+        },
+      });
+
+      if (!contactsResponse.ok) {
+        throw new Error(`Failed to fetch contacts: ${contactsResponse.statusText}`);
+      }
+
+      const contactsData = await contactsResponse.json();
+      const contacts = contactsData.Contacts || [];
+
+      await storage.updateXeroImportJob(jobId, workspaceId, {
+        totalRecords: contacts.length,
+      });
+
+      let processedCount = 0;
+      let failedCount = 0;
+
+      for (const contact of contacts) {
+        try {
+          // Check if already exists by Xero Contact ID
+          const existing = await storage.getCustomerByXeroContactId(
+            contact.ContactID,
+            workspaceId
+          );
+
+          // Get primary phone and address
+          const primaryPhone = contact.Phones?.find((p: any) => p.PhoneType === "DEFAULT" || p.PhoneType === "MOBILE")?.PhoneNumber 
+            || contact.Phones?.[0]?.PhoneNumber;
+          
+          const primaryAddress = contact.Addresses?.find((a: any) => a.AddressType === "STREET") 
+            || contact.Addresses?.[0];
+
+          if (existing) {
+            // Update existing customer
+            await storage.updateCrmCustomer(existing.id, {
+              name: contact.Name || existing.name,
+              email: contact.EmailAddress || existing.email,
+              phone: primaryPhone || existing.phone,
+              addressLine1: primaryAddress?.AddressLine1 || existing.addressLine1,
+              city: primaryAddress?.City || existing.city,
+              postcode: primaryAddress?.PostalCode || existing.postcode,
+              country: primaryAddress?.Country || existing.country,
+              lastXeroSyncAt: new Date(),
+              xeroSyncStatus: "synced",
+            });
+          } else {
+            // Create new customer
+            const customerId = `cust_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+            await storage.createCrmCustomer({
+              id: customerId,
+              workspaceId,
+              name: contact.Name || "Unknown",
+              email: contact.EmailAddress,
+              phone: primaryPhone,
+              addressLine1: primaryAddress?.AddressLine1,
+              city: primaryAddress?.City,
+              postcode: primaryAddress?.PostalCode,
+              country: primaryAddress?.Country || "United Kingdom",
+              xeroContactId: contact.ContactID,
+              lastXeroSyncAt: new Date(),
+              xeroSyncStatus: "synced",
+              createdAt: Date.now(),
+              updatedAt: Date.now(),
+            });
+          }
+
+          processedCount++;
+
+          // Update progress every 10 records
+          if (processedCount % 10 === 0) {
+            await storage.updateXeroImportJob(jobId, workspaceId, {
+              processedRecords: processedCount,
+            });
+          }
+        } catch (error) {
+          console.error(`Failed to import contact ${contact.ContactID}:`, error);
+          failedCount++;
+        }
+      }
+
+      // Mark job complete
+      await storage.updateXeroImportJob(jobId, workspaceId, {
+        status: "completed",
+        processedRecords: processedCount,
+        failedRecords: failedCount,
+        completedAt: new Date(),
+      });
+
+      // Update connection last import time
+      await storage.updateXeroConnection(workspaceId, {
+        lastImportAt: new Date(),
+      });
+
+      console.log(`✅ Xero customer import completed: ${processedCount} imported, ${failedCount} failed`);
+    } catch (error) {
+      console.error("Import failed:", error);
+      await storage.updateXeroImportJob(jobId, workspaceId, {
+        status: "failed",
+        errorMessage: error instanceof Error ? error.message : "Unknown error",
+        completedAt: new Date(),
+      });
+      throw error;
+    }
+  }
+
+  // Get import job status (for progress polling)
+  router.get("/import/jobs/:jobId", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req, storage);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized - please log in" });
+      }
+
+      const jobId = parseInt(req.params.jobId);
+      if (isNaN(jobId)) {
+        return res.status(400).json({ error: "Invalid job ID" });
+      }
+
+      const job = await storage.getXeroImportJob(jobId, auth.userId);
+      if (!job) {
+        return res.status(404).json({ error: "Job not found" });
+      }
+
+      res.json(job);
+    } catch (error) {
+      console.error("Error getting job status:", error);
+      res.status(500).json({ error: "Failed to get job status" });
+    }
+  });
+
+  // Get recent import jobs
+  router.get("/import/jobs", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req, storage);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized - please log in" });
+      }
+
+      const jobs = await storage.getRecentXeroImportJobs(auth.userId);
+      res.json(jobs);
+    } catch (error) {
+      console.error("Error getting jobs:", error);
+      res.status(500).json({ error: "Failed to get jobs" });
     }
   });
 

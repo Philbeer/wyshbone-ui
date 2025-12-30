@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { pgTable, text, integer, jsonb, bigint, index, serial, numeric, date, timestamp, uuid, real } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, jsonb, bigint, index, serial, numeric, date, timestamp, uuid, real, varchar, boolean } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 
@@ -754,11 +754,18 @@ export const crmCustomers = pgTable("crm_customers", {
   postcode: text("postcode"),
   country: text("country").notNull().default("United Kingdom"),
   notes: text("notes"),
+  priceBookId: integer("price_book_id"), // References brew_price_books.id
+  // Xero sync fields
+  xeroContactId: varchar("xero_contact_id", { length: 100 }),
+  lastXeroSyncAt: timestamp("last_xero_sync_at"),
+  xeroSyncStatus: varchar("xero_sync_status", { length: 20 }).default("synced"), // 'synced', 'pending', 'error'
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
   updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
 }, (table) => ({
   workspaceIdIdx: index("crm_customers_workspace_id_idx").on(table.workspaceId),
   nameIdx: index("crm_customers_name_idx").on(table.name),
+  priceBookIdIdx: index("crm_customers_price_book_id_idx").on(table.priceBookId),
+  xeroContactIdIdx: index("crm_customers_xero_contact_id_idx").on(table.xeroContactId),
 }));
 
 export const insertCrmCustomerSchema = createInsertSchema(crmCustomers);
@@ -1076,3 +1083,392 @@ export const insertCrmStockSchema = createInsertSchema(crmStock);
 export const selectCrmStockSchema = createSelectSchema(crmStock);
 export type InsertCrmStock = typeof crmStock.$inferInsert;
 export type SelectCrmStock = typeof crmStock.$inferSelect;
+
+// ============= CRM CALL DIARY TABLE =============
+// Sales diary for scheduling and tracking customer/lead calls
+export const crmCallDiary = pgTable("crm_call_diary", {
+  id: serial("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull(),
+  entityType: text("entity_type").notNull(), // 'customer' or 'lead'
+  entityId: text("entity_id").notNull(),
+  scheduledDate: bigint("scheduled_date", { mode: "number" }).notNull(), // Unix timestamp
+  completed: integer("completed").notNull().default(0), // 0 = false, 1 = true
+  completedDate: bigint("completed_date", { mode: "number" }),
+  notes: text("notes"),
+  outcome: text("outcome"), // 'connected', 'voicemail', 'no-answer', 'rescheduled'
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  createdBy: text("created_by"),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+}, (table) => ({
+  workspaceIdIdx: index("crm_call_diary_workspace_id_idx").on(table.workspaceId),
+  scheduledDateIdx: index("crm_call_diary_scheduled_date_idx").on(table.scheduledDate),
+  entityIdx: index("crm_call_diary_entity_idx").on(table.entityType, table.entityId),
+  completedIdx: index("crm_call_diary_completed_idx").on(table.completed),
+}));
+
+export const insertCrmCallDiarySchema = createInsertSchema(crmCallDiary);
+export const selectCrmCallDiarySchema = createSelectSchema(crmCallDiary);
+export type InsertCrmCallDiary = typeof crmCallDiary.$inferInsert;
+export type SelectCrmCallDiary = typeof crmCallDiary.$inferSelect;
+
+// ============================================
+// BREW PRICE BOOKS
+// ============================================
+// Price books allow different pricing tiers (Trade, Retail, Wholesale, etc.)
+export const brewPriceBooks = pgTable("brew_price_books", {
+  id: serial("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull(),
+  name: varchar("name", { length: 100 }).notNull(),
+  description: text("description"),
+  isDefault: integer("is_default").default(0), // 1 = default price book for workspace
+  parentPriceBookId: integer("parent_price_book_id"), // Self-reference for discount books
+  discountType: varchar("discount_type", { length: 20 }), // 'percentage' | 'fixed'
+  discountValue: integer("discount_value"), // basis points for %, pence for fixed
+  isActive: integer("is_active").default(1), // 1 = active, 0 = inactive
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+}, (table) => ({
+  workspaceIdIdx: index("brew_price_books_workspace_id_idx").on(table.workspaceId),
+  parentIdx: index("brew_price_books_parent_idx").on(table.parentPriceBookId),
+  defaultIdx: index("brew_price_books_default_idx").on(table.workspaceId, table.isDefault),
+}));
+
+export const insertBrewPriceBookSchema = createInsertSchema(brewPriceBooks);
+export const selectBrewPriceBookSchema = createSelectSchema(brewPriceBooks);
+export type InsertBrewPriceBook = typeof brewPriceBooks.$inferInsert;
+export type SelectBrewPriceBook = typeof brewPriceBooks.$inferSelect;
+
+// ============================================
+// BREW PRODUCT PRICES (per Price Book)
+// ============================================
+// Stores specific prices for each product in each price book
+export const brewProductPrices = pgTable("brew_product_prices", {
+  id: serial("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull(),
+  productId: text("product_id").notNull(), // References brew_products.id
+  priceBookId: integer("price_book_id").notNull(), // References brew_price_books.id
+  price: integer("price").notNull(), // Price in pence/cents
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+}, (table) => ({
+  workspaceIdIdx: index("brew_product_prices_workspace_id_idx").on(table.workspaceId),
+  productIdIdx: index("brew_product_prices_product_id_idx").on(table.productId),
+  priceBookIdIdx: index("brew_product_prices_price_book_id_idx").on(table.priceBookId),
+  uniqueProductBook: index("brew_product_prices_unique_idx").on(table.productId, table.priceBookId),
+}));
+
+export const insertBrewProductPriceSchema = createInsertSchema(brewProductPrices);
+export const selectBrewProductPriceSchema = createSelectSchema(brewProductPrices);
+export type InsertBrewProductPrice = typeof brewProductPrices.$inferInsert;
+export type SelectBrewProductPrice = typeof brewProductPrices.$inferSelect;
+
+// ============================================
+// BREW PRICE BANDS (Quantity-based discounts)
+// ============================================
+// Allows quantity-based discounts that apply at order time
+export const brewPriceBands = pgTable("brew_price_bands", {
+  id: serial("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull(),
+  priceBookId: integer("price_book_id").notNull(), // References brew_price_books.id
+  productId: text("product_id"), // NULL = applies to all products in the price book
+  minQuantity: integer("min_quantity").notNull(),
+  maxQuantity: integer("max_quantity"), // NULL = no upper limit
+  discountType: varchar("discount_type", { length: 20 }).notNull(), // 'percentage' | 'fixed'
+  discountValue: integer("discount_value").notNull(), // basis points for %, pence for fixed
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+}, (table) => ({
+  workspaceIdIdx: index("brew_price_bands_workspace_id_idx").on(table.workspaceId),
+  priceBookIdIdx: index("brew_price_bands_price_book_id_idx").on(table.priceBookId),
+  productIdIdx: index("brew_price_bands_product_id_idx").on(table.productId),
+}));
+
+export const insertBrewPriceBandSchema = createInsertSchema(brewPriceBands);
+export const selectBrewPriceBandSchema = createSelectSchema(brewPriceBands);
+export type InsertBrewPriceBand = typeof brewPriceBands.$inferInsert;
+export type SelectBrewPriceBand = typeof brewPriceBands.$inferSelect;
+
+// ============================================
+// TRADE STORE SETTINGS
+// ============================================
+export const brewTradeStoreSettings = pgTable("brew_trade_store_settings", {
+  id: serial("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull(),
+  isEnabled: integer("is_enabled").default(0),
+  storeName: varchar("store_name", { length: 200 }),
+  logoUrl: text("logo_url"),
+  primaryColor: varchar("primary_color", { length: 7 }).default("#1a56db"),
+  welcomeMessage: text("welcome_message"),
+  requireApproval: integer("require_approval").default(1),
+  showStockLevels: integer("show_stock_levels").default(1),
+  allowBackorders: integer("allow_backorders").default(0),
+  minOrderValue: integer("min_order_value"),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+}, (table) => ({
+  workspaceIdIdx: index("trade_store_settings_workspace_idx").on(table.workspaceId),
+}));
+
+export const insertBrewTradeStoreSettingsSchema = createInsertSchema(brewTradeStoreSettings);
+export const selectBrewTradeStoreSettingsSchema = createSelectSchema(brewTradeStoreSettings);
+export type InsertBrewTradeStoreSettings = typeof brewTradeStoreSettings.$inferInsert;
+export type SelectBrewTradeStoreSettings = typeof brewTradeStoreSettings.$inferSelect;
+
+// ============================================
+// TRADE STORE ACCESS
+// ============================================
+export const brewTradeStoreAccess = pgTable("brew_trade_store_access", {
+  id: serial("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull(),
+  customerId: text("customer_id").notNull(),
+  accessCode: varchar("access_code", { length: 100 }).notNull(),
+  isActive: integer("is_active").default(1),
+  approvedAt: bigint("approved_at", { mode: "number" }),
+  lastLoginAt: bigint("last_login_at", { mode: "number" }),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+}, (table) => ({
+  workspaceIdIdx: index("trade_store_access_workspace_idx").on(table.workspaceId),
+  accessCodeIdx: index("trade_store_access_code_idx").on(table.accessCode),
+  customerIdIdx: index("trade_store_access_customer_idx").on(table.customerId),
+}));
+
+export const insertBrewTradeStoreAccessSchema = createInsertSchema(brewTradeStoreAccess);
+export const selectBrewTradeStoreAccessSchema = createSelectSchema(brewTradeStoreAccess);
+export type InsertBrewTradeStoreAccess = typeof brewTradeStoreAccess.$inferInsert;
+export type SelectBrewTradeStoreAccess = typeof brewTradeStoreAccess.$inferSelect;
+
+// ============================================
+// TRADE STORE SESSIONS
+// ============================================
+export const brewTradeStoreSessions = pgTable("brew_trade_store_sessions", {
+  id: serial("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull(),
+  customerId: text("customer_id").notNull(),
+  sessionToken: varchar("session_token", { length: 200 }).notNull(),
+  expiresAt: bigint("expires_at", { mode: "number" }).notNull(),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+}, (table) => ({
+  sessionTokenIdx: index("trade_store_sessions_token_idx").on(table.sessionToken),
+  customerIdIdx: index("trade_store_sessions_customer_idx").on(table.customerId),
+}));
+
+export const insertBrewTradeStoreSessionSchema = createInsertSchema(brewTradeStoreSessions);
+export const selectBrewTradeStoreSessionSchema = createSelectSchema(brewTradeStoreSessions);
+export type InsertBrewTradeStoreSession = typeof brewTradeStoreSessions.$inferInsert;
+export type SelectBrewTradeStoreSession = typeof brewTradeStoreSessions.$inferSelect;
+
+// ============================================
+// CRM SAVED FILTERS
+// ============================================
+export const crmSavedFilters = pgTable("crm_saved_filters", {
+  id: serial("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull(),
+  name: varchar("name", { length: 100 }).notNull(),
+  description: text("description"),
+  filterConfig: jsonb("filter_config").notNull(),
+  isDynamic: integer("is_dynamic").default(1),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+}, (table) => ({
+  workspaceIdIdx: index("saved_filters_workspace_idx").on(table.workspaceId),
+}));
+
+export const insertCrmSavedFilterSchema = createInsertSchema(crmSavedFilters);
+export const selectCrmSavedFilterSchema = createSelectSchema(crmSavedFilters);
+export type InsertCrmSavedFilter = typeof crmSavedFilters.$inferInsert;
+export type SelectCrmSavedFilter = typeof crmSavedFilters.$inferSelect;
+
+// ============================================
+// CRM CUSTOMER TAGS
+// ============================================
+export const crmCustomerTags = pgTable("crm_customer_tags", {
+  id: serial("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull(),
+  name: varchar("name", { length: 50 }).notNull(),
+  color: varchar("color", { length: 7 }).default("#6b7280"),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+}, (table) => ({
+  workspaceIdIdx: index("customer_tags_workspace_idx").on(table.workspaceId),
+}));
+
+export const insertCrmCustomerTagSchema = createInsertSchema(crmCustomerTags);
+export const selectCrmCustomerTagSchema = createSelectSchema(crmCustomerTags);
+export type InsertCrmCustomerTag = typeof crmCustomerTags.$inferInsert;
+export type SelectCrmCustomerTag = typeof crmCustomerTags.$inferSelect;
+
+// ============================================
+// CRM CUSTOMER TAG ASSIGNMENTS
+// ============================================
+export const crmCustomerTagAssignments = pgTable("crm_customer_tag_assignments", {
+  id: serial("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull(),
+  customerId: text("customer_id").notNull(),
+  tagId: integer("tag_id").notNull(),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+}, (table) => ({
+  customerIdIdx: index("tag_assignments_customer_idx").on(table.customerId),
+  tagIdIdx: index("tag_assignments_tag_idx").on(table.tagId),
+}));
+
+export const insertCrmCustomerTagAssignmentSchema = createInsertSchema(crmCustomerTagAssignments);
+export const selectCrmCustomerTagAssignmentSchema = createSelectSchema(crmCustomerTagAssignments);
+export type InsertCrmCustomerTagAssignment = typeof crmCustomerTagAssignments.$inferInsert;
+export type SelectCrmCustomerTagAssignment = typeof crmCustomerTagAssignments.$inferSelect;
+
+// ============================================
+// CRM CUSTOMER GROUPS
+// ============================================
+export const crmCustomerGroups = pgTable("crm_customer_groups", {
+  id: serial("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull(),
+  name: varchar("name", { length: 100 }).notNull(),
+  description: text("description"),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+}, (table) => ({
+  workspaceIdIdx: index("customer_groups_workspace_idx").on(table.workspaceId),
+}));
+
+export const insertCrmCustomerGroupSchema = createInsertSchema(crmCustomerGroups);
+export const selectCrmCustomerGroupSchema = createSelectSchema(crmCustomerGroups);
+export type InsertCrmCustomerGroup = typeof crmCustomerGroups.$inferInsert;
+export type SelectCrmCustomerGroup = typeof crmCustomerGroups.$inferSelect;
+
+// ============================================
+// CRM ACTIVITIES
+// ============================================
+export const crmActivities = pgTable("crm_activities", {
+  id: serial("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull(),
+  customerId: text("customer_id"),
+  leadId: text("lead_id"),
+  activityType: varchar("activity_type", { length: 50 }).notNull(), // 'call', 'meeting', 'email', 'note'
+  subject: varchar("subject", { length: 200 }),
+  notes: text("notes"),
+  outcome: varchar("outcome", { length: 100 }),
+  durationMinutes: integer("duration_minutes"),
+  completedAt: bigint("completed_at", { mode: "number" }),
+  createdBy: text("created_by"),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+}, (table) => ({
+  workspaceIdIdx: index("activities_workspace_idx").on(table.workspaceId),
+  customerIdIdx: index("activities_customer_idx").on(table.customerId),
+  leadIdIdx: index("activities_lead_idx").on(table.leadId),
+  activityTypeIdx: index("activities_type_idx").on(table.activityType),
+}));
+
+export const insertCrmActivitySchema = createInsertSchema(crmActivities);
+export const selectCrmActivitySchema = createSelectSchema(crmActivities);
+export type InsertCrmActivity = typeof crmActivities.$inferInsert;
+export type SelectCrmActivity = typeof crmActivities.$inferSelect;
+
+// ============================================
+// CRM TASKS
+// ============================================
+export const crmTasks = pgTable("crm_tasks", {
+  id: serial("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull(),
+  customerId: text("customer_id"),
+  leadId: text("lead_id"),
+  title: varchar("title", { length: 200 }).notNull(),
+  description: text("description"),
+  dueDate: bigint("due_date", { mode: "number" }).notNull(),
+  priority: varchar("priority", { length: 20 }).default("normal"), // 'low', 'normal', 'high', 'urgent'
+  status: varchar("status", { length: 20 }).default("pending"), // 'pending', 'in_progress', 'completed', 'cancelled'
+  completedAt: bigint("completed_at", { mode: "number" }),
+  assignedTo: text("assigned_to"),
+  createdBy: text("created_by"),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+}, (table) => ({
+  workspaceIdIdx: index("tasks_workspace_idx").on(table.workspaceId),
+  customerIdIdx: index("tasks_customer_idx").on(table.customerId),
+  dueDateIdx: index("tasks_due_date_idx").on(table.dueDate),
+  statusIdx: index("tasks_status_idx").on(table.status),
+}));
+
+export const insertCrmTaskSchema = createInsertSchema(crmTasks);
+export const selectCrmTaskSchema = createSelectSchema(crmTasks);
+export type InsertCrmTask = typeof crmTasks.$inferInsert;
+export type SelectCrmTask = typeof crmTasks.$inferSelect;
+
+// ============================================
+// BREW CONTAINER MOVEMENTS
+// ============================================
+export const brewContainerMovements = pgTable("brew_container_movements", {
+  id: serial("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull(),
+  containerId: text("container_id").notNull(),
+  movementType: varchar("movement_type", { length: 50 }).notNull(), // 'filled', 'dispatched', 'returned', 'cleaned'
+  fromLocation: varchar("from_location", { length: 100 }),
+  toLocation: varchar("to_location", { length: 100 }),
+  customerId: text("customer_id"),
+  orderId: text("order_id"),
+  batchId: text("batch_id"),
+  notes: text("notes"),
+  scannedBy: text("scanned_by"),
+  scannedAt: bigint("scanned_at", { mode: "number" }).notNull(),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+}, (table) => ({
+  workspaceIdIdx: index("container_movements_workspace_idx").on(table.workspaceId),
+  containerIdIdx: index("container_movements_container_idx").on(table.containerId),
+  customerIdIdx: index("container_movements_customer_idx").on(table.customerId),
+  movementTypeIdx: index("container_movements_type_idx").on(table.movementType),
+}));
+
+export const insertBrewContainerMovementSchema = createInsertSchema(brewContainerMovements);
+export const selectBrewContainerMovementSchema = createSelectSchema(brewContainerMovements);
+export type InsertBrewContainerMovement = typeof brewContainerMovements.$inferInsert;
+export type SelectBrewContainerMovement = typeof brewContainerMovements.$inferSelect;
+
+// ============================================
+// XERO CONNECTIONS TABLE
+// ============================================
+// Store Xero connection details per workspace (OAuth tokens)
+export const xeroConnections = pgTable("xero_connections", {
+  id: serial("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull().unique(),
+  tenantId: varchar("tenant_id", { length: 100 }).notNull(),
+  tenantName: varchar("tenant_name", { length: 200 }),
+  accessToken: text("access_token").notNull(),
+  refreshToken: text("refresh_token").notNull(),
+  tokenExpiresAt: timestamp("token_expires_at").notNull(),
+  lastImportAt: timestamp("last_import_at"),
+  isConnected: boolean("is_connected").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  workspaceIdIdx: index("xero_connections_workspace_idx").on(table.workspaceId),
+}));
+
+export const insertXeroConnectionSchema = createInsertSchema(xeroConnections);
+export const selectXeroConnectionSchema = createSelectSchema(xeroConnections);
+export type InsertXeroConnection = typeof xeroConnections.$inferInsert;
+export type SelectXeroConnection = typeof xeroConnections.$inferSelect;
+
+// ============================================
+// XERO IMPORT JOBS TABLE
+// ============================================
+// Track import jobs for progress reporting
+export const xeroImportJobs = pgTable("xero_import_jobs", {
+  id: serial("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull(),
+  jobType: varchar("job_type", { length: 50 }).notNull(), // 'customers', 'orders', 'products'
+  status: varchar("status", { length: 20 }).default("pending"), // 'pending', 'running', 'completed', 'failed'
+  totalRecords: integer("total_records").default(0),
+  processedRecords: integer("processed_records").default(0),
+  failedRecords: integer("failed_records").default(0),
+  errorMessage: text("error_message"),
+  startedAt: timestamp("started_at"),
+  completedAt: timestamp("completed_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  workspaceIdIdx: index("xero_import_jobs_workspace_idx").on(table.workspaceId),
+  statusIdx: index("xero_import_jobs_status_idx").on(table.status),
+}));
+
+export const insertXeroImportJobSchema = createInsertSchema(xeroImportJobs);
+export const selectXeroImportJobSchema = createSelectSchema(xeroImportJobs);
+export type InsertXeroImportJob = typeof xeroImportJobs.$inferInsert;
+export type SelectXeroImportJob = typeof xeroImportJobs.$inferSelect;

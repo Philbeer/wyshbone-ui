@@ -46,7 +46,39 @@ import type {
   SelectBrewDutyReport,
   InsertBrewSettings,
   SelectBrewSettings,
-  SelectBrewDutyLookupBand
+  SelectBrewDutyLookupBand,
+  InsertCrmCallDiary,
+  SelectCrmCallDiary,
+  InsertBrewPriceBook,
+  SelectBrewPriceBook,
+  InsertBrewProductPrice,
+  SelectBrewProductPrice,
+  InsertBrewPriceBand,
+  SelectBrewPriceBand,
+  InsertBrewTradeStoreSettings,
+  SelectBrewTradeStoreSettings,
+  InsertBrewTradeStoreAccess,
+  SelectBrewTradeStoreAccess,
+  InsertBrewTradeStoreSession,
+  SelectBrewTradeStoreSession,
+  InsertCrmSavedFilter,
+  SelectCrmSavedFilter,
+  InsertCrmCustomerTag,
+  SelectCrmCustomerTag,
+  InsertCrmCustomerTagAssignment,
+  SelectCrmCustomerTagAssignment,
+  InsertCrmCustomerGroup,
+  SelectCrmCustomerGroup,
+  InsertCrmActivity,
+  SelectCrmActivity,
+  InsertCrmTask,
+  SelectCrmTask,
+  InsertBrewContainerMovement,
+  SelectBrewContainerMovement,
+  InsertXeroConnection,
+  SelectXeroConnection,
+  InsertXeroImportJob,
+  SelectXeroImportJob
 } from "@shared/schema";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
@@ -74,7 +106,23 @@ import {
   brewContainers,
   brewDutyReports,
   brewSettings,
-  brewDutyLookupBands
+  brewDutyLookupBands,
+  crmCallDiary,
+  brewPriceBooks,
+  brewProductPrices,
+  brewPriceBands,
+  brewTradeStoreSettings,
+  brewTradeStoreAccess,
+  brewTradeStoreSessions,
+  crmSavedFilters,
+  crmCustomerTags,
+  crmCustomerTagAssignments,
+  crmCustomerGroups,
+  crmActivities,
+  crmTasks,
+  brewContainerMovements,
+  xeroConnections,
+  xeroImportJobs
 } from "@shared/schema";
 import { eq, or, and, desc, asc, lt, gt, lte, gte, isNull, sql } from "drizzle-orm";
 
@@ -96,6 +144,16 @@ export interface PartialWorkflow {
   roles?: string[];
   missing_fields: string[];
   timestamp: string;
+}
+
+export interface CallDiaryFilters {
+  entityType?: 'customer' | 'lead';
+  startDate?: number; // Unix timestamp
+  endDate?: number; // Unix timestamp
+  completed?: boolean;
+  county?: string;
+  limit?: number;
+  offset?: number;
 }
 
 export interface IStorage {
@@ -287,6 +345,17 @@ export interface IStorage {
   updateCrmStock(id: string, updates: Partial<InsertCrmStock>): Promise<SelectCrmStock | null>;
   deleteCrmStock(id: string): Promise<boolean>;
   
+  // ============= CRM CALL DIARY CRUD METHODS =============
+  createCallDiaryEntry(entry: InsertCrmCallDiary): Promise<SelectCrmCallDiary>;
+  getCallDiaryEntry(id: number, workspaceId: string): Promise<SelectCrmCallDiary | null>;
+  listCallDiaryEntries(workspaceId: string, filters?: CallDiaryFilters): Promise<SelectCrmCallDiary[]>;
+  listUpcomingCalls(workspaceId: string, filters?: CallDiaryFilters): Promise<SelectCrmCallDiary[]>;
+  listOverdueCalls(workspaceId: string, filters?: CallDiaryFilters): Promise<SelectCrmCallDiary[]>;
+  listCallHistory(workspaceId: string, filters?: CallDiaryFilters): Promise<SelectCrmCallDiary[]>;
+  updateCallDiaryEntry(id: number, workspaceId: string, updates: Partial<InsertCrmCallDiary>): Promise<SelectCrmCallDiary | null>;
+  deleteCallDiaryEntry(id: number, workspaceId: string): Promise<boolean>;
+  getCallsForEntity(entityType: string, entityId: string, workspaceId: string): Promise<SelectCrmCallDiary[]>;
+  
   // ============= BREWERY PRODUCTS CRUD METHODS =============
   createBrewProduct(product: InsertBrewProduct): Promise<SelectBrewProduct>;
   getBrewProduct(id: string): Promise<SelectBrewProduct | null>;
@@ -334,6 +403,110 @@ export interface IStorage {
   
   // ============= BREWERY DUTY LOOKUP BANDS METHODS =============
   listActiveDutyLookupBands(regime?: string): Promise<SelectBrewDutyLookupBand[]>;
+  
+  // ============= BREWERY PRICE BOOKS CRUD METHODS =============
+  createBrewPriceBook(priceBook: InsertBrewPriceBook): Promise<SelectBrewPriceBook>;
+  getBrewPriceBook(id: number, workspaceId: string): Promise<SelectBrewPriceBook | null>;
+  listBrewPriceBooks(workspaceId: string): Promise<SelectBrewPriceBook[]>;
+  listActiveBrewPriceBooks(workspaceId: string): Promise<SelectBrewPriceBook[]>;
+  getDefaultPriceBook(workspaceId: string): Promise<SelectBrewPriceBook | null>;
+  updateBrewPriceBook(id: number, workspaceId: string, updates: Partial<InsertBrewPriceBook>): Promise<SelectBrewPriceBook | null>;
+  deleteBrewPriceBook(id: number, workspaceId: string): Promise<boolean>;
+  unsetDefaultPriceBook(workspaceId: string): Promise<void>;
+  
+  // ============= BREWERY PRODUCT PRICES CRUD METHODS =============
+  createBrewProductPrice(productPrice: InsertBrewProductPrice): Promise<SelectBrewProductPrice>;
+  getProductPricesByPriceBook(priceBookId: number, workspaceId: string): Promise<SelectBrewProductPrice[]>;
+  getProductPriceForBook(productId: string, priceBookId: number, workspaceId: string): Promise<SelectBrewProductPrice | null>;
+  bulkUpsertProductPrices(priceBookId: number, workspaceId: string, prices: Array<{ productId: string; price: number }>): Promise<void>;
+  copyPriceBookPrices(sourcePriceBookId: number, targetPriceBookId: number, workspaceId: string): Promise<void>;
+  deleteProductPricesByPriceBook(priceBookId: number, workspaceId: string): Promise<void>;
+  
+  // ============= BREWERY PRICE BANDS CRUD METHODS =============
+  createBrewPriceBand(priceBand: InsertBrewPriceBand): Promise<SelectBrewPriceBand>;
+  getPriceBandsByPriceBook(priceBookId: number, workspaceId: string): Promise<SelectBrewPriceBand[]>;
+  deletePriceBand(id: number, workspaceId: string): Promise<boolean>;
+  
+  // ============= EFFECTIVE PRICING METHODS =============
+  getEffectiveProductPrice(productId: string, workspaceId: string, customerId?: string, quantity?: number): Promise<{ price: number; priceBookName: string | null; priceBookId: number | null }>;
+  getCustomersByPriceBook(priceBookId: number, workspaceId: string): Promise<SelectCrmCustomer[]>;
+  updateCustomerPriceBook(customerId: string, workspaceId: string, priceBookId: number | null): Promise<void>;
+  
+  // ============= TRADE STORE SETTINGS METHODS =============
+  getTradeStoreSettings(workspaceId: string): Promise<SelectBrewTradeStoreSettings | null>;
+  createOrUpdateTradeStoreSettings(data: InsertBrewTradeStoreSettings): Promise<SelectBrewTradeStoreSettings>;
+  
+  // ============= TRADE STORE ACCESS METHODS =============
+  getTradeStoreAccessList(workspaceId: string): Promise<any[]>;
+  createTradeStoreAccess(data: InsertBrewTradeStoreAccess): Promise<SelectBrewTradeStoreAccess>;
+  getTradeStoreAccessByCode(accessCode: string): Promise<SelectBrewTradeStoreAccess | null>;
+  updateTradeStoreAccess(id: number, workspaceId: string, updates: Partial<InsertBrewTradeStoreAccess>): Promise<SelectBrewTradeStoreAccess | null>;
+  
+  // ============= TRADE STORE SESSION METHODS =============
+  createTradeStoreSession(data: InsertBrewTradeStoreSession): Promise<SelectBrewTradeStoreSession>;
+  getTradeStoreSessionByToken(token: string): Promise<SelectBrewTradeStoreSession | null>;
+  
+  // ============= CRM SAVED FILTERS METHODS =============
+  getSavedFilters(workspaceId: string): Promise<SelectCrmSavedFilter[]>;
+  createSavedFilter(data: InsertCrmSavedFilter): Promise<SelectCrmSavedFilter>;
+  deleteSavedFilter(id: number, workspaceId: string): Promise<boolean>;
+  
+  // ============= CRM CUSTOMER TAGS METHODS =============
+  getCustomerTags(workspaceId: string): Promise<SelectCrmCustomerTag[]>;
+  createCustomerTag(data: InsertCrmCustomerTag): Promise<SelectCrmCustomerTag>;
+  deleteCustomerTag(id: number, workspaceId: string): Promise<boolean>;
+  getCustomerTagsForCustomer(customerId: string, workspaceId: string): Promise<SelectCrmCustomerTag[]>;
+  assignTagToCustomer(customerId: string, tagId: number, workspaceId: string): Promise<void>;
+  removeTagFromCustomer(customerId: string, tagId: number, workspaceId: string): Promise<void>;
+  
+  // ============= CRM CUSTOMER GROUPS METHODS =============
+  getCustomerGroups(workspaceId: string): Promise<SelectCrmCustomerGroup[]>;
+  createCustomerGroup(data: InsertCrmCustomerGroup): Promise<SelectCrmCustomerGroup>;
+  updateCustomerGroup(id: number, workspaceId: string, updates: Partial<InsertCrmCustomerGroup>): Promise<SelectCrmCustomerGroup | null>;
+  deleteCustomerGroup(id: number, workspaceId: string): Promise<boolean>;
+  
+  // ============= CRM ACTIVITIES METHODS =============
+  getActivities(workspaceId: string, filters?: any): Promise<any[]>;
+  getActivitiesForCustomer(customerId: string, workspaceId: string): Promise<SelectCrmActivity[]>;
+  createActivity(data: InsertCrmActivity): Promise<SelectCrmActivity>;
+  
+  // ============= CRM TASKS METHODS =============
+  getTasks(workspaceId: string, filters?: any): Promise<any[]>;
+  getUpcomingTasks(workspaceId: string): Promise<SelectCrmTask[]>;
+  getOverdueTasks(workspaceId: string): Promise<SelectCrmTask[]>;
+  createTask(data: InsertCrmTask): Promise<SelectCrmTask>;
+  updateTask(id: number, workspaceId: string, updates: Partial<InsertCrmTask>): Promise<SelectCrmTask | null>;
+  completeTask(id: number, workspaceId: string): Promise<SelectCrmTask | null>;
+  
+  // ============= CONTAINER QR TRACKING METHODS =============
+  generateContainerQRCode(containerId: string, workspaceId: string): Promise<SelectBrewContainer | null>;
+  getContainerByQRCode(qrCode: string): Promise<SelectBrewContainer | null>;
+  logContainerMovement(data: InsertBrewContainerMovement): Promise<SelectBrewContainerMovement>;
+  getContainerMovements(containerId: string, workspaceId: string): Promise<any[]>;
+  getContainersWithCustomer(customerId: string, workspaceId: string): Promise<any[]>;
+  
+  // ============= DASHBOARD & REPORTING METHODS =============
+  getDashboardKPIs(workspaceId: string): Promise<any>;
+  getRevenueByMonth(workspaceId: string, months?: number): Promise<any[]>;
+  getTopCustomersByRevenue(workspaceId: string, limit?: number): Promise<any[]>;
+  getTopProductsBySales(workspaceId: string, limit?: number): Promise<any[]>;
+  
+  // ============= XERO CONNECTIONS METHODS =============
+  getXeroConnection(workspaceId: string): Promise<SelectXeroConnection | null>;
+  createXeroConnection(data: InsertXeroConnection): Promise<SelectXeroConnection>;
+  updateXeroConnection(workspaceId: string, data: Partial<InsertXeroConnection>): Promise<SelectXeroConnection | null>;
+  updateXeroTokens(workspaceId: string, accessToken: string, refreshToken: string, expiresAt: Date): Promise<SelectXeroConnection | null>;
+  disconnectXero(workspaceId: string): Promise<SelectXeroConnection | null>;
+  
+  // ============= XERO IMPORT JOBS METHODS =============
+  createXeroImportJob(data: InsertXeroImportJob): Promise<SelectXeroImportJob>;
+  getXeroImportJob(jobId: number, workspaceId: string): Promise<SelectXeroImportJob | null>;
+  updateXeroImportJob(jobId: number, workspaceId: string, data: Partial<SelectXeroImportJob>): Promise<SelectXeroImportJob | null>;
+  getRecentXeroImportJobs(workspaceId: string, limit?: number): Promise<SelectXeroImportJob[]>;
+  
+  // ============= CUSTOMER XERO LOOKUPS =============
+  getCustomerByXeroContactId(xeroContactId: string, workspaceId: string): Promise<SelectCrmCustomer | null>;
+  getCustomersWithoutXeroId(workspaceId: string): Promise<SelectCrmCustomer[]>;
 }
 
 export class MemStorage implements IStorage {
@@ -788,6 +961,100 @@ export class MemStorage implements IStorage {
   async transferUserData(fromUserId: string, toUserId: string): Promise<void> {}
   
   async listActiveDutyLookupBands(regime?: string): Promise<SelectBrewDutyLookupBand[]> { return []; }
+  
+  // Price Books - stub methods
+  async createBrewPriceBook(priceBook: InsertBrewPriceBook): Promise<SelectBrewPriceBook> { throw new Error("MemStorage: Price book operations not supported"); }
+  async getBrewPriceBook(id: number, workspaceId: string): Promise<SelectBrewPriceBook | null> { return null; }
+  async listBrewPriceBooks(workspaceId: string): Promise<SelectBrewPriceBook[]> { return []; }
+  async listActiveBrewPriceBooks(workspaceId: string): Promise<SelectBrewPriceBook[]> { return []; }
+  async getDefaultPriceBook(workspaceId: string): Promise<SelectBrewPriceBook | null> { return null; }
+  async updateBrewPriceBook(id: number, workspaceId: string, updates: Partial<InsertBrewPriceBook>): Promise<SelectBrewPriceBook | null> { return null; }
+  async deleteBrewPriceBook(id: number, workspaceId: string): Promise<boolean> { return false; }
+  async unsetDefaultPriceBook(workspaceId: string): Promise<void> {}
+  async createBrewProductPrice(productPrice: InsertBrewProductPrice): Promise<SelectBrewProductPrice> { throw new Error("MemStorage: Product price operations not supported"); }
+  async getProductPricesByPriceBook(priceBookId: number, workspaceId: string): Promise<SelectBrewProductPrice[]> { return []; }
+  async getProductPriceForBook(productId: string, priceBookId: number, workspaceId: string): Promise<SelectBrewProductPrice | null> { return null; }
+  async bulkUpsertProductPrices(priceBookId: number, workspaceId: string, prices: Array<{ productId: string; price: number }>): Promise<void> {}
+  async copyPriceBookPrices(sourcePriceBookId: number, targetPriceBookId: number, workspaceId: string): Promise<void> {}
+  async deleteProductPricesByPriceBook(priceBookId: number, workspaceId: string): Promise<void> {}
+  async createBrewPriceBand(priceBand: InsertBrewPriceBand): Promise<SelectBrewPriceBand> { throw new Error("MemStorage: Price band operations not supported"); }
+  async getPriceBandsByPriceBook(priceBookId: number, workspaceId: string): Promise<SelectBrewPriceBand[]> { return []; }
+  async deletePriceBand(id: number, workspaceId: string): Promise<boolean> { return false; }
+  async getEffectiveProductPrice(productId: string, workspaceId: string, customerId?: string, quantity?: number): Promise<{ price: number; priceBookName: string | null; priceBookId: number | null }> { return { price: 0, priceBookName: null, priceBookId: null }; }
+  async getCustomersByPriceBook(priceBookId: number, workspaceId: string): Promise<SelectCrmCustomer[]> { return []; }
+  async updateCustomerPriceBook(customerId: string, workspaceId: string, priceBookId: number | null): Promise<void> {}
+  
+  // Trade Store - stub methods
+  async getTradeStoreSettings(workspaceId: string): Promise<SelectBrewTradeStoreSettings | null> { return null; }
+  async createOrUpdateTradeStoreSettings(data: InsertBrewTradeStoreSettings): Promise<SelectBrewTradeStoreSettings> { throw new Error("MemStorage: Trade store operations not supported"); }
+  async getTradeStoreAccessList(workspaceId: string): Promise<any[]> { return []; }
+  async createTradeStoreAccess(data: InsertBrewTradeStoreAccess): Promise<SelectBrewTradeStoreAccess> { throw new Error("MemStorage: Trade store operations not supported"); }
+  async getTradeStoreAccessByCode(accessCode: string): Promise<SelectBrewTradeStoreAccess | null> { return null; }
+  async updateTradeStoreAccess(id: number, workspaceId: string, updates: Partial<InsertBrewTradeStoreAccess>): Promise<SelectBrewTradeStoreAccess | null> { return null; }
+  async createTradeStoreSession(data: InsertBrewTradeStoreSession): Promise<SelectBrewTradeStoreSession> { throw new Error("MemStorage: Trade store operations not supported"); }
+  async getTradeStoreSessionByToken(token: string): Promise<SelectBrewTradeStoreSession | null> { return null; }
+  
+  // Saved Filters - stub methods
+  async getSavedFilters(workspaceId: string): Promise<SelectCrmSavedFilter[]> { return []; }
+  async createSavedFilter(data: InsertCrmSavedFilter): Promise<SelectCrmSavedFilter> { throw new Error("MemStorage: Saved filter operations not supported"); }
+  async deleteSavedFilter(id: number, workspaceId: string): Promise<boolean> { return false; }
+  
+  // Customer Tags - stub methods
+  async getCustomerTags(workspaceId: string): Promise<SelectCrmCustomerTag[]> { return []; }
+  async createCustomerTag(data: InsertCrmCustomerTag): Promise<SelectCrmCustomerTag> { throw new Error("MemStorage: Customer tag operations not supported"); }
+  async deleteCustomerTag(id: number, workspaceId: string): Promise<boolean> { return false; }
+  async getCustomerTagsForCustomer(customerId: string, workspaceId: string): Promise<SelectCrmCustomerTag[]> { return []; }
+  async assignTagToCustomer(customerId: string, tagId: number, workspaceId: string): Promise<void> {}
+  async removeTagFromCustomer(customerId: string, tagId: number, workspaceId: string): Promise<void> {}
+  
+  // Customer Groups - stub methods
+  async getCustomerGroups(workspaceId: string): Promise<SelectCrmCustomerGroup[]> { return []; }
+  async createCustomerGroup(data: InsertCrmCustomerGroup): Promise<SelectCrmCustomerGroup> { throw new Error("MemStorage: Customer group operations not supported"); }
+  async updateCustomerGroup(id: number, workspaceId: string, updates: Partial<InsertCrmCustomerGroup>): Promise<SelectCrmCustomerGroup | null> { return null; }
+  async deleteCustomerGroup(id: number, workspaceId: string): Promise<boolean> { return false; }
+  
+  // Activities - stub methods
+  async getActivities(workspaceId: string, filters?: any): Promise<any[]> { return []; }
+  async getActivitiesForCustomer(customerId: string, workspaceId: string): Promise<SelectCrmActivity[]> { return []; }
+  async createActivity(data: InsertCrmActivity): Promise<SelectCrmActivity> { throw new Error("MemStorage: Activity operations not supported"); }
+  
+  // Tasks - stub methods
+  async getTasks(workspaceId: string, filters?: any): Promise<any[]> { return []; }
+  async getUpcomingTasks(workspaceId: string): Promise<SelectCrmTask[]> { return []; }
+  async getOverdueTasks(workspaceId: string): Promise<SelectCrmTask[]> { return []; }
+  async createTask(data: InsertCrmTask): Promise<SelectCrmTask> { throw new Error("MemStorage: Task operations not supported"); }
+  async updateTask(id: number, workspaceId: string, updates: Partial<InsertCrmTask>): Promise<SelectCrmTask | null> { return null; }
+  async completeTask(id: number, workspaceId: string): Promise<SelectCrmTask | null> { return null; }
+  
+  // Container QR Tracking - stub methods
+  async generateContainerQRCode(containerId: string, workspaceId: string): Promise<SelectBrewContainer | null> { return null; }
+  async getContainerByQRCode(qrCode: string): Promise<SelectBrewContainer | null> { return null; }
+  async logContainerMovement(data: InsertBrewContainerMovement): Promise<SelectBrewContainerMovement> { throw new Error("MemStorage: Container movement operations not supported"); }
+  async getContainerMovements(containerId: string, workspaceId: string): Promise<any[]> { return []; }
+  async getContainersWithCustomer(customerId: string, workspaceId: string): Promise<any[]> { return []; }
+  
+  // Dashboard - stub methods
+  async getDashboardKPIs(workspaceId: string): Promise<any> { return {}; }
+  async getRevenueByMonth(workspaceId: string, months?: number): Promise<any[]> { return []; }
+  async getTopCustomersByRevenue(workspaceId: string, limit?: number): Promise<any[]> { return []; }
+  async getTopProductsBySales(workspaceId: string, limit?: number): Promise<any[]> { return []; }
+  
+  // Xero Connections - stub methods
+  async getXeroConnection(workspaceId: string): Promise<SelectXeroConnection | null> { return null; }
+  async createXeroConnection(data: InsertXeroConnection): Promise<SelectXeroConnection> { throw new Error("MemStorage: Xero operations not supported"); }
+  async updateXeroConnection(workspaceId: string, data: Partial<InsertXeroConnection>): Promise<SelectXeroConnection | null> { return null; }
+  async updateXeroTokens(workspaceId: string, accessToken: string, refreshToken: string, expiresAt: Date): Promise<SelectXeroConnection | null> { return null; }
+  async disconnectXero(workspaceId: string): Promise<SelectXeroConnection | null> { return null; }
+  
+  // Xero Import Jobs - stub methods
+  async createXeroImportJob(data: InsertXeroImportJob): Promise<SelectXeroImportJob> { throw new Error("MemStorage: Xero operations not supported"); }
+  async getXeroImportJob(jobId: number, workspaceId: string): Promise<SelectXeroImportJob | null> { return null; }
+  async updateXeroImportJob(jobId: number, workspaceId: string, data: Partial<SelectXeroImportJob>): Promise<SelectXeroImportJob | null> { return null; }
+  async getRecentXeroImportJobs(workspaceId: string, limit?: number): Promise<SelectXeroImportJob[]> { return []; }
+  
+  // Customer Xero Lookups - stub methods
+  async getCustomerByXeroContactId(xeroContactId: string, workspaceId: string): Promise<SelectCrmCustomer | null> { return null; }
+  async getCustomersWithoutXeroId(workspaceId: string): Promise<SelectCrmCustomer[]> { return []; }
 }
 
 // Database connection validation and setup
@@ -1958,6 +2225,165 @@ export class DbStorage implements IStorage {
     return true;
   }
   
+  // ============= CRM CALL DIARY CRUD METHODS =============
+  async createCallDiaryEntry(entry: InsertCrmCallDiary): Promise<SelectCrmCallDiary> {
+    const [created] = await db.insert(crmCallDiary).values(entry).returning();
+    return created;
+  }
+  
+  async getCallDiaryEntry(id: number, workspaceId: string): Promise<SelectCrmCallDiary | null> {
+    const [entry] = await db.select().from(crmCallDiary)
+      .where(and(
+        eq(crmCallDiary.id, id),
+        eq(crmCallDiary.workspaceId, workspaceId)
+      ));
+    return entry || null;
+  }
+  
+  async listCallDiaryEntries(workspaceId: string, filters?: CallDiaryFilters): Promise<SelectCrmCallDiary[]> {
+    const conditions = [eq(crmCallDiary.workspaceId, workspaceId)];
+    
+    if (filters?.entityType) {
+      conditions.push(eq(crmCallDiary.entityType, filters.entityType));
+    }
+    if (filters?.completed !== undefined) {
+      conditions.push(eq(crmCallDiary.completed, filters.completed ? 1 : 0));
+    }
+    if (filters?.startDate) {
+      conditions.push(gte(crmCallDiary.scheduledDate, filters.startDate));
+    }
+    if (filters?.endDate) {
+      conditions.push(lte(crmCallDiary.scheduledDate, filters.endDate));
+    }
+    
+    let query = db.select().from(crmCallDiary)
+      .where(and(...conditions))
+      .orderBy(desc(crmCallDiary.scheduledDate));
+    
+    if (filters?.limit) {
+      query = query.limit(filters.limit) as typeof query;
+    }
+    if (filters?.offset) {
+      query = query.offset(filters.offset) as typeof query;
+    }
+    
+    return await query;
+  }
+  
+  async listUpcomingCalls(workspaceId: string, filters?: CallDiaryFilters): Promise<SelectCrmCallDiary[]> {
+    const now = Date.now();
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    
+    const conditions = [
+      eq(crmCallDiary.workspaceId, workspaceId),
+      eq(crmCallDiary.completed, 0),
+      gte(crmCallDiary.scheduledDate, startOfToday.getTime())
+    ];
+    
+    if (filters?.entityType) {
+      conditions.push(eq(crmCallDiary.entityType, filters.entityType));
+    }
+    if (filters?.endDate) {
+      conditions.push(lte(crmCallDiary.scheduledDate, filters.endDate));
+    }
+    
+    let query = db.select().from(crmCallDiary)
+      .where(and(...conditions))
+      .orderBy(asc(crmCallDiary.scheduledDate));
+    
+    if (filters?.limit) {
+      query = query.limit(filters.limit) as typeof query;
+    }
+    
+    return await query;
+  }
+  
+  async listOverdueCalls(workspaceId: string, filters?: CallDiaryFilters): Promise<SelectCrmCallDiary[]> {
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    
+    const conditions = [
+      eq(crmCallDiary.workspaceId, workspaceId),
+      eq(crmCallDiary.completed, 0),
+      lt(crmCallDiary.scheduledDate, startOfToday.getTime())
+    ];
+    
+    if (filters?.entityType) {
+      conditions.push(eq(crmCallDiary.entityType, filters.entityType));
+    }
+    
+    let query = db.select().from(crmCallDiary)
+      .where(and(...conditions))
+      .orderBy(asc(crmCallDiary.scheduledDate));
+    
+    if (filters?.limit) {
+      query = query.limit(filters.limit) as typeof query;
+    }
+    
+    return await query;
+  }
+  
+  async listCallHistory(workspaceId: string, filters?: CallDiaryFilters): Promise<SelectCrmCallDiary[]> {
+    const conditions = [
+      eq(crmCallDiary.workspaceId, workspaceId),
+      eq(crmCallDiary.completed, 1)
+    ];
+    
+    if (filters?.entityType) {
+      conditions.push(eq(crmCallDiary.entityType, filters.entityType));
+    }
+    if (filters?.startDate) {
+      conditions.push(gte(crmCallDiary.completedDate, filters.startDate));
+    }
+    if (filters?.endDate) {
+      conditions.push(lte(crmCallDiary.completedDate, filters.endDate));
+    }
+    
+    let query = db.select().from(crmCallDiary)
+      .where(and(...conditions))
+      .orderBy(desc(crmCallDiary.completedDate));
+    
+    if (filters?.limit) {
+      query = query.limit(filters.limit) as typeof query;
+    }
+    if (filters?.offset) {
+      query = query.offset(filters.offset) as typeof query;
+    }
+    
+    return await query;
+  }
+  
+  async updateCallDiaryEntry(id: number, workspaceId: string, updates: Partial<InsertCrmCallDiary>): Promise<SelectCrmCallDiary | null> {
+    const [updated] = await db.update(crmCallDiary)
+      .set({ ...updates, updatedAt: Date.now() })
+      .where(and(
+        eq(crmCallDiary.id, id),
+        eq(crmCallDiary.workspaceId, workspaceId)
+      ))
+      .returning();
+    return updated || null;
+  }
+  
+  async deleteCallDiaryEntry(id: number, workspaceId: string): Promise<boolean> {
+    await db.delete(crmCallDiary)
+      .where(and(
+        eq(crmCallDiary.id, id),
+        eq(crmCallDiary.workspaceId, workspaceId)
+      ));
+    return true;
+  }
+  
+  async getCallsForEntity(entityType: string, entityId: string, workspaceId: string): Promise<SelectCrmCallDiary[]> {
+    return await db.select().from(crmCallDiary)
+      .where(and(
+        eq(crmCallDiary.workspaceId, workspaceId),
+        eq(crmCallDiary.entityType, entityType),
+        eq(crmCallDiary.entityId, entityId)
+      ))
+      .orderBy(desc(crmCallDiary.scheduledDate));
+  }
+  
   // ============= BREWERY PRODUCTS CRUD METHODS =============
   async createBrewProduct(product: InsertBrewProduct): Promise<SelectBrewProduct> {
     const [created] = await db.insert(brewProducts).values(product).returning();
@@ -2237,6 +2663,912 @@ export class DbStorage implements IStorage {
       console.error('[DutyLookup] Supabase REST API fallback failed:', error.message);
       throw error;
     }
+  }
+
+  // ============= BREWERY PRICE BOOKS CRUD METHODS =============
+  
+  async createBrewPriceBook(priceBook: InsertBrewPriceBook): Promise<SelectBrewPriceBook> {
+    const [created] = await db.insert(brewPriceBooks).values(priceBook).returning();
+    return created;
+  }
+
+  async getBrewPriceBook(id: number, workspaceId: string): Promise<SelectBrewPriceBook | null> {
+    const [priceBook] = await db.select().from(brewPriceBooks)
+      .where(and(
+        eq(brewPriceBooks.id, id),
+        eq(brewPriceBooks.workspaceId, workspaceId)
+      ));
+    return priceBook || null;
+  }
+
+  async listBrewPriceBooks(workspaceId: string): Promise<SelectBrewPriceBook[]> {
+    return await db.select().from(brewPriceBooks)
+      .where(eq(brewPriceBooks.workspaceId, workspaceId))
+      .orderBy(asc(brewPriceBooks.name));
+  }
+
+  async listActiveBrewPriceBooks(workspaceId: string): Promise<SelectBrewPriceBook[]> {
+    return await db.select().from(brewPriceBooks)
+      .where(and(
+        eq(brewPriceBooks.workspaceId, workspaceId),
+        eq(brewPriceBooks.isActive, 1)
+      ))
+      .orderBy(asc(brewPriceBooks.name));
+  }
+
+  async getDefaultPriceBook(workspaceId: string): Promise<SelectBrewPriceBook | null> {
+    const [defaultBook] = await db.select().from(brewPriceBooks)
+      .where(and(
+        eq(brewPriceBooks.workspaceId, workspaceId),
+        eq(brewPriceBooks.isDefault, 1)
+      ));
+    return defaultBook || null;
+  }
+
+  async updateBrewPriceBook(id: number, workspaceId: string, updates: Partial<InsertBrewPriceBook>): Promise<SelectBrewPriceBook | null> {
+    const [updated] = await db.update(brewPriceBooks)
+      .set({ ...updates, updatedAt: Date.now() })
+      .where(and(
+        eq(brewPriceBooks.id, id),
+        eq(brewPriceBooks.workspaceId, workspaceId)
+      ))
+      .returning();
+    return updated || null;
+  }
+
+  async deleteBrewPriceBook(id: number, workspaceId: string): Promise<boolean> {
+    const [deleted] = await db.delete(brewPriceBooks)
+      .where(and(
+        eq(brewPriceBooks.id, id),
+        eq(brewPriceBooks.workspaceId, workspaceId)
+      ))
+      .returning();
+    return !!deleted;
+  }
+
+  async unsetDefaultPriceBook(workspaceId: string): Promise<void> {
+    await db.update(brewPriceBooks)
+      .set({ isDefault: 0, updatedAt: Date.now() })
+      .where(eq(brewPriceBooks.workspaceId, workspaceId));
+  }
+
+  // ============= BREWERY PRODUCT PRICES CRUD METHODS =============
+
+  async createBrewProductPrice(productPrice: InsertBrewProductPrice): Promise<SelectBrewProductPrice> {
+    const [created] = await db.insert(brewProductPrices).values(productPrice).returning();
+    return created;
+  }
+
+  async getProductPricesByPriceBook(priceBookId: number, workspaceId: string): Promise<SelectBrewProductPrice[]> {
+    return await db.select().from(brewProductPrices)
+      .where(and(
+        eq(brewProductPrices.priceBookId, priceBookId),
+        eq(brewProductPrices.workspaceId, workspaceId)
+      ));
+  }
+
+  async getProductPriceForBook(productId: string, priceBookId: number, workspaceId: string): Promise<SelectBrewProductPrice | null> {
+    const [price] = await db.select().from(brewProductPrices)
+      .where(and(
+        eq(brewProductPrices.productId, productId),
+        eq(brewProductPrices.priceBookId, priceBookId),
+        eq(brewProductPrices.workspaceId, workspaceId)
+      ));
+    return price || null;
+  }
+
+  async bulkUpsertProductPrices(priceBookId: number, workspaceId: string, prices: Array<{ productId: string; price: number }>): Promise<void> {
+    // Delete existing prices for this price book first
+    await db.delete(brewProductPrices)
+      .where(and(
+        eq(brewProductPrices.priceBookId, priceBookId),
+        eq(brewProductPrices.workspaceId, workspaceId)
+      ));
+    
+    // Insert new prices if any
+    if (prices.length > 0) {
+      const now = Date.now();
+      const values = prices.map(p => ({
+        workspaceId,
+        productId: p.productId,
+        priceBookId,
+        price: p.price,
+        createdAt: now,
+        updatedAt: now,
+      }));
+      await db.insert(brewProductPrices).values(values);
+    }
+  }
+
+  async copyPriceBookPrices(sourcePriceBookId: number, targetPriceBookId: number, workspaceId: string): Promise<void> {
+    // Get source prices
+    const sourcePrices = await this.getProductPricesByPriceBook(sourcePriceBookId, workspaceId);
+    
+    if (sourcePrices.length > 0) {
+      const now = Date.now();
+      const values = sourcePrices.map(p => ({
+        workspaceId,
+        productId: p.productId,
+        priceBookId: targetPriceBookId,
+        price: p.price,
+        createdAt: now,
+        updatedAt: now,
+      }));
+      
+      // Delete existing prices for target first
+      await db.delete(brewProductPrices)
+        .where(and(
+          eq(brewProductPrices.priceBookId, targetPriceBookId),
+          eq(brewProductPrices.workspaceId, workspaceId)
+        ));
+      
+      // Insert copied prices
+      await db.insert(brewProductPrices).values(values);
+    }
+  }
+
+  async deleteProductPricesByPriceBook(priceBookId: number, workspaceId: string): Promise<void> {
+    await db.delete(brewProductPrices)
+      .where(and(
+        eq(brewProductPrices.priceBookId, priceBookId),
+        eq(brewProductPrices.workspaceId, workspaceId)
+      ));
+  }
+
+  // ============= BREWERY PRICE BANDS CRUD METHODS =============
+
+  async createBrewPriceBand(priceBand: InsertBrewPriceBand): Promise<SelectBrewPriceBand> {
+    const [created] = await db.insert(brewPriceBands).values(priceBand).returning();
+    return created;
+  }
+
+  async getPriceBandsByPriceBook(priceBookId: number, workspaceId: string): Promise<SelectBrewPriceBand[]> {
+    return await db.select().from(brewPriceBands)
+      .where(and(
+        eq(brewPriceBands.priceBookId, priceBookId),
+        eq(brewPriceBands.workspaceId, workspaceId)
+      ))
+      .orderBy(asc(brewPriceBands.minQuantity));
+  }
+
+  async deletePriceBand(id: number, workspaceId: string): Promise<boolean> {
+    const [deleted] = await db.delete(brewPriceBands)
+      .where(and(
+        eq(brewPriceBands.id, id),
+        eq(brewPriceBands.workspaceId, workspaceId)
+      ))
+      .returning();
+    return !!deleted;
+  }
+
+  // ============= EFFECTIVE PRICING METHODS =============
+
+  async getEffectiveProductPrice(
+    productId: string, 
+    workspaceId: string, 
+    customerId?: string, 
+    quantity: number = 1
+  ): Promise<{ price: number; priceBookName: string | null; priceBookId: number | null }> {
+    let priceBookId: number | null = null;
+    let priceBookName: string | null = null;
+
+    // 1. Get customer's assigned price book if customerId provided
+    if (customerId) {
+      const [customer] = await db.select({ priceBookId: crmCustomers.priceBookId })
+        .from(crmCustomers)
+        .where(and(
+          eq(crmCustomers.id, customerId),
+          eq(crmCustomers.workspaceId, workspaceId)
+        ));
+      
+      if (customer?.priceBookId) {
+        priceBookId = customer.priceBookId;
+      }
+    }
+
+    // 2. If no customer price book, use default price book
+    if (!priceBookId) {
+      const defaultBook = await this.getDefaultPriceBook(workspaceId);
+      if (defaultBook) {
+        priceBookId = defaultBook.id;
+        priceBookName = defaultBook.name;
+      }
+    }
+
+    // 3. Get price from price book if we have one
+    if (priceBookId) {
+      // First get price book name if not already set
+      if (!priceBookName) {
+        const priceBook = await this.getBrewPriceBook(priceBookId, workspaceId);
+        priceBookName = priceBook?.name || null;
+      }
+
+      // Get the specific product price for this price book
+      const productPrice = await this.getProductPriceForBook(productId, priceBookId, workspaceId);
+      
+      if (productPrice) {
+        let finalPrice = productPrice.price;
+
+        // Check for quantity-based discounts
+        const bands = await this.getPriceBandsByPriceBook(priceBookId, workspaceId);
+        const applicableBand = bands.find(band => {
+          const matchesProduct = !band.productId || band.productId === productId;
+          const meetsMin = quantity >= band.minQuantity;
+          const meetsMax = !band.maxQuantity || quantity <= band.maxQuantity;
+          return matchesProduct && meetsMin && meetsMax;
+        });
+
+        if (applicableBand) {
+          if (applicableBand.discountType === 'percentage') {
+            // discountValue is in basis points (e.g., 1000 = 10%)
+            const discountMultiplier = 1 - (applicableBand.discountValue / 10000);
+            finalPrice = Math.round(finalPrice * discountMultiplier);
+          } else if (applicableBand.discountType === 'fixed') {
+            finalPrice = Math.max(0, finalPrice - applicableBand.discountValue);
+          }
+        }
+
+        return { price: finalPrice, priceBookName, priceBookId };
+      }
+    }
+
+    // 4. Fallback to product's default price
+    const [product] = await db.select({ price: brewProducts.defaultUnitPriceExVat })
+      .from(brewProducts)
+      .where(and(
+        eq(brewProducts.id, productId),
+        eq(brewProducts.workspaceId, workspaceId)
+      ));
+
+    return { 
+      price: product?.price || 0, 
+      priceBookName: null, 
+      priceBookId: null 
+    };
+  }
+
+  async getCustomersByPriceBook(priceBookId: number, workspaceId: string): Promise<SelectCrmCustomer[]> {
+    return await db.select().from(crmCustomers)
+      .where(and(
+        eq(crmCustomers.priceBookId, priceBookId),
+        eq(crmCustomers.workspaceId, workspaceId)
+      ));
+  }
+
+  async updateCustomerPriceBook(customerId: string, workspaceId: string, priceBookId: number | null): Promise<void> {
+    await db.update(crmCustomers)
+      .set({ priceBookId, updatedAt: Date.now() })
+      .where(and(
+        eq(crmCustomers.id, customerId),
+        eq(crmCustomers.workspaceId, workspaceId)
+      ));
+  }
+
+  // ============= TRADE STORE SETTINGS METHODS =============
+
+  async getTradeStoreSettings(workspaceId: string): Promise<SelectBrewTradeStoreSettings | null> {
+    const [settings] = await db.select().from(brewTradeStoreSettings)
+      .where(eq(brewTradeStoreSettings.workspaceId, workspaceId));
+    return settings || null;
+  }
+
+  async createOrUpdateTradeStoreSettings(data: InsertBrewTradeStoreSettings): Promise<SelectBrewTradeStoreSettings> {
+    const existing = await this.getTradeStoreSettings(data.workspaceId);
+    const now = Date.now();
+    
+    if (existing) {
+      const [updated] = await db.update(brewTradeStoreSettings)
+        .set({ ...data, updatedAt: now })
+        .where(eq(brewTradeStoreSettings.workspaceId, data.workspaceId))
+        .returning();
+      return updated;
+    } else {
+      const [created] = await db.insert(brewTradeStoreSettings)
+        .values({ ...data, createdAt: now, updatedAt: now })
+        .returning();
+      return created;
+    }
+  }
+
+  // ============= TRADE STORE ACCESS METHODS =============
+
+  async getTradeStoreAccessList(workspaceId: string): Promise<any[]> {
+    return await db.select({
+      id: brewTradeStoreAccess.id,
+      customerId: brewTradeStoreAccess.customerId,
+      customerName: crmCustomers.name,
+      accessCode: brewTradeStoreAccess.accessCode,
+      isActive: brewTradeStoreAccess.isActive,
+      lastLoginAt: brewTradeStoreAccess.lastLoginAt,
+      createdAt: brewTradeStoreAccess.createdAt,
+    }).from(brewTradeStoreAccess)
+      .innerJoin(crmCustomers, eq(brewTradeStoreAccess.customerId, crmCustomers.id))
+      .where(eq(brewTradeStoreAccess.workspaceId, workspaceId))
+      .orderBy(desc(brewTradeStoreAccess.createdAt));
+  }
+
+  async createTradeStoreAccess(data: InsertBrewTradeStoreAccess): Promise<SelectBrewTradeStoreAccess> {
+    const [access] = await db.insert(brewTradeStoreAccess).values(data).returning();
+    return access;
+  }
+
+  async getTradeStoreAccessByCode(accessCode: string): Promise<SelectBrewTradeStoreAccess | null> {
+    const [access] = await db.select().from(brewTradeStoreAccess)
+      .where(eq(brewTradeStoreAccess.accessCode, accessCode));
+    return access || null;
+  }
+
+  async updateTradeStoreAccess(id: number, workspaceId: string, updates: Partial<InsertBrewTradeStoreAccess>): Promise<SelectBrewTradeStoreAccess | null> {
+    const [updated] = await db.update(brewTradeStoreAccess)
+      .set({ ...updates, updatedAt: Date.now() })
+      .where(and(
+        eq(brewTradeStoreAccess.id, id),
+        eq(brewTradeStoreAccess.workspaceId, workspaceId)
+      ))
+      .returning();
+    return updated || null;
+  }
+
+  // ============= TRADE STORE SESSION METHODS =============
+
+  async createTradeStoreSession(data: InsertBrewTradeStoreSession): Promise<SelectBrewTradeStoreSession> {
+    const [session] = await db.insert(brewTradeStoreSessions).values(data).returning();
+    return session;
+  }
+
+  async getTradeStoreSessionByToken(token: string): Promise<SelectBrewTradeStoreSession | null> {
+    const [session] = await db.select().from(brewTradeStoreSessions)
+      .where(eq(brewTradeStoreSessions.sessionToken, token));
+    return session || null;
+  }
+
+  // ============= CRM SAVED FILTERS METHODS =============
+
+  async getSavedFilters(workspaceId: string): Promise<SelectCrmSavedFilter[]> {
+    return await db.select().from(crmSavedFilters)
+      .where(eq(crmSavedFilters.workspaceId, workspaceId))
+      .orderBy(asc(crmSavedFilters.name));
+  }
+
+  async createSavedFilter(data: InsertCrmSavedFilter): Promise<SelectCrmSavedFilter> {
+    const [filter] = await db.insert(crmSavedFilters).values(data).returning();
+    return filter;
+  }
+
+  async deleteSavedFilter(id: number, workspaceId: string): Promise<boolean> {
+    const [deleted] = await db.delete(crmSavedFilters)
+      .where(and(
+        eq(crmSavedFilters.id, id),
+        eq(crmSavedFilters.workspaceId, workspaceId)
+      ))
+      .returning();
+    return !!deleted;
+  }
+
+  // ============= CRM CUSTOMER TAGS METHODS =============
+
+  async getCustomerTags(workspaceId: string): Promise<SelectCrmCustomerTag[]> {
+    return await db.select().from(crmCustomerTags)
+      .where(eq(crmCustomerTags.workspaceId, workspaceId))
+      .orderBy(asc(crmCustomerTags.name));
+  }
+
+  async createCustomerTag(data: InsertCrmCustomerTag): Promise<SelectCrmCustomerTag> {
+    const [tag] = await db.insert(crmCustomerTags).values(data).returning();
+    return tag;
+  }
+
+  async deleteCustomerTag(id: number, workspaceId: string): Promise<boolean> {
+    const [deleted] = await db.delete(crmCustomerTags)
+      .where(and(
+        eq(crmCustomerTags.id, id),
+        eq(crmCustomerTags.workspaceId, workspaceId)
+      ))
+      .returning();
+    return !!deleted;
+  }
+
+  async getCustomerTagsForCustomer(customerId: string, workspaceId: string): Promise<SelectCrmCustomerTag[]> {
+    return await db.select({
+      id: crmCustomerTags.id,
+      workspaceId: crmCustomerTags.workspaceId,
+      name: crmCustomerTags.name,
+      color: crmCustomerTags.color,
+      createdAt: crmCustomerTags.createdAt,
+    }).from(crmCustomerTagAssignments)
+      .innerJoin(crmCustomerTags, eq(crmCustomerTagAssignments.tagId, crmCustomerTags.id))
+      .where(and(
+        eq(crmCustomerTagAssignments.customerId, customerId),
+        eq(crmCustomerTagAssignments.workspaceId, workspaceId)
+      ));
+  }
+
+  async assignTagToCustomer(customerId: string, tagId: number, workspaceId: string): Promise<void> {
+    await db.insert(crmCustomerTagAssignments)
+      .values({ customerId, tagId, workspaceId, createdAt: Date.now() })
+      .onConflictDoNothing();
+  }
+
+  async removeTagFromCustomer(customerId: string, tagId: number, workspaceId: string): Promise<void> {
+    await db.delete(crmCustomerTagAssignments)
+      .where(and(
+        eq(crmCustomerTagAssignments.customerId, customerId),
+        eq(crmCustomerTagAssignments.tagId, tagId)
+      ));
+  }
+
+  // ============= CRM CUSTOMER GROUPS METHODS =============
+
+  async getCustomerGroups(workspaceId: string): Promise<SelectCrmCustomerGroup[]> {
+    return await db.select().from(crmCustomerGroups)
+      .where(eq(crmCustomerGroups.workspaceId, workspaceId))
+      .orderBy(asc(crmCustomerGroups.name));
+  }
+
+  async createCustomerGroup(data: InsertCrmCustomerGroup): Promise<SelectCrmCustomerGroup> {
+    const [group] = await db.insert(crmCustomerGroups).values(data).returning();
+    return group;
+  }
+
+  async updateCustomerGroup(id: number, workspaceId: string, updates: Partial<InsertCrmCustomerGroup>): Promise<SelectCrmCustomerGroup | null> {
+    const [updated] = await db.update(crmCustomerGroups)
+      .set({ ...updates, updatedAt: Date.now() })
+      .where(and(
+        eq(crmCustomerGroups.id, id),
+        eq(crmCustomerGroups.workspaceId, workspaceId)
+      ))
+      .returning();
+    return updated || null;
+  }
+
+  async deleteCustomerGroup(id: number, workspaceId: string): Promise<boolean> {
+    const [deleted] = await db.delete(crmCustomerGroups)
+      .where(and(
+        eq(crmCustomerGroups.id, id),
+        eq(crmCustomerGroups.workspaceId, workspaceId)
+      ))
+      .returning();
+    return !!deleted;
+  }
+
+  // ============= CRM ACTIVITIES METHODS =============
+
+  async getActivities(workspaceId: string, filters?: any): Promise<any[]> {
+    let query = db.select({
+      activity: crmActivities,
+      customerName: crmCustomers.name,
+    }).from(crmActivities)
+      .leftJoin(crmCustomers, eq(crmActivities.customerId, crmCustomers.id))
+      .where(eq(crmActivities.workspaceId, workspaceId))
+      .orderBy(desc(crmActivities.createdAt));
+    
+    return await query;
+  }
+
+  async getActivitiesForCustomer(customerId: string, workspaceId: string): Promise<SelectCrmActivity[]> {
+    return await db.select().from(crmActivities)
+      .where(and(
+        eq(crmActivities.customerId, customerId),
+        eq(crmActivities.workspaceId, workspaceId)
+      ))
+      .orderBy(desc(crmActivities.createdAt));
+  }
+
+  async createActivity(data: InsertCrmActivity): Promise<SelectCrmActivity> {
+    const [activity] = await db.insert(crmActivities).values(data).returning();
+    return activity;
+  }
+
+  // ============= CRM TASKS METHODS =============
+
+  async getTasks(workspaceId: string, filters?: any): Promise<any[]> {
+    let baseQuery = db.select({
+      task: crmTasks,
+      customerName: crmCustomers.name,
+    }).from(crmTasks)
+      .leftJoin(crmCustomers, eq(crmTasks.customerId, crmCustomers.id))
+      .where(eq(crmTasks.workspaceId, workspaceId))
+      .orderBy(asc(crmTasks.dueDate));
+    
+    return await baseQuery;
+  }
+
+  async getUpcomingTasks(workspaceId: string): Promise<SelectCrmTask[]> {
+    const now = Date.now();
+    return await db.select().from(crmTasks)
+      .where(and(
+        eq(crmTasks.workspaceId, workspaceId),
+        eq(crmTasks.status, 'pending'),
+        gte(crmTasks.dueDate, now)
+      ))
+      .orderBy(asc(crmTasks.dueDate));
+  }
+
+  async getOverdueTasks(workspaceId: string): Promise<SelectCrmTask[]> {
+    const now = Date.now();
+    return await db.select().from(crmTasks)
+      .where(and(
+        eq(crmTasks.workspaceId, workspaceId),
+        eq(crmTasks.status, 'pending'),
+        lt(crmTasks.dueDate, now)
+      ))
+      .orderBy(asc(crmTasks.dueDate));
+  }
+
+  async createTask(data: InsertCrmTask): Promise<SelectCrmTask> {
+    const [task] = await db.insert(crmTasks).values(data).returning();
+    return task;
+  }
+
+  async updateTask(id: number, workspaceId: string, updates: Partial<InsertCrmTask>): Promise<SelectCrmTask | null> {
+    const [updated] = await db.update(crmTasks)
+      .set({ ...updates, updatedAt: Date.now() })
+      .where(and(
+        eq(crmTasks.id, id),
+        eq(crmTasks.workspaceId, workspaceId)
+      ))
+      .returning();
+    return updated || null;
+  }
+
+  async completeTask(id: number, workspaceId: string): Promise<SelectCrmTask | null> {
+    return await this.updateTask(id, workspaceId, {
+      status: 'completed',
+      completedAt: Date.now(),
+    });
+  }
+
+  // ============= CONTAINER QR TRACKING METHODS =============
+
+  async generateContainerQRCode(containerId: string, workspaceId: string): Promise<SelectBrewContainer | null> {
+    const qrCode = `C-${workspaceId.slice(0, 8)}-${containerId.slice(0, 8)}-${Math.random().toString(36).substring(2, 10).toUpperCase()}`;
+    const [updated] = await db.update(brewContainers)
+      .set({ qrCode, updatedAt: Date.now() })
+      .where(and(
+        eq(brewContainers.id, containerId),
+        eq(brewContainers.workspaceId, workspaceId)
+      ))
+      .returning();
+    return updated || null;
+  }
+
+  async getContainerByQRCode(qrCode: string): Promise<SelectBrewContainer | null> {
+    const [container] = await db.select().from(brewContainers)
+      .where(eq(brewContainers.qrCode, qrCode));
+    return container || null;
+  }
+
+  async logContainerMovement(data: InsertBrewContainerMovement): Promise<SelectBrewContainerMovement> {
+    const [movement] = await db.insert(brewContainerMovements).values(data).returning();
+    return movement;
+  }
+
+  async getContainerMovements(containerId: string, workspaceId: string): Promise<any[]> {
+    return await db.select({
+      movement: brewContainerMovements,
+      customerName: crmCustomers.name,
+    }).from(brewContainerMovements)
+      .leftJoin(crmCustomers, eq(brewContainerMovements.customerId, crmCustomers.id))
+      .where(and(
+        eq(brewContainerMovements.containerId, containerId),
+        eq(brewContainerMovements.workspaceId, workspaceId)
+      ))
+      .orderBy(desc(brewContainerMovements.scannedAt));
+  }
+
+  async getContainersWithCustomer(customerId: string, workspaceId: string): Promise<any[]> {
+    // Get containers that have been dispatched to this customer and not yet returned
+    const movements = await db.select({
+      containerId: brewContainerMovements.containerId,
+      movementType: brewContainerMovements.movementType,
+      scannedAt: brewContainerMovements.scannedAt,
+    }).from(brewContainerMovements)
+      .where(and(
+        eq(brewContainerMovements.customerId, customerId),
+        eq(brewContainerMovements.workspaceId, workspaceId)
+      ))
+      .orderBy(desc(brewContainerMovements.scannedAt));
+    
+    // Filter to only show containers currently with customer (dispatched but not returned)
+    const containerIds = new Set<string>();
+    const dispatchedContainers = new Set<string>();
+    
+    for (const m of movements) {
+      if (m.movementType === 'dispatched') {
+        dispatchedContainers.add(m.containerId);
+      } else if (m.movementType === 'returned') {
+        dispatchedContainers.delete(m.containerId);
+      }
+    }
+    
+    if (dispatchedContainers.size === 0) return [];
+    
+    // Get container details
+    const containers = await db.select().from(brewContainers)
+      .where(and(
+        eq(brewContainers.workspaceId, workspaceId),
+        sql`${brewContainers.id} = ANY(${Array.from(dispatchedContainers)})`
+      ));
+    
+    return containers;
+  }
+
+  // ============= DASHBOARD & REPORTING METHODS =============
+
+  async getDashboardKPIs(workspaceId: string): Promise<any> {
+    const now = Date.now();
+    const ninetyDaysAgo = now - (90 * 24 * 60 * 60 * 1000);
+    const firstOfMonth = new Date();
+    firstOfMonth.setDate(1);
+    firstOfMonth.setHours(0, 0, 0, 0);
+    const firstOfMonthMs = firstOfMonth.getTime();
+
+    // Total customers
+    const [customerCount] = await db.select({ count: sql`COUNT(*)` })
+      .from(crmCustomers)
+      .where(eq(crmCustomers.workspaceId, workspaceId));
+
+    // Active customers (ordered in last 90 days)
+    const [activeCustomers] = await db.select({ count: sql`COUNT(DISTINCT ${crmOrders.customerId})` })
+      .from(crmOrders)
+      .where(and(
+        eq(crmOrders.workspaceId, workspaceId),
+        gte(crmOrders.orderDate, ninetyDaysAgo)
+      ));
+
+    // Orders this month
+    const [ordersThisMonth] = await db.select({ count: sql`COUNT(*)` })
+      .from(crmOrders)
+      .where(and(
+        eq(crmOrders.workspaceId, workspaceId),
+        gte(crmOrders.orderDate, firstOfMonthMs)
+      ));
+
+    // Revenue this month
+    const [revenueThisMonth] = await db.select({ total: sql`COALESCE(SUM(${crmOrders.totalIncVat}), 0)` })
+      .from(crmOrders)
+      .where(and(
+        eq(crmOrders.workspaceId, workspaceId),
+        gte(crmOrders.orderDate, firstOfMonthMs)
+      ));
+
+    // Pending orders
+    const [pendingOrders] = await db.select({ count: sql`COUNT(*)` })
+      .from(crmOrders)
+      .where(and(
+        eq(crmOrders.workspaceId, workspaceId),
+        eq(crmOrders.status, 'pending')
+      ));
+
+    // Overdue tasks
+    const [overdueTasks] = await db.select({ count: sql`COUNT(*)` })
+      .from(crmTasks)
+      .where(and(
+        eq(crmTasks.workspaceId, workspaceId),
+        eq(crmTasks.status, 'pending'),
+        lt(crmTasks.dueDate, now)
+      ));
+
+    return {
+      totalCustomers: Number(customerCount?.count) || 0,
+      activeCustomers: Number(activeCustomers?.count) || 0,
+      ordersThisMonth: Number(ordersThisMonth?.count) || 0,
+      revenueThisMonth: Number(revenueThisMonth?.total) || 0,
+      pendingOrders: Number(pendingOrders?.count) || 0,
+      overdueTasks: Number(overdueTasks?.count) || 0,
+    };
+  }
+
+  async getRevenueByMonth(workspaceId: string, months: number = 12): Promise<any[]> {
+    const cutoff = Date.now() - (months * 30 * 24 * 60 * 60 * 1000);
+    
+    const results = await db.select({
+      orderDate: crmOrders.orderDate,
+      total: crmOrders.totalIncVat,
+    }).from(crmOrders)
+      .where(and(
+        eq(crmOrders.workspaceId, workspaceId),
+        gte(crmOrders.orderDate, cutoff)
+      ))
+      .orderBy(asc(crmOrders.orderDate));
+    
+    // Group by month in JS
+    const byMonth = new Map<string, { revenue: number; orderCount: number }>();
+    
+    for (const r of results) {
+      const date = new Date(r.orderDate);
+      const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+      
+      const existing = byMonth.get(monthKey) || { revenue: 0, orderCount: 0 };
+      existing.revenue += Number(r.total) || 0;
+      existing.orderCount += 1;
+      byMonth.set(monthKey, existing);
+    }
+    
+    return Array.from(byMonth.entries()).map(([month, data]) => ({
+      month,
+      revenue: data.revenue,
+      orderCount: data.orderCount,
+    }));
+  }
+
+  async getTopCustomersByRevenue(workspaceId: string, limit: number = 10): Promise<any[]> {
+    const results = await db.select({
+      customerId: crmOrders.customerId,
+      customerName: crmCustomers.name,
+      total: crmOrders.totalIncVat,
+    }).from(crmOrders)
+      .innerJoin(crmCustomers, eq(crmOrders.customerId, crmCustomers.id))
+      .where(eq(crmOrders.workspaceId, workspaceId));
+    
+    // Aggregate in JS
+    const byCustomer = new Map<string, { customerId: string; customerName: string; totalRevenue: number; orderCount: number }>();
+    
+    for (const r of results) {
+      const existing = byCustomer.get(r.customerId!) || {
+        customerId: r.customerId!,
+        customerName: r.customerName,
+        totalRevenue: 0,
+        orderCount: 0,
+      };
+      existing.totalRevenue += Number(r.total) || 0;
+      existing.orderCount += 1;
+      byCustomer.set(r.customerId!, existing);
+    }
+    
+    return Array.from(byCustomer.values())
+      .sort((a, b) => b.totalRevenue - a.totalRevenue)
+      .slice(0, limit);
+  }
+
+  async getTopProductsBySales(workspaceId: string, limit: number = 10): Promise<any[]> {
+    const results = await db.select({
+      productId: crmOrderLines.productId,
+      productName: brewProducts.name,
+      quantity: crmOrderLines.quantity,
+      unitPrice: crmOrderLines.unitPriceExVat,
+    }).from(crmOrderLines)
+      .innerJoin(brewProducts, eq(crmOrderLines.productId, brewProducts.id))
+      .where(eq(crmOrderLines.workspaceId, workspaceId));
+    
+    // Aggregate in JS
+    const byProduct = new Map<string, { productId: string; productName: string | null; totalQuantity: number; totalRevenue: number }>();
+    
+    for (const r of results) {
+      const existing = byProduct.get(r.productId!) || {
+        productId: r.productId!,
+        productName: r.productName,
+        totalQuantity: 0,
+        totalRevenue: 0,
+      };
+      existing.totalQuantity += Number(r.quantity) || 0;
+      existing.totalRevenue += (Number(r.quantity) || 0) * (Number(r.unitPrice) || 0);
+      byProduct.set(r.productId!, existing);
+    }
+    
+    return Array.from(byProduct.values())
+      .sort((a, b) => b.totalRevenue - a.totalRevenue)
+      .slice(0, limit);
+  }
+
+  // ============================================
+  // XERO CONNECTIONS METHODS
+  // ============================================
+
+  async getXeroConnection(workspaceId: string): Promise<SelectXeroConnection | null> {
+    const [connection] = await db
+      .select()
+      .from(xeroConnections)
+      .where(eq(xeroConnections.workspaceId, workspaceId));
+    return connection || null;
+  }
+
+  async createXeroConnection(data: InsertXeroConnection): Promise<SelectXeroConnection> {
+    const [connection] = await db
+      .insert(xeroConnections)
+      .values(data)
+      .returning();
+    return connection;
+  }
+
+  async updateXeroConnection(workspaceId: string, data: Partial<InsertXeroConnection>): Promise<SelectXeroConnection | null> {
+    const [updated] = await db
+      .update(xeroConnections)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(xeroConnections.workspaceId, workspaceId))
+      .returning();
+    return updated || null;
+  }
+
+  async updateXeroTokens(workspaceId: string, accessToken: string, refreshToken: string, expiresAt: Date): Promise<SelectXeroConnection | null> {
+    return await this.updateXeroConnection(workspaceId, {
+      accessToken,
+      refreshToken,
+      tokenExpiresAt: expiresAt,
+    });
+  }
+
+  async disconnectXero(workspaceId: string): Promise<SelectXeroConnection | null> {
+    return await this.updateXeroConnection(workspaceId, {
+      isConnected: false,
+    });
+  }
+
+  // ============================================
+  // XERO IMPORT JOBS METHODS
+  // ============================================
+
+  async createXeroImportJob(data: InsertXeroImportJob): Promise<SelectXeroImportJob> {
+    const [job] = await db
+      .insert(xeroImportJobs)
+      .values(data)
+      .returning();
+    return job;
+  }
+
+  async getXeroImportJob(jobId: number, workspaceId: string): Promise<SelectXeroImportJob | null> {
+    const [job] = await db
+      .select()
+      .from(xeroImportJobs)
+      .where(
+        and(
+          eq(xeroImportJobs.id, jobId),
+          eq(xeroImportJobs.workspaceId, workspaceId)
+        )
+      );
+    return job || null;
+  }
+
+  async updateXeroImportJob(jobId: number, workspaceId: string, data: Partial<SelectXeroImportJob>): Promise<SelectXeroImportJob | null> {
+    const [updated] = await db
+      .update(xeroImportJobs)
+      .set(data)
+      .where(
+        and(
+          eq(xeroImportJobs.id, jobId),
+          eq(xeroImportJobs.workspaceId, workspaceId)
+        )
+      )
+      .returning();
+    return updated || null;
+  }
+
+  async getRecentXeroImportJobs(workspaceId: string, limit: number = 10): Promise<SelectXeroImportJob[]> {
+    return await db
+      .select()
+      .from(xeroImportJobs)
+      .where(eq(xeroImportJobs.workspaceId, workspaceId))
+      .orderBy(desc(xeroImportJobs.createdAt))
+      .limit(limit);
+  }
+
+  // ============================================
+  // CUSTOMER XERO LOOKUPS
+  // ============================================
+
+  async getCustomerByXeroContactId(xeroContactId: string, workspaceId: string): Promise<SelectCrmCustomer | null> {
+    const [customer] = await db
+      .select()
+      .from(crmCustomers)
+      .where(
+        and(
+          eq(crmCustomers.xeroContactId, xeroContactId),
+          eq(crmCustomers.workspaceId, workspaceId)
+        )
+      );
+    return customer || null;
+  }
+
+  async getCustomersWithoutXeroId(workspaceId: string): Promise<SelectCrmCustomer[]> {
+    return await db
+      .select()
+      .from(crmCustomers)
+      .where(
+        and(
+          eq(crmCustomers.workspaceId, workspaceId),
+          isNull(crmCustomers.xeroContactId)
+        )
+      );
   }
 }
 

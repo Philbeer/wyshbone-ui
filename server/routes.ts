@@ -28,6 +28,9 @@ import {
   insertCrmDeliveryRunSchema,
   insertCrmOrderSchema,
   insertCrmOrderLineSchema,
+  insertCrmProductSchema,
+  insertCrmStockSchema,
+  insertCrmCallDiarySchema,
   insertBrewProductSchema,
   insertBrewBatchSchema,
   insertBrewInventoryItemSchema,
@@ -7404,7 +7407,7 @@ ${run.outputText}`;
       }
       
       // VALIDATION: Validate request body using Zod schema
-      const validationResult = insertCrmSettingsSchema.omit({ id: true, createdAt: true, updatedAt: true }).safeParse(req.body);
+      const validationResult = insertCrmSettingsSchema.omit({ id: true, workspaceId: true, createdAt: true, updatedAt: true }).safeParse(req.body);
       if (!validationResult.success) {
         return res.status(400).json({ 
           error: "Validation failed", 
@@ -7571,8 +7574,8 @@ ${run.outputText}`;
         return res.status(401).json({ error: "Unauthorized" });
       }
       
-      // VALIDATION: Validate request body using Zod schema
-      const validationResult = insertCrmCustomerSchema.omit({ id: true, createdAt: true, updatedAt: true }).safeParse(req.body);
+      // VALIDATION: Validate request body using Zod schema (omit workspaceId - set from auth)
+      const validationResult = insertCrmCustomerSchema.omit({ id: true, workspaceId: true, createdAt: true, updatedAt: true }).safeParse(req.body);
       if (!validationResult.success) {
         return res.status(400).json({ 
           error: "Validation failed", 
@@ -7748,7 +7751,7 @@ ${run.outputText}`;
       }
       
       // VALIDATION: Validate request body using Zod schema
-      const validationResult = insertCrmDeliveryRunSchema.omit({ id: true, createdAt: true, updatedAt: true }).safeParse(req.body);
+      const validationResult = insertCrmDeliveryRunSchema.omit({ id: true, workspaceId: true, createdAt: true, updatedAt: true }).safeParse(req.body);
       if (!validationResult.success) {
         return res.status(400).json({ 
           error: "Validation failed", 
@@ -7877,12 +7880,28 @@ ${run.outputText}`;
       res.json(products);
     } catch (error: any) {
       // Demo mode fallback: return empty array if database is unavailable
-      if (error.cause?.code === 'ENOTFOUND' && req.params.workspaceId === 'demo-user') {
-        console.warn('[CRM] Database DNS failed for demo-user products, returning empty array');
+      const errorMsg = error.message || '';
+      const causeMsg = error.cause?.message || '';
+      const isDbUnavailable = 
+        error.cause?.code === 'ENOTFOUND' ||
+        errorMsg.includes('does not exist') ||
+        causeMsg.includes('does not exist') ||
+        errorMsg.includes('ECONNREFUSED') ||
+        causeMsg.includes('ECONNREFUSED');
+      
+      if (isDbUnavailable && isDemoMode()) {
+        console.warn('[CRM] Database unavailable in demo mode, returning empty products array');
         return res.json([]);
       }
-      console.error("Error listing products:", error);
-      res.status(500).json({ error: error.message || "Failed to list products" });
+      
+      console.error("[CRM Products] Error listing products:", error);
+      const apiError = analyzeDatabaseError(error, 'list products');
+      res.status(500).json({ 
+        error: apiError.message,
+        code: apiError.code,
+        message: apiError.message,
+        hint: apiError.hint
+      });
     }
   });
   
@@ -7916,68 +7935,126 @@ ${run.outputText}`;
   
   // POST /api/crm/products - Create product
   app.post("/api/crm/products", async (req, res) => {
-    const auth = await getAuthenticatedUserId(req);
-    if (!auth) {
-      return res.status(401).json({ error: "Unauthorized" });
-    }
-    
-    const data = req.body;
-    
-    // SECURITY: Force workspaceId to be the authenticated user's ID
-    const workspaceId = auth.userId;
-    
-    const now = Date.now();
-    const productData = {
-      id: `crm_product_${Date.now()}_${Math.random().toString(36).substring(7)}`,
-      workspaceId,
-      name: data.name,
-      sku: data.sku || null,
-      description: data.description || null,
-      category: data.category || null,
-      unitType: data.unitType || 'each',
-      defaultUnitPriceExVat: data.defaultUnitPriceExVat || 0,
-      defaultVatRate: data.defaultVatRate || 2000,
-      isActive: data.isActive ?? 1,
-      trackStock: data.trackStock ?? 0,
-      createdAt: now,
-      updatedAt: now,
-    };
-    
-    // In demo mode, use a timeout to fail fast if DB is unreachable
-    if (isDemoMode()) {
-      const DB_TIMEOUT_MS = 8000; // 8 second timeout for demo mode
-      const timeoutPromise = new Promise<never>((_, reject) => 
-        setTimeout(() => reject(new Error('DB_TIMEOUT')), DB_TIMEOUT_MS)
-      );
-      
-      try {
-        const product = await Promise.race([
-          storage.createCrmProduct(productData),
-          timeoutPromise
-        ]);
-        return res.json(product);
-      } catch (error: any) {
-        // Return mock product for demo mode when DB fails or times out
-        if (error.message === 'DB_TIMEOUT' || error.cause?.code === 'ENOTFOUND') {
-          console.warn('[CRM] Database unavailable in demo mode, returning mock product');
-          const mockProduct = {
-            ...productData,
-            id: `crm_product_demo_${now}`,
-            workspaceId: 'demo-user',
-          };
-          return res.json(mockProduct);
-        }
-        throw error; // Re-throw other errors
-      }
-    }
-    
-    // Normal mode - no timeout wrapper
     try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ 
+          error: "Unauthorized",
+          code: "AUTH_REQUIRED",
+          message: "Authentication required to create products"
+        });
+      }
+      
+      // VALIDATION: Validate request body using Zod schema
+      const validationResult = insertCrmProductSchema.omit({ 
+        id: true, 
+        workspaceId: true,
+        createdAt: true, 
+        updatedAt: true 
+      }).safeParse(req.body);
+      
+      if (!validationResult.success) {
+        console.warn('[CRM Products] Validation failed:', validationResult.error.errors);
+        return res.status(422).json({ 
+          error: "Validation failed",
+          code: "VALIDATION_ERROR",
+          message: validationResult.error.errors.map(e => `${e.path.join('.')}: ${e.message}`).join(', '),
+          details: validationResult.error.errors 
+        });
+      }
+      
+      const data = validationResult.data;
+      
+      // SECURITY: Force workspaceId to be the authenticated user's ID
+      const workspaceId = auth.userId;
+      
+      const now = Date.now();
+      const productData = {
+        id: `crm_product_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+        workspaceId,
+        name: data.name,
+        sku: data.sku || null,
+        description: data.description || null,
+        category: data.category || null,
+        unitType: data.unitType || 'each',
+        defaultUnitPriceExVat: data.defaultUnitPriceExVat ?? 0,
+        defaultVatRate: data.defaultVatRate ?? 2000,
+        isActive: data.isActive ?? 1,
+        trackStock: data.trackStock ?? 0,
+        createdAt: now,
+        updatedAt: now,
+      };
+      
+      // Helper to return mock product in demo mode when DB is unavailable
+      const returnMockProduct = () => {
+        console.warn('[CRM] Database unavailable in demo mode, returning mock product');
+        const mockProduct = {
+          ...productData,
+          id: `crm_product_demo_${now}`,
+          workspaceId: isDemoMode() ? 'demo-user' : workspaceId,
+        };
+        return res.json(mockProduct);
+      };
+      
+      // In demo mode, use a timeout to fail fast if DB is unreachable
+      if (isDemoMode()) {
+        const DB_TIMEOUT_MS = 8000; // 8 second timeout for demo mode
+        const timeoutPromise = new Promise<never>((_, reject) => 
+          setTimeout(() => reject(new Error('DB_TIMEOUT')), DB_TIMEOUT_MS)
+        );
+        
+        try {
+          const product = await Promise.race([
+            storage.createCrmProduct(productData),
+            timeoutPromise
+          ]);
+          return res.json(product);
+        } catch (error: any) {
+          // In demo mode, gracefully handle all database errors with mock data
+          const errorMsg = error.message || '';
+          const causeMsg = error.cause?.message || '';
+          const isDbError = 
+            errorMsg === 'DB_TIMEOUT' || 
+            error.cause?.code === 'ENOTFOUND' ||
+            errorMsg.includes('does not exist') ||
+            causeMsg.includes('does not exist') ||
+            errorMsg.includes('ECONNREFUSED') ||
+            causeMsg.includes('ECONNREFUSED');
+          
+          if (isDbError) {
+            return returnMockProduct();
+          }
+          throw error; // Re-throw non-database errors
+        }
+      }
+      
+      // Normal mode - full error handling
       const product = await storage.createCrmProduct(productData);
       res.json(product);
+      
     } catch (error: any) {
-      console.error("Error creating product:", error);
-      res.status(500).json({ error: error.message || "Failed to create product" });
+      // Full stack trace for server logs
+      console.error("[CRM Products] Error creating product:", error);
+      
+      // Use structured error analysis for user-facing message
+      const apiError = analyzeDatabaseError(error, 'create product');
+      
+      // Determine appropriate status code
+      let statusCode = 500;
+      if (apiError.code === 'DB_TABLE_MISSING' || apiError.code === 'DB_COLUMN_MISSING') {
+        statusCode = 503; // Service unavailable - need migration
+      } else if (apiError.code === 'DB_DUPLICATE_KEY') {
+        statusCode = 409; // Conflict
+      } else if (apiError.code === 'DB_NULL_VIOLATION' || apiError.code === 'DB_TYPE_ERROR') {
+        statusCode = 422; // Unprocessable entity
+      }
+      
+      res.status(statusCode).json({ 
+        error: apiError.message,
+        code: apiError.code,
+        message: apiError.message,
+        hint: apiError.hint
+      });
     }
   });
   
@@ -7991,6 +8068,23 @@ ${run.outputText}`;
       
       const { id } = req.params;
       
+      // VALIDATION: Validate partial update using Zod schema
+      const validationResult = insertCrmProductSchema.partial().omit({ 
+        id: true, 
+        workspaceId: true, 
+        createdAt: true 
+      }).safeParse(req.body);
+      
+      if (!validationResult.success) {
+        console.warn('[CRM Products] Validation failed:', validationResult.error.errors);
+        return res.status(422).json({ 
+          error: "Validation failed",
+          code: "VALIDATION_ERROR",
+          message: validationResult.error.errors.map(e => `${e.path.join('.')}: ${e.message}`).join(', '),
+          details: validationResult.error.errors 
+        });
+      }
+      
       // SECURITY: Verify product exists and belongs to authenticated user's workspace
       const existing = await storage.getCrmProduct(id);
       if (!existing) {
@@ -8001,7 +8095,7 @@ ${run.outputText}`;
         return res.status(403).json({ error: "Forbidden: Cannot modify other workspaces' data" });
       }
       
-      const data = req.body;
+      const data = validationResult.data;
       
       const product = await storage.updateCrmProduct(id, {
         ...data,
@@ -8011,12 +8105,28 @@ ${run.outputText}`;
       res.json(product);
     } catch (error: any) {
       // Demo mode fallback: return mock updated product
-      if (error.cause?.code === 'ENOTFOUND' && isDemoMode()) {
-        console.warn('[CRM] Database DNS failed for demo-user, returning mock updated product');
-        return res.json({ id, ...req.body, updatedAt: Date.now() });
+      const errorMsg = error.message || '';
+      const causeMsg = error.cause?.message || '';
+      const isDbUnavailable = 
+        error.cause?.code === 'ENOTFOUND' ||
+        errorMsg.includes('does not exist') ||
+        causeMsg.includes('does not exist') ||
+        errorMsg.includes('ECONNREFUSED') ||
+        causeMsg.includes('ECONNREFUSED');
+      
+      if (isDbUnavailable && isDemoMode()) {
+        console.warn('[CRM] Database unavailable in demo mode, returning mock updated product');
+        return res.json({ id: req.params.id, ...req.body, updatedAt: Date.now() });
       }
-      console.error("Error updating product:", error);
-      res.status(500).json({ error: error.message || "Failed to update product" });
+      
+      console.error("[CRM Products] Error updating product:", error);
+      const apiError = analyzeDatabaseError(error, 'update product');
+      res.status(500).json({ 
+        error: apiError.message,
+        code: apiError.code,
+        message: apiError.message,
+        hint: apiError.hint
+      });
     }
   });
   
@@ -8045,12 +8155,28 @@ ${run.outputText}`;
       res.json({ success });
     } catch (error: any) {
       // Demo mode fallback: return success
-      if (error.cause?.code === 'ENOTFOUND' && isDemoMode()) {
-        console.warn('[CRM] Database DNS failed for demo-user, returning mock delete success');
+      const errorMsg = error.message || '';
+      const causeMsg = error.cause?.message || '';
+      const isDbUnavailable = 
+        error.cause?.code === 'ENOTFOUND' ||
+        errorMsg.includes('does not exist') ||
+        causeMsg.includes('does not exist') ||
+        errorMsg.includes('ECONNREFUSED') ||
+        causeMsg.includes('ECONNREFUSED');
+      
+      if (isDbUnavailable && isDemoMode()) {
+        console.warn('[CRM] Database unavailable in demo mode, returning mock delete success');
         return res.json({ success: true });
       }
-      console.error("Error deleting product:", error);
-      res.status(500).json({ error: error.message || "Failed to delete product" });
+      
+      console.error("[CRM Products] Error deleting product:", error);
+      const apiError = analyzeDatabaseError(error, 'delete product');
+      res.status(500).json({ 
+        error: apiError.message,
+        code: apiError.code,
+        message: apiError.message,
+        hint: apiError.hint
+      });
     }
   });
   
@@ -8218,6 +8344,358 @@ ${run.outputText}`;
     }
   });
   
+  // ============================================================
+  // CRM CALL DIARY (SALES DIARY) ROUTES
+  // ============================================================
+  
+  // GET /api/crm/call-diary/:workspaceId - List all call diary entries
+  app.get("/api/crm/call-diary/:workspaceId", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { workspaceId } = req.params;
+      
+      // SECURITY: Verify workspace belongs to authenticated user
+      if (workspaceId !== auth.userId) {
+        console.warn(`🚫 User ${auth.userEmail} attempted to access call diary for workspace ${workspaceId}`);
+        return res.status(403).json({ error: "Forbidden: Cannot access other workspaces' data" });
+      }
+      
+      // Parse query filters
+      const filters: any = {};
+      if (req.query.entityType) filters.entityType = req.query.entityType as string;
+      if (req.query.completed === 'true') filters.completed = true;
+      if (req.query.completed === 'false') filters.completed = false;
+      if (req.query.startDate) filters.startDate = parseInt(req.query.startDate as string);
+      if (req.query.endDate) filters.endDate = parseInt(req.query.endDate as string);
+      if (req.query.limit) filters.limit = parseInt(req.query.limit as string);
+      if (req.query.offset) filters.offset = parseInt(req.query.offset as string);
+      
+      const entries = await storage.listCallDiaryEntries(workspaceId, filters);
+      
+      res.json(entries);
+    } catch (error: any) {
+      console.error("[Call Diary] Error listing entries:", error);
+      res.status(500).json({ error: error.message || "Failed to list call diary entries" });
+    }
+  });
+  
+  // GET /api/crm/call-diary/:workspaceId/upcoming - Get upcoming calls (today + future)
+  app.get("/api/crm/call-diary/:workspaceId/upcoming", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { workspaceId } = req.params;
+      
+      // SECURITY: Verify workspace belongs to authenticated user
+      if (workspaceId !== auth.userId) {
+        return res.status(403).json({ error: "Forbidden: Cannot access other workspaces' data" });
+      }
+      
+      // Parse query filters
+      const filters: any = {};
+      if (req.query.entityType) filters.entityType = req.query.entityType as string;
+      if (req.query.limit) filters.limit = parseInt(req.query.limit as string);
+      
+      const entries = await storage.listUpcomingCalls(workspaceId, filters);
+      
+      res.json(entries);
+    } catch (error: any) {
+      console.error("[Call Diary] Error listing upcoming calls:", error);
+      res.status(500).json({ error: error.message || "Failed to list upcoming calls" });
+    }
+  });
+  
+  // GET /api/crm/call-diary/:workspaceId/overdue - Get overdue calls (past, not completed)
+  app.get("/api/crm/call-diary/:workspaceId/overdue", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { workspaceId } = req.params;
+      
+      // SECURITY: Verify workspace belongs to authenticated user
+      if (workspaceId !== auth.userId) {
+        return res.status(403).json({ error: "Forbidden: Cannot access other workspaces' data" });
+      }
+      
+      // Parse query filters
+      const filters: any = {};
+      if (req.query.entityType) filters.entityType = req.query.entityType as string;
+      if (req.query.limit) filters.limit = parseInt(req.query.limit as string);
+      
+      const entries = await storage.listOverdueCalls(workspaceId, filters);
+      
+      res.json(entries);
+    } catch (error: any) {
+      console.error("[Call Diary] Error listing overdue calls:", error);
+      res.status(500).json({ error: error.message || "Failed to list overdue calls" });
+    }
+  });
+  
+  // GET /api/crm/call-diary/:workspaceId/history - Get call history (completed calls)
+  app.get("/api/crm/call-diary/:workspaceId/history", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { workspaceId } = req.params;
+      
+      // SECURITY: Verify workspace belongs to authenticated user
+      if (workspaceId !== auth.userId) {
+        return res.status(403).json({ error: "Forbidden: Cannot access other workspaces' data" });
+      }
+      
+      // Parse query filters
+      const filters: any = {};
+      if (req.query.entityType) filters.entityType = req.query.entityType as string;
+      if (req.query.startDate) filters.startDate = parseInt(req.query.startDate as string);
+      if (req.query.endDate) filters.endDate = parseInt(req.query.endDate as string);
+      if (req.query.limit) filters.limit = parseInt(req.query.limit as string);
+      if (req.query.offset) filters.offset = parseInt(req.query.offset as string);
+      
+      const entries = await storage.listCallHistory(workspaceId, filters);
+      
+      res.json(entries);
+    } catch (error: any) {
+      console.error("[Call Diary] Error listing call history:", error);
+      res.status(500).json({ error: error.message || "Failed to list call history" });
+    }
+  });
+  
+  // GET /api/crm/call-diary/detail/:id - Get single call diary entry
+  app.get("/api/crm/call-diary/detail/:id", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { id } = req.params;
+      const entry = await storage.getCallDiaryEntry(parseInt(id), auth.userId);
+      
+      if (!entry) {
+        return res.status(404).json({ error: "Call diary entry not found" });
+      }
+      
+      res.json(entry);
+    } catch (error: any) {
+      console.error("[Call Diary] Error getting entry:", error);
+      res.status(500).json({ error: error.message || "Failed to get call diary entry" });
+    }
+  });
+  
+  // GET /api/crm/call-diary/entity/:entityType/:entityId - Get calls for a specific customer/lead
+  app.get("/api/crm/call-diary/entity/:entityType/:entityId", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { entityType, entityId } = req.params;
+      
+      if (!['customer', 'lead'].includes(entityType)) {
+        return res.status(400).json({ error: "entityType must be 'customer' or 'lead'" });
+      }
+      
+      const entries = await storage.getCallsForEntity(entityType, entityId, auth.userId);
+      
+      res.json(entries);
+    } catch (error: any) {
+      console.error("[Call Diary] Error getting calls for entity:", error);
+      res.status(500).json({ error: error.message || "Failed to get calls for entity" });
+    }
+  });
+  
+  // POST /api/crm/call-diary - Create call diary entry
+  app.post("/api/crm/call-diary", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      // VALIDATION: Validate request body
+      const validationResult = insertCrmCallDiarySchema.omit({ id: true, workspaceId: true, createdAt: true, updatedAt: true }).safeParse(req.body);
+      if (!validationResult.success) {
+        return res.status(400).json({ 
+          error: "Validation failed", 
+          details: validationResult.error.errors 
+        });
+      }
+      
+      const data = validationResult.data;
+      
+      // Validate entityType
+      if (!['customer', 'lead'].includes(data.entityType)) {
+        return res.status(400).json({ error: "entityType must be 'customer' or 'lead'" });
+      }
+      
+      // SECURITY: Force workspaceId to be the authenticated user's ID
+      const workspaceId = auth.userId;
+      const now = Date.now();
+      
+      const entry = await storage.createCallDiaryEntry({
+        workspaceId,
+        entityType: data.entityType,
+        entityId: data.entityId,
+        scheduledDate: data.scheduledDate,
+        completed: data.completed ?? 0,
+        completedDate: data.completedDate || null,
+        notes: data.notes || null,
+        outcome: data.outcome || null,
+        createdAt: now,
+        createdBy: auth.userId,
+        updatedAt: now,
+      });
+      
+      res.json(entry);
+    } catch (error: any) {
+      console.error("[Call Diary] Error creating entry:", error);
+      res.status(500).json({ error: error.message || "Failed to create call diary entry" });
+    }
+  });
+  
+  // PATCH /api/crm/call-diary/:id - Update call diary entry
+  app.patch("/api/crm/call-diary/:id", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { id } = req.params;
+      
+      // SECURITY: Verify entry exists and belongs to authenticated user's workspace
+      const existing = await storage.getCallDiaryEntry(parseInt(id), auth.userId);
+      if (!existing) {
+        return res.status(404).json({ error: "Call diary entry not found" });
+      }
+      
+      // VALIDATION: Validate partial update
+      const validationResult = insertCrmCallDiarySchema.partial().omit({ id: true, workspaceId: true, createdAt: true, createdBy: true }).safeParse(req.body);
+      if (!validationResult.success) {
+        return res.status(400).json({ 
+          error: "Validation failed", 
+          details: validationResult.error.errors 
+        });
+      }
+      
+      const entry = await storage.updateCallDiaryEntry(parseInt(id), auth.userId, {
+        ...validationResult.data,
+        updatedAt: Date.now(),
+      });
+      
+      res.json(entry);
+    } catch (error: any) {
+      console.error("[Call Diary] Error updating entry:", error);
+      res.status(500).json({ error: error.message || "Failed to update call diary entry" });
+    }
+  });
+  
+  // PATCH /api/crm/call-diary/:id/complete - Mark call as complete
+  app.patch("/api/crm/call-diary/:id/complete", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { id } = req.params;
+      const { outcome, notes } = req.body;
+      
+      // SECURITY: Verify entry exists and belongs to authenticated user's workspace
+      const existing = await storage.getCallDiaryEntry(parseInt(id), auth.userId);
+      if (!existing) {
+        return res.status(404).json({ error: "Call diary entry not found" });
+      }
+      
+      const now = Date.now();
+      const entry = await storage.updateCallDiaryEntry(parseInt(id), auth.userId, {
+        completed: 1,
+        completedDate: now,
+        outcome: outcome || existing.outcome,
+        notes: notes || existing.notes,
+        updatedAt: now,
+      });
+      
+      res.json(entry);
+    } catch (error: any) {
+      console.error("[Call Diary] Error completing call:", error);
+      res.status(500).json({ error: error.message || "Failed to mark call as complete" });
+    }
+  });
+  
+  // PATCH /api/crm/call-diary/:id/reschedule - Reschedule call
+  app.patch("/api/crm/call-diary/:id/reschedule", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { id } = req.params;
+      const { scheduledDate } = req.body;
+      
+      if (!scheduledDate) {
+        return res.status(400).json({ error: "scheduledDate is required" });
+      }
+      
+      // SECURITY: Verify entry exists and belongs to authenticated user's workspace
+      const existing = await storage.getCallDiaryEntry(parseInt(id), auth.userId);
+      if (!existing) {
+        return res.status(404).json({ error: "Call diary entry not found" });
+      }
+      
+      const entry = await storage.updateCallDiaryEntry(parseInt(id), auth.userId, {
+        scheduledDate,
+        outcome: 'rescheduled',
+        updatedAt: Date.now(),
+      });
+      
+      res.json(entry);
+    } catch (error: any) {
+      console.error("[Call Diary] Error rescheduling call:", error);
+      res.status(500).json({ error: error.message || "Failed to reschedule call" });
+    }
+  });
+  
+  // DELETE /api/crm/call-diary/:id - Delete call diary entry
+  app.delete("/api/crm/call-diary/:id", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { id } = req.params;
+      
+      // SECURITY: Verify entry exists and belongs to authenticated user's workspace
+      const existing = await storage.getCallDiaryEntry(parseInt(id), auth.userId);
+      if (!existing) {
+        return res.status(404).json({ error: "Call diary entry not found" });
+      }
+      
+      const success = await storage.deleteCallDiaryEntry(parseInt(id), auth.userId);
+      
+      res.json({ success });
+    } catch (error: any) {
+      console.error("[Call Diary] Error deleting entry:", error);
+      res.status(500).json({ error: error.message || "Failed to delete call diary entry" });
+    }
+  });
+  
   // ============= HELPER: Recalculate Order Totals from Line Items =============
   /**
    * Recalculates order totals (subtotal, VAT, total) from all line items.
@@ -8340,7 +8818,7 @@ ${run.outputText}`;
       }
       
       // VALIDATION: Validate request body using Zod schema
-      const validationResult = insertCrmOrderSchema.omit({ id: true, createdAt: true, updatedAt: true }).safeParse(req.body);
+      const validationResult = insertCrmOrderSchema.omit({ id: true, workspaceId: true, createdAt: true, updatedAt: true }).safeParse(req.body);
       if (!validationResult.success) {
         return res.status(400).json({ 
           error: "Validation failed", 
@@ -8517,7 +8995,15 @@ ${run.outputText}`;
       }
       
       // VALIDATION: Validate request body using Zod schema
-      const validationResult = insertCrmOrderLineSchema.omit({ id: true, createdAt: true, updatedAt: true }).safeParse(req.body);
+      // Omit calculated fields - backend will compute lineSubtotalExVat, lineVatAmount, lineTotalIncVat
+      const validationResult = insertCrmOrderLineSchema.omit({ 
+        id: true, 
+        createdAt: true, 
+        updatedAt: true,
+        lineSubtotalExVat: true,
+        lineVatAmount: true,
+        lineTotalIncVat: true,
+      }).safeParse(req.body);
       if (!validationResult.success) {
         return res.status(400).json({ 
           error: "Validation failed", 
@@ -9706,6 +10192,1202 @@ ${run.outputText}`;
         });
       }
       res.status(500).json({ error: error.message || "Failed to fetch duty lookup bands" });
+    }
+  });
+  
+  // ============================================================
+  // PRICE BOOKS ENDPOINTS
+  // ============================================================
+  
+  // GET /api/brewcrm/price-books/:workspaceId - List all price books
+  app.get("/api/brewcrm/price-books/:workspaceId", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { workspaceId } = req.params;
+      
+      // SECURITY: Verify workspace belongs to authenticated user
+      if (workspaceId !== auth.userId) {
+        return res.status(403).json({ error: "Forbidden: Cannot access other workspaces' data" });
+      }
+      
+      const priceBooks = await storage.listBrewPriceBooks(workspaceId);
+      res.json(priceBooks);
+    } catch (error: any) {
+      console.error("Error listing price books:", error);
+      res.status(500).json({ error: error.message || "Failed to list price books" });
+    }
+  });
+  
+  // GET /api/brewcrm/price-books/:workspaceId/active - List active price books
+  app.get("/api/brewcrm/price-books/:workspaceId/active", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { workspaceId } = req.params;
+      
+      if (workspaceId !== auth.userId) {
+        return res.status(403).json({ error: "Forbidden: Cannot access other workspaces' data" });
+      }
+      
+      const priceBooks = await storage.listActiveBrewPriceBooks(workspaceId);
+      res.json(priceBooks);
+    } catch (error: any) {
+      console.error("Error listing active price books:", error);
+      res.status(500).json({ error: error.message || "Failed to list active price books" });
+    }
+  });
+  
+  // GET /api/brewcrm/price-books/detail/:id - Get single price book with product prices
+  app.get("/api/brewcrm/price-books/detail/:id", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const priceBookId = parseInt(req.params.id);
+      if (isNaN(priceBookId)) {
+        return res.status(400).json({ error: "Invalid price book ID" });
+      }
+      
+      const workspaceId = auth.userId;
+      const priceBook = await storage.getBrewPriceBook(priceBookId, workspaceId);
+      
+      if (!priceBook) {
+        return res.status(404).json({ error: "Price book not found" });
+      }
+      
+      // Also get product prices for this price book
+      const productPrices = await storage.getProductPricesByPriceBook(priceBookId, workspaceId);
+      const priceBands = await storage.getPriceBandsByPriceBook(priceBookId, workspaceId);
+      
+      res.json({
+        ...priceBook,
+        productPrices,
+        priceBands,
+      });
+    } catch (error: any) {
+      console.error("Error getting price book:", error);
+      res.status(500).json({ error: error.message || "Failed to get price book" });
+    }
+  });
+  
+  // POST /api/brewcrm/price-books - Create price book
+  app.post("/api/brewcrm/price-books", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const workspaceId = auth.userId;
+      const { name, description, isDefault, parentPriceBookId, discountType, discountValue, isActive } = req.body;
+      
+      if (!name || typeof name !== 'string' || name.length > 100) {
+        return res.status(400).json({ error: "Name is required and must be less than 100 characters" });
+      }
+      
+      // If this is set as default, unset other defaults first
+      if (isDefault) {
+        await storage.unsetDefaultPriceBook(workspaceId);
+      }
+      
+      const now = Date.now();
+      const priceBook = await storage.createBrewPriceBook({
+        workspaceId,
+        name,
+        description: description || null,
+        isDefault: isDefault ? 1 : 0,
+        parentPriceBookId: parentPriceBookId || null,
+        discountType: discountType || null,
+        discountValue: discountValue || null,
+        isActive: isActive !== false ? 1 : 0,
+        createdAt: now,
+        updatedAt: now,
+      });
+      
+      res.status(201).json(priceBook);
+    } catch (error: any) {
+      console.error("Error creating price book:", error);
+      // Check for unique constraint violation
+      if (error.message?.includes('unique') || error.message?.includes('duplicate')) {
+        return res.status(400).json({ error: "A price book with this name already exists" });
+      }
+      res.status(500).json({ error: error.message || "Failed to create price book" });
+    }
+  });
+  
+  // PATCH /api/brewcrm/price-books/:id - Update price book
+  app.patch("/api/brewcrm/price-books/:id", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const priceBookId = parseInt(req.params.id);
+      if (isNaN(priceBookId)) {
+        return res.status(400).json({ error: "Invalid price book ID" });
+      }
+      
+      const workspaceId = auth.userId;
+      const { name, description, isDefault, parentPriceBookId, discountType, discountValue, isActive } = req.body;
+      
+      // Check if price book exists
+      const existing = await storage.getBrewPriceBook(priceBookId, workspaceId);
+      if (!existing) {
+        return res.status(404).json({ error: "Price book not found" });
+      }
+      
+      // If this is set as default, unset other defaults first
+      if (isDefault) {
+        await storage.unsetDefaultPriceBook(workspaceId);
+      }
+      
+      const updates: any = {};
+      if (name !== undefined) updates.name = name;
+      if (description !== undefined) updates.description = description;
+      if (isDefault !== undefined) updates.isDefault = isDefault ? 1 : 0;
+      if (parentPriceBookId !== undefined) updates.parentPriceBookId = parentPriceBookId;
+      if (discountType !== undefined) updates.discountType = discountType;
+      if (discountValue !== undefined) updates.discountValue = discountValue;
+      if (isActive !== undefined) updates.isActive = isActive ? 1 : 0;
+      
+      const updated = await storage.updateBrewPriceBook(priceBookId, workspaceId, updates);
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Error updating price book:", error);
+      if (error.message?.includes('unique') || error.message?.includes('duplicate')) {
+        return res.status(400).json({ error: "A price book with this name already exists" });
+      }
+      res.status(500).json({ error: error.message || "Failed to update price book" });
+    }
+  });
+  
+  // DELETE /api/brewcrm/price-books/:id - Delete price book
+  app.delete("/api/brewcrm/price-books/:id", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const priceBookId = parseInt(req.params.id);
+      if (isNaN(priceBookId)) {
+        return res.status(400).json({ error: "Invalid price book ID" });
+      }
+      
+      const workspaceId = auth.userId;
+      
+      // Check if any customers are using this price book
+      const customersUsingBook = await storage.getCustomersByPriceBook(priceBookId, workspaceId);
+      if (customersUsingBook.length > 0) {
+        return res.status(400).json({ 
+          error: "Cannot delete price book",
+          message: `${customersUsingBook.length} customer(s) are assigned to this price book. Please reassign them first.`
+        });
+      }
+      
+      // Delete product prices first
+      await storage.deleteProductPricesByPriceBook(priceBookId, workspaceId);
+      
+      const deleted = await storage.deleteBrewPriceBook(priceBookId, workspaceId);
+      if (!deleted) {
+        return res.status(404).json({ error: "Price book not found" });
+      }
+      
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error deleting price book:", error);
+      res.status(500).json({ error: error.message || "Failed to delete price book" });
+    }
+  });
+  
+  // ============================================================
+  // PRODUCT PRICES IN PRICE BOOKS
+  // ============================================================
+  
+  // GET /api/brewcrm/price-books/:id/prices - Get product prices for a price book
+  app.get("/api/brewcrm/price-books/:id/prices", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const priceBookId = parseInt(req.params.id);
+      if (isNaN(priceBookId)) {
+        return res.status(400).json({ error: "Invalid price book ID" });
+      }
+      
+      const workspaceId = auth.userId;
+      const productPrices = await storage.getProductPricesByPriceBook(priceBookId, workspaceId);
+      res.json(productPrices);
+    } catch (error: any) {
+      console.error("Error getting product prices:", error);
+      res.status(500).json({ error: error.message || "Failed to get product prices" });
+    }
+  });
+  
+  // POST /api/brewcrm/price-books/:id/prices - Bulk update product prices for a price book
+  app.post("/api/brewcrm/price-books/:id/prices", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const priceBookId = parseInt(req.params.id);
+      if (isNaN(priceBookId)) {
+        return res.status(400).json({ error: "Invalid price book ID" });
+      }
+      
+      const workspaceId = auth.userId;
+      const { productPrices } = req.body;
+      
+      if (!Array.isArray(productPrices)) {
+        return res.status(400).json({ error: "productPrices must be an array" });
+      }
+      
+      // Validate each price entry
+      for (const pp of productPrices) {
+        if (!pp.productId || typeof pp.price !== 'number' || pp.price < 0) {
+          return res.status(400).json({ error: "Each price entry must have productId and a non-negative price" });
+        }
+      }
+      
+      await storage.bulkUpsertProductPrices(priceBookId, workspaceId, productPrices);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error updating product prices:", error);
+      res.status(500).json({ error: error.message || "Failed to update product prices" });
+    }
+  });
+  
+  // POST /api/brewcrm/price-books/:id/copy-prices - Copy prices from another price book
+  app.post("/api/brewcrm/price-books/:id/copy-prices", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const targetPriceBookId = parseInt(req.params.id);
+      if (isNaN(targetPriceBookId)) {
+        return res.status(400).json({ error: "Invalid target price book ID" });
+      }
+      
+      const { sourcePriceBookId } = req.body;
+      if (!sourcePriceBookId || isNaN(parseInt(sourcePriceBookId))) {
+        return res.status(400).json({ error: "sourcePriceBookId is required" });
+      }
+      
+      const workspaceId = auth.userId;
+      await storage.copyPriceBookPrices(parseInt(sourcePriceBookId), targetPriceBookId, workspaceId);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error copying prices:", error);
+      res.status(500).json({ error: error.message || "Failed to copy prices" });
+    }
+  });
+  
+  // ============================================================
+  // EFFECTIVE PRICING ENDPOINT
+  // ============================================================
+  
+  // GET /api/brewcrm/products/:productId/effective-price - Get effective price for a product
+  app.get("/api/brewcrm/products/:productId/effective-price", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { productId } = req.params;
+      const customerId = req.query.customerId as string | undefined;
+      const quantity = req.query.quantity ? parseInt(req.query.quantity as string) : 1;
+      
+      const workspaceId = auth.userId;
+      const effectivePrice = await storage.getEffectiveProductPrice(productId, workspaceId, customerId, quantity);
+      
+      res.json(effectivePrice);
+    } catch (error: any) {
+      console.error("Error getting effective product price:", error);
+      res.status(500).json({ error: error.message || "Failed to get effective product price" });
+    }
+  });
+  
+  // ============================================================
+  // CUSTOMER PRICE BOOK ASSIGNMENT
+  // ============================================================
+  
+  // PATCH /api/crm/customers/:id/price-book - Update customer's price book assignment
+  app.patch("/api/crm/customers/:id/price-book", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const customerId = req.params.id;
+      const { priceBookId } = req.body;
+      
+      // priceBookId can be null (to unassign) or a number
+      if (priceBookId !== null && (typeof priceBookId !== 'number' || isNaN(priceBookId))) {
+        return res.status(400).json({ error: "priceBookId must be a number or null" });
+      }
+      
+      const workspaceId = auth.userId;
+      
+      // Verify customer exists
+      const customer = await storage.getCrmCustomer(customerId);
+      if (!customer || customer.workspaceId !== workspaceId) {
+        return res.status(404).json({ error: "Customer not found" });
+      }
+      
+      // If assigning a price book, verify it exists
+      if (priceBookId !== null) {
+        const priceBook = await storage.getBrewPriceBook(priceBookId, workspaceId);
+        if (!priceBook) {
+          return res.status(404).json({ error: "Price book not found" });
+        }
+      }
+      
+      await storage.updateCustomerPriceBook(customerId, workspaceId, priceBookId);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error updating customer price book:", error);
+      res.status(500).json({ error: error.message || "Failed to update customer price book" });
+    }
+  });
+  
+  // ============================================================
+  // TRADE STORE ENDPOINTS
+  // ============================================================
+  
+  // GET /api/brewcrm/trade-store/settings - Get trade store settings
+  app.get("/api/brewcrm/trade-store/settings", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const settings = await storage.getTradeStoreSettings(auth.userId);
+      res.json(settings || {});
+    } catch (error: any) {
+      console.error("Error getting trade store settings:", error);
+      res.status(500).json({ error: error.message || "Failed to get trade store settings" });
+    }
+  });
+  
+  // POST /api/brewcrm/trade-store/settings - Update trade store settings
+  app.post("/api/brewcrm/trade-store/settings", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const settings = await storage.createOrUpdateTradeStoreSettings({
+        ...req.body,
+        workspaceId: auth.userId,
+      });
+      res.json(settings);
+    } catch (error: any) {
+      console.error("Error updating trade store settings:", error);
+      res.status(500).json({ error: error.message || "Failed to update trade store settings" });
+    }
+  });
+  
+  // GET /api/brewcrm/trade-store/access - List customer access
+  app.get("/api/brewcrm/trade-store/access", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const list = await storage.getTradeStoreAccessList(auth.userId);
+      res.json(list);
+    } catch (error: any) {
+      console.error("Error listing trade store access:", error);
+      res.status(500).json({ error: error.message || "Failed to list trade store access" });
+    }
+  });
+  
+  // POST /api/brewcrm/trade-store/access - Grant customer access
+  app.post("/api/brewcrm/trade-store/access", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { customerId } = req.body;
+      if (!customerId) {
+        return res.status(400).json({ error: "customerId is required" });
+      }
+      
+      const accessCode = `TS-${Math.random().toString(36).substring(2, 15).toUpperCase()}`;
+      const now = Date.now();
+      
+      const access = await storage.createTradeStoreAccess({
+        workspaceId: auth.userId,
+        customerId,
+        accessCode,
+        isActive: 1,
+        approvedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      });
+      
+      res.status(201).json(access);
+    } catch (error: any) {
+      console.error("Error granting trade store access:", error);
+      res.status(500).json({ error: error.message || "Failed to grant trade store access" });
+    }
+  });
+  
+  // POST /api/trade-store/login - Customer login (public endpoint)
+  app.post("/api/trade-store/login", async (req, res) => {
+    try {
+      const { accessCode } = req.body;
+      if (!accessCode) {
+        return res.status(400).json({ error: "accessCode is required" });
+      }
+      
+      const access = await storage.getTradeStoreAccessByCode(accessCode);
+      if (!access || !access.isActive) {
+        return res.status(401).json({ error: "Invalid or inactive access code" });
+      }
+      
+      const crypto = await import('crypto');
+      const sessionToken = crypto.randomBytes(32).toString('hex');
+      const expiresAt = Date.now() + (7 * 24 * 60 * 60 * 1000); // 7 days
+      
+      await storage.createTradeStoreSession({
+        workspaceId: access.workspaceId,
+        customerId: access.customerId,
+        sessionToken,
+        expiresAt,
+        createdAt: Date.now(),
+      });
+      
+      // Update last login
+      await storage.updateTradeStoreAccess(access.id, access.workspaceId, {
+        lastLoginAt: Date.now(),
+      });
+      
+      res.json({ sessionToken, expiresAt, customerId: access.customerId });
+    } catch (error: any) {
+      console.error("Error logging into trade store:", error);
+      res.status(500).json({ error: error.message || "Login failed" });
+    }
+  });
+  
+  // ============================================================
+  // CRM TAGS ENDPOINTS
+  // ============================================================
+  
+  // GET /api/crm/tags/:workspaceId - List customer tags
+  app.get("/api/crm/tags/:workspaceId", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { workspaceId } = req.params;
+      if (workspaceId !== auth.userId) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+      
+      const tags = await storage.getCustomerTags(workspaceId);
+      res.json(tags);
+    } catch (error: any) {
+      console.error("Error listing tags:", error);
+      res.status(500).json({ error: error.message || "Failed to list tags" });
+    }
+  });
+  
+  // POST /api/crm/tags - Create tag
+  app.post("/api/crm/tags", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { name, color } = req.body;
+      if (!name) {
+        return res.status(400).json({ error: "name is required" });
+      }
+      
+      const tag = await storage.createCustomerTag({
+        workspaceId: auth.userId,
+        name,
+        color: color || '#6b7280',
+        createdAt: Date.now(),
+      });
+      
+      res.status(201).json(tag);
+    } catch (error: any) {
+      console.error("Error creating tag:", error);
+      res.status(500).json({ error: error.message || "Failed to create tag" });
+    }
+  });
+  
+  // DELETE /api/crm/tags/:id - Delete tag
+  app.delete("/api/crm/tags/:id", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const deleted = await storage.deleteCustomerTag(parseInt(req.params.id), auth.userId);
+      if (!deleted) {
+        return res.status(404).json({ error: "Tag not found" });
+      }
+      
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error deleting tag:", error);
+      res.status(500).json({ error: error.message || "Failed to delete tag" });
+    }
+  });
+  
+  // GET /api/crm/customers/:id/tags - Get customer's tags
+  app.get("/api/crm/customers/:id/tags", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const tags = await storage.getCustomerTagsForCustomer(req.params.id, auth.userId);
+      res.json(tags);
+    } catch (error: any) {
+      console.error("Error getting customer tags:", error);
+      res.status(500).json({ error: error.message || "Failed to get customer tags" });
+    }
+  });
+  
+  // POST /api/crm/customers/:id/tags - Assign tag to customer
+  app.post("/api/crm/customers/:id/tags", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { tagId } = req.body;
+      if (!tagId) {
+        return res.status(400).json({ error: "tagId is required" });
+      }
+      
+      await storage.assignTagToCustomer(req.params.id, tagId, auth.userId);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error assigning tag:", error);
+      res.status(500).json({ error: error.message || "Failed to assign tag" });
+    }
+  });
+  
+  // DELETE /api/crm/customers/:id/tags/:tagId - Remove tag from customer
+  app.delete("/api/crm/customers/:id/tags/:tagId", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      await storage.removeTagFromCustomer(req.params.id, parseInt(req.params.tagId), auth.userId);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error removing tag:", error);
+      res.status(500).json({ error: error.message || "Failed to remove tag" });
+    }
+  });
+  
+  // ============================================================
+  // CRM GROUPS ENDPOINTS
+  // ============================================================
+  
+  // GET /api/crm/groups/:workspaceId - List customer groups
+  app.get("/api/crm/groups/:workspaceId", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { workspaceId } = req.params;
+      if (workspaceId !== auth.userId) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+      
+      const groups = await storage.getCustomerGroups(workspaceId);
+      res.json(groups);
+    } catch (error: any) {
+      console.error("Error listing groups:", error);
+      res.status(500).json({ error: error.message || "Failed to list groups" });
+    }
+  });
+  
+  // POST /api/crm/groups - Create group
+  app.post("/api/crm/groups", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { name, description } = req.body;
+      if (!name) {
+        return res.status(400).json({ error: "name is required" });
+      }
+      
+      const now = Date.now();
+      const group = await storage.createCustomerGroup({
+        workspaceId: auth.userId,
+        name,
+        description: description || null,
+        createdAt: now,
+        updatedAt: now,
+      });
+      
+      res.status(201).json(group);
+    } catch (error: any) {
+      console.error("Error creating group:", error);
+      res.status(500).json({ error: error.message || "Failed to create group" });
+    }
+  });
+  
+  // DELETE /api/crm/groups/:id - Delete group
+  app.delete("/api/crm/groups/:id", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const deleted = await storage.deleteCustomerGroup(parseInt(req.params.id), auth.userId);
+      if (!deleted) {
+        return res.status(404).json({ error: "Group not found" });
+      }
+      
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error deleting group:", error);
+      res.status(500).json({ error: error.message || "Failed to delete group" });
+    }
+  });
+  
+  // ============================================================
+  // CRM SAVED FILTERS ENDPOINTS
+  // ============================================================
+  
+  // GET /api/crm/saved-filters/:workspaceId - List saved filters
+  app.get("/api/crm/saved-filters/:workspaceId", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { workspaceId } = req.params;
+      if (workspaceId !== auth.userId) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+      
+      const filters = await storage.getSavedFilters(workspaceId);
+      res.json(filters);
+    } catch (error: any) {
+      console.error("Error listing saved filters:", error);
+      res.status(500).json({ error: error.message || "Failed to list saved filters" });
+    }
+  });
+  
+  // POST /api/crm/saved-filters - Create saved filter
+  app.post("/api/crm/saved-filters", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { name, description, filterConfig } = req.body;
+      if (!name || !filterConfig) {
+        return res.status(400).json({ error: "name and filterConfig are required" });
+      }
+      
+      const now = Date.now();
+      const filter = await storage.createSavedFilter({
+        workspaceId: auth.userId,
+        name,
+        description: description || null,
+        filterConfig,
+        isDynamic: 1,
+        createdAt: now,
+        updatedAt: now,
+      });
+      
+      res.status(201).json(filter);
+    } catch (error: any) {
+      console.error("Error creating saved filter:", error);
+      res.status(500).json({ error: error.message || "Failed to create saved filter" });
+    }
+  });
+  
+  // DELETE /api/crm/saved-filters/:id - Delete saved filter
+  app.delete("/api/crm/saved-filters/:id", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const deleted = await storage.deleteSavedFilter(parseInt(req.params.id), auth.userId);
+      if (!deleted) {
+        return res.status(404).json({ error: "Filter not found" });
+      }
+      
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error deleting saved filter:", error);
+      res.status(500).json({ error: error.message || "Failed to delete saved filter" });
+    }
+  });
+  
+  // ============================================================
+  // CRM ACTIVITIES ENDPOINTS
+  // ============================================================
+  
+  // GET /api/crm/activities/:workspaceId - List activities
+  app.get("/api/crm/activities/:workspaceId", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { workspaceId } = req.params;
+      if (workspaceId !== auth.userId) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+      
+      const activities = await storage.getActivities(workspaceId);
+      res.json(activities);
+    } catch (error: any) {
+      console.error("Error listing activities:", error);
+      res.status(500).json({ error: error.message || "Failed to list activities" });
+    }
+  });
+  
+  // GET /api/crm/customers/:id/activities - Get customer's activities
+  app.get("/api/crm/customers/:id/activities", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const activities = await storage.getActivitiesForCustomer(req.params.id, auth.userId);
+      res.json(activities);
+    } catch (error: any) {
+      console.error("Error getting customer activities:", error);
+      res.status(500).json({ error: error.message || "Failed to get customer activities" });
+    }
+  });
+  
+  // POST /api/crm/activities - Create activity
+  app.post("/api/crm/activities", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { customerId, leadId, activityType, subject, notes, outcome, durationMinutes } = req.body;
+      if (!activityType) {
+        return res.status(400).json({ error: "activityType is required" });
+      }
+      
+      const now = Date.now();
+      const activity = await storage.createActivity({
+        workspaceId: auth.userId,
+        customerId: customerId || null,
+        leadId: leadId || null,
+        activityType,
+        subject: subject || null,
+        notes: notes || null,
+        outcome: outcome || null,
+        durationMinutes: durationMinutes || null,
+        completedAt: now,
+        createdBy: auth.userId,
+        createdAt: now,
+        updatedAt: now,
+      });
+      
+      res.status(201).json(activity);
+    } catch (error: any) {
+      console.error("Error creating activity:", error);
+      res.status(500).json({ error: error.message || "Failed to create activity" });
+    }
+  });
+  
+  // ============================================================
+  // CRM TASKS ENDPOINTS
+  // ============================================================
+  
+  // GET /api/crm/tasks/:workspaceId - List tasks
+  app.get("/api/crm/tasks/:workspaceId", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { workspaceId } = req.params;
+      if (workspaceId !== auth.userId) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+      
+      const tasks = await storage.getTasks(workspaceId, req.query);
+      res.json(tasks);
+    } catch (error: any) {
+      console.error("Error listing tasks:", error);
+      res.status(500).json({ error: error.message || "Failed to list tasks" });
+    }
+  });
+  
+  // GET /api/crm/tasks/:workspaceId/upcoming - List upcoming tasks
+  app.get("/api/crm/tasks/:workspaceId/upcoming", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { workspaceId } = req.params;
+      if (workspaceId !== auth.userId) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+      
+      const tasks = await storage.getUpcomingTasks(workspaceId);
+      res.json(tasks);
+    } catch (error: any) {
+      console.error("Error listing upcoming tasks:", error);
+      res.status(500).json({ error: error.message || "Failed to list upcoming tasks" });
+    }
+  });
+  
+  // GET /api/crm/tasks/:workspaceId/overdue - List overdue tasks
+  app.get("/api/crm/tasks/:workspaceId/overdue", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { workspaceId } = req.params;
+      if (workspaceId !== auth.userId) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+      
+      const tasks = await storage.getOverdueTasks(workspaceId);
+      res.json(tasks);
+    } catch (error: any) {
+      console.error("Error listing overdue tasks:", error);
+      res.status(500).json({ error: error.message || "Failed to list overdue tasks" });
+    }
+  });
+  
+  // POST /api/crm/tasks - Create task
+  app.post("/api/crm/tasks", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { customerId, leadId, title, description, dueDate, priority } = req.body;
+      if (!title || !dueDate) {
+        return res.status(400).json({ error: "title and dueDate are required" });
+      }
+      
+      const now = Date.now();
+      const task = await storage.createTask({
+        workspaceId: auth.userId,
+        customerId: customerId || null,
+        leadId: leadId || null,
+        title,
+        description: description || null,
+        dueDate,
+        priority: priority || 'normal',
+        status: 'pending',
+        assignedTo: auth.userId,
+        createdBy: auth.userId,
+        createdAt: now,
+        updatedAt: now,
+      });
+      
+      res.status(201).json(task);
+    } catch (error: any) {
+      console.error("Error creating task:", error);
+      res.status(500).json({ error: error.message || "Failed to create task" });
+    }
+  });
+  
+  // PATCH /api/crm/tasks/:id - Update task
+  app.patch("/api/crm/tasks/:id", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const task = await storage.updateTask(parseInt(req.params.id), auth.userId, req.body);
+      if (!task) {
+        return res.status(404).json({ error: "Task not found" });
+      }
+      
+      res.json(task);
+    } catch (error: any) {
+      console.error("Error updating task:", error);
+      res.status(500).json({ error: error.message || "Failed to update task" });
+    }
+  });
+  
+  // POST /api/crm/tasks/:id/complete - Complete task
+  app.post("/api/crm/tasks/:id/complete", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const task = await storage.completeTask(parseInt(req.params.id), auth.userId);
+      if (!task) {
+        return res.status(404).json({ error: "Task not found" });
+      }
+      
+      res.json(task);
+    } catch (error: any) {
+      console.error("Error completing task:", error);
+      res.status(500).json({ error: error.message || "Failed to complete task" });
+    }
+  });
+  
+  // ============================================================
+  // CONTAINER QR TRACKING ENDPOINTS
+  // ============================================================
+  
+  // POST /api/brewcrm/containers/:id/generate-qr - Generate QR code for container
+  app.post("/api/brewcrm/containers/:id/generate-qr", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const container = await storage.generateContainerQRCode(req.params.id, auth.userId);
+      if (!container) {
+        return res.status(404).json({ error: "Container not found" });
+      }
+      
+      res.json(container);
+    } catch (error: any) {
+      console.error("Error generating QR code:", error);
+      res.status(500).json({ error: error.message || "Failed to generate QR code" });
+    }
+  });
+  
+  // GET /api/brewcrm/containers/scan/:qrCode - Scan QR code to get container
+  app.get("/api/brewcrm/containers/scan/:qrCode", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const container = await storage.getContainerByQRCode(req.params.qrCode);
+      if (!container) {
+        return res.status(404).json({ error: "Container not found" });
+      }
+      
+      res.json(container);
+    } catch (error: any) {
+      console.error("Error scanning QR code:", error);
+      res.status(500).json({ error: error.message || "Failed to scan QR code" });
+    }
+  });
+  
+  // POST /api/brewcrm/containers/:id/movements - Log container movement
+  app.post("/api/brewcrm/containers/:id/movements", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { movementType, fromLocation, toLocation, customerId, orderId, batchId, notes } = req.body;
+      if (!movementType) {
+        return res.status(400).json({ error: "movementType is required" });
+      }
+      
+      const now = Date.now();
+      const movement = await storage.logContainerMovement({
+        workspaceId: auth.userId,
+        containerId: req.params.id,
+        movementType,
+        fromLocation: fromLocation || null,
+        toLocation: toLocation || null,
+        customerId: customerId || null,
+        orderId: orderId || null,
+        batchId: batchId || null,
+        notes: notes || null,
+        scannedBy: auth.userId,
+        scannedAt: now,
+        createdAt: now,
+      });
+      
+      res.status(201).json(movement);
+    } catch (error: any) {
+      console.error("Error logging container movement:", error);
+      res.status(500).json({ error: error.message || "Failed to log container movement" });
+    }
+  });
+  
+  // GET /api/brewcrm/containers/:id/movements - Get container movements
+  app.get("/api/brewcrm/containers/:id/movements", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const movements = await storage.getContainerMovements(req.params.id, auth.userId);
+      res.json(movements);
+    } catch (error: any) {
+      console.error("Error getting container movements:", error);
+      res.status(500).json({ error: error.message || "Failed to get container movements" });
+    }
+  });
+  
+  // GET /api/crm/customers/:id/containers - Get containers with customer
+  app.get("/api/crm/customers/:id/containers", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const containers = await storage.getContainersWithCustomer(req.params.id, auth.userId);
+      res.json(containers);
+    } catch (error: any) {
+      console.error("Error getting customer containers:", error);
+      res.status(500).json({ error: error.message || "Failed to get customer containers" });
+    }
+  });
+  
+  // ============================================================
+  // DASHBOARD & REPORTING ENDPOINTS
+  // ============================================================
+  
+  // GET /api/crm/dashboard/kpis/:workspaceId - Get dashboard KPIs
+  app.get("/api/crm/dashboard/kpis/:workspaceId", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { workspaceId } = req.params;
+      if (workspaceId !== auth.userId) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+      
+      const kpis = await storage.getDashboardKPIs(workspaceId);
+      res.json(kpis);
+    } catch (error: any) {
+      console.error("Error getting dashboard KPIs:", error);
+      res.status(500).json({ error: error.message || "Failed to get dashboard KPIs" });
+    }
+  });
+  
+  // GET /api/crm/dashboard/revenue-by-month/:workspaceId - Get revenue by month
+  app.get("/api/crm/dashboard/revenue-by-month/:workspaceId", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { workspaceId } = req.params;
+      if (workspaceId !== auth.userId) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+      
+      const months = req.query.months ? parseInt(req.query.months as string) : 12;
+      const data = await storage.getRevenueByMonth(workspaceId, months);
+      res.json(data);
+    } catch (error: any) {
+      console.error("Error getting revenue by month:", error);
+      res.status(500).json({ error: error.message || "Failed to get revenue by month" });
+    }
+  });
+  
+  // GET /api/crm/dashboard/top-customers/:workspaceId - Get top customers
+  app.get("/api/crm/dashboard/top-customers/:workspaceId", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { workspaceId } = req.params;
+      if (workspaceId !== auth.userId) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+      
+      const limit = req.query.limit ? parseInt(req.query.limit as string) : 10;
+      const customers = await storage.getTopCustomersByRevenue(workspaceId, limit);
+      res.json(customers);
+    } catch (error: any) {
+      console.error("Error getting top customers:", error);
+      res.status(500).json({ error: error.message || "Failed to get top customers" });
+    }
+  });
+  
+  // GET /api/crm/dashboard/top-products/:workspaceId - Get top products
+  app.get("/api/crm/dashboard/top-products/:workspaceId", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { workspaceId } = req.params;
+      if (workspaceId !== auth.userId) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+      
+      const limit = req.query.limit ? parseInt(req.query.limit as string) : 10;
+      const products = await storage.getTopProductsBySales(workspaceId, limit);
+      res.json(products);
+    } catch (error: any) {
+      console.error("Error getting top products:", error);
+      res.status(500).json({ error: error.message || "Failed to get top products" });
     }
   });
   

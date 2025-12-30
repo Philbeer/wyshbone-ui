@@ -51,6 +51,7 @@
     "tailwindcss": "^4.1.17",
     "tailwindcss-animate": "^1.0.7",
     "ws": "^8.18.0",
+    "xero-node": "^13.3.0",
     "zod": "^3.24.2",
     "zod-validation-error": "^3.4.0"
   },

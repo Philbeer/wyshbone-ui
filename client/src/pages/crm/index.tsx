@@ -1,6 +1,6 @@
 import { Route, Switch, Link, useLocation } from "wouter";
 import { useUser } from "@/contexts/UserContext";
-import { Building2, Users, Package, Truck, Settings, Warehouse, Beer, FileText, Container, Boxes } from "lucide-react";
+import { Building2, Users, Package, Truck, Settings, Warehouse, Beer, FileText, Container, Boxes, Phone, DollarSign, BarChart3, Filter, CheckSquare, Activity, Store, QrCode } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
@@ -11,12 +11,18 @@ import CrmDeliveryRuns from "./delivery-runs";
 import CrmSettings from "./settings";
 import CrmProducts from "./products";
 import CrmStock from "./stock";
-import BrewCrmProducts from "../brewcrm/products";
+import CrmDiary from "./diary";
+import CrmTasks from "./tasks";
+import CrmActivities from "./activities";
+import CrmCustomerFilters from "./customer-filters";
 import BrewCrmBatches from "../brewcrm/batches";
-import BrewCrmInventory from "../brewcrm/inventory";
 import BrewCrmContainers from "../brewcrm/containers";
 import BrewCrmDutyReports from "../brewcrm/duty-reports";
 import BrewCrmSettings from "../brewcrm/settings";
+import BrewCrmPriceBooks from "../brewcrm/price-books";
+import BrewCrmPriceBookDetail from "../brewcrm/price-book-detail";
+import BrewCrmTradeStoreSettings from "../brewcrm/trade-store-settings";
+import BrewCrmContainerScan from "../brewcrm/container-scan";
 // New CRM features
 import BrewCrmCustomers from "../brewcrm/customers";
 import BrewCrmOrders from "../brewcrm/orders";
@@ -47,7 +53,7 @@ export default function CrmLayout() {
             </h1>
             <p className="text-sm text-muted-foreground">
               {isBrewCrm 
-                ? "Brewery-specific management: products, batches, duty reports" 
+                ? "Brewery-specific management: batches, containers, duty reports" 
                 : "Manage customers, orders, products, and stock"
               }
             </p>
@@ -75,7 +81,7 @@ export default function CrmLayout() {
           <div className="flex gap-2 flex-wrap">
             <Button variant={isActive("/") ? "default" : "ghost"} size="sm" asChild>
               <Link href="/" data-testid="link-crm-dashboard">
-                <Building2 className="w-4 h-4 mr-2" />
+                <BarChart3 className="w-4 h-4 mr-2" />
                 Dashboard
               </Link>
             </Button>
@@ -89,6 +95,12 @@ export default function CrmLayout() {
               <Link href="/customers" data-testid="link-crm-customers">
                 <Users className="w-4 h-4 mr-2" />
                 Customers
+              </Link>
+            </Button>
+            <Button variant={isActive("/filters") ? "default" : "ghost"} size="sm" asChild>
+              <Link href="/filters" data-testid="link-crm-filters">
+                <Filter className="w-4 h-4 mr-2" />
+                Filters
               </Link>
             </Button>
             <Button variant={isActive("/orders") ? "default" : "ghost"} size="sm" asChild>
@@ -109,6 +121,24 @@ export default function CrmLayout() {
                 Stock
               </Link>
             </Button>
+            <Button variant={isActive("/diary") ? "default" : "ghost"} size="sm" asChild>
+              <Link href="/diary" data-testid="link-crm-diary">
+                <Phone className="w-4 h-4 mr-2" />
+                Sales Diary
+              </Link>
+            </Button>
+            <Button variant={isActive("/tasks") ? "default" : "ghost"} size="sm" asChild>
+              <Link href="/tasks" data-testid="link-crm-tasks">
+                <CheckSquare className="w-4 h-4 mr-2" />
+                Tasks
+              </Link>
+            </Button>
+            <Button variant={isActive("/activities") ? "default" : "ghost"} size="sm" asChild>
+              <Link href="/activities" data-testid="link-crm-activities">
+                <Activity className="w-4 h-4 mr-2" />
+                Activities
+              </Link>
+            </Button>
             <Button variant={isActive("/settings") ? "default" : "ghost"} size="sm" asChild>
               <Link href="/settings" data-testid="link-crm-settings">
                 <Settings className="w-4 h-4 mr-2" />
@@ -119,22 +149,10 @@ export default function CrmLayout() {
         ) : (
           // Brewery CRM Navigation
           <div className="flex gap-2 flex-wrap">
-            <Button variant={isActive("/brew") ? "default" : "ghost"} size="sm" asChild>
-              <Link href="/brew" data-testid="link-brewcrm-products">
-                <Beer className="w-4 h-4 mr-2" />
-                Beers/Products
-              </Link>
-            </Button>
-            <Button variant={isActive("/brew/batches") ? "default" : "ghost"} size="sm" asChild>
-              <Link href="/brew/batches" data-testid="link-brewcrm-batches">
+            <Button variant={isActive("/brew") || isActive("/brew/batches") ? "default" : "ghost"} size="sm" asChild>
+              <Link href="/brew" data-testid="link-brewcrm-batches">
                 <Boxes className="w-4 h-4 mr-2" />
                 Batches
-              </Link>
-            </Button>
-            <Button variant={isActive("/brew/inventory") ? "default" : "ghost"} size="sm" asChild>
-              <Link href="/brew/inventory" data-testid="link-brewcrm-inventory">
-                <Warehouse className="w-4 h-4 mr-2" />
-                Inventory
               </Link>
             </Button>
             <Button variant={isActive("/brew/containers") ? "default" : "ghost"} size="sm" asChild>
@@ -143,10 +161,28 @@ export default function CrmLayout() {
                 Containers
               </Link>
             </Button>
+            <Button variant={isActive("/brew/container-scan") ? "default" : "ghost"} size="sm" asChild>
+              <Link href="/brew/container-scan" data-testid="link-brewcrm-container-scan">
+                <QrCode className="w-4 h-4 mr-2" />
+                Scanner
+              </Link>
+            </Button>
             <Button variant={isActive("/brew/duty-reports") ? "default" : "ghost"} size="sm" asChild>
               <Link href="/brew/duty-reports" data-testid="link-brewcrm-duty-reports">
                 <FileText className="w-4 h-4 mr-2" />
                 Duty Reports
+              </Link>
+            </Button>
+            <Button variant={location.startsWith("/brew/price-books") ? "default" : "ghost"} size="sm" asChild>
+              <Link href="/brew/price-books" data-testid="link-brewcrm-price-books">
+                <DollarSign className="w-4 h-4 mr-2" />
+                Price Books
+              </Link>
+            </Button>
+            <Button variant={isActive("/brew/trade-store") ? "default" : "ghost"} size="sm" asChild>
+              <Link href="/brew/trade-store" data-testid="link-brewcrm-trade-store">
+                <Store className="w-4 h-4 mr-2" />
+                Trade Store
               </Link>
             </Button>
             <Button variant={isActive("/brew/settings") ? "default" : "ghost"} size="sm" asChild>
@@ -164,18 +200,25 @@ export default function CrmLayout() {
           {/* Generic CRM Routes */}
           <Route path="/products" component={CrmProducts} />
           <Route path="/customers" component={CrmCustomers} />
+          <Route path="/filters" component={CrmCustomerFilters} />
           <Route path="/orders" component={CrmOrders} />
           <Route path="/delivery-runs" component={CrmDeliveryRuns} />
           <Route path="/stock" component={CrmStock} />
+          <Route path="/diary" component={CrmDiary} />
+          <Route path="/tasks" component={CrmTasks} />
+          <Route path="/activities" component={CrmActivities} />
           <Route path="/settings" component={CrmSettings} />
           
           {/* Brewery CRM Routes */}
           <Route path="/brew/batches" component={BrewCrmBatches} />
-          <Route path="/brew/inventory" component={BrewCrmInventory} />
           <Route path="/brew/containers" component={BrewCrmContainers} />
+          <Route path="/brew/container-scan" component={BrewCrmContainerScan} />
           <Route path="/brew/duty-reports" component={BrewCrmDutyReports} />
+          <Route path="/brew/price-books/:id" component={BrewCrmPriceBookDetail} />
+          <Route path="/brew/price-books" component={BrewCrmPriceBooks} />
+          <Route path="/brew/trade-store" component={BrewCrmTradeStoreSettings} />
           <Route path="/brew/settings" component={BrewCrmSettings} />
-          <Route path="/brew" component={BrewCrmProducts} />
+          <Route path="/brew" component={BrewCrmBatches} />
           
           {/* Default Route - Generic CRM Dashboard */}
           <Route path="/" component={CrmDashboard} />
