@@ -242,11 +242,11 @@ export function createXeroOAuthRouter(storage: IStorage) {
 
       console.log("✅ Xero integration created:", integration.id);
 
-      // Redirect back to app
-      res.redirect("/?integration=xero&status=connected");
+      // Redirect to CRM settings page with success indicator
+      res.redirect("/auth/crm/settings?xero=connected");
     } catch (error) {
       console.error("Xero OAuth error:", error);
-      res.redirect("/?error=oauth_failed");
+      res.redirect("/auth/crm/settings?xero=error");
     }
   });
 

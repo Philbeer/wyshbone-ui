@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useUser } from "@/contexts/UserContext";
@@ -11,6 +11,14 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertCrmSettingsSchema } from "@shared/schema";
@@ -23,7 +31,7 @@ import {
   useXeroImportJob,
   useXeroImportJobs,
 } from "@/features/xero";
-import { CheckCircle, XCircle, Download, Loader2, Link as LinkIcon } from "lucide-react";
+import { CheckCircle, XCircle, Download, Loader2, Link as LinkIcon, PartyPopper } from "lucide-react";
 
 const formSchema = insertCrmSettingsSchema.omit({ id: true, workspaceId: true, createdAt: true, updatedAt: true });
 
@@ -69,6 +77,33 @@ export default function CrmSettings() {
 
   const [currentJobId, setCurrentJobId] = useState<number | null>(null);
   const { data: currentJob } = useXeroImportJob(currentJobId);
+
+  // Xero connection success dialog
+  const [showXeroSuccessDialog, setShowXeroSuccessDialog] = useState(false);
+
+  // Detect ?xero=connected query parameter
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const xeroParam = params.get('xero');
+    
+    if (xeroParam === 'connected') {
+      setShowXeroSuccessDialog(true);
+      // Remove the query parameter from URL without reload
+      window.history.replaceState({}, '', window.location.pathname);
+    } else if (xeroParam === 'error') {
+      toast({ 
+        title: "Xero Connection Failed", 
+        description: "There was an error connecting to Xero. Please try again.",
+        variant: "destructive" 
+      });
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, [toast]);
+
+  const handleImportFromDialog = () => {
+    setShowXeroSuccessDialog(false);
+    handleImportCustomers();
+  };
 
   const handleImportCustomers = () => {
     importCustomers.mutate(undefined, {
@@ -334,6 +369,45 @@ export default function CrmSettings() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Xero Connection Success Dialog */}
+      <Dialog open={showXeroSuccessDialog} onOpenChange={setShowXeroSuccessDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <PartyPopper className="w-6 h-6 text-green-500" />
+              Xero Connected Successfully!
+            </DialogTitle>
+            <DialogDescription className="pt-2">
+              Your Xero account is now connected. Import your customers from Xero to get started quickly with your existing customer base.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex-col sm:flex-row gap-2 sm:gap-0">
+            <Button 
+              variant="outline" 
+              onClick={() => setShowXeroSuccessDialog(false)}
+            >
+              Maybe Later
+            </Button>
+            <Button 
+              onClick={handleImportFromDialog}
+              disabled={importCustomers.isPending}
+            >
+              {importCustomers.isPending ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Starting...
+                </>
+              ) : (
+                <>
+                  <Download className="w-4 h-4 mr-2" />
+                  Import Customers Now
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
