@@ -805,5 +805,454 @@ export function createXeroOAuthRouter(storage: IStorage) {
     }
   });
 
+  // ============================================
+  // IMPORT PRODUCTS FROM XERO
+  // ============================================
+
+  router.post("/import/products", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req, storage);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized - please log in" });
+      }
+
+      // Verify Xero connection
+      const tokenData = await getValidAccessToken(auth.userId);
+      if (!tokenData) {
+        return res.status(400).json({ error: "Xero not connected. Please connect Xero first." });
+      }
+
+      // Create import job
+      const job = await storage.createXeroImportJob({
+        workspaceId: auth.userId,
+        jobType: "products",
+        status: "pending",
+      });
+
+      // Start async import (don't wait for completion)
+      importProductsFromXero(auth.userId, job.id, tokenData.accessToken, tokenData.tenantId).catch(error => {
+        console.error("Product import failed:", error);
+        storage.updateXeroImportJob(job.id, auth.userId, {
+          status: "failed",
+          errorMessage: error.message,
+          completedAt: new Date(),
+        });
+      });
+
+      res.status(202).json({ jobId: job.id, message: "Product import started" });
+    } catch (error: any) {
+      console.error("Failed to start product import:", error);
+      res.status(500).json({ error: "Failed to start import" });
+    }
+  });
+
+  // Background product import function
+  async function importProductsFromXero(workspaceId: string, jobId: number, accessToken: string, tenantId: string) {
+    await storage.updateXeroImportJob(jobId, workspaceId, {
+      status: "running",
+      startedAt: new Date(),
+    });
+
+    try {
+      // Fetch all items from Xero
+      const itemsResponse = await fetch("https://api.xero.com/api.xro/2.0/Items", {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "xero-tenant-id": tenantId,
+          Accept: "application/json",
+        },
+      });
+
+      if (!itemsResponse.ok) {
+        throw new Error(`Failed to fetch items: ${itemsResponse.statusText}`);
+      }
+
+      const itemsData = await itemsResponse.json();
+      const items = itemsData.Items || [];
+
+      await storage.updateXeroImportJob(jobId, workspaceId, {
+        totalRecords: items.length,
+      });
+
+      let processedCount = 0;
+      let failedCount = 0;
+
+      for (const item of items) {
+        try {
+          // Check if already exists by Xero Item ID
+          const existing = await storage.getProductByXeroItemId(item.ItemID, workspaceId);
+
+          // Extract price from SalesDetails
+          const unitPrice = item.SalesDetails?.UnitPrice 
+            ? Math.round(parseFloat(item.SalesDetails.UnitPrice) * 100) // Convert to pence
+            : 0;
+
+          if (existing) {
+            // Update existing product
+            await storage.updateBrewProduct(existing.id, {
+              name: item.Name || existing.name,
+              sku: item.Code || existing.sku,
+              // Note: Description can't be stored directly in brewProducts schema
+              // but xeroItemCode is updated
+              xeroItemCode: item.Code || existing.xeroItemCode,
+              defaultUnitPriceExVat: unitPrice || existing.defaultUnitPriceExVat,
+              lastXeroSyncAt: new Date(),
+              isActive: item.IsSold !== false ? 1 : 0,
+            });
+          } else {
+            // Create new product
+            const productId = `prod_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+            await storage.createBrewProduct({
+              id: productId,
+              workspaceId,
+              name: item.Name || "Unknown Product",
+              sku: item.Code || `XERO-${item.ItemID}`,
+              abv: 0, // Default ABV (Xero doesn't have this)
+              defaultPackageType: "can", // Default package type
+              defaultPackageSizeLitres: 330, // Default 330ml in ml
+              dutyBand: "beer_standard", // Default duty band
+              defaultUnitPriceExVat: unitPrice,
+              defaultVatRate: 2000, // Default 20% VAT
+              xeroItemId: item.ItemID,
+              xeroItemCode: item.Code,
+              isActive: item.IsSold !== false ? 1 : 0,
+              lastXeroSyncAt: new Date(),
+              createdAt: Date.now(),
+              updatedAt: Date.now(),
+            });
+          }
+
+          processedCount++;
+
+          if (processedCount % 10 === 0) {
+            await storage.updateXeroImportJob(jobId, workspaceId, {
+              processedRecords: processedCount,
+            });
+          }
+        } catch (error) {
+          console.error(`Failed to import item ${item.ItemID}:`, error);
+          failedCount++;
+        }
+      }
+
+      await storage.updateXeroImportJob(jobId, workspaceId, {
+        status: "completed",
+        processedRecords: processedCount,
+        failedRecords: failedCount,
+        completedAt: new Date(),
+      });
+
+      console.log(`✅ Xero product import completed: ${processedCount} imported, ${failedCount} failed`);
+    } catch (error) {
+      console.error("Product import failed:", error);
+      await storage.updateXeroImportJob(jobId, workspaceId, {
+        status: "failed",
+        errorMessage: error instanceof Error ? error.message : "Unknown error",
+        completedAt: new Date(),
+      });
+      throw error;
+    }
+  }
+
+  // ============================================
+  // IMPORT ORDERS FROM XERO
+  // ============================================
+
+  router.post("/import/orders", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req, storage);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized - please log in" });
+      }
+
+      // Verify Xero connection
+      const tokenData = await getValidAccessToken(auth.userId);
+      if (!tokenData) {
+        return res.status(400).json({ error: "Xero not connected. Please connect Xero first." });
+      }
+
+      // Optional: specify years back (default 2)
+      const yearsBack = parseInt(req.body.yearsBack) || 2;
+
+      // Create import job
+      const job = await storage.createXeroImportJob({
+        workspaceId: auth.userId,
+        jobType: "orders",
+        status: "pending",
+      });
+
+      // Start async import (don't wait for completion)
+      importOrdersFromXero(auth.userId, job.id, tokenData.accessToken, tokenData.tenantId, yearsBack).catch(error => {
+        console.error("Order import failed:", error);
+        storage.updateXeroImportJob(job.id, auth.userId, {
+          status: "failed",
+          errorMessage: error.message,
+          completedAt: new Date(),
+        });
+      });
+
+      res.status(202).json({ jobId: job.id, message: "Order import started" });
+    } catch (error: any) {
+      console.error("Failed to start order import:", error);
+      res.status(500).json({ error: "Failed to start import" });
+    }
+  });
+
+  // Background order import function
+  async function importOrdersFromXero(
+    workspaceId: string, 
+    jobId: number, 
+    accessToken: string, 
+    tenantId: string,
+    yearsBack: number = 2
+  ) {
+    await storage.updateXeroImportJob(jobId, workspaceId, {
+      status: "running",
+      startedAt: new Date(),
+    });
+
+    try {
+      // Calculate date range (Xero uses ISO format)
+      const fromDate = new Date();
+      fromDate.setFullYear(fromDate.getFullYear() - yearsBack);
+      const fromDateStr = fromDate.toISOString().split('T')[0];
+
+      // Fetch invoices from Xero with date filter
+      // Filter for AUTHORISED and PAID invoices only
+      const invoicesUrl = `https://api.xero.com/api.xro/2.0/Invoices?where=Date>DateTime(${fromDate.getFullYear()},${fromDate.getMonth()+1},${fromDate.getDate()})&Statuses=AUTHORISED,PAID`;
+      
+      const invoicesResponse = await fetch(invoicesUrl, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "xero-tenant-id": tenantId,
+          Accept: "application/json",
+        },
+      });
+
+      if (!invoicesResponse.ok) {
+        throw new Error(`Failed to fetch invoices: ${invoicesResponse.statusText}`);
+      }
+
+      const invoicesData = await invoicesResponse.json();
+      const invoices = invoicesData.Invoices || [];
+
+      await storage.updateXeroImportJob(jobId, workspaceId, {
+        totalRecords: invoices.length,
+      });
+
+      let processedCount = 0;
+      let failedCount = 0;
+
+      for (const invoice of invoices) {
+        try {
+          // Skip if already imported
+          const existing = await storage.getOrderByXeroInvoiceId(invoice.InvoiceID, workspaceId);
+          if (existing) {
+            processedCount++;
+            continue; // Skip already imported
+          }
+
+          // Find customer by Xero Contact ID
+          const customer = await storage.getCustomerByXeroContactId(
+            invoice.Contact?.ContactID,
+            workspaceId
+          );
+
+          if (!customer) {
+            console.warn(`Customer not found for invoice ${invoice.InvoiceNumber} (Contact: ${invoice.Contact?.ContactID})`);
+            failedCount++;
+            continue;
+          }
+
+          // Map Xero status to our status
+          const statusMap: Record<string, string> = {
+            'DRAFT': 'draft',
+            'SUBMITTED': 'pending',
+            'AUTHORISED': 'confirmed',
+            'PAID': 'delivered',
+            'VOIDED': 'cancelled',
+          };
+
+          // Parse invoice date
+          const invoiceDate = invoice.Date 
+            ? new Date(parseInt(invoice.Date.replace('/Date(', '').replace(')/', ''))).getTime()
+            : Date.now();
+
+          const dueDate = invoice.DueDate
+            ? new Date(parseInt(invoice.DueDate.replace('/Date(', '').replace(')/', ''))).getTime()
+            : undefined;
+
+          // Generate order ID and order number
+          const orderId = `ord_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+          const orderNumber = invoice.InvoiceNumber || `XERO-${invoice.InvoiceID.slice(0, 8)}`;
+
+          // Convert amounts from Xero (decimal) to pence
+          const subtotalExVat = invoice.SubTotal ? Math.round(parseFloat(invoice.SubTotal) * 100) : 0;
+          const vatTotal = invoice.TotalTax ? Math.round(parseFloat(invoice.TotalTax) * 100) : 0;
+          const totalIncVat = invoice.Total ? Math.round(parseFloat(invoice.Total) * 100) : 0;
+
+          // Create order
+          const order = await storage.createCrmOrder({
+            id: orderId,
+            workspaceId,
+            customerId: customer.id,
+            orderNumber,
+            orderDate: invoiceDate,
+            deliveryDate: dueDate,
+            status: statusMap[invoice.Status] || 'pending',
+            subtotalExVat,
+            vatTotal,
+            totalIncVat,
+            xeroInvoiceId: invoice.InvoiceID,
+            xeroInvoiceNumber: invoice.InvoiceNumber,
+            lastXeroSyncAt: new Date(),
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+          });
+
+          // Create order lines
+          for (const line of invoice.LineItems || []) {
+            // Try to find matching product by Xero item code
+            let product = null;
+            
+            if (line.ItemCode) {
+              product = await storage.getProductByXeroItemCode(line.ItemCode, workspaceId);
+            }
+            
+            // If no product found and we have an item code, create a generic one
+            if (!product && line.ItemCode) {
+              const productId = `prod_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+              product = await storage.createBrewProduct({
+                id: productId,
+                workspaceId,
+                name: line.Description || line.ItemCode,
+                sku: line.ItemCode,
+                abv: 0,
+                defaultPackageType: "can",
+                defaultPackageSizeLitres: 330,
+                dutyBand: "beer_standard",
+                defaultUnitPriceExVat: line.UnitAmount ? Math.round(parseFloat(line.UnitAmount) * 100) : 0,
+                defaultVatRate: 2000,
+                xeroItemCode: line.ItemCode,
+                isActive: 1,
+                createdAt: Date.now(),
+                updatedAt: Date.now(),
+              });
+            }
+
+            // Create order line
+            const lineId = `line_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+            const quantity = line.Quantity || 1;
+            const unitPriceExVat = line.UnitAmount ? Math.round(parseFloat(line.UnitAmount) * 100) : 0;
+            const lineSubtotalExVat = quantity * unitPriceExVat;
+            const vatRate = line.TaxAmount && line.LineAmount 
+              ? Math.round((parseFloat(line.TaxAmount) / parseFloat(line.LineAmount)) * 10000)
+              : 2000; // Default 20%
+            const lineVatAmount = line.TaxAmount ? Math.round(parseFloat(line.TaxAmount) * 100) : Math.round(lineSubtotalExVat * vatRate / 10000);
+            const lineTotalIncVat = lineSubtotalExVat + lineVatAmount;
+
+            await storage.createCrmOrderLine({
+              id: lineId,
+              orderId: order.id,
+              productId: product?.id,
+              description: line.Description || 'Unknown Item',
+              quantity,
+              unitPriceExVat,
+              vatRate,
+              lineSubtotalExVat,
+              lineVatAmount,
+              lineTotalIncVat,
+              xeroLineItemId: line.LineItemID,
+              createdAt: Date.now(),
+              updatedAt: Date.now(),
+            });
+          }
+
+          processedCount++;
+
+          if (processedCount % 5 === 0) {
+            await storage.updateXeroImportJob(jobId, workspaceId, {
+              processedRecords: processedCount,
+            });
+          }
+
+        } catch (error) {
+          console.error(`Failed to import invoice ${invoice.InvoiceID}:`, error);
+          failedCount++;
+        }
+      }
+
+      await storage.updateXeroImportJob(jobId, workspaceId, {
+        status: "completed",
+        processedRecords: processedCount,
+        failedRecords: failedCount,
+        completedAt: new Date(),
+      });
+
+      console.log(`✅ Xero order import completed: ${processedCount} imported, ${failedCount} failed`);
+    } catch (error) {
+      console.error("Order import failed:", error);
+      await storage.updateXeroImportJob(jobId, workspaceId, {
+        status: "failed",
+        errorMessage: error instanceof Error ? error.message : "Unknown error",
+        completedAt: new Date(),
+      });
+      throw error;
+    }
+  }
+
+  // ============================================
+  // COMBINED IMPORT (PRODUCTS + ORDERS)
+  // ============================================
+
+  router.post("/import/all", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req, storage);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized - please log in" });
+      }
+
+      // Verify Xero connection
+      const tokenData = await getValidAccessToken(auth.userId);
+      if (!tokenData) {
+        return res.status(400).json({ error: "Xero not connected. Please connect Xero first." });
+      }
+
+      const yearsBack = parseInt(req.body.yearsBack) || 2;
+
+      // Create jobs for both
+      const productJob = await storage.createXeroImportJob({
+        workspaceId: auth.userId,
+        jobType: "products",
+        status: "pending",
+      });
+
+      const orderJob = await storage.createXeroImportJob({
+        workspaceId: auth.userId,
+        jobType: "orders",
+        status: "pending",
+      });
+
+      // Run sequentially: products first, then orders
+      (async () => {
+        try {
+          await importProductsFromXero(auth.userId, productJob.id, tokenData.accessToken, tokenData.tenantId);
+          await importOrdersFromXero(auth.userId, orderJob.id, tokenData.accessToken, tokenData.tenantId, yearsBack);
+        } catch (error) {
+          console.error("Combined import failed:", error);
+        }
+      })();
+
+      res.status(202).json({ 
+        productJobId: productJob.id,
+        orderJobId: orderJob.id,
+        message: "Import started (products first, then orders)" 
+      });
+    } catch (error: any) {
+      console.error("Failed to start combined import:", error);
+      res.status(500).json({ error: "Failed to start import" });
+    }
+  });
+
   return router;
 }

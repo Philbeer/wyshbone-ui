@@ -167,3 +167,109 @@ export function useXeroImportJobs() {
   });
 }
 
+// ============================================
+// PRODUCT IMPORT
+// ============================================
+
+export function useImportProductsFromXero() {
+  const qc = useQueryClient();
+  const { toast } = useToast();
+  const { user } = useUser();
+  
+  return useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest('POST', '/api/integrations/xero/import/products');
+      return response.json();
+    },
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ['xero-import-jobs', user.id] });
+      qc.invalidateQueries({ queryKey: ['brew-products'] });
+      toast({ 
+        title: 'Product import started', 
+        description: `Job ID: ${data.jobId}` 
+      });
+      return data;
+    },
+    onError: (error: Error) => {
+      toast({ 
+        title: 'Failed to start product import', 
+        description: error.message,
+        variant: 'destructive' 
+      });
+    },
+  });
+}
+
+// ============================================
+// ORDER IMPORT
+// ============================================
+
+export function useImportOrdersFromXero() {
+  const qc = useQueryClient();
+  const { toast } = useToast();
+  const { user } = useUser();
+  
+  return useMutation({
+    mutationFn: async (yearsBack?: number) => {
+      const response = await apiRequest('POST', '/api/integrations/xero/import/orders', {
+        body: JSON.stringify({ yearsBack: yearsBack || 2 }),
+        headers: { 'Content-Type': 'application/json' },
+      });
+      return response.json();
+    },
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ['xero-import-jobs', user.id] });
+      qc.invalidateQueries({ queryKey: ['crm-orders'] });
+      toast({ 
+        title: 'Order import started', 
+        description: `Job ID: ${data.jobId}` 
+      });
+      return data;
+    },
+    onError: (error: Error) => {
+      toast({ 
+        title: 'Failed to start order import', 
+        description: error.message,
+        variant: 'destructive' 
+      });
+    },
+  });
+}
+
+// ============================================
+// COMBINED IMPORT (ALL)
+// ============================================
+
+export function useImportAllFromXero() {
+  const qc = useQueryClient();
+  const { toast } = useToast();
+  const { user } = useUser();
+  
+  return useMutation({
+    mutationFn: async (yearsBack?: number) => {
+      const response = await apiRequest('POST', '/api/integrations/xero/import/all', {
+        body: JSON.stringify({ yearsBack: yearsBack || 2 }),
+        headers: { 'Content-Type': 'application/json' },
+      });
+      return response.json();
+    },
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ['xero-import-jobs', user.id] });
+      qc.invalidateQueries({ queryKey: ['brew-products'] });
+      qc.invalidateQueries({ queryKey: ['crm-orders'] });
+      toast({ 
+        title: 'Full import started', 
+        description: 'Products and orders are being imported' 
+      });
+      return data;
+    },
+    onError: (error: Error) => {
+      toast({ 
+        title: 'Failed to start import', 
+        description: error.message,
+        variant: 'destructive' 
+      });
+    },
+  });
+}
+

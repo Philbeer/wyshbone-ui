@@ -28,9 +28,13 @@ import {
   useXeroConnect, 
   useXeroDisconnect,
   useImportCustomersFromXero,
+  useImportProductsFromXero,
+  useImportOrdersFromXero,
+  useImportAllFromXero,
   useXeroImportJob,
   useXeroImportJobs,
 } from "@/features/xero";
+import { Label } from "@/components/ui/label";
 import { CheckCircle, XCircle, Download, Loader2, Link as LinkIcon, PartyPopper } from "lucide-react";
 
 const formSchema = insertCrmSettingsSchema.omit({ id: true, workspaceId: true, createdAt: true, updatedAt: true });
@@ -73,10 +77,14 @@ export default function CrmSettings() {
   const xeroConnect = useXeroConnect();
   const xeroDisconnect = useXeroDisconnect();
   const importCustomers = useImportCustomersFromXero();
+  const importProducts = useImportProductsFromXero();
+  const importOrders = useImportOrdersFromXero();
+  const importAll = useImportAllFromXero();
   const { data: importJobs } = useXeroImportJobs();
 
   const [currentJobId, setCurrentJobId] = useState<number | null>(null);
   const { data: currentJob } = useXeroImportJob(currentJobId);
+  const [yearsBack, setYearsBack] = useState(2);
 
   // Xero connection success dialog
   const [showXeroSuccessDialog, setShowXeroSuccessDialog] = useState(false);
@@ -339,6 +347,94 @@ export default function CrmSettings() {
                     <p className="text-sm text-red-700 dark:text-red-300 mt-2">{currentJob.errorMessage}</p>
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* Import Products & Orders Section - only show when connected */}
+            {xeroStatus?.connected && (
+              <div className="border-t pt-6">
+                <h4 className="font-medium mb-2">Import Products & Orders</h4>
+                <p className="text-sm text-muted-foreground mb-4">
+                  Import your complete order history from Xero. Products will be created automatically.
+                </p>
+                
+                <div className="mb-4">
+                  <Label htmlFor="yearsBack">Import orders from last</Label>
+                  <Select 
+                    value={yearsBack.toString()} 
+                    onValueChange={(v) => setYearsBack(parseInt(v))}
+                  >
+                    <SelectTrigger id="yearsBack" className="w-full mt-1">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="1">1 year</SelectItem>
+                      <SelectItem value="2">2 years</SelectItem>
+                      <SelectItem value="3">3 years</SelectItem>
+                      <SelectItem value="5">5 years</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  <Button 
+                    variant="outline"
+                    onClick={() => importProducts.mutate(undefined, {
+                      onSuccess: (data) => setCurrentJobId(data.jobId),
+                    })}
+                    disabled={importProducts.isPending || currentJob?.status === 'running'}
+                  >
+                    {importProducts.isPending ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Starting...
+                      </>
+                    ) : (
+                      "Import Products Only"
+                    )}
+                  </Button>
+
+                  <Button 
+                    variant="outline"
+                    onClick={() => importOrders.mutate(yearsBack, {
+                      onSuccess: (data) => setCurrentJobId(data.jobId),
+                    })}
+                    disabled={importOrders.isPending || currentJob?.status === 'running'}
+                  >
+                    {importOrders.isPending ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Starting...
+                      </>
+                    ) : (
+                      "Import Orders Only"
+                    )}
+                  </Button>
+
+                  <Button 
+                    onClick={() => importAll.mutate(yearsBack, {
+                      onSuccess: (data) => setCurrentJobId(data.productJobId),
+                    })}
+                    disabled={importAll.isPending || currentJob?.status === 'running'}
+                  >
+                    {importAll.isPending ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Starting...
+                      </>
+                    ) : (
+                      <>
+                        <Download className="w-4 h-4 mr-2" />
+                        Import All
+                      </>
+                    )}
+                  </Button>
+                </div>
+
+                <p className="text-sm text-muted-foreground mt-4">
+                  This will import all Xero items as products and invoices as orders.
+                  Existing records will not be duplicated.
+                </p>
               </div>
             )}
 

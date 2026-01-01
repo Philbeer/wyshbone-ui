@@ -818,7 +818,9 @@ export const crmOrders = pgTable("crm_orders", {
   totalIncVat: integer("total_inc_vat").default(0), // In pence/cents - calculated from line items
   totalAmount: integer("total_amount"), // DEPRECATED: kept for backwards compatibility, use totalIncVat
   xeroInvoiceId: text("xero_invoice_id"), // Xero invoice reference if exported
+  xeroInvoiceNumber: text("xero_invoice_number"), // Xero invoice number for display (e.g. INV-0001)
   xeroExportedAt: bigint("xero_exported_at", { mode: "number" }), // When exported to Xero
+  lastXeroSyncAt: timestamp("last_xero_sync_at"), // Last sync timestamp
   notes: text("notes"),
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
   updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
@@ -828,6 +830,7 @@ export const crmOrders = pgTable("crm_orders", {
   deliveryRunIdIdx: index("crm_orders_delivery_run_id_idx").on(table.deliveryRunId),
   statusIdx: index("crm_orders_status_idx").on(table.status),
   orderDateIdx: index("crm_orders_order_date_idx").on(table.orderDate),
+  xeroInvoiceIdIdx: index("crm_orders_xero_invoice_id_idx").on(table.xeroInvoiceId),
 }));
 
 export const insertCrmOrderSchema = createInsertSchema(crmOrders);
@@ -855,6 +858,8 @@ export const crmOrderLines = pgTable("crm_order_lines", {
   lineTotal: integer("line_total"),
   verticalType: text("vertical_type"),
   verticalRefId: text("vertical_ref_id"),
+  // Xero sync field
+  xeroLineItemId: text("xero_line_item_id"), // Xero LineItemID for sync tracking
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
   updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
 }, (table) => ({
@@ -883,12 +888,18 @@ export const brewProducts = pgTable("brew_products", {
   defaultUnitPriceExVat: integer("default_unit_price_ex_vat").default(0), // In pence/cents - used for order line defaults
   defaultVatRate: integer("default_vat_rate").default(2000), // Stored as basis points (e.g., 2000 = 20%, 500 = 5%)
   isActive: integer("is_active").notNull().default(1), // 1 = true, 0 = false
+  // Xero sync fields
+  xeroItemId: text("xero_item_id"), // Xero ItemID for sync tracking
+  xeroItemCode: text("xero_item_code"), // Xero Item Code (maps to SKU)
+  lastXeroSyncAt: timestamp("last_xero_sync_at"), // Last sync timestamp
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
   updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
 }, (table) => ({
   workspaceIdIdx: index("brew_products_workspace_id_idx").on(table.workspaceId),
   skuIdx: index("brew_products_sku_idx").on(table.sku),
   isActiveIdx: index("brew_products_is_active_idx").on(table.isActive),
+  xeroItemIdIdx: index("brew_products_xero_item_id_idx").on(table.xeroItemId),
+  xeroItemCodeIdx: index("brew_products_xero_item_code_idx").on(table.xeroItemCode),
 }));
 
 export const insertBrewProductSchema = createInsertSchema(brewProducts);
