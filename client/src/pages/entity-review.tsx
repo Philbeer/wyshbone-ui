@@ -612,7 +612,7 @@ export default function EntityReviewPage() {
   const pendingCount = reviews?.length || 0;
   
   return (
-    <div className="container mx-auto py-6 space-y-6">
+    <div className="container mx-auto py-6 space-y-6 h-[calc(100vh-100px)] flex flex-col">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
@@ -719,30 +719,32 @@ export default function EntityReviewPage() {
         </Card>
       )}
       
-      {/* Review list */}
-      {isLoading ? (
-        <LoadingState />
-      ) : !reviews || reviews.length === 0 ? (
-        <EmptyState hasFilter={hasFilters} />
-      ) : (
-        <div className="space-y-4">
-          {reviews.map((review, index) => (
-            <ReviewCard
-              key={review.id}
-              review={review}
-              isSelected={index === selectedIndex}
-              onApprove={(decision) => showConfirmDialog(review.id, decision, review.newPubData.name)}
-              onReject={() => showConfirmDialog(review.id, 'reject', review.newPubData.name)}
-              onSkip={handleSkip}
-              isUpdating={isUpdating}
-            />
-          ))}
-        </div>
-      )}
+      {/* Review list - scrollable container */}
+      <div className="flex-1 min-h-0 overflow-y-auto max-h-[calc(100vh-320px)] pr-2">
+        {isLoading ? (
+          <LoadingState />
+        ) : !reviews || reviews.length === 0 ? (
+          <EmptyState hasFilter={hasFilters} />
+        ) : (
+          <div className="space-y-4 pb-4">
+            {reviews.map((review, index) => (
+              <ReviewCard
+                key={review.id}
+                review={review}
+                isSelected={index === selectedIndex}
+                onApprove={(decision) => showConfirmDialog(review.id, decision, review.newPubData.name)}
+                onReject={() => showConfirmDialog(review.id, 'reject', review.newPubData.name)}
+                onSkip={handleSkip}
+                isUpdating={isUpdating}
+              />
+            ))}
+          </div>
+        )}
+      </div>
       
       {/* Summary footer */}
       {!isLoading && reviews && reviews.length > 0 && (
-        <div className="text-center text-sm text-muted-foreground pt-4">
+        <div className="text-center text-sm text-muted-foreground py-2 border-t">
           Showing {reviews.length} pending review{reviews.length !== 1 ? 's' : ''}
           {hasFilters && ' (filtered)'}
         </div>
