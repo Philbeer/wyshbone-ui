@@ -25,30 +25,49 @@ async function getAuthenticatedUserId(
   req: Request,
   storage: IStorage
 ): Promise<{ userId: string; userEmail: string } | null> {
-  const authHeader = req.headers.authorization;
+  // Development fallback: allow URL parameters for testing ONLY
+  const urlUserId = (req.query.userId || req.query.user_id || req.query.workspaceId) as string | undefined;
+  const urlUserEmail = (req.query.user_email || "dev@test.com") as string;
   
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    // Check for session-based auth via cookie
-    const sessionId = req.cookies?.sessionId;
-    if (sessionId) {
-      const session = await storage.getSession(sessionId);
-      if (session) {
-        const user = await storage.getUserById(session.userId);
-        if (user) {
-          return { userId: user.id, userEmail: user.email };
-        }
-      }
-    }
-    return null;
+  if (process.env.NODE_ENV === "development" && urlUserId) {
+    console.log(`[entity-review] Dev auth: userId=${urlUserId}`);
+    return { userId: urlUserId, userEmail: urlUserEmail };
   }
 
-  // For Bearer token auth (API keys)
-  const token = authHeader.slice(7);
-  const session = await storage.getSession(token);
-  if (session) {
-    const user = await storage.getUserById(session.userId);
-    if (user) {
-      return { userId: user.id, userEmail: user.email };
+  // Check for session header (used by frontend)
+  const sessionId = req.headers["x-session-id"] as string | undefined;
+  if (sessionId) {
+    const session = await storage.getSession(sessionId);
+    if (session) {
+      const user = await storage.getUserById(session.userId);
+      if (user) {
+        return { userId: user.id, userEmail: user.email };
+      }
+    }
+  }
+
+  // Check for Bearer token auth
+  const authHeader = req.headers.authorization;
+  if (authHeader?.startsWith("Bearer ")) {
+    const token = authHeader.slice(7);
+    const session = await storage.getSession(token);
+    if (session) {
+      const user = await storage.getUserById(session.userId);
+      if (user) {
+        return { userId: user.id, userEmail: user.email };
+      }
+    }
+  }
+  
+  // Check for session-based auth via cookie
+  const cookieSessionId = req.cookies?.sessionId;
+  if (cookieSessionId) {
+    const session = await storage.getSession(cookieSessionId);
+    if (session) {
+      const user = await storage.getUserById(session.userId);
+      if (user) {
+        return { userId: user.id, userEmail: user.email };
+      }
     }
   }
 
