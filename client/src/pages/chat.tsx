@@ -19,6 +19,7 @@ import { useUserGoal } from "@/hooks/use-user-goal";
 import { publishEvent } from "@/lib/events";
 import { getCurrentVerticalId } from "@/contexts/VerticalContext";
 import { WhatJustHappenedPanel } from "@/components/tower/WhatJustHappenedPanel";
+import { useResultsPanel } from "@/contexts/ResultsPanelContext";
 
 type Message = ChatMessage & {
   id: string;
@@ -57,6 +58,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
   const { toast } = useToast();
   const { trigger: triggerSidebarFlash } = useSidebarFlash();
   const { goal, hasGoal, isLoading: isLoadingGoal } = useUserGoal();
+  const { openResults } = useResultsPanel();
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
@@ -821,11 +823,20 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
           const systemMessage: SystemMessage = {
             id: crypto.randomUUID(),
             type: "system",
-            content: `✅ Found ${result.places.length} places via Wyshbone Global Database. Results displayed below.`,
+            content: `✅ Found ${result.places.length} places. Click "View Results" to see full details.`,
             timestamp: new Date(),
-            searchResults: result.places,
+            searchResults: result.places.slice(0, 5), // Show preview of 5
           };
           setMessages((prev) => [...prev, systemMessage]);
+          
+          // Open results in right panel
+          openResults('quick_search', {
+            places: result.places,
+            count: result.places.length,
+            query: result.query || '',
+            location: result.location || '',
+            country: result.country || defaultCountry,
+          }, `${result.places.length} businesses found`);
         }
         
         // Handle DEEP_RESEARCH results
@@ -843,10 +854,22 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
           const systemMessage: SystemMessage = {
             id: crypto.randomUUID(),
             type: "system",
-            content: `🔬 Deep research started. Check the sidebar for progress.`,
+            content: `🔬 Deep research started! Research is running in the background. View progress in the Results panel.`,
             timestamp: new Date(),
           };
           setMessages((prev) => [...prev, systemMessage]);
+          
+          // Open results in right panel
+          openResults('deep_research', {
+            run: {
+              id: result.run.id,
+              label: result.run.label || result.topic,
+              status: result.run.status || 'running',
+            },
+            topic: result.topic || result.run.label || 'Research',
+          }, result.run.label || 'Deep Research');
+          
+          triggerSidebarFlash('deepResearch');
         }
         
         // Handle BATCH_CONTACT_FINDER results
@@ -854,10 +877,19 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
           const systemMessage: SystemMessage = {
             id: crypto.randomUUID(),
             type: "system",
-            content: `📧 Batch contact finder started. Job ID: ${result.job.id}. This will run in the background.`,
+            content: `📧 Email finder started! Finding contacts in the background. View progress in the Results panel.`,
             timestamp: new Date(),
           };
           setMessages((prev) => [...prev, systemMessage]);
+          
+          // Open results in right panel
+          openResults('email_finder', {
+            batchId: result.job.id,
+            status: 'running',
+            viewUrl: `/batch/${result.job.id}`,
+          }, 'Email Finder');
+          
+          triggerSidebarFlash('emailFinder');
         }
         
         // Handle DRAFT_EMAIL results

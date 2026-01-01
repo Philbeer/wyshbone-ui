@@ -85,15 +85,24 @@ export default function CrmSettings() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const xeroParam = params.get('xero');
+    const errorMessage = params.get('message');
     
     if (xeroParam === 'connected') {
       setShowXeroSuccessDialog(true);
       // Remove the query parameter from URL without reload
       window.history.replaceState({}, '', window.location.pathname);
     } else if (xeroParam === 'error') {
+      const errorDescriptions: Record<string, string> = {
+        'missing_code_or_state': 'The OAuth process was interrupted. Please try again.',
+        'invalid_state': 'Security validation failed. Please try connecting again.',
+        'state_replay': 'This authorization link has already been used. Please start a new connection.',
+        'token_exchange_failed': 'Failed to exchange authorization code. Please try again.',
+        'connections_fetch_failed': 'Connected to Xero but failed to fetch organization details.',
+      };
+      
       toast({ 
         title: "Xero Connection Failed", 
-        description: "There was an error connecting to Xero. Please try again.",
+        description: errorDescriptions[errorMessage || ''] || errorMessage || "There was an error connecting to Xero. Please try again.",
         variant: "destructive" 
       });
       window.history.replaceState({}, '', window.location.pathname);

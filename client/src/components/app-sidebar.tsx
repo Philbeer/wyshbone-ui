@@ -335,12 +335,60 @@ const Badge: React.FC<{ status: RunStatus }> = ({ status }) => {
     failed: "bg-rose-100 text-rose-800 dark:bg-rose-900 dark:text-rose-200",
     stopped: "bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200",
   };
+  
+  // Status emoji mapping
+  const emoji: Record<RunStatus, string> = {
+    queued: "⏳",
+    running: "🔄",
+    in_progress: "🔄",
+    completed: "✅",
+    failed: "❌",
+    stopped: "⏹️",
+  };
+  
   return (
     <span className={`inline-block text-[10px] px-2 py-0.5 rounded-full ${map[status]}`}>
-      {status}
+      {emoji[status]} {status === 'in_progress' ? 'running' : status}
     </span>
   );
 };
+
+/**
+ * Extract a clean, short title from a deep research query
+ * "Deep research on pubs in Leeds, UK. Please deliver..." → "Leeds Pubs Research"
+ */
+function extractCleanTitle(label: string, startedAt: string): string {
+  // Try to extract "on [topic]" pattern
+  const onMatch = label.match(/(?:deep\s+research\s+)?on\s+(.+?)(?:\.|,|please|deliver|include|focus|in\s+the\s+format)/i);
+  let topic = onMatch ? onMatch[1].trim() : label;
+  
+  // If still too long, take first part before period or comma
+  if (topic.length > 60) {
+    const firstPart = topic.split(/[.,]/)[0];
+    topic = firstPart.length > 60 ? firstPart.slice(0, 57) + '...' : firstPart;
+  }
+  
+  // Clean up common patterns
+  topic = topic
+    .replace(/^(deep\s+research\s+on\s+)/i, '')
+    .replace(/\s+uk$/i, '')
+    .replace(/\s+usa$/i, '')
+    .trim();
+  
+  // Capitalize nicely
+  topic = topic.charAt(0).toUpperCase() + topic.slice(1);
+  
+  // Add date
+  const date = new Date(startedAt);
+  const dateStr = date.toLocaleDateString('en-GB', { month: 'short', day: 'numeric' });
+  
+  // Limit total length
+  if (topic.length > 40) {
+    topic = topic.slice(0, 37) + '...';
+  }
+  
+  return `${topic} • ${dateStr}`;
+}
 
 
 const RunRow: React.FC<{
@@ -379,7 +427,7 @@ const RunRow: React.FC<{
           </span>
           <div className="flex items-start gap-2 mb-2 flex-wrap">
             <span className="text-[14px] font-semibold text-foreground leading-snug">
-              {run.label}
+              {isDeepResearch ? extractCleanTitle(run.label, run.startedAt) : run.label}
             </span>
             <Badge status={run.status} />
           </div>
@@ -756,10 +804,10 @@ export function AppSidebar({
     const ref = localRuns.find((r) => r.id === id);
     if (!ref) return;
     
-    // Handle deep research runs
+    // Handle deep research runs - use onSelectRun to open in ResultsPanel
     if (ref.runType === "deep_research") {
-      const url = buildApiUrl(addDevAuthParams(`/api/deep-research/${id}`));
-      window.open(url, "_blank", "noopener,noreferrer");
+      // Call the same handler as clicking the run card - this opens ResultsPanel
+      onSelectRun?.(id);
       return;
     }
     

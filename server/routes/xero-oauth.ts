@@ -95,12 +95,20 @@ const XERO_CLIENT_SECRET = process.env.XERO_CLIENT_SECRET;
 // In development, backend runs on port 5001
 const BASE_URL = process.env.BACKEND_URL || `http://localhost:${process.env.PORT || 5001}`;
 
+// Frontend URL for redirecting after OAuth (where the React app runs)
+// In production, this might be the same as the backend if serving static files
+// In development, Vite runs on port 5173
+const FRONTEND_URL = process.env.FRONTEND_URL || (process.env.NODE_ENV === 'production' ? '' : 'http://localhost:5173');
+
 const REDIRECT_URI = `${BASE_URL}/api/integrations/xero/callback`;
 
 // Log the redirect URI for debugging
 console.log("🔗 Xero OAuth Configuration:");
+console.log(`   Client ID: ${XERO_CLIENT_ID ? '✅ Set (' + XERO_CLIENT_ID.substring(0, 8) + '...)' : '❌ NOT SET'}`);
+console.log(`   Client Secret: ${XERO_CLIENT_SECRET ? '✅ Set' : '❌ NOT SET'}`);
 console.log(`   Redirect URI: ${REDIRECT_URI}`);
 console.log(`   Base URL: ${BASE_URL}`);
+console.log(`   Frontend URL: ${FRONTEND_URL || '(same origin)'}`);
 
 // Xero OAuth endpoints
 const XERO_AUTH_URL = "https://login.xero.com/identity/connect/authorize";
@@ -156,35 +164,43 @@ export function createXeroOAuthRouter(storage: IStorage) {
 
   // Handle OAuth callback from Xero
   router.get("/callback", async (req, res) => {
+    console.log("🔔 [XERO] OAuth callback received!");
+    console.log("🔔 [XERO] Query params:", JSON.stringify(req.query));
+    
     const code = req.query.code as string;
     const state = req.query.state as string;
     const error = req.query.error as string;
 
     if (error) {
-      console.error("Xero OAuth error:", error);
-      return res.redirect(`/?error=${encodeURIComponent(error)}`);
+      console.error("❌ [XERO] OAuth error from Xero:", error);
+      return res.redirect(`${FRONTEND_URL}/auth/crm/settings?xero=error&message=${encodeURIComponent(error)}`);
     }
 
     if (!code || !state) {
-      return res.redirect("/?error=missing_code_or_state");
+      return res.redirect(`${FRONTEND_URL}/auth/crm/settings?xero=error&message=missing_code_or_state`);
     }
 
     // Verify and decode signed state
     const stateData = verifyState(state);
     if (!stateData) {
-      return res.redirect("/?error=invalid_state");
+      return res.redirect(`${FRONTEND_URL}/auth/crm/settings?xero=error&message=invalid_state`);
     }
 
     // Check for replay attacks
     if (usedStates.has(state)) {
       console.error("OAuth state replay detected!");
-      return res.redirect("/?error=state_replay");
+      return res.redirect(`${FRONTEND_URL}/auth/crm/settings?xero=error&message=state_replay`);
     }
 
     // Mark state as used
     usedStates.add(state);
 
     try {
+      console.log("🔄 [XERO] Exchanging authorization code for tokens...");
+      console.log(`🔄 [XERO] Using redirect URI: ${REDIRECT_URI}`);
+      console.log(`🔄 [XERO] Client ID present: ${!!XERO_CLIENT_ID}`);
+      console.log(`🔄 [XERO] Client Secret present: ${!!XERO_CLIENT_SECRET}`);
+      
       // Exchange code for tokens
       const tokenResponse = await fetch(XERO_TOKEN_URL, {
         method: "POST",
@@ -201,9 +217,12 @@ export function createXeroOAuthRouter(storage: IStorage) {
 
       if (!tokenResponse.ok) {
         const errorText = await tokenResponse.text();
-        console.error("Xero token exchange failed:", errorText);
-        return res.redirect("/?error=token_exchange_failed");
+        console.error("❌ [XERO] Token exchange failed:", tokenResponse.status, tokenResponse.statusText);
+        console.error("❌ [XERO] Error response:", errorText);
+        return res.redirect(`${FRONTEND_URL}/auth/crm/settings?xero=error&message=token_exchange_failed`);
       }
+      
+      console.log("✅ [XERO] Token exchange successful!");
 
       const tokens = await tokenResponse.json();
 
@@ -217,7 +236,7 @@ export function createXeroOAuthRouter(storage: IStorage) {
 
       if (!connectionsResponse.ok) {
         console.error("Failed to fetch Xero connections");
-        return res.redirect("/?error=connections_fetch_failed");
+        return res.redirect(`${FRONTEND_URL}/auth/crm/settings?xero=error&message=connections_fetch_failed`);
       }
 
       const connections = await connectionsResponse.json();
@@ -240,13 +259,15 @@ export function createXeroOAuthRouter(storage: IStorage) {
         updatedAt: Date.now(),
       });
 
-      console.log("✅ Xero integration created:", integration.id);
+      console.log("✅ [XERO] Integration created:", integration.id);
+      console.log("✅ [XERO] Tenant:", tenantName, "ID:", tenantId);
+      console.log("✅ [XERO] Redirecting to:", `${FRONTEND_URL}/auth/crm/settings?xero=connected`);
 
       // Redirect to CRM settings page with success indicator
-      res.redirect("/auth/crm/settings?xero=connected");
+      res.redirect(`${FRONTEND_URL}/auth/crm/settings?xero=connected`);
     } catch (error) {
       console.error("Xero OAuth error:", error);
-      res.redirect("/auth/crm/settings?xero=error");
+      res.redirect(`${FRONTEND_URL}/auth/crm/settings?xero=error`);
     }
   });
 

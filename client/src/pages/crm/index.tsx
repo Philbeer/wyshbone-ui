@@ -49,12 +49,12 @@ export default function CrmLayout() {
         <div className="flex items-center justify-between mb-4">
           <div>
             <h1 className="text-2xl font-semibold" data-testid="text-crm-title">
-              {isBrewCrm ? "Brewery CRM" : "CRM System"}
+              {isBrewCrm ? "Agent's Brewery Workspace" : "Agent's Workspace"}
             </h1>
             <p className="text-sm text-muted-foreground">
               {isBrewCrm 
-                ? "Brewery-specific management: batches, containers, duty reports" 
-                : "Manage customers, orders, products, and stock"
+                ? "Your agent tracks brewery batches, containers, and duty reports here" 
+                : "Your agent tracks customers, orders, products, and stock here"
               }
             </p>
           </div>
@@ -63,13 +63,13 @@ export default function CrmLayout() {
               <TabsTrigger value="generic" asChild>
                 <Link href="/" data-testid="link-crm-generic">
                   <Building2 className="w-4 h-4 mr-2" />
-                  Generic CRM
+                  Standard Workspace
                 </Link>
               </TabsTrigger>
               <TabsTrigger value="brewery" asChild>
                 <Link href="/brew" data-testid="link-crm-brewery">
                   <Beer className="w-4 h-4 mr-2" />
-                  Brewery CRM
+                  Brewery Workspace
                 </Link>
               </TabsTrigger>
             </TabsList>

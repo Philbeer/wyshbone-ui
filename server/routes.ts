@@ -983,6 +983,52 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ===========================
+  // POST /api/agent/chat – Claude AI with Tool Use
+  // ===========================
+  app.post("/api/agent/chat", async (req, res) => {
+    console.log('🤖 POST /api/agent/chat received');
+    
+    // Check for Anthropic API key
+    if (!process.env.ANTHROPIC_API_KEY) {
+      console.warn('⚠️ ANTHROPIC_API_KEY not set');
+      return res.status(503).json({ 
+        error: "Agent unavailable", 
+        message: "ANTHROPIC_API_KEY is not configured. Please add it to your environment variables." 
+      });
+    }
+    
+    try {
+      const { message, conversationHistory, userId } = req.body;
+      
+      if (!message || typeof message !== 'string') {
+        return res.status(400).json({ error: "Message is required" });
+      }
+      
+      // Get authenticated user ID
+      const auth = await getAuthenticatedUserId(req);
+      const actualUserId = userId || auth?.userId;
+      
+      // Import and call the Claude agent
+      const { chatWithClaude } = await import('./anthropic-agent');
+      
+      const response = await chatWithClaude(
+        message,
+        conversationHistory || [],
+        actualUserId,
+        storage
+      );
+      
+      res.json(response);
+    } catch (error: any) {
+      console.error('❌ Claude agent error:', error);
+      res.status(500).json({ 
+        error: "Agent error", 
+        message: error.message || "An error occurred while processing your request"
+      });
+    }
+  });
+
+  // ===========================
   // POST /api/chat – streaming + MEMORY
   // ===========================
   app.post("/api/chat", async (req, res) => {
@@ -1901,21 +1947,13 @@ Examples:
         // Continue with normal flow if classification fails
       }
 
-      // Handle "both_possible" - ask user to clarify
+      // DISABLED: Don't ask "four ways" clarification - just execute quick search by default
+      // When intent is ambiguous, default to quick search since it's the most common use case
       if (userIntent?.intent === "both_possible") {
-        const clarificationMsg = `I can help with that in four ways:\n\n` +
-          `📊 **Deep Research** - I'll perform comprehensive research and provide a detailed report with findings, sources, and analysis\n\n` +
-          `🔍 **Wyshbone Global Database** - I'll search our global database and return a quick list of businesses with Place IDs, phone numbers, addresses, and websites\n\n` +
-          `📧 **Wyshbone Global Database and Email Finder** - I'll find businesses with verified contact emails using Hunter.io, then add them to your SalesHandy campaign with AI-generated personal lines\n\n` +
-          `⏰ **Scheduled Monitoring** - I'll set up recurring automated monitoring to check regularly (e.g., every Monday) and build reports over time\n\n` +
-          `Which would you prefer?`;
-        
-        appendMessage(sessionId, { role: "assistant", content: clarificationMsg });
-        await saveMessage(conversationId, "assistant", clarificationMsg);
-        console.log("💾 Saved assistant clarification message to database");
-        res.write(`data: ${JSON.stringify({ content: clarificationMsg })}\n\n`);
-        res.write(`data: [DONE]\n\n`);
-        return res.end();
+        console.log("🔍 Ambiguous intent detected - defaulting to quick_search (most common use case)");
+        userIntent.intent = "quick_search";
+        userIntent.confidence = "medium";
+        // Continue with normal tool execution flow
       }
 
       // Handle clear deep_research intent
@@ -2420,13 +2458,15 @@ CRITICAL RULES:
         await clearLeadContext(sessionId);
       }
       
-      // Let handleLeadClarification own the entire clarification flow
-      // It handles: awaiting detection, answer parsing, context merging, and flag clearing
-      const clarificationResult = await handleLeadClarification({
-        sessionId,
-        userMessage: latestUserText,
-        conversationHistory: memoryMessages.map(m => String(m.content || ''))
-      });
+      // DISABLED: Lead clarification was causing unnecessary follow-up questions
+      // Claude can handle clarification naturally when needed - it knows when to ask
+      // Original code:
+      // const clarificationResult = await handleLeadClarification({
+      //   sessionId,
+      //   userMessage: latestUserText,
+      //   conversationHistory: memoryMessages.map(m => String(m.content || ''))
+      // });
+      const clarificationResult = { type: 'skip' } as const;
       
       if (clarificationResult.type === 'clarify') {
         // Missing fields - ask clarifying questions and return early

@@ -21,6 +21,7 @@
     "smoke:headed": "playwright test tests/ui-smoke.spec.ts --headed"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.71.2",
     "@neondatabase/serverless": "^0.10.4",
     "@supabase/supabase-js": "^2.80.0",
     "@tailwindcss/forms": "^0.5.10",

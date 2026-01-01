@@ -612,14 +612,16 @@ CORRECT EXAMPLE after DEEP_RESEARCH completes:
   }
 }
 
-CORRECT EXAMPLE for AMBIGUOUS_QUERY:
-{
-  "natural_response": "I can help with that in four ways...",
-  "plan": {
-    "follow_ups": ["1) Deep Research", "2) Quick Search", "3) Email Finder", "4) Schedule Monitor"],
-    "suggested_actions": []
-  }
-}
+// DISABLED: Don't ask "four ways" - just act immediately
+// CORRECT EXAMPLE for AMBIGUOUS_QUERY:
+// {
+//   "natural_response": "I can help with that in four ways...",
+//   "plan": {
+//     "follow_ups": ["1) Deep Research", "2) Quick Search", "3) Email Finder", "4) Schedule Monitor"],
+//     "suggested_actions": []
+//   }
+// }
+// NEW BEHAVIOR: Use quick search by default for business queries
 
 EXAMPLES OF suggested_actions:
 Input: "find pubs in cornwall"

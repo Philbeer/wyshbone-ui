@@ -1,44 +1,68 @@
 /**
  * UI-20: Demo Mode Banner
  * 
- * Displays a prominent banner when demo mode is active.
- * Includes a button to exit demo mode.
+ * Displays a small badge when demo mode is active.
+ * Fixed positioned at bottom-right to avoid affecting main layout.
  */
 
-import { X, FlaskConical } from 'lucide-react';
+import { X, FlaskConical, ChevronUp, ChevronDown } from 'lucide-react';
+import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { useDemoModeContext } from '@/contexts/DemoModeContext';
+import { cn } from '@/lib/utils';
 
 export function DemoModeBanner() {
   const { demoMode, disableDemoMode } = useDemoModeContext();
+  const [expanded, setExpanded] = useState(false);
 
   if (!demoMode) {
     return null;
   }
 
   return (
-    <div className="bg-amber-500 text-amber-950 px-4 py-2 flex items-center justify-between gap-4 text-sm">
-      <div className="flex items-center gap-2">
-        <FlaskConical className="h-4 w-4" />
-        <span className="font-medium">Demo Mode</span>
-        <span className="hidden sm:inline">
-          — You're exploring Wyshbone with sample brewery data. Nothing here is real customer data.
-        </span>
-        <span className="sm:hidden">
-          — Sample data only
-        </span>
-      </div>
-      <Button
-        variant="ghost"
-        size="sm"
-        onClick={disableDemoMode}
-        className="h-6 px-2 hover:bg-amber-600 hover:text-amber-950"
-        title="Exit demo mode"
+    <div 
+      className={cn(
+        "fixed bottom-4 right-20 z-40 transition-all duration-200",
+        "rounded-lg shadow-lg border backdrop-blur-sm",
+        "bg-amber-50/95 border-amber-300"
+      )}
+    >
+      {/* Collapsed badge view */}
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-amber-800"
       >
-        <X className="h-4 w-4" />
-        <span className="hidden sm:inline ml-1">Exit Demo</span>
-      </Button>
+        <FlaskConical className="h-3 w-3 text-amber-600" />
+        <span>Demo Mode</span>
+        {expanded ? (
+          <ChevronDown className="h-3 w-3 opacity-50" />
+        ) : (
+          <ChevronUp className="h-3 w-3 opacity-50" />
+        )}
+      </button>
+
+      {/* Expanded details */}
+      {expanded && (
+        <div className="px-3 pb-2 pt-1 border-t border-amber-200 text-xs">
+          <p className="text-amber-700 mb-2 text-[10px]">
+            Exploring with sample brewery data.
+            <br />
+            Nothing here is real customer data.
+          </p>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={(e) => {
+              e.stopPropagation();
+              disableDemoMode();
+            }}
+            className="h-6 px-2 w-full justify-center bg-amber-100 hover:bg-amber-200 text-amber-800 text-[10px]"
+          >
+            <X className="h-3 w-3 mr-1" />
+            Exit Demo
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
-
