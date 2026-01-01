@@ -605,6 +605,32 @@ function AgentStatusBadgeWrapper() {
 }
 
 /**
+ * Dev info badge showing user ID and workspace ID for debugging
+ */
+function DevInfoBadge() {
+  const { user } = useUser();
+  
+  // Only show in development
+  if (import.meta.env.PROD) return null;
+  
+  // Parse numeric workspace ID (falls back to 1 for UUIDs in dev)
+  const numericId = parseInt(user.id);
+  const workspaceId = isNaN(numericId) ? 1 : numericId;
+  const isUuid = isNaN(parseInt(user.id));
+  
+  return (
+    <div 
+      className="hidden sm:flex items-center gap-1 px-2 py-1 rounded bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-200 text-[10px] font-mono mr-2"
+      title={`User ID: ${user.id}\nWorkspace ID: ${workspaceId}${isUuid ? ' (UUID → 1)' : ''}`}
+    >
+      <span className="opacity-70">WS:</span>
+      <span className="font-semibold">{workspaceId}</span>
+      {isUuid && <span className="opacity-50">(dev)</span>}
+    </div>
+  );
+}
+
+/**
  * Right Panel Content - Shows ResultsPanel when active, otherwise MyGoalsPanel
  * Conditionally renders based on results context
  */
@@ -813,6 +839,7 @@ function AppLayout({
             style={{ marginRight: userMenuMargin }}
           >
             <VerticalIndicator />
+            <DevInfoBadge />
             <AgentStatusBadgeWrapper />
             <LoginDialog />
             {showNewTabButton && (
