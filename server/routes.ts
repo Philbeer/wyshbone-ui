@@ -42,6 +42,10 @@ import { storage } from "./storage";
 import * as cheerio from "cheerio";
 import { neon } from "@neondatabase/serverless";
 import { createXeroOAuthRouter } from "./routes/xero-oauth";
+import { createXeroSyncRouter } from "./routes/xero-sync";
+import { createSleeperAgentRouter } from "./routes/sleeper-agent";
+import { createThingsRouter } from "./routes/things";
+import { createEntityReviewRouter } from "./routes/entity-review";
 import { hashPassword, verifyPassword, generateId, canCreateMonitor, canCreateDeepResearch, TIER_LIMITS } from "./auth";
 import { signupRequestSchema, loginRequestSchema, updateProfileRequestSchema } from "@shared/schema";
 import { buildSessionContext, generatePersonalizedOpening, type SessionContext } from "./lib/context";
@@ -6841,6 +6845,19 @@ ${run.outputText}`;
   
   // Register Xero OAuth routes
   app.use("/api/integrations/xero", createXeroOAuthRouter(storage));
+  
+  // Register Xero Sync routes (webhooks and two-way sync)
+  const xeroSyncRouter = createXeroSyncRouter(storage);
+  app.use("/api/xero", xeroSyncRouter);
+  
+  // Register Sleeper Agent routes (AI-powered pub and event discovery)
+  app.use("/api/sleeper-agent", createSleeperAgentRouter(storage));
+  
+  // Register Things (Events) routes
+  app.use("/api/things", createThingsRouter(storage));
+  
+  // Register Entity Review routes (manual review queue)
+  app.use("/api/entity-review", createEntityReviewRouter(storage));
 
   // ===========================
   // INTEGRATIONS (NANGO.DEV CRM/ACCOUNTING CONNECTIONS)
@@ -7642,9 +7659,17 @@ ${run.outputText}`;
         postcode: data.postcode || null,
         country: data.country || 'United Kingdom',
         notes: data.notes || null,
+        xeroSyncStatus: 'pending',
         createdAt: now,
         updatedAt: now,
       });
+      
+      // Auto-sync to Xero if connected (async, don't block response)
+      if ((xeroSyncRouter as any).syncCustomerToXero) {
+        (xeroSyncRouter as any).syncCustomerToXero(customer.id, workspaceId).catch((error: any) => {
+          console.error(`Auto-sync customer ${customer.id} to Xero failed:`, error.message);
+        });
+      }
       
       res.json(customer);
     } catch (error: any) {
@@ -7684,8 +7709,16 @@ ${run.outputText}`;
       
       const customer = await storage.updateCrmCustomer(id, {
         ...validationResult.data,
+        xeroSyncStatus: 'pending',
         updatedAt: Date.now(),
       });
+      
+      // Auto-sync update to Xero if connected (async, don't block response)
+      if ((xeroSyncRouter as any).updateCustomerInXero) {
+        (xeroSyncRouter as any).updateCustomerInXero(id, existing.workspaceId).catch((error: any) => {
+          console.error(`Auto-sync customer update ${id} to Xero failed:`, error.message);
+        });
+      }
       
       res.json(customer);
     } catch (error: any) {
@@ -8848,6 +8881,37 @@ ${run.outputText}`;
       res.status(500).json({ error: error.message || "Failed to get order" });
     }
   });
+
+  // GET /api/crm/orders/customer/:customerId - Get orders for a specific customer
+  app.get("/api/crm/orders/customer/:customerId", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { customerId } = req.params;
+      
+      // Verify the customer exists and belongs to this workspace
+      const customer = await storage.getCrmCustomer(customerId);
+      if (!customer) {
+        return res.status(404).json({ error: "Customer not found" });
+      }
+      
+      if (customer.workspaceId !== auth.userId) {
+        console.warn(`🚫 User ${auth.userEmail} attempted to access customer ${customerId} owned by workspace ${customer.workspaceId}`);
+        return res.status(403).json({ error: "Forbidden: Cannot access other workspaces' data" });
+      }
+      
+      // Get orders for this customer
+      const orders = await storage.listCrmOrdersByCustomer(customerId);
+      
+      res.json(orders);
+    } catch (error: any) {
+      console.error("Error getting customer orders:", error);
+      res.status(500).json({ error: error.message || "Failed to get customer orders" });
+    }
+  });
   
   // POST /api/crm/orders - Create order
   app.post("/api/crm/orders", async (req, res) => {
@@ -8898,9 +8962,17 @@ ${run.outputText}`;
         currency: data.currency || 'GBP',
         totalAmount: data.totalAmount || null,
         notes: data.notes || null,
+        syncStatus: 'pending',
         createdAt: now,
         updatedAt: now,
       });
+      
+      // Auto-sync to Xero if connected (async, don't block response)
+      if ((xeroSyncRouter as any).syncOrderToXero) {
+        (xeroSyncRouter as any).syncOrderToXero(order.id, workspaceId).catch((error: any) => {
+          console.error(`Auto-sync order ${order.id} to Xero failed:`, error.message);
+        });
+      }
       
       res.json(order);
     } catch (error: any) {
@@ -8958,8 +9030,16 @@ ${run.outputText}`;
       
       const order = await storage.updateCrmOrder(id, {
         ...data,
+        syncStatus: 'pending',
         updatedAt: Date.now(),
       });
+      
+      // Auto-sync update to Xero if connected (async, don't block response)
+      if ((xeroSyncRouter as any).updateOrderInXero) {
+        (xeroSyncRouter as any).updateOrderInXero(id, existing.workspaceId).catch((error: any) => {
+          console.error(`Auto-sync order update ${id} to Xero failed:`, error.message);
+        });
+      }
       
       res.json(order);
     } catch (error: any) {
@@ -8986,6 +9066,13 @@ ${run.outputText}`;
       if (existing.workspaceId !== auth.userId) {
         console.warn(`🚫 User ${auth.userEmail} attempted to delete order ${id} owned by workspace ${existing.workspaceId}`);
         return res.status(403).json({ error: "Forbidden: Cannot delete other workspaces' data" });
+      }
+      
+      // Void in Xero first (async, don't block response)
+      if ((xeroSyncRouter as any).voidOrderInXero) {
+        (xeroSyncRouter as any).voidOrderInXero(id, existing.workspaceId).catch((error: any) => {
+          console.error(`Auto-void order ${id} in Xero failed:`, error.message);
+        });
       }
       
       const success = await storage.deleteCrmOrder(id);

@@ -33,9 +33,11 @@ import {
   useImportAllFromXero,
   useXeroImportJob,
   useXeroImportJobs,
+  useXeroSyncQueue,
+  useForceXeroSync,
 } from "@/features/xero";
 import { Label } from "@/components/ui/label";
-import { CheckCircle, XCircle, Download, Loader2, Link as LinkIcon, PartyPopper } from "lucide-react";
+import { CheckCircle, XCircle, Download, Loader2, Link as LinkIcon, PartyPopper, RefreshCw, Clock, AlertCircle } from "lucide-react";
 
 const formSchema = insertCrmSettingsSchema.omit({ id: true, workspaceId: true, createdAt: true, updatedAt: true });
 
@@ -81,10 +83,16 @@ export default function CrmSettings() {
   const importOrders = useImportOrdersFromXero();
   const importAll = useImportAllFromXero();
   const { data: importJobs } = useXeroImportJobs();
+  const { data: syncQueue } = useXeroSyncQueue();
+  const forceSync = useForceXeroSync();
 
   const [currentJobId, setCurrentJobId] = useState<number | null>(null);
   const { data: currentJob } = useXeroImportJob(currentJobId);
   const [yearsBack, setYearsBack] = useState(2);
+  
+  // Calculate sync status counts
+  const pendingCount = syncQueue?.filter(i => !i.processedAt).length || 0;
+  const failedCount = syncQueue?.filter(i => (i.retryCount ?? 0) >= (i.maxRetries ?? 3)).length || 0;
 
   // Xero connection success dialog
   const [showXeroSuccessDialog, setShowXeroSuccessDialog] = useState(false);
@@ -468,6 +476,69 @@ export default function CrmSettings() {
                       </div>
                     </div>
                   ))}
+                </div>
+              </div>
+            )}
+
+            {/* Real-Time Sync Status - only show when connected */}
+            {xeroStatus?.connected && (
+              <div className="border-t pt-6">
+                <h4 className="font-medium mb-2 flex items-center gap-2">
+                  <RefreshCw className="w-4 h-4" />
+                  Real-Time Sync Status
+                </h4>
+                <p className="text-sm text-muted-foreground mb-4">
+                  Changes sync automatically between Wyshbone and Xero. All updates happen in real-time.
+                </p>
+                
+                <div className="p-4 border rounded-lg space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Clock className="w-4 h-4 text-muted-foreground" />
+                      <span>Pending syncs:</span>
+                    </div>
+                    <Badge variant={pendingCount > 0 ? "secondary" : "outline"}>
+                      {pendingCount}
+                    </Badge>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4 text-muted-foreground" />
+                      <span>Failed syncs:</span>
+                    </div>
+                    <Badge variant={failedCount > 0 ? "destructive" : "outline"}>
+                      {failedCount}
+                    </Badge>
+                  </div>
+                  
+                  {(pendingCount > 0 || failedCount > 0) && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full mt-2"
+                      onClick={() => forceSync.mutate()}
+                      disabled={forceSync.isPending}
+                    >
+                      {forceSync.isPending ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          Syncing...
+                        </>
+                      ) : (
+                        <>
+                          <RefreshCw className="w-4 h-4 mr-2" />
+                          Force Sync Now
+                        </>
+                      )}
+                    </Button>
+                  )}
+                  
+                  {pendingCount === 0 && failedCount === 0 && (
+                    <div className="flex items-center gap-2 text-green-600 dark:text-green-400">
+                      <CheckCircle className="w-4 h-4" />
+                      <span className="text-sm">All synced</span>
+                    </div>
+                  )}
                 </div>
               </div>
             )}

@@ -764,6 +764,170 @@ export function createXeroOAuthRouter(storage: IStorage) {
     }
   }
 
+  // ============================================
+  // AI-POWERED CUSTOMER IMPORT (Entity Resolution)
+  // ============================================
+  
+  /**
+   * Import customers from Xero with AI-powered entity matching.
+   * Uses Claude to match incoming Xero contacts against existing pubs
+   * to avoid duplicates.
+   * 
+   * POST /api/xero/import/customers-ai
+   * 
+   * Returns 202 Accepted with job ID for async processing.
+   */
+  router.post("/import/customers-ai", async (req, res) => {
+    try {
+      // 1. Authenticate user
+      const auth = await getAuthenticatedUserId(req, storage);
+      if (!auth) {
+        return res.status(401).json({ 
+          success: false,
+          error: "Unauthorized - please log in" 
+        });
+      }
+
+      // 2. Verify Xero connection
+      const connection = await storage.getXeroConnection(auth.userId);
+      if (!connection || !connection.isConnected) {
+        return res.status(400).json({ 
+          success: false,
+          error: "Xero not connected",
+          message: "Please connect your Xero account first." 
+        });
+      }
+
+      // 3. Check for existing running import
+      const recentJobs = await storage.getRecentXeroImportJobs(auth.userId, 5);
+      const runningJob = recentJobs.find(
+        job => job.jobType === 'customers_ai' && (job.status === 'pending' || job.status === 'running')
+      );
+      
+      if (runningJob) {
+        return res.status(409).json({
+          success: false,
+          error: "Import already in progress",
+          jobId: runningJob.id,
+          message: "An AI-powered customer import is already running. Please wait for it to complete.",
+        });
+      }
+
+      // 4. Create import job record
+      const job = await storage.createXeroImportJob({
+        workspaceId: auth.userId,
+        jobType: "customers_ai",
+        status: "pending",
+      });
+
+      console.log(`🤖 [xero-import-ai] Starting AI-powered customer import for workspace ${auth.userId}, job ${job.id}`);
+
+      // 5. Start async import (don't wait for completion)
+      importCustomersWithAI(auth.userId, job.id).catch(error => {
+        console.error(`❌ [xero-import-ai] Job ${job.id} failed:`, error);
+        storage.updateXeroImportJob(job.id, auth.userId, {
+          status: "failed",
+          errorMessage: error instanceof Error ? error.message : "Unknown error",
+          completedAt: new Date(),
+        });
+      });
+
+      // 6. Return 202 Accepted
+      res.status(202).json({ 
+        success: true,
+        jobId: job.id,
+        message: "AI-powered customer import started. Poll /api/xero/import/jobs/:jobId for progress.",
+      });
+
+    } catch (error: any) {
+      console.error("❌ [xero-import-ai] Failed to start import:", error);
+      res.status(500).json({ 
+        success: false,
+        error: "Failed to start import",
+        message: error.message || "An unexpected error occurred",
+      });
+    }
+  });
+
+  /**
+   * Background function to run AI-powered customer import.
+   */
+  async function importCustomersWithAI(workspaceId: string, jobId: number) {
+    const logPrefix = `[xero-import-ai:${jobId}]`;
+    
+    // Import the AI matching module dynamically to avoid circular dependencies
+    const { importXeroCustomers } = await import("../lib/xero-import");
+
+    // Update job to running
+    await storage.updateXeroImportJob(jobId, workspaceId, {
+      status: "running",
+      startedAt: new Date(),
+    });
+
+    try {
+      console.log(`${logPrefix} Starting AI-powered import...`);
+
+      // Create a storage adapter for xero-import.ts
+      const xeroStorage = {
+        getXeroConnection: async (wsId: string) => {
+          const conn = await storage.getXeroConnection(wsId);
+          if (!conn) return null;
+          return {
+            workspaceId: wsId,
+            tenantId: conn.tenantId,
+            accessToken: conn.accessToken,
+            refreshToken: conn.refreshToken,
+            tokenExpiresAt: conn.tokenExpiresAt,
+            isConnected: conn.isConnected ?? true,
+          };
+        },
+        updateXeroTokens: async (wsId: string, accessToken: string, refreshToken: string, expiresAt: Date) => {
+          await storage.updateXeroTokens(wsId, accessToken, refreshToken, expiresAt);
+        },
+      };
+
+      // Run the AI-powered import
+      const summary = await importXeroCustomers(workspaceId, xeroStorage);
+
+      // Update job with results
+      await storage.updateXeroImportJob(jobId, workspaceId, {
+        status: "completed",
+        totalRecords: summary.total,
+        processedRecords: summary.matched + summary.newPubs,
+        failedRecords: summary.errors,
+        completedAt: new Date(),
+        errorMessage: summary.errors > 0 
+          ? `${summary.errors} contacts failed to import. ${summary.needsReview} queued for review.`
+          : null,
+      });
+
+      // Update connection last import time
+      await storage.updateXeroConnection(workspaceId, {
+        lastImportAt: new Date(),
+      });
+
+      console.log(`${logPrefix} ✅ Import completed:`, {
+        matched: summary.matched,
+        newPubs: summary.newPubs,
+        needsReview: summary.needsReview,
+        skipped: summary.skipped,
+        errors: summary.errors,
+        total: summary.total,
+      });
+
+    } catch (error) {
+      console.error(`${logPrefix} ❌ Import failed:`, error);
+      
+      await storage.updateXeroImportJob(jobId, workspaceId, {
+        status: "failed",
+        errorMessage: error instanceof Error ? error.message : "Unknown error",
+        completedAt: new Date(),
+      });
+      
+      throw error;
+    }
+  }
+
   // Get import job status (for progress polling)
   router.get("/import/jobs/:jobId", async (req, res) => {
     try {

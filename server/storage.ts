@@ -78,7 +78,11 @@ import type {
   InsertXeroConnection,
   SelectXeroConnection,
   InsertXeroImportJob,
-  SelectXeroImportJob
+  SelectXeroImportJob,
+  InsertXeroWebhookEvent,
+  SelectXeroWebhookEvent,
+  InsertXeroSyncQueue,
+  SelectXeroSyncQueue
 } from "@shared/schema";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
@@ -122,7 +126,9 @@ import {
   crmTasks,
   brewContainerMovements,
   xeroConnections,
-  xeroImportJobs
+  xeroImportJobs,
+  xeroWebhookEvents,
+  xeroSyncQueue
 } from "@shared/schema";
 import { eq, or, and, desc, asc, lt, gt, lte, gte, isNull, sql } from "drizzle-orm";
 
@@ -513,6 +519,25 @@ export interface IStorage {
   // ============= CUSTOMER XERO LOOKUPS =============
   getCustomerByXeroContactId(xeroContactId: string, workspaceId: string): Promise<SelectCrmCustomer | null>;
   getCustomersWithoutXeroId(workspaceId: string): Promise<SelectCrmCustomer[]>;
+  
+  // ============= XERO WEBHOOK EVENTS METHODS =============
+  createWebhookEvent(event: InsertXeroWebhookEvent): Promise<SelectXeroWebhookEvent>;
+  getWebhookEvent(eventId: string): Promise<SelectXeroWebhookEvent | null>;
+  markWebhookProcessed(eventId: string, error?: string): Promise<void>;
+  getXeroConnectionByTenantId(tenantId: string): Promise<SelectXeroConnection | null>;
+  getAllActiveXeroConnections(): Promise<SelectXeroConnection[]>;
+  
+  // ============= XERO SYNC QUEUE METHODS =============
+  addToSyncQueue(item: { workspaceId: string; entityType: string; entityId: string; action: string }): Promise<SelectXeroSyncQueue>;
+  getPendingSyncItems(): Promise<SelectXeroSyncQueue[]>;
+  markSyncItemProcessed(id: number): Promise<void>;
+  incrementSyncRetry(id: number, error: string): Promise<void>;
+  getSyncQueue(workspaceId: string): Promise<SelectXeroSyncQueue[]>;
+  
+  // ============= SYNC STATUS UPDATES =============
+  updateOrderSyncStatus(orderId: string, workspaceId: string, status: 'synced' | 'pending' | 'failed', error?: string): Promise<void>;
+  updateCustomerSyncStatus(customerId: string, workspaceId: string, status: 'synced' | 'pending' | 'failed', error?: string): Promise<void>;
+  updateProductSyncStatus(productId: string, workspaceId: string, status: 'synced' | 'pending' | 'failed', error?: string): Promise<void>;
 }
 
 export class MemStorage implements IStorage {
@@ -1067,6 +1092,25 @@ export class MemStorage implements IStorage {
   // Customer Xero Lookups - stub methods
   async getCustomerByXeroContactId(xeroContactId: string, workspaceId: string): Promise<SelectCrmCustomer | null> { return null; }
   async getCustomersWithoutXeroId(workspaceId: string): Promise<SelectCrmCustomer[]> { return []; }
+  
+  // Xero Webhook Events - stub methods
+  async createWebhookEvent(event: InsertXeroWebhookEvent): Promise<SelectXeroWebhookEvent> { throw new Error("MemStorage: Xero operations not supported"); }
+  async getWebhookEvent(eventId: string): Promise<SelectXeroWebhookEvent | null> { return null; }
+  async markWebhookProcessed(eventId: string, error?: string): Promise<void> {}
+  async getXeroConnectionByTenantId(tenantId: string): Promise<SelectXeroConnection | null> { return null; }
+  async getAllActiveXeroConnections(): Promise<SelectXeroConnection[]> { return []; }
+  
+  // Xero Sync Queue - stub methods
+  async addToSyncQueue(item: { workspaceId: string; entityType: string; entityId: string; action: string }): Promise<SelectXeroSyncQueue> { throw new Error("MemStorage: Xero operations not supported"); }
+  async getPendingSyncItems(): Promise<SelectXeroSyncQueue[]> { return []; }
+  async markSyncItemProcessed(id: number): Promise<void> {}
+  async incrementSyncRetry(id: number, error: string): Promise<void> {}
+  async getSyncQueue(workspaceId: string): Promise<SelectXeroSyncQueue[]> { return []; }
+  
+  // Sync Status Updates - stub methods
+  async updateOrderSyncStatus(orderId: string, workspaceId: string, status: 'synced' | 'pending' | 'failed', error?: string): Promise<void> {}
+  async updateCustomerSyncStatus(customerId: string, workspaceId: string, status: 'synced' | 'pending' | 'failed', error?: string): Promise<void> {}
+  async updateProductSyncStatus(productId: string, workspaceId: string, status: 'synced' | 'pending' | 'failed', error?: string): Promise<void> {}
 }
 
 // Database connection validation and setup
@@ -1084,6 +1128,13 @@ const queryClient = postgres(process.env.DATABASE_URL, {
   max_lifetime: 60 * 30,
 });
 const db = drizzle(queryClient);
+
+/**
+ * Get the drizzle database instance for direct queries
+ */
+export function getDrizzleDb() {
+  return db;
+}
 
 export class DbStorage implements IStorage {
   // Job methods - keeping in-memory for now
@@ -3617,6 +3668,201 @@ export class DbStorage implements IStorage {
         and(
           eq(crmCustomers.workspaceId, workspaceId),
           isNull(crmCustomers.xeroContactId)
+        )
+      );
+  }
+
+  // ============================================
+  // XERO WEBHOOK EVENTS METHODS
+  // ============================================
+
+  async createWebhookEvent(event: InsertXeroWebhookEvent): Promise<SelectXeroWebhookEvent> {
+    const [created] = await db
+      .insert(xeroWebhookEvents)
+      .values(event)
+      .returning();
+    return created;
+  }
+
+  async getWebhookEvent(eventId: string): Promise<SelectXeroWebhookEvent | null> {
+    const [event] = await db
+      .select()
+      .from(xeroWebhookEvents)
+      .where(eq(xeroWebhookEvents.eventId, eventId));
+    return event || null;
+  }
+
+  async markWebhookProcessed(eventId: string, error?: string): Promise<void> {
+    await db
+      .update(xeroWebhookEvents)
+      .set({
+        processed: true,
+        processedAt: new Date(),
+        errorMessage: error || null,
+      })
+      .where(eq(xeroWebhookEvents.eventId, eventId));
+  }
+
+  async getXeroConnectionByTenantId(tenantId: string): Promise<SelectXeroConnection | null> {
+    const [connection] = await db
+      .select()
+      .from(xeroConnections)
+      .where(eq(xeroConnections.tenantId, tenantId));
+    return connection || null;
+  }
+
+  async getAllActiveXeroConnections(): Promise<SelectXeroConnection[]> {
+    return await db
+      .select()
+      .from(xeroConnections)
+      .where(eq(xeroConnections.isConnected, true));
+  }
+
+  // ============================================
+  // XERO SYNC QUEUE METHODS
+  // ============================================
+
+  async addToSyncQueue(item: {
+    workspaceId: string;
+    entityType: string;
+    entityId: string;
+    action: string;
+  }): Promise<SelectXeroSyncQueue> {
+    const [created] = await db
+      .insert(xeroSyncQueue)
+      .values({
+        ...item,
+        nextRetryAt: new Date(),
+      })
+      .returning();
+    return created;
+  }
+
+  async getPendingSyncItems(): Promise<SelectXeroSyncQueue[]> {
+    return await db
+      .select()
+      .from(xeroSyncQueue)
+      .where(
+        and(
+          isNull(xeroSyncQueue.processedAt),
+          or(
+            isNull(xeroSyncQueue.nextRetryAt),
+            lte(xeroSyncQueue.nextRetryAt, new Date())
+          ),
+          lt(xeroSyncQueue.retryCount, sql`${xeroSyncQueue.maxRetries}`)
+        )
+      )
+      .orderBy(asc(xeroSyncQueue.createdAt));
+  }
+
+  async markSyncItemProcessed(id: number): Promise<void> {
+    await db
+      .update(xeroSyncQueue)
+      .set({ processedAt: new Date() })
+      .where(eq(xeroSyncQueue.id, id));
+  }
+
+  async incrementSyncRetry(id: number, error: string): Promise<void> {
+    const [item] = await db
+      .select()
+      .from(xeroSyncQueue)
+      .where(eq(xeroSyncQueue.id, id));
+
+    if (!item) return;
+
+    const nextRetryAt = new Date();
+    nextRetryAt.setMinutes(nextRetryAt.getMinutes() + Math.pow(2, (item.retryCount || 0) + 1));
+
+    await db
+      .update(xeroSyncQueue)
+      .set({
+        retryCount: (item.retryCount || 0) + 1,
+        lastError: error,
+        nextRetryAt,
+      })
+      .where(eq(xeroSyncQueue.id, id));
+  }
+
+  async getSyncQueue(workspaceId: string): Promise<SelectXeroSyncQueue[]> {
+    return await db
+      .select()
+      .from(xeroSyncQueue)
+      .where(eq(xeroSyncQueue.workspaceId, workspaceId))
+      .orderBy(desc(xeroSyncQueue.createdAt));
+  }
+
+  // ============================================
+  // SYNC STATUS UPDATES
+  // ============================================
+
+  async updateOrderSyncStatus(
+    orderId: string,
+    workspaceId: string,
+    status: 'synced' | 'pending' | 'failed',
+    error?: string
+  ): Promise<void> {
+    const updates: any = {
+      syncStatus: status,
+      lastSyncError: error || null,
+    };
+    if (status === 'synced') {
+      updates.lastXeroSyncAt = new Date();
+    }
+    await db
+      .update(crmOrders)
+      .set(updates)
+      .where(
+        and(
+          eq(crmOrders.id, orderId),
+          eq(crmOrders.workspaceId, workspaceId)
+        )
+      );
+  }
+
+  async updateCustomerSyncStatus(
+    customerId: string,
+    workspaceId: string,
+    status: 'synced' | 'pending' | 'failed',
+    error?: string
+  ): Promise<void> {
+    const updates: any = {
+      xeroSyncStatus: status,
+      lastSyncError: error || null,
+    };
+    if (status === 'synced') {
+      updates.lastXeroSyncAt = new Date();
+    }
+    await db
+      .update(crmCustomers)
+      .set(updates)
+      .where(
+        and(
+          eq(crmCustomers.id, customerId),
+          eq(crmCustomers.workspaceId, workspaceId)
+        )
+      );
+  }
+
+  async updateProductSyncStatus(
+    productId: string,
+    workspaceId: string,
+    status: 'synced' | 'pending' | 'failed',
+    error?: string
+  ): Promise<void> {
+    const updates: any = {
+      syncStatus: status,
+      lastSyncError: error || null,
+    };
+    if (status === 'synced') {
+      updates.lastXeroSyncAt = new Date();
+    }
+    await db
+      .update(brewProducts)
+      .set(updates)
+      .where(
+        and(
+          eq(brewProducts.id, productId),
+          eq(brewProducts.workspaceId, workspaceId)
         )
       );
   }

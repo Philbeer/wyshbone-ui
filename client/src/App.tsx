@@ -53,6 +53,8 @@ import { AgentWorkspace } from "@/components/agent/AgentWorkspace";
 import ActivityPage from "@/pages/activity";
 import SettingsPage from "@/pages/settings";
 import CrmPreviewPage from "@/pages/crm-preview";
+import EventsPage from "@/pages/events";
+import EntityReviewPage from "@/pages/entity-review";
 import { LayoutToggle } from "@/components/LayoutToggle";
 
 // No demo runs - users only see their own data
@@ -111,6 +113,8 @@ function AgentFirstRouter({
       <Route path="/auth/crm" nest component={CrmLayout} />
       <Route path="/leads" component={LeadsPage} />
       <Route path="/nudges" component={NudgesPage} />
+      <Route path="/events" component={EventsPage} />
+      <Route path="/entity-review" component={EntityReviewPage} />
       
       {/* Other routes */}
       <Route path="/auth" component={AuthPage} />
@@ -164,6 +168,8 @@ function Router({
       <Route path="/auth/crm" nest component={CrmLayout} />
       <Route path="/leads" component={LeadsPage} />
       <Route path="/nudges" component={NudgesPage} />
+      <Route path="/events" component={EventsPage} />
+      <Route path="/entity-review" component={EntityReviewPage} />
       <Route path="/onboarding/brewery" component={BreweryOnboardingWizard} />
       <Route component={NotFound} />
     </Switch>

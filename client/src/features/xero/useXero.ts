@@ -273,3 +273,65 @@ export function useImportAllFromXero() {
   });
 }
 
+// ============================================
+// SYNC QUEUE (TWO-WAY SYNC)
+// ============================================
+
+export interface XeroSyncQueueItem {
+  id: number;
+  workspaceId: string;
+  entityType: string;
+  entityId: string;
+  action: string;
+  retryCount: number;
+  maxRetries: number;
+  lastError?: string | null;
+  nextRetryAt?: string | null;
+  createdAt: string;
+  processedAt?: string | null;
+}
+
+export function useXeroSyncQueue() {
+  const { user } = useUser();
+  
+  return useQuery<XeroSyncQueueItem[]>({
+    queryKey: ['xero-sync-queue', user.id],
+    queryFn: async () => {
+      const response = await apiRequest('GET', `/api/xero/sync/queue?workspaceId=${user.id}`);
+      return response.json();
+    },
+    enabled: !!user?.id,
+    refetchInterval: 10000, // Poll every 10 seconds
+  });
+}
+
+export function useForceXeroSync() {
+  const qc = useQueryClient();
+  const { toast } = useToast();
+  const { user } = useUser();
+  
+  return useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest('POST', '/api/xero/sync/force', {
+        body: JSON.stringify({ workspaceId: user.id }),
+        headers: { 'Content-Type': 'application/json' },
+      });
+      return response.json();
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['xero-sync-queue', user.id] });
+      toast({ 
+        title: 'Sync triggered', 
+        description: 'Processing sync queue...' 
+      });
+    },
+    onError: (error: Error) => {
+      toast({ 
+        title: 'Sync failed', 
+        description: error.message,
+        variant: 'destructive' 
+      });
+    },
+  });
+}
+

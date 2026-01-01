@@ -14,7 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Plus, Pencil, Trash2, Save, Check, X, FileOutput, ExternalLink } from "lucide-react";
+import { Plus, Pencil, Trash2, Save, Check, X, FileOutput, ExternalLink, Clock, AlertCircle, RefreshCw } from "lucide-react";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -436,9 +436,28 @@ export default function CrmOrders() {
                     </TableCell>
                     <TableCell>
                       {(order as any).xeroInvoiceId ? (
-                        <Badge variant="outline" className="text-green-600">
-                          <Check className="w-3 h-3 mr-1" />
-                          Exported
+                        <div className="flex items-center gap-1">
+                          <Badge variant="outline" className="text-green-600">
+                            <Check className="w-3 h-3 mr-1" />
+                            Synced
+                          </Badge>
+                          {/* Show sync status indicator */}
+                          {(order as any).syncStatus === 'pending' && (
+                            <Clock className="w-3 h-3 text-amber-500 animate-pulse" title="Syncing..." />
+                          )}
+                          {(order as any).syncStatus === 'failed' && (
+                            <AlertCircle className="w-3 h-3 text-red-500" title={(order as any).lastSyncError || "Sync failed"} />
+                          )}
+                        </div>
+                      ) : (order as any).syncStatus === 'pending' ? (
+                        <Badge variant="secondary" className="gap-1">
+                          <RefreshCw className="w-3 h-3 animate-spin" />
+                          Syncing...
+                        </Badge>
+                      ) : (order as any).syncStatus === 'failed' ? (
+                        <Badge variant="destructive" className="gap-1">
+                          <AlertCircle className="w-3 h-3" />
+                          Failed
                         </Badge>
                       ) : (
                         <Button

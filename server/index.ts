@@ -211,6 +211,24 @@ app.use((req, res, next) => {
     const { startMonitorWorker } = await import('./monitor-worker');
     startMonitorWorker();
     
+    // Start Xero sync cron jobs (if webhook key configured)
+    if (process.env.XERO_CLIENT_ID) {
+      const { startXeroSyncCron } = await import('./cron/xero-sync');
+      const { getXeroSyncFunctions } = await import('./routes/xero-sync');
+      const syncFunctions = getXeroSyncFunctions();
+      if (syncFunctions) {
+        startXeroSyncCron({
+          processSyncQueue: syncFunctions.processSyncQueue,
+          backupPollXero: syncFunctions.backupPollXero,
+        });
+      }
+    }
+    
+    // Start nightly database maintenance cron jobs
+    // Only runs in production or when ENABLE_CRON=true
+    const { setupCronJobs } = await import('./cron/nightly-maintenance');
+    setupCronJobs();
+    
     // Print region service documentation
     console.log('\n' + '='.repeat(80));
     console.log('📍 HYBRID REGION SERVICE - ISO-Safe Country Codes for Wyshbone Global Database');

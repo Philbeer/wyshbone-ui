@@ -759,6 +759,7 @@ export const crmCustomers = pgTable("crm_customers", {
   xeroContactId: varchar("xero_contact_id", { length: 100 }),
   lastXeroSyncAt: timestamp("last_xero_sync_at"),
   xeroSyncStatus: varchar("xero_sync_status", { length: 20 }).default("synced"), // 'synced', 'pending', 'error'
+  lastSyncError: text("last_sync_error"), // Error message from last failed sync
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
   updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
 }, (table) => ({
@@ -821,6 +822,8 @@ export const crmOrders = pgTable("crm_orders", {
   xeroInvoiceNumber: text("xero_invoice_number"), // Xero invoice number for display (e.g. INV-0001)
   xeroExportedAt: bigint("xero_exported_at", { mode: "number" }), // When exported to Xero
   lastXeroSyncAt: timestamp("last_xero_sync_at"), // Last sync timestamp
+  syncStatus: varchar("sync_status", { length: 20 }).default("synced"), // 'synced', 'pending', 'failed'
+  lastSyncError: text("last_sync_error"), // Error message from last failed sync
   notes: text("notes"),
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
   updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
@@ -1483,3 +1486,488 @@ export const insertXeroImportJobSchema = createInsertSchema(xeroImportJobs);
 export const selectXeroImportJobSchema = createSelectSchema(xeroImportJobs);
 export type InsertXeroImportJob = typeof xeroImportJobs.$inferInsert;
 export type SelectXeroImportJob = typeof xeroImportJobs.$inferSelect;
+
+// ============================================
+// XERO WEBHOOK EVENTS TABLE
+// ============================================
+// Track incoming webhook events from Xero
+export const xeroWebhookEvents = pgTable("xero_webhook_events", {
+  id: serial("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull(),
+  eventId: varchar("event_id", { length: 100 }).unique().notNull(),
+  eventType: varchar("event_type", { length: 50 }).notNull(), // CREATE, UPDATE, DELETE
+  eventCategory: varchar("event_category", { length: 50 }).notNull(), // INVOICE, CONTACT, ITEM
+  resourceId: varchar("resource_id", { length: 100 }).notNull(),
+  tenantId: varchar("tenant_id", { length: 100 }).notNull(),
+  eventDate: timestamp("event_date").notNull(),
+  processed: boolean("processed").default(false),
+  processedAt: timestamp("processed_at"),
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  workspaceIdIdx: index("xero_webhook_events_workspace_idx").on(table.workspaceId),
+  processedIdx: index("xero_webhook_events_processed_idx").on(table.processed),
+  eventIdIdx: index("xero_webhook_events_event_id_idx").on(table.eventId),
+}));
+
+export const insertXeroWebhookEventSchema = createInsertSchema(xeroWebhookEvents);
+export const selectXeroWebhookEventSchema = createSelectSchema(xeroWebhookEvents);
+export type InsertXeroWebhookEvent = typeof xeroWebhookEvents.$inferInsert;
+export type SelectXeroWebhookEvent = typeof xeroWebhookEvents.$inferSelect;
+
+// ============================================
+// XERO SYNC QUEUE TABLE
+// ============================================
+// Queue for retrying failed syncs to Xero
+export const xeroSyncQueue = pgTable("xero_sync_queue", {
+  id: serial("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull(),
+  entityType: varchar("entity_type", { length: 50 }).notNull(), // order, customer, product
+  entityId: text("entity_id").notNull(),
+  action: varchar("action", { length: 50 }).notNull(), // create, update, void
+  retryCount: integer("retry_count").default(0),
+  maxRetries: integer("max_retries").default(3),
+  lastError: text("last_error"),
+  nextRetryAt: timestamp("next_retry_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  processedAt: timestamp("processed_at"),
+}, (table) => ({
+  workspaceIdIdx: index("xero_sync_queue_workspace_idx").on(table.workspaceId),
+  nextRetryAtIdx: index("xero_sync_queue_next_retry_idx").on(table.nextRetryAt),
+  entityIdx: index("xero_sync_queue_entity_idx").on(table.entityType, table.entityId),
+}));
+
+export const insertXeroSyncQueueSchema = createInsertSchema(xeroSyncQueue);
+export const selectXeroSyncQueueSchema = createSelectSchema(xeroSyncQueue);
+export type InsertXeroSyncQueue = typeof xeroSyncQueue.$inferInsert;
+export type SelectXeroSyncQueue = typeof xeroSyncQueue.$inferSelect;
+
+// ============================================
+// AI ENTITY RESOLUTION SYSTEM
+// ============================================
+
+// ============================================
+// PUBS_MASTER TABLE
+// ============================================
+// Golden record for each pub entity. Combines and deduplicates data from
+// multiple sources (spreadsheets, Xero, Google Places, manual entry) into
+// a single authoritative record per pub.
+export const pubsMaster = pgTable("pubs_master", {
+  id: serial("id").primaryKey(),
+  workspaceId: integer("workspace_id").notNull(),
+  
+  // Core identity
+  name: varchar("name", { length: 255 }).notNull(),
+  
+  // Address fields
+  addressLine1: varchar("address_line_1", { length: 255 }),
+  addressLine2: varchar("address_line_2", { length: 255 }),
+  city: varchar("city", { length: 100 }),
+  postcode: varchar("postcode", { length: 20 }),
+  phone: varchar("phone", { length: 50 }),
+  email: varchar("email", { length: 255 }),
+  country: varchar("country", { length: 100 }).default("GB"),
+  
+  // Geolocation
+  latitude: numeric("latitude", { precision: 10, scale: 8 }),
+  longitude: numeric("longitude", { precision: 11, scale: 8 }),
+  
+  // Pub attributes
+  isFreehouse: boolean("is_freehouse"),
+  pubCompany: varchar("pub_company", { length: 255 }),
+  
+  // Customer status
+  isCustomer: boolean("is_customer").default(false),
+  isClosed: boolean("is_closed").default(false),
+  
+  // CRM fields
+  lastContactedAt: timestamp("last_contacted_at"),
+  lastOrderAt: timestamp("last_order_at"),
+  totalOrders: integer("total_orders").default(0),
+  customerSince: date("customer_since"),
+  
+  // Lead scoring
+  leadScore: integer("lead_score"),
+  leadPriority: varchar("lead_priority", { length: 50 }),
+  
+  // Data quality
+  dataQualityScore: real("data_quality_score"),
+  lastVerifiedAt: timestamp("last_verified_at"),
+  
+  // Discovery tracking
+  discoveredBy: varchar("discovered_by", { length: 50 }),
+  discoveredAt: timestamp("discovered_at"),
+  
+  // Full-text search (stored as text, actual tsvector handled by DB)
+  searchVector: text("search_vector"),
+  
+  // Timestamps
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  postcodeIdx: index("idx_pubs_postcode").on(table.postcode),
+  customerIdx: index("idx_pubs_customer").on(table.isCustomer),
+  freehouseIdx: index("idx_pubs_freehouse").on(table.isFreehouse),
+  verifiedIdx: index("idx_pubs_verified").on(table.lastVerifiedAt),
+  workspaceIdx: index("idx_pubs_workspace").on(table.workspaceId),
+}));
+
+export const insertPubsMasterSchema = createInsertSchema(pubsMaster);
+export const selectPubsMasterSchema = createSelectSchema(pubsMaster);
+export type InsertPubsMaster = typeof pubsMaster.$inferInsert;
+export type SelectPubsMaster = typeof pubsMaster.$inferSelect;
+
+// ============================================
+// ENTITY_SOURCES TABLE
+// ============================================
+// Links master pub records to their source data. Each row represents one
+// data source that contributed to a pub record, with confidence scores
+// and AI reasoning for non-obvious matches.
+export const entitySources = pgTable("entity_sources", {
+  id: serial("id").primaryKey(),
+  pubId: integer("pub_id").notNull().references(() => pubsMaster.id, { onDelete: "cascade" }),
+  workspaceId: integer("workspace_id").notNull(),
+  
+  // Source identification
+  sourceType: varchar("source_type", { length: 50 }).notNull(), // 'spreadsheet', 'xero', 'google_places', 'manual'
+  sourceId: varchar("source_id", { length: 255 }),
+  sourceData: jsonb("source_data").notNull(),
+  
+  // Match quality
+  confidence: real("confidence").notNull().default(1.0),
+  matchedAt: timestamp("matched_at").defaultNow(),
+  matchedBy: varchar("matched_by", { length: 50 }),
+  matchedReasoning: text("matched_reasoning"),
+  
+  // Timestamps
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  pubIdx: index("idx_entity_sources_pub").on(table.pubId),
+  lookupIdx: index("idx_entity_sources_lookup").on(table.sourceType, table.sourceId),
+  workspaceIdx: index("idx_entity_sources_workspace").on(table.workspaceId),
+}));
+
+export const insertEntitySourceSchema = createInsertSchema(entitySources);
+export const selectEntitySourceSchema = createSelectSchema(entitySources);
+export type InsertEntitySource = typeof entitySources.$inferInsert;
+export type SelectEntitySource = typeof entitySources.$inferSelect;
+
+// ============================================
+// XERO_ORDERS TABLE (Entity Resolution System)
+// ============================================
+// Historical orders imported from Xero, linked to master pub records.
+// Enables unified order history regardless of how the customer was originally created.
+export const xeroOrdersEntity = pgTable("xero_orders", {
+  id: serial("id").primaryKey(),
+  pubId: integer("pub_id").notNull().references(() => pubsMaster.id, { onDelete: "cascade" }),
+  
+  // Xero identifiers
+  xeroInvoiceId: varchar("xero_invoice_id", { length: 255 }).unique().notNull(),
+  xeroInvoiceNumber: varchar("xero_invoice_number", { length: 100 }),
+  
+  // Order details
+  orderDate: date("order_date").notNull(),
+  dueDate: date("due_date"),
+  totalAmount: numeric("total_amount", { precision: 10, scale: 2 }),
+  paidAmount: numeric("paid_amount", { precision: 10, scale: 2 }),
+  status: varchar("status", { length: 50 }),
+  
+  // Timestamps
+  createdAt: timestamp("created_at").defaultNow(),
+  syncedAt: timestamp("synced_at").defaultNow(),
+}, (table) => ({
+  pubIdx: index("idx_xero_orders_pub").on(table.pubId),
+  dateIdx: index("idx_xero_orders_date").on(table.orderDate),
+}));
+
+export const insertXeroOrderEntitySchema = createInsertSchema(xeroOrdersEntity);
+export const selectXeroOrderEntitySchema = createSelectSchema(xeroOrdersEntity);
+export type InsertXeroOrderEntity = typeof xeroOrdersEntity.$inferInsert;
+export type SelectXeroOrderEntity = typeof xeroOrdersEntity.$inferSelect;
+
+// ============================================
+// THINGS TABLE
+// ============================================
+// Events, festivals, markets, and opportunities discovered by the AI agent.
+// "Things" that are happening which represent potential sales opportunities.
+// Can be linked to a pub (pub_event) or exist at standalone venues.
+export const things = pgTable("things", {
+  id: serial("id").primaryKey(),
+  workspaceId: integer("workspace_id").notNull(),
+  
+  // Classification
+  thingType: varchar("thing_type", { length: 50 }).notNull(),
+  name: varchar("name", { length: 255 }).notNull(),
+  description: text("description"),
+  
+  // Timing
+  startDate: date("start_date"),
+  endDate: date("end_date"),
+  isRecurring: boolean("is_recurring").default(false),
+  recurrencePattern: varchar("recurrence_pattern", { length: 100 }),
+  nextOccurrence: date("next_occurrence"),
+  
+  // Location: Either linked to a pub OR standalone
+  outletId: integer("outlet_id").references(() => pubsMaster.id, { onDelete: "set null" }),
+  standaloneLocation: varchar("standalone_location", { length: 255 }),
+  standaloneAddress: text("standalone_address"),
+  standalonePostcode: varchar("standalone_postcode", { length: 20 }),
+  latitude: numeric("latitude", { precision: 10, scale: 8 }),
+  longitude: numeric("longitude", { precision: 11, scale: 8 }),
+  
+  // Contact & Details
+  url: varchar("url", { length: 500 }),
+  contactEmail: varchar("contact_email", { length: 255 }),
+  contactPhone: varchar("contact_phone", { length: 50 }),
+  ticketPrice: numeric("ticket_price", { precision: 10, scale: 2 }),
+  expectedAttendance: integer("expected_attendance"),
+  organizer: varchar("organizer", { length: 255 }),
+  
+  // Status
+  status: varchar("status", { length: 50 }).default("upcoming"),
+  
+  // User engagement tracking
+  userInterested: boolean("user_interested").default(false),
+  userAttended: boolean("user_attended").default(false),
+  userNotes: text("user_notes"),
+  userRating: integer("user_rating"),
+  
+  // Discovery metadata
+  discoveredBy: varchar("discovered_by", { length: 50 }),
+  discoveredAt: timestamp("discovered_at"),
+  sourceUrl: varchar("source_url", { length: 500 }),
+  
+  // AI scoring
+  relevanceScore: real("relevance_score"),
+  leadPotentialScore: real("lead_potential_score"),
+  
+  // Data quality
+  lastVerifiedAt: timestamp("last_verified_at"),
+  
+  // Timestamps
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  workspaceIdx: index("idx_things_workspace").on(table.workspaceId),
+  outletIdx: index("idx_things_outlet").on(table.outletId),
+  datesIdx: index("idx_things_dates").on(table.startDate, table.endDate),
+  typeIdx: index("idx_things_type").on(table.thingType),
+  statusIdx: index("idx_things_status").on(table.status),
+  relevanceIdx: index("idx_things_relevance").on(table.relevanceScore),
+}));
+
+export const insertThingSchema = createInsertSchema(things);
+export const selectThingSchema = createSelectSchema(things);
+export type InsertThing = typeof things.$inferInsert;
+export type SelectThing = typeof things.$inferSelect;
+
+// ============================================
+// AGENT_INTELLIGENCE TABLE
+// ============================================
+// Learned insights and patterns that the AI agent discovers while analyzing
+// brewery data. Creates institutional memory that improves recommendations
+// and predictions over time.
+export const agentIntelligence = pgTable("agent_intelligence", {
+  id: serial("id").primaryKey(),
+  workspaceId: integer("workspace_id").notNull(),
+  
+  // What entity this intelligence relates to
+  entityType: varchar("entity_type", { length: 50 }).notNull(),
+  entityId: integer("entity_id"),
+  
+  // Intelligence classification
+  intelligenceType: varchar("intelligence_type", { length: 50 }).notNull(),
+  
+  // The actual insight
+  observation: text("observation").notNull(),
+  data: jsonb("data"),
+  
+  // Confidence and provenance
+  confidence: real("confidence").notNull(),
+  source: varchar("source", { length: 100 }),
+  evidence: text("evidence"),
+  sampleSize: integer("sample_size"),
+  
+  // Usage tracking
+  lastUsedAt: timestamp("last_used_at"),
+  useCount: integer("use_count").default(0),
+  
+  // Timestamps
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+  expiresAt: timestamp("expires_at"),
+}, (table) => ({
+  workspaceIdx: index("idx_intelligence_workspace").on(table.workspaceId),
+  entityIdx: index("idx_intelligence_entity").on(table.entityType, table.entityId),
+  typeIdx: index("idx_intelligence_type").on(table.intelligenceType),
+  confidenceIdx: index("idx_intelligence_confidence").on(table.confidence),
+  expiresIdx: index("idx_intelligence_expires").on(table.expiresAt),
+}));
+
+export const insertAgentIntelligenceSchema = createInsertSchema(agentIntelligence);
+export const selectAgentIntelligenceSchema = createSelectSchema(agentIntelligence);
+export type InsertAgentIntelligence = typeof agentIntelligence.$inferInsert;
+export type SelectAgentIntelligence = typeof agentIntelligence.$inferSelect;
+
+// ============================================
+// AI_RESEARCH_QUEUE TABLE
+// ============================================
+// Background job queue for AI research tasks. Jobs are picked up by workers
+// to enrich pub data, verify addresses, check trading status, find contact details, etc.
+export const aiResearchQueue = pgTable("ai_research_queue", {
+  id: serial("id").primaryKey(),
+  pubId: integer("pub_id").notNull().references(() => pubsMaster.id, { onDelete: "cascade" }),
+  workspaceId: integer("workspace_id").notNull(),
+  
+  // Task details
+  researchType: varchar("research_type", { length: 50 }).notNull(),
+  priority: integer("priority").default(5),
+  
+  // Status tracking
+  status: varchar("status", { length: 50 }).default("pending"),
+  attempts: integer("attempts").default(0),
+  maxAttempts: integer("max_attempts").default(3),
+  lastAttemptAt: timestamp("last_attempt_at"),
+  errorMessage: text("error_message"),
+  
+  // Results
+  result: jsonb("result"),
+  
+  // Timestamps
+  createdAt: timestamp("created_at").defaultNow(),
+  completedAt: timestamp("completed_at"),
+}, (table) => ({
+  statusIdx: index("idx_research_queue_status").on(table.status, table.priority),
+  pubIdx: index("idx_research_queue_pub").on(table.pubId),
+  workspaceIdx: index("idx_research_queue_workspace").on(table.workspaceId),
+}));
+
+export const insertAiResearchQueueSchema = createInsertSchema(aiResearchQueue);
+export const selectAiResearchQueueSchema = createSelectSchema(aiResearchQueue);
+export type InsertAiResearchQueue = typeof aiResearchQueue.$inferInsert;
+export type SelectAiResearchQueue = typeof aiResearchQueue.$inferSelect;
+
+// ============================================
+// ENTITY_REVIEW_QUEUE TABLE
+// ============================================
+// Human review queue for uncertain entity matches. When the AI finds a possible
+// duplicate but confidence is below threshold, it queues the match for human review.
+export const entityReviewQueue = pgTable("entity_review_queue", {
+  id: serial("id").primaryKey(),
+  workspaceId: integer("workspace_id").notNull(),
+  
+  // The incoming data that needs resolution
+  newPubData: jsonb("new_pub_data").notNull(),
+  sourceType: varchar("source_type", { length: 50 }).notNull(),
+  sourceId: varchar("source_id", { length: 255 }),
+  
+  // Possible match (if AI found one)
+  possibleMatchPubId: integer("possible_match_pub_id").references(() => pubsMaster.id, { onDelete: "cascade" }),
+  confidence: real("confidence").notNull(),
+  reasoning: text("reasoning"),
+  
+  // Review status
+  status: varchar("status", { length: 50 }).default("pending"),
+  reviewedBy: integer("reviewed_by"),
+  reviewedAt: timestamp("reviewed_at"),
+  reviewDecision: varchar("review_decision", { length: 50 }),
+  
+  // Timestamps
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  statusIdx: index("idx_review_queue_status").on(table.status),
+  workspaceIdx: index("idx_review_queue_workspace").on(table.workspaceId),
+  matchIdx: index("idx_review_queue_match").on(table.possibleMatchPubId),
+}));
+
+export const insertEntityReviewQueueSchema = createInsertSchema(entityReviewQueue);
+export const selectEntityReviewQueueSchema = createSelectSchema(entityReviewQueue);
+export type InsertEntityReviewQueue = typeof entityReviewQueue.$inferInsert;
+export type SelectEntityReviewQueue = typeof entityReviewQueue.$inferSelect;
+
+// ============================================
+// SEARCH_LOG TABLE
+// ============================================
+// Logs all pub discovery searches for analytics and audit. Tracks coverage
+// of different areas, search efficiency, and helps identify gaps in the database.
+export const searchLog = pgTable("search_log", {
+  id: serial("id").primaryKey(),
+  workspaceId: integer("workspace_id").notNull(),
+  
+  // Search details
+  searchDate: date("search_date").notNull(),
+  searchType: varchar("search_type", { length: 50 }),
+  searchArea: varchar("search_area", { length: 100 }),
+  searchTerm: varchar("search_term", { length: 255 }),
+  
+  // Results summary
+  resultsReturned: integer("results_returned"),
+  newPubsAdded: integer("new_pubs_added"),
+  existingPubsFound: integer("existing_pubs_found"),
+  duplicatesSkipped: integer("duplicates_skipped"),
+  
+  // Timestamps
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  workspaceIdx: index("idx_search_log_workspace").on(table.workspaceId, table.searchDate),
+  areaIdx: index("idx_search_log_area").on(table.searchArea),
+}));
+
+export const insertSearchLogSchema = createInsertSchema(searchLog);
+export const selectSearchLogSchema = createSelectSchema(searchLog);
+export type InsertSearchLog = typeof searchLog.$inferInsert;
+export type SelectSearchLog = typeof searchLog.$inferSelect;
+
+// ============================================
+// RELATIONS
+// ============================================
+import { relations } from "drizzle-orm";
+
+// PubsMaster relations
+export const pubsMasterRelations = relations(pubsMaster, ({ many }) => ({
+  entitySources: many(entitySources),
+  xeroOrders: many(xeroOrdersEntity),
+  things: many(things),
+  researchQueue: many(aiResearchQueue),
+  reviewQueue: many(entityReviewQueue),
+}));
+
+// EntitySources relations
+export const entitySourcesRelations = relations(entitySources, ({ one }) => ({
+  pub: one(pubsMaster, {
+    fields: [entitySources.pubId],
+    references: [pubsMaster.id],
+  }),
+}));
+
+// XeroOrdersEntity relations
+export const xeroOrdersEntityRelations = relations(xeroOrdersEntity, ({ one }) => ({
+  pub: one(pubsMaster, {
+    fields: [xeroOrdersEntity.pubId],
+    references: [pubsMaster.id],
+  }),
+}));
+
+// Things relations
+export const thingsRelations = relations(things, ({ one }) => ({
+  outlet: one(pubsMaster, {
+    fields: [things.outletId],
+    references: [pubsMaster.id],
+  }),
+}));
+
+// AiResearchQueue relations
+export const aiResearchQueueRelations = relations(aiResearchQueue, ({ one }) => ({
+  pub: one(pubsMaster, {
+    fields: [aiResearchQueue.pubId],
+    references: [pubsMaster.id],
+  }),
+}));
+
+// EntityReviewQueue relations
+export const entityReviewQueueRelations = relations(entityReviewQueue, ({ one }) => ({
+  possibleMatch: one(pubsMaster, {
+    fields: [entityReviewQueue.possibleMatchPubId],
+    references: [pubsMaster.id],
+  }),
+}));
