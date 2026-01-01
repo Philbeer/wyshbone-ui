@@ -79,6 +79,22 @@ async function getAuthenticatedUserId(
 // ROUTER
 // ============================================
 
+/**
+ * Parse workspace ID from string, handling UUID user IDs gracefully.
+ * In dev mode, defaults to 1 if the ID is a UUID.
+ */
+function parseWorkspaceId(idString: string | undefined, fallbackUserId?: string): number {
+  let id = parseInt(idString || "");
+  if (isNaN(id) && fallbackUserId) {
+    id = parseInt(fallbackUserId);
+  }
+  if (isNaN(id)) {
+    // For development: default to workspace 1 if user ID is a UUID
+    id = process.env.NODE_ENV === "development" ? 1 : 0;
+  }
+  return id;
+}
+
 export function createThingsRouter(storage: IStorage): Router {
   const router = Router();
 
@@ -101,7 +117,7 @@ export function createThingsRouter(storage: IStorage): Router {
         });
       }
 
-      const workspaceId = parseInt(req.query.workspaceId as string) || parseInt(auth.userId);
+      const workspaceId = parseWorkspaceId(req.query.workspaceId as string, auth.userId);
       const limit = Math.min(parseInt(req.query.limit as string) || 20, 100);
 
       const db = getDrizzleDb();
@@ -179,7 +195,7 @@ export function createThingsRouter(storage: IStorage): Router {
       }
 
       const db = getDrizzleDb();
-      const workspaceId = parseInt(auth.userId);
+      const workspaceId = parseWorkspaceId(undefined, auth.userId);
 
       // Fetch all events for this outlet
       const outletThings = await db
@@ -240,7 +256,7 @@ export function createThingsRouter(storage: IStorage): Router {
       }
 
       const db = getDrizzleDb();
-      const workspaceId = parseInt(auth.userId);
+      const workspaceId = parseWorkspaceId(undefined, auth.userId);
 
       // Update the thing
       const updated = await db
@@ -311,7 +327,7 @@ export function createThingsRouter(storage: IStorage): Router {
       }
 
       const db = getDrizzleDb();
-      const workspaceId = parseInt(auth.userId);
+      const workspaceId = parseWorkspaceId(undefined, auth.userId);
 
       // Update the thing
       const updated = await db
@@ -383,7 +399,7 @@ export function createThingsRouter(storage: IStorage): Router {
       }
 
       const db = getDrizzleDb();
-      const workspaceId = parseInt(auth.userId);
+      const workspaceId = parseWorkspaceId(undefined, auth.userId);
 
       // Update the thing
       const updated = await db
@@ -446,7 +462,7 @@ export function createThingsRouter(storage: IStorage): Router {
       }
 
       const db = getDrizzleDb();
-      const workspaceId = parseInt(auth.userId);
+      const workspaceId = parseWorkspaceId(undefined, auth.userId);
 
       // Fetch the thing with outlet data
       const result = await db

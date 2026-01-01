@@ -78,6 +78,22 @@ async function getAuthenticatedUserId(
 // ROUTER
 // ============================================
 
+/**
+ * Parse workspace ID from string, handling UUID user IDs gracefully.
+ * In dev mode, defaults to 1 if the ID is a UUID.
+ */
+function parseWorkspaceId(idString: string | undefined, fallbackUserId?: string): number {
+  let id = parseInt(idString || "");
+  if (isNaN(id) && fallbackUserId) {
+    id = parseInt(fallbackUserId);
+  }
+  if (isNaN(id)) {
+    // For development: default to workspace 1 if user ID is a UUID
+    id = process.env.NODE_ENV === "development" ? 1 : 0;
+  }
+  return id;
+}
+
 export function createEntityReviewRouter(storage: IStorage): Router {
   const router = Router();
 
@@ -103,7 +119,7 @@ export function createEntityReviewRouter(storage: IStorage): Router {
         });
       }
 
-      const workspaceId = parseInt(req.query.workspaceId as string) || parseInt(auth.userId);
+      const workspaceId = parseWorkspaceId(req.query.workspaceId as string, auth.userId);
       const sourceType = req.query.sourceType as string | undefined;
       const status = (req.query.status as string) || "pending";
       const minConfidence = req.query.minConfidence ? parseFloat(req.query.minConfidence as string) : undefined;
@@ -198,7 +214,7 @@ export function createEntityReviewRouter(storage: IStorage): Router {
         });
       }
 
-      const workspaceId = parseInt(req.query.workspaceId as string) || parseInt(auth.userId);
+      const workspaceId = parseWorkspaceId(req.query.workspaceId as string, auth.userId);
       const db = getDrizzleDb();
 
       // Get counts by status
@@ -289,7 +305,7 @@ export function createEntityReviewRouter(storage: IStorage): Router {
       }
 
       const db = getDrizzleDb();
-      const workspaceId = parseInt(auth.userId);
+      const workspaceId = parseWorkspaceId(undefined, auth.userId);
 
       // Get the review
       const [review] = await db
@@ -376,7 +392,7 @@ export function createEntityReviewRouter(storage: IStorage): Router {
         .update(entityReviewQueue)
         .set({
           status: "resolved",
-          reviewedBy: parseInt(auth.userId),
+          reviewedBy: workspaceId, // Use parsed workspace ID
           reviewedAt: new Date(),
           reviewDecision: decision,
         })
@@ -425,7 +441,7 @@ export function createEntityReviewRouter(storage: IStorage): Router {
       }
 
       const db = getDrizzleDb();
-      const workspaceId = parseInt(auth.userId);
+      const workspaceId = parseWorkspaceId(undefined, auth.userId);
 
       // Get the review
       const [review] = await db
@@ -458,7 +474,7 @@ export function createEntityReviewRouter(storage: IStorage): Router {
         .update(entityReviewQueue)
         .set({
           status: "resolved",
-          reviewedBy: parseInt(auth.userId),
+          reviewedBy: workspaceId,
           reviewedAt: new Date(),
           reviewDecision: "rejected",
         })
@@ -503,7 +519,7 @@ export function createEntityReviewRouter(storage: IStorage): Router {
       }
 
       const db = getDrizzleDb();
-      const workspaceId = parseInt(auth.userId);
+      const workspaceId = parseWorkspaceId(undefined, auth.userId);
 
       // Fetch review with possible match data
       const [result] = await db
