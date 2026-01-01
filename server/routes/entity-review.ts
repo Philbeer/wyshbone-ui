@@ -349,8 +349,10 @@ export function createEntityReviewRouter(storage: IStorage): Router {
         // Add entity source linking this source to the existing pub
         await db.insert(entitySources).values({
           pubId: resultPubId,
+          workspaceId: workspaceId,
           sourceType: review.sourceType,
           sourceId: review.sourceId,
+          sourceData: newPubData, // Store the original source data
           confidence: review.confidence,
           matchedAt: new Date(),
           matchedBy: "manual_review",
@@ -378,8 +380,10 @@ export function createEntityReviewRouter(storage: IStorage): Router {
         // Add entity source
         await db.insert(entitySources).values({
           pubId: resultPubId,
+          workspaceId: workspaceId,
           sourceType: review.sourceType,
           sourceId: review.sourceId,
+          sourceData: newPubData, // Store the original source data
           confidence: 1.0, // Full confidence since manually verified
           matchedAt: new Date(),
           matchedBy: "manual_review",
