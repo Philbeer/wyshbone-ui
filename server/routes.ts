@@ -9096,6 +9096,60 @@ ${run.outputText}`;
     }
   });
   
+  // POST /api/crm/orders/:id/export-xero - Export order to Xero as invoice
+  app.post("/api/crm/orders/:id/export-xero", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { id } = req.params;
+      
+      // SECURITY: Verify order exists and belongs to authenticated user's workspace
+      const order = await storage.getCrmOrder(id);
+      if (!order) {
+        return res.status(404).json({ error: "Order not found" });
+      }
+      if (order.workspaceId !== auth.userId) {
+        console.warn(`🚫 User ${auth.userEmail} attempted to export order ${id} owned by workspace ${order.workspaceId}`);
+        return res.status(403).json({ error: "Forbidden: Cannot export other workspaces' data" });
+      }
+      
+      // Check if order already has a Xero invoice
+      if (order.xeroInvoiceId) {
+        return res.json({ 
+          success: true, 
+          message: "Order already exported to Xero",
+          invoiceId: order.xeroInvoiceId,
+          invoiceNumber: order.xeroInvoiceNumber
+        });
+      }
+      
+      // Check if Xero sync function is available
+      if (!(xeroSyncRouter as any).syncOrderToXero) {
+        return res.status(503).json({ error: "Xero sync not available" });
+      }
+      
+      // Export to Xero
+      console.log(`📤 Exporting order ${id} to Xero...`);
+      await (xeroSyncRouter as any).syncOrderToXero(id, order.workspaceId);
+      
+      // Refetch order to get the new Xero invoice details
+      const updatedOrder = await storage.getCrmOrder(id);
+      
+      res.json({ 
+        success: true, 
+        message: "Order exported to Xero",
+        invoiceId: updatedOrder?.xeroInvoiceId,
+        invoiceNumber: updatedOrder?.xeroInvoiceNumber
+      });
+    } catch (error: any) {
+      console.error("Error exporting order to Xero:", error);
+      res.status(500).json({ error: error.message || "Failed to export order to Xero" });
+    }
+  });
+
   // GET /api/crm/order-lines/:orderId - List order lines for an order
   app.get("/api/crm/order-lines/:orderId", async (req, res) => {
     try {
