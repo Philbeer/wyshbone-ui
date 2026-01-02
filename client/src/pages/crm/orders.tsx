@@ -115,23 +115,33 @@ export default function CrmOrders() {
   const [deletingOrderId, setDeletingOrderId] = useState<string | null>(null);
   const [localLineItems, setLocalLineItems] = useState<LocalLineItem[]>([]);
   const [exportingOrderId, setExportingOrderId] = useState<string | null>(null);
-  const [filterCustomerId, setFilterCustomerId] = useState<string | null>(null);
+  // Initialize filterCustomerId from URL on mount
+  const getCustomerIdFromUrl = () => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('customerId');
+  };
+  
+  const [filterCustomerId, setFilterCustomerId] = useState<string | null>(getCustomerIdFromUrl);
 
-  // Handle URL parameter for filtering by customer
+  // Handle URL parameter changes for filtering by customer
   useEffect(() => {
     // Try both wouter's searchString and window.location.search for reliability
     const searchToUse = searchString || window.location.search;
     const params = new URLSearchParams(searchToUse);
     const customerId = params.get('customerId');
     
+    console.log('[Orders] URL customerId:', customerId, 'current filter:', filterCustomerId);
+    
     // Set or clear the filter based on URL
-    if (customerId) {
+    if (customerId && customerId !== filterCustomerId) {
+      console.log('[Orders] Setting filter to:', customerId);
       setFilterCustomerId(customerId);
-    } else if (filterCustomerId && !customerId) {
+    } else if (!customerId && filterCustomerId) {
       // Clear filter if customerId was removed from URL
+      console.log('[Orders] Clearing filter');
       setFilterCustomerId(null);
     }
-  }, [searchString]);
+  }, [searchString, filterCustomerId]);
 
   const { data: allOrders = [], isLoading } = useQuery<SelectCrmOrder[]>({
     queryKey: ['/api/crm/orders', workspaceId],
@@ -140,8 +150,17 @@ export default function CrmOrders() {
 
   // Filter orders by customer if filter is active
   const orders = useMemo(() => {
-    if (!filterCustomerId) return allOrders;
-    return allOrders.filter(order => order.customerId === filterCustomerId);
+    if (!filterCustomerId) {
+      console.log('[Orders] No filter, showing all', allOrders.length, 'orders');
+      return allOrders;
+    }
+    const filtered = allOrders.filter(order => order.customerId === filterCustomerId);
+    console.log('[Orders] Filtering by', filterCustomerId, '- found', filtered.length, 'of', allOrders.length, 'orders');
+    // Debug: show what customerIds we have
+    if (filtered.length === 0 && allOrders.length > 0) {
+      console.log('[Orders] Available customerIds:', [...new Set(allOrders.map(o => o.customerId))]);
+    }
+    return filtered;
   }, [allOrders, filterCustomerId]);
 
   const { data: customers = [] } = useQuery<SelectCrmCustomer[]>({

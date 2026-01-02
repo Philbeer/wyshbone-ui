@@ -35,13 +35,15 @@ export default function CrmLayout() {
   const [location] = useLocation();
   const { user } = useUser();
   
-  const isBrewCrm = location.startsWith("/brew");
+  // Strip query params for path matching
+  const locationPath = location.split('?')[0];
+  const isBrewCrm = locationPath.startsWith("/brew");
   
   // Helper to check if a path is active (for highlighting)
   const isActive = (path: string) => {
-    if (path === "/" && !isBrewCrm) return location === "/";
-    if (path === "/brew") return location === "/brew";
-    return location === path;
+    if (path === "/" && !isBrewCrm) return locationPath === "/";
+    if (path === "/brew") return locationPath === "/brew";
+    return locationPath === path || locationPath.startsWith(path + "/");
   };
   
   return (
@@ -169,7 +171,7 @@ export default function CrmLayout() {
                 Duty Reports
               </Link>
             </Button>
-            <Button variant={location.startsWith("/brew/price-books") ? "default" : "ghost"} size="sm" asChild>
+            <Button variant={locationPath.startsWith("/brew/price-books") ? "default" : "ghost"} size="sm" asChild>
               <Link href="/brew/price-books" data-testid="link-brewcrm-price-books">
                 <DollarSign className="w-4 h-4 mr-2" />
                 Price Books
