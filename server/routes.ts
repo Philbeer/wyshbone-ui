@@ -9051,8 +9051,9 @@ ${run.outputText}`;
       });
       
       // Auto-sync update to Xero if connected (async, don't block response)
+      // NOTE: Use auth.userId (UUID string) for Xero connection lookup, not existing.workspaceId
       if ((xeroSyncRouter as any).updateOrderInXero) {
-        (xeroSyncRouter as any).updateOrderInXero(id, existing.workspaceId).catch((error: any) => {
+        (xeroSyncRouter as any).updateOrderInXero(id, auth.userId).catch((error: any) => {
           console.error(`Auto-sync order update ${id} to Xero failed:`, error.message);
         });
       }
@@ -9136,8 +9137,9 @@ ${run.outputText}`;
       }
       
       // Export to Xero
-      console.log(`📤 Exporting order ${id} to Xero...`);
-      await (xeroSyncRouter as any).syncOrderToXero(id, order.workspaceId);
+      // NOTE: Use auth.userId (UUID string) for Xero connection lookup, not order.workspaceId (integer)
+      console.log(`📤 Exporting order ${id} to Xero (user: ${auth.userId})...`);
+      await (xeroSyncRouter as any).syncOrderToXero(id, auth.userId);
       
       // Refetch order to get the new Xero invoice details
       const updatedOrder = await storage.getCrmOrder(id);
