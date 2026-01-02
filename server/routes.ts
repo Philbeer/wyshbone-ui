@@ -9146,6 +9146,16 @@ ${run.outputText}`;
       });
     } catch (error: any) {
       console.error("Error exporting order to Xero:", error);
+      
+      // Handle specific Xero connection errors with appropriate status codes
+      if (error.message?.includes("Xero not connected") || error.message?.includes("token expired")) {
+        return res.status(400).json({ 
+          error: "Xero not connected", 
+          message: "Please connect your Xero account first in Integrations settings.",
+          requiresConnection: true
+        });
+      }
+      
       res.status(500).json({ error: error.message || "Failed to export order to Xero" });
     }
   });
