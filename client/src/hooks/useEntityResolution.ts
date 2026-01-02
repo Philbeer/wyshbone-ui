@@ -398,8 +398,16 @@ export function useApproveReview() {
     }) => {
       return apiRequest("POST", `/api/entity-review/${reviewId}/approve`, { decision });
     },
-    onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/entity-review/queue"] });
+    onSuccess: async (_, variables) => {
+      // Force immediate refetch of review queue and stats
+      await queryClient.invalidateQueries({ 
+        queryKey: ["/api/entity-review/queue"],
+        refetchType: 'all',
+      });
+      await queryClient.invalidateQueries({ 
+        queryKey: ["/api/entity-review/stats"],
+        refetchType: 'all',
+      });
       queryClient.invalidateQueries({ queryKey: ["/api/pubs"] });
       
       toast({
@@ -430,8 +438,16 @@ export function useRejectReview() {
     mutationFn: async ({ reviewId }: { reviewId: number }) => {
       return apiRequest("POST", `/api/entity-review/${reviewId}/reject`);
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/entity-review/queue"] });
+    onSuccess: async () => {
+      // Force immediate refetch of review queue and stats
+      await queryClient.invalidateQueries({ 
+        queryKey: ["/api/entity-review/queue"],
+        refetchType: 'all',
+      });
+      await queryClient.invalidateQueries({ 
+        queryKey: ["/api/entity-review/stats"],
+        refetchType: 'all',
+      });
       
       toast({
         title: "Review Rejected",
