@@ -585,7 +585,11 @@ export function createXeroSyncRouter(storage: IStorage) {
    * Sync an order from Wyshbone to Xero
    */
   async function syncOrderToXero(orderId: string, workspaceId: string): Promise<void> {
-    console.log(`📤 Syncing order ${orderId} to Xero...`);
+    console.log(`📤 Syncing order ${orderId} to Xero (workspaceId: ${workspaceId})...`);
+
+    // Debug: Check Xero connection for this workspace
+    const debugConnection = await storage.getXeroConnection(workspaceId);
+    console.log(`   🔍 Xero connection lookup for '${workspaceId}':`, debugConnection ? `Found (connected: ${debugConnection.isConnected})` : 'NOT FOUND');
 
     const order = await storage.getCrmOrder(orderId, workspaceId);
     if (!order) throw new Error('Order not found');
