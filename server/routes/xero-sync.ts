@@ -676,7 +676,7 @@ export function createXeroSyncRouter(storage: IStorage) {
       }
 
       // Get order lines
-      const orderLines = await storage.getOrderLinesForOrder(orderId, workspaceId);
+      const orderLines = await storage.listCrmOrderLinesByOrder(orderId);
 
       // Map to Xero format
       const xeroInvoice = {
@@ -736,7 +736,7 @@ export function createXeroSyncRouter(storage: IStorage) {
 
       const { client: xero, tenantId } = xeroData;
 
-      const orderLines = await storage.getOrderLinesForOrder(orderId, workspaceId);
+      const orderLines = await storage.listCrmOrderLinesByOrder(orderId);
 
       const xeroInvoice = {
         invoiceID: order.xeroInvoiceId,
