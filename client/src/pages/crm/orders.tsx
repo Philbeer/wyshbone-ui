@@ -15,7 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Plus, Pencil, Trash2, Save, Check, X, FileOutput, ExternalLink, Clock, AlertCircle, RefreshCw, User } from "lucide-react";
+import { Plus, Pencil, Trash2, Save, Check, X, FileOutput, ExternalLink, Clock, AlertCircle, RefreshCw, User, ArrowUpDown, ArrowUp, ArrowDown, Filter } from "lucide-react";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -120,6 +120,12 @@ export default function CrmOrders() {
     const params = new URLSearchParams(window.location.search);
     return params.get('customerId');
   });
+  
+  // Sort state
+  type SortField = 'orderNumber' | 'customer' | 'orderDate' | 'status' | 'subtotalExVat' | 'totalIncVat';
+  type SortDirection = 'asc' | 'desc';
+  const [sortField, setSortField] = useState<SortField>('orderDate');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
 
   // Sync filterCustomerId with URL changes
   useEffect(() => {
@@ -136,13 +142,75 @@ export default function CrmOrders() {
     enabled: !!workspaceId,
   });
 
-  // Filter orders by customer if filter is active
+  // Helper to get customer name for sorting
+  const getCustomerNameForSort = useCallback((customerId: string) => {
+    const customer = customers.find((c) => c.id === customerId);
+    return customer?.name?.toLowerCase() || '';
+  }, [customers]);
+
+  // Filter and sort orders
   const orders = useMemo(() => {
-    if (!filterCustomerId) {
-      return allOrders;
+    let filtered = allOrders;
+    
+    // Apply customer filter
+    if (filterCustomerId) {
+      filtered = filtered.filter(order => order.customerId === filterCustomerId);
     }
-    return allOrders.filter(order => order.customerId === filterCustomerId);
-  }, [allOrders, filterCustomerId]);
+    
+    // Apply sorting
+    const sorted = [...filtered].sort((a, b) => {
+      let comparison = 0;
+      
+      switch (sortField) {
+        case 'orderNumber':
+          comparison = (a.orderNumber || '').localeCompare(b.orderNumber || '');
+          break;
+        case 'customer':
+          comparison = getCustomerNameForSort(a.customerId).localeCompare(getCustomerNameForSort(b.customerId));
+          break;
+        case 'orderDate':
+          comparison = (a.orderDate || 0) - (b.orderDate || 0);
+          break;
+        case 'status':
+          comparison = (a.status || '').localeCompare(b.status || '');
+          break;
+        case 'subtotalExVat':
+          comparison = (a.subtotalExVat || 0) - (b.subtotalExVat || 0);
+          break;
+        case 'totalIncVat':
+          comparison = (a.totalIncVat || 0) - (b.totalIncVat || 0);
+          break;
+        default:
+          comparison = 0;
+      }
+      
+      return sortDirection === 'asc' ? comparison : -comparison;
+    });
+    
+    return sorted;
+  }, [allOrders, filterCustomerId, sortField, sortDirection, getCustomerNameForSort]);
+
+  // Handle column header click for sorting
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      // Toggle direction if same field
+      setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+    } else {
+      // New field, default to descending for dates/amounts, ascending for text
+      setSortField(field);
+      setSortDirection(['orderDate', 'subtotalExVat', 'totalIncVat'].includes(field) ? 'desc' : 'asc');
+    }
+  };
+
+  // Sort indicator component
+  const SortIndicator = ({ field }: { field: SortField }) => {
+    if (sortField !== field) {
+      return <ArrowUpDown className="ml-1 h-3 w-3 opacity-50" />;
+    }
+    return sortDirection === 'asc' 
+      ? <ArrowUp className="ml-1 h-3 w-3" />
+      : <ArrowDown className="ml-1 h-3 w-3" />;
+  };
 
   const { data: customers = [] } = useQuery<SelectCrmCustomer[]>({
     queryKey: ['/api/crm/customers', workspaceId],
@@ -417,27 +485,60 @@ export default function CrmOrders() {
         </div>
       )}
 
-      {filterCustomerId && (
-        <div className="mb-4 p-3 border rounded-md bg-blue-50 dark:bg-blue-950/30 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <User className="w-4 h-4 text-blue-600" />
-            <span className="text-sm">
-              Showing orders for: <strong>{getCustomerName(filterCustomerId)}</strong>
-            </span>
-          </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => {
-              setFilterCustomerId(null);
-              setLocation('/orders', { replace: true });
+      {/* Filter Bar */}
+      <div className="mb-4 flex items-center gap-4 flex-wrap">
+        <div className="flex items-center gap-2">
+          <Filter className="w-4 h-4 text-muted-foreground" />
+          <span className="text-sm font-medium">Filter by Customer:</span>
+          <Select
+            value={filterCustomerId || "all"}
+            onValueChange={(value) => {
+              if (value === "all") {
+                setFilterCustomerId(null);
+                setLocation('/orders', { replace: true });
+              } else {
+                setFilterCustomerId(value);
+                setLocation(`/orders?customerId=${value}`, { replace: true });
+              }
             }}
           >
-            <X className="w-4 h-4 mr-1" />
-            Clear Filter
-          </Button>
+            <SelectTrigger className="w-[200px]">
+              <SelectValue placeholder="All customers" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All customers</SelectItem>
+              {customers.map((customer) => (
+                <SelectItem key={customer.id} value={customer.id}>
+                  {customer.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
-      )}
+        
+        {filterCustomerId && (
+          <Badge variant="secondary" className="gap-1">
+            <User className="w-3 h-3" />
+            {getCustomerName(filterCustomerId)}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-4 w-4 p-0 ml-1 hover:bg-transparent"
+              onClick={() => {
+                setFilterCustomerId(null);
+                setLocation('/orders', { replace: true });
+              }}
+            >
+              <X className="h-3 w-3" />
+            </Button>
+          </Badge>
+        )}
+        
+        <div className="ml-auto text-sm text-muted-foreground">
+          {orders.length} order{orders.length !== 1 ? 's' : ''}
+          {filterCustomerId && ` (filtered)`}
+        </div>
+      </div>
 
       {isLoading ? (
         <div className="space-y-2">
@@ -450,13 +551,61 @@ export default function CrmOrders() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Order #</TableHead>
-                <TableHead>Customer</TableHead>
-                <TableHead>Order Date</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="text-right">Subtotal (ex VAT)</TableHead>
+                <TableHead 
+                  className="cursor-pointer hover:bg-muted/50 select-none"
+                  onClick={() => handleSort('orderNumber')}
+                >
+                  <div className="flex items-center">
+                    Order #
+                    <SortIndicator field="orderNumber" />
+                  </div>
+                </TableHead>
+                <TableHead 
+                  className="cursor-pointer hover:bg-muted/50 select-none"
+                  onClick={() => handleSort('customer')}
+                >
+                  <div className="flex items-center">
+                    Customer
+                    <SortIndicator field="customer" />
+                  </div>
+                </TableHead>
+                <TableHead 
+                  className="cursor-pointer hover:bg-muted/50 select-none"
+                  onClick={() => handleSort('orderDate')}
+                >
+                  <div className="flex items-center">
+                    Order Date
+                    <SortIndicator field="orderDate" />
+                  </div>
+                </TableHead>
+                <TableHead 
+                  className="cursor-pointer hover:bg-muted/50 select-none"
+                  onClick={() => handleSort('status')}
+                >
+                  <div className="flex items-center">
+                    Status
+                    <SortIndicator field="status" />
+                  </div>
+                </TableHead>
+                <TableHead 
+                  className="text-right cursor-pointer hover:bg-muted/50 select-none"
+                  onClick={() => handleSort('subtotalExVat')}
+                >
+                  <div className="flex items-center justify-end">
+                    Subtotal (ex VAT)
+                    <SortIndicator field="subtotalExVat" />
+                  </div>
+                </TableHead>
                 <TableHead className="text-right">VAT</TableHead>
-                <TableHead className="text-right">Total (inc VAT)</TableHead>
+                <TableHead 
+                  className="text-right cursor-pointer hover:bg-muted/50 select-none"
+                  onClick={() => handleSort('totalIncVat')}
+                >
+                  <div className="flex items-center justify-end">
+                    Total (inc VAT)
+                    <SortIndicator field="totalIncVat" />
+                  </div>
+                </TableHead>
                 <TableHead>Xero</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
@@ -466,19 +615,20 @@ export default function CrmOrders() {
                 <TableRow>
                   <TableCell colSpan={9} className="text-center text-muted-foreground py-8">
                     {filterCustomerId ? (
-                      <>
-                        No orders found for this customer.{" "}
+                      <div className="space-y-2">
+                        <p>No orders found for <strong>{getCustomerName(filterCustomerId)}</strong></p>
                         <Button 
-                          variant="link" 
-                          className="p-0 h-auto" 
+                          variant="outline" 
+                          size="sm"
                           onClick={() => {
                             setFilterCustomerId(null);
                             setLocation('/orders', { replace: true });
                           }}
                         >
-                          View all orders
+                          <X className="w-4 h-4 mr-1" />
+                          Clear filter to view all orders
                         </Button>
-                      </>
+                      </div>
                     ) : (
                       "No orders found. Create your first order to get started."
                     )}
