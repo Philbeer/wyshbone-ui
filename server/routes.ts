@@ -47,6 +47,7 @@ import { createSleeperAgentRouter } from "./routes/sleeper-agent";
 import { createThingsRouter } from "./routes/things";
 import { createEntityReviewRouter } from "./routes/entity-review";
 import { createDevToolsRouter } from "./routes/dev-tools";
+import { createDatabaseMaintenanceRouter } from "./routes/admin/database-maintenance";
 import { hashPassword, verifyPassword, generateId, canCreateMonitor, canCreateDeepResearch, TIER_LIMITS } from "./auth";
 import { signupRequestSchema, loginRequestSchema, updateProfileRequestSchema } from "@shared/schema";
 import { buildSessionContext, generatePersonalizedOpening, type SessionContext } from "./lib/context";
@@ -6862,6 +6863,9 @@ ${run.outputText}`;
   
   // Register Dev Tools routes (sleeper agent monitoring)
   app.use("/api/dev", createDevToolsRouter(storage));
+  
+  // Register Database Maintenance routes (admin only)
+  app.use("/api/admin/maintenance", createDatabaseMaintenanceRouter(storage));
 
   // ===========================
   // INTEGRATIONS (NANGO.DEV CRM/ACCOUNTING CONNECTIONS)

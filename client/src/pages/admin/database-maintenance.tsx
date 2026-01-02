@@ -20,6 +20,14 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Separator } from '@/components/ui/separator';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog';
+import {
   Database,
   Settings,
   Play,
@@ -36,7 +44,23 @@ import {
   Search,
   TrendingUp,
   Shield,
+  Loader2,
+  StopCircle,
+  XCircle,
+  User,
+  Home,
+  Link2,
 } from 'lucide-react';
+import {
+  useDatabaseUpdateJob,
+  formatDuration,
+  formatTime,
+  calculateRemaining,
+  calculateCostRemaining,
+  calculateProgressPercentage,
+  type JobState,
+  type JobSettings as JobSettingsType,
+} from '@/hooks/useDatabaseUpdateJob';
 import { authedFetch, apiRequest } from '@/lib/queryClient';
 import { useToast } from '@/hooks/use-toast';
 import { formatDistanceToNow } from 'date-fns';
@@ -194,32 +218,6 @@ function useSaveSettings() {
     onError: (error) => {
       toast({
         title: 'Failed to save settings',
-        description: error instanceof Error ? error.message : 'Unknown error',
-        variant: 'destructive',
-      });
-    },
-  });
-}
-
-function useRunMaintenance() {
-  const queryClient = useQueryClient();
-  const { toast } = useToast();
-
-  return useMutation({
-    mutationFn: async () => {
-      return apiRequest('POST', '/api/admin/maintenance/run-now');
-    },
-    onSuccess: async (response) => {
-      const data = await response.json();
-      toast({
-        title: 'Maintenance Started',
-        description: `Job ID: ${data.jobId || 'Started'}`,
-      });
-      queryClient.invalidateQueries({ queryKey: ['/api/admin/maintenance'] });
-    },
-    onError: (error) => {
-      toast({
-        title: 'Failed to start maintenance',
         description: error instanceof Error ? error.message : 'Unknown error',
         variant: 'destructive',
       });
@@ -709,6 +707,448 @@ function RecommendationsCard({ onApply }: RecommendationsCardProps) {
 }
 
 // ============================================
+// JOB DIALOGS AND PANELS
+// ============================================
+
+interface ConfirmStartDialogProps {
+  open: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+  settings: JobSettingsType | null;
+  costEstimate: { perPub: number; total: number; breakdown: { source: string; cost: number }[] } | null;
+  durationEstimate: { minutes: number; formatted: string } | null;
+  isLoading: boolean;
+  isStarting: boolean;
+}
+
+function ConfirmStartDialog({
+  open,
+  onCancel,
+  onConfirm,
+  settings,
+  costEstimate,
+  durationEstimate,
+  isLoading,
+  isStarting,
+}: ConfirmStartDialogProps) {
+  if (!settings) return null;
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onCancel()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <div className="flex items-center gap-2 mb-2">
+            <AlertTriangle className="h-6 w-6 text-amber-500" />
+            <DialogTitle>Confirm Manual Database Update</DialogTitle>
+          </div>
+          <DialogDescription>
+            Review the estimated costs before starting
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <div>
+            <p className="text-sm text-muted-foreground">This will process:</p>
+            <p className="text-2xl font-bold">{settings.pubsPerNight.toLocaleString()} pubs</p>
+          </div>
+
+          {isLoading ? (
+            <div className="flex items-center gap-2 py-4">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span className="text-sm">Calculating costs...</span>
+            </div>
+          ) : costEstimate && (
+            <div className="border-t pt-4">
+              <p className="text-sm font-medium mb-2">Estimated costs:</p>
+              <div className="space-y-1 text-sm">
+                {costEstimate.breakdown.map((item, i) => (
+                  <div key={i} className="flex justify-between">
+                    <span className="text-muted-foreground">{item.source}:</span>
+                    <span className="font-mono">£{item.cost.toFixed(2)}</span>
+                  </div>
+                ))}
+                <div className="flex justify-between font-bold border-t pt-2 mt-2">
+                  <span>Total:</span>
+                  <span className="font-mono">~£{costEstimate.total.toFixed(2)}</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {durationEstimate && (
+            <div className="bg-amber-50 dark:bg-amber-950/30 p-3 rounded-md">
+              <p className="text-sm text-amber-800 dark:text-amber-200">
+                <strong>Estimated time:</strong> {durationEstimate.formatted}
+              </p>
+              <p className="text-xs text-amber-700 dark:text-amber-300 mt-1">
+                ⚠️ API costs cannot be refunded once incurred
+              </p>
+            </div>
+          )}
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onCancel} disabled={isStarting}>
+            Cancel
+          </Button>
+          <Button onClick={onConfirm} disabled={isStarting || isLoading}>
+            {isStarting ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Starting...
+              </>
+            ) : (
+              <>
+                <CheckCircle className="h-4 w-4 mr-2" />
+                Confirm & Start
+              </>
+            )}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+interface ConfirmCancelDialogProps {
+  open: boolean;
+  onContinue: () => void;
+  onConfirm: () => void;
+  jobState: JobState | null;
+  isCancelling: boolean;
+}
+
+function ConfirmCancelDialog({
+  open,
+  onContinue,
+  onConfirm,
+  jobState,
+  isCancelling,
+}: ConfirmCancelDialogProps) {
+  if (!jobState) return null;
+
+  const progressPct = calculateProgressPercentage(jobState);
+  const remainingCost = calculateCostRemaining(jobState);
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onContinue()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <div className="flex items-center gap-2 mb-2">
+            <AlertTriangle className="h-6 w-6 text-red-500" />
+            <DialogTitle>Cancel Database Update?</DialogTitle>
+          </div>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <div className="bg-gray-50 dark:bg-gray-900 p-4 rounded-md space-y-2">
+            <div className="flex justify-between text-sm">
+              <span>Progress so far:</span>
+              <span className="font-medium">
+                {jobState.progress.currentPub} / {jobState.progress.totalPubs} ({progressPct}%)
+              </span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span>Cost incurred:</span>
+              <span className="font-mono font-medium">£{jobState.costs.incurred.toFixed(2)}</span>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <p className="text-sm font-medium">If you cancel:</p>
+            <ul className="text-sm space-y-1">
+              <li className="flex items-start gap-2">
+                <CheckCircle className="h-4 w-4 text-green-500 mt-0.5 shrink-0" />
+                <span>Current pub will finish processing</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <CheckCircle className="h-4 w-4 text-green-500 mt-0.5 shrink-0" />
+                <span>All progress will be saved</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <CheckCircle className="h-4 w-4 text-green-500 mt-0.5 shrink-0" />
+                <span>No new API calls will be made</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <CheckCircle className="h-4 w-4 text-green-500 mt-0.5 shrink-0" />
+                <span>You'll save ~£{remainingCost.toFixed(2)} in remaining costs</span>
+              </li>
+            </ul>
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onContinue} disabled={isCancelling}>
+            Continue Running
+          </Button>
+          <Button variant="destructive" onClick={onConfirm} disabled={isCancelling}>
+            {isCancelling ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Cancelling...
+              </>
+            ) : (
+              <>
+                <StopCircle className="h-4 w-4 mr-2" />
+                Cancel Job
+              </>
+            )}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+interface LiveProgressPanelProps {
+  jobState: JobState;
+  onRequestCancel: () => void;
+}
+
+function LiveProgressPanel({ jobState, onRequestCancel }: LiveProgressPanelProps) {
+  const progressPct = calculateProgressPercentage(jobState);
+  const elapsed = Date.now() - new Date(jobState.timing.startedAt).getTime();
+  const remaining = calculateRemaining(jobState);
+
+  return (
+    <Card className="border-blue-500 border-2">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Loader2 className="h-5 w-5 animate-spin text-blue-500" />
+          DATABASE UPDATE IN PROGRESS
+        </CardTitle>
+      </CardHeader>
+
+      <CardContent className="space-y-6">
+        {/* Progress Bar */}
+        <div>
+          <div className="flex justify-between text-sm mb-2">
+            <span>Progress: {jobState.progress.currentPub} / {jobState.progress.totalPubs} pubs</span>
+            <span className="font-mono">{progressPct}%</span>
+          </div>
+          <Progress value={progressPct} className="h-3" />
+        </div>
+
+        {/* Current Status */}
+        <div className="bg-gray-50 dark:bg-gray-900 p-4 rounded-md space-y-2">
+          <div className="flex justify-between text-sm">
+            <span className="text-muted-foreground">Status:</span>
+            <span className="font-medium truncate max-w-[200px]">{jobState.progress.currentPubName}</span>
+          </div>
+          <div className="flex justify-between text-sm">
+            <span className="text-muted-foreground">Started:</span>
+            <span className="font-mono">{formatTime(jobState.timing.startedAt)}</span>
+          </div>
+          <div className="flex justify-between text-sm">
+            <span className="text-muted-foreground">Elapsed:</span>
+            <span className="font-mono">{formatDuration(elapsed)}</span>
+          </div>
+          <div className="flex justify-between text-sm">
+            <span className="text-muted-foreground">Est. remaining:</span>
+            <span className="font-mono">{formatDuration(remaining)}</span>
+          </div>
+        </div>
+
+        {/* Results So Far */}
+        <div className="border-t pt-4">
+          <h4 className="font-medium text-sm mb-3">Results so far:</h4>
+          <div className="grid grid-cols-2 gap-3 text-sm">
+            <div className="flex items-center gap-2">
+              <CheckCircle className="h-4 w-4 text-green-500" />
+              <span>Updated: {jobState.results.updated}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Link2 className="h-4 w-4 text-blue-500" />
+              <span>New URLs: {jobState.results.newUrls}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <User className="h-4 w-4 text-purple-500" />
+              <span>Managers: {jobState.results.managersFound}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Home className="h-4 w-4 text-teal-500" />
+              <span>Freehouses: {jobState.results.freehousesDetected}</span>
+            </div>
+            {jobState.results.errors > 0 && (
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4 text-amber-500" />
+                <span>Errors: {jobState.results.errors}</span>
+              </div>
+            )}
+            {jobState.results.closedPubs > 0 && (
+              <div className="flex items-center gap-2">
+                <XCircle className="h-4 w-4 text-red-500" />
+                <span>Closed: {jobState.results.closedPubs}</span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Cost Counter */}
+        <div className="border-t pt-4">
+          <div className="flex justify-between items-center">
+            <span className="text-sm font-medium">💷 Cost incurred:</span>
+            <div className="text-right">
+              <span className="text-2xl font-bold font-mono">
+                £{jobState.costs.incurred.toFixed(2)}
+              </span>
+              <span className="text-sm text-muted-foreground ml-2">
+                / ~£{jobState.costs.estimated.toFixed(2)}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Cancel Button */}
+        <Button
+          variant="destructive"
+          className="w-full"
+          onClick={onRequestCancel}
+        >
+          <StopCircle className="h-4 w-4 mr-2" />
+          Cancel Job
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
+interface JobSummaryPanelProps {
+  jobState: JobState;
+  onClose: () => void;
+}
+
+function JobSummaryPanel({ jobState, onClose }: JobSummaryPanelProps) {
+  const progressPct = calculateProgressPercentage(jobState);
+  const duration = jobState.timing.completedAt
+    ? new Date(jobState.timing.completedAt).getTime() - new Date(jobState.timing.startedAt).getTime()
+    : 0;
+  const savedCost = jobState.costs.estimated - jobState.costs.incurred;
+
+  const isCancelled = jobState.status === 'cancelled';
+  const isFailed = jobState.status === 'failed';
+
+  return (
+    <Card className={isCancelled ? 'border-amber-500 border-2' : isFailed ? 'border-red-500 border-2' : 'border-green-500 border-2'}>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          {isCancelled ? (
+            <>
+              <StopCircle className="h-5 w-5 text-amber-500" />
+              JOB CANCELLED
+            </>
+          ) : isFailed ? (
+            <>
+              <XCircle className="h-5 w-5 text-red-500" />
+              JOB FAILED
+            </>
+          ) : (
+            <>
+              <CheckCircle className="h-5 w-5 text-green-500" />
+              JOB COMPLETED
+            </>
+          )}
+        </CardTitle>
+      </CardHeader>
+
+      <CardContent className="space-y-4">
+        {isFailed && jobState.errorMessage && (
+          <Alert variant="destructive">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertTitle>Error</AlertTitle>
+            <AlertDescription>{jobState.errorMessage}</AlertDescription>
+          </Alert>
+        )}
+
+        <div className="bg-gray-50 dark:bg-gray-900 p-4 rounded-md space-y-2">
+          <div className="flex justify-between text-sm">
+            <span>Completed:</span>
+            <span className="font-medium">
+              {jobState.progress.currentPub} / {jobState.progress.totalPubs} pubs ({progressPct}%)
+            </span>
+          </div>
+          <div className="flex justify-between text-sm">
+            <span>Duration:</span>
+            <span className="font-mono">{formatDuration(duration)}</span>
+          </div>
+        </div>
+
+        <div>
+          <h4 className="font-medium text-sm mb-3">Results:</h4>
+          <div className="space-y-2 text-sm">
+            <div className="flex justify-between">
+              <span>✓ Updated pubs:</span>
+              <span className="font-medium">{jobState.results.updated}</span>
+            </div>
+            <div className="flex justify-between">
+              <span>✓ New whatpub URLs:</span>
+              <span className="font-medium">{jobState.results.newUrls}</span>
+            </div>
+            <div className="flex justify-between">
+              <span>✓ Managers found:</span>
+              <span className="font-medium">{jobState.results.managersFound}</span>
+            </div>
+            <div className="flex justify-between">
+              <span>✓ Freehouses detected:</span>
+              <span className="font-medium">{jobState.results.freehousesDetected}</span>
+            </div>
+            {jobState.results.closedPubs > 0 && (
+              <div className="flex justify-between">
+                <span>🚫 Closed pubs:</span>
+                <span className="font-medium">{jobState.results.closedPubs}</span>
+              </div>
+            )}
+            {jobState.results.errors > 0 && (
+              <div className="flex justify-between text-amber-600">
+                <span>⚠️ Errors:</span>
+                <span className="font-medium">{jobState.results.errors}</span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="border-t pt-4">
+          <div className="flex justify-between items-center mb-2">
+            <span className="font-medium">💷 Total cost:</span>
+            <span className="text-2xl font-bold font-mono">
+              £{jobState.costs.incurred.toFixed(2)}
+            </span>
+          </div>
+          {isCancelled && savedCost > 0 && (
+            <div className="flex justify-between text-sm text-green-600">
+              <span>💰 Saved by cancelling:</span>
+              <span className="font-mono font-medium">
+                £{savedCost.toFixed(2)}
+              </span>
+            </div>
+          )}
+        </div>
+
+        {isCancelled && jobState.lastPubProcessed && (
+          <div className="bg-blue-50 dark:bg-blue-950/30 p-3 rounded-md text-sm">
+            <p className="font-medium text-blue-900 dark:text-blue-200 mb-1">Resume information:</p>
+            <p className="text-blue-700 dark:text-blue-300">
+              Last verified: "{jobState.lastPubProcessed}"
+              {jobState.nextPubToProcess && (
+                <>
+                  <br />
+                  Next run will continue from: "{jobState.nextPubToProcess}"
+                </>
+              )}
+            </p>
+          </div>
+        )}
+
+        <Button onClick={onClose} className="w-full">
+          <CheckCircle className="h-4 w-4 mr-2" />
+          Close
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ============================================
 // MAIN COMPONENT
 // ============================================
 
@@ -719,7 +1159,28 @@ export default function DatabaseMaintenance() {
   const { data: settings, isLoading: settingsLoading } = useMaintenanceSettings();
   const { data: stats, isLoading: statsLoading } = useDatabaseStats();
   const saveSettings = useSaveSettings();
-  const runMaintenance = useRunMaintenance();
+
+  // Job management hook
+  const {
+    jobState,
+    isRunning,
+    isFinished,
+    showConfirmStart,
+    showConfirmCancel,
+    pendingSettings,
+    costEstimate,
+    durationEstimate,
+    isEstimating,
+    requestStart,
+    confirmStart,
+    cancelStart,
+    requestCancel,
+    confirmCancel,
+    continueRunning,
+    closeJobSummary,
+    isStarting,
+    isCancelling,
+  } = useDatabaseUpdateJob();
 
   // Local state for editing
   const [localSettings, setLocalSettings] = useState<MaintenanceSettings | null>(null);
@@ -783,7 +1244,18 @@ export default function DatabaseMaintenance() {
   };
 
   const handleRunNow = () => {
-    runMaintenance.mutate();
+    if (!currentSettings) return;
+    
+    // Build job settings from current form settings
+    const jobSettings: JobSettingsType = {
+      pubsPerNight: currentSettings.pubsPerNight,
+      enableGoogle: currentSettings.dataSources.googlePlaces,
+      enableWhatpub: currentSettings.dataSources.whatpubAnalysis,
+      enableDeepResearch: currentSettings.dataSources.deepOwnership,
+    };
+    
+    // Show confirmation dialog
+    requestStart(jobSettings);
   };
 
   const handleApplyPreset = (preset: keyof typeof RECOMMENDED_SETTINGS) => {
@@ -830,6 +1302,26 @@ export default function DatabaseMaintenance() {
 
   return (
     <div className="p-6 space-y-6 overflow-y-auto h-full">
+      {/* Dialogs */}
+      <ConfirmStartDialog
+        open={showConfirmStart}
+        onCancel={cancelStart}
+        onConfirm={confirmStart}
+        settings={pendingSettings}
+        costEstimate={costEstimate}
+        durationEstimate={durationEstimate}
+        isLoading={isEstimating}
+        isStarting={isStarting}
+      />
+      
+      <ConfirmCancelDialog
+        open={showConfirmCancel}
+        onContinue={continueRunning}
+        onConfirm={confirmCancel}
+        jobState={jobState}
+        isCancelling={isCancelling}
+      />
+
       {/* Header */}
       <div className="flex items-start justify-between">
         <div>
@@ -845,6 +1337,7 @@ export default function DatabaseMaintenance() {
           <Switch
             checked={currentSettings?.enabled || false}
             onCheckedChange={(checked) => handleChange('enabled', checked)}
+            disabled={isRunning}
           />
           <span className="text-sm font-medium">
             {currentSettings?.enabled ? 'Enabled' : 'Disabled'}
@@ -852,73 +1345,93 @@ export default function DatabaseMaintenance() {
         </div>
       </div>
 
-      {/* Main Grid */}
-      <div className="grid gap-6 lg:grid-cols-2">
-        {/* Left Column */}
-        <div className="space-y-6">
-          <StatusCard settings={currentSettings} stats={stats} />
-          
-          <BatchSizeCard
-            pubsPerNight={currentSettings?.pubsPerNight || 2000}
-            schedule={currentSettings?.schedule || 'nightly'}
-            onChange={handleChange}
-          />
-          
-          <DataSourcesCard
-            dataSources={currentSettings?.dataSources || { googlePlaces: true, whatpubAnalysis: true, deepOwnership: false }}
-            onChange={handleDataSourcesChange}
-          />
-        </div>
+      {/* Show progress panel when job is running */}
+      {isRunning && jobState && (
+        <LiveProgressPanel
+          jobState={jobState}
+          onRequestCancel={requestCancel}
+        />
+      )}
 
-        {/* Right Column */}
-        <div className="space-y-6">
-          <CostCalculatorCard
-            pubsPerNight={currentSettings?.pubsPerNight || 2000}
-            dataSources={currentSettings?.dataSources || { googlePlaces: true, whatpubAnalysis: true, deepOwnership: false }}
-          />
-          
-          <RecommendationsCard onApply={handleApplyPreset} />
-          
-          <HowItWorksCard />
-        </div>
-      </div>
+      {/* Show summary when job is finished */}
+      {isFinished && jobState && (
+        <JobSummaryPanel
+          jobState={jobState}
+          onClose={closeJobSummary}
+        />
+      )}
 
-      {/* Action Buttons */}
-      <div className="flex items-center gap-4 pt-4 border-t">
-        <Button 
-          onClick={handleSave} 
-          disabled={!hasChanges || saveSettings.isPending}
-          className="gap-2"
-        >
-          <CheckCircle className="w-4 h-4" />
-          {saveSettings.isPending ? 'Saving...' : 'Save Settings'}
-        </Button>
-        
-        <Button 
-          variant="outline" 
-          onClick={handleRunNow}
-          disabled={runMaintenance.isPending}
-          className="gap-2"
-        >
-          <Play className="w-4 h-4" />
-          {runMaintenance.isPending ? 'Starting...' : 'Run Now (Test)'}
-        </Button>
-        
-        <Button 
-          variant="outline"
-          onClick={() => setLocation('/dev/sleeper-agent')}
-          className="gap-2"
-        >
-          <FileText className="w-4 h-4" />
-          View Logs
-        </Button>
+      {/* Main Grid - only show when not running and not showing summary */}
+      {!isRunning && !isFinished && (
+        <>
+          <div className="grid gap-6 lg:grid-cols-2">
+            {/* Left Column */}
+            <div className="space-y-6">
+              <StatusCard settings={currentSettings} stats={stats} />
+              
+              <BatchSizeCard
+                pubsPerNight={currentSettings?.pubsPerNight || 2000}
+                schedule={currentSettings?.schedule || 'nightly'}
+                onChange={handleChange}
+              />
+              
+              <DataSourcesCard
+                dataSources={currentSettings?.dataSources || { googlePlaces: true, whatpubAnalysis: true, deepOwnership: false }}
+                onChange={handleDataSourcesChange}
+              />
+            </div>
 
-        {hasChanges && (
-          <span className="text-sm text-amber-600 ml-auto">
-            You have unsaved changes
-          </span>
-        )}
-      </div>
+            {/* Right Column */}
+            <div className="space-y-6">
+              <CostCalculatorCard
+                pubsPerNight={currentSettings?.pubsPerNight || 2000}
+                dataSources={currentSettings?.dataSources || { googlePlaces: true, whatpubAnalysis: true, deepOwnership: false }}
+              />
+              
+              <RecommendationsCard onApply={handleApplyPreset} />
+              
+              <HowItWorksCard />
+            </div>
+          </div>
+
+          {/* Action Buttons */}
+          <div className="flex items-center gap-4 pt-4 border-t">
+            <Button 
+              onClick={handleSave} 
+              disabled={!hasChanges || saveSettings.isPending}
+              className="gap-2"
+            >
+              <CheckCircle className="w-4 h-4" />
+              {saveSettings.isPending ? 'Saving...' : 'Save Settings'}
+            </Button>
+            
+            <Button 
+              variant="outline" 
+              onClick={handleRunNow}
+              disabled={isRunning}
+              className="gap-2"
+            >
+              <Play className="w-4 h-4" />
+              Run Now (Test)
+            </Button>
+            
+            <Button 
+              variant="outline"
+              onClick={() => setLocation('/dev/sleeper-agent')}
+              className="gap-2"
+            >
+              <FileText className="w-4 h-4" />
+              View Logs
+            </Button>
+
+            {hasChanges && (
+              <span className="text-sm text-amber-600 ml-auto">
+                You have unsaved changes
+              </span>
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
 }
