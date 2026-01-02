@@ -155,13 +155,26 @@ export default function CrmOrders() {
       return allOrders;
     }
     const filtered = allOrders.filter(order => order.customerId === filterCustomerId);
-    console.log('[Orders] Filtering by', filterCustomerId, '- found', filtered.length, 'of', allOrders.length, 'orders');
-    // Debug: show what customerIds we have
-    if (filtered.length === 0 && allOrders.length > 0) {
-      console.log('[Orders] Available customerIds:', [...new Set(allOrders.map(o => o.customerId))]);
+    console.log('[Orders] Filtering by customerId:', filterCustomerId);
+    console.log('[Orders] Found', filtered.length, 'of', allOrders.length, 'orders');
+    
+    // Debug: show what customerIds we have in orders vs what we're filtering for
+    if (allOrders.length > 0) {
+      const uniqueCustomerIds = [...new Set(allOrders.map(o => o.customerId))];
+      console.log('[Orders] Available customerIds in orders:', uniqueCustomerIds);
+      console.log('[Orders] Looking for customer:', customers.find(c => c.id === filterCustomerId)?.name || 'NOT FOUND');
+      
+      // Check if the customer exists and what their orders look like
+      const matchingCustomer = customers.find(c => c.id === filterCustomerId);
+      if (matchingCustomer) {
+        console.log('[Orders] Customer found:', matchingCustomer.name, 'ID:', matchingCustomer.id);
+        // Check if any order's customerId matches
+        const customerOrders = allOrders.filter(o => o.customerId === matchingCustomer.id);
+        console.log('[Orders] Orders with matching customerId:', customerOrders.length);
+      }
     }
     return filtered;
-  }, [allOrders, filterCustomerId]);
+  }, [allOrders, filterCustomerId, customers]);
 
   const { data: customers = [] } = useQuery<SelectCrmCustomer[]>({
     queryKey: ['/api/crm/customers', workspaceId],
