@@ -86,6 +86,31 @@ const COSTS = {
   deepOwnership: 0.045,
 };
 
+// Recommended settings presets
+const RECOMMENDED_SETTINGS = {
+  startup: {
+    pubsPerNight: 2000,
+    sources: ['google', 'whatpub'] as const,
+    schedule: 'nightly' as const,
+    cost: '£54/night',
+    reason: 'Get database current quickly (44 days)',
+  },
+  maintenance: {
+    pubsPerNight: 1000,
+    sources: ['google', 'whatpub'] as const,
+    schedule: 'nightly' as const,
+    cost: '£27/night',
+    reason: 'Balance of freshness and cost (88 days)',
+  },
+  budget: {
+    pubsPerNight: 500,
+    sources: ['google'] as const,
+    schedule: 'nightly' as const,
+    cost: '£9.50/night',
+    reason: 'Minimal cost, basics only (176 days)',
+  },
+};
+
 // ============================================
 // HOOKS
 // ============================================
@@ -586,37 +611,47 @@ function HowItWorksCard() {
   );
 }
 
-function RecommendationsCard() {
+interface RecommendationsCardProps {
+  onApply: (preset: keyof typeof RECOMMENDED_SETTINGS) => void;
+}
+
+function RecommendationsCard({ onApply }: RecommendationsCardProps) {
   const recommendations = [
     {
-      title: 'Balanced Option',
+      key: 'startup' as const,
+      title: '🚀 Startup Mode',
+      icon: Zap,
+      color: 'text-orange-500',
+      bg: 'bg-orange-50 dark:bg-orange-950/30',
+      border: 'border-orange-200 dark:border-orange-800',
+      details: `${RECOMMENDED_SETTINGS.startup.pubsPerNight} pubs/night with Google + whatpub`,
+      cost: RECOMMENDED_SETTINGS.startup.cost,
+      cycle: RECOMMENDED_SETTINGS.startup.reason,
+      note: 'Best for initial database population',
+    },
+    {
+      key: 'maintenance' as const,
+      title: '✅ Maintenance Mode',
       icon: CheckCircle,
       color: 'text-green-500',
       bg: 'bg-green-50 dark:bg-green-950/30',
-      details: '1000 pubs/night with Google + whatpub',
-      cost: '£27/night = £810/month',
-      cycle: '88-day cycle (quarterly refresh)',
-      note: 'Good balance of freshness vs cost',
+      border: 'border-green-200 dark:border-green-800',
+      details: `${RECOMMENDED_SETTINGS.maintenance.pubsPerNight} pubs/night with Google + whatpub`,
+      cost: RECOMMENDED_SETTINGS.maintenance.cost,
+      cycle: RECOMMENDED_SETTINGS.maintenance.reason,
+      note: 'Recommended for ongoing use',
     },
     {
-      title: 'Budget Option',
+      key: 'budget' as const,
+      title: '💷 Budget Mode',
       icon: DollarSign,
       color: 'text-blue-500',
       bg: 'bg-blue-50 dark:bg-blue-950/30',
-      details: '500 pubs/night, Google only',
-      cost: '£9.50/night = £285/month',
-      cycle: '176-day cycle (semi-annual refresh)',
-      note: null,
-    },
-    {
-      title: 'Premium Option',
-      icon: Zap,
-      color: 'text-purple-500',
-      bg: 'bg-purple-50 dark:bg-purple-950/30',
-      details: '2000 pubs/night, all sources',
-      cost: '£54/night = £1,620/month',
-      cycle: '44-day cycle (monthly refresh)',
-      note: null,
+      border: 'border-blue-200 dark:border-blue-800',
+      details: `${RECOMMENDED_SETTINGS.budget.pubsPerNight} pubs/night, Google only`,
+      cost: RECOMMENDED_SETTINGS.budget.cost,
+      cycle: RECOMMENDED_SETTINGS.budget.reason,
+      note: 'Minimal cost, slower refresh',
     },
   ];
 
@@ -625,24 +660,34 @@ function RecommendationsCard() {
       <CardHeader className="pb-3">
         <CardTitle className="flex items-center gap-2">
           <Shield className="w-5 h-5" />
-          Recommended Settings
+          Quick Presets
         </CardTitle>
-        <CardDescription>For your use case</CardDescription>
+        <CardDescription>Click to apply recommended settings</CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4">
-        {recommendations.map((rec, index) => {
+      <CardContent className="space-y-3">
+        {recommendations.map((rec) => {
           const Icon = rec.icon;
           return (
-            <div key={index} className={`p-4 rounded-lg ${rec.bg}`}>
-              <div className="flex items-center gap-2 mb-2">
-                <Icon className={`w-5 h-5 ${rec.color}`} />
-                <span className="font-medium">{rec.title}</span>
+            <button
+              key={rec.key}
+              onClick={() => onApply(rec.key)}
+              className={`w-full text-left p-4 rounded-lg border-2 ${rec.bg} ${rec.border} hover:scale-[1.02] transition-transform cursor-pointer`}
+            >
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <Icon className={`w-5 h-5 ${rec.color}`} />
+                  <span className="font-medium">{rec.title}</span>
+                </div>
+                <Badge variant="outline" className="text-xs">
+                  {rec.cost}
+                </Badge>
               </div>
-              <p className="text-sm mb-1">{rec.details}</p>
-              <p className="text-sm text-muted-foreground">• Cost: {rec.cost}</p>
-              <p className="text-sm text-muted-foreground">• {rec.cycle}</p>
-              {rec.note && <p className="text-sm text-muted-foreground mt-1 italic">{rec.note}</p>}
-            </div>
+              <p className="text-sm text-muted-foreground">{rec.details}</p>
+              <p className="text-xs text-muted-foreground mt-1">→ {rec.cycle}</p>
+              {rec.note && (
+                <p className="text-xs mt-2 italic opacity-75">{rec.note}</p>
+              )}
+            </button>
           );
         })}
       </CardContent>
@@ -728,6 +773,29 @@ export default function DatabaseMaintenance() {
     runMaintenance.mutate();
   };
 
+  const handleApplyPreset = (preset: keyof typeof RECOMMENDED_SETTINGS) => {
+    const presetSettings = RECOMMENDED_SETTINGS[preset];
+    
+    const newDataSources = {
+      googlePlaces: presetSettings.sources.includes('google'),
+      whatpubAnalysis: presetSettings.sources.includes('whatpub'),
+      deepOwnership: false, // Never auto-enable deep research
+    };
+
+    setLocalSettings({
+      ...localSettings!,
+      pubsPerNight: presetSettings.pubsPerNight,
+      schedule: presetSettings.schedule,
+      dataSources: newDataSources,
+    });
+    setHasChanges(true);
+
+    toast({
+      title: `Applied ${preset.charAt(0).toUpperCase() + preset.slice(1)} Preset`,
+      description: `Settings updated to ${presetSettings.pubsPerNight} pubs/night. Click "Save Settings" to apply.`,
+    });
+  };
+
   const isLoading = settingsLoading || statsLoading;
   const currentSettings = localSettings || settings;
 
@@ -796,7 +864,7 @@ export default function DatabaseMaintenance() {
             dataSources={currentSettings?.dataSources || { googlePlaces: true, whatpubAnalysis: true, deepOwnership: false }}
           />
           
-          <RecommendationsCard />
+          <RecommendationsCard onApply={handleApplyPreset} />
           
           <HowItWorksCard />
         </div>
