@@ -24,6 +24,7 @@ import {
   type SelectSupplier,
   type InsertSupplierPurchase,
 } from "@shared/schema";
+import { logActivity, logXeroSync } from "./activity-log";
 import {
   findMatchingEntityCached,
   sourceExists,
@@ -434,6 +435,25 @@ export async function importXeroCustomers(
       errors: summary.errors,
       total: summary.total,
     });
+
+    // Log activity for visibility in UI
+    if (summary.total > 0) {
+      await logXeroSync(
+        workspaceIdNum,
+        `Synced ${summary.total} customers from Xero`,
+        {
+          matched: summary.matched,
+          newPubs: summary.newPubs,
+          needsReview: summary.needsReview,
+          skipped: summary.skipped,
+          errors: summary.errors,
+          total: summary.total,
+        },
+        summary.newPubs > 0 
+          ? `${summary.newPubs} new pubs created, ${summary.needsReview} need review`
+          : `${summary.matched} matched to existing records`
+      );
+    }
 
     return summary;
 
@@ -1002,6 +1022,26 @@ export async function importXeroSuppliers(
       total: summary.total,
     });
 
+    // Log activity for visibility in UI
+    if (summary.total > 0) {
+      await logActivity({
+        workspaceId: workspaceIdNum,
+        activityType: 'supplier_sync',
+        category: 'sync',
+        title: `Synced ${summary.total} suppliers from Xero`,
+        description: summary.created > 0 
+          ? `${summary.created} new suppliers added`
+          : `${summary.matched} matched to existing records`,
+        metadata: {
+          matched: summary.matched,
+          created: summary.created,
+          skipped: summary.skipped,
+          errors: summary.errors,
+          total: summary.total,
+        }
+      });
+    }
+
     return summary;
 
   } catch (error) {
@@ -1492,6 +1532,27 @@ export async function importXeroBills(
       errors: summary.errors,
       productsTracked: summary.productsTracked,
     });
+
+    // Log activity for visibility in UI
+    if (summary.total > 0) {
+      await logActivity({
+        workspaceId: workspaceIdNum,
+        activityType: 'xero_sync',
+        category: 'sync',
+        title: `Imported ${summary.imported} bills from Xero`,
+        description: summary.productsTracked > 0 
+          ? `Tracked pricing for ${summary.productsTracked} products`
+          : undefined,
+        metadata: {
+          total: summary.total,
+          imported: summary.imported,
+          updated: summary.updated,
+          skipped: summary.skipped,
+          errors: summary.errors,
+          productsTracked: summary.productsTracked,
+        }
+      });
+    }
 
     return summary;
 

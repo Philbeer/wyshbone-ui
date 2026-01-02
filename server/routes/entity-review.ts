@@ -13,6 +13,7 @@ import { eq, and, gte, lte, desc, sql } from "drizzle-orm";
 import { getDrizzleDb } from "../storage";
 import { entityReviewQueue, pubsMaster, entitySources } from "@shared/schema";
 import type { IStorage } from "../storage";
+import { logEntityMatch, logUserAction } from "../lib/activity-log";
 
 // ============================================
 // HELPER FUNCTIONS
@@ -402,6 +403,27 @@ export function createEntityReviewRouter(storage: IStorage): Router {
         })
         .where(eq(entityReviewQueue.id, reviewId));
 
+      // Log activity for visibility in UI
+      if (decision === "match") {
+        await logEntityMatch(
+          workspaceId,
+          `Matched "${newPubData.name}" to existing pub`,
+          'pub',
+          resultPubId!.toString(),
+          review.confidence,
+          { reviewId, decision, sourceType: review.sourceType }
+        );
+      } else {
+        await logUserAction(
+          workspaceId,
+          auth.userId,
+          `Created new pub "${newPubData.name}"`,
+          'pub',
+          resultPubId!.toString(),
+          { reviewId, decision, sourceType: review.sourceType }
+        );
+      }
+
       res.json({ 
         success: true, 
         decision,
@@ -483,6 +505,17 @@ export function createEntityReviewRouter(storage: IStorage): Router {
           reviewDecision: "rejected",
         })
         .where(eq(entityReviewQueue.id, reviewId));
+
+      // Log activity for visibility in UI
+      const newPubData = review.newPubData as { name?: string } | null;
+      await logUserAction(
+        workspaceId,
+        auth.userId,
+        `Rejected match for "${newPubData?.name || 'Unknown'}"`,
+        'pub',
+        undefined,
+        { reviewId, decision: 'rejected', sourceType: review.sourceType }
+      );
 
       res.json({ 
         success: true, 

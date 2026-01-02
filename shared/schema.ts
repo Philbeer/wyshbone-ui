@@ -2054,6 +2054,41 @@ export type InsertSearchLog = typeof searchLog.$inferInsert;
 export type SelectSearchLog = typeof searchLog.$inferSelect;
 
 // ============================================
+// ACTIVITY LOG - Local system activity tracking
+// ============================================
+export const activityLog = pgTable("activity_log", {
+  id: serial("id").primaryKey(),
+  workspaceId: integer("workspace_id").references(() => workspaces.id).notNull(),
+  
+  // Activity details
+  activityType: text("activity_type").notNull(), // database_update, xero_sync, ai_discovery, entity_match, event_found, price_alert
+  category: text("category").notNull(), // system, ai, sync, user
+  title: text("title").notNull(), // "Found 12 new pubs"
+  description: text("description"), // More details
+  
+  // Context
+  entityType: text("entity_type"), // pub, customer, order, supplier, event
+  entityId: text("entity_id"),
+  metadata: jsonb("metadata"), // Flexible data
+  
+  // User (if user-triggered)
+  userId: text("user_id"),
+  
+  // Timestamps
+  createdAt: timestamp("created_at").defaultNow().notNull()
+}, (table) => ({
+  workspaceIdx: index("idx_activity_log_workspace").on(table.workspaceId),
+  activityTypeIdx: index("idx_activity_log_type").on(table.activityType),
+  createdAtIdx: index("idx_activity_log_created").on(table.createdAt),
+  categoryIdx: index("idx_activity_log_category").on(table.category),
+}));
+
+export const insertActivityLogSchema = createInsertSchema(activityLog);
+export const selectActivityLogSchema = createSelectSchema(activityLog);
+export type InsertActivityLog = typeof activityLog.$inferInsert;
+export type SelectActivityLog = typeof activityLog.$inferSelect;
+
+// ============================================
 // RELATIONS
 // ============================================
 import { relations } from "drizzle-orm";

@@ -1,19 +1,32 @@
 /**
- * UI-18: "What just happened?" Tower Log Viewer
+ * "Recent Activity" Panel - Local Wyshbone System Activity
  * 
- * A drawer/panel that shows recent Tower runs so the user can see
- * what Wyshbone did behind the scenes after asking it to do something.
+ * Shows background jobs, syncs, AI discoveries, and user actions
+ * from Wyshbone's local activity log instead of Tower.
  */
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent } from '@/components/ui/card';
-import { Loader2, ExternalLink, RefreshCw, Clock, AlertCircle, CheckCircle2, Play, XCircle, FlaskConical } from 'lucide-react';
-import { fetchRecentTowerRuns, fetchRecentTowerRunsForConversation, type TowerRunSummary } from '@/api/towerClient';
+import { Loader2, RefreshCw, Clock, AlertCircle, Database, Bot, User, Zap, Calendar, DollarSign, Package, Building2, Activity } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { formatDistanceToNow } from 'date-fns';
 import { isDemoMode } from '@/hooks/useDemoMode';
-import { demoTowerRuns } from '@/demo/demoData';
+
+interface ActivityItem {
+  id: number;
+  workspaceId: number;
+  activityType: string;
+  category: 'system' | 'ai' | 'sync' | 'user';
+  title: string;
+  description?: string;
+  entityType?: string;
+  entityId?: string;
+  metadata?: Record<string, any>;
+  userId?: string;
+  createdAt: string;
+}
 
 interface WhatJustHappenedPanelProps {
   isOpen: boolean;
@@ -22,212 +35,189 @@ interface WhatJustHappenedPanelProps {
 }
 
 /**
- * Format a timestamp for display
+ * Get icon for activity category
  */
-function formatTime(isoString: string): string {
-  const date = new Date(isoString);
-  const now = new Date();
-  const isToday = date.toDateString() === now.toDateString();
-  
-  if (isToday) {
-    return date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+function getCategoryIcon(category: string, activityType?: string) {
+  // First check activity type for more specific icons
+  switch (activityType) {
+    case 'xero_sync':
+    case 'xero_export':
+      return <DollarSign className="h-4 w-4 text-blue-500" />;
+    case 'event_found':
+      return <Calendar className="h-4 w-4 text-purple-500" />;
+    case 'entity_match':
+    case 'ai_discovery':
+      return <Bot className="h-4 w-4 text-purple-500" />;
+    case 'database_update':
+      return <Database className="h-4 w-4 text-gray-500" />;
+    case 'supplier_sync':
+      return <Package className="h-4 w-4 text-orange-500" />;
+    case 'freehouse_research':
+      return <Building2 className="h-4 w-4 text-teal-500" />;
   }
   
-  return date.toLocaleDateString('en-GB', { 
-    day: 'numeric', 
-    month: 'short',
-    hour: '2-digit', 
-    minute: '2-digit' 
-  });
-}
-
-/**
- * Get badge variant and icon for status
- */
-function getStatusDisplay(status: string): { variant: 'default' | 'secondary' | 'destructive' | 'outline'; icon: React.ReactNode; label: string } {
-  switch (status.toLowerCase()) {
-    case 'success':
-    case 'completed':
-      return { 
-        variant: 'default', 
-        icon: <CheckCircle2 className="h-3 w-3" />,
-        label: 'Success'
-      };
-    case 'error':
-    case 'failed':
-      return { 
-        variant: 'destructive', 
-        icon: <XCircle className="h-3 w-3" />,
-        label: 'Error'
-      };
-    case 'running':
-    case 'started':
-    case 'in_progress':
-      return { 
-        variant: 'secondary', 
-        icon: <Play className="h-3 w-3" />,
-        label: 'Running'
-      };
-    case 'timeout':
-      return { 
-        variant: 'destructive', 
-        icon: <Clock className="h-3 w-3" />,
-        label: 'Timeout'
-      };
+  // Fall back to category
+  switch (category) {
+    case 'ai':
+      return <Bot className="h-4 w-4 text-purple-500" />;
+    case 'sync':
+      return <RefreshCw className="h-4 w-4 text-blue-500" />;
+    case 'system':
+      return <Database className="h-4 w-4 text-gray-500" />;
+    case 'user':
+      return <User className="h-4 w-4 text-green-500" />;
     default:
-      return { 
-        variant: 'outline', 
-        icon: null,
-        label: status
-      };
+      return <Activity className="h-4 w-4 text-gray-400" />;
   }
 }
 
 /**
- * Get badge color for source
+ * Get badge variant for category
  */
-function getSourceBadge(source: string): { label: string; className: string } {
-  switch (source.toLowerCase()) {
-    case 'live_user':
-      return { label: 'Chat', className: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200' };
-    case 'subconscious':
-      return { label: 'Subcon', className: 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200' };
-    case 'supervisor':
-      return { label: 'Supervisor', className: 'bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200' };
-    case 'plan_executor':
-      return { label: 'Plan', className: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200' };
+function getCategoryBadge(category: string): { label: string; className: string } {
+  switch (category) {
+    case 'ai':
+      return { label: '🤖 AI', className: 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200' };
+    case 'sync':
+      return { label: '🔄 Sync', className: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200' };
+    case 'system':
+      return { label: '⚙️ System', className: 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200' };
+    case 'user':
+      return { label: '👤 User', className: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' };
     default:
-      return { label: source, className: 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200' };
+      return { label: category, className: 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200' };
   }
 }
 
 /**
- * Single run item in the list
+ * Single activity item in the list
  */
-function RunItem({ run }: { run: TowerRunSummary }) {
-  const statusDisplay = getStatusDisplay(run.status);
-  const sourceBadge = getSourceBadge(run.source);
-  const towerUrl = process.env.TOWER_URL || '';
+function ActivityItemComponent({ activity }: { activity: ActivityItem }) {
+  const categoryBadge = getCategoryBadge(activity.category);
+  const timeAgo = formatDistanceToNow(new Date(activity.createdAt), { addSuffix: true });
   
-  const openInTower = () => {
-    // Open Tower dashboard in new tab
-    const dashboardUrl = towerUrl ? `${towerUrl}/dashboard` : '/api/tower/dashboard';
-    window.open(dashboardUrl, '_blank', 'noopener,noreferrer');
-  };
-
   return (
-    <Card className="mb-2">
-      <CardContent className="p-3">
-        <div className="flex items-start justify-between gap-2 mb-2">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-xs text-muted-foreground flex items-center gap-1">
-              <Clock className="h-3 w-3" />
-              {formatTime(run.createdAt)}
+    <div className="border-b pb-3 mb-3 last:border-0 last:pb-0 last:mb-0">
+      <div className="flex items-start gap-3">
+        <div className="mt-0.5">
+          {getCategoryIcon(activity.category, activity.activityType)}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap mb-1">
+            <span className="font-medium text-sm">{activity.title}</span>
+            <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${categoryBadge.className}`}>
+              {categoryBadge.label}
             </span>
-            <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${sourceBadge.className}`}>
-              {sourceBadge.label}
-            </span>
-            <Badge variant={statusDisplay.variant} className="text-[10px] gap-1 h-5">
-              {statusDisplay.icon}
-              {statusDisplay.label}
-            </Badge>
           </div>
-          {towerUrl && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={openInTower}
-              className="h-6 px-2 text-xs"
-              title="Open in Tower"
-            >
-              <ExternalLink className="h-3 w-3" />
-            </Button>
+          
+          {activity.description && (
+            <p className="text-xs text-muted-foreground mb-1">
+              {activity.description}
+            </p>
           )}
+          
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Clock className="h-3 w-3" />
+            <span>{timeAgo}</span>
+            {activity.entityType && (
+              <>
+                <span>•</span>
+                <span className="capitalize">{activity.entityType}</span>
+              </>
+            )}
+          </div>
         </div>
-        
-        {run.summary && (
-          <p className="text-sm text-foreground leading-relaxed mb-1">
-            {run.summary}
-          </p>
-        )}
-        
-        <div className="flex items-center gap-3 text-xs text-muted-foreground">
-          {run.userEmail && (
-            <span title="User">{run.userEmail}</span>
-          )}
-          {run.durationMs && (
-            <span title="Duration">{(run.durationMs / 1000).toFixed(1)}s</span>
-          )}
-        </div>
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }
 
-export function WhatJustHappenedPanel({ isOpen, onClose, conversationId }: WhatJustHappenedPanelProps) {
-  const [runs, setRuns] = useState<TowerRunSummary[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [showingDemoData, setShowingDemoData] = useState(false);
+/**
+ * Demo data for when no real activities exist
+ */
+const demoActivities: ActivityItem[] = [
+  {
+    id: 1,
+    workspaceId: 1,
+    activityType: 'xero_sync',
+    category: 'sync',
+    title: 'Imported 5 new orders from Xero',
+    description: 'Total value: £1,250.00',
+    createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()
+  },
+  {
+    id: 2,
+    workspaceId: 1,
+    activityType: 'ai_discovery',
+    category: 'ai',
+    title: 'Discovered 3 new pubs in Brighton',
+    description: 'AI Sleeper Agent found new prospects',
+    entityType: 'pub',
+    createdAt: new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString()
+  },
+  {
+    id: 3,
+    workspaceId: 1,
+    activityType: 'database_update',
+    category: 'system',
+    title: 'Verified 1,000 pubs overnight',
+    description: 'Found 3 closed pubs, 5 new managers',
+    createdAt: new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString()
+  },
+  {
+    id: 4,
+    workspaceId: 1,
+    activityType: 'entity_match',
+    category: 'ai',
+    title: 'Matched "The Red Lion" to existing record',
+    description: 'AI confidence: 94%',
+    entityType: 'pub',
+    createdAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+  }
+];
 
-  const loadRuns = async () => {
-    setIsLoading(true);
-    setError(null);
-    
-    // UI-20: Check demo mode
-    const inDemoMode = isDemoMode();
-    setShowingDemoData(inDemoMode);
-    
-    if (inDemoMode) {
-      // Demo mode: use static demo data
-      setRuns(demoTowerRuns);
-      setIsLoading(false);
-      return;
-    }
-    
-    try {
-      let fetchedRuns: TowerRunSummary[];
-      
-      if (conversationId) {
-        // Try to fetch runs for this conversation
-        fetchedRuns = await fetchRecentTowerRunsForConversation(conversationId, 10);
-        
-        // If no runs for this conversation, fall back to recent runs
-        if (fetchedRuns.length === 0) {
-          fetchedRuns = await fetchRecentTowerRuns(10);
-        }
-      } else {
-        fetchedRuns = await fetchRecentTowerRuns(10);
+export function WhatJustHappenedPanel({ isOpen, onClose }: WhatJustHappenedPanelProps) {
+  const [filter, setFilter] = useState<string>('all');
+  const inDemoMode = isDemoMode();
+
+  // Fetch activities from local API
+  const { data, isLoading, error, refetch } = useQuery<{ activities: ActivityItem[] }>({
+    queryKey: ['activity-log', filter],
+    queryFn: async () => {
+      const params = new URLSearchParams({ limit: '20' });
+      if (filter !== 'all') {
+        params.append('category', filter);
       }
       
-      setRuns(fetchedRuns);
-    } catch (err: unknown) {
-      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-      console.error('[WhatJustHappened] Error loading runs:', errorMessage);
-      // UI-19: User-friendly error message
-      setError("Couldn't load activity. Is Wyshbone's backend running?");
-    } finally {
-      setIsLoading(false);
-    }
-  };
+      const res = await fetch(`/api/activity-log?${params}`);
+      if (!res.ok) {
+        throw new Error('Failed to fetch activities');
+      }
+      return res.json();
+    },
+    enabled: isOpen && !inDemoMode,
+    refetchInterval: 30000, // Refresh every 30 seconds
+    staleTime: 10000
+  });
 
-  // Load runs when panel opens
-  useEffect(() => {
-    if (isOpen) {
-      loadRuns();
-    }
-  }, [isOpen, conversationId]);
+  const activities = inDemoMode ? demoActivities : (data?.activities || []);
+  const filteredActivities = filter === 'all' 
+    ? activities 
+    : activities.filter(a => a.category === filter);
 
   return (
     <Sheet open={isOpen} onOpenChange={(open) => !open && onClose()}>
       <SheetContent side="right" className="w-[400px] sm:w-[450px]">
         <SheetHeader className="mb-4">
           <div className="flex items-center justify-between">
-            <SheetTitle className="text-lg">Recent Activity</SheetTitle>
+            <SheetTitle className="text-lg flex items-center gap-2">
+              <Zap className="h-5 w-5 text-amber-500" />
+              Recent Activity
+            </SheetTitle>
             <Button
               variant="ghost"
               size="sm"
-              onClick={loadRuns}
+              onClick={() => refetch()}
               disabled={isLoading}
               className="h-8 px-2"
               title="Refresh"
@@ -236,33 +226,78 @@ export function WhatJustHappenedPanel({ isOpen, onClose, conversationId }: WhatJ
             </Button>
           </div>
           <SheetDescription>
-            Here's what Wyshbone has been working on behind the scenes
+            Background jobs, syncs, and AI discoveries
           </SheetDescription>
-          {/* UI-20: Demo mode indicator */}
-          {showingDemoData && (
+          
+          {/* Demo mode indicator */}
+          {inDemoMode && (
             <div className="mt-2 flex items-center gap-2 text-xs text-amber-600 bg-amber-50 dark:bg-amber-950/30 px-2 py-1 rounded">
-              <FlaskConical className="h-3 w-3" />
+              <Database className="h-3 w-3" />
               Showing demo activity data
             </div>
           )}
         </SheetHeader>
 
-        <div className="flex-1 overflow-y-auto pr-1">
-          {isLoading && runs.length === 0 && (
+        {/* Category filter buttons */}
+        <div className="flex gap-1.5 mb-4 flex-wrap">
+          <Button 
+            size="sm" 
+            variant={filter === 'all' ? 'default' : 'outline'}
+            onClick={() => setFilter('all')}
+            className="h-7 text-xs"
+          >
+            All
+          </Button>
+          <Button 
+            size="sm" 
+            variant={filter === 'ai' ? 'default' : 'outline'}
+            onClick={() => setFilter('ai')}
+            className="h-7 text-xs"
+          >
+            🤖 AI
+          </Button>
+          <Button 
+            size="sm" 
+            variant={filter === 'sync' ? 'default' : 'outline'}
+            onClick={() => setFilter('sync')}
+            className="h-7 text-xs"
+          >
+            🔄 Syncs
+          </Button>
+          <Button 
+            size="sm" 
+            variant={filter === 'system' ? 'default' : 'outline'}
+            onClick={() => setFilter('system')}
+            className="h-7 text-xs"
+          >
+            ⚙️ System
+          </Button>
+          <Button 
+            size="sm" 
+            variant={filter === 'user' ? 'default' : 'outline'}
+            onClick={() => setFilter('user')}
+            className="h-7 text-xs"
+          >
+            👤 User
+          </Button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto pr-1 max-h-[calc(100vh-280px)]">
+          {isLoading && activities.length === 0 && (
             <div className="flex items-center justify-center py-8 text-muted-foreground">
               <Loader2 className="h-5 w-5 animate-spin mr-2" />
-              Loading recent activity…
+              Loading activity…
             </div>
           )}
 
-          {error && (
+          {error && !inDemoMode && (
             <div className="flex flex-col items-center justify-center py-8 text-center">
               <AlertCircle className="h-8 w-8 text-destructive mb-2" />
-              <p className="text-sm text-muted-foreground">{error}</p>
+              <p className="text-sm text-muted-foreground">Couldn't load activity</p>
               <Button
                 variant="outline"
                 size="sm"
-                onClick={loadRuns}
+                onClick={() => refetch()}
                 className="mt-3"
               >
                 Try again
@@ -270,28 +305,38 @@ export function WhatJustHappenedPanel({ isOpen, onClose, conversationId }: WhatJ
             </div>
           )}
 
-          {!isLoading && !error && runs.length === 0 && (
+          {!isLoading && !error && filteredActivities.length === 0 && (
             <div className="flex flex-col items-center justify-center py-8 text-center">
               <Clock className="h-8 w-8 text-muted-foreground/50 mb-2" />
               <p className="text-sm text-muted-foreground">
-                No activity yet
+                {filter === 'all' ? 'No activity yet' : `No ${filter} activity`}
               </p>
               <p className="text-xs text-muted-foreground mt-1">
-                When you ask Wyshbone to do something, the progress will show up here.
+                {filter === 'all' 
+                  ? 'Background jobs and syncs will show up here.'
+                  : `Try a different filter to see more activity.`
+                }
               </p>
             </div>
           )}
 
-          {runs.length > 0 && (
-            <div className="space-y-2">
-              {runs.map((run) => (
-                <RunItem key={run.id} run={run} />
+          {filteredActivities.length > 0 && (
+            <div className="space-y-0">
+              {filteredActivities.map((activity) => (
+                <ActivityItemComponent key={activity.id} activity={activity} />
               ))}
             </div>
           )}
         </div>
+        
+        {/* Footer with count */}
+        {filteredActivities.length > 0 && (
+          <div className="mt-4 pt-3 border-t text-xs text-muted-foreground text-center">
+            Showing {filteredActivities.length} {filteredActivities.length === 1 ? 'activity' : 'activities'}
+            {filter !== 'all' && ` in ${filter}`}
+          </div>
+        )}
       </SheetContent>
     </Sheet>
   );
 }
-

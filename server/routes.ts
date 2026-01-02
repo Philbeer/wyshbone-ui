@@ -49,6 +49,7 @@ import { createEntityReviewRouter } from "./routes/entity-review";
 import { createDevToolsRouter } from "./routes/dev-tools";
 import { createDatabaseMaintenanceRouter } from "./routes/admin/database-maintenance";
 import { createSuppliersRouter } from "./routes/suppliers";
+import { createActivityLogRouter } from "./routes/activity-log";
 import { hashPassword, verifyPassword, generateId, canCreateMonitor, canCreateDeepResearch, TIER_LIMITS } from "./auth";
 import { signupRequestSchema, loginRequestSchema, updateProfileRequestSchema } from "@shared/schema";
 import { buildSessionContext, generatePersonalizedOpening, type SessionContext } from "./lib/context";
@@ -6870,6 +6871,9 @@ ${run.outputText}`;
 
   // Register Suppliers routes
   app.use("/api/suppliers", createSuppliersRouter(storage));
+
+  // Register Activity Log routes (local system activity tracking)
+  app.use("/api/activity-log", createActivityLogRouter(storage));
 
   // ===========================
   // INTEGRATIONS (NANGO.DEV CRM/ACCOUNTING CONNECTIONS)
