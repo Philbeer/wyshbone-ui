@@ -40,6 +40,20 @@ import { authedFetch, apiRequest } from '@/lib/queryClient';
 import { useToast } from '@/hooks/use-toast';
 import { formatDistanceToNow } from 'date-fns';
 import { useLocation } from 'wouter';
+import { useUser } from '@/contexts/UserContext';
+
+// ============================================
+// ACCESS CONTROL
+// ============================================
+
+const ADMIN_EMAILS = ['phil@wyshbone.com', 'phil@listersbrewery.com'];
+
+function hasAdminAccess(user: { email?: string; role?: string } | null): boolean {
+  if (!user) return false;
+  if (user.role === 'admin') return true;
+  if (user.email && ADMIN_EMAILS.includes(user.email.toLowerCase())) return true;
+  return false;
+}
 
 // ============================================
 // TYPES
@@ -643,6 +657,7 @@ function RecommendationsCard() {
 export default function DatabaseMaintenance() {
   const { toast } = useToast();
   const [, setLocation] = useLocation();
+  const { user } = useUser();
   const { data: settings, isLoading: settingsLoading } = useMaintenanceSettings();
   const { data: stats, isLoading: statsLoading } = useDatabaseStats();
   const saveSettings = useSaveSettings();
@@ -652,12 +667,43 @@ export default function DatabaseMaintenance() {
   const [localSettings, setLocalSettings] = useState<MaintenanceSettings | null>(null);
   const [hasChanges, setHasChanges] = useState(false);
 
+  // Access control check
+  const isAdmin = hasAdminAccess(user);
+
   // Initialize local settings when data loads
   useEffect(() => {
     if (settings && !localSettings) {
       setLocalSettings(settings);
     }
   }, [settings, localSettings]);
+
+  // Show access denied if not admin
+  if (!isAdmin) {
+    return (
+      <div className="p-6 flex items-center justify-center h-full">
+        <Card className="max-w-md">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-destructive">
+              <Shield className="w-5 h-5" />
+              Access Restricted
+            </CardTitle>
+            <CardDescription>
+              This control panel is restricted to system administrators only.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Master database maintenance affects all workspaces and has significant cost implications.
+              Contact your administrator if you need access.
+            </p>
+            <Button variant="outline" onClick={() => setLocation('/')}>
+              Return to Dashboard
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   const handleChange = (field: string, value: any) => {
     if (!localSettings) return;

@@ -1028,14 +1028,17 @@ export function AppSidebar({
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
-                  <SidebarMenuItem>
-                    <SidebarMenuButton asChild isActive={location === "/admin/database-maintenance"} data-testid="link-admin-db-maintenance">
-                      <Link href="/admin/database-maintenance">
-                        <Database className="h-4 w-4" />
-                        <span>🗄️ DB Maintenance</span>
-                      </Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
+                  {/* DB Maintenance - admin only */}
+                  {(user?.role === 'admin' || ['phil@wyshbone.com', 'phil@listersbrewery.com'].includes(user?.email?.toLowerCase() || '')) && (
+                    <SidebarMenuItem>
+                      <SidebarMenuButton asChild isActive={location === "/admin/database-maintenance"} data-testid="link-admin-db-maintenance">
+                        <Link href="/admin/database-maintenance">
+                          <Database className="h-4 w-4" />
+                          <span>🗄️ DB Maintenance</span>
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  )}
                 </>
               )}
             </SidebarMenu>
