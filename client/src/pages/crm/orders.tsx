@@ -137,8 +137,25 @@ export default function CrmOrders() {
     setFilterCustomerId(urlCustomerId);
   }, [searchString]);
 
+  // Data queries - must be before useMemo/useCallback that depend on them
   const { data: allOrders = [], isLoading } = useQuery<SelectCrmOrder[]>({
     queryKey: ['/api/crm/orders', workspaceId],
+    enabled: !!workspaceId,
+  });
+
+  const { data: customers = [] } = useQuery<SelectCrmCustomer[]>({
+    queryKey: ['/api/crm/customers', workspaceId],
+    enabled: !!workspaceId,
+  });
+
+  const { data: deliveryRuns = [] } = useQuery<SelectCrmDeliveryRun[]>({
+    queryKey: ['/api/crm/delivery-runs', workspaceId],
+    enabled: !!workspaceId,
+  });
+
+  // Use Generic CRM products
+  const { data: products = [] } = useQuery<SelectCrmProduct[]>({
+    queryKey: ['/api/crm/products', workspaceId],
     enabled: !!workspaceId,
   });
 
@@ -211,22 +228,6 @@ export default function CrmOrders() {
       ? <ArrowUp className="ml-1 h-3 w-3" />
       : <ArrowDown className="ml-1 h-3 w-3" />;
   };
-
-  const { data: customers = [] } = useQuery<SelectCrmCustomer[]>({
-    queryKey: ['/api/crm/customers', workspaceId],
-    enabled: !!workspaceId,
-  });
-
-  const { data: deliveryRuns = [] } = useQuery<SelectCrmDeliveryRun[]>({
-    queryKey: ['/api/crm/delivery-runs', workspaceId],
-    enabled: !!workspaceId,
-  });
-
-  // Use Generic CRM products
-  const { data: products = [] } = useQuery<SelectCrmProduct[]>({
-    queryKey: ['/api/crm/products', workspaceId],
-    enabled: !!workspaceId,
-  });
 
   const form = useForm<OrderFormValues>({
     resolver: zodResolver(orderFormSchema),
