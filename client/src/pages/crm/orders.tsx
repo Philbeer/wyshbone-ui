@@ -119,10 +119,17 @@ export default function CrmOrders() {
 
   // Handle URL parameter for filtering by customer
   useEffect(() => {
-    const params = new URLSearchParams(searchString);
+    // Try both wouter's searchString and window.location.search for reliability
+    const searchToUse = searchString || window.location.search;
+    const params = new URLSearchParams(searchToUse);
     const customerId = params.get('customerId');
+    
+    // Set or clear the filter based on URL
     if (customerId) {
       setFilterCustomerId(customerId);
+    } else if (filterCustomerId && !customerId) {
+      // Clear filter if customerId was removed from URL
+      setFilterCustomerId(null);
     }
   }, [searchString]);
 
@@ -457,8 +464,24 @@ export default function CrmOrders() {
             <TableBody>
               {orders.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="text-center text-muted-foreground">
-                    No orders found. Create your first order to get started.
+                  <TableCell colSpan={9} className="text-center text-muted-foreground py-8">
+                    {filterCustomerId ? (
+                      <>
+                        No orders found for this customer.{" "}
+                        <Button 
+                          variant="link" 
+                          className="p-0 h-auto" 
+                          onClick={() => {
+                            setFilterCustomerId(null);
+                            setLocation('/auth/crm/orders', { replace: true });
+                          }}
+                        >
+                          View all orders
+                        </Button>
+                      </>
+                    ) : (
+                      "No orders found. Create your first order to get started."
+                    )}
                   </TableCell>
                 </TableRow>
               ) : (
