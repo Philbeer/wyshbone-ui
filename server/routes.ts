@@ -46,6 +46,7 @@ import { createXeroSyncRouter } from "./routes/xero-sync";
 import { createSleeperAgentRouter } from "./routes/sleeper-agent";
 import { createThingsRouter } from "./routes/things";
 import { createEntityReviewRouter } from "./routes/entity-review";
+import { createDevToolsRouter } from "./routes/dev-tools";
 import { hashPassword, verifyPassword, generateId, canCreateMonitor, canCreateDeepResearch, TIER_LIMITS } from "./auth";
 import { signupRequestSchema, loginRequestSchema, updateProfileRequestSchema } from "@shared/schema";
 import { buildSessionContext, generatePersonalizedOpening, type SessionContext } from "./lib/context";
@@ -6858,6 +6859,9 @@ ${run.outputText}`;
   
   // Register Entity Review routes (manual review queue)
   app.use("/api/entity-review", createEntityReviewRouter(storage));
+  
+  // Register Dev Tools routes (sleeper agent monitoring)
+  app.use("/api/dev", createDevToolsRouter(storage));
 
   // ===========================
   // INTEGRATIONS (NANGO.DEV CRM/ACCOUNTING CONNECTIONS)

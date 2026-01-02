@@ -1,4 +1,4 @@
-import { Globe, MessageSquare, Bug, FilePlus, MessagesSquare, ChevronDown, ChevronRight, Clock, Edit2, Trash2, Mail, Link2, User, CreditCard, History, Users, Sparkles, Factory, HelpCircle, FlaskConical } from "lucide-react";
+import { Globe, MessageSquare, Bug, FilePlus, MessagesSquare, ChevronDown, ChevronRight, Clock, Edit2, Trash2, Mail, Link2, User, CreditCard, History, Users, Sparkles, Factory, HelpCircle, FlaskConical, Bot } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
@@ -1017,6 +1017,17 @@ export function AppSidebar({
               </SidebarMenuItem>
               <TourButton />
               <DemoModeToggle />
+              {/* Dev Tools - only shown in development */}
+              {process.env.NODE_ENV === 'development' && (
+                <SidebarMenuItem>
+                  <SidebarMenuButton asChild isActive={location === "/dev/sleeper-agent"} data-testid="link-dev-sleeper-agent">
+                    <Link href="/dev/sleeper-agent">
+                      <Bot className="h-4 w-4" />
+                      <span>⚙️ Sleeper Agent</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              )}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
