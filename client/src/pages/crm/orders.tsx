@@ -104,6 +104,27 @@ function calculateOrderTotals(
   };
 }
 
+// Sort indicator component - defined outside to avoid recreation on each render
+type SortField = 'orderNumber' | 'customer' | 'orderDate' | 'status' | 'subtotalExVat' | 'totalIncVat';
+type SortDirection = 'asc' | 'desc';
+
+function SortIndicator({ 
+  field, 
+  currentField, 
+  direction 
+}: { 
+  field: SortField; 
+  currentField: SortField; 
+  direction: SortDirection;
+}) {
+  if (currentField !== field) {
+    return <ArrowUpDown className="ml-1 h-3 w-3 opacity-50" />;
+  }
+  return direction === 'asc' 
+    ? <ArrowUp className="ml-1 h-3 w-3" />
+    : <ArrowDown className="ml-1 h-3 w-3" />;
+}
+
 export default function CrmOrders() {
   const { user } = useUser();
   const workspaceId = user.id;
@@ -122,8 +143,6 @@ export default function CrmOrders() {
   });
   
   // Sort state
-  type SortField = 'orderNumber' | 'customer' | 'orderDate' | 'status' | 'subtotalExVat' | 'totalIncVat';
-  type SortDirection = 'asc' | 'desc';
   const [sortField, setSortField] = useState<SortField>('orderDate');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
 
@@ -219,15 +238,6 @@ export default function CrmOrders() {
     }
   };
 
-  // Sort indicator component
-  const SortIndicator = ({ field }: { field: SortField }) => {
-    if (sortField !== field) {
-      return <ArrowUpDown className="ml-1 h-3 w-3 opacity-50" />;
-    }
-    return sortDirection === 'asc' 
-      ? <ArrowUp className="ml-1 h-3 w-3" />
-      : <ArrowDown className="ml-1 h-3 w-3" />;
-  };
 
   const form = useForm<OrderFormValues>({
     resolver: zodResolver(orderFormSchema),
@@ -558,7 +568,7 @@ export default function CrmOrders() {
                 >
                   <div className="flex items-center">
                     Order #
-                    <SortIndicator field="orderNumber" />
+                    <SortIndicator field="orderNumber" currentField={sortField} direction={sortDirection} />
                   </div>
                 </TableHead>
                 <TableHead 
@@ -567,7 +577,7 @@ export default function CrmOrders() {
                 >
                   <div className="flex items-center">
                     Customer
-                    <SortIndicator field="customer" />
+                    <SortIndicator field="customer" currentField={sortField} direction={sortDirection} />
                   </div>
                 </TableHead>
                 <TableHead 
@@ -576,7 +586,7 @@ export default function CrmOrders() {
                 >
                   <div className="flex items-center">
                     Order Date
-                    <SortIndicator field="orderDate" />
+                    <SortIndicator field="orderDate" currentField={sortField} direction={sortDirection} />
                   </div>
                 </TableHead>
                 <TableHead 
@@ -585,7 +595,7 @@ export default function CrmOrders() {
                 >
                   <div className="flex items-center">
                     Status
-                    <SortIndicator field="status" />
+                    <SortIndicator field="status" currentField={sortField} direction={sortDirection} />
                   </div>
                 </TableHead>
                 <TableHead 
@@ -594,7 +604,7 @@ export default function CrmOrders() {
                 >
                   <div className="flex items-center justify-end">
                     Subtotal (ex VAT)
-                    <SortIndicator field="subtotalExVat" />
+                    <SortIndicator field="subtotalExVat" currentField={sortField} direction={sortDirection} />
                   </div>
                 </TableHead>
                 <TableHead className="text-right">VAT</TableHead>
@@ -604,7 +614,7 @@ export default function CrmOrders() {
                 >
                   <div className="flex items-center justify-end">
                     Total (inc VAT)
-                    <SortIndicator field="totalIncVat" />
+                    <SortIndicator field="totalIncVat" currentField={sortField} direction={sortDirection} />
                   </div>
                 </TableHead>
                 <TableHead>Xero</TableHead>
