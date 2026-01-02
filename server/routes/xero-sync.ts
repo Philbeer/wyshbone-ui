@@ -66,7 +66,56 @@ export function createXeroSyncRouter(storage: IStorage) {
    * Get authenticated Xero client for a workspace
    */
   async function getXeroClient(workspaceId: string): Promise<{ client: XeroClient; tenantId: string } | null> {
+    // First check dedicated xero_connections table
     const connection = await storage.getXeroConnection(workspaceId);
+    if (connection && connection.isConnected) {
+      // Use connection from xero_connections table
+      return getXeroClientFromConnection(connection, workspaceId);
+    }
+
+    // Fallback to integrations table (legacy)
+    console.log(`   🔍 No xero_connections found, checking integrations table for workspace ${workspaceId}...`);
+    const integrations = await storage.listIntegrations(workspaceId);
+    const xeroIntegration = integrations.find((i) => i.provider === "xero");
+    
+    if (!xeroIntegration) {
+      console.log(`   ❌ No Xero integration found in either table for workspace ${workspaceId}`);
+      return null;
+    }
+
+    console.log(`   ✅ Found legacy Xero integration in integrations table`);
+    
+    // Build XeroClient from legacy integration
+    const metadata = xeroIntegration.metadata as any;
+    const tenantId = metadata?.tenantId;
+    
+    if (!tenantId) {
+      console.error(`   ❌ Legacy integration missing tenantId`);
+      return null;
+    }
+
+    const xero = new XeroClient({
+      clientId: XERO_CLIENT_ID,
+      clientSecret: XERO_CLIENT_SECRET,
+      redirectUris: [],
+      scopes: [],
+    });
+
+    // Set the token set directly
+    xero.setTokenSet({
+      access_token: xeroIntegration.accessToken,
+      refresh_token: xeroIntegration.refreshToken || undefined,
+      expires_at: xeroIntegration.expiresAt ? xeroIntegration.expiresAt / 1000 : undefined,
+      token_type: 'Bearer',
+    });
+
+    return { client: xero, tenantId };
+  }
+
+  /**
+   * Helper to create XeroClient from xero_connections record
+   */
+  async function getXeroClientFromConnection(connection: any, workspaceId: string): Promise<{ client: XeroClient; tenantId: string } | null> {
     if (!connection || !connection.isConnected) {
       return null;
     }
