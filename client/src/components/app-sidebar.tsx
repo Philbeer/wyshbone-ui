@@ -1,4 +1,4 @@
-import { Globe, MessageSquare, Bug, FilePlus, MessagesSquare, ChevronDown, ChevronRight, Clock, Edit2, Trash2, Mail, Link2, User, CreditCard, History, Users, Sparkles, Factory, HelpCircle, FlaskConical, Bot, Database } from "lucide-react";
+import { Globe, MessageSquare, Bug, FilePlus, MessagesSquare, ChevronDown, ChevronRight, Clock, Edit2, Trash2, Mail, Link2, User, CreditCard, History, Users, Sparkles, Factory, HelpCircle, FlaskConical, Bot, Database, Calendar, ClipboardCheck, Search } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
@@ -1017,33 +1017,63 @@ export function AppSidebar({
               </SidebarMenuItem>
               <TourButton />
               <DemoModeToggle />
-              {/* Dev Tools - only shown in development */}
-              {process.env.NODE_ENV === 'development' && (
-                <>
-                  <SidebarMenuItem>
-                    <SidebarMenuButton asChild isActive={location === "/dev/sleeper-agent"} data-testid="link-dev-sleeper-agent">
-                      <Link href="/dev/sleeper-agent">
-                        <Bot className="h-4 w-4" />
-                        <span>⚙️ Sleeper Agent</span>
-                      </Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                  {/* DB Maintenance - admin only */}
-                  {(user?.role === 'admin' || ['phil@wyshbone.com', 'phil@listersbrewery.com'].includes(user?.email?.toLowerCase() || '')) && (
-                    <SidebarMenuItem>
-                      <SidebarMenuButton asChild isActive={location === "/admin/database-maintenance"} data-testid="link-admin-db-maintenance">
-                        <Link href="/admin/database-maintenance">
-                          <Database className="h-4 w-4" />
-                          <span>🗄️ DB Maintenance</span>
-                        </Link>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  )}
-                </>
-              )}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
+
+        {/* Discovery Section */}
+        <SidebarGroup>
+          <SidebarGroupLabel>Discovery</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={location === "/auth/crm/events" || location === "/events"} data-testid="link-events">
+                  <Link href="/auth/crm/events">
+                    <Calendar className="h-4 w-4" />
+                    <span>📅 Events</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={location === "/auth/crm/entity-review" || location === "/entity-review"} data-testid="link-entity-review">
+                  <Link href="/auth/crm/entity-review">
+                    <ClipboardCheck className="h-4 w-4" />
+                    <span>📋 Review Queue</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        {/* Developer Tools - only shown in development or to admins */}
+        {(process.env.NODE_ENV === 'development' || user?.role === 'admin' || ['phil@wyshbone.com', 'phil@listersbrewery.com'].includes(user?.email?.toLowerCase() || '')) && (
+          <SidebarGroup>
+            <SidebarGroupLabel>Dev Tools</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                <SidebarMenuItem>
+                  <SidebarMenuButton asChild isActive={location === "/dev/sleeper-agent"} data-testid="link-dev-sleeper-agent">
+                    <Link href="/dev/sleeper-agent">
+                      <Bot className="h-4 w-4" />
+                      <span>🤖 Sleeper Monitor</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+                {(user?.role === 'admin' || ['phil@wyshbone.com', 'phil@listersbrewery.com'].includes(user?.email?.toLowerCase() || '')) && (
+                  <SidebarMenuItem>
+                    <SidebarMenuButton asChild isActive={location === "/admin/database-maintenance"} data-testid="link-admin-db-maintenance">
+                      <Link href="/admin/database-maintenance">
+                        <Database className="h-4 w-4" />
+                        <span>🗄️ DB Maintenance</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                )}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
 
         <SidebarGroup>
           <SidebarGroupLabel>Monitors</SidebarGroupLabel>

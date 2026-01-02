@@ -1,6 +1,6 @@
 import { Route, Switch, Link, useLocation } from "wouter";
 import { useUser } from "@/contexts/UserContext";
-import { Building2, Users, Package, Truck, Settings, Warehouse, Beer, FileText, Container, Boxes, Phone, DollarSign, BarChart3, CheckSquare, Activity, Store, QrCode } from "lucide-react";
+import { Building2, Users, Package, Truck, Settings, Warehouse, Beer, FileText, Container, Boxes, Phone, DollarSign, BarChart3, CheckSquare, Activity, Store, QrCode, Calendar, ClipboardCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
@@ -24,6 +24,9 @@ import BrewCrmPriceBooks from "../brewcrm/price-books";
 import BrewCrmPriceBookDetail from "../brewcrm/price-book-detail";
 import BrewCrmTradeStoreSettings from "../brewcrm/trade-store-settings";
 import BrewCrmContainerScan from "../brewcrm/container-scan";
+// Discovery pages
+import EventsPage from "../events";
+import EntityReviewPage from "../entity-review";
 // New CRM features
 import BrewCrmCustomers from "../brewcrm/customers";
 import BrewCrmOrders from "../brewcrm/orders";
@@ -137,6 +140,18 @@ export default function CrmLayout() {
                 Activities
               </Link>
             </Button>
+            <Button variant={isActive("/events") ? "default" : "ghost"} size="sm" asChild>
+              <Link href="/events" data-testid="link-crm-events">
+                <Calendar className="w-4 h-4 mr-2" />
+                Events
+              </Link>
+            </Button>
+            <Button variant={isActive("/entity-review") ? "default" : "ghost"} size="sm" asChild>
+              <Link href="/entity-review" data-testid="link-crm-entity-review">
+                <ClipboardCheck className="w-4 h-4 mr-2" />
+                Review Queue
+              </Link>
+            </Button>
             <Button variant={isActive("/settings") ? "default" : "ghost"} size="sm" asChild>
               <Link href="/settings" data-testid="link-crm-settings">
                 <Settings className="w-4 h-4 mr-2" />
@@ -206,6 +221,8 @@ export default function CrmLayout() {
           <Route path="/diary" component={CrmDiary} />
           <Route path="/tasks" component={CrmTasks} />
           <Route path="/activities" component={CrmActivities} />
+          <Route path="/events" component={EventsPage} />
+          <Route path="/entity-review" component={EntityReviewPage} />
           <Route path="/settings" component={CrmSettings} />
           
           {/* Brewery CRM Routes */}
