@@ -41,6 +41,7 @@ import { MyGoalsPanel } from "@/components/my-goals-panel";
 import { PlanApprovalPanel } from "@/components/plan-approval-panel";
 import { ProgressWidget } from "@/components/progress-widget";
 import { AgentStatusBadge } from "@/components/AgentStatusBadge";
+import { XeroStatusBadge } from "@/components/XeroStatusBadge";
 // Results Panel imports
 import { ResultsPanelProvider, useResultsPanel } from "@/contexts/ResultsPanelContext";
 import { ResultsPanel } from "@/components/results/ResultsPanel";
@@ -845,6 +846,7 @@ function AppLayout({
             style={{ marginRight: userMenuMargin }}
           >
             <VerticalIndicator />
+            <XeroStatusBadge className="mr-1" />
             <DevInfoBadge />
             <AgentStatusBadgeWrapper />
             <LoginDialog />
