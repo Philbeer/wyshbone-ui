@@ -33,7 +33,7 @@ export default function PriceBooks() {
 
   if (error) {
     return (
-      <div className="container mx-auto py-6">
+      <div className="p-6">
         <Card className="border-destructive">
           <CardHeader>
             <CardTitle className="text-destructive">Error Loading Price Books</CardTitle>
@@ -52,7 +52,7 @@ export default function PriceBooks() {
   }
 
   return (
-    <div className="container mx-auto py-6 space-y-6">
+    <div className="p-6 space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>

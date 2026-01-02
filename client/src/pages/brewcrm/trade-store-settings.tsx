@@ -123,7 +123,7 @@ export default function TradeStoreSettings() {
 
   if (settingsLoading) {
     return (
-      <div className="container mx-auto py-6 space-y-6">
+      <div className="p-6 space-y-6">
         <Skeleton className="h-10 w-64" />
         <Skeleton className="h-64 w-full" />
       </div>
@@ -131,7 +131,7 @@ export default function TradeStoreSettings() {
   }
 
   return (
-    <div className="container mx-auto py-6 space-y-6">
+    <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold flex items-center gap-2">
