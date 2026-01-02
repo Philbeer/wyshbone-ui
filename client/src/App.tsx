@@ -56,6 +56,7 @@ import CrmPreviewPage from "@/pages/crm-preview";
 import EventsPage from "@/pages/events";
 import EntityReviewPage from "@/pages/entity-review";
 import SleeperAgentMonitor from "@/pages/dev/sleeper-agent-monitor";
+import DatabaseMaintenance from "@/pages/admin/database-maintenance";
 import { LayoutToggle } from "@/components/LayoutToggle";
 
 // No demo runs - users only see their own data
@@ -117,6 +118,7 @@ function AgentFirstRouter({
       <Route path="/events" component={EventsPage} />
       <Route path="/entity-review" component={EntityReviewPage} />
       <Route path="/dev/sleeper-agent" component={SleeperAgentMonitor} />
+      <Route path="/admin/database-maintenance" component={DatabaseMaintenance} />
       
       {/* Other routes */}
       <Route path="/auth" component={AuthPage} />
@@ -173,6 +175,7 @@ function Router({
       <Route path="/events" component={EventsPage} />
       <Route path="/entity-review" component={EntityReviewPage} />
       <Route path="/dev/sleeper-agent" component={SleeperAgentMonitor} />
+      <Route path="/admin/database-maintenance" component={DatabaseMaintenance} />
       <Route path="/onboarding/brewery" component={BreweryOnboardingWizard} />
       <Route component={NotFound} />
     </Switch>
