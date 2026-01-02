@@ -84,10 +84,15 @@ export function createActivityLogRouter(storage: IStorage): Router {
    */
   router.get("/", async (req: Request, res: Response) => {
     try {
+      // Try to get authenticated user, fall back to workspace 1 in development
+      let workspaceId = 1;
       const auth = await getAuthenticatedUser(req, storage);
-      if (!auth) {
+      if (auth) {
+        workspaceId = auth.workspaceId;
+      } else if (process.env.NODE_ENV !== "development") {
         return res.status(401).json({ error: "Unauthorized" });
       }
+      // In development mode, allow unauthenticated requests with workspaceId = 1
 
       const limit = Math.min(parseInt(req.query.limit as string) || 20, 100);
       const category = req.query.category as string | undefined;
@@ -96,7 +101,7 @@ export function createActivityLogRouter(storage: IStorage): Router {
       const db = getDrizzleDb();
 
       // Build query conditions
-      const conditions = [eq(activityLog.workspaceId, auth.workspaceId)];
+      const conditions = [eq(activityLog.workspaceId, workspaceId)];
       
       if (category && ['system', 'ai', 'sync', 'user'].includes(category)) {
         conditions.push(eq(activityLog.category, category));
@@ -119,7 +124,7 @@ export function createActivityLogRouter(storage: IStorage): Router {
       res.json({ 
         activities,
         count: activities.length,
-        workspaceId: auth.workspaceId
+        workspaceId
       });
     } catch (error: any) {
       console.error("Failed to fetch activity log:", error);
@@ -134,8 +139,12 @@ export function createActivityLogRouter(storage: IStorage): Router {
    */
   router.get("/stats", async (req: Request, res: Response) => {
     try {
+      // Try to get authenticated user, fall back to workspace 1 in development
+      let workspaceId = 1;
       const auth = await getAuthenticatedUser(req, storage);
-      if (!auth) {
+      if (auth) {
+        workspaceId = auth.workspaceId;
+      } else if (process.env.NODE_ENV !== "development") {
         return res.status(401).json({ error: "Unauthorized" });
       }
 
@@ -148,7 +157,7 @@ export function createActivityLogRouter(storage: IStorage): Router {
         .select()
         .from(activityLog)
         .where(and(
-          eq(activityLog.workspaceId, auth.workspaceId),
+          eq(activityLog.workspaceId, workspaceId),
           gte(activityLog.createdAt, oneDayAgo)
         ))
         .orderBy(desc(activityLog.createdAt));
