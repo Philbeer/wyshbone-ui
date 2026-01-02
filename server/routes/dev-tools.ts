@@ -153,75 +153,101 @@ export function createDevToolsRouter(storage: IStorage): Router {
    * Get overview of sleeper agent activity
    */
   router.get("/sleeper-agent/summary", async (req: Request, res: Response) => {
+    console.log("📊 [DEV-TOOLS] GET /sleeper-agent/summary received");
+    
     try {
       const auth = await getAuthenticatedUser(req, storage);
+      console.log("📊 [DEV-TOOLS] Auth result:", auth ? `${auth.userEmail}` : "null");
+      
       if (!auth) {
+        console.log("📊 [DEV-TOOLS] No auth - returning 401");
         return res.status(401).json({ success: false, error: "Unauthorized" });
       }
       
       if (!hasDevAccess(auth.userEmail)) {
+        console.log("📊 [DEV-TOOLS] No dev access - returning 403");
         return res.status(403).json({ success: false, error: "Developer access required" });
       }
 
       const workspaceId = parseWorkspaceId(req.query.workspaceId as string, auth.userId);
+      console.log("📊 [DEV-TOOLS] workspaceId:", workspaceId);
+      
       const db = getDrizzleDb();
-
-      // Get last search log entry
-      const [lastLog] = await db
-        .select()
-        .from(searchLog)
-        .where(eq(searchLog.workspaceId, workspaceId))
-        .orderBy(desc(searchLog.createdAt))
-        .limit(1);
-
-      // Get today's stats
       const today = new Date();
       today.setHours(0, 0, 0, 0);
-      const todayStr = today.toISOString().split('T')[0];
 
-      const todayStats = await db
-        .select({
-          searchType: searchLog.searchType,
-          totalResults: sql<number>`COALESCE(SUM(${searchLog.resultsReturned}), 0)::int`,
-          newPubs: sql<number>`COALESCE(SUM(${searchLog.newPubsAdded}), 0)::int`,
-          existingPubs: sql<number>`COALESCE(SUM(${searchLog.existingPubsFound}), 0)::int`,
-        })
-        .from(searchLog)
-        .where(
-          and(
-            eq(searchLog.workspaceId, workspaceId),
-            gte(searchLog.createdAt, today)
+      // Try to get data - tables may not exist yet
+      let lastLog: any = null;
+      let todayStats: any[] = [];
+      let recentLogs: any[] = [];
+      let pubCount = { count: 0 };
+      let eventCount = { count: 0 };
+      
+      try {
+        // Get last search log entry
+        [lastLog] = await db
+          .select()
+          .from(searchLog)
+          .where(eq(searchLog.workspaceId, workspaceId))
+          .orderBy(desc(searchLog.createdAt))
+          .limit(1);
+        
+        // Get today's stats
+        todayStats = await db
+          .select({
+            searchType: searchLog.searchType,
+            totalResults: sql<number>`COALESCE(SUM(${searchLog.resultsReturned}), 0)::int`,
+            newPubs: sql<number>`COALESCE(SUM(${searchLog.newPubsAdded}), 0)::int`,
+            existingPubs: sql<number>`COALESCE(SUM(${searchLog.existingPubsFound}), 0)::int`,
+          })
+          .from(searchLog)
+          .where(
+            and(
+              eq(searchLog.workspaceId, workspaceId),
+              gte(searchLog.createdAt, today)
+            )
           )
-        )
-        .groupBy(searchLog.searchType);
+          .groupBy(searchLog.searchType);
+          
+        // Get recent activity (last 20 logs)
+        recentLogs = await db
+          .select()
+          .from(searchLog)
+          .where(eq(searchLog.workspaceId, workspaceId))
+          .orderBy(desc(searchLog.createdAt))
+          .limit(20);
+      } catch (searchLogError: any) {
+        console.log("📊 [DEV-TOOLS] search_log table not available:", searchLogError.message);
+        // Continue with empty data - table might not exist yet
+      }
 
-      // Get total pubs count
-      const [pubCount] = await db
-        .select({ count: sql<number>`count(*)::int` })
-        .from(pubsMaster)
-        .where(eq(pubsMaster.workspaceId, workspaceId));
+      try {
+        // Get total pubs count
+        [pubCount] = await db
+          .select({ count: sql<number>`count(*)::int` })
+          .from(pubsMaster)
+          .where(eq(pubsMaster.workspaceId, workspaceId));
+      } catch (pubsError: any) {
+        console.log("📊 [DEV-TOOLS] pubs_master query failed:", pubsError.message);
+      }
 
-      // Get events discovered today
-      const [eventCount] = await db
-        .select({ count: sql<number>`count(*)::int` })
-        .from(things)
-        .where(
-          and(
-            eq(things.workspaceId, workspaceId),
-            gte(things.createdAt, today)
-          )
-        );
+      try {
+        // Get events discovered today  
+        [eventCount] = await db
+          .select({ count: sql<number>`count(*)::int` })
+          .from(things)
+          .where(
+            and(
+              eq(things.workspaceId, workspaceId),
+              gte(things.createdAt, today)
+            )
+          );
+      } catch (eventsError: any) {
+        console.log("📊 [DEV-TOOLS] things query failed:", eventsError.message);
+      }
 
       // Get closed pubs today (assuming there's a status or closedAt field)
       const closedPubsToday = 0; // Would need schema update to track this
-
-      // Get recent activity (last 20 logs)
-      const recentLogs = await db
-        .select()
-        .from(searchLog)
-        .where(eq(searchLog.workspaceId, workspaceId))
-        .orderBy(desc(searchLog.createdAt))
-        .limit(20);
 
       // Calculate totals from today's stats
       let pubsVerifiedToday = 0;
@@ -255,6 +281,7 @@ export function createDevToolsRouter(storage: IStorage): Router {
         })),
       };
 
+      console.log("📊 [DEV-TOOLS] Returning summary:", JSON.stringify(summary, null, 2));
       res.json({ success: true, summary });
 
     } catch (error: any) {
