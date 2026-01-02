@@ -74,7 +74,7 @@ export default function CrmCustomers() {
         // Use setTimeout to avoid state update conflicts
         setTimeout(() => {
           handleEdit(customerToEdit);
-          setLocation('/auth/crm/customers', { replace: true });
+          setLocation('/customers', { replace: true });
         }, 0);
       }
     }
@@ -180,7 +180,7 @@ export default function CrmCustomers() {
   };
 
   const handleViewOrders = (customerId: string) => {
-    setLocation(`/auth/crm/orders?customerId=${customerId}`);
+    setLocation(`/orders?customerId=${customerId}`);
   };
 
   const onSubmit = (data: z.infer<typeof formSchema>) => {
@@ -610,7 +610,7 @@ export default function CrmCustomers() {
                 <Card>
                   <CardHeader className="flex flex-row items-center justify-between">
                     <CardTitle className="text-lg">Order History</CardTitle>
-                    <Link href="/auth/crm/orders">
+                    <Link href="/orders">
                       <Button variant="outline" size="sm">
                         <ExternalLink className="w-4 h-4 mr-2" />
                         View All Orders

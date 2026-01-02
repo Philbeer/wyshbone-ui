@@ -386,7 +386,7 @@ export default function CrmOrders() {
 
   const handleViewCustomer = (customerId: string) => {
     handleCloseDialog();
-    setLocation(`/auth/crm/customers?editId=${customerId}`);
+    setLocation(`/customers?editId=${customerId}`);
   };
 
   const hasNoCustomers = customers.length === 0;
@@ -430,7 +430,7 @@ export default function CrmOrders() {
             size="sm"
             onClick={() => {
               setFilterCustomerId(null);
-              setLocation('/auth/crm/orders', { replace: true });
+              setLocation('/orders', { replace: true });
             }}
           >
             <X className="w-4 h-4 mr-1" />
@@ -473,7 +473,7 @@ export default function CrmOrders() {
                           className="p-0 h-auto" 
                           onClick={() => {
                             setFilterCustomerId(null);
-                            setLocation('/auth/crm/orders', { replace: true });
+                            setLocation('/orders', { replace: true });
                           }}
                         >
                           View all orders

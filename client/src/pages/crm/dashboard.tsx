@@ -38,7 +38,7 @@ export default function Dashboard() {
   const { data: upcomingTasks } = useUpcomingTasks();
 
   const handleCustomerClick = (customerId: string) => {
-    setLocation(`/auth/crm/customers?editId=${customerId}`);
+    setLocation(`/customers?editId=${customerId}`);
   };
 
   return (
