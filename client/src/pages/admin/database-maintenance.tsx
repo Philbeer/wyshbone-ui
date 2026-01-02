@@ -520,6 +520,58 @@ function CostCalculatorCard({
   );
 }
 
+function HowItWorksCard() {
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2">
+          <Info className="w-5 h-5" />
+          How It Works Together
+        </CardTitle>
+        <CardDescription>Master DB vs User Sleeper Agents</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="p-4 bg-blue-50 dark:bg-blue-950/30 rounded-lg">
+          <div className="flex items-center gap-2 mb-2">
+            <Database className="w-5 h-5 text-blue-500" />
+            <span className="font-medium">Master Database (This Panel)</span>
+          </div>
+          <ul className="text-sm text-muted-foreground space-y-1 ml-7">
+            <li>• Updates 1000-2000 pubs/night</li>
+            <li>• Keeps phone numbers current</li>
+            <li>• Marks closed pubs</li>
+            <li>• Basic freehouse detection</li>
+            <li>• Shared cost across ALL workspaces</li>
+          </ul>
+        </div>
+        
+        <div className="flex justify-center">
+          <div className="text-center text-xs text-muted-foreground">
+            <p>↓ Provides CLEAN DATA for ↓</p>
+          </div>
+        </div>
+        
+        <div className="p-4 bg-green-50 dark:bg-green-950/30 rounded-lg">
+          <div className="flex items-center gap-2 mb-2">
+            <Search className="w-5 h-5 text-green-500" />
+            <span className="font-medium">User Sleeper Agents (Per Workspace)</span>
+          </div>
+          <ul className="text-sm text-muted-foreground space-y-1 ml-7">
+            <li>• Search within user's delivery areas</li>
+            <li>• Filter by user preferences</li>
+            <li>• Find NEW prospects (not in 88k yet)</li>
+            <li>• Personalized recommendations</li>
+            <li>• "You'd love this new micropub!"</li>
+          </ul>
+          <p className="text-xs text-green-600 dark:text-green-400 mt-2 ml-7">
+            → Configure in: Workspace Settings → Sleeper Agent
+          </p>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function RecommendationsCard() {
   const recommendations = [
     {
@@ -699,6 +751,8 @@ export default function DatabaseMaintenance() {
           />
           
           <RecommendationsCard />
+          
+          <HowItWorksCard />
         </div>
       </div>
 
