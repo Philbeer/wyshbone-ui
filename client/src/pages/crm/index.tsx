@@ -1,6 +1,6 @@
 import { Route, Switch, Link, useLocation } from "wouter";
 import { useUser } from "@/contexts/UserContext";
-import { Building2, Users, Package, Truck, Settings, Warehouse, Beer, FileText, Container, Boxes, Phone, DollarSign, BarChart3, Filter, CheckSquare, Activity, Store, QrCode } from "lucide-react";
+import { Building2, Users, Package, Truck, Settings, Warehouse, Beer, FileText, Container, Boxes, Phone, DollarSign, BarChart3, CheckSquare, Activity, Store, QrCode } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
@@ -14,7 +14,8 @@ import CrmStock from "./stock";
 import CrmDiary from "./diary";
 import CrmTasks from "./tasks";
 import CrmActivities from "./activities";
-import CrmCustomerFilters from "./customer-filters";
+// TODO: Re-enable when filter API endpoints are implemented
+// import CrmCustomerFilters from "./customer-filters";
 import BrewCrmBatches from "../brewcrm/batches";
 import BrewCrmContainers from "../brewcrm/containers";
 import BrewCrmDutyReports from "../brewcrm/duty-reports";
@@ -97,12 +98,7 @@ export default function CrmLayout() {
                 Customers
               </Link>
             </Button>
-            <Button variant={isActive("/filters") ? "default" : "ghost"} size="sm" asChild>
-              <Link href="/filters" data-testid="link-crm-filters">
-                <Filter className="w-4 h-4 mr-2" />
-                Filters
-              </Link>
-            </Button>
+            {/* TODO: Add filters functionality later - requires /api/crm/saved-filters and /api/crm/customers/filter endpoints */}
             <Button variant={isActive("/orders") ? "default" : "ghost"} size="sm" asChild>
               <Link href="/orders" data-testid="link-crm-orders">
                 <FileText className="w-4 h-4 mr-2" />
@@ -200,7 +196,8 @@ export default function CrmLayout() {
           {/* Generic CRM Routes */}
           <Route path="/products" component={CrmProducts} />
           <Route path="/customers" component={CrmCustomers} />
-          <Route path="/filters" component={CrmCustomerFilters} />
+          {/* TODO: Re-enable when filter API endpoints are implemented */}
+          {/* <Route path="/filters" component={CrmCustomerFilters} /> */}
           <Route path="/orders" component={CrmOrders} />
           <Route path="/delivery-runs" component={CrmDeliveryRuns} />
           <Route path="/stock" component={CrmStock} />
