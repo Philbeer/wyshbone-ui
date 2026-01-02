@@ -278,24 +278,10 @@ export default function CrmCustomers() {
 
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader className="flex flex-row items-center justify-between">
+          <DialogHeader>
             <DialogTitle data-testid="text-dialog-title">
               {editingCustomer ? "Edit Customer" : "Add Customer"}
             </DialogTitle>
-            {editingCustomer && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  setIsDialogOpen(false);
-                  handleViewOrders(editingCustomer.id);
-                }}
-                className="ml-auto"
-              >
-                <ShoppingCart className="w-4 h-4 mr-2" />
-                View Orders
-              </Button>
-            )}
           </DialogHeader>
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
@@ -443,13 +429,30 @@ export default function CrmCustomers() {
                 )}
               />
 
-              <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)} data-testid="button-cancel">
-                  Cancel
-                </Button>
-                <Button type="submit" disabled={createMutation.isPending || updateMutation.isPending} data-testid="button-submit">
-                  {createMutation.isPending || updateMutation.isPending ? "Saving..." : editingCustomer ? "Update" : "Create"}
-                </Button>
+              <DialogFooter className="flex flex-row items-center gap-2 sm:justify-between">
+                {editingCustomer ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      setIsDialogOpen(false);
+                      handleViewOrders(editingCustomer.id);
+                    }}
+                  >
+                    <ShoppingCart className="w-4 h-4 mr-2" />
+                    View Orders
+                  </Button>
+                ) : (
+                  <div /> 
+                )}
+                <div className="flex gap-2">
+                  <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)} data-testid="button-cancel">
+                    Cancel
+                  </Button>
+                  <Button type="submit" disabled={createMutation.isPending || updateMutation.isPending} data-testid="button-submit">
+                    {createMutation.isPending || updateMutation.isPending ? "Saving..." : editingCustomer ? "Update" : "Create"}
+                  </Button>
+                </div>
               </DialogFooter>
             </form>
           </Form>
