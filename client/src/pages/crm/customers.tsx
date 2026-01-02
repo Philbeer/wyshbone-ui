@@ -60,19 +60,25 @@ export default function CrmCustomers() {
     enabled: !!workspaceId,
   });
 
-  // Handle URL parameter for editing a specific customer
+  // Handle URL parameter for editing a specific customer (only on initial load)
+  const [hasHandledEditId, setHasHandledEditId] = useState(false);
   useEffect(() => {
+    if (hasHandledEditId) return;
+    
     const params = new URLSearchParams(searchString);
     const editId = params.get('editId');
-    if (editId && customers && !isDialogOpen) {
+    if (editId && customers && customers.length > 0) {
       const customerToEdit = customers.find((c: any) => c.id === editId);
       if (customerToEdit) {
-        handleEdit(customerToEdit);
-        // Clear the URL parameter
-        setLocation('/auth/crm/customers', { replace: true });
+        setHasHandledEditId(true);
+        // Use setTimeout to avoid state update conflicts
+        setTimeout(() => {
+          handleEdit(customerToEdit);
+          setLocation('/auth/crm/customers', { replace: true });
+        }, 0);
       }
     }
-  }, [searchString, customers, isDialogOpen]);
+  }, [searchString, customers, hasHandledEditId]);
 
   // Fetch orders for the customer being viewed
   const { data: customerOrders = [], isLoading: ordersLoading } = useQuery<SelectCrmOrder[]>({
@@ -229,8 +235,13 @@ export default function CrmCustomers() {
                   <TableRow 
                     key={customer.id} 
                     data-testid={`row-customer-${customer.id}`}
-                    className="cursor-pointer hover:bg-muted/50"
-                    onClick={() => handleEdit(customer)}
+                    className="cursor-pointer hover:bg-muted/50 select-none"
+                    onClick={(e) => {
+                      // Only handle if not clicking on a button or interactive element
+                      const target = e.target as HTMLElement;
+                      if (target.closest('button')) return;
+                      handleEdit(customer);
+                    }}
                   >
                     <TableCell className="font-medium">{customer.name}</TableCell>
                     <TableCell>{customer.primaryContactName || "-"}</TableCell>
@@ -238,29 +249,44 @@ export default function CrmCustomers() {
                     <TableCell>{customer.phone || "-"}</TableCell>
                     <TableCell>{customer.city || "-"}</TableCell>
                     <TableCell className="text-right">
-                      <div className="flex justify-end gap-2" onClick={(e) => e.stopPropagation()}>
+                      <div className="flex justify-end gap-2">
                         <Button
+                          type="button"
                           variant="ghost"
                           size="icon"
-                          onClick={() => handleViewOrders(customer.id)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            handleViewOrders(customer.id);
+                          }}
                           data-testid={`button-orders-customer-${customer.id}`}
                           title="View orders"
                         >
                           <ShoppingCart className="w-4 h-4" />
                         </Button>
                         <Button
+                          type="button"
                           variant="ghost"
                           size="icon"
-                          onClick={() => handleEdit(customer)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            handleEdit(customer);
+                          }}
                           data-testid={`button-edit-customer-${customer.id}`}
                           title="Edit"
                         >
                           <Pencil className="w-4 h-4" />
                         </Button>
                         <Button
+                          type="button"
                           variant="ghost"
                           size="icon"
-                          onClick={() => setDeletingCustomerId(customer.id)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            setDeletingCustomerId(customer.id);
+                          }}
                           data-testid={`button-delete-customer-${customer.id}`}
                           title="Delete"
                         >
