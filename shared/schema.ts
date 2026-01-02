@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { pgTable, text, integer, jsonb, bigint, index, serial, numeric, date, timestamp, uuid, real, varchar, boolean } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, jsonb, bigint, index, serial, numeric, date, timestamp, uuid, real, varchar, boolean, doublePrecision } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 
@@ -875,6 +875,141 @@ export const insertCrmOrderLineSchema = createInsertSchema(crmOrderLines);
 export const selectCrmOrderLineSchema = createSelectSchema(crmOrderLines);
 export type InsertCrmOrderLine = typeof crmOrderLines.$inferInsert;
 export type SelectCrmOrderLine = typeof crmOrderLines.$inferSelect;
+
+// ============= SUPPLIERS (who we BUY FROM) =============
+// Suppliers table - companies/merchants we purchase from
+export const suppliers = pgTable("suppliers", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull(),
+  
+  // Basic Info
+  name: text("name").notNull(),
+  supplierType: text("supplier_type"), // brewery_supplier, hop_merchant, maltster, packaging, equipment, services, etc.
+  
+  // Contact
+  email: text("email"),
+  phone: text("phone"),
+  website: text("website"),
+  addressLine1: text("address_line_1"),
+  addressLine2: text("address_line_2"),
+  city: text("city"),
+  postcode: text("postcode"),
+  country: text("country").default("UK"),
+  
+  // Business
+  companyNumber: text("company_number"),
+  vatNumber: text("vat_number"),
+  
+  // Relationship
+  isOurSupplier: integer("is_our_supplier").default(0), // 1 = true, 0 = false
+  firstPurchaseDate: bigint("first_purchase_date", { mode: "number" }),
+  lastPurchaseDate: bigint("last_purchase_date", { mode: "number" }),
+  totalPurchasesAmount: doublePrecision("total_purchases_amount").default(0), // In GBP
+  purchaseCount: integer("purchase_count").default(0),
+  
+  // Intelligence (for supply chain insights)
+  otherBreweriesCount: integer("other_breweries_count").default(0), // How many other breweries use this supplier
+  trendingScore: doublePrecision("trending_score").default(0), // Popularity/trend indicator
+  
+  // Xero Integration
+  xeroContactId: text("xero_contact_id").unique(),
+  lastXeroSyncAt: bigint("last_xero_sync_at", { mode: "number" }),
+  
+  // Discovery
+  discoveredBy: text("discovered_by"), // 'xero', 'manual', 'ai_sleeper_agent'
+  discoveredAt: bigint("discovered_at", { mode: "number" }),
+  
+  // Notes
+  notes: text("notes"),
+  
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+}, (table) => ({
+  workspaceIdIdx: index("suppliers_workspace_id_idx").on(table.workspaceId),
+  xeroContactIdIdx: index("suppliers_xero_contact_id_idx").on(table.xeroContactId),
+  isOurSupplierIdx: index("suppliers_is_our_supplier_idx").on(table.isOurSupplier),
+  supplierTypeIdx: index("suppliers_supplier_type_idx").on(table.supplierType),
+  nameIdx: index("suppliers_name_idx").on(table.name),
+}));
+
+export const insertSupplierSchema = createInsertSchema(suppliers);
+export const selectSupplierSchema = createSelectSchema(suppliers);
+export type InsertSupplier = typeof suppliers.$inferInsert;
+export type SelectSupplier = typeof suppliers.$inferSelect;
+
+// Supplier Purchases (Bills from suppliers)
+export const supplierPurchases = pgTable("supplier_purchases", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull(),
+  supplierId: text("supplier_id").notNull(), // References suppliers.id
+  
+  // Xero
+  xeroBillId: text("xero_bill_id").unique(),
+  xeroBillNumber: text("xero_bill_number"),
+  
+  // Purchase
+  purchaseDate: bigint("purchase_date", { mode: "number" }).notNull(),
+  dueDate: bigint("due_date", { mode: "number" }),
+  totalAmount: doublePrecision("total_amount").notNull(), // In GBP
+  currency: text("currency").default("GBP"),
+  status: text("status").default("draft"), // 'draft', 'submitted', 'authorised', 'paid', 'voided'
+  
+  // Items
+  lineItems: jsonb("line_items"), // [{ description, quantity, unitPrice, amount, accountCode }]
+  
+  // Notes
+  reference: text("reference"),
+  notes: text("notes"),
+  
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+  syncedAt: bigint("synced_at", { mode: "number" }),
+}, (table) => ({
+  workspaceIdIdx: index("supplier_purchases_workspace_id_idx").on(table.workspaceId),
+  supplierIdIdx: index("supplier_purchases_supplier_id_idx").on(table.supplierId),
+  xeroBillIdIdx: index("supplier_purchases_xero_bill_id_idx").on(table.xeroBillId),
+  purchaseDateIdx: index("supplier_purchases_purchase_date_idx").on(table.purchaseDate),
+  statusIdx: index("supplier_purchases_status_idx").on(table.status),
+}));
+
+export const insertSupplierPurchaseSchema = createInsertSchema(supplierPurchases);
+export const selectSupplierPurchaseSchema = createSelectSchema(supplierPurchases);
+export type InsertSupplierPurchase = typeof supplierPurchases.$inferInsert;
+export type SelectSupplierPurchase = typeof supplierPurchases.$inferSelect;
+
+// Supplier Products (items we buy from each supplier)
+export const supplierProducts = pgTable("supplier_products", {
+  id: serial("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull(),
+  supplierId: text("supplier_id").notNull(), // References suppliers.id
+  
+  // Product Info
+  productName: text("product_name").notNull(),
+  productCategory: text("product_category"), // 'hops', 'malt', 'yeast', 'packaging', 'equipment', 'chemicals', 'other'
+  productCode: text("product_code"), // Supplier's product code/SKU
+  unit: text("unit"), // 'kg', 'litre', 'unit', 'pallet', 'case', etc.
+  
+  // Pricing
+  lastPrice: doublePrecision("last_price"), // Last price paid in GBP
+  lastPurchaseDate: bigint("last_purchase_date", { mode: "number" }),
+  priceHistory: jsonb("price_history"), // [{ date, price, quantity }]
+  
+  // Notes
+  notes: text("notes"),
+  
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+}, (table) => ({
+  workspaceIdIdx: index("supplier_products_workspace_id_idx").on(table.workspaceId),
+  supplierIdIdx: index("supplier_products_supplier_id_idx").on(table.supplierId),
+  productCategoryIdx: index("supplier_products_product_category_idx").on(table.productCategory),
+  productNameIdx: index("supplier_products_product_name_idx").on(table.productName),
+}));
+
+export const insertSupplierProductSchema = createInsertSchema(supplierProducts);
+export const selectSupplierProductSchema = createSelectSchema(supplierProducts);
+export type InsertSupplierProduct = typeof supplierProducts.$inferInsert;
+export type SelectSupplierProduct = typeof supplierProducts.$inferSelect;
 
 // ============= BREWERY VERTICAL TABLES =============
 // Brewery Products (beers)
