@@ -1254,3 +1254,425 @@ function mapXeroStatusToLocal(status?: string): string {
   return statusMap[status || ''] || 'draft';
 }
 
+// ============================================
+// BILLS IMPORT (ALL SUPPLIERS)
+// ============================================
+
+/**
+ * Import summary for bills import.
+ */
+export interface XeroBillsImportSummary {
+  total: number;
+  imported: number;
+  updated: number;
+  skipped: number;
+  errors: number;
+  productsTracked: number;
+  errorDetails: Array<{ bill: string; error: string }>;
+}
+
+/**
+ * Import all bills (ACCPAY invoices) from Xero.
+ * 
+ * This function:
+ * 1. Fetches all purchase invoices (bills) from Xero
+ * 2. Matches them to existing suppliers
+ * 3. Updates supplier statistics
+ * 4. Tracks product pricing from line items
+ * 
+ * @param workspaceId - Tenant workspace ID
+ * @param storage - Storage interface for Xero connection
+ * @param since - Optional date to only fetch bills since
+ * @returns Import summary
+ */
+export async function importXeroBills(
+  workspaceId: string,
+  storage: XeroStorage,
+  since?: Date
+): Promise<XeroBillsImportSummary> {
+  const logPrefix = `[xero-import:bills]`;
+  const db = getDb();
+  
+  console.log(`${logPrefix} Starting Xero bills import for workspace ${workspaceId}`);
+  if (since) {
+    console.log(`${logPrefix} Fetching bills since ${since.toISOString()}`);
+  }
+
+  // Initialize summary
+  const summary: XeroBillsImportSummary = {
+    total: 0,
+    imported: 0,
+    updated: 0,
+    skipped: 0,
+    errors: 0,
+    productsTracked: 0,
+    errorDetails: [],
+  };
+
+  // Get Xero client
+  const xeroData = await getXeroClient(workspaceId, storage);
+  if (!xeroData) {
+    throw new Error("Xero not connected or token expired");
+  }
+
+  const { client: xero, tenantId } = xeroData;
+
+  try {
+    // Build where clause for ACCPAY (purchase invoices/bills)
+    let whereClause = 'Type=="ACCPAY"';
+    if (since) {
+      const year = since.getFullYear();
+      const month = since.getMonth() + 1;
+      const day = since.getDate();
+      whereClause = `Type=="ACCPAY" AND Date >= DateTime(${year},${month},${day})`;
+    }
+
+    // Fetch bills from Xero
+    console.log(`${logPrefix} Fetching bills from Xero with filter: ${whereClause}`);
+    const response = await xero.accountingApi.getInvoices(
+      tenantId,
+      undefined,     // ifModifiedSince
+      whereClause,   // where
+      'Date DESC',   // order
+      undefined,     // iDs
+      undefined,     // invoiceNumbers
+      undefined,     // contactIDs
+      undefined,     // statuses
+      undefined,     // page
+      false,         // includeArchived
+      false,         // createdByMyApp
+      undefined      // unitdp
+    );
+
+    const bills = response.body.invoices || [];
+    summary.total = bills.length;
+    console.log(`${logPrefix} Found ${bills.length} bills in Xero`);
+
+    if (bills.length === 0) {
+      return summary;
+    }
+
+    // Track which suppliers need stats updates
+    const suppliersToUpdate = new Set<string>();
+
+    // Process each bill
+    for (const bill of bills) {
+      const billNumber = bill.invoiceNumber || bill.invoiceID || 'Unknown';
+
+      try {
+        // Find matching supplier by Xero contact ID
+        if (!bill.contact?.contactID) {
+          summary.skipped++;
+          continue;
+        }
+
+        const [supplier] = await db
+          .select()
+          .from(suppliers)
+          .where(and(
+            eq(suppliers.xeroContactId, bill.contact.contactID),
+            eq(suppliers.workspaceId, workspaceId)
+          ))
+          .limit(1);
+
+        if (!supplier) {
+          // Supplier not yet imported - skip
+          console.log(`${logPrefix} Skipping bill ${billNumber} - supplier ${bill.contact.name} not found`);
+          summary.skipped++;
+          continue;
+        }
+
+        // Check if bill already exists
+        const [existingBill] = await db
+          .select({ id: supplierPurchases.id })
+          .from(supplierPurchases)
+          .where(eq(supplierPurchases.xeroBillId, bill.invoiceID!))
+          .limit(1);
+
+        // Parse dates
+        const purchaseDate = bill.date ? new Date(bill.date).getTime() : Date.now();
+        const dueDate = bill.dueDate ? new Date(bill.dueDate).getTime() : null;
+
+        // Map line items
+        const lineItems = (bill.lineItems || []).map((item: any) => ({
+          description: item.description || 'Unknown item',
+          quantity: item.quantity || 1,
+          unitPrice: item.unitAmount || 0,
+          lineAmount: item.lineAmount || 0,
+          accountCode: item.accountCode || null,
+          itemCode: item.itemCode || null,
+        }));
+
+        if (existingBill) {
+          // Update existing bill
+          await db.update(supplierPurchases).set({
+            totalAmount: bill.total || 0,
+            status: mapXeroStatusToLocal(bill.status?.toString()),
+            lineItems,
+            syncedAt: Date.now(),
+            updatedAt: Date.now(),
+          }).where(eq(supplierPurchases.id, existingBill.id));
+
+          summary.updated++;
+        } else {
+          // Create new bill
+          const purchaseId = `purch_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+          const now = Date.now();
+
+          await db.insert(supplierPurchases).values({
+            id: purchaseId,
+            workspaceId,
+            supplierId: supplier.id,
+            xeroBillId: bill.invoiceID,
+            xeroBillNumber: bill.invoiceNumber || null,
+            purchaseDate,
+            dueDate,
+            totalAmount: bill.total || 0,
+            currency: bill.currencyCode || 'GBP',
+            status: mapXeroStatusToLocal(bill.status?.toString()),
+            lineItems,
+            reference: bill.reference || null,
+            createdAt: now,
+            updatedAt: now,
+            syncedAt: now,
+          });
+
+          summary.imported++;
+        }
+
+        // Mark supplier for stats update
+        suppliersToUpdate.add(supplier.id);
+
+        // Extract and track product pricing from line items
+        if (bill.lineItems && bill.lineItems.length > 0) {
+          for (const item of bill.lineItems) {
+            if (item.description && item.quantity && item.lineAmount) {
+              const unitPrice = item.lineAmount / item.quantity;
+              const billDate = bill.date ? new Date(bill.date) : new Date();
+              
+              await updateSupplierProduct(
+                workspaceId,
+                supplier.id,
+                item.description,
+                unitPrice,
+                billDate,
+                item.itemCode || undefined
+              );
+              
+              summary.productsTracked++;
+            }
+          }
+        }
+
+      } catch (error) {
+        console.error(`${logPrefix} Error processing bill ${billNumber}:`, error);
+        summary.errors++;
+        summary.errorDetails.push({
+          bill: billNumber,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        });
+      }
+    }
+
+    // Update stats for all affected suppliers
+    console.log(`${logPrefix} Updating stats for ${suppliersToUpdate.size} suppliers...`);
+    for (const supplierId of suppliersToUpdate) {
+      try {
+        await updateSupplierStats(supplierId);
+      } catch (error) {
+        console.error(`${logPrefix} Error updating stats for supplier ${supplierId}:`, error);
+      }
+    }
+
+    console.log(`${logPrefix} Bills import complete:`, {
+      total: summary.total,
+      imported: summary.imported,
+      updated: summary.updated,
+      skipped: summary.skipped,
+      errors: summary.errors,
+      productsTracked: summary.productsTracked,
+    });
+
+    return summary;
+
+  } catch (error) {
+    console.error(`${logPrefix} Fatal error during bills import:`, error);
+    throw error;
+  }
+}
+
+/**
+ * Update supplier statistics from their purchases.
+ * 
+ * Calculates:
+ * - Total spend (totalPurchasesAmount)
+ * - Purchase count
+ * - First and last purchase dates
+ * 
+ * @param supplierId - Supplier ID to update
+ */
+async function updateSupplierStats(supplierId: string): Promise<void> {
+  const db = getDb();
+  const logPrefix = `[xero-import:stats]`;
+
+  try {
+    // Calculate aggregate stats from purchases
+    const [stats] = await db
+      .select({
+        total: sql<number>`COALESCE(SUM(${supplierPurchases.totalAmount}), 0)`,
+        count: sql<number>`COUNT(*)`,
+        lastDate: sql<number>`MAX(${supplierPurchases.purchaseDate})`,
+        firstDate: sql<number>`MIN(${supplierPurchases.purchaseDate})`,
+      })
+      .from(supplierPurchases)
+      .where(eq(supplierPurchases.supplierId, supplierId));
+
+    // Update supplier record
+    await db.update(suppliers).set({
+      totalPurchasesAmount: stats?.total || 0,
+      purchaseCount: stats?.count || 0,
+      lastPurchaseDate: stats?.lastDate || null,
+      firstPurchaseDate: stats?.firstDate || null,
+      updatedAt: Date.now(),
+    }).where(eq(suppliers.id, supplierId));
+
+    console.log(`${logPrefix} Updated stats for supplier ${supplierId}: £${stats?.total?.toFixed(2) || 0} total, ${stats?.count || 0} purchases`);
+
+  } catch (error) {
+    console.error(`${logPrefix} Error updating supplier stats:`, error);
+    throw error;
+  }
+}
+
+/**
+ * Update or create a supplier product record with pricing history.
+ * 
+ * Tracks the price paid for each product from a supplier over time,
+ * enabling price trend analysis and cost monitoring.
+ * 
+ * @param workspaceId - Workspace ID
+ * @param supplierId - Supplier ID
+ * @param productName - Product description/name
+ * @param price - Unit price paid
+ * @param date - Date of purchase
+ * @param productCode - Optional product code/SKU
+ */
+async function updateSupplierProduct(
+  workspaceId: string,
+  supplierId: string,
+  productName: string,
+  price: number,
+  date: Date,
+  productCode?: string
+): Promise<void> {
+  const db = getDb();
+  const logPrefix = `[xero-import:products]`;
+
+  try {
+    // Normalize product name for matching
+    const normalizedName = productName.trim().toLowerCase();
+
+    // Find existing product record
+    const [existing] = await db
+      .select()
+      .from(supplierProducts)
+      .where(and(
+        eq(supplierProducts.supplierId, supplierId),
+        sql`LOWER(${supplierProducts.productName}) = ${normalizedName}`
+      ))
+      .limit(1);
+
+    const dateTimestamp = date.getTime();
+    const now = Date.now();
+
+    if (existing) {
+      // Update existing product with new price point
+      const history: Array<{ date: string; price: number }> = 
+        (existing.priceHistory as Array<{ date: string; price: number }>) || [];
+      
+      // Check if we already have this price point (avoid duplicates)
+      const dateStr = date.toISOString().split('T')[0];
+      const existingEntry = history.find(h => h.date.startsWith(dateStr));
+      
+      if (!existingEntry) {
+        history.push({ date: date.toISOString(), price });
+        
+        // Sort by date and keep last 50 entries
+        history.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        const trimmedHistory = history.slice(0, 50);
+
+        await db.update(supplierProducts).set({
+          lastPrice: price,
+          lastPurchaseDate: dateTimestamp,
+          priceHistory: trimmedHistory,
+          productCode: productCode || existing.productCode,
+          updatedAt: now,
+        }).where(eq(supplierProducts.id, existing.id));
+      }
+
+    } else {
+      // Create new product record
+      await db.insert(supplierProducts).values({
+        workspaceId,
+        supplierId,
+        productName: productName.trim(),
+        productCode: productCode || null,
+        lastPrice: price,
+        lastPurchaseDate: dateTimestamp,
+        priceHistory: [{ date: date.toISOString(), price }],
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      console.log(`${logPrefix} Created product: "${productName}" from supplier ${supplierId}`);
+    }
+
+  } catch (error) {
+    // Non-critical - log but don't fail the main import
+    console.warn(`${logPrefix} Failed to update product "${productName}":`, error);
+  }
+}
+
+/**
+ * Full supplier sync: imports suppliers, their bills, and updates all stats.
+ * 
+ * This is the recommended function for a complete Xero supplier sync.
+ * 
+ * @param workspaceId - Workspace ID
+ * @param storage - Storage interface
+ * @param since - Optional: only import bills since this date
+ */
+export async function fullXeroSupplierSync(
+  workspaceId: string,
+  storage: XeroStorage,
+  since?: Date
+): Promise<{
+  suppliers: XeroSupplierImportSummary;
+  bills: XeroBillsImportSummary;
+}> {
+  const logPrefix = `[xero-import:full-sync]`;
+  
+  console.log(`${logPrefix} Starting full supplier sync for workspace ${workspaceId}`);
+
+  // Step 1: Import/update suppliers
+  console.log(`${logPrefix} Step 1: Importing suppliers...`);
+  const supplierResult = await importXeroSuppliers(workspaceId, storage);
+
+  // Step 2: Import bills
+  console.log(`${logPrefix} Step 2: Importing bills...`);
+  const billsResult = await importXeroBills(workspaceId, storage, since);
+
+  console.log(`${logPrefix} Full sync complete:`, {
+    suppliersCreated: supplierResult.created,
+    suppliersUpdated: supplierResult.matched,
+    billsImported: billsResult.imported,
+    billsUpdated: billsResult.updated,
+    productsTracked: billsResult.productsTracked,
+  });
+
+  return {
+    suppliers: supplierResult,
+    bills: billsResult,
+  };
+}
+

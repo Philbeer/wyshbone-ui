@@ -10,6 +10,8 @@ import {
   importXeroSuppliers, 
   importXeroSuppliersWithPurchases,
   importXeroPurchases,
+  importXeroBills,
+  fullXeroSupplierSync,
 } from "../lib/xero-import";
 
 // Webhook signing key for verifying Xero webhooks
@@ -1059,6 +1061,87 @@ export function createXeroSyncRouter(storage: IStorage) {
       });
     } catch (error: any) {
       console.error("Failed to sync supplier purchases:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  /**
+   * Import all bills (purchase invoices) from Xero
+   * Matches to existing suppliers and tracks product pricing
+   */
+  router.post("/sync/bills", async (req: Request, res: Response) => {
+    try {
+      const workspaceId = req.body.workspaceId as string;
+      const since = req.body.since ? new Date(req.body.since) : undefined;
+      
+      if (!workspaceId) {
+        return res.status(400).json({ error: "workspaceId required" });
+      }
+
+      const connection = await storage.getXeroConnection(workspaceId);
+      if (!connection || !connection.isConnected) {
+        return res.status(400).json({ error: "Xero not connected" });
+      }
+
+      console.log(`📥 Starting bills sync for workspace ${workspaceId}`);
+      if (since) {
+        console.log(`📥 Fetching bills since ${since.toISOString()}`);
+      }
+
+      // First ensure suppliers are synced
+      console.log(`📥 Step 1: Syncing suppliers first...`);
+      const supplierResult = await importXeroSuppliers(workspaceId, storage);
+      
+      // Then sync bills
+      console.log(`📥 Step 2: Syncing bills...`);
+      const billsResult = await importXeroBills(workspaceId, storage, since);
+
+      res.json({
+        success: true,
+        message: `Synced ${billsResult.imported} new bills, ${billsResult.updated} updated`,
+        result: {
+          suppliers: {
+            created: supplierResult.created,
+            updated: supplierResult.matched,
+          },
+          bills: billsResult,
+        },
+      });
+    } catch (error: any) {
+      console.error("Failed to sync bills:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  /**
+   * Full supplier sync: suppliers + all bills + product pricing
+   * This is the recommended endpoint for a complete supplier sync
+   */
+  router.post("/sync/suppliers-full", async (req: Request, res: Response) => {
+    try {
+      const workspaceId = req.body.workspaceId as string;
+      const since = req.body.since ? new Date(req.body.since) : undefined;
+      
+      if (!workspaceId) {
+        return res.status(400).json({ error: "workspaceId required" });
+      }
+
+      const connection = await storage.getXeroConnection(workspaceId);
+      if (!connection || !connection.isConnected) {
+        return res.status(400).json({ error: "Xero not connected" });
+      }
+
+      console.log(`📥 Starting full supplier sync for workspace ${workspaceId}`);
+      
+      const result = await fullXeroSupplierSync(workspaceId, storage, since);
+
+      res.json({
+        success: true,
+        message: `Full sync complete: ${result.suppliers.created} new suppliers, ${result.bills.imported} new bills, ${result.bills.productsTracked} products tracked`,
+        result,
+      });
+    } catch (error: any) {
+      console.error("Failed full supplier sync:", error);
       res.status(500).json({ error: error.message });
     }
   });
