@@ -18,6 +18,7 @@ import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Separator } from '@/components/ui/separator';
+import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import {
   Database,
   Settings,
@@ -554,6 +555,18 @@ function CostCalculatorCard({
             This cost is shared across ALL workspaces
           </p>
         </div>
+
+        {/* High cost warning */}
+        {costs.perMonth > 1000 && (
+          <Alert variant="warning">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertTitle>High Monthly Cost</AlertTitle>
+            <AlertDescription>
+              These settings will cost £{costs.perMonth.toFixed(0)}/month.
+              Consider reducing batch size or disabling expensive sources.
+            </AlertDescription>
+          </Alert>
+        )}
       </CardContent>
     </Card>
   );
