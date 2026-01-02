@@ -334,7 +334,7 @@ export default function SleeperAgentMonitor() {
 
   if (error) {
     return (
-      <div className="p-6">
+      <div className="p-6 overflow-y-auto h-full">
         <Card className="border-destructive">
           <CardHeader>
             <CardTitle className="text-destructive flex items-center gap-2">
@@ -354,7 +354,7 @@ export default function SleeperAgentMonitor() {
   }
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-6 space-y-6 overflow-y-auto h-full">
       {/* Header */}
       <div className="flex items-start justify-between">
         <div>
