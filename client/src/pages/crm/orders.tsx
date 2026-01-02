@@ -1,5 +1,6 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { useSearch } from "wouter";
 import { queryClient, apiRequest, buildApiUrl } from "@/lib/queryClient";
 import { useUser } from "@/contexts/UserContext";
 import { useToast } from "@/hooks/use-toast";
@@ -14,12 +15,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Plus, Pencil, Trash2, Save, Check, X, FileOutput, ExternalLink, Clock, AlertCircle, RefreshCw } from "lucide-react";
+import { Plus, Pencil, Trash2, Save, Check, X, FileOutput, ExternalLink, Clock, AlertCircle, RefreshCw, User } from "lucide-react";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import type { SelectCrmOrder, SelectCrmOrderLine, SelectCrmCustomer, SelectCrmDeliveryRun, SelectCrmProduct } from "@shared/schema";
+import { useLocation } from "wouter";
 
 const orderFormSchema = z.object({
   orderNumber: z.string().min(1, "Order number is required"),
@@ -106,16 +108,34 @@ export default function CrmOrders() {
   const { user } = useUser();
   const workspaceId = user.id;
   const { toast } = useToast();
+  const [, setLocation] = useLocation();
+  const searchString = useSearch();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingOrder, setEditingOrder] = useState<SelectCrmOrder | null>(null);
   const [deletingOrderId, setDeletingOrderId] = useState<string | null>(null);
   const [localLineItems, setLocalLineItems] = useState<LocalLineItem[]>([]);
   const [exportingOrderId, setExportingOrderId] = useState<string | null>(null);
+  const [filterCustomerId, setFilterCustomerId] = useState<string | null>(null);
 
-  const { data: orders = [], isLoading } = useQuery<SelectCrmOrder[]>({
+  // Handle URL parameter for filtering by customer
+  useEffect(() => {
+    const params = new URLSearchParams(searchString);
+    const customerId = params.get('customerId');
+    if (customerId) {
+      setFilterCustomerId(customerId);
+    }
+  }, [searchString]);
+
+  const { data: allOrders = [], isLoading } = useQuery<SelectCrmOrder[]>({
     queryKey: ['/api/crm/orders', workspaceId],
     enabled: !!workspaceId,
   });
+
+  // Filter orders by customer if filter is active
+  const orders = useMemo(() => {
+    if (!filterCustomerId) return allOrders;
+    return allOrders.filter(order => order.customerId === filterCustomerId);
+  }, [allOrders, filterCustomerId]);
 
   const { data: customers = [] } = useQuery<SelectCrmCustomer[]>({
     queryKey: ['/api/crm/customers', workspaceId],
@@ -357,6 +377,11 @@ export default function CrmOrders() {
     return customer?.name || "Unknown";
   };
 
+  const handleViewCustomer = (customerId: string) => {
+    handleCloseDialog();
+    setLocation(`/auth/crm/customers?editId=${customerId}`);
+  };
+
   const hasNoCustomers = customers.length === 0;
   const hasNoProducts = products.length === 0;
 
@@ -382,6 +407,28 @@ export default function CrmOrders() {
           <p className="text-sm text-muted-foreground">
             You need to create at least one customer before you can create orders.
           </p>
+        </div>
+      )}
+
+      {filterCustomerId && (
+        <div className="mb-4 p-3 border rounded-md bg-blue-50 dark:bg-blue-950/30 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <User className="w-4 h-4 text-blue-600" />
+            <span className="text-sm">
+              Showing orders for: <strong>{getCustomerName(filterCustomerId)}</strong>
+            </span>
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setFilterCustomerId(null);
+              setLocation('/auth/crm/orders', { replace: true });
+            }}
+          >
+            <X className="w-4 h-4 mr-1" />
+            Clear Filter
+          </Button>
         </div>
       )}
 
@@ -416,7 +463,12 @@ export default function CrmOrders() {
                 </TableRow>
               ) : (
                 orders.map((order) => (
-                  <TableRow key={order.id} data-testid={`row-order-${order.id}`}>
+                  <TableRow 
+                    key={order.id} 
+                    data-testid={`row-order-${order.id}`}
+                    className="cursor-pointer hover:bg-muted/50"
+                    onClick={() => handleEdit(order)}
+                  >
                     <TableCell className="font-medium">{order.orderNumber}</TableCell>
                     <TableCell>{getCustomerName(order.customerId)}</TableCell>
                     <TableCell>{new Date(order.orderDate).toLocaleDateString()}</TableCell>
@@ -434,7 +486,7 @@ export default function CrmOrders() {
                     <TableCell className="text-right font-medium">
                       {formatCurrency(order.totalIncVat || 0)}
                     </TableCell>
-                    <TableCell>
+                    <TableCell onClick={(e) => e.stopPropagation()}>
                       {(order as any).xeroInvoiceId ? (
                         <div className="flex items-center gap-1">
                           <Badge variant="outline" className="text-green-600">
@@ -475,7 +527,7 @@ export default function CrmOrders() {
                         </Button>
                       )}
                     </TableCell>
-                    <TableCell className="text-right">
+                    <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                       <div className="flex justify-end gap-2">
                         <Button
                           variant="ghost"
@@ -538,24 +590,37 @@ export default function CrmOrders() {
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel>Customer *</FormLabel>
-                          <Select 
-                            onValueChange={field.onChange} 
-                            value={field.value || ""}
-                            disabled={hasNoCustomers}
-                          >
-                            <FormControl>
-                              <SelectTrigger data-testid="select-customer">
-                                <SelectValue placeholder={hasNoCustomers ? "No customers available" : "Select customer"} />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              {customers.map((customer) => (
-                                <SelectItem key={customer.id} value={customer.id}>
-                                  {customer.name}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+                          <div className="flex gap-2">
+                            <Select 
+                              onValueChange={field.onChange} 
+                              value={field.value || ""}
+                              disabled={hasNoCustomers}
+                            >
+                              <FormControl>
+                                <SelectTrigger data-testid="select-customer" className="flex-1">
+                                  <SelectValue placeholder={hasNoCustomers ? "No customers available" : "Select customer"} />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                {customers.map((customer) => (
+                                  <SelectItem key={customer.id} value={customer.id}>
+                                    {customer.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            {field.value && (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="icon"
+                                onClick={() => handleViewCustomer(field.value)}
+                                title="View customer"
+                              >
+                                <User className="w-4 h-4" />
+                              </Button>
+                            )}
+                          </div>
                           <FormMessage />
                         </FormItem>
                       )}

@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { useSearch } from "wouter";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useUser } from "@/contexts/UserContext";
 import { useToast } from "@/hooks/use-toast";
@@ -14,7 +15,8 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertCrmCustomerSchema } from "@shared/schema";
 import { z } from "zod";
-import { Plus, Pencil, Trash2, Eye, FileText, ExternalLink, Mail, Phone, MapPin } from "lucide-react";
+import { Plus, Pencil, Trash2, ShoppingCart, FileText, ExternalLink, Mail, Phone, MapPin } from "lucide-react";
+import { useLocation } from "wouter";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -46,6 +48,8 @@ export default function CrmCustomers() {
   const { user } = useUser();
   const workspaceId = user.id;
   const { toast } = useToast();
+  const [, setLocation] = useLocation();
+  const searchString = useSearch();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState<any>(null);
   const [deletingCustomerId, setDeletingCustomerId] = useState<string | null>(null);
@@ -55,6 +59,20 @@ export default function CrmCustomers() {
     queryKey: ['/api/crm/customers', workspaceId],
     enabled: !!workspaceId,
   });
+
+  // Handle URL parameter for editing a specific customer
+  useEffect(() => {
+    const params = new URLSearchParams(searchString);
+    const editId = params.get('editId');
+    if (editId && customers && !isDialogOpen) {
+      const customerToEdit = customers.find((c: any) => c.id === editId);
+      if (customerToEdit) {
+        handleEdit(customerToEdit);
+        // Clear the URL parameter
+        setLocation('/auth/crm/customers', { replace: true });
+      }
+    }
+  }, [searchString, customers, isDialogOpen]);
 
   // Fetch orders for the customer being viewed
   const { data: customerOrders = [], isLoading: ordersLoading } = useQuery<SelectCrmOrder[]>({
@@ -140,8 +158,23 @@ export default function CrmCustomers() {
 
   const handleAddNew = () => {
     setEditingCustomer(null);
-    form.reset();
+    form.reset({
+      name: "",
+      primaryContactName: "",
+      email: "",
+      phone: "",
+      addressLine1: "",
+      addressLine2: "",
+      city: "",
+      postcode: "",
+      country: "United Kingdom",
+      notes: "",
+    });
     setIsDialogOpen(true);
+  };
+
+  const handleViewOrders = (customerId: string) => {
+    setLocation(`/auth/crm/orders?customerId=${customerId}`);
   };
 
   const onSubmit = (data: z.infer<typeof formSchema>) => {
@@ -193,22 +226,27 @@ export default function CrmCustomers() {
                 </TableRow>
               ) : (
                 customers?.map((customer: any) => (
-                  <TableRow key={customer.id} data-testid={`row-customer-${customer.id}`}>
+                  <TableRow 
+                    key={customer.id} 
+                    data-testid={`row-customer-${customer.id}`}
+                    className="cursor-pointer hover:bg-muted/50"
+                    onClick={() => handleEdit(customer)}
+                  >
                     <TableCell className="font-medium">{customer.name}</TableCell>
                     <TableCell>{customer.primaryContactName || "-"}</TableCell>
                     <TableCell>{customer.email || "-"}</TableCell>
                     <TableCell>{customer.phone || "-"}</TableCell>
                     <TableCell>{customer.city || "-"}</TableCell>
                     <TableCell className="text-right">
-                      <div className="flex justify-end gap-2">
+                      <div className="flex justify-end gap-2" onClick={(e) => e.stopPropagation()}>
                         <Button
                           variant="ghost"
                           size="icon"
-                          onClick={() => setViewingCustomer(customer)}
-                          data-testid={`button-view-customer-${customer.id}`}
-                          title="View details"
+                          onClick={() => handleViewOrders(customer.id)}
+                          data-testid={`button-orders-customer-${customer.id}`}
+                          title="View orders"
                         >
-                          <Eye className="w-4 h-4" />
+                          <ShoppingCart className="w-4 h-4" />
                         </Button>
                         <Button
                           variant="ghost"
@@ -240,10 +278,24 @@ export default function CrmCustomers() {
 
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
+          <DialogHeader className="flex flex-row items-center justify-between">
             <DialogTitle data-testid="text-dialog-title">
               {editingCustomer ? "Edit Customer" : "Add Customer"}
             </DialogTitle>
+            {editingCustomer && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setIsDialogOpen(false);
+                  handleViewOrders(editingCustomer.id);
+                }}
+                className="ml-auto"
+              >
+                <ShoppingCart className="w-4 h-4 mr-2" />
+                View Orders
+              </Button>
+            )}
           </DialogHeader>
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
