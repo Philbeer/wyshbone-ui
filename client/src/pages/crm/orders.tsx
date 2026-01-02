@@ -686,15 +686,43 @@ export default function CrmOrders() {
                           )}
                         </div>
                       ) : (order as any).syncStatus === 'pending' ? (
-                        <Badge variant="secondary" className="gap-1">
-                          <RefreshCw className="w-3 h-3 animate-spin" />
-                          Syncing...
-                        </Badge>
+                        <div className="flex items-center gap-1">
+                          <Badge variant="secondary" className="gap-1">
+                            <RefreshCw className="w-3 h-3 animate-spin" />
+                            Syncing...
+                          </Badge>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 px-1"
+                            onClick={() => {
+                              setExportingOrderId(order.id);
+                              exportToXeroMutation.mutate(order.id);
+                            }}
+                            title="Retry sync"
+                          >
+                            <RefreshCw className="w-3 h-3" />
+                          </Button>
+                        </div>
                       ) : (order as any).syncStatus === 'failed' ? (
-                        <Badge variant="destructive" className="gap-1">
-                          <AlertCircle className="w-3 h-3" />
-                          Failed
-                        </Badge>
+                        <div className="flex items-center gap-1">
+                          <Badge variant="destructive" className="gap-1" title={(order as any).lastSyncError || "Sync failed"}>
+                            <AlertCircle className="w-3 h-3" />
+                            Failed
+                          </Badge>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 px-1"
+                            onClick={() => {
+                              setExportingOrderId(order.id);
+                              exportToXeroMutation.mutate(order.id);
+                            }}
+                            title="Retry sync"
+                          >
+                            <RefreshCw className="w-3 h-3" />
+                          </Button>
+                        </div>
                       ) : (
                         <Button
                           variant="ghost"

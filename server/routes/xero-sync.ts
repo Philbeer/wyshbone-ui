@@ -596,64 +596,72 @@ export function createXeroSyncRouter(storage: IStorage) {
       return;
     }
 
+    // Set status to pending before attempting sync
     await storage.updateOrderSyncStatus(orderId, workspaceId, 'pending');
 
-    const xeroData = await getXeroClient(workspaceId);
-    if (!xeroData) {
-      throw new Error('Xero not connected');
-    }
-
-    const { client: xero, tenantId } = xeroData;
-
-    // Get customer
-    const customer = await storage.getCrmCustomer(order.customerId, workspaceId);
-    if (!customer) throw new Error('Customer not found');
-
-    // Ensure customer synced to Xero first
-    if (!customer.xeroContactId) {
-      await syncCustomerToXero(customer.id, workspaceId);
-      // Re-fetch customer to get xeroContactId
-      const updatedCustomer = await storage.getCrmCustomer(customer.id, workspaceId);
-      if (!updatedCustomer?.xeroContactId) {
-        throw new Error('Failed to sync customer to Xero');
+    try {
+      const xeroData = await getXeroClient(workspaceId);
+      if (!xeroData) {
+        throw new Error('Xero not connected');
       }
-      customer.xeroContactId = updatedCustomer.xeroContactId;
+
+      const { client: xero, tenantId } = xeroData;
+
+      // Get customer
+      const customer = await storage.getCrmCustomer(order.customerId, workspaceId);
+      if (!customer) throw new Error('Customer not found');
+
+      // Ensure customer synced to Xero first
+      if (!customer.xeroContactId) {
+        await syncCustomerToXero(customer.id, workspaceId);
+        // Re-fetch customer to get xeroContactId
+        const updatedCustomer = await storage.getCrmCustomer(customer.id, workspaceId);
+        if (!updatedCustomer?.xeroContactId) {
+          throw new Error('Failed to sync customer to Xero');
+        }
+        customer.xeroContactId = updatedCustomer.xeroContactId;
+      }
+
+      // Get order lines
+      const orderLines = await storage.getOrderLinesForOrder(orderId, workspaceId);
+
+      // Map to Xero format
+      const xeroInvoice = {
+        type: 'ACCREC' as any,
+        contact: { contactID: customer.xeroContactId },
+        date: order.orderDate ? new Date(order.orderDate).toISOString().split('T')[0] : undefined,
+        dueDate: order.deliveryDate ? new Date(order.deliveryDate).toISOString().split('T')[0] : undefined,
+        status: (WYSHBONE_TO_XERO_STATUS[order.status] || 'DRAFT') as any,
+        lineItems: orderLines.map(line => ({
+          description: line.description || 'Unknown item',
+          quantity: line.quantity,
+          unitAmount: (line.unitPriceExVat || 0) / 100, // Convert from pence to pounds
+        })),
+      };
+
+      // Create invoice in Xero
+      const response = await xero.accountingApi.createInvoices(tenantId, { invoices: [xeroInvoice] });
+      
+      const createdInvoice = response.body.invoices?.[0];
+      if (!createdInvoice) {
+        throw new Error('Failed to create invoice in Xero');
+      }
+
+      // Update local order with Xero details
+      await storage.updateCrmOrder(orderId, workspaceId, {
+        xeroInvoiceId: createdInvoice.invoiceID,
+        xeroInvoiceNumber: createdInvoice.invoiceNumber,
+        syncStatus: 'synced',
+        lastXeroSyncAt: new Date(),
+      });
+
+      console.log(`✅ Synced order ${orderId} to Xero as invoice ${createdInvoice.invoiceNumber}`);
+    } catch (error: any) {
+      // On any error, set status to failed so it doesn't stay stuck in "Syncing..."
+      console.error(`❌ Failed to sync order ${orderId} to Xero:`, error.message);
+      await storage.updateOrderSyncStatus(orderId, workspaceId, 'failed', error.message);
+      throw error; // Re-throw so caller knows it failed
     }
-
-    // Get order lines
-    const orderLines = await storage.getOrderLinesForOrder(orderId, workspaceId);
-
-    // Map to Xero format
-    const xeroInvoice = {
-      type: 'ACCREC' as any,
-      contact: { contactID: customer.xeroContactId },
-      date: order.orderDate ? new Date(order.orderDate).toISOString().split('T')[0] : undefined,
-      dueDate: order.deliveryDate ? new Date(order.deliveryDate).toISOString().split('T')[0] : undefined,
-      status: (WYSHBONE_TO_XERO_STATUS[order.status] || 'DRAFT') as any,
-      lineItems: orderLines.map(line => ({
-        description: line.description || 'Unknown item',
-        quantity: line.quantity,
-        unitAmount: (line.unitPriceExVat || 0) / 100, // Convert from pence to pounds
-      })),
-    };
-
-    // Create invoice in Xero
-    const response = await xero.accountingApi.createInvoices(tenantId, { invoices: [xeroInvoice] });
-    
-    const createdInvoice = response.body.invoices?.[0];
-    if (!createdInvoice) {
-      throw new Error('Failed to create invoice in Xero');
-    }
-
-    // Update local order with Xero details
-    await storage.updateCrmOrder(orderId, workspaceId, {
-      xeroInvoiceId: createdInvoice.invoiceID,
-      xeroInvoiceNumber: createdInvoice.invoiceNumber,
-      syncStatus: 'synced',
-      lastXeroSyncAt: new Date(),
-    });
-
-    console.log(`✅ Synced order ${orderId} to Xero as invoice ${createdInvoice.invoiceNumber}`);
   }
 
   /**
@@ -667,30 +675,36 @@ export function createXeroSyncRouter(storage: IStorage) {
 
     await storage.updateOrderSyncStatus(orderId, workspaceId, 'pending');
 
-    const xeroData = await getXeroClient(workspaceId);
-    if (!xeroData) {
-      throw new Error('Xero not connected');
+    try {
+      const xeroData = await getXeroClient(workspaceId);
+      if (!xeroData) {
+        throw new Error('Xero not connected');
+      }
+
+      const { client: xero, tenantId } = xeroData;
+
+      const orderLines = await storage.getOrderLinesForOrder(orderId, workspaceId);
+
+      const xeroInvoice = {
+        invoiceID: order.xeroInvoiceId,
+        status: (WYSHBONE_TO_XERO_STATUS[order.status] || 'DRAFT') as any,
+        dueDate: order.deliveryDate ? new Date(order.deliveryDate).toISOString().split('T')[0] : undefined,
+        lineItems: orderLines.map(line => ({
+          description: line.description || 'Unknown item',
+          quantity: line.quantity,
+          unitAmount: (line.unitPriceExVat || 0) / 100,
+        })),
+      };
+
+      await xero.accountingApi.updateInvoice(tenantId, order.xeroInvoiceId, { invoices: [xeroInvoice] });
+      await storage.updateOrderSyncStatus(orderId, workspaceId, 'synced');
+
+      console.log(`✅ Updated order ${orderId} in Xero`);
+    } catch (error: any) {
+      console.error(`❌ Failed to update order ${orderId} in Xero:`, error.message);
+      await storage.updateOrderSyncStatus(orderId, workspaceId, 'failed', error.message);
+      throw error;
     }
-
-    const { client: xero, tenantId } = xeroData;
-
-    const orderLines = await storage.getOrderLinesForOrder(orderId, workspaceId);
-
-    const xeroInvoice = {
-      invoiceID: order.xeroInvoiceId,
-      status: (WYSHBONE_TO_XERO_STATUS[order.status] || 'DRAFT') as any,
-      dueDate: order.deliveryDate ? new Date(order.deliveryDate).toISOString().split('T')[0] : undefined,
-      lineItems: orderLines.map(line => ({
-        description: line.description || 'Unknown item',
-        quantity: line.quantity,
-        unitAmount: (line.unitPriceExVat || 0) / 100,
-      })),
-    };
-
-    await xero.accountingApi.updateInvoice(tenantId, order.xeroInvoiceId, { invoices: [xeroInvoice] });
-    await storage.updateOrderSyncStatus(orderId, workspaceId, 'synced');
-
-    console.log(`✅ Updated order ${orderId} in Xero`);
   }
 
   /**
@@ -925,6 +939,25 @@ export function createXeroSyncRouter(storage: IStorage) {
       res.json({ message: "Order synced to Xero" });
     } catch (error: any) {
       console.error("Failed to sync order:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Reset a stuck sync status (recover from "Syncing..." state)
+  router.post("/sync/order/:orderId/reset", async (req: Request, res: Response) => {
+    try {
+      const { orderId } = req.params;
+      const workspaceId = req.body.workspaceId as string;
+      
+      if (!workspaceId) {
+        return res.status(400).json({ error: "workspaceId required" });
+      }
+
+      // Reset to null/empty status so user can retry
+      await storage.updateOrderSyncStatus(orderId, workspaceId, 'failed', 'Manually reset');
+      res.json({ message: "Order sync status reset" });
+    } catch (error: any) {
+      console.error("Failed to reset order sync status:", error);
       res.status(500).json({ error: error.message });
     }
   });
