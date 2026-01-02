@@ -6,6 +6,11 @@ import { Router, type Request, type Response } from "express";
 import { createHmac } from "crypto";
 import type { IStorage } from "../storage";
 import { XeroClient } from "xero-node";
+import { 
+  importXeroSuppliers, 
+  importXeroSuppliersWithPurchases,
+  importXeroPurchases,
+} from "../lib/xero-import";
 
 // Webhook signing key for verifying Xero webhooks
 const XERO_WEBHOOK_KEY = process.env.XERO_WEBHOOK_KEY || "";
@@ -383,13 +388,38 @@ export function createXeroSyncRouter(storage: IStorage) {
 
     const { client: xero, tenantId } = xeroData;
 
-    switch (event.eventType) {
-      case 'CREATE':
-        await importSingleContact(event.resourceId, workspaceId, xero, tenantId);
-        break;
-      case 'UPDATE':
-        await updateContactFromXero(event.resourceId, workspaceId, xero, tenantId);
-        break;
+    // Fetch the contact to check if it's a customer or supplier
+    const response = await xero.accountingApi.getContact(tenantId, event.resourceId);
+    const contacts = response.body.contacts;
+    
+    if (!contacts || contacts.length === 0) {
+      console.warn(`Contact ${event.resourceId} not found in Xero`);
+      return;
+    }
+
+    const contact = contacts[0];
+
+    // Handle based on contact type
+    if (contact.isSupplier) {
+      // This is a supplier - re-import suppliers to update
+      console.log(`📥 Contact ${event.resourceId} is a supplier, triggering supplier sync`);
+      try {
+        await importXeroSuppliers(workspaceId, storage);
+      } catch (error) {
+        console.error(`Failed to sync supplier ${event.resourceId}:`, error);
+      }
+    }
+    
+    if (contact.isCustomer || !contact.isSupplier) {
+      // This is a customer (or both) - handle as customer
+      switch (event.eventType) {
+        case 'CREATE':
+          await importSingleContact(event.resourceId, workspaceId, xero, tenantId);
+          break;
+        case 'UPDATE':
+          await updateContactFromXero(event.resourceId, workspaceId, xero, tenantId);
+          break;
+      }
     }
   }
 
@@ -911,6 +941,124 @@ export function createXeroSyncRouter(storage: IStorage) {
       res.json({ message: "Customer synced to Xero" });
     } catch (error: any) {
       console.error("Failed to sync customer:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================
+  // SUPPLIER SYNC ROUTES
+  // ============================================
+
+  /**
+   * Import suppliers from Xero (contacts where IsSupplier==true)
+   */
+  router.post("/sync/suppliers", async (req: Request, res: Response) => {
+    try {
+      const workspaceId = req.body.workspaceId as string;
+      
+      if (!workspaceId) {
+        return res.status(400).json({ error: "workspaceId required" });
+      }
+
+      const connection = await storage.getXeroConnection(workspaceId);
+      if (!connection || !connection.isConnected) {
+        return res.status(400).json({ error: "Xero not connected" });
+      }
+
+      console.log(`📥 Starting supplier sync for workspace ${workspaceId}`);
+      
+      const result = await importXeroSuppliers(workspaceId, storage);
+
+      res.json({
+        success: true,
+        message: `Synced ${result.total} suppliers (${result.created} new, ${result.matched} updated)`,
+        result,
+      });
+    } catch (error: any) {
+      console.error("Failed to sync suppliers:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  /**
+   * Import suppliers AND their purchase history from Xero
+   */
+  router.post("/sync/suppliers-with-purchases", async (req: Request, res: Response) => {
+    try {
+      const workspaceId = req.body.workspaceId as string;
+      
+      if (!workspaceId) {
+        return res.status(400).json({ error: "workspaceId required" });
+      }
+
+      const connection = await storage.getXeroConnection(workspaceId);
+      if (!connection || !connection.isConnected) {
+        return res.status(400).json({ error: "Xero not connected" });
+      }
+
+      console.log(`📥 Starting supplier + purchases sync for workspace ${workspaceId}`);
+      
+      const result = await importXeroSuppliersWithPurchases(workspaceId, storage);
+
+      res.json({
+        success: true,
+        message: `Synced ${result.suppliers.total} suppliers and ${result.purchases.total} purchases`,
+        result,
+      });
+    } catch (error: any) {
+      console.error("Failed to sync suppliers with purchases:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  /**
+   * Import purchases for a specific supplier
+   */
+  router.post("/sync/supplier/:supplierId/purchases", async (req: Request, res: Response) => {
+    try {
+      const { supplierId } = req.params;
+      const workspaceId = req.body.workspaceId as string;
+      
+      if (!workspaceId) {
+        return res.status(400).json({ error: "workspaceId required" });
+      }
+
+      const connection = await storage.getXeroConnection(workspaceId);
+      if (!connection || !connection.isConnected) {
+        return res.status(400).json({ error: "Xero not connected" });
+      }
+
+      // Get supplier to find xero_contact_id
+      const supplier = await storage.getSupplierById(supplierId, workspaceId);
+      if (!supplier) {
+        return res.status(404).json({ error: "Supplier not found" });
+      }
+      if (!supplier.xeroContactId) {
+        return res.status(400).json({ error: "Supplier not linked to Xero" });
+      }
+
+      const xeroData = await getXeroClient(workspaceId);
+      if (!xeroData) {
+        return res.status(400).json({ error: "Could not get Xero client" });
+      }
+
+      console.log(`📥 Importing purchases for supplier ${supplierId}`);
+      
+      const result = await importXeroPurchases(
+        supplier.xeroContactId,
+        supplierId,
+        workspaceId,
+        xeroData.client,
+        xeroData.tenantId
+      );
+
+      res.json({
+        success: true,
+        message: `Imported ${result.imported} purchases`,
+        result,
+      });
+    } catch (error: any) {
+      console.error("Failed to sync supplier purchases:", error);
       res.status(500).json({ error: error.message });
     }
   });

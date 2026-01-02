@@ -14,9 +14,15 @@ import {
   entitySources,
   xeroOrdersEntity,
   aiResearchQueue,
+  suppliers,
+  supplierPurchases,
+  supplierProducts,
   type InsertPubsMaster,
   type SelectPubsMaster,
   type InsertXeroOrderEntity,
+  type InsertSupplier,
+  type SelectSupplier,
+  type InsertSupplierPurchase,
 } from "@shared/schema";
 import {
   findMatchingEntityCached,
@@ -97,6 +103,39 @@ interface XeroConnection {
   refreshToken: string;
   tokenExpiresAt: Date;
   isConnected: boolean;
+}
+
+/**
+ * Import summary returned by importXeroSuppliers.
+ */
+export interface XeroSupplierImportSummary {
+  matched: number;
+  created: number;
+  skipped: number;
+  errors: number;
+  total: number;
+  details: XeroSupplierImportDetail[];
+}
+
+/**
+ * Detail for each imported supplier.
+ */
+export interface XeroSupplierImportDetail {
+  xeroContactId: string;
+  xeroContactName: string;
+  action: 'matched' | 'created' | 'skipped' | 'error';
+  supplierId?: string;
+  message: string;
+}
+
+/**
+ * Import summary returned by importXeroPurchases.
+ */
+export interface XeroPurchaseImportSummary {
+  imported: number;
+  skipped: number;
+  errors: number;
+  total: number;
 }
 
 // ============================================
@@ -784,5 +823,434 @@ export async function importXeroCustomersWithProgress(
   }
 
   return summary;
+}
+
+// ============================================
+// SUPPLIER IMPORT FUNCTIONS
+// ============================================
+
+/**
+ * Generate a unique supplier ID.
+ */
+function generateSupplierId(): string {
+  const timestamp = Date.now();
+  const random = Math.random().toString(36).slice(2, 8);
+  return `supp_${timestamp}_${random}`;
+}
+
+/**
+ * Import all suppliers from Xero.
+ * 
+ * Suppliers in Xero are contacts where IsSupplier == true.
+ * 
+ * @param workspaceId - Tenant workspace ID
+ * @param storage - Storage interface for Xero connection
+ * @returns Import summary with counts and details
+ */
+export async function importXeroSuppliers(
+  workspaceId: string,
+  storage: XeroStorage
+): Promise<XeroSupplierImportSummary> {
+  const logPrefix = `[xero-import:suppliers]`;
+  const db = getDb();
+  
+  console.log(`${logPrefix} Starting Xero supplier import for workspace ${workspaceId}`);
+
+  // Initialize summary
+  const summary: XeroSupplierImportSummary = {
+    matched: 0,
+    created: 0,
+    skipped: 0,
+    errors: 0,
+    total: 0,
+    details: [],
+  };
+
+  // Get Xero client
+  const xeroData = await getXeroClient(workspaceId, storage);
+  if (!xeroData) {
+    throw new Error("Xero not connected or token expired");
+  }
+
+  const { client: xero, tenantId } = xeroData;
+
+  try {
+    // Fetch suppliers from Xero (contacts where IsSupplier == true)
+    console.log(`${logPrefix} Fetching suppliers from Xero...`);
+    const response = await xero.accountingApi.getContacts(
+      tenantId,
+      undefined, // ifModifiedSince
+      'ContactStatus=="ACTIVE" AND IsSupplier==true' // where
+    );
+    
+    const contacts = response.body.contacts || [];
+    summary.total = contacts.length;
+    console.log(`${logPrefix} Found ${contacts.length} suppliers in Xero`);
+
+    // Process each supplier contact
+    for (const contact of contacts) {
+      const contactId = contact.contactID;
+      const contactName = contact.name || 'Unknown';
+
+      try {
+        // Check if already imported (by xero_contact_id)
+        const existing = await db
+          .select()
+          .from(suppliers)
+          .where(eq(suppliers.xeroContactId, contactId!))
+          .limit(1);
+
+        if (existing.length > 0) {
+          // Update existing supplier
+          const streetAddress = contact.addresses?.find((a: any) => a.addressType === 'STREET') ||
+                               contact.addresses?.find((a: any) => a.addressType === 'POBOX') ||
+                               contact.addresses?.[0];
+          const phone = contact.phones?.find((p: any) => p.phoneType === 'DEFAULT') ||
+                       contact.phones?.[0];
+
+          await db.update(suppliers).set({
+            name: contactName,
+            email: contact.emailAddress || null,
+            phone: phone?.phoneNumber || null,
+            website: contact.website || null,
+            addressLine1: streetAddress?.addressLine1 || null,
+            addressLine2: streetAddress?.addressLine2 || null,
+            city: streetAddress?.city || null,
+            postcode: streetAddress?.postalCode || null,
+            country: streetAddress?.country || 'UK',
+            vatNumber: contact.taxNumber || null,
+            isOurSupplier: 1,
+            lastXeroSyncAt: Date.now(),
+            updatedAt: Date.now(),
+          }).where(eq(suppliers.id, existing[0].id));
+
+          summary.matched++;
+          summary.details.push({
+            xeroContactId: contactId!,
+            xeroContactName: contactName,
+            action: 'matched',
+            supplierId: existing[0].id,
+            message: `Updated existing supplier`,
+          });
+          
+          console.log(`${logPrefix} Updated supplier: ${contactName}`);
+
+        } else {
+          // Create new supplier
+          const streetAddress = contact.addresses?.find((a: any) => a.addressType === 'STREET') ||
+                               contact.addresses?.find((a: any) => a.addressType === 'POBOX') ||
+                               contact.addresses?.[0];
+          const phone = contact.phones?.find((p: any) => p.phoneType === 'DEFAULT') ||
+                       contact.phones?.[0];
+
+          const supplierId = generateSupplierId();
+          const now = Date.now();
+
+          const supplierData: InsertSupplier = {
+            id: supplierId,
+            workspaceId,
+            name: contactName,
+            email: contact.emailAddress || null,
+            phone: phone?.phoneNumber || null,
+            website: contact.website || null,
+            addressLine1: streetAddress?.addressLine1 || null,
+            addressLine2: streetAddress?.addressLine2 || null,
+            city: streetAddress?.city || null,
+            postcode: streetAddress?.postalCode || null,
+            country: streetAddress?.country || 'UK',
+            vatNumber: contact.taxNumber || null,
+            xeroContactId: contactId,
+            isOurSupplier: 1,
+            discoveredBy: 'xero',
+            discoveredAt: now,
+            lastXeroSyncAt: now,
+            createdAt: now,
+            updatedAt: now,
+          };
+
+          await db.insert(suppliers).values(supplierData);
+
+          summary.created++;
+          summary.details.push({
+            xeroContactId: contactId!,
+            xeroContactName: contactName,
+            action: 'created',
+            supplierId,
+            message: `Created new supplier`,
+          });
+
+          console.log(`${logPrefix} Created supplier: ${contactName} (${supplierId})`);
+        }
+
+      } catch (error) {
+        console.error(`${logPrefix} Error processing supplier ${contactId}:`, error);
+        summary.errors++;
+        summary.details.push({
+          xeroContactId: contactId!,
+          xeroContactName: contactName,
+          action: 'error',
+          message: error instanceof Error ? error.message : 'Unknown error',
+        });
+      }
+    }
+
+    console.log(`${logPrefix} Import complete:`, {
+      matched: summary.matched,
+      created: summary.created,
+      skipped: summary.skipped,
+      errors: summary.errors,
+      total: summary.total,
+    });
+
+    return summary;
+
+  } catch (error) {
+    console.error(`${logPrefix} Fatal error during import:`, error);
+    throw error;
+  }
+}
+
+/**
+ * Import purchases (bills) from Xero for a specific supplier.
+ * 
+ * @param xeroContactId - Xero contact ID of the supplier
+ * @param supplierId - Local supplier ID
+ * @param workspaceId - Tenant workspace ID
+ * @param xero - Xero client
+ * @param tenantId - Xero tenant ID
+ * @returns Number of purchases imported
+ */
+export async function importXeroPurchases(
+  xeroContactId: string,
+  supplierId: string,
+  workspaceId: string,
+  xero: XeroClient,
+  tenantId: string
+): Promise<XeroPurchaseImportSummary> {
+  const db = getDb();
+  const logPrefix = `[xero-import:purchases]`;
+
+  const summary: XeroPurchaseImportSummary = {
+    imported: 0,
+    skipped: 0,
+    errors: 0,
+    total: 0,
+  };
+
+  try {
+    // Fetch bills (invoices of type ACCPAY) for this supplier
+    // Note: Xero API uses invoices endpoint for both sales and purchase invoices
+    const response = await xero.accountingApi.getInvoices(
+      tenantId,
+      undefined, // ifModifiedSince
+      `Type=="ACCPAY"`, // where - purchase invoices only
+      undefined, // order
+      undefined, // iDs
+      undefined, // invoiceNumbers
+      [xeroContactId], // contactIDs
+      undefined, // statuses
+      undefined, // page
+      false,     // includeArchived
+      false,     // createdByMyApp
+      undefined  // unitdp
+    );
+
+    const bills = response.body.invoices || [];
+    summary.total = bills.length;
+    console.log(`${logPrefix} Found ${bills.length} bills for supplier ${xeroContactId}`);
+
+    if (bills.length === 0) {
+      return summary;
+    }
+
+    let earliestDate: number | null = null;
+    let latestDate: number | null = null;
+    let totalAmount = 0;
+
+    for (const bill of bills) {
+      try {
+        // Check if already imported
+        const existing = await db
+          .select({ id: supplierPurchases.id })
+          .from(supplierPurchases)
+          .where(eq(supplierPurchases.xeroBillId, bill.invoiceID!))
+          .limit(1);
+
+        if (existing.length > 0) {
+          summary.skipped++;
+          continue; // Already imported
+        }
+
+        // Parse dates
+        const purchaseDate = bill.date ? new Date(bill.date).getTime() : Date.now();
+        const dueDate = bill.dueDate ? new Date(bill.dueDate).getTime() : null;
+
+        // Generate purchase ID
+        const purchaseId = `purch_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        const now = Date.now();
+
+        // Map line items
+        const lineItems = (bill.lineItems || []).map((line: any) => ({
+          description: line.description || 'Unknown item',
+          quantity: line.quantity || 1,
+          unitPrice: line.unitAmount || 0,
+          amount: line.lineAmount || 0,
+          accountCode: line.accountCode || null,
+        }));
+
+        const purchaseData: InsertSupplierPurchase = {
+          id: purchaseId,
+          workspaceId,
+          supplierId,
+          xeroBillId: bill.invoiceID,
+          xeroBillNumber: bill.invoiceNumber || null,
+          purchaseDate,
+          dueDate,
+          totalAmount: bill.total || 0,
+          currency: bill.currencyCode || 'GBP',
+          status: mapXeroStatusToLocal(bill.status?.toString()),
+          lineItems,
+          reference: bill.reference || null,
+          createdAt: now,
+          updatedAt: now,
+          syncedAt: now,
+        };
+
+        await db.insert(supplierPurchases).values(purchaseData);
+        summary.imported++;
+
+        // Track dates and total for supplier stats
+        if (!earliestDate || purchaseDate < earliestDate) {
+          earliestDate = purchaseDate;
+        }
+        if (!latestDate || purchaseDate > latestDate) {
+          latestDate = purchaseDate;
+        }
+        totalAmount += bill.total || 0;
+
+      } catch (error) {
+        console.error(`${logPrefix} Error importing bill ${bill.invoiceID}:`, error);
+        summary.errors++;
+      }
+    }
+
+    // Update supplier with purchase stats
+    if (summary.imported > 0) {
+      await db.update(suppliers)
+        .set({
+          firstPurchaseDate: earliestDate,
+          lastPurchaseDate: latestDate,
+          totalPurchasesAmount: totalAmount,
+          purchaseCount: summary.imported,
+          updatedAt: Date.now(),
+        })
+        .where(eq(suppliers.id, supplierId));
+    }
+
+    console.log(`${logPrefix} Imported ${summary.imported} purchases for supplier ${supplierId}`);
+    return summary;
+
+  } catch (error) {
+    console.error(`${logPrefix} Error fetching bills:`, error);
+    throw error;
+  }
+}
+
+/**
+ * Import suppliers AND their purchases from Xero.
+ * 
+ * This is a convenience function that:
+ * 1. Imports all suppliers
+ * 2. For each supplier, imports their purchase history
+ * 
+ * @param workspaceId - Tenant workspace ID
+ * @param storage - Storage interface for Xero connection
+ * @returns Combined import summary
+ */
+export async function importXeroSuppliersWithPurchases(
+  workspaceId: string,
+  storage: XeroStorage
+): Promise<{
+  suppliers: XeroSupplierImportSummary;
+  purchases: XeroPurchaseImportSummary;
+}> {
+  const logPrefix = `[xero-import:suppliers+purchases]`;
+  const db = getDb();
+
+  // First, import all suppliers
+  const supplierSummary = await importXeroSuppliers(workspaceId, storage);
+
+  // Initialize purchases summary
+  const purchasesSummary: XeroPurchaseImportSummary = {
+    imported: 0,
+    skipped: 0,
+    errors: 0,
+    total: 0,
+  };
+
+  // Get Xero client
+  const xeroData = await getXeroClient(workspaceId, storage);
+  if (!xeroData) {
+    return { suppliers: supplierSummary, purchases: purchasesSummary };
+  }
+
+  const { client: xero, tenantId } = xeroData;
+
+  // Get all suppliers with xero_contact_id for this workspace
+  const localSuppliers = await db
+    .select()
+    .from(suppliers)
+    .where(and(
+      eq(suppliers.workspaceId, workspaceId),
+      eq(suppliers.isOurSupplier, 1)
+    ));
+
+  console.log(`${logPrefix} Importing purchases for ${localSuppliers.length} suppliers...`);
+
+  // Import purchases for each supplier
+  for (const supplier of localSuppliers) {
+    if (!supplier.xeroContactId) continue;
+
+    try {
+      const result = await importXeroPurchases(
+        supplier.xeroContactId,
+        supplier.id,
+        workspaceId,
+        xero,
+        tenantId
+      );
+
+      purchasesSummary.imported += result.imported;
+      purchasesSummary.skipped += result.skipped;
+      purchasesSummary.errors += result.errors;
+      purchasesSummary.total += result.total;
+
+    } catch (error) {
+      console.error(`${logPrefix} Error importing purchases for supplier ${supplier.id}:`, error);
+      purchasesSummary.errors++;
+    }
+  }
+
+  console.log(`${logPrefix} Purchase import complete:`, purchasesSummary);
+
+  return {
+    suppliers: supplierSummary,
+    purchases: purchasesSummary,
+  };
+}
+
+/**
+ * Map Xero invoice status to local status.
+ */
+function mapXeroStatusToLocal(status?: string): string {
+  const statusMap: Record<string, string> = {
+    'DRAFT': 'draft',
+    'SUBMITTED': 'submitted',
+    'AUTHORISED': 'authorised',
+    'PAID': 'paid',
+    'VOIDED': 'voided',
+    'DELETED': 'voided',
+  };
+  return statusMap[status || ''] || 'draft';
 }
 

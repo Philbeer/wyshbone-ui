@@ -82,7 +82,11 @@ import type {
   InsertXeroWebhookEvent,
   SelectXeroWebhookEvent,
   InsertXeroSyncQueue,
-  SelectXeroSyncQueue
+  SelectXeroSyncQueue,
+  InsertSupplier,
+  SelectSupplier,
+  InsertSupplierPurchase,
+  SelectSupplierPurchase
 } from "@shared/schema";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
@@ -128,7 +132,9 @@ import {
   xeroConnections,
   xeroImportJobs,
   xeroWebhookEvents,
-  xeroSyncQueue
+  xeroSyncQueue,
+  suppliers,
+  supplierPurchases
 } from "@shared/schema";
 import { eq, or, and, desc, asc, lt, gt, lte, gte, isNull, sql } from "drizzle-orm";
 
@@ -329,6 +335,11 @@ export interface IStorage {
   // Xero order lookups
   getOrderByXeroInvoiceId(xeroInvoiceId: string, workspaceId: string): Promise<SelectCrmOrder | null>;
   
+  // ============= SUPPLIERS CRUD METHODS =============
+  getSupplierById(id: string, workspaceId: string): Promise<SelectSupplier | null>;
+  listSuppliers(workspaceId: string): Promise<SelectSupplier[]>;
+  getSupplierByXeroContactId(xeroContactId: string, workspaceId: string): Promise<SelectSupplier | null>;
+
   // ============= CRM ORDER LINES CRUD METHODS =============
   createCrmOrderLine(orderLine: InsertCrmOrderLine): Promise<SelectCrmOrderLine>;
   getCrmOrderLine(id: string): Promise<SelectCrmOrderLine | null>;
@@ -2191,6 +2202,31 @@ export class DbStorage implements IStorage {
     return order || null;
   }
   
+  // ============= SUPPLIERS CRUD METHODS =============
+  async getSupplierById(id: string, workspaceId: string): Promise<SelectSupplier | null> {
+    const [supplier] = await db.select().from(suppliers)
+      .where(and(
+        eq(suppliers.id, id),
+        eq(suppliers.workspaceId, workspaceId)
+      ));
+    return supplier || null;
+  }
+
+  async listSuppliers(workspaceId: string): Promise<SelectSupplier[]> {
+    return await db.select().from(suppliers)
+      .where(eq(suppliers.workspaceId, workspaceId))
+      .orderBy(suppliers.name);
+  }
+
+  async getSupplierByXeroContactId(xeroContactId: string, workspaceId: string): Promise<SelectSupplier | null> {
+    const [supplier] = await db.select().from(suppliers)
+      .where(and(
+        eq(suppliers.xeroContactId, xeroContactId),
+        eq(suppliers.workspaceId, workspaceId)
+      ));
+    return supplier || null;
+  }
+
   // ============= CRM ORDER LINES CRUD METHODS =============
   async createCrmOrderLine(orderLine: InsertCrmOrderLine): Promise<SelectCrmOrderLine> {
     const [created] = await db.insert(crmOrderLines).values(orderLine).returning();
