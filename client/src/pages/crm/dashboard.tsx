@@ -23,18 +23,23 @@ import {
   Clock,
   Package
 } from 'lucide-react';
-import { Link } from 'wouter';
+import { Link, useLocation } from 'wouter';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { formatPrice } from '@/features/brewery/types';
 
 export default function Dashboard() {
+  const [, setLocation] = useLocation();
   const { data: kpis, isLoading: kpisLoading } = useDashboardKPIs();
   const { data: revenueData, isLoading: revenueLoading } = useRevenueByMonth(6);
   const { data: topCustomers, isLoading: customersLoading } = useTopCustomers(5);
   const { data: topProducts, isLoading: productsLoading } = useTopProducts(5);
   const { data: overdueTasks } = useOverdueTasks();
   const { data: upcomingTasks } = useUpcomingTasks();
+
+  const handleCustomerClick = (customerId: string) => {
+    setLocation(`/auth/crm/customers?editId=${customerId}`);
+  };
 
   return (
     <div className="p-6 space-y-6">
@@ -240,7 +245,12 @@ export default function Dashboard() {
                   <div key={c.customerId} className="flex justify-between items-center py-2 border-b last:border-0">
                     <div className="flex items-center gap-2">
                       <span className="text-xs text-muted-foreground w-4">{index + 1}.</span>
-                      <span className="text-sm font-medium truncate max-w-[140px]">{c.customerName}</span>
+                      <button
+                        onClick={() => handleCustomerClick(c.customerId)}
+                        className="text-sm font-medium truncate max-w-[140px] text-primary hover:underline cursor-pointer text-left"
+                      >
+                        {c.customerName}
+                      </button>
                     </div>
                     <span className="font-medium text-sm">{formatPrice(c.totalRevenue)}</span>
                   </div>
