@@ -86,7 +86,13 @@ import type {
   InsertSupplier,
   SelectSupplier,
   InsertSupplierPurchase,
-  SelectSupplierPurchase
+  SelectSupplierPurchase,
+  InsertDeliveryRoute,
+  SelectDeliveryRoute,
+  InsertRouteStop,
+  SelectRouteStop,
+  InsertRouteOptimizationResult,
+  SelectRouteOptimizationResult
 } from "@shared/schema";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
@@ -134,7 +140,10 @@ import {
   xeroWebhookEvents,
   xeroSyncQueue,
   suppliers,
-  supplierPurchases
+  supplierPurchases,
+  deliveryRoutes,
+  routeStops,
+  routeOptimizationResults
 } from "@shared/schema";
 import { eq, or, and, desc, asc, lt, gt, lte, gte, isNull, sql } from "drizzle-orm";
 
@@ -3901,6 +3910,224 @@ export class DbStorage implements IStorage {
           eq(brewProducts.workspaceId, workspaceId)
         )
       );
+  }
+
+  // ============================================
+  // ROUTE PLANNER - Delivery Routes
+  // ============================================
+
+  async listDeliveryRoutes(workspaceId: string): Promise<SelectDeliveryRoute[]> {
+    return await db
+      .select()
+      .from(deliveryRoutes)
+      .where(eq(deliveryRoutes.workspaceId, workspaceId))
+      .orderBy(desc(deliveryRoutes.deliveryDate));
+  }
+
+  async getDeliveryRoute(id: string): Promise<SelectDeliveryRoute | null> {
+    const results = await db
+      .select()
+      .from(deliveryRoutes)
+      .where(eq(deliveryRoutes.id, id))
+      .limit(1);
+    return results[0] || null;
+  }
+
+  async insertDeliveryRoute(route: InsertDeliveryRoute): Promise<SelectDeliveryRoute> {
+    const results = await db
+      .insert(deliveryRoutes)
+      .values(route)
+      .returning();
+    return results[0];
+  }
+
+  async updateDeliveryRoute(
+    id: string,
+    updates: Partial<SelectDeliveryRoute>
+  ): Promise<SelectDeliveryRoute> {
+    const results = await db
+      .update(deliveryRoutes)
+      .set({ ...updates, updatedAt: Date.now() })
+      .where(eq(deliveryRoutes.id, id))
+      .returning();
+    return results[0];
+  }
+
+  async deleteDeliveryRoute(id: string): Promise<void> {
+    await db
+      .delete(deliveryRoutes)
+      .where(eq(deliveryRoutes.id, id));
+  }
+
+  async listDeliveryRoutesByDate(
+    workspaceId: string,
+    startDate: number,
+    endDate: number
+  ): Promise<SelectDeliveryRoute[]> {
+    return await db
+      .select()
+      .from(deliveryRoutes)
+      .where(
+        and(
+          eq(deliveryRoutes.workspaceId, workspaceId),
+          gte(deliveryRoutes.deliveryDate, startDate),
+          lte(deliveryRoutes.deliveryDate, endDate)
+        )
+      )
+      .orderBy(asc(deliveryRoutes.deliveryDate));
+  }
+
+  async listDeliveryRoutesByStatus(
+    workspaceId: string,
+    status: string
+  ): Promise<SelectDeliveryRoute[]> {
+    return await db
+      .select()
+      .from(deliveryRoutes)
+      .where(
+        and(
+          eq(deliveryRoutes.workspaceId, workspaceId),
+          eq(deliveryRoutes.status, status)
+        )
+      )
+      .orderBy(desc(deliveryRoutes.deliveryDate));
+  }
+
+  async listDeliveryRoutesByDriver(
+    workspaceId: string,
+    driverId: string
+  ): Promise<SelectDeliveryRoute[]> {
+    return await db
+      .select()
+      .from(deliveryRoutes)
+      .where(
+        and(
+          eq(deliveryRoutes.workspaceId, workspaceId),
+          eq(deliveryRoutes.driverId, driverId)
+        )
+      )
+      .orderBy(desc(deliveryRoutes.deliveryDate));
+  }
+
+  // ============================================
+  // ROUTE PLANNER - Route Stops
+  // ============================================
+
+  async listRouteStops(routeId: string): Promise<SelectRouteStop[]> {
+    return await db
+      .select()
+      .from(routeStops)
+      .where(eq(routeStops.routeId, routeId))
+      .orderBy(asc(routeStops.sequenceNumber));
+  }
+
+  async getRouteStop(id: string): Promise<SelectRouteStop | null> {
+    const results = await db
+      .select()
+      .from(routeStops)
+      .where(eq(routeStops.id, id))
+      .limit(1);
+    return results[0] || null;
+  }
+
+  async insertRouteStop(stop: InsertRouteStop): Promise<SelectRouteStop> {
+    const results = await db
+      .insert(routeStops)
+      .values(stop)
+      .returning();
+    return results[0];
+  }
+
+  async updateRouteStop(
+    id: string,
+    updates: Partial<SelectRouteStop>
+  ): Promise<SelectRouteStop> {
+    const results = await db
+      .update(routeStops)
+      .set({ ...updates, updatedAt: Date.now() })
+      .where(eq(routeStops.id, id))
+      .returning();
+    return results[0];
+  }
+
+  async deleteRouteStop(id: string): Promise<void> {
+    await db
+      .delete(routeStops)
+      .where(eq(routeStops.id, id));
+  }
+
+  async listRouteStopsByStatus(
+    routeId: string,
+    status: string
+  ): Promise<SelectRouteStop[]> {
+    return await db
+      .select()
+      .from(routeStops)
+      .where(
+        and(
+          eq(routeStops.routeId, routeId),
+          eq(routeStops.status, status)
+        )
+      )
+      .orderBy(asc(routeStops.sequenceNumber));
+  }
+
+  async listRouteStopsByOrder(orderId: string): Promise<SelectRouteStop[]> {
+    return await db
+      .select()
+      .from(routeStops)
+      .where(eq(routeStops.orderId, orderId))
+      .orderBy(asc(routeStops.sequenceNumber));
+  }
+
+  async listRouteStopsByCustomer(customerId: string): Promise<SelectRouteStop[]> {
+    return await db
+      .select()
+      .from(routeStops)
+      .where(eq(routeStops.customerId, customerId))
+      .orderBy(desc(routeStops.createdAt));
+  }
+
+  // ============================================
+  // ROUTE PLANNER - Optimization Results
+  // ============================================
+
+  async listOptimizationResults(routeId: string): Promise<SelectRouteOptimizationResult[]> {
+    return await db
+      .select()
+      .from(routeOptimizationResults)
+      .where(eq(routeOptimizationResults.routeId, routeId))
+      .orderBy(desc(routeOptimizationResults.createdAt));
+  }
+
+  async getOptimizationResult(id: string): Promise<SelectRouteOptimizationResult | null> {
+    const results = await db
+      .select()
+      .from(routeOptimizationResults)
+      .where(eq(routeOptimizationResults.id, id))
+      .limit(1);
+    return results[0] || null;
+  }
+
+  async insertOptimizationResult(
+    result: InsertRouteOptimizationResult
+  ): Promise<SelectRouteOptimizationResult> {
+    const results = await db
+      .insert(routeOptimizationResults)
+      .values(result)
+      .returning();
+    return results[0];
+  }
+
+  async listOptimizationResultsByWorkspace(
+    workspaceId: string
+  ): Promise<SelectRouteOptimizationResult[]> {
+    return await db
+      .select()
+      .from(routeOptimizationResults)
+      .where(eq(routeOptimizationResults.workspaceId, workspaceId))
+      .orderBy(desc(routeOptimizationResults.createdAt))
+      .limit(50);
   }
 }
 

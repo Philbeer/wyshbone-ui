@@ -1543,6 +1543,210 @@ export type InsertCrmTask = typeof crmTasks.$inferInsert;
 export type SelectCrmTask = typeof crmTasks.$inferSelect;
 
 // ============================================
+// ROUTE PLANNER - Delivery Route Management
+// ============================================
+
+// Delivery Routes (Enhanced version of delivery_runs with optimization)
+export const deliveryRoutes = pgTable("delivery_routes", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull(),
+  name: text("name").notNull(),
+  deliveryDate: bigint("delivery_date", { mode: "number" }).notNull(), // Unix timestamp
+  status: text("status").notNull().default("draft"), // 'draft', 'optimized', 'assigned', 'in_progress', 'completed', 'cancelled'
+
+  // Driver assignment
+  driverId: text("driver_id"), // FK to users or separate drivers table
+  driverName: text("driver_name"),
+  driverPhone: text("driver_phone"),
+  driverEmail: text("driver_email"),
+
+  // Vehicle info
+  vehicleId: text("vehicle_id"),
+  vehicleName: text("vehicle"),
+  vehicleCapacityKg: integer("vehicle_capacity_kg"),
+  vehicleCapacityM3: doublePrecision("vehicle_capacity_m3"),
+
+  // Route metrics
+  totalStops: integer("total_stops").notNull().default(0),
+  completedStops: integer("completed_stops").notNull().default(0),
+  totalDistanceMiles: doublePrecision("total_distance_miles"),
+  estimatedDurationMinutes: integer("estimated_duration_minutes"),
+
+  // Start/end location (depot)
+  startLocationName: text("start_location_name"),
+  startLatitude: doublePrecision("start_latitude"),
+  startLongitude: doublePrecision("start_longitude"),
+  endLocationName: text("end_location_name"),
+  endLatitude: doublePrecision("end_latitude"),
+  endLongitude: doublePrecision("end_longitude"),
+
+  // Timing
+  scheduledStartTime: bigint("scheduled_start_time", { mode: "number" }),
+  actualStartTime: bigint("actual_start_time", { mode: "number" }),
+  scheduledEndTime: bigint("scheduled_end_time", { mode: "number" }),
+  actualEndTime: bigint("actual_end_time", { mode: "number" }),
+
+  // Optimization
+  isOptimized: boolean("is_optimized").notNull().default(false),
+  lastOptimizedAt: bigint("last_optimized_at", { mode: "number" }),
+  optimizationVersion: integer("optimization_version").default(0), // Increment on re-optimization
+
+  // Map data
+  encodedPolyline: text("encoded_polyline"), // Google/Mapbox polyline
+
+  // Notes and metadata
+  notes: text("notes"),
+  internalNotes: text("internal_notes"), // Not visible to driver
+  metadata: jsonb("metadata"), // Flexible data for future features
+
+  // Timestamps
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+}, (table) => ({
+  workspaceIdIdx: index("delivery_routes_workspace_id_idx").on(table.workspaceId),
+  deliveryDateIdx: index("delivery_routes_delivery_date_idx").on(table.deliveryDate),
+  statusIdx: index("delivery_routes_status_idx").on(table.status),
+  driverIdIdx: index("delivery_routes_driver_id_idx").on(table.driverId),
+}));
+
+export const insertDeliveryRouteSchema = createInsertSchema(deliveryRoutes);
+export const selectDeliveryRouteSchema = createSelectSchema(deliveryRoutes);
+export type InsertDeliveryRoute = typeof deliveryRoutes.$inferInsert;
+export type SelectDeliveryRoute = typeof deliveryRoutes.$inferSelect;
+
+// Route Stops (Individual delivery points on a route)
+export const routeStops = pgTable("route_stops", {
+  id: text("id").primaryKey(),
+  routeId: text("route_id").notNull(), // FK to delivery_routes
+  orderId: text("order_id"), // FK to crm_orders (optional, can have stops without orders)
+  customerId: text("customer_id").notNull(), // FK to crm_customers
+
+  // Sequence
+  sequenceNumber: integer("sequence_number").notNull(), // Order in route (1-based)
+  originalSequenceNumber: integer("original_sequence_number"), // Before optimization
+
+  // Location
+  customerName: text("customer_name").notNull(),
+  addressLine1: text("address_line1").notNull(),
+  addressLine2: text("address_line2"),
+  city: text("city"),
+  postcode: text("postcode"),
+  country: text("country"),
+  latitude: doublePrecision("latitude"),
+  longitude: doublePrecision("longitude"),
+
+  // Contact info
+  contactName: text("contact_name"),
+  contactPhone: text("contact_phone"),
+  contactEmail: text("contact_email"),
+
+  // Delivery details
+  deliveryInstructions: text("delivery_instructions"),
+  accessNotes: text("access_notes"), // "Gate code: 1234", "Ring bell twice"
+
+  // Time windows
+  earliestDeliveryTime: bigint("earliest_delivery_time", { mode: "number" }),
+  latestDeliveryTime: bigint("latest_delivery_time", { mode: "number" }),
+  estimatedArrivalTime: bigint("estimated_arrival_time", { mode: "number" }),
+  actualArrivalTime: bigint("actual_arrival_time", { mode: "number" }),
+
+  // Status tracking
+  status: text("status").notNull().default("pending"), // 'pending', 'en_route', 'arrived', 'delivered', 'failed', 'skipped'
+  deliveredAt: bigint("delivered_at", { mode: "number" }),
+
+  // Delivery completion
+  recipientName: text("recipient_name"), // Who received it
+  deliveryNotes: text("delivery_notes"), // Driver notes on completion
+  deliveryPhotoUrl: text("delivery_photo_url"), // Proof of delivery photo
+  signatureUrl: text("signature_url"), // Digital signature
+
+  // Failure handling
+  failureReason: text("failure_reason"), // 'customer_unavailable', 'address_incorrect', 'access_denied', 'other'
+  failureNotes: text("failure_notes"),
+  rescheduledToRouteId: text("rescheduled_to_route_id"), // If rescheduled
+
+  // Distance from previous stop
+  distanceFromPreviousMiles: doublePrecision("distance_from_previous_miles"),
+  durationFromPreviousMinutes: integer("duration_from_previous_minutes"),
+
+  // Order details (denormalized for quick access)
+  orderNumber: text("order_number"),
+  itemCount: integer("item_count"),
+  totalValue: integer("total_value"), // In pence/cents
+
+  // Metadata
+  metadata: jsonb("metadata"),
+
+  // Timestamps
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+}, (table) => ({
+  routeIdIdx: index("route_stops_route_id_idx").on(table.routeId),
+  orderIdIdx: index("route_stops_order_id_idx").on(table.orderId),
+  customerIdIdx: index("route_stops_customer_id_idx").on(table.customerId),
+  statusIdx: index("route_stops_status_idx").on(table.status),
+  sequenceIdx: index("route_stops_sequence_idx").on(table.routeId, table.sequenceNumber),
+}));
+
+export const insertRouteStopSchema = createInsertSchema(routeStops);
+export const selectRouteStopSchema = createSelectSchema(routeStops);
+export type InsertRouteStop = typeof routeStops.$inferInsert;
+export type SelectRouteStop = typeof routeStops.$inferSelect;
+
+// Route Optimization Results (Track optimization history and improvements)
+export const routeOptimizationResults = pgTable("route_optimization_results", {
+  id: text("id").primaryKey(),
+  routeId: text("route_id").notNull(), // FK to delivery_routes
+  workspaceId: text("workspace_id").notNull(),
+
+  // Optimization metadata
+  optimizationMethod: text("optimization_method").notNull(), // 'google_maps', 'mapbox', 'nearest_neighbor', 'genetic_algorithm'
+  optimizationVersion: integer("optimization_version").notNull(),
+
+  // Before optimization
+  originalDistanceMiles: doublePrecision("original_distance_miles"),
+  originalDurationMinutes: integer("original_duration_minutes"),
+  originalSequence: jsonb("original_sequence"), // Array of stop IDs in original order
+
+  // After optimization
+  optimizedDistanceMiles: doublePrecision("optimized_distance_miles"),
+  optimizedDurationMinutes: integer("optimized_duration_minutes"),
+  optimizedSequence: jsonb("optimized_sequence"), // Array of stop IDs in optimized order
+
+  // Improvements
+  distanceSavedMiles: doublePrecision("distance_saved_miles"),
+  distanceSavedPercent: doublePrecision("distance_saved_percent"),
+  timeSavedMinutes: integer("time_saved_minutes"),
+  timeSavedPercent: doublePrecision("time_saved_percent"),
+
+  // API usage tracking
+  apiProvider: text("api_provider"), // 'google_maps', 'mapbox'
+  apiCallCount: integer("api_call_count").default(0),
+  apiCostEstimate: doublePrecision("api_cost_estimate"), // Estimated cost in dollars
+
+  // Detailed results
+  waypointDistances: jsonb("waypoint_distances"), // Array of distances between each stop
+  waypointDurations: jsonb("waypoint_durations"), // Array of durations between each stop
+  fullResponseData: jsonb("full_response_data"), // Complete API response for debugging
+
+  // Success/failure
+  success: boolean("success").notNull().default(true),
+  errorMessage: text("error_message"),
+
+  // Timestamps
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+}, (table) => ({
+  routeIdIdx: index("route_optimization_results_route_id_idx").on(table.routeId),
+  workspaceIdIdx: index("route_optimization_results_workspace_id_idx").on(table.workspaceId),
+  createdAtIdx: index("route_optimization_results_created_at_idx").on(table.createdAt),
+}));
+
+export const insertRouteOptimizationResultSchema = createInsertSchema(routeOptimizationResults);
+export const selectRouteOptimizationResultSchema = createSelectSchema(routeOptimizationResults);
+export type InsertRouteOptimizationResult = typeof routeOptimizationResults.$inferInsert;
+export type SelectRouteOptimizationResult = typeof routeOptimizationResults.$inferSelect;
+
+// ============================================
 // BREW CONTAINER MOVEMENTS
 // ============================================
 export const brewContainerMovements = pgTable("brew_container_movements", {
@@ -2058,7 +2262,7 @@ export type SelectSearchLog = typeof searchLog.$inferSelect;
 // ============================================
 export const activityLog = pgTable("activity_log", {
   id: serial("id").primaryKey(),
-  workspaceId: integer("workspace_id").references(() => workspaces.id).notNull(),
+  workspaceId: integer("workspace_id").notNull(),
   
   // Activity details
   activityType: text("activity_type").notNull(), // database_update, xero_sync, ai_discovery, entity_match, event_found, price_alert
