@@ -8,6 +8,7 @@ import CrmDashboard from "./dashboard";
 import CrmCustomers from "./customers";
 import CrmOrders from "./orders";
 import CrmDeliveryRuns from "./delivery-runs";
+import RoutePlanner from "./routes";
 import CrmSettings from "./settings";
 import CrmProducts from "./products";
 import CrmStock from "./stock";
@@ -123,6 +124,12 @@ export default function CrmLayout() {
                 Delivery Runs
               </Link>
             </Button>
+            <Button variant={isActive("/routes") ? "default" : "ghost"} size="sm" asChild>
+              <Link href="/routes" data-testid="link-crm-routes">
+                <Truck className="w-4 h-4 mr-2" />
+                Routes
+              </Link>
+            </Button>
             <Button variant={isActive("/stock") ? "default" : "ghost"} size="sm" asChild>
               <Link href="/stock" data-testid="link-crm-stock">
                 <Warehouse className="w-4 h-4 mr-2" />
@@ -225,6 +232,7 @@ export default function CrmLayout() {
           {/* <Route path="/filters" component={CrmCustomerFilters} /> */}
           <Route path="/orders" component={CrmOrders} />
           <Route path="/delivery-runs" component={CrmDeliveryRuns} />
+          <Route path="/routes" component={RoutePlanner} />
           <Route path="/stock" component={CrmStock} />
           <Route path="/diary" component={CrmDiary} />
           <Route path="/tasks" component={CrmTasks} />
