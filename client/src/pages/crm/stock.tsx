@@ -38,7 +38,7 @@ function formatCurrency(pence: number): string {
 
 export default function CrmStock() {
   const { user } = useUser();
-  const workspaceId = user.id;
+  const workspaceId = user?.id;
   const { toast } = useToast();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingStock, setEditingStock] = useState<any>(null);
@@ -109,6 +109,16 @@ export default function CrmStock() {
       toast({ title: "Failed to delete stock record", description: error.message, variant: "destructive" });
     },
   });
+
+  // Early return if user not loaded yet (after all hooks)
+  if (!user) {
+    return (
+      <div className="p-6">
+        <Skeleton className="h-8 w-48 mb-4" />
+        <Skeleton className="h-64 w-full" />
+      </div>
+    );
+  }
 
   const handleEdit = (stock: any) => {
     setEditingStock(stock);

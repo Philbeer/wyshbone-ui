@@ -11,13 +11,27 @@ export const routePlannerRoutes = Router();
  * Helper to get authenticated user ID from session
  */
 async function getAuthenticatedUserId(req: any): Promise<{ userId: string } | null> {
-  const sessionId = req.headers["x-session-id"];
-  if (!sessionId) return null;
+  // 1. Try session-based auth first
+  const sessionId = req.headers["x-session-id"] as string | undefined;
+  if (sessionId) {
+    try {
+      const session = await storage.getSession(sessionId);
+      if (session) {
+        return { userId: session.userId };
+      }
+    } catch (error) {
+      console.error("Session lookup error:", error);
+    }
+  }
 
-  const session = await storage.getUserSession(sessionId);
-  if (!session) return null;
+  // 2. Fallback for dev mode - check URL params (same pattern as main routes.ts)
+  const userId = req.query.user_id || req.query.userId;
+  if (userId) {
+    console.log(`[route-planner] Using user_id from URL params: ${userId}`);
+    return { userId: userId as string };
+  }
 
-  return { userId: session.userId };
+  return null;
 }
 
 // ============================================

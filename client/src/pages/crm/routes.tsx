@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { Plus, MapPin, Truck, Calendar, Optimize } from "lucide-react";
+import { Plus, MapPin, Truck, Calendar, Zap } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
@@ -17,7 +17,7 @@ import { Label } from "@/components/ui/label";
 
 export default function RoutePlanner() {
   const { user } = useUser();
-  const workspaceId = user.id;
+  const workspaceId = user?.id;
   const { toast } = useToast();
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
@@ -29,21 +29,30 @@ export default function RoutePlanner() {
   const { data: routesData, isLoading: isLoadingRoutes } = useQuery({
     queryKey: ['/api/routes', workspaceId],
     enabled: !!workspaceId,
-    queryFn: () => apiRequest('GET', `/api/routes/${workspaceId}`),
+    queryFn: async () => {
+      const response = await apiRequest('GET', `/api/routes/${workspaceId}`);
+      return response.json();
+    },
   });
 
   // Fetch orders for route creation
   const { data: ordersData } = useQuery({
     queryKey: ['/api/crm/orders', workspaceId],
     enabled: !!workspaceId && isCreateDialogOpen,
-    queryFn: () => apiRequest('GET', `/api/crm/orders/${workspaceId}`),
+    queryFn: async () => {
+      const response = await apiRequest('GET', `/api/crm/orders/${workspaceId}`);
+      return response.json();
+    },
   });
 
   // Fetch selected route details
   const { data: routeDetail } = useQuery({
     queryKey: ['/api/routes/detail', selectedRouteId],
     enabled: !!selectedRouteId,
-    queryFn: () => apiRequest('GET', `/api/routes/detail/${selectedRouteId}`),
+    queryFn: async () => {
+      const response = await apiRequest('GET', `/api/routes/detail/${selectedRouteId}`);
+      return response.json();
+    },
   });
 
   // Create route mutation
@@ -79,6 +88,16 @@ export default function RoutePlanner() {
     },
   });
 
+  // Early return if user not loaded yet (after all hooks)
+  if (!user) {
+    return (
+      <div className="p-6">
+        <Skeleton className="h-8 w-48 mb-4" />
+        <Skeleton className="h-64 w-full" />
+      </div>
+    );
+  }
+
   const handleCreateRoute = () => {
     if (!routeName || !deliveryDate || selectedOrders.length === 0) {
       toast({ title: "Please fill in all fields", variant: "destructive" });
@@ -110,7 +129,7 @@ export default function RoutePlanner() {
   };
 
   const routes = routesData?.routes || [];
-  const orders = ordersData || [];
+  const orders = Array.isArray(ordersData) ? ordersData : (ordersData?.orders || []);
 
   return (
     <div className="p-6 space-y-6">
@@ -187,7 +206,7 @@ export default function RoutePlanner() {
                         onClick={() => handleOptimize(route.id)}
                         disabled={optimizeRouteMutation.isPending}
                       >
-                        <Optimize className="w-3 h-3 mr-1" />
+                        <Zap className="w-3 h-3 mr-1" />
                         Optimize
                       </Button>
                     )}
@@ -283,7 +302,7 @@ export default function RoutePlanner() {
             <div>
               <Label>Select Orders ({selectedOrders.length} selected)</Label>
               <div className="border rounded p-3 max-h-64 overflow-y-auto space-y-2">
-                {orders.length === 0 ? (
+                {!orders || orders.length === 0 ? (
                   <p className="text-gray-500 text-sm">No orders available</p>
                 ) : (
                   orders.map((order: any) => (

@@ -43,7 +43,7 @@ const formSchema = insertCrmSettingsSchema.omit({ id: true, workspaceId: true, c
 
 export default function CrmSettings() {
   const { user } = useUser();
-  const workspaceId = user.id;
+  const workspaceId = user?.id;
   const { toast } = useToast();
 
   const { data: settings, isLoading } = useQuery({
@@ -141,6 +141,16 @@ export default function CrmSettings() {
   // Invalidate customers list when import completes
   if (currentJob?.status === 'completed' && currentJobId) {
     queryClient.invalidateQueries({ queryKey: ['/api/crm/customers'] });
+  }
+
+  // Early return if user not loaded yet (after all hooks)
+  if (!user) {
+    return (
+      <div className="p-6">
+        <Skeleton className="h-8 w-48 mb-4" />
+        <Skeleton className="h-64 w-full" />
+      </div>
+    );
   }
 
   return (

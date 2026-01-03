@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run db:push:*)",
+      "Bash(psql:*)",
+      "Bash(npx tsx:*)",
+      "Bash(test:*)",
+      "Bash(npm run check:*)",
+      "Bash(npx tsc:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
+    ]
+  }
+}

@@ -1,0 +1,47 @@
+📄 UPDATED PLANNING APPROACH:
+Your planning docs should now be:
+Tier 1: Vision/Philosophy (What & Why)
+
+wyshbone-vision.md ← The doc you just shared
+
+What Wyshbone is
+Why it's built this way
+What success looks like
+
+
+
+Tier 2: Technical Architecture (How)
+
+agent-architecture-4repos.md
+
+How repos connect
+API contracts
+Data flows
+
+
+
+Tier 3: Current State (Where We Are)
+
+agent-audit-consolidated.md
+
+What's built
+What works
+What's missing
+
+
+
+Tier 4: Target Implementation (What to Build)
+
+agent-learning-target.md
+
+Specific learning features
+Database schema
+Integration points
+
+
+
+Tier 5: Safety & Scope (Constraints)
+
+protected-files.md
+claude-code-task.md
+

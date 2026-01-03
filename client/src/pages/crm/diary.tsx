@@ -21,6 +21,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { CalendarPlus, Phone, Clock, History, AlertTriangle } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
 import { UpcomingCallsList } from "@/features/diary/UpcomingCallsList";
 import { OverdueCallsList } from "@/features/diary/OverdueCallsList";
 import { CallHistoryList } from "@/features/diary/CallHistoryList";
@@ -43,9 +44,19 @@ export default function SalesDiary() {
   
   // Fetch customers for the schedule dialog dropdown
   const { data: customers } = useQuery({
-    queryKey: ['/api/crm/customers', user.id],
-    enabled: !!user.id,
+    queryKey: ['/api/crm/customers', user?.id],
+    enabled: !!user?.id,
   });
+  
+  // Early return if user not loaded yet
+  if (!user) {
+    return (
+      <div className="p-6">
+        <Skeleton className="h-8 w-48 mb-4" />
+        <Skeleton className="h-64 w-full" />
+      </div>
+    );
+  }
 
   const upcomingCount = upcomingCalls?.length || 0;
   const overdueCount = overdueCalls?.length || 0;

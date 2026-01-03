@@ -46,7 +46,7 @@ function getStatusBadgeVariant(status: string): "secondary" | "default" | "outli
 
 export default function CrmCustomers() {
   const { user } = useUser();
-  const workspaceId = user.id;
+  const workspaceId = user?.id;
   const { toast } = useToast();
   const [, setLocation] = useLocation();
   const searchString = useSearch();
@@ -144,6 +144,16 @@ export default function CrmCustomers() {
       toast({ title: "Failed to delete customer", description: error.message, variant: "destructive" });
     },
   });
+
+  // Early return if user not loaded yet (after all hooks)
+  if (!user) {
+    return (
+      <div className="p-6">
+        <Skeleton className="h-8 w-48 mb-4" />
+        <Skeleton className="h-64 w-full" />
+      </div>
+    );
+  }
 
   const handleEdit = (customer: any) => {
     setEditingCustomer(customer);

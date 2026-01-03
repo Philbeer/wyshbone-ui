@@ -127,7 +127,7 @@ function SortIndicator({
 
 export default function CrmOrders() {
   const { user } = useUser();
-  const workspaceId = user.id;
+  const workspaceId = user?.id;
   const { toast } = useToast();
   const [, setLocation] = useLocation();
   const searchString = useSearch();
@@ -166,6 +166,16 @@ export default function CrmOrders() {
     queryKey: ['/api/crm/customers', workspaceId],
     enabled: !!workspaceId,
   });
+  
+  // Early return if user not loaded yet (after all hooks)
+  if (!user) {
+    return (
+      <div className="p-6">
+        <Skeleton className="h-8 w-48 mb-4" />
+        <Skeleton className="h-64 w-full" />
+      </div>
+    );
+  }
 
   const { data: deliveryRuns = [] } = useQuery<SelectCrmDeliveryRun[]>({
     queryKey: ['/api/crm/delivery-runs', workspaceId],
