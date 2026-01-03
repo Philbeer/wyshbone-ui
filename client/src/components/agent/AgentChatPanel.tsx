@@ -1,8 +1,9 @@
 /**
- * AgentChatPanel - Direct Claude API chat
+ * AgentChatPanel - Claude AI chat via backend API
  * 
- * This calls the Anthropic Claude API DIRECTLY from the browser.
- * No backend routing - straight to Claude.
+ * This uses the backend /api/agent/chat endpoint which handles Claude
+ * authentication server-side. This is more secure than calling Claude
+ * directly from the browser.
  */
 
 import { useState, useRef, useEffect, useCallback } from "react";
@@ -25,9 +26,7 @@ import { useAgentStatus } from "@/contexts/AgentStatusContext";
 import { cn } from "@/lib/utils";
 import { useUser } from "@/contexts/UserContext";
 import wyshboneLogo from "@assets/wyshbone-logo_1759667581806.png";
-
-// Claude API service with streaming support
-import claudeService, { type ChatChunk } from "@/services/ClaudeService";
+import { buildApiUrl, addDevAuthParams } from "@/lib/queryClient";
 
 // =============================================================================
 // TYPES
@@ -129,7 +128,7 @@ What would you like to work on?`,
   }, [messages.length]);
 
   // =============================================================================
-  // SEND MESSAGE - DIRECT CLAUDE API CALL
+  // SEND MESSAGE - BACKEND API CALL
   // =============================================================================
 
   const handleSend = useCallback(async (messageText?: string) => {
@@ -160,84 +159,56 @@ What would you like to work on?`,
     }]);
 
     try {
-      console.log('[AgentChatPanel] Calling Claude API with streaming...');
+      console.log('[AgentChatPanel] Calling backend /api/agent/chat...');
       setStatus('running');
       
-      const responseId = Date.now().toString() + '_response';
-      let fullText = '';
-      let currentTool: string | undefined;
-      let toolResult: any;
+      // Call backend API instead of Claude directly
+      const sessionId = localStorage.getItem('wyshbone_sid');
+      const url = buildApiUrl(addDevAuthParams('/api/agent/chat'));
       
-      // Stream response from Claude
-      for await (const chunk of claudeService.sendMessage(text)) {
-        switch (chunk.type) {
-          case 'text':
-            // Append streamed text
-            fullText += chunk.content || '';
-            setMessages(prev => {
-              const filtered = prev.filter(m => m.id !== loadingId && m.id !== responseId);
-              return [...filtered, {
-                id: responseId,
-                role: 'assistant',
-                content: fullText,
-                timestamp: new Date()
-              }];
-            });
-            break;
-            
-          case 'tool_start':
-            // Show tool starting
-            currentTool = chunk.tool;
-            setMessages(prev => prev.map(m => 
-              m.id === loadingId 
-                ? { ...m, content: `🔧 Using ${chunk.tool}...` }
-                : m
-            ));
-            break;
-            
-          case 'tool_executing':
-            // Show tool executing
-            const toolDisplayNames: Record<string, string> = {
-              'search_google_places': '🔍 Searching businesses...',
-              'deep_research': '🔬 Starting deep research...',
-              'email_finder': '📧 Finding emails...',
-              'create_scheduled_monitor': '⏰ Creating monitor...',
-              'get_nudges': '💡 Getting suggestions...'
-            };
-            setMessages(prev => prev.map(m => 
-              m.id === loadingId 
-                ? { ...m, content: toolDisplayNames[chunk.tool || ''] || '🔧 Processing...' }
-                : m
-            ));
-            break;
-            
-          case 'tool_complete':
-            // Store tool result
-            toolResult = chunk.toolResult;
-            console.log(`[AgentChatPanel] Tool complete: ${chunk.tool}`, toolResult);
-            break;
-            
-          case 'error':
-            throw new Error(chunk.message);
-            
-          case 'done':
-            // Remove loading indicator
-            setMessages(prev => prev.filter(m => m.id !== loadingId));
-            break;
-        }
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(sessionId ? { 'x-session-id': sessionId } : {}),
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          message: text,
+          userId: user?.id,
+        }),
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+        throw new Error(errorData.error || errorData.message || `HTTP ${response.status}`);
       }
       
-      // Log final result
+      const data = await response.json();
+      console.log('[AgentChatPanel] Response received:', data);
+      
+      // Remove loading and add response
+      const responseId = Date.now().toString() + '_response';
+      setMessages(prev => {
+        const filtered = prev.filter(m => m.id !== loadingId);
+        return [...filtered, {
+          id: responseId,
+          role: 'assistant',
+          content: data.response || data.message || data.text || 'No response received',
+          timestamp: new Date()
+        }];
+      });
+      
+      // Log result
       console.log('[AgentChatPanel] Response complete:', {
-        textLength: fullText.length,
-        toolUsed: currentTool,
-        hasToolResult: !!toolResult
+        hasResponse: !!data.response,
+        toolUsed: data.toolUsed,
       });
       
       setStatus('idle');
 
     } catch (error: any) {
-      console.error('[AgentChatPanel] Claude API error:', error);
+      console.error('[AgentChatPanel] API error:', error);
       
       // Remove loading, add error message
       setMessages(prev => {
@@ -245,12 +216,13 @@ What would you like to work on?`,
         return [...filtered, {
           id: Date.now().toString(),
           role: 'assistant',
-          content: `❌ Error connecting to Claude AI: ${error.message || 'Unknown error'}
+          content: `❌ Error connecting to AI agent: ${error.message || 'Unknown error'}
 
+This chat uses the backend API for Claude access.
 Please check:
-1. VITE_ANTHROPIC_API_KEY is set in your .env file
-2. The API key is valid
-3. You have API credits available`,
+1. The backend server is running
+2. ANTHROPIC_API_KEY is set in server .env
+3. You are logged in`,
           timestamp: new Date(),
           isError: true
         }];
@@ -260,7 +232,7 @@ Please check:
     } finally {
       setIsProcessing(false);
     }
-  }, [input, isProcessing, setStatus]);
+  }, [input, isProcessing, setStatus, user]);
 
   const handleQuickAction = (action: QuickAction) => {
     handleSend(action.prompt);
