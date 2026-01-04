@@ -402,6 +402,39 @@ export const selectScheduledMonitorSchema = createSelectSchema(scheduledMonitors
 export type InsertScheduledMonitor = typeof scheduledMonitors.$inferInsert;
 export type SelectScheduledMonitor = typeof scheduledMonitors.$inferSelect;
 
+// ============= AGENT ACTIVITIES TABLE =============
+
+// Agent Activities table - stores autonomous agent actions for tracking and analysis
+export const agentActivities = pgTable("agent_activities", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  timestamp: bigint("timestamp", { mode: "number" }).notNull(),
+  taskGenerated: text("task_generated").notNull(), // What task the agent decided to do
+  actionTaken: text("action_taken").notNull(), // What action was executed (tool name, API call, etc.)
+  actionParams: jsonb("action_params"), // Parameters passed to the action
+  results: jsonb("results"), // Results of the action execution
+  interestingFlag: integer("interesting_flag").notNull().default(0), // 1 = interesting, 0 = routine
+  status: text("status").notNull(), // 'success', 'failed', 'pending', 'skipped'
+  errorMessage: text("error_message"), // Error details if status='failed'
+  durationMs: integer("duration_ms"), // How long the action took to execute
+  conversationId: text("conversation_id"), // Link to conversation if part of chat flow
+  runId: text("run_id"), // Group related activities into a single run
+  metadata: jsonb("metadata"), // Additional context (source, triggers, etc.)
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+}, (table) => ({
+  userIdTimestampIdx: index("agent_activities_user_id_timestamp_idx").on(table.userId, table.timestamp),
+  interestingFlagIdx: index("agent_activities_interesting_flag_idx").on(table.interestingFlag, table.timestamp),
+  statusIdx: index("agent_activities_status_idx").on(table.status, table.timestamp),
+  runIdIdx: index("agent_activities_run_id_idx").on(table.runId, table.timestamp),
+  conversationIdIdx: index("agent_activities_conversation_id_idx").on(table.conversationId),
+}));
+
+// Agent Activities insert/select schemas
+export const insertAgentActivitySchema = createInsertSchema(agentActivities);
+export const selectAgentActivitySchema = createSelectSchema(agentActivities);
+export type InsertAgentActivity = typeof agentActivities.$inferInsert;
+export type SelectAgentActivity = typeof agentActivities.$inferSelect;
+
 // Users table for authentication and subscription management
 export const users = pgTable("users", {
   id: text("id").primaryKey(),

@@ -21,7 +21,14 @@
       "Bash(curl:*)",
       "Bash(netstat:*)",
       "Bash(findstr:*)",
-      "Bash(cat:*)"
+      "Bash(cat:*)",
+      "Bash(npx drizzle-kit:*)",
+      "Bash(echo:*)",
+      "Bash(if [ -f \".env\" ])",
+      "Bash(then grep -i \"database\" .env)",
+      "Bash(else echo \".env file not found in current directory\")",
+      "Bash(export DATABASE_URL:*)",
+      "Bash(DATABASE_URL=\"postgresql://postgres.zipsbmldjxytzowmmohu:Moby2014Moby2014Lister@aws-1-eu-west-2.pooler.supabase.com:6543/postgres\" npx tsx:*)"
     ]
   }
 }

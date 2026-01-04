@@ -51,6 +51,7 @@ import { createDatabaseMaintenanceRouter } from "./routes/admin/database-mainten
 import { createSuppliersRouter } from "./routes/suppliers";
 import { createActivityLogRouter } from "./routes/activity-log";
 import { routePlannerRoutes } from "./routes/route-planner";
+import { agentActivitiesRouter } from "./routes/agent-activities";
 import { hashPassword, verifyPassword, generateId, canCreateMonitor, canCreateDeepResearch, TIER_LIMITS } from "./auth";
 import { signupRequestSchema, loginRequestSchema, updateProfileRequestSchema } from "@shared/schema";
 import { buildSessionContext, generatePersonalizedOpening, type SessionContext } from "./lib/context";
@@ -6875,6 +6876,9 @@ ${run.outputText}`;
 
   // Register Activity Log routes (local system activity tracking)
   app.use("/api/activity-log", createActivityLogRouter(storage));
+
+  // Register Agent Activities routes (autonomous agent activity feed)
+  app.use(agentActivitiesRouter(storage));
 
   // Register Route Planner routes
   app.use("/api", routePlannerRoutes);
