@@ -1,0 +1,651 @@
+# Agent Learning Target Implementation
+
+**Tier 4: What to Build**  
+*Specific features, database schema, and integration points for adaptive agent learning*
+
+---
+
+## Overview
+
+This document defines the concrete implementation targets for Wyshbone's agent learning system. These features enable agents to learn from interactions, improve over time, and adapt to specific customer contexts without manual retraining.
+
+---
+
+## 1. Core Learning Features
+
+### 1.1 Interaction Memory System
+**What it does:** Captures and indexes every agent-customer interaction for pattern learning
+
+**Components:**
+- **Conversation Threading:** Link all interactions with a customer across channels (email, chat, calls)
+- **Context Preservation:** Store full conversation context including agent reasoning, tool usage, and outcomes
+- **Outcome Tracking:** Record whether agent actions led to desired results (meeting booked, order placed, issue resolved)
+
+**Success Criteria:**
+- Agents can reference previous conversations: "Last time we spoke about X..."
+- System tracks conversion rates per agent approach
+- 100% of interactions stored with <100ms write latency
+
+---
+
+### 1.2 Pattern Recognition & Adaptation
+**What it does:** Learns which approaches work for different customer types and situations
+
+**Components:**
+- **Customer Segmentation Learning:** Identify patterns in successful interactions (brewery size, order frequency, communication style)
+- **Approach Effectiveness:** Track which communication styles, timing, and offers work best
+- **Dynamic Strategy Selection:** Choose best approach based on customer profile and context
+
+**Examples:**
+- "Small breweries respond better to technical detail emails"
+- "Friday afternoon calls to taprooms get 60% lower pickup rate"
+- "Mentioning specific beer styles increases engagement by 40%"
+
+**Success Criteria:**
+- Agent conversion rates improve 20%+ over 3 months
+- System A/B tests 3+ approaches per customer segment
+- Confidence scores for strategy selection >75%
+
+---
+
+### 1.3 Entity Resolution Learning
+**What it does:** Improves duplicate detection and data quality through user feedback
+
+**Components:**
+- **Correction Capture:** When users merge/split records, store the reasoning
+- **Pattern Learning:** Build rules from user corrections (e.g., "Black Dog Brewery" vs "Black Dog Brewing Co" are same entity)
+- **Confidence Scoring:** Learn which matching signals are most reliable for different entity types
+
+**Examples:**
+- User merges two pub records → System learns that "The Crown Inn, Reading" and "Crown Reading" are identical
+- User splits brewery contact → System learns not to merge records with same person name but different companies
+- System proposes merges with 90%+ confidence for user review
+
+**Success Criteria:**
+- False positive merge suggestions drop 80% in 6 months
+- Auto-merge confidence threshold reaches 95%
+- Zero manual intervention needed for 70% of new records
+
+---
+
+### 1.4 Industry Knowledge Accumulation
+**What it does:** Builds brewery-specific knowledge graph from interactions
+
+**Components:**
+- **Product Catalog Learning:** Extract and validate product names, styles, ABVs from conversations
+- **Relationship Mapping:** Learn business relationships (supplier chains, distribution networks, competitor sets)
+- **Seasonal Patterns:** Identify ordering cycles, event timing, inventory patterns
+
+**Examples:**
+- "Hop Heaven Brewery typically orders grain in 25kg bags, every 6 weeks, prefers Maris Otter"
+- "Taproom sales spike 3 weeks before Christmas"
+- "This brewery always asks about duty calculations for kegs >40L"
+
+**Success Criteria:**
+- Knowledge graph contains 500+ validated entities per brewery
+- 80% of product recommendations come from learned preferences
+- System predicts order timing within 7-day window
+
+---
+
+### 1.5 Feedback-Driven Improvement
+**What it does:** Learns from explicit user corrections and implicit signals
+
+**Components:**
+- **Explicit Feedback:** Thumbs up/down, correction annotations, override tracking
+- **Implicit Signals:** Email opens, response times, meeting acceptance rates, order completion rates
+- **Error Analysis:** Track where agents get stuck, make wrong assumptions, or fail tasks
+
+**Examples:**
+- User always changes agent-drafted emails to remove formal salutations → Agent learns casual tone preference
+- Customer never books Monday morning meetings → Agent stops suggesting them
+- Agent fails 3x to calculate duty correctly → Surface issue for debugging
+
+**Success Criteria:**
+- 90% of user corrections applied within 24 hours
+- Agent learns user-specific preferences within 5 interactions
+- Error rates decrease 10% month-over-month
+
+---
+
+## 2. Database Schema
+
+### 2.1 Core Tables
+
+```sql
+-- Interaction memory
+CREATE TABLE agent_interactions (
+    id UUID PRIMARY KEY,
+    agent_id UUID NOT NULL,
+    customer_id UUID NOT NULL,
+    conversation_id UUID NOT NULL,  -- Thread related interactions
+    channel VARCHAR(50) NOT NULL,  -- 'email', 'chat', 'call', 'sms'
+    direction VARCHAR(10) NOT NULL,  -- 'inbound', 'outbound'
+    
+    -- Content
+    full_context JSONB NOT NULL,  -- Complete interaction including agent reasoning
+    summary TEXT,
+    key_topics VARCHAR[] NOT NULL DEFAULT '{}',
+    
+    -- Outcomes
+    outcome_type VARCHAR(50),  -- 'meeting_booked', 'order_placed', 'question_answered', etc.
+    outcome_success BOOLEAN,
+    conversion_value DECIMAL(10,2),
+    
+    -- Learning signals
+    user_feedback JSONB,  -- Thumbs up/down, corrections, annotations
+    implicit_signals JSONB,  -- Opens, response time, etc.
+    
+    -- Metadata
+    occurred_at TIMESTAMP NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW(),
+    
+    FOREIGN KEY (agent_id) REFERENCES agents(id),
+    FOREIGN KEY (customer_id) REFERENCES customers(id)
+);
+
+CREATE INDEX idx_interactions_customer ON agent_interactions(customer_id, occurred_at DESC);
+CREATE INDEX idx_interactions_conversation ON agent_interactions(conversation_id);
+CREATE INDEX idx_interactions_outcome ON agent_interactions(outcome_type, outcome_success);
+CREATE INDEX idx_interactions_topics ON agent_interactions USING GIN(key_topics);
+
+
+-- Learned patterns
+CREATE TABLE learned_patterns (
+    id UUID PRIMARY KEY,
+    pattern_type VARCHAR(50) NOT NULL,  -- 'customer_segment', 'communication_style', 'timing', 'offer_type'
+    
+    -- Pattern definition
+    conditions JSONB NOT NULL,  -- What triggers this pattern
+    recommendation JSONB NOT NULL,  -- What to do when pattern matches
+    
+    -- Evidence
+    supporting_interactions UUID[] NOT NULL DEFAULT '{}',  -- IDs of interactions that support this pattern
+    sample_size INTEGER NOT NULL DEFAULT 0,
+    success_rate DECIMAL(5,4),  -- 0.0000 to 1.0000
+    confidence_score DECIMAL(5,4),
+    
+    -- Validation
+    last_validated_at TIMESTAMP,
+    validation_status VARCHAR(20) DEFAULT 'active',  -- 'active', 'testing', 'deprecated'
+    
+    -- Metadata
+    discovered_at TIMESTAMP DEFAULT NOW(),
+    created_by VARCHAR(50) DEFAULT 'system',  -- 'system' or 'user'
+    
+    UNIQUE(pattern_type, conditions)
+);
+
+CREATE INDEX idx_patterns_type ON learned_patterns(pattern_type, validation_status);
+CREATE INDEX idx_patterns_confidence ON learned_patterns(confidence_score DESC);
+
+
+-- Entity resolution learning
+CREATE TABLE entity_resolution_rules (
+    id UUID PRIMARY KEY,
+    entity_type VARCHAR(50) NOT NULL,  -- 'brewery', 'pub', 'contact', 'product'
+    
+    -- Rule definition
+    rule_type VARCHAR(50) NOT NULL,  -- 'merge_signal', 'split_signal', 'similarity_weight'
+    rule_logic JSONB NOT NULL,
+    
+    -- Learned from
+    source_type VARCHAR(20) NOT NULL,  -- 'user_correction', 'validation', 'automated'
+    source_interactions UUID[] NOT NULL DEFAULT '{}',
+    
+    -- Performance
+    true_positives INTEGER DEFAULT 0,
+    false_positives INTEGER DEFAULT 0,
+    precision DECIMAL(5,4),
+    
+    -- Metadata
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW(),
+    active BOOLEAN DEFAULT TRUE
+);
+
+CREATE INDEX idx_resolution_entity_type ON entity_resolution_rules(entity_type, active);
+
+
+-- Knowledge graph
+CREATE TABLE learned_facts (
+    id UUID PRIMARY KEY,
+    entity_id UUID NOT NULL,  -- Brewery, customer, product, etc.
+    entity_type VARCHAR(50) NOT NULL,
+    
+    -- Fact
+    fact_type VARCHAR(100) NOT NULL,  -- 'product_preference', 'ordering_pattern', 'communication_preference'
+    fact_key VARCHAR(255) NOT NULL,
+    fact_value JSONB NOT NULL,
+    
+    -- Confidence
+    confidence_score DECIMAL(5,4) NOT NULL,
+    supporting_evidence UUID[] NOT NULL DEFAULT '{}',  -- Interaction IDs
+    
+    -- Temporal
+    valid_from TIMESTAMP NOT NULL,
+    valid_to TIMESTAMP,  -- NULL if currently valid
+    
+    -- Metadata
+    learned_at TIMESTAMP DEFAULT NOW(),
+    last_confirmed_at TIMESTAMP,
+    
+    UNIQUE(entity_id, fact_type, fact_key, valid_from)
+);
+
+CREATE INDEX idx_facts_entity ON learned_facts(entity_id, entity_type);
+CREATE INDEX idx_facts_type ON learned_facts(fact_type);
+CREATE INDEX idx_facts_validity ON learned_facts(valid_to) WHERE valid_to IS NULL;
+
+
+-- Strategy performance
+CREATE TABLE agent_strategies (
+    id UUID PRIMARY KEY,
+    strategy_name VARCHAR(100) NOT NULL,
+    strategy_description TEXT,
+    
+    -- Application context
+    applies_to_segment VARCHAR(50),  -- Customer segment this works for
+    applies_to_scenario VARCHAR(50),  -- Scenario type
+    
+    -- Strategy definition
+    approach JSONB NOT NULL,  -- Tone, timing, content structure, etc.
+    
+    -- Performance tracking
+    times_used INTEGER DEFAULT 0,
+    success_count INTEGER DEFAULT 0,
+    failure_count INTEGER DEFAULT 0,
+    avg_conversion_value DECIMAL(10,2),
+    
+    -- A/B testing
+    test_group VARCHAR(50),  -- If part of an experiment
+    control_strategy_id UUID,  -- Reference to baseline
+    
+    -- Metadata
+    created_at TIMESTAMP DEFAULT NOW(),
+    active BOOLEAN DEFAULT TRUE,
+    
+    FOREIGN KEY (control_strategy_id) REFERENCES agent_strategies(id)
+);
+
+CREATE INDEX idx_strategies_segment ON agent_strategies(applies_to_segment, active);
+```
+
+---
+
+### 2.2 Integration Tables
+
+```sql
+-- Links learning back to main CRM entities
+CREATE TABLE customer_learned_preferences (
+    customer_id UUID NOT NULL,
+    preference_category VARCHAR(50) NOT NULL,  -- 'communication', 'product', 'timing', 'pricing'
+    preferences JSONB NOT NULL,
+    confidence DECIMAL(5,4),
+    last_updated TIMESTAMP DEFAULT NOW(),
+    
+    PRIMARY KEY (customer_id, preference_category),
+    FOREIGN KEY (customer_id) REFERENCES customers(id)
+);
+
+
+-- Tracks agent performance improvement
+CREATE TABLE agent_performance_metrics (
+    agent_id UUID NOT NULL,
+    metric_date DATE NOT NULL,
+    
+    -- Conversation metrics
+    conversations_started INTEGER DEFAULT 0,
+    conversations_completed INTEGER DEFAULT 0,
+    avg_conversation_length INTERVAL,
+    
+    -- Outcome metrics
+    meetings_booked INTEGER DEFAULT 0,
+    orders_placed INTEGER DEFAULT 0,
+    questions_resolved INTEGER DEFAULT 0,
+    total_conversion_value DECIMAL(12,2),
+    
+    -- Learning metrics
+    patterns_discovered INTEGER DEFAULT 0,
+    patterns_applied INTEGER DEFAULT 0,
+    user_corrections INTEGER DEFAULT 0,
+    
+    -- Quality metrics
+    avg_user_satisfaction DECIMAL(3,2),  -- 1.00 to 5.00
+    error_rate DECIMAL(5,4),
+    
+    PRIMARY KEY (agent_id, metric_date),
+    FOREIGN KEY (agent_id) REFERENCES agents(id)
+);
+
+CREATE INDEX idx_agent_metrics_date ON agent_performance_metrics(metric_date DESC);
+```
+
+---
+
+## 3. Integration Points
+
+### 3.1 CRM System Integration
+
+**Data Flow:**
+```
+CRM Activity → Agent Interaction → Learning System → Updated Agent Behavior → CRM Activity
+```
+
+**Integration Points:**
+- **Customer Profile Enrichment:** Learning system writes discovered preferences back to customer records
+- **Activity Feed:** Agent interactions appear in customer timeline
+- **Segmentation:** Learned segments available for filtering and targeting
+- **Reporting:** Learning metrics in dashboards alongside traditional CRM metrics
+
+**API Contracts:**
+```typescript
+// CRM reads learned preferences
+GET /api/customers/{id}/learned-preferences
+Response: {
+  communication: { preferred_channel: 'email', preferred_time: 'weekday_morning', ... },
+  product: { favorite_styles: ['IPA', 'Stout'], typical_order_size: '50L', ... },
+  timing: { ordering_cycle_days: 42, best_contact_day: 'Tuesday', ... }
+}
+
+// CRM writes interaction outcomes
+POST /api/interactions/{id}/outcome
+Body: {
+  outcome_type: 'order_placed',
+  success: true,
+  value: 1250.00,
+  notes: 'Customer mentioned competitor pricing'
+}
+```
+
+---
+
+### 3.2 Agent Orchestration Integration
+
+**Data Flow:**
+```
+Agent Request → Learning System Lookup → Strategy Selection → Agent Execution → Outcome Capture
+```
+
+**Integration Points:**
+- **Pre-Interaction:** Agent queries learning system for customer context and recommended strategy
+- **During Interaction:** Agent references learned facts in conversation
+- **Post-Interaction:** Agent reports outcome and captures new learning signals
+
+**API Contracts:**
+```typescript
+// Agent requests strategy
+POST /api/learning/recommend-strategy
+Body: {
+  customer_id: 'uuid',
+  scenario: 'order_follow_up',
+  context: { last_order_days_ago: 45, order_value: 500 }
+}
+Response: {
+  strategy_id: 'uuid',
+  approach: {
+    tone: 'casual',
+    mention_topics: ['seasonal_specials', 'upcoming_events'],
+    avoid_topics: ['pricing_pressure'],
+    best_time: '2024-01-05T10:00:00Z'
+  },
+  confidence: 0.87,
+  reasoning: 'Customer responds well to mid-morning casual emails about seasonal offerings'
+}
+
+// Agent reports interaction
+POST /api/learning/record-interaction
+Body: {
+  agent_id: 'uuid',
+  customer_id: 'uuid',
+  conversation_id: 'uuid',
+  channel: 'email',
+  full_context: { /* complete interaction */ },
+  outcome: { type: 'meeting_booked', success: true },
+  strategy_used: 'uuid'
+}
+```
+
+---
+
+### 3.3 Entity Resolution Integration
+
+**Data Flow:**
+```
+New Record → Entity Matcher → Learning System Check → Confidence Scoring → Merge Recommendation
+```
+
+**Integration Points:**
+- **Match Scoring:** Learning system provides trained similarity weights
+- **Rule Application:** Learned merge/split rules applied to candidates
+- **Feedback Loop:** User merge/split decisions feed back to learning
+
+**API Contracts:**
+```typescript
+// Entity resolver requests learned rules
+GET /api/learning/entity-rules/{entity_type}
+Response: {
+  rules: [
+    {
+      rule_type: 'merge_signal',
+      logic: { field: 'phone', similarity: 'exact', weight: 0.9 },
+      precision: 0.95
+    },
+    {
+      rule_type: 'split_signal',
+      logic: { field: 'company_name', pattern: 'different_legal_entity', weight: 0.85 },
+      precision: 0.92
+    }
+  ]
+}
+
+// Entity resolver reports user correction
+POST /api/learning/entity-correction
+Body: {
+  entity_type: 'brewery',
+  action: 'merge',
+  entity_ids: ['uuid1', 'uuid2'],
+  user_reasoning: 'Same brewery, different address formats',
+  match_signals: { name_similarity: 0.7, phone: null, email: 'match' }
+}
+```
+
+---
+
+### 3.4 Multi-App Architecture Integration
+
+**Repo Boundaries:**
+- **wyshbone-api:** Learning data storage, pattern discovery algorithms
+- **wyshbone-agents:** Strategy execution, interaction capture
+- **wyshbone-web:** User feedback interface, correction tools
+- **wyshbone-brewery:** Industry-specific knowledge application
+
+**Shared Contracts:**
+```typescript
+// Shared learning event type
+interface LearningEvent {
+  event_type: 'interaction' | 'correction' | 'feedback' | 'pattern_discovered';
+  source_repo: 'api' | 'agents' | 'web' | 'brewery';
+  entity_id: string;
+  data: Record<string, unknown>;
+  timestamp: Date;
+}
+
+// Event bus for cross-repo learning
+POST /api/events/learning
+Body: LearningEvent
+```
+
+---
+
+## 4. Implementation Phases
+
+### Phase 1: Foundation (Months 1-3)
+- ✅ Set up database schema
+- ✅ Build interaction capture system
+- ✅ Create basic pattern storage
+- ✅ Implement user feedback collection
+
+**Success Metric:** 100% of agent interactions stored with full context
+
+---
+
+### Phase 2: Pattern Recognition (Months 4-6)
+- 🎯 Build pattern discovery algorithms
+- 🎯 Implement customer segmentation learning
+- 🎯 Create strategy recommendation engine
+- 🎯 Deploy A/B testing framework
+
+**Success Metric:** Agents use learned strategies for 50% of interactions
+
+---
+
+### Phase 3: Entity Resolution Learning (Months 7-9)
+- 🎯 Implement correction capture
+- 🎯 Build rule generation from feedback
+- 🎯 Deploy confidence scoring
+- 🎯 Create auto-merge pipeline for high-confidence matches
+
+**Success Metric:** 70% of new records auto-matched with >95% accuracy
+
+---
+
+### Phase 4: Knowledge Graph (Months 10-12)
+- 🎯 Build fact extraction from conversations
+- 🎯 Implement relationship mapping
+- 🎯 Create seasonal pattern detection
+- 🎯 Deploy product catalog learning
+
+**Success Metric:** 500+ validated facts per brewery, 80% of recommendations from learned data
+
+---
+
+### Phase 5: Continuous Improvement (Months 13+)
+- 🎯 Deploy real-time learning updates
+- 🎯 Implement cross-customer pattern transfer
+- 🎯 Build explainable AI for strategy selection
+- 🎯 Create learning quality monitoring
+
+**Success Metric:** Agent performance improves 20%+ over baseline, zero degradation events
+
+---
+
+## 5. Key Technical Decisions
+
+### 5.1 Learning Approach
+**Decision:** Supervised learning from user feedback + unsupervised pattern discovery  
+**Rationale:** Can't rely on labeled data initially, need to learn from usage  
+**Trade-off:** Slower to start but scales better than pure rule-based
+
+---
+
+### 5.2 Pattern Storage
+**Decision:** PostgreSQL JSONB with structured tables  
+**Rationale:** Balance flexibility (JSONB) with queryability (structured schema)  
+**Alternative Considered:** Separate vector DB rejected due to added complexity
+
+---
+
+### 5.3 Real-Time vs Batch Learning
+**Decision:** Hybrid - critical feedback immediate, pattern discovery nightly  
+**Rationale:** User corrections need instant application, statistical patterns need volume  
+**Implementation:** Redis cache for hot patterns, PostgreSQL for batch analysis
+
+---
+
+### 5.4 Cross-Customer Learning
+**Decision:** Allowed with anonymization for pattern transfer, explicit opt-in for data sharing  
+**Rationale:** Small breweries benefit from learnings across industry  
+**Privacy:** No customer-specific data shared, only aggregated patterns
+
+---
+
+## 6. Success Metrics
+
+### 6.1 Learning System Health
+- **Coverage:** >90% of interactions captured with full context
+- **Latency:** <100ms to retrieve learned context for agent
+- **Accuracy:** Pattern confidence scores >75% for active patterns
+- **Data Quality:** <1% of learned facts invalidated by user corrections
+
+---
+
+### 6.2 Agent Performance Improvement
+- **Conversion Rate:** +20% improvement over 3-month baseline
+- **Error Rate:** -10% month-over-month reduction
+- **User Satisfaction:** >4.0/5.0 average rating
+- **Efficiency:** -30% reduction in agent iterations to complete task
+
+---
+
+### 6.3 Business Impact
+- **CRM Data Quality:** 80% reduction in duplicate records
+- **Customer Retention:** +15% from personalized interactions
+- **Sales Velocity:** 20% faster deal close from better targeting
+- **Support Costs:** -40% from improved first-contact resolution
+
+---
+
+## 7. Risks & Mitigations
+
+### Risk 1: Privacy Concerns
+**Mitigation:** Explicit consent for learning, customer data controls, anonymization for cross-customer patterns
+
+### Risk 2: Learning Drift
+**Mitigation:** Pattern validation before deployment, user override capability, monitoring for performance degradation
+
+### Risk 3: Cold Start Problem
+**Mitigation:** Seed with industry best practices, manual rules as fallback, gradual confidence threshold raising
+
+### Risk 4: Computational Cost
+**Mitigation:** Batch processing for pattern discovery, caching for hot paths, incremental learning algorithms
+
+---
+
+## 8. Non-Functional Requirements
+
+### 8.1 Performance
+- Pattern lookup: <50ms p95
+- Interaction write: <100ms p95
+- Pattern discovery: Nightly batch, <2hr completion
+- Real-time updates: <5min for critical feedback
+
+---
+
+### 8.2 Scalability
+- 1M+ interactions per month
+- 10K+ active patterns
+- 100K+ learned facts
+- 50+ concurrent agents querying learning system
+
+---
+
+### 8.3 Data Retention
+- Raw interactions: 24 months
+- Aggregated patterns: Indefinite
+- Deprecated patterns: 12 months
+- User corrections: Indefinite (audit trail)
+
+---
+
+### 8.4 Monitoring
+- Pattern performance dashboards
+- Learning velocity tracking
+- Data quality alerts
+- Model drift detection
+
+---
+
+## Next Steps
+
+1. **Review & Validate:** Confirm this matches vision for agent learning
+2. **Prioritize Features:** Pick Phase 1 features for immediate build
+3. **Design APIs:** Detail the integration contracts
+4. **Prototype:** Build MVP with single learning loop (interaction → pattern → application)
+5. **Measure:** Establish baseline metrics before learning system goes live
+
+---
+
+**Document Status:** Draft for Review  
+**Last Updated:** 2026-01-03  
+**Owner:** Phil (Founder/Technical Lead)

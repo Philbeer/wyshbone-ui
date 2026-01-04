@@ -15,6 +15,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
+interface DeliveryBase {
+  id: number;
+  name: string;
+  address: string;
+  latitude?: number;
+  longitude?: number;
+  isDefault: boolean;
+}
+
 export default function RoutePlanner() {
   const { user } = useUser();
   const workspaceId = user?.id;
@@ -24,6 +33,8 @@ export default function RoutePlanner() {
   const [selectedOrders, setSelectedOrders] = useState<string[]>([]);
   const [routeName, setRouteName] = useState("");
   const [deliveryDate, setDeliveryDate] = useState("");
+  const [startBaseId, setStartBaseId] = useState<string>("");
+  const [endBaseId, setEndBaseId] = useState<string>("same"); // "same" = return to start
 
   // Fetch routes
   const { data: routesData, isLoading: isLoadingRoutes } = useQuery({
@@ -31,6 +42,16 @@ export default function RoutePlanner() {
     enabled: !!workspaceId,
     queryFn: async () => {
       const response = await apiRequest('GET', `/api/routes/${workspaceId}`);
+      return response.json();
+    },
+  });
+
+  // Fetch delivery bases for route creation
+  const { data: basesData } = useQuery({
+    queryKey: ['/api/delivery-bases', workspaceId],
+    enabled: !!workspaceId,
+    queryFn: async () => {
+      const response = await apiRequest('GET', '/api/delivery-bases');
       return response.json();
     },
   });
@@ -98,17 +119,44 @@ export default function RoutePlanner() {
     );
   }
 
+  const bases: DeliveryBase[] = basesData?.bases || [];
+  const defaultBase = bases.find(b => b.isDefault) || bases[0];
+
+  // Set default base when dialog opens
+  const handleOpenCreateDialog = () => {
+    setIsCreateDialogOpen(true);
+    if (defaultBase && !startBaseId) {
+      setStartBaseId(String(defaultBase.id));
+    }
+  };
+
   const handleCreateRoute = () => {
     if (!routeName || !deliveryDate || selectedOrders.length === 0) {
       toast({ title: "Please fill in all fields", variant: "destructive" });
       return;
     }
 
+    if (bases.length > 0 && !startBaseId) {
+      toast({ title: "Please select a starting location", variant: "destructive" });
+      return;
+    }
+
+    // Find the selected bases
+    const startBase = bases.find(b => b.id === parseInt(startBaseId));
+    const endBase = endBaseId === "same" ? startBase : bases.find(b => b.id === parseInt(endBaseId));
+
     createRouteMutation.mutate({
       name: routeName,
       deliveryDate: new Date(deliveryDate).getTime(),
       orderIds: selectedOrders,
       optimizeImmediately: true,
+      startBaseId: startBase?.id,
+      endBaseId: endBaseId === "same" ? null : endBase?.id,
+      startLocation: startBase ? {
+        name: startBase.name,
+        latitude: startBase.latitude,
+        longitude: startBase.longitude,
+      } : undefined,
     });
   };
 
@@ -138,11 +186,26 @@ export default function RoutePlanner() {
           <h1 className="text-3xl font-bold">Route Planner</h1>
           <p className="text-gray-500">Manage delivery routes and optimize for efficiency</p>
         </div>
-        <Button onClick={() => setIsCreateDialogOpen(true)}>
+        <Button onClick={handleOpenCreateDialog}>
           <Plus className="w-4 h-4 mr-2" />
           Create Route
         </Button>
       </div>
+
+      {/* No bases warning */}
+      {bases.length === 0 && (
+        <Card className="p-4 border-orange-200 bg-orange-50">
+          <div className="flex items-center gap-3">
+            <MapPin className="w-5 h-5 text-orange-600" />
+            <div>
+              <p className="font-medium text-orange-800">No delivery bases configured</p>
+              <p className="text-sm text-orange-600">
+                Add a starting location (depot/warehouse) in the <a href="/auth/crm/bases" className="underline">Bases</a> page for route optimization.
+              </p>
+            </div>
+          </div>
+        </Card>
+      )}
 
       {/* Routes List */}
       <Card className="p-4">
@@ -157,7 +220,7 @@ export default function RoutePlanner() {
             <Truck className="w-16 h-16 mx-auto text-gray-400 mb-4" />
             <h3 className="text-lg font-semibold mb-2">No routes yet</h3>
             <p className="text-gray-500 mb-4">Create your first delivery route to get started</p>
-            <Button onClick={() => setIsCreateDialogOpen(true)}>
+            <Button onClick={handleOpenCreateDialog}>
               <Plus className="w-4 h-4 mr-2" />
               Create Route
             </Button>
@@ -283,22 +346,74 @@ export default function RoutePlanner() {
             <DialogTitle>Create Delivery Route</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            <div>
-              <Label>Route Name</Label>
-              <Input
-                value={routeName}
-                onChange={(e) => setRouteName(e.target.value)}
-                placeholder="e.g., Morning Deliveries"
-              />
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>Route Name</Label>
+                <Input
+                  value={routeName}
+                  onChange={(e) => setRouteName(e.target.value)}
+                  placeholder="e.g., Morning Deliveries"
+                />
+              </div>
+              <div>
+                <Label>Delivery Date</Label>
+                <Input
+                  type="date"
+                  value={deliveryDate}
+                  onChange={(e) => setDeliveryDate(e.target.value)}
+                />
+              </div>
             </div>
-            <div>
-              <Label>Delivery Date</Label>
-              <Input
-                type="date"
-                value={deliveryDate}
-                onChange={(e) => setDeliveryDate(e.target.value)}
-              />
-            </div>
+
+            {/* Base selection */}
+            {bases.length > 0 && (
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label>Start Location</Label>
+                  <Select value={startBaseId} onValueChange={setStartBaseId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select starting point" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {bases.map((base) => (
+                        <SelectItem key={base.id} value={String(base.id)}>
+                          <div className="flex items-center gap-2">
+                            <MapPin className="w-3 h-3" />
+                            {base.name}
+                            {base.isDefault && <Badge variant="outline" className="ml-1 text-xs">Default</Badge>}
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label>Return Location</Label>
+                  <Select value={endBaseId} onValueChange={setEndBaseId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select return point" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="same">
+                        <div className="flex items-center gap-2">
+                          <MapPin className="w-3 h-3" />
+                          Same as start (round trip)
+                        </div>
+                      </SelectItem>
+                      {bases.map((base) => (
+                        <SelectItem key={base.id} value={String(base.id)}>
+                          <div className="flex items-center gap-2">
+                            <MapPin className="w-3 h-3" />
+                            {base.name}
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            )}
+
             <div>
               <Label>Select Orders ({selectedOrders.length} selected)</Label>
               <div className="border rounded p-3 max-h-64 overflow-y-auto space-y-2">

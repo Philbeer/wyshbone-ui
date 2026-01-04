@@ -642,12 +642,18 @@ After completing a task, suggest logical next steps.`;
     const url = addDevAuthParams('/api/places/search');
     const fullUrl = buildApiUrl(url);
     
+    const sessionId = this.getSessionId();
     console.log('[QuickSearch] Calling:', fullUrl);
     console.log('[QuickSearch] Params:', { query, locationText, maxResults });
-    
+    console.log('[QuickSearch] Session ID:', sessionId ? 'present' : 'MISSING');
+
     const response = await fetch(fullUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        // Add session ID header if available
+        ...(sessionId ? { 'x-session-id': sessionId } : {})
+      },
       credentials: 'include',
       body: JSON.stringify({ query, locationText, maxResults })
     });
@@ -802,12 +808,18 @@ After completing a task, suggest logical next steps.`;
     const url = addDevAuthParams('/api/batch/create');
     const fullUrl = buildApiUrl(url);
     
+    const sessionId = this.getSessionId();
     console.log('[EmailFinder] Calling:', fullUrl);
     console.log('[EmailFinder] Params:', { businessType: query, location, targetRole });
-    
+    console.log('[EmailFinder] Session ID:', sessionId ? 'present' : 'MISSING');
+
     const response = await fetch(fullUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        // Add session ID header if available
+        ...(sessionId ? { 'x-session-id': sessionId } : {})
+      },
       credentials: 'include',
       body: JSON.stringify({
         businessType: query,
@@ -834,12 +846,18 @@ After completing a task, suggest logical next steps.`;
     const url = addDevAuthParams('/api/monitors');
     const fullUrl = buildApiUrl(url);
     
+    const sessionId = this.getSessionId();
     console.log('[ScheduledMonitor] Calling:', fullUrl);
     console.log('[ScheduledMonitor] Params:', { label, schedule, description });
-    
+    console.log('[ScheduledMonitor] Session ID:', sessionId ? 'present' : 'MISSING');
+
     const response = await fetch(fullUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        // Add session ID header if available
+        ...(sessionId ? { 'x-session-id': sessionId } : {})
+      },
       credentials: 'include',
       body: JSON.stringify({ label, schedule, description, type: 'business_search' })
     });
@@ -861,11 +879,17 @@ After completing a task, suggest logical next steps.`;
     const url = addDevAuthParams('/api/nudges');
     const fullUrl = buildApiUrl(url);
     
+    const sessionId = this.getSessionId();
     console.log('[GetNudges] Calling:', fullUrl);
-    
+    console.log('[GetNudges] Session ID:', sessionId ? 'present' : 'MISSING');
+
     const response = await fetch(fullUrl, {
       method: 'GET',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        // Add session ID header if available
+        ...(sessionId ? { 'x-session-id': sessionId } : {})
+      },
       credentials: 'include'
     });
     

@@ -1,6 +1,6 @@
 import { Route, Switch, Link, useLocation } from "wouter";
 import { useUser } from "@/contexts/UserContext";
-import { Building2, Users, Package, Truck, Settings, Warehouse, Beer, FileText, Container, Boxes, Phone, DollarSign, BarChart3, CheckSquare, Activity, Store, QrCode, Calendar, ClipboardCheck, Factory } from "lucide-react";
+import { Building2, Users, Package, Truck, Settings, Warehouse, Beer, FileText, Container, Boxes, Phone, DollarSign, BarChart3, CheckSquare, Activity, Store, QrCode, Calendar, ClipboardCheck, Factory, MapPin } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
@@ -16,6 +16,7 @@ import CrmDiary from "./diary";
 import CrmTasks from "./tasks";
 import CrmActivities from "./activities";
 import CrmSuppliers from "./suppliers";
+import DeliveryBases from "./bases";
 // TODO: Re-enable when filter API endpoints are implemented
 // import CrmCustomerFilters from "./customer-filters";
 import BrewCrmBatches from "../brewcrm/batches";
@@ -130,6 +131,12 @@ export default function CrmLayout() {
                 Routes
               </Link>
             </Button>
+            <Button variant={isActive("/bases") ? "default" : "ghost"} size="sm" asChild>
+              <Link href="/bases" data-testid="link-crm-bases">
+                <MapPin className="w-4 h-4 mr-2" />
+                Bases
+              </Link>
+            </Button>
             <Button variant={isActive("/stock") ? "default" : "ghost"} size="sm" asChild>
               <Link href="/stock" data-testid="link-crm-stock">
                 <Warehouse className="w-4 h-4 mr-2" />
@@ -233,6 +240,7 @@ export default function CrmLayout() {
           <Route path="/orders" component={CrmOrders} />
           <Route path="/delivery-runs" component={CrmDeliveryRuns} />
           <Route path="/routes" component={RoutePlanner} />
+          <Route path="/bases" component={DeliveryBases} />
           <Route path="/stock" component={CrmStock} />
           <Route path="/diary" component={CrmDiary} />
           <Route path="/tasks" component={CrmTasks} />

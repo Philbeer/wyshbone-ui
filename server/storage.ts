@@ -92,7 +92,9 @@ import type {
   InsertRouteStop,
   SelectRouteStop,
   InsertRouteOptimizationResult,
-  SelectRouteOptimizationResult
+  SelectRouteOptimizationResult,
+  InsertDeliveryBase,
+  SelectDeliveryBase
 } from "@shared/schema";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
@@ -141,6 +143,7 @@ import {
   xeroSyncQueue,
   suppliers,
   supplierPurchases,
+  deliveryBases,
   deliveryRoutes,
   routeStops,
   routeOptimizationResults
@@ -3910,6 +3913,94 @@ export class DbStorage implements IStorage {
           eq(brewProducts.workspaceId, workspaceId)
         )
       );
+  }
+
+  // ============================================
+  // ROUTE PLANNER - Delivery Bases
+  // ============================================
+
+  async listDeliveryBases(workspaceId: string): Promise<SelectDeliveryBase[]> {
+    return await db
+      .select()
+      .from(deliveryBases)
+      .where(
+        and(
+          eq(deliveryBases.workspaceId, workspaceId),
+          eq(deliveryBases.isActive, true)
+        )
+      )
+      .orderBy(desc(deliveryBases.isDefault), asc(deliveryBases.name));
+  }
+
+  async getDeliveryBase(id: number): Promise<SelectDeliveryBase | null> {
+    const results = await db
+      .select()
+      .from(deliveryBases)
+      .where(eq(deliveryBases.id, id))
+      .limit(1);
+    return results[0] || null;
+  }
+
+  async getDefaultDeliveryBase(workspaceId: string): Promise<SelectDeliveryBase | null> {
+    const results = await db
+      .select()
+      .from(deliveryBases)
+      .where(
+        and(
+          eq(deliveryBases.workspaceId, workspaceId),
+          eq(deliveryBases.isDefault, true),
+          eq(deliveryBases.isActive, true)
+        )
+      )
+      .limit(1);
+    return results[0] || null;
+  }
+
+  async insertDeliveryBase(base: InsertDeliveryBase): Promise<SelectDeliveryBase> {
+    // If setting as default, unset other defaults first
+    if (base.isDefault) {
+      await db
+        .update(deliveryBases)
+        .set({ isDefault: false })
+        .where(eq(deliveryBases.workspaceId, base.workspaceId));
+    }
+    
+    const results = await db
+      .insert(deliveryBases)
+      .values(base)
+      .returning();
+    return results[0];
+  }
+
+  async updateDeliveryBase(
+    id: number,
+    updates: Partial<SelectDeliveryBase>
+  ): Promise<SelectDeliveryBase | null> {
+    // If setting as default, unset other defaults first
+    if (updates.isDefault) {
+      const existing = await this.getDeliveryBase(id);
+      if (existing) {
+        await db
+          .update(deliveryBases)
+          .set({ isDefault: false })
+          .where(eq(deliveryBases.workspaceId, existing.workspaceId));
+      }
+    }
+    
+    const results = await db
+      .update(deliveryBases)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(deliveryBases.id, id))
+      .returning();
+    return results[0] || null;
+  }
+
+  async deleteDeliveryBase(id: number): Promise<void> {
+    // Soft delete - just mark as inactive
+    await db
+      .update(deliveryBases)
+      .set({ isActive: false, updatedAt: new Date() })
+      .where(eq(deliveryBases.id, id));
   }
 
   // ============================================

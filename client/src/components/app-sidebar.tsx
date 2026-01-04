@@ -1060,6 +1060,14 @@ export function AppSidebar({
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
+                <SidebarMenuItem>
+                  <SidebarMenuButton asChild isActive={location === "/dev/progress"} data-testid="link-dev-progress">
+                    <Link href="/dev/progress">
+                      <FlaskConical className="h-4 w-4" />
+                      <span>📊 Dev Progress</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
                 {(user?.role === 'admin' || ['phil@wyshbone.com', 'phil@listersbrewery.com'].includes(user?.email?.toLowerCase() || '')) && (
                   <SidebarMenuItem>
                     <SidebarMenuButton asChild isActive={location === "/admin/database-maintenance"} data-testid="link-admin-db-maintenance">

@@ -1546,6 +1546,34 @@ export type SelectCrmTask = typeof crmTasks.$inferSelect;
 // ROUTE PLANNER - Delivery Route Management
 // ============================================
 
+// Delivery Bases (Starting points for delivery routes - depots, warehouses, breweries)
+export const deliveryBases = pgTable("delivery_bases", {
+  id: serial("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull(),
+  name: text("name").notNull(), // e.g., "Main Brewery", "London Depot"
+  address: text("address").notNull(),
+  addressLine1: text("address_line_1"),
+  addressLine2: text("address_line_2"),
+  city: text("city"),
+  postcode: text("postcode"),
+  country: text("country").default("United Kingdom"),
+  latitude: doublePrecision("latitude"),
+  longitude: doublePrecision("longitude"),
+  isDefault: boolean("is_default").default(false), // Auto-selected for new routes
+  isActive: boolean("is_active").default(true),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  workspaceIdIdx: index("delivery_bases_workspace_id_idx").on(table.workspaceId),
+  isDefaultIdx: index("delivery_bases_is_default_idx").on(table.isDefault),
+}));
+
+export const insertDeliveryBaseSchema = createInsertSchema(deliveryBases);
+export const selectDeliveryBaseSchema = createSelectSchema(deliveryBases);
+export type InsertDeliveryBase = typeof deliveryBases.$inferInsert;
+export type SelectDeliveryBase = typeof deliveryBases.$inferSelect;
+
 // Delivery Routes (Enhanced version of delivery_runs with optimization)
 export const deliveryRoutes = pgTable("delivery_routes", {
   id: text("id").primaryKey(),
@@ -1572,7 +1600,9 @@ export const deliveryRoutes = pgTable("delivery_routes", {
   totalDistanceMiles: doublePrecision("total_distance_miles"),
   estimatedDurationMinutes: integer("estimated_duration_minutes"),
 
-  // Start/end location (depot)
+  // Start/end location (depot/base)
+  startBaseId: integer("start_base_id"), // FK to delivery_bases
+  endBaseId: integer("end_base_id"), // FK to delivery_bases (null = return to start)
   startLocationName: text("start_location_name"),
   startLatitude: doublePrecision("start_latitude"),
   startLongitude: doublePrecision("start_longitude"),

@@ -47,27 +47,99 @@ export interface RouteStop {
 class RouteOptimizationService {
   private apiKey: string;
   private geocodeCache: Map<string, { lat: number; lng: number }> = new Map();
+  private isDev: boolean;
 
   constructor() {
     this.apiKey = process.env.GOOGLE_MAPS_API_KEY || "";
+    this.isDev = process.env.NODE_ENV === "development" || !this.apiKey;
     if (!this.apiKey) {
-      console.warn("GOOGLE_MAPS_API_KEY not set - route optimization will fail");
+      console.warn("GOOGLE_MAPS_API_KEY not set - using mock geocoding for development");
     }
+  }
+
+  /**
+   * Generate mock UK coordinates based on postcode or address
+   * Used when GOOGLE_MAPS_API_KEY is not available
+   */
+  private getMockCoordinates(address: string): { lat: number; lng: number } {
+    // Extract postcode from address (UK format)
+    const postcodeMatch = address.match(/([A-Z]{1,2}\d{1,2}[A-Z]?\s*\d[A-Z]{2})/i);
+    const postcode = postcodeMatch ? postcodeMatch[1].toUpperCase().replace(/\s+/g, '') : '';
+    
+    // Rough UK postcode area centers (approximate)
+    const postcodeAreas: Record<string, { lat: number; lng: number }> = {
+      'BN': { lat: 50.8225, lng: -0.1372 },   // Brighton
+      'BH': { lat: 50.7192, lng: -1.8808 },   // Bournemouth
+      'PO': { lat: 50.7989, lng: -1.0912 },   // Portsmouth
+      'SO': { lat: 50.9097, lng: -1.4044 },   // Southampton
+      'GU': { lat: 51.2362, lng: -0.7677 },   // Guildford
+      'RH': { lat: 51.1171, lng: -0.1864 },   // Redhill/Crawley
+      'TN': { lat: 51.1310, lng: 0.2636 },    // Tunbridge Wells
+      'ME': { lat: 51.2721, lng: 0.5299 },    // Medway
+      'CT': { lat: 51.2802, lng: 1.0789 },    // Canterbury
+      'DA': { lat: 51.4412, lng: 0.2121 },    // Dartford
+      'BR': { lat: 51.4057, lng: 0.0142 },    // Bromley
+      'SE': { lat: 51.4615, lng: -0.0117 },   // South East London
+      'SW': { lat: 51.4613, lng: -0.1689 },   // South West London
+      'W': { lat: 51.5133, lng: -0.1566 },    // West London
+      'E': { lat: 51.5387, lng: -0.0333 },    // East London
+      'N': { lat: 51.5619, lng: -0.1044 },    // North London
+      'NW': { lat: 51.5440, lng: -0.1733 },   // North West London
+      'EC': { lat: 51.5188, lng: -0.0825 },   // East Central London
+      'WC': { lat: 51.5170, lng: -0.1212 },   // West Central London
+      'M': { lat: 53.4808, lng: -2.2426 },    // Manchester
+      'B': { lat: 52.4862, lng: -1.8904 },    // Birmingham
+      'L': { lat: 53.4084, lng: -2.9916 },    // Liverpool
+      'LS': { lat: 53.8008, lng: -1.5491 },   // Leeds
+      'S': { lat: 53.3811, lng: -1.4701 },    // Sheffield
+      'BS': { lat: 51.4545, lng: -2.5879 },   // Bristol
+      'EX': { lat: 50.7184, lng: -3.5339 },   // Exeter
+      'PL': { lat: 50.3755, lng: -4.1427 },   // Plymouth
+      'TR': { lat: 50.2660, lng: -5.0527 },   // Truro
+      'NE': { lat: 54.9783, lng: -1.6178 },   // Newcastle
+      'EH': { lat: 55.9533, lng: -3.1883 },   // Edinburgh
+      'G': { lat: 55.8642, lng: -4.2518 },    // Glasgow
+      'AB': { lat: 57.1497, lng: -2.0943 },   // Aberdeen
+      'CF': { lat: 51.4816, lng: -3.1791 },   // Cardiff
+    };
+
+    // Find matching postcode area
+    const areaPrefix = postcode.slice(0, 2).replace(/\d/g, '');
+    if (postcodeAreas[areaPrefix]) {
+      // Add small random offset to differentiate addresses
+      const hash = address.split('').reduce((a, b) => ((a << 5) - a) + b.charCodeAt(0), 0);
+      const latOffset = ((hash % 1000) / 100000);
+      const lngOffset = (((hash >> 8) % 1000) / 100000);
+      return {
+        lat: postcodeAreas[areaPrefix].lat + latOffset,
+        lng: postcodeAreas[areaPrefix].lng + lngOffset,
+      };
+    }
+
+    // Default to central England with random offset
+    const hash = address.split('').reduce((a, b) => ((a << 5) - a) + b.charCodeAt(0), 0);
+    return {
+      lat: 52.5 + ((hash % 1000) / 10000),
+      lng: -1.5 + (((hash >> 8) % 1000) / 10000),
+    };
   }
 
   /**
    * Geocode an address to lat/lng coordinates
    */
   async geocodeAddress(address: string): Promise<{ lat: number; lng: number } | null> {
-    if (!this.apiKey) {
-      console.error("Google Maps API key not configured");
-      return null;
-    }
-
     // Check cache first
     const normalized = this.normalizeAddress(address);
     if (this.geocodeCache.has(normalized)) {
       return this.geocodeCache.get(normalized)!;
+    }
+
+    // Use mock geocoding in development when no API key
+    if (!this.apiKey) {
+      console.log(`[DEV] Using mock geocoding for: ${address}`);
+      const mockCoords = this.getMockCoordinates(address);
+      this.geocodeCache.set(normalized, mockCoords);
+      return mockCoords;
     }
 
     try {
@@ -91,10 +163,22 @@ class RouteOptimizationService {
         return result;
       } else {
         console.warn(`Geocoding failed for address: ${address}, status: ${response.data.status}`);
+        // Fall back to mock in development
+        if (this.isDev) {
+          const mockCoords = this.getMockCoordinates(address);
+          this.geocodeCache.set(normalized, mockCoords);
+          return mockCoords;
+        }
         return null;
       }
     } catch (error: any) {
       console.error(`Error geocoding address ${address}:`, error.message);
+      // Fall back to mock in development
+      if (this.isDev) {
+        const mockCoords = this.getMockCoordinates(address);
+        this.geocodeCache.set(normalized, mockCoords);
+        return mockCoords;
+      }
       return null;
     }
   }
@@ -107,19 +191,83 @@ class RouteOptimizationService {
   }
 
   /**
+   * Optimize route using nearest-neighbor algorithm (fallback when no API key)
+   */
+  private optimizeRouteLocal(waypoints: Waypoint[]): OptimizationResult {
+    console.log("[DEV] Using local nearest-neighbor route optimization");
+    
+    // Simple nearest-neighbor algorithm
+    const visited = new Set<number>();
+    const optimizedOrder: number[] = [];
+    const distances: number[] = [];
+    const durations: number[] = [];
+    
+    // Start from first waypoint
+    let current = 0;
+    visited.add(0);
+    optimizedOrder.push(0);
+    
+    while (optimizedOrder.length < waypoints.length) {
+      let nearest = -1;
+      let nearestDistance = Infinity;
+      
+      for (let i = 0; i < waypoints.length; i++) {
+        if (visited.has(i)) continue;
+        
+        const distance = this.calculateHaversineDistance(
+          waypoints[current].latitude,
+          waypoints[current].longitude,
+          waypoints[i].latitude,
+          waypoints[i].longitude
+        );
+        
+        if (distance < nearestDistance) {
+          nearestDistance = distance;
+          nearest = i;
+        }
+      }
+      
+      if (nearest !== -1) {
+        visited.add(nearest);
+        optimizedOrder.push(nearest);
+        distances.push(nearestDistance);
+        durations.push(Math.round(nearestDistance * 2)); // Rough estimate: 2 min per mile
+        current = nearest;
+      }
+    }
+    
+    const totalDistanceMiles = distances.reduce((a, b) => a + b, 0);
+    const totalDurationMinutes = durations.reduce((a, b) => a + b, 0);
+    
+    return {
+      optimizedOrder,
+      totalDistanceMiles,
+      totalDurationMinutes,
+      distances,
+      durations,
+      waypointDistances: distances,
+      waypointDurations: durations,
+      apiProvider: "local_nearest_neighbor",
+      apiCallCount: 0,
+      rawResponse: null,
+    };
+  }
+
+  /**
    * Optimize route using Google Maps Directions API with waypoint optimization
    */
   async optimizeRoute(waypoints: Waypoint[]): Promise<OptimizationResult> {
-    if (!this.apiKey) {
-      throw new Error("Google Maps API key not configured");
-    }
-
     if (waypoints.length < 2) {
       throw new Error("Need at least 2 waypoints to optimize a route");
     }
 
     if (waypoints.length > 25) {
       throw new Error("Google Maps supports max 25 waypoints per request");
+    }
+
+    // Use local optimization if no API key
+    if (!this.apiKey) {
+      return this.optimizeRouteLocal(waypoints);
     }
 
     try {
@@ -152,7 +300,8 @@ class RouteOptimizationService {
       );
 
       if (response.data.status !== "OK") {
-        throw new Error(`Google Maps API error: ${response.data.status} - ${response.data.error_message || ""}`);
+        console.warn(`Google Maps API error: ${response.data.status}, falling back to local optimization`);
+        return this.optimizeRouteLocal(waypoints);
       }
 
       const route = response.data.routes[0];

@@ -8,7 +8,11 @@
       "Bash(npm run check:*)",
       "Bash(npx tsc:*)",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(ls:*)",
+      "Bash(else echo \"Supervisor directory not found in parent directory\")",
+      "Bash(fi)",
+      "Bash(grep:*)"
     ]
   }
 }

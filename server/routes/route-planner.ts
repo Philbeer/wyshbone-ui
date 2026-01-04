@@ -35,6 +35,191 @@ async function getAuthenticatedUserId(req: any): Promise<{ userId: string } | nu
 }
 
 // ============================================
+// DELIVERY BASES ENDPOINTS
+// ============================================
+
+/**
+ * GET /api/delivery-bases
+ * List all delivery bases for a workspace
+ */
+routePlannerRoutes.get("/delivery-bases", async (req, res) => {
+  try {
+    const auth = await getAuthenticatedUserId(req);
+    if (!auth) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const bases = await storage.listDeliveryBases(auth.userId);
+    res.json({ bases });
+  } catch (error: any) {
+    console.error("Error listing delivery bases:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/delivery-bases/default
+ * Get the default delivery base for a workspace
+ */
+routePlannerRoutes.get("/delivery-bases/default", async (req, res) => {
+  try {
+    const auth = await getAuthenticatedUserId(req);
+    if (!auth) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const base = await storage.getDefaultDeliveryBase(auth.userId);
+    res.json({ base });
+  } catch (error: any) {
+    console.error("Error getting default delivery base:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/delivery-bases/:id
+ * Get a single delivery base
+ */
+routePlannerRoutes.get("/delivery-bases/:id", async (req, res) => {
+  try {
+    const auth = await getAuthenticatedUserId(req);
+    if (!auth) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const { id } = req.params;
+    const base = await storage.getDeliveryBase(parseInt(id));
+
+    if (!base) {
+      return res.status(404).json({ error: "Delivery base not found" });
+    }
+
+    if (base.workspaceId !== auth.userId) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
+    res.json({ base });
+  } catch (error: any) {
+    console.error("Error getting delivery base:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/delivery-bases
+ * Create a new delivery base
+ */
+routePlannerRoutes.post("/delivery-bases", async (req, res) => {
+  try {
+    const auth = await getAuthenticatedUserId(req);
+    if (!auth) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const { name, address, addressLine1, addressLine2, city, postcode, country, latitude, longitude, isDefault, notes } = req.body;
+
+    if (!name || !address) {
+      return res.status(400).json({ error: "Name and address are required" });
+    }
+
+    const base = await storage.insertDeliveryBase({
+      workspaceId: auth.userId,
+      name,
+      address,
+      addressLine1,
+      addressLine2,
+      city,
+      postcode,
+      country: country || "United Kingdom",
+      latitude,
+      longitude,
+      isDefault: isDefault || false,
+      notes,
+    });
+
+    res.json({ success: true, base });
+  } catch (error: any) {
+    console.error("Error creating delivery base:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * PUT /api/delivery-bases/:id
+ * Update a delivery base
+ */
+routePlannerRoutes.put("/delivery-bases/:id", async (req, res) => {
+  try {
+    const auth = await getAuthenticatedUserId(req);
+    if (!auth) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const { id } = req.params;
+    const existing = await storage.getDeliveryBase(parseInt(id));
+
+    if (!existing) {
+      return res.status(404).json({ error: "Delivery base not found" });
+    }
+
+    if (existing.workspaceId !== auth.userId) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
+    const { name, address, addressLine1, addressLine2, city, postcode, country, latitude, longitude, isDefault, notes } = req.body;
+
+    const base = await storage.updateDeliveryBase(parseInt(id), {
+      name,
+      address,
+      addressLine1,
+      addressLine2,
+      city,
+      postcode,
+      country,
+      latitude,
+      longitude,
+      isDefault,
+      notes,
+    });
+
+    res.json({ success: true, base });
+  } catch (error: any) {
+    console.error("Error updating delivery base:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * DELETE /api/delivery-bases/:id
+ * Delete (deactivate) a delivery base
+ */
+routePlannerRoutes.delete("/delivery-bases/:id", async (req, res) => {
+  try {
+    const auth = await getAuthenticatedUserId(req);
+    if (!auth) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const { id } = req.params;
+    const existing = await storage.getDeliveryBase(parseInt(id));
+
+    if (!existing) {
+      return res.status(404).json({ error: "Delivery base not found" });
+    }
+
+    if (existing.workspaceId !== auth.userId) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
+    await storage.deleteDeliveryBase(parseInt(id));
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error("Error deleting delivery base:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================
 // DELIVERY ROUTES ENDPOINTS
 // ============================================
 
@@ -110,6 +295,8 @@ routePlannerRoutes.post("/routes/create", async (req, res) => {
       deliveryDate,
       orderIds,
       optimizeImmediately = false,
+      startBaseId,
+      endBaseId,
       startLocation,
     } = req.body;
 
@@ -119,6 +306,24 @@ routePlannerRoutes.post("/routes/create", async (req, res) => {
 
     if (!orderIds || !Array.isArray(orderIds) || orderIds.length === 0) {
       return res.status(400).json({ error: "Must provide at least one order" });
+    }
+
+    // Fetch base locations if provided
+    let startBase = null;
+    let endBase = null;
+    
+    if (startBaseId) {
+      startBase = await storage.getDeliveryBase(startBaseId);
+      if (!startBase || startBase.workspaceId !== auth.userId) {
+        return res.status(400).json({ error: "Invalid start base" });
+      }
+    }
+    
+    if (endBaseId) {
+      endBase = await storage.getDeliveryBase(endBaseId);
+      if (!endBase || endBase.workspaceId !== auth.userId) {
+        return res.status(400).json({ error: "Invalid end base" });
+      }
     }
 
     // Fetch all orders
@@ -168,6 +373,14 @@ routePlannerRoutes.post("/routes/create", async (req, res) => {
     const routeId = randomUUID();
     const now = Date.now();
 
+    // Determine start/end locations from bases or provided location
+    const startLocationName = startBase?.name || startLocation?.name;
+    const startLatitude = startBase?.latitude || startLocation?.latitude;
+    const startLongitude = startBase?.longitude || startLocation?.longitude;
+    const endLocationName = endBase?.name || startBase?.name || startLocation?.name;
+    const endLatitude = endBase?.latitude || startBase?.latitude || startLocation?.latitude;
+    const endLongitude = endBase?.longitude || startBase?.longitude || startLocation?.longitude;
+
     const route = await storage.insertDeliveryRoute({
       id: routeId,
       workspaceId: auth.userId,
@@ -177,9 +390,14 @@ routePlannerRoutes.post("/routes/create", async (req, res) => {
       totalStops: stops.length,
       completedStops: 0,
       isOptimized: false,
-      startLocationName: startLocation?.name,
-      startLatitude: startLocation?.latitude,
-      startLongitude: startLocation?.longitude,
+      startBaseId: startBase?.id,
+      endBaseId: endBase?.id,
+      startLocationName,
+      startLatitude,
+      startLongitude,
+      endLocationName,
+      endLatitude,
+      endLongitude,
       createdAt: now,
       updatedAt: now,
     });
@@ -280,8 +498,8 @@ async function optimizeRoute(routeId: string, workspaceId: string) {
   }
 
   const stops = await storage.listRouteStops(routeId);
-  if (stops.length < 2) {
-    throw new Error("Need at least 2 stops to optimize");
+  if (stops.length === 0) {
+    throw new Error("No stops to optimize");
   }
 
   // Build waypoints from stops
@@ -300,10 +518,51 @@ async function optimizeRoute(routeId: string, workspaceId: string) {
     longitude: stop.longitude || undefined,
   }));
 
+  // Add start base as first waypoint if available
+  if (route.startLatitude && route.startLongitude) {
+    waypointsInput.unshift({
+      orderId: undefined,
+      customerId: "START_BASE",
+      customerName: route.startLocationName || "Start Base",
+      address: {
+        line1: route.startLocationName || "Start Base",
+      },
+      latitude: route.startLatitude,
+      longitude: route.startLongitude,
+    });
+  }
+
+  // Add end base as last waypoint if different from start
+  if (route.endLatitude && route.endLongitude && 
+      (route.endLatitude !== route.startLatitude || route.endLongitude !== route.startLongitude)) {
+    waypointsInput.push({
+      orderId: undefined,
+      customerId: "END_BASE",
+      customerName: route.endLocationName || "End Base",
+      address: {
+        line1: route.endLocationName || "End Base",
+      },
+      latitude: route.endLatitude,
+      longitude: route.endLongitude,
+    });
+  } else if (route.startLatitude && route.startLongitude) {
+    // Round trip - add start as end
+    waypointsInput.push({
+      orderId: undefined,
+      customerId: "END_BASE",
+      customerName: route.startLocationName || "Return to Start",
+      address: {
+        line1: route.startLocationName || "Return to Start",
+      },
+      latitude: route.startLatitude,
+      longitude: route.startLongitude,
+    });
+  }
+
   const waypoints = await routeOptimizationService.buildWaypoints(waypointsInput);
 
   if (waypoints.length < 2) {
-    throw new Error("Not enough valid waypoints after geocoding");
+    throw new Error("Not enough valid waypoints after geocoding. Please ensure your delivery base and customers have valid addresses.");
   }
 
   // Calculate unoptimized metrics
@@ -312,18 +571,39 @@ async function optimizeRoute(routeId: string, workspaceId: string) {
   // Optimize
   const optimized = await routeOptimizationService.optimizeRoute(waypoints);
 
-  // Update stops with new sequence
+  // Update stops with new sequence (skip base waypoints)
+  // Find which indices are base waypoints (not actual stops)
+  const hasStartBase = route.startLatitude && route.startLongitude;
+  const hasEndBase = route.endLatitude && route.endLongitude;
+  
+  let stopSequence = 1;
   for (let i = 0; i < optimized.optimizedOrder.length; i++) {
     const originalIndex = optimized.optimizedOrder[i];
-    const stop = stops[originalIndex];
-
-    await storage.updateRouteStop(stop.id, {
-      sequenceNumber: i + 1,
-      distanceFromPreviousMiles: optimized.distances[i] || null,
-      durationFromPreviousMinutes: optimized.durations[i] || null,
-      latitude: waypoints[originalIndex].latitude,
-      longitude: waypoints[originalIndex].longitude,
-    });
+    
+    // Skip base waypoints (first and last if they exist)
+    const isStartBase = hasStartBase && originalIndex === 0;
+    const isEndBase = hasEndBase && originalIndex === waypointsInput.length - 1;
+    
+    if (isStartBase || isEndBase) {
+      continue; // Skip base waypoints
+    }
+    
+    // Adjust index to account for start base offset
+    const stopIndex = hasStartBase ? originalIndex - 1 : originalIndex;
+    
+    if (stopIndex >= 0 && stopIndex < stops.length) {
+      const stop = stops[stopIndex];
+      
+      await storage.updateRouteStop(stop.id, {
+        sequenceNumber: stopSequence,
+        distanceFromPreviousMiles: optimized.distances[i] || null,
+        durationFromPreviousMinutes: optimized.durations[i] || null,
+        latitude: waypoints[originalIndex]?.latitude,
+        longitude: waypoints[originalIndex]?.longitude,
+      });
+      
+      stopSequence++;
+    }
   }
 
   // Update route
