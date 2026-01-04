@@ -10,8 +10,23 @@ import { PhaseTask } from './devProgressService';
 export function generateTaskPrompt(task: PhaseTask): string {
   const sections = [];
 
+  // Hidden task metadata for automatic Claude Code detection
+  const metadata = {
+    taskId: task.id,
+    taskName: task.title,
+    repo: task.repo,
+    dashboardUrl: import.meta.env.VITE_API_URL || 'http://localhost:5000',
+    generatedAt: new Date().toISOString()
+  };
+
   // Header
   sections.push(`# TASK: ${task.title}\n`);
+
+  // Hidden metadata in HTML comment (invisible when rendered, but Claude Code can detect it)
+  sections.push(`<!-- WYSHBONE_TASK_START`);
+  sections.push(JSON.stringify(metadata, null, 2));
+  sections.push(`WYSHBONE_TASK_END -->\n`);
+
   sections.push(`**Priority:** ${task.priority.toUpperCase()}`);
   sections.push(`**Repository:** ${task.repo}`);
   sections.push(`**Branch:** ${task.branchName}\n`);
@@ -79,6 +94,24 @@ export function generateTaskPrompt(task: PhaseTask): string {
   sections.push(`\n---`);
   sections.push(`\n**Note:** This task is part of ${task.id.includes('p1') ? 'Phase 1: Fix Foundation' : task.id.includes('p2') ? 'Phase 2: Build Autonomous Agent' : 'Phase 3: Add Intelligence'}`);
   sections.push(`\nPlease implement this task following the acceptance criteria and verification steps above.`);
+
+  // Auto-notify instructions for Claude Code
+  sections.push(`\n\n---`);
+  sections.push(`\n## AUTOMATIC DASHBOARD NOTIFICATION\n`);
+  sections.push(`**IMPORTANT:** When you (Claude Code) start working on this task, please automatically notify the dashboard by running this command:\n`);
+  sections.push(`\`\`\`bash`);
+  sections.push(`curl -X POST ${metadata.dashboardUrl}/api/task/started \\`);
+  sections.push(`  -H "Content-Type: application/json" \\`);
+  sections.push(`  -d '{"taskId": "${metadata.taskId}", "claudeCodePid": "$$", "timestamp": "'$(date -Iseconds)'"}'`);
+  sections.push(`\`\`\``);
+  sections.push(`\nThis will update the dashboard to show "🤖 Claude Code is working on this task!"\n`);
+  sections.push(`**When you finish this task**, notify the dashboard by running:\n`);
+  sections.push(`\`\`\`bash`);
+  sections.push(`curl -X POST ${metadata.dashboardUrl}/api/task/finished \\`);
+  sections.push(`  -H "Content-Type: application/json" \\`);
+  sections.push(`  -d '{"taskId": "${metadata.taskId}", "success": true, "timestamp": "'$(date -Iseconds)'"}'`);
+  sections.push(`\`\`\``);
+  sections.push(`\n*(Set "success": false if the task couldn't be completed)*`);
 
   return sections.join('\n');
 }

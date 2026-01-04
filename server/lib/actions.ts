@@ -241,6 +241,37 @@ Wyshbone`;
         };
       }
 
+      case "GET_NUDGES":
+      case "get_nudges": {
+        if (!storage) {
+          return { ok: false, error: "Storage not available for nudges" };
+        }
+
+        if (!userId) {
+          return { ok: false, error: "User authentication required for nudges" };
+        }
+
+        const { limit = 10 } = actionParams || {};
+
+        console.log(`👉 Fetching nudges for user ${userId} (limit: ${limit})`);
+
+        // TODO: Implement actual nudges fetching from database
+        // For now, return empty array as placeholder
+        const nudges: any[] = [];
+
+        console.log(`✅ Found ${nudges.length} nudges`);
+
+        return {
+          ok: true,
+          data: {
+            nudges,
+            count: nudges.length,
+            message: nudges.length === 0 ? "No pending nudges at the moment" : undefined
+          },
+          note: nudges.length === 0 ? "No nudges available" : `Found ${nudges.length} nudges`
+        };
+      }
+
       case "CREATE_SCHEDULED_MONITOR":
       case "create_scheduled_monitor": {
         if (!storage) {
@@ -251,12 +282,12 @@ Wyshbone`;
           return { ok: false, error: "User authentication required for scheduled monitoring" };
         }
 
-        const { 
-          label, 
-          description, 
-          schedule = "weekly", 
-          scheduleDay, 
-          scheduleTime = "09:00", 
+        const {
+          label,
+          description,
+          schedule = "weekly",
+          scheduleDay,
+          scheduleTime = "09:00",
           monitorType = "deep_research",
           config,
           emailAddress

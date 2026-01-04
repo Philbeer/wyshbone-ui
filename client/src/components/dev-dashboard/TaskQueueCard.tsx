@@ -27,6 +27,7 @@ interface TaskQueueCardProps {
   isInProgress: boolean;
   isBlocked: boolean;
   isComplete: boolean;
+  claudeCodeWorking?: boolean;
   blockers: BlockerDetail[];
   onGeneratePrompt: (task: PhaseTask) => void;
   onMarkComplete: (task: PhaseTask) => void;
@@ -48,6 +49,7 @@ export function TaskQueueCard({
   isInProgress,
   isBlocked,
   isComplete,
+  claudeCodeWorking = false,
   blockers,
   onGeneratePrompt,
   onMarkComplete,
@@ -97,14 +99,30 @@ export function TaskQueueCard({
             </div>
           )}
 
+          {/* Claude Code Working Banner */}
+          {claudeCodeWorking && (
+            <div className="claude-code-banner bg-gradient-to-r from-purple-600 to-purple-700 text-white font-bold text-center py-3 px-4 -mx-4 -mt-4 mb-4 rounded-t-lg shadow-lg">
+              <div className="flex items-center justify-center gap-2 animate-pulse">
+                <span className="text-2xl">🤖</span>
+                <span>Claude Code is Working on This!</span>
+              </div>
+              <div className="text-xs font-normal mt-1 opacity-90">
+                Dashboard auto-detected Claude Code activity
+              </div>
+            </div>
+          )}
+
           {/* Status Badge */}
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
               {isReady && (
                 <Badge className="bg-green-500 hover:bg-green-600 text-white">🚀 READY</Badge>
               )}
-              {isInProgress && (
+              {isInProgress && !claudeCodeWorking && (
                 <Badge className="bg-blue-500 hover:bg-blue-600 text-white">🔄 IN PROGRESS</Badge>
+              )}
+              {isInProgress && claudeCodeWorking && (
+                <Badge className="bg-purple-500 hover:bg-purple-600 text-white animate-pulse">🤖 CLAUDE CODE WORKING</Badge>
               )}
               {isBlocked && (
                 <Badge className="bg-gray-500 hover:bg-gray-600 text-white">⏸️ BLOCKED</Badge>

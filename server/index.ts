@@ -11,6 +11,8 @@ import express, { type Request, Response, NextFunction } from "express";
 import cors from "cors";
 import { registerRoutes } from "./routes";
 import { nangoRouter } from "./routes/nango";
+import { taskTrackingRouter } from "./routes/task-tracking";
+import { toolsExecuteRouter } from "./routes/tools-execute";
 import { logDemoConfig } from "./demo-config";
 import { runSchemaHealthCheck } from "./schema-check";
 
@@ -70,6 +72,14 @@ app.use(express.urlencoded({ extended: false }));
 
 // Mount Nango router
 app.use(nangoRouter);
+
+// Mount task tracking router (for Claude Code auto-detection)
+app.use(taskTrackingRouter);
+console.log('✅ Task tracking router mounted');
+
+// Mount tools execution router (unified tool endpoint)
+app.use(toolsExecuteRouter);
+console.log('✅ Tools execution router mounted');
 
 // Health check endpoint for load balancers and monitoring
 app.get('/health', (_req, res) => {

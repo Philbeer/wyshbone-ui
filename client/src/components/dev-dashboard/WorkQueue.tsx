@@ -29,6 +29,7 @@ import {
   cleanupInvalidTaskStates,
   type TaskStatus
 } from '@/services/taskProgressService';
+import { useTaskTracking } from '@/hooks/useTaskTracking';
 
 interface WorkQueueProps {
   phases: Phase[];
@@ -46,8 +47,37 @@ export function WorkQueue({ phases }: WorkQueueProps) {
   const [taskToVerify, setTaskToVerify] = useState<PhaseTask | null>(null);
   const [showUnlockNotification, setShowUnlockNotification] = useState(false);
   const [unlockedCount, setUnlockedCount] = useState(0);
+  const [claudeCodeWorkingTasks, setClaudeCodeWorkingTasks] = useState<Set<string>>(new Set());
 
   const taskRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+  // Real-time Claude Code task tracking
+  useTaskTracking({
+    enabled: true,
+    pollInterval: 5000, // Poll every 5 seconds
+    onTaskStarted: (taskId) => {
+      console.log('🤖 Dashboard detected: Claude Code started working on', taskId);
+      setClaudeCodeWorkingTasks(prev => new Set(prev).add(taskId));
+      // Auto-mark task as in-progress in UI
+      markTaskInProgress(taskId);
+      setTaskStatuses(prev => ({ ...prev, [taskId]: 'in-progress' }));
+      reorderQueue();
+    },
+    onTaskFinished: (taskId, update) => {
+      console.log('✅ Dashboard detected: Claude Code finished', taskId);
+      setClaudeCodeWorkingTasks(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(taskId);
+        return newSet;
+      });
+      // Show notification that task needs verification
+      const task = allTasks.find(t => t.id === taskId);
+      if (task) {
+        setTaskToVerify(task);
+        setVerificationModalOpen(true);
+      }
+    }
+  });
 
   // Load task statuses and order tasks
   useEffect(() => {
@@ -320,6 +350,7 @@ export function WorkQueue({ phases }: WorkQueueProps) {
                 isInProgress={isInProgress}
                 isBlocked={isBlocked}
                 isComplete={isComplete}
+                claudeCodeWorking={claudeCodeWorkingTasks.has(task.id)}
                 blockers={isBlocked ? getBlockerDetails(task, allTasks) : []}
                 onGeneratePrompt={handleGeneratePrompt}
                 onMarkComplete={handleMarkComplete}

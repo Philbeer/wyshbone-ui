@@ -12,7 +12,16 @@
       "Bash(ls:*)",
       "Bash(else echo \"Supervisor directory not found in parent directory\")",
       "Bash(fi)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(npm run dev:*)",
+      "Bash(if [ -f \"../wyshbone-supervisor/.env\" ])",
+      "Bash(then grep -i \"anthropic\\\\|claude\" ../wyshbone-supervisor/.env)",
+      "Bash(else echo \".env file not found\")",
+      "WebFetch(domain:localhost)",
+      "Bash(curl:*)",
+      "Bash(netstat:*)",
+      "Bash(findstr:*)",
+      "Bash(cat:*)"
     ]
   }
 }
