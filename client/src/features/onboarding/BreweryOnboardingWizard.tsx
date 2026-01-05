@@ -80,10 +80,12 @@ function StepIndicator({ currentStep }: { currentStep: WizardStep }) {
 /**
  * Step 1: Welcome screen
  */
-function StepWelcome({ 
-  onNext 
-}: { 
+function StepWelcome({
+  onNext,
+  isSequential = false,
+}: {
   onNext: () => void;
+  isSequential?: boolean;
 }) {
   const { labels } = useVerticalLabels();
 
@@ -94,13 +96,15 @@ function StepWelcome({
           <Beer className="h-12 w-12 text-amber-600 dark:text-amber-400" />
         </div>
       </div>
-      
+
       <div className="space-y-2">
         <h1 className="text-2xl font-bold">
-          {labels.onboarding_welcome_title}
+          {isSequential ? "Great! Now let's customize for breweries..." : labels.onboarding_welcome_title}
         </h1>
         <p className="text-muted-foreground">
-          {labels.onboarding_welcome_subtitle}
+          {isSequential
+            ? "A few quick questions to personalize your lead generation"
+            : labels.onboarding_welcome_subtitle}
         </p>
       </div>
 
@@ -350,7 +354,13 @@ function StepTerritory({
 /**
  * Main Brewery Onboarding Wizard component
  */
-export function BreweryOnboardingWizard() {
+export function BreweryOnboardingWizard({
+  isSequential = false,
+  onComplete,
+}: {
+  isSequential?: boolean;
+  onComplete?: () => void;
+} = {}) {
   const [, navigate] = useLocation();
   const [step, setStep] = useState<WizardStep>(1);
   const [settings, setSettings] = useState<BreweryOnboardingSettings>(
@@ -361,7 +371,7 @@ export function BreweryOnboardingWizard() {
     setSettings((prev) => ({ ...prev, ...updates }));
   };
 
-  const handleFinish = () => {
+  const handleFinish = async () => {
     // Mark onboarding as completed
     const completedSettings: BreweryOnboardingSettings = {
       ...settings,
@@ -369,16 +379,27 @@ export function BreweryOnboardingWizard() {
       completedAt: new Date().toISOString(),
     };
 
-    // TODO: Persist onboarding settings to backend
-    // When backend support exists, make an API call here:
-    // await apiRequest('POST', '/api/user/onboarding', completedSettings);
-    // or
-    // await apiRequest('PATCH', '/api/crm/settings', { breweryOnboarding: completedSettings });
-    
-    // For now, store in localStorage as a temporary measure
+    // Persist to backend via user preferences
+    try {
+      // Save to backend
+      const { apiRequest } = await import('@/lib/queryClient');
+      await apiRequest('PUT', '/api/auth/profile', {
+        preferences: {
+          breweryOnboardingCompleted: true,
+          breweryOnboardingCompletedAt: completedSettings.completedAt,
+          breweryOnboardingSettings: completedSettings,
+        },
+      });
+
+      console.log('[Onboarding] Brewery settings saved to backend');
+    } catch (e) {
+      console.warn('[Onboarding] Failed to save brewery settings to backend:', e);
+    }
+
+    // Also store in localStorage as fallback
     try {
       localStorage.setItem(
-        'breweryOnboardingSettings', 
+        'breweryOnboardingSettings',
         JSON.stringify(completedSettings)
       );
       console.log('[Onboarding] Settings saved to localStorage:', completedSettings);
@@ -386,7 +407,13 @@ export function BreweryOnboardingWizard() {
       console.warn('[Onboarding] Failed to save settings to localStorage:', e);
     }
 
-    // Navigate to the Leads page (Lead Finder)
+    // If sequential flow (coming from GeneralOnboardingWizard), call onComplete
+    if (isSequential && onComplete) {
+      onComplete();
+      return;
+    }
+
+    // Otherwise navigate to the Leads page (Lead Finder)
     // TODO: When territory pre-filling is supported, pass settings as query params
     // e.g. navigate(`/leads?region=${encodeURIComponent(settings.focusRegions || '')}`);
     navigate("/leads");
@@ -400,7 +427,7 @@ export function BreweryOnboardingWizard() {
         </CardHeader>
         <CardContent>
           {step === 1 && (
-            <StepWelcome onNext={() => setStep(2)} />
+            <StepWelcome onNext={() => setStep(2)} isSequential={isSequential} />
           )}
           {step === 2 && (
             <StepPubProfile
