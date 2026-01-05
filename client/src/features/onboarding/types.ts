@@ -40,9 +40,9 @@ export interface BreweryOnboardingSettings {
   
   /** Step 3: Primary country for territory */
   primaryCountry?: string;
-  
-  /** Step 3: Focus regions (free text, e.g. "Sussex, Surrey, London") */
-  focusRegions?: string;
+
+  /** Step 3: Focus regions (array of validated location names) */
+  focusRegions?: string[];
   
   /** Whether onboarding has been completed */
   completed?: boolean;
@@ -59,7 +59,7 @@ export const DEFAULT_ONBOARDING_SETTINGS: BreweryOnboardingSettings = {
   beerRangePreference: "",
   rotationPreference: "either",
   primaryCountry: "United Kingdom",
-  focusRegions: "",
+  focusRegions: [],
   completed: false,
 };
 

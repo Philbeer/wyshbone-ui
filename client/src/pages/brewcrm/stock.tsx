@@ -8,6 +8,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { EmptyState } from "@/components/ui/empty-state";
+import { HelpTooltip } from "@/components/ui/help-tooltip";
 import { Warehouse, Plus, Minus, Package } from "lucide-react";
 import { getStock, adjustStock, formatDate, type StockItem } from "@/lib/brewcrmService";
 
@@ -84,6 +86,7 @@ export default function BrewCrmStock() {
             <h2 className="text-2xl font-semibold flex items-center gap-2">
               <Warehouse className="h-6 w-6" />
               Stock
+              <HelpTooltip content="Monitor inventory levels and manage stock movements. Track what's on hand across locations and get real-time stock updates." />
             </h2>
             <p className="text-sm text-muted-foreground">Track product inventory</p>
           </div>
@@ -127,9 +130,14 @@ export default function BrewCrmStock() {
         </CardHeader>
         <CardContent>
           {stockItems.length === 0 ? (
-            <p className="text-center text-muted-foreground py-8">
-              No stock recorded. Click "Add Stock" to start tracking.
-            </p>
+            <EmptyState
+              icon={<Package className="h-8 w-8" />}
+              title="No stock recorded yet"
+              description="Start tracking your inventory by adding stock. Monitor quantities, locations, and movements across your warehouse."
+              actionLabel="Add Your First Stock"
+              onAction={openAddStock}
+              variant="minimal"
+            />
           ) : (
             <Table>
               <TableHeader>

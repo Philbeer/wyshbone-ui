@@ -14,6 +14,7 @@ import { useLocation } from "wouter";
 import { Beer, MapPin, CheckCircle2, ArrowRight, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -23,11 +24,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { LocationTagInput } from "@/components/LocationTagInput";
 import { useVerticalLabels } from "@/lib/verticals";
-import type { 
-  BreweryOnboardingSettings, 
-  PreferredPubType, 
-  RotationPreference 
+import type {
+  BreweryOnboardingSettings,
+  PreferredPubType,
+  RotationPreference
 } from "./types";
 import { DEFAULT_ONBOARDING_SETTINGS } from "./types";
 
@@ -184,11 +186,11 @@ function StepPubProfile({
       <div className="space-y-4">
         <div className="space-y-2">
           <Label htmlFor="pubType">
-            {labels.onboarding_field_preferred_pub_type}
+            {labels.onboarding_field_preferred_pub_type} <span className="text-muted-foreground text-xs font-normal">(optional - helps AI find better matches)</span>
           </Label>
           <Select
             value={settings.preferredPubType || "any"}
-            onValueChange={(value: PreferredPubType) => 
+            onValueChange={(value: PreferredPubType) =>
               onUpdate({ preferredPubType: value })
             }
           >
@@ -203,11 +205,14 @@ function StepPubProfile({
               ))}
             </SelectContent>
           </Select>
+          <p className="text-xs text-muted-foreground">
+            Choose the types of establishments you want to target
+          </p>
         </div>
 
         <div className="space-y-2">
           <Label htmlFor="beerRange">
-            {labels.onboarding_field_beer_range_pref}
+            {labels.onboarding_field_beer_range_pref} <span className="text-muted-foreground text-xs font-normal">(optional - helps AI find better matches)</span>
           </Label>
           <Input
             id="beerRange"
@@ -216,17 +221,17 @@ function StepPubProfile({
             onChange={(e) => onUpdate({ beerRangePreference: e.target.value })}
           />
           <p className="text-xs text-muted-foreground">
-            Describe the kind of beer range you're looking for
+            Describe the kind of beer range you're looking for (e.g., number of taps, styles)
           </p>
         </div>
 
         <div className="space-y-2">
           <Label htmlFor="rotation">
-            {labels.onboarding_field_rotation_pref}
+            {labels.onboarding_field_rotation_pref} <span className="text-muted-foreground text-xs font-normal">(optional - helps AI find better matches)</span>
           </Label>
           <Select
             value={settings.rotationPreference || "either"}
-            onValueChange={(value: RotationPreference) => 
+            onValueChange={(value: RotationPreference) =>
               onUpdate({ rotationPreference: value })
             }
           >
@@ -241,6 +246,9 @@ function StepPubProfile({
               ))}
             </SelectContent>
           </Select>
+          <p className="text-xs text-muted-foreground">
+            Do you prefer venues with rotating guest beers or consistent core ranges?
+          </p>
         </div>
       </div>
 
@@ -325,14 +333,14 @@ function StepTerritory({
           <Label htmlFor="regions">
             {labels.onboarding_field_regions}
           </Label>
-          <Input
-            id="regions"
-            placeholder="e.g. Sussex, Surrey, London"
-            value={settings.focusRegions || ""}
-            onChange={(e) => onUpdate({ focusRegions: e.target.value })}
+          <LocationTagInput
+            value={settings.focusRegions || []}
+            onChange={(locations) => onUpdate({ focusRegions: locations })}
+            placeholder="Type a location (e.g., London, Manchester)..."
+            defaultCountry={settings.primaryCountry === "United Kingdom" ? "GB" : "US"}
           />
           <p className="text-xs text-muted-foreground">
-            Enter the regions, counties, or cities where you want to find leads
+            Start typing to search for locations. Selected areas will appear as tags above.
           </p>
         </div>
       </div>
@@ -410,44 +418,57 @@ export function BreweryOnboardingWizard({
     // If sequential flow (coming from GeneralOnboardingWizard), call onComplete
     if (isSequential && onComplete) {
       onComplete();
+      // Navigate to home page after closing the modal
+      setTimeout(() => {
+        navigate("/");
+      }, 100);
       return;
     }
 
-    // Otherwise navigate to the Leads page (Lead Finder)
-    // TODO: When territory pre-filling is supported, pass settings as query params
-    // e.g. navigate(`/leads?region=${encodeURIComponent(settings.focusRegions || '')}`);
-    navigate("/leads");
+    // Otherwise navigate to home page
+    navigate("/");
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 bg-background">
-      <Card className="w-full max-w-lg">
-        <CardHeader className="pb-2">
-          <StepIndicator currentStep={step} />
-        </CardHeader>
-        <CardContent>
-          {step === 1 && (
-            <StepWelcome onNext={() => setStep(2)} isSequential={isSequential} />
-          )}
-          {step === 2 && (
-            <StepPubProfile
-              settings={settings}
-              onUpdate={updateSettings}
-              onBack={() => setStep(1)}
-              onNext={() => setStep(3)}
-            />
-          )}
-          {step === 3 && (
-            <StepTerritory
-              settings={settings}
-              onUpdate={updateSettings}
-              onBack={() => setStep(2)}
-              onFinish={handleFinish}
-            />
-          )}
-        </CardContent>
-      </Card>
-    </div>
+    <Dialog open={true} modal={true}>
+      <DialogContent
+        className="max-w-2xl p-0 gap-0 [&>button]:hidden"
+        onPointerDownOutside={(e) => e.preventDefault()}
+        onEscapeKeyDown={(e) => e.preventDefault()}
+      >
+        <Card className="w-full border-0 shadow-none">
+          <CardHeader className="pb-2">
+            {isSequential && (
+              <div className="mb-4 px-3 py-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg text-sm text-blue-700 dark:text-blue-300 text-center">
+                📋 Part 2 of 2: Brewery-specific setup
+              </div>
+            )}
+            <StepIndicator currentStep={step} />
+          </CardHeader>
+          <CardContent>
+            {step === 1 && (
+              <StepWelcome onNext={() => setStep(2)} isSequential={isSequential} />
+            )}
+            {step === 2 && (
+              <StepPubProfile
+                settings={settings}
+                onUpdate={updateSettings}
+                onBack={() => setStep(1)}
+                onNext={() => setStep(3)}
+              />
+            )}
+            {step === 3 && (
+              <StepTerritory
+                settings={settings}
+                onUpdate={updateSettings}
+                onBack={() => setStep(2)}
+                onFinish={handleFinish}
+              />
+            )}
+          </CardContent>
+        </Card>
+      </DialogContent>
+    </Dialog>
   );
 }
 

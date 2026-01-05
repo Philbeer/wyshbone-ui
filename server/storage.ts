@@ -1068,7 +1068,12 @@ export class MemStorage implements IStorage {
   async createCustomerGroup(data: InsertCrmCustomerGroup): Promise<SelectCrmCustomerGroup> { throw new Error("MemStorage: Customer group operations not supported"); }
   async updateCustomerGroup(id: number, workspaceId: string, updates: Partial<InsertCrmCustomerGroup>): Promise<SelectCrmCustomerGroup | null> { return null; }
   async deleteCustomerGroup(id: number, workspaceId: string): Promise<boolean> { return false; }
-  
+
+  // Sample Data - stub methods
+  async deleteSampleCustomers(workspaceId: string): Promise<number> { return 0; }
+  async deleteSampleProducts(workspaceId: string): Promise<number> { return 0; }
+  async deleteSampleOrders(workspaceId: string): Promise<number> { return 0; }
+
   // Activities - stub methods
   async getActivities(workspaceId: string, filters?: any): Promise<any[]> { return []; }
   async getActivitiesForCustomer(customerId: string, workspaceId: string): Promise<SelectCrmActivity[]> { return []; }
@@ -2132,7 +2137,34 @@ export class DbStorage implements IStorage {
     const result = await db.delete(crmCustomers).where(eq(crmCustomers.id, id));
     return true;
   }
-  
+
+  async deleteSampleCustomers(workspaceId: string): Promise<number> {
+    const result = await db.delete(crmCustomers)
+      .where(and(
+        eq(crmCustomers.workspaceId, workspaceId),
+        eq(crmCustomers.isSample, true)
+      ));
+    return result.rowCount || 0;
+  }
+
+  async deleteSampleProducts(workspaceId: string): Promise<number> {
+    const result = await db.delete(crmProducts)
+      .where(and(
+        eq(crmProducts.workspaceId, workspaceId),
+        eq(crmProducts.isSample, true)
+      ));
+    return result.rowCount || 0;
+  }
+
+  async deleteSampleOrders(workspaceId: string): Promise<number> {
+    const result = await db.delete(crmOrders)
+      .where(and(
+        eq(crmOrders.workspaceId, workspaceId),
+        eq(crmOrders.isSample, true)
+      ));
+    return result.rowCount || 0;
+  }
+
   // ============= CRM DELIVERY RUNS CRUD METHODS =============
   async createCrmDeliveryRun(deliveryRun: InsertCrmDeliveryRun): Promise<SelectCrmDeliveryRun> {
     const [created] = await db.insert(crmDeliveryRuns).values(deliveryRun).returning();

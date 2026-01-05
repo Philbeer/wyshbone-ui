@@ -29,7 +29,19 @@
       "Bash(else echo \".env file not found in current directory\")",
       "Bash(export DATABASE_URL:*)",
       "Bash(DATABASE_URL=\"postgresql://postgres.zipsbmldjxytzowmmohu:Moby2014Moby2014Lister@aws-1-eu-west-2.pooler.supabase.com:6543/postgres\" npx tsx:*)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(npm run check:types:*)",
+      "Bash(while true)",
+      "Bash(do curl -s http://localhost:9999/browser-data)",
+      "Bash(done)",
+      "Bash(time:*)",
+      "Bash(for i in {1..60})",
+      "Bash(do echo \"\")",
+      "Bash(for i in {1..30})",
+      "Bash(do echo \"Check $i:\")",
+      "Bash(for i in {1..10})",
+      "Bash(npm install:*)",
+      "Bash(timeout 30 bash:*)"
     ]
   }
 }

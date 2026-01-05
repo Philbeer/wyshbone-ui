@@ -17,10 +17,22 @@ const UserContext = createContext<UserContextType | undefined>(undefined);
 
 export function UserProvider({ children }: { children: ReactNode }) {
   const [user, setUserInternal] = useState<User>(() => {
-    // Synchronous initialization - return demo user first
-    console.log("⚠️ Initializing with demo user, will validate session if available");
-    return { 
-      id: "demo-user", 
+    // Synchronous initialization - check localStorage first
+    const stored = localStorage.getItem("wyshbone_user");
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        console.log(`⚡ Initializing with stored user: ${parsed.email}`);
+        return parsed;
+      } catch (e) {
+        console.error("Failed to parse stored user", e);
+      }
+    }
+
+    // Fallback to temporary demo user (will be replaced by auth flow)
+    console.log("⚠️ No stored user - initializing with temporary demo placeholder");
+    return {
+      id: "temp-demo-user",
       email: "demo@wyshbone.com",
       name: "Demo User"
     };
@@ -47,7 +59,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
             
             // Check if this is a different user than the current state
             // This handles cases where user switches accounts in Bubble
-            if (user.id !== parsed.id && user.id !== "demo-user") {
+            if (user.id !== parsed.id && user.id !== "temp-demo-user") {
               console.log("🧹 Clearing React Query cache - user changed from session validation");
               queryClient.clear();
             }

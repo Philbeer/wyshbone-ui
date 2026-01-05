@@ -9,6 +9,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { EmptyState } from "@/components/ui/empty-state";
+import { HelpTooltip } from "@/components/ui/help-tooltip";
 import { ShoppingCart, Plus, Search, Check } from "lucide-react";
 import { 
   getOrders, getCustomers, upsertOrder, markOrderDelivered,
@@ -101,6 +103,7 @@ export default function BrewCrmOrders() {
             <h2 className="text-2xl font-semibold flex items-center gap-2">
               <ShoppingCart className="h-6 w-6" />
               Orders
+              <HelpTooltip content="Record customer purchases and track order fulfillment from confirmation through delivery." />
             </h2>
             <p className="text-sm text-muted-foreground">Manage customer orders</p>
           </div>
@@ -146,9 +149,14 @@ export default function BrewCrmOrders() {
         </CardHeader>
         <CardContent>
           {orders.length === 0 ? (
-            <p className="text-center text-muted-foreground py-8">
-              No orders found. Click "New Order" to create one.
-            </p>
+            <EmptyState
+              icon={<ShoppingCart className="h-8 w-8" />}
+              title="No orders yet"
+              description="Create your first order to start tracking sales and revenue. Link orders to customers to maintain a complete sales history."
+              actionLabel="Create Your First Order"
+              onAction={openNew}
+              variant="minimal"
+            />
           ) : (
             <Table>
               <TableHeader>

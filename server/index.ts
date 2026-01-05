@@ -13,6 +13,8 @@ import { registerRoutes } from "./routes";
 import { nangoRouter } from "./routes/nango";
 import { taskTrackingRouter } from "./routes/task-tracking";
 import { toolsExecuteRouter } from "./routes/tools-execute";
+import { createSuppliersRouter } from "./routes/suppliers";
+import { storage } from "./storage";
 import { logDemoConfig } from "./demo-config";
 import { runSchemaHealthCheck } from "./schema-check";
 
@@ -80,6 +82,11 @@ console.log('✅ Task tracking router mounted');
 // Mount tools execution router (unified tool endpoint)
 app.use(toolsExecuteRouter);
 console.log('✅ Tools execution router mounted');
+
+// Mount suppliers router (CRM suppliers management)
+const suppliersRouter = createSuppliersRouter(storage);
+app.use("/api/suppliers", suppliersRouter);
+console.log('✅ Suppliers router mounted at /api/suppliers');
 
 // Health check endpoint for load balancers and monitoring
 app.get('/health', (_req, res) => {

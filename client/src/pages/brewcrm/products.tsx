@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
+import { EmptyState } from "@/components/ui/empty-state";
+import { HelpTooltip } from "@/components/ui/help-tooltip";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -14,7 +16,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertBrewProductSchema } from "@shared/schema";
 import { z } from "zod";
-import { Plus, Pencil, Trash2 } from "lucide-react";
+import { Plus, Pencil, Trash2, Package } from "lucide-react";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 
@@ -125,7 +127,10 @@ export default function BrewCrmProducts() {
     <div className="p-6">
       <div className="flex justify-between items-center mb-6">
         <div>
-          <h2 className="text-2xl font-semibold" data-testid="text-products-title">Beers & Brewery Products</h2>
+          <h2 className="text-2xl font-semibold flex items-center gap-2" data-testid="text-products-title">
+            Beers & Brewery Products
+            <HelpTooltip content="Manage your product catalog with pricing, descriptions, and stock tracking. Set up products once and use them across orders and inventory." />
+          </h2>
           <p className="text-sm text-muted-foreground">Manage your brewery products with ABV, duty bands, and packaging</p>
         </div>
         <Button onClick={handleAddNew} data-testid="button-add-product">
@@ -157,8 +162,15 @@ export default function BrewCrmProducts() {
             <TableBody>
               {products?.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center text-muted-foreground">
-                    No products found. Create your first product to get started.
+                  <TableCell colSpan={7}>
+                    <EmptyState
+                      icon={<Package className="h-8 w-8" />}
+                      title="No products yet"
+                      description="Create your first product to build your catalog. Add details like pricing, ABV, and packaging information."
+                      actionLabel="Add Your First Product"
+                      onAction={handleAddNew}
+                      variant="minimal"
+                    />
                   </TableCell>
                 </TableRow>
               ) : (

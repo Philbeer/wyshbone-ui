@@ -476,9 +476,24 @@ export const users = pgTable("users", {
 export const subscriptionTierSchema = z.enum(["free", "basic", "pro", "business", "enterprise"]);
 export const subscriptionStatusSchema = z.enum(["active", "inactive", "cancelled", "past_due"]);
 
+export const onboardingChecklistSchema = z.object({
+  signedUp: z.boolean().optional(),
+  completedProfile: z.boolean().optional(),
+  setGoal: z.boolean().optional(),
+  addedCustomer: z.boolean().optional(),
+  createdOrder: z.boolean().optional(),
+  usedChat: z.boolean().optional(),
+}).optional();
+
 export const userPreferencesSchema = z.object({
   tone: z.enum(["concise", "detailed"]).optional(),
   cadence: z.enum(["one_question", "short_flow"]).optional(),
+  // Onboarding state
+  generalOnboardingCompleted: z.boolean().optional(),
+  generalOnboardingCompletedAt: z.string().optional(),
+  breweryOnboardingCompleted: z.boolean().optional(),
+  breweryOnboardingCompletedAt: z.string().optional(),
+  onboardingChecklist: onboardingChecklistSchema,
 }).optional();
 
 export const userSchema = z.object({
@@ -793,6 +808,7 @@ export const crmCustomers = pgTable("crm_customers", {
   lastXeroSyncAt: timestamp("last_xero_sync_at"),
   xeroSyncStatus: varchar("xero_sync_status", { length: 20 }).default("synced"), // 'synced', 'pending', 'error'
   lastSyncError: text("last_sync_error"), // Error message from last failed sync
+  isSample: boolean("is_sample").default(false), // Flag for onboarding sample data
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
   updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
 }, (table) => ({
@@ -800,6 +816,7 @@ export const crmCustomers = pgTable("crm_customers", {
   nameIdx: index("crm_customers_name_idx").on(table.name),
   priceBookIdIdx: index("crm_customers_price_book_id_idx").on(table.priceBookId),
   xeroContactIdIdx: index("crm_customers_xero_contact_id_idx").on(table.xeroContactId),
+  isSampleIdx: index("crm_customers_is_sample_idx").on(table.isSample),
 }));
 
 export const insertCrmCustomerSchema = createInsertSchema(crmCustomers);
@@ -858,6 +875,7 @@ export const crmOrders = pgTable("crm_orders", {
   syncStatus: varchar("sync_status", { length: 20 }).default("synced"), // 'synced', 'pending', 'failed'
   lastSyncError: text("last_sync_error"), // Error message from last failed sync
   notes: text("notes"),
+  isSample: boolean("is_sample").default(false), // Flag for onboarding sample data
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
   updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
 }, (table) => ({
@@ -867,6 +885,7 @@ export const crmOrders = pgTable("crm_orders", {
   statusIdx: index("crm_orders_status_idx").on(table.status),
   orderDateIdx: index("crm_orders_order_date_idx").on(table.orderDate),
   xeroInvoiceIdIdx: index("crm_orders_xero_invoice_id_idx").on(table.xeroInvoiceId),
+  isSampleIdx: index("crm_orders_is_sample_idx").on(table.isSample),
 }));
 
 export const insertCrmOrderSchema = createInsertSchema(crmOrders);
@@ -1226,6 +1245,7 @@ export const crmProducts = pgTable("crm_products", {
   defaultVatRate: integer("default_vat_rate").default(2000), // Stored as basis points (e.g., 2000 = 20%)
   isActive: integer("is_active").notNull().default(1), // 1 = true, 0 = false
   trackStock: integer("track_stock").notNull().default(0), // 1 = track inventory, 0 = don't track
+  isSample: boolean("is_sample").default(false), // Flag for onboarding sample data
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
   updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
 }, (table) => ({
@@ -1233,6 +1253,7 @@ export const crmProducts = pgTable("crm_products", {
   skuIdx: index("crm_products_sku_idx").on(table.sku),
   isActiveIdx: index("crm_products_is_active_idx").on(table.isActive),
   categoryIdx: index("crm_products_category_idx").on(table.category),
+  isSampleIdx: index("crm_products_is_sample_idx").on(table.isSample),
 }));
 
 export const insertCrmProductSchema = createInsertSchema(crmProducts);

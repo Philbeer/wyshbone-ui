@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest, authedFetch, addDevAuthParams, buildApiUrl, handleApiError } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -59,6 +59,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
   const { trigger: triggerSidebarFlash } = useSidebarFlash();
   const { goal, hasGoal, isLoading: isLoadingGoal } = useUserGoal();
   const { openResults } = useResultsPanel();
+  const queryClient = useQueryClient();
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
@@ -98,6 +99,43 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
   useEffect(() => {
     localStorage.setItem('chatMode', chatMode);
   }, [chatMode]);
+
+  // Demo mode clean slate: Clear all state on EVERY page load for demo users
+  useEffect(() => {
+    const isDemoUser =
+      user.email.includes('demo@') ||
+      user.email.endsWith('@wyshbone.demo') ||
+      user.id === 'temp-demo-user' ||
+      user.id.startsWith('demo-');
+
+    if (isDemoUser) {
+      console.log('🎭 Demo mode detected: Resetting to clean slate on page load');
+
+      // Clear all persisted state - runs on EVERY page load/refresh
+      localStorage.removeItem('currentConversationId');
+      localStorage.removeItem('chatMode');
+      sessionStorage.removeItem(`labelsRegenerated_${user.id}`);
+
+      // Clear any other conversation-related storage
+      Object.keys(localStorage).forEach(key => {
+        if (key.startsWith('conversation_') || key.includes('_messages')) {
+          localStorage.removeItem(key);
+        }
+      });
+
+      // Clear React Query cache (goals, cached API data, etc.)
+      queryClient.clear();
+
+      // Reset component state
+      setMessages([]);
+      setConversationId(undefined);
+      setChatMode('standard');
+      hasLoadedHistoryRef.current = false;
+      hasShownGreetingRef.current = false;
+
+      console.log('✅ Demo mode clean slate applied - fresh "first time" experience ready');
+    }
+  }, [user.id, user.email, queryClient]);
 
   // Subscribe to Supervisor responses via Supabase realtime
   useEffect(() => {
@@ -359,13 +397,21 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     };
   }, [batchJobTracking]);
 
-  // Expose send message function to parent
+  // Expose send message function to parent (use ref to avoid dependency issues)
+  const handleSendRef = useRef<((content?: string) => void) | null>(null);
+  const setMessagesRef = useRef<React.Dispatch<React.SetStateAction<DisplayMessage[]>> | null>(null);
+
+  useEffect(() => {
+    handleSendRef.current = handleSend;
+    setMessagesRef.current = setMessages;
+  });
+
   useEffect(() => {
     if (onInjectSystemMessage) {
       const injectMessage = (content: string, asUser: boolean = true) => {
         if (asUser) {
           // Send to AI
-          handleSend(content);
+          handleSendRef.current?.(content);
         } else {
           // Add as assistant message directly
           const message: Message = {
@@ -374,12 +420,11 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
             content,
             timestamp: new Date(),
           };
-          setMessages((prev) => [...prev, message]);
+          setMessagesRef.current?.((prev) => [...prev, message]);
         }
       };
       onInjectSystemMessage(injectMessage);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onInjectSystemMessage]);
 
   // Expose new chat function to parent
@@ -927,12 +972,72 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     }
   };
 
+  // Intent classification: Determines if user wants to start fresh or continue
+  const classifyIntent = (newMessage: string, history: Message[]): 'NEW_REPLACE' | 'CONTINUE' | 'MODIFY' | 'NEW_UNRELATED' => {
+    const lowerMsg = newMessage.toLowerCase();
+
+    // No history = always NEW
+    if (history.length === 0) return 'NEW_REPLACE';
+
+    // Strong NEW_REPLACE signals (explicit goal change)
+    const newReplacePatterns = [
+      /^(find|search for|look for|get me|show me).+in [a-z]/i,  // "Find pubs in Manchester" (new location/topic)
+      /^(i want to|i need to|let's|can you).+(instead|now)/i,   // "I want to search Leeds instead"
+      /^(actually|wait|no|forget that)/i,                       // "Actually, let's do Birmingham"
+      /^(new search|start over|different)/i,                    // "New search for..."
+    ];
+
+    if (newReplacePatterns.some(p => p.test(newMessage))) {
+      // Check if it's truly different from last user message
+      const lastUserMsg = [...history].reverse().find(m => m.role === 'user');
+      if (lastUserMsg) {
+        const oldLocation = lastUserMsg.content.match(/in ([a-z\s]+)/i)?.[1];
+        const newLocation = newMessage.match(/in ([a-z\s]+)/i)?.[1];
+        if (oldLocation && newLocation && oldLocation.toLowerCase() !== newLocation.toLowerCase()) {
+          return 'NEW_REPLACE';
+        }
+      }
+    }
+
+    // MODIFY signals (tweaking existing request)
+    const modifyPatterns = [
+      /^(make that|change (?:that|it) to|actually|instead of)/i,  // "Make that 100 instead of 60"
+      /^(increase|decrease|more|less|fewer|add|remove)/i,          // "Increase to 100"
+      /\b(not|instead of|rather than)\b/i,                         // "Not 60, 100"
+    ];
+
+    if (modifyPatterns.some(p => p.test(newMessage)) && history.length > 0) {
+      return 'MODIFY';
+    }
+
+    // NEW_UNRELATED signals (completely different task)
+    const lastUserMsg = [...history].reverse().find(m => m.role === 'user');
+    if (lastUserMsg) {
+      const wasResearching = /find|search|look|show|get/i.test(lastUserMsg.content);
+      const nowDrafting = /draft|write|compose|create.*email/i.test(lowerMsg);
+      const nowAnalyzing = /analyze|review|check/i.test(lowerMsg);
+
+      if ((wasResearching && nowDrafting) || (wasResearching && nowAnalyzing)) {
+        return 'NEW_UNRELATED';
+      }
+    }
+
+    // Default: CONTINUE (follow-up questions, clarifications)
+    return 'CONTINUE';
+  };
+
   const handleSend = async (promptOverride?: string) => {
     const messageContent = promptOverride || input.trim();
     if (!messageContent || isStreaming) return;
 
     // Hide location suggestions
     setShowLocationSuggestions(false);
+
+    // INTENT CLASSIFICATION: Determine if this is a new goal or continuation
+    const currentHistory = messages.filter((msg): msg is Message => !("type" in msg));
+    const intent = classifyIntent(messageContent, currentHistory);
+
+    console.log(`🎯 Intent classified: ${intent} for message: "${messageContent.slice(0, 50)}..."`);
 
     const userMessage: Message = {
       id: crypto.randomUUID(),
@@ -941,8 +1046,20 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
       timestamp: new Date(),
     };
 
-    // Update UI state immediately
-    setMessages((prev) => [...prev, userMessage]);
+    // Handle intent-based context management
+    if (intent === 'NEW_REPLACE') {
+      // Clear old context, start fresh
+      console.log('🔄 NEW_REPLACE: Clearing old context and starting fresh');
+      setMessages([userMessage]);  // Only keep new message
+    } else if (intent === 'NEW_UNRELATED') {
+      // Could implement multi-threading here, for now start fresh
+      console.log('🆕 NEW_UNRELATED: Starting new thread');
+      setMessages([userMessage]);
+    } else {
+      // CONTINUE or MODIFY: Keep existing context
+      setMessages((prev) => [...prev, userMessage]);
+    }
+
     setInput("");
 
     // Publish event for message sent
@@ -968,14 +1085,14 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         timestamp: new Date(),
       };
       setMessages((prev) => [...prev, assistantMessage]);
-      
+
       // Store the research request for the user to confirm
       const researchRequest: DeepResearchCreateRequest = {
         prompt: messageContent,
         label: messageContent.length > 60 ? messageContent.slice(0, 57) + "…" : messageContent,
         mode: "report",
       };
-      
+
       // Add confirmation button (we'll do this via a special system message)
       const confirmMessage: SystemMessage = {
         id: crypto.randomUUID(),
@@ -987,20 +1104,25 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
       return;
     }
 
-    // Build conversation history BEFORE adding new message to state
-    const conversationHistory = messages
-      .filter((msg): msg is Message => !("type" in msg))
-      .map(({ role, content }) => ({ role, content }));
+    // Build conversation history based on intent
+    let conversationHistory: ChatMessage[];
 
-    // LIMIT TO LAST 6 MESSAGES (3 exchanges) to prevent old context pollution
-    // This prevents the AI from seeing very old searches when starting a new one
-    const recentHistory = conversationHistory.slice(-6);
+    if (intent === 'NEW_REPLACE' || intent === 'NEW_UNRELATED') {
+      // For new goals, only send the current message (no old context)
+      conversationHistory = [{ role: userMessage.role, content: userMessage.content }];
+    } else {
+      // For CONTINUE/MODIFY, send recent history
+      const allHistory = messages
+        .filter((msg): msg is Message => !("type" in msg))
+        .map(({ role, content }) => ({ role, content }));
 
-    // Add new user message to the history
-    const fullConversation = [...recentHistory, { role: userMessage.role, content: userMessage.content }];
+      // LIMIT TO LAST 6 MESSAGES (3 exchanges) to prevent old context pollution
+      const recentHistory = allHistory.slice(-6);
+      conversationHistory = [...recentHistory, { role: userMessage.role, content: userMessage.content }];
+    }
 
-    // Send recent conversation only
-    streamChatResponse(fullConversation);
+    // Send conversation to backend
+    streamChatResponse(conversationHistory);
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {

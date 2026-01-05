@@ -20,6 +20,7 @@ import LeadsPage from "@/pages/leads";
 import NudgesPage from "@/pages/nudges";
 import NotFound from "@/pages/not-found";
 import { BreweryOnboardingWizard } from "@/features/onboarding";
+import { GeneralOnboardingWizard } from "@/features/onboarding/GeneralOnboardingWizard";
 import CountryHint from "@/components/CountryHint";
 import { LoginDialog } from "@/components/LoginDialog";
 import { useState, useEffect, useRef, useCallback } from "react";
@@ -34,6 +35,7 @@ import { VerticalIndicator } from "@/components/VerticalSelector";
 import { OnboardingTourProvider } from "@/contexts/OnboardingTourContext";
 import { OnboardingTour } from "@/components/onboarding/OnboardingTour";
 import { DemoModeProvider } from "@/contexts/DemoModeContext";
+import { OnboardingWizardProvider, useOnboardingWizard } from "@/contexts/OnboardingWizardContext";
 import { DemoModeBanner } from "@/components/DemoModeBanner";
 import { DevBanner } from "@/components/DevBanner";
 import { AgentChatPanel } from "@/components/agent/AgentChatPanel";
@@ -193,6 +195,49 @@ export type ConversationItem = {
   createdAt: number;
 };
 
+/**
+ * Onboarding Wizards Component - Auto-opens wizards for new users
+ */
+function OnboardingWizards() {
+  const { user } = useUser();
+  const {
+    isGeneralWizardOpen,
+    isBreweryWizardOpen,
+    openGeneralWizard,
+    closeGeneralWizard,
+    openBreweryWizard,
+    closeBreweryWizard,
+  } = useOnboardingWizard();
+
+  // Auto-open general wizard for new users (after 1s delay)
+  useEffect(() => {
+    const hasCompletedOnboarding = user?.preferences?.generalOnboardingCompleted;
+    if (!hasCompletedOnboarding && user?.id) {
+      const timer = setTimeout(() => {
+        openGeneralWizard();
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [user?.id, user?.preferences?.generalOnboardingCompleted, openGeneralWizard]);
+
+  return (
+    <>
+      {isGeneralWizardOpen && (
+        <GeneralOnboardingWizard
+          onComplete={closeGeneralWizard}
+          onOpenBreweryWizard={openBreweryWizard}
+        />
+      )}
+      {isBreweryWizardOpen && (
+        <BreweryOnboardingWizard
+          isSequential={true}
+          onComplete={closeBreweryWizard}
+        />
+      )}
+    </>
+  );
+}
+
 function AppContent() {
   const { user } = useUser();
   const [location, setLocation] = useLocation();
@@ -210,7 +255,7 @@ function AppContent() {
   
   // Clear React Query cache when user changes
   useEffect(() => {
-    if (prevUserIdRef.current !== user.id && prevUserIdRef.current !== "demo-user") {
+    if (prevUserIdRef.current !== user.id && prevUserIdRef.current !== "temp-demo-user") {
       console.log(`🧹 USER CHANGED: Clearing React Query cache (${prevUserIdRef.current} → ${user.id})`);
       queryClient.clear();
       // Also clear local state
@@ -534,6 +579,7 @@ function AppContent() {
                 style={style}
               />
               <Toaster />
+              <OnboardingWizards />
             </TooltipProvider>
           </PlanExecutionProvider>
         </PlanProvider>
@@ -906,18 +952,20 @@ function App() {
     <UserProvider>
       <VerticalProvider>
         <DemoModeProvider>
-          <OnboardingTourProvider>
-            <SidebarFlashProvider>
-              <AgentStatusProvider>
-                <ResultsPanelProvider>
-                  <AgentFirstProvider>
-                    <AppContent />
-                    <OnboardingTour />
-                  </AgentFirstProvider>
-                </ResultsPanelProvider>
-              </AgentStatusProvider>
-            </SidebarFlashProvider>
-          </OnboardingTourProvider>
+          <OnboardingWizardProvider>
+            <OnboardingTourProvider>
+              <SidebarFlashProvider>
+                <AgentStatusProvider>
+                  <ResultsPanelProvider>
+                    <AgentFirstProvider>
+                      <AppContent />
+                      <OnboardingTour />
+                    </AgentFirstProvider>
+                  </ResultsPanelProvider>
+                </AgentStatusProvider>
+              </SidebarFlashProvider>
+            </OnboardingTourProvider>
+          </OnboardingWizardProvider>
         </DemoModeProvider>
       </VerticalProvider>
     </UserProvider>

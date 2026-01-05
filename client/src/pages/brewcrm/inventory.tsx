@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
+import { EmptyState } from "@/components/ui/empty-state";
+import { HelpTooltip } from "@/components/ui/help-tooltip";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -14,7 +16,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertBrewInventoryItemSchema } from "@shared/schema";
 import { z } from "zod";
-import { Plus, Pencil, Trash2 } from "lucide-react";
+import { Plus, Pencil, Trash2, Box } from "lucide-react";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 
 const formSchema = insertBrewInventoryItemSchema.omit({ id: true, workspaceId: true, createdAt: true, updatedAt: true });
@@ -140,7 +142,10 @@ export default function BrewCrmInventory() {
     <div className="p-6">
       <div className="flex justify-between items-center mb-6">
         <div>
-          <h2 className="text-2xl font-semibold" data-testid="text-inventory-title">Inventory</h2>
+          <h2 className="text-2xl font-semibold flex items-center gap-2" data-testid="text-inventory-title">
+            Inventory
+            <HelpTooltip content="Monitor inventory levels and manage stock movements. Track what's on hand and get alerts when stock runs low." />
+          </h2>
           <p className="text-sm text-muted-foreground">Manage your brewery inventory</p>
         </div>
         <Button onClick={handleAddNew} data-testid="button-add-inventory">
@@ -172,8 +177,15 @@ export default function BrewCrmInventory() {
             <TableBody>
               {inventory?.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center text-muted-foreground">
-                    No inventory items found. Create your first inventory item to get started.
+                  <TableCell colSpan={7}>
+                    <EmptyState
+                      icon={<Box className="h-8 w-8" />}
+                      title="No inventory items yet"
+                      description="Create your first inventory item to start tracking stock levels. Link items to products for seamless order management."
+                      actionLabel="Add Your First Inventory Item"
+                      onAction={handleAddNew}
+                      variant="minimal"
+                    />
                   </TableCell>
                 </TableRow>
               ) : (

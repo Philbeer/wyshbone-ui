@@ -10,6 +10,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { EmptyState } from "@/components/ui/empty-state";
+import { HelpTooltip } from "@/components/ui/help-tooltip";
 import { MapPin, Plus, FileText, Check, Truck } from "lucide-react";
 import { 
   getRoutes, getOrders, upsertRoute, addOrderToRoute, completeRoute,
@@ -104,6 +106,7 @@ export default function BrewCrmRoutes() {
             <h2 className="text-2xl font-semibold flex items-center gap-2">
               <MapPin className="h-6 w-6" />
               Delivery Routes
+              <HelpTooltip content="Plan and track delivery routes for efficient order fulfillment. Group orders by location and optimize your delivery schedule." />
             </h2>
             <p className="text-sm text-muted-foreground">Plan and manage delivery routes</p>
           </div>
@@ -121,9 +124,14 @@ export default function BrewCrmRoutes() {
         </CardHeader>
         <CardContent>
           {routes.length === 0 ? (
-            <p className="text-center text-muted-foreground py-8">
-              No routes yet. Click "New Route" to create one.
-            </p>
+            <EmptyState
+              icon={<Truck className="h-8 w-8" />}
+              title="No routes yet"
+              description="Create your first delivery route to organize orders by location and optimize deliveries. Add orders to routes for efficient tracking."
+              actionLabel="Create Your First Route"
+              onAction={() => setShowNewDialog(true)}
+              variant="minimal"
+            />
           ) : (
             <Table>
               <TableHeader>

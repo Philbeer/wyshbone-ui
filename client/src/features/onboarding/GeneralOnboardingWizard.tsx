@@ -9,11 +9,12 @@
  * Supports sequential flow: General → Brewery wizard for brewery users
  */
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
-import { Building2, Target, Rocket, CheckCircle2, ArrowRight, ArrowLeft, User, Package, MessageSquare } from "lucide-react";
+import { Building2, Target, Rocket, CheckCircle2, ArrowRight, ArrowLeft, User, Package, MessageSquare, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -27,7 +28,7 @@ import { useUser } from "@/contexts/UserContext";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 
-type WizardStep = 1 | 2 | 3;
+type WizardStep = 1 | 2 | 3 | 4;
 type Vertical = "brewery" | "generic" | "animal_physio" | "other";
 type QuickStartOption = "add_customer" | "sample_data" | "chat";
 
@@ -48,6 +49,7 @@ function StepIndicator({ currentStep }: { currentStep: WizardStep }) {
     { num: 1, label: "Company" },
     { num: 2, label: "Objective" },
     { num: 3, label: "Quick Start" },
+    { num: 4, label: "Complete" },
   ];
 
   return (
@@ -128,7 +130,7 @@ function StepCompanySetup({
 
         <div className="space-y-2">
           <Label htmlFor="companyDomain">
-            Website (optional)
+            Website <span className="text-muted-foreground text-xs font-normal">(optional)</span>
           </Label>
           <Input
             id="companyDomain"
@@ -137,7 +139,7 @@ function StepCompanySetup({
             onChange={(e) => onChange({ companyDomain: e.target.value })}
           />
           <p className="text-xs text-muted-foreground">
-            Helps us understand your industry
+            Helps us understand your industry and personalize recommendations
           </p>
         </div>
 
@@ -162,13 +164,15 @@ function StepCompanySetup({
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="roleHint">Your Role</Label>
+          <Label htmlFor="roleHint">
+            Your Role <span className="text-muted-foreground text-xs font-normal">(optional)</span>
+          </Label>
           <Select
             value={formData.roleHint}
             onValueChange={(value) => onChange({ roleHint: value })}
           >
             <SelectTrigger id="roleHint">
-              <SelectValue placeholder="Select your role (optional)" />
+              <SelectValue placeholder="Select your role" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="Founder">Founder</SelectItem>
@@ -179,6 +183,9 @@ function StepCompanySetup({
               <SelectItem value="Other">Other</SelectItem>
             </SelectContent>
           </Select>
+          <p className="text-xs text-muted-foreground">
+            Helps us tailor the experience to your needs
+          </p>
         </div>
       </div>
 
@@ -391,6 +398,101 @@ function StepQuickStart({
 }
 
 /**
+ * Step 4: Success Celebration
+ */
+function StepSuccess({
+  formData,
+  onFinish,
+}: {
+  formData: OnboardingFormData;
+  onFinish: () => void;
+}) {
+  const [countdown, setCountdown] = useState(3);
+
+  useEffect(() => {
+    if (countdown > 0) {
+      const timer = setTimeout(() => setCountdown(countdown - 1), 1000);
+      return () => clearTimeout(timer);
+    } else {
+      // Auto-finish when countdown reaches 0
+      onFinish();
+    }
+  }, [countdown, onFinish]);
+
+  const getVerticalLabel = (vertical: Vertical) => {
+    const labels: Record<Vertical, string> = {
+      brewery: "Brewery / Beverage",
+      generic: "General B2B",
+      animal_physio: "Animal Physiotherapy",
+      other: "Other",
+    };
+    return labels[vertical] || vertical;
+  };
+
+  return (
+    <div className="text-center space-y-6 py-8">
+      <div className="flex justify-center">
+        <div className="p-4 rounded-full bg-emerald-100 dark:bg-emerald-900/30">
+          <Sparkles className="h-16 w-16 text-emerald-600 dark:text-emerald-400" />
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <h2 className="text-3xl font-bold">You're All Set!</h2>
+        <p className="text-muted-foreground">
+          Your account has been configured successfully
+        </p>
+      </div>
+
+      <div className="space-y-3 text-sm max-w-md mx-auto">
+        <div className="flex items-start gap-3 p-3 rounded-lg bg-muted/50">
+          <CheckCircle2 className="h-5 w-5 text-emerald-600 dark:text-emerald-400 flex-shrink-0 mt-0.5" />
+          <div className="text-left flex-1">
+            <p className="font-medium">Company Profile</p>
+            <p className="text-muted-foreground">
+              {formData.companyName} • {getVerticalLabel(formData.vertical)}
+            </p>
+          </div>
+        </div>
+
+        {formData.roleHint && (
+          <div className="flex items-start gap-3 p-3 rounded-lg bg-muted/50">
+            <CheckCircle2 className="h-5 w-5 text-emerald-600 dark:text-emerald-400 flex-shrink-0 mt-0.5" />
+            <div className="text-left flex-1">
+              <p className="font-medium">Your Role</p>
+              <p className="text-muted-foreground">{formData.roleHint}</p>
+            </div>
+          </div>
+        )}
+
+        <div className="flex items-start gap-3 p-3 rounded-lg bg-muted/50">
+          <CheckCircle2 className="h-5 w-5 text-emerald-600 dark:text-emerald-400 flex-shrink-0 mt-0.5" />
+          <div className="text-left flex-1">
+            <p className="font-medium">Primary Goal</p>
+            <p className="text-muted-foreground">{formData.primaryObjective}</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="pt-4">
+        <p className="text-sm text-muted-foreground mb-4">
+          {formData.vertical === "brewery"
+            ? "Next: Quick brewery-specific setup..."
+            : "Taking you to your dashboard..."}
+        </p>
+        <p className="text-2xl font-bold text-primary">
+          {countdown}
+        </p>
+      </div>
+
+      <Button onClick={onFinish} variant="outline" size="sm">
+        Skip Wait
+      </Button>
+    </div>
+  );
+}
+
+/**
  * Main General Onboarding Wizard Component
  */
 export function GeneralOnboardingWizard({
@@ -456,39 +558,8 @@ export function GeneralOnboardingWizard({
       localStorage.removeItem("wyshbone.onboarding.formData");
       localStorage.removeItem("wyshbone.onboarding.currentStep");
 
-      toast({
-        title: "Welcome to Wyshbone!",
-        description: "Your account is all set up.",
-      });
-
-      // Check if brewery vertical → open brewery wizard
-      if (formData.vertical === "brewery" && onOpenBreweryWizard) {
-        toast({
-          title: "Let's customize for breweries",
-          description: "A few more quick questions...",
-        });
-        onOpenBreweryWizard();
-        return;
-      }
-
-      // Handle quick start choice
-      switch (formData.quickStartChoice) {
-        case "add_customer":
-          navigate("/crm/customers");
-          // TODO: Auto-open add customer dialog
-          break;
-        case "sample_data":
-          // TODO: Trigger sample data loading
-          navigate("/crm");
-          break;
-        case "chat":
-          navigate("/chat");
-          break;
-        default:
-          navigate("/crm");
-      }
-
-      onComplete?.();
+      // Go to success screen
+      goToStep(4);
     } catch (error) {
       console.error("Failed to save onboarding:", error);
       toast({
@@ -501,36 +572,62 @@ export function GeneralOnboardingWizard({
     }
   };
 
+  const handleFinish = () => {
+    // Check if brewery vertical → open brewery wizard
+    if (formData.vertical === "brewery" && onOpenBreweryWizard) {
+      onOpenBreweryWizard();
+      return;
+    }
+
+    // Otherwise navigate to home
+    navigate("/");
+    onComplete?.();
+  };
+
   return (
-    <Card className="max-w-2xl mx-auto">
-      <CardHeader>
-        <StepIndicator currentStep={currentStep} />
-      </CardHeader>
-      <CardContent>
-        {currentStep === 1 && (
-          <StepCompanySetup
-            formData={formData}
-            onChange={handleChange}
-            onNext={() => goToStep(2)}
-          />
-        )}
-        {currentStep === 2 && (
-          <StepPrimaryObjective
-            formData={formData}
-            onChange={handleChange}
-            onNext={() => goToStep(3)}
-            onBack={() => goToStep(1)}
-          />
-        )}
-        {currentStep === 3 && (
-          <StepQuickStart
-            formData={formData}
-            onChange={handleChange}
-            onComplete={handleComplete}
-            onBack={() => goToStep(2)}
-          />
-        )}
-      </CardContent>
-    </Card>
+    <Dialog open={true} modal={true}>
+      <DialogContent
+        className="max-w-2xl p-0 gap-0 [&>button]:hidden"
+        onPointerDownOutside={(e) => e.preventDefault()}
+        onEscapeKeyDown={(e) => e.preventDefault()}
+      >
+        <Card className="border-0 shadow-none">
+          <CardHeader>
+            <StepIndicator currentStep={currentStep} />
+          </CardHeader>
+          <CardContent>
+            {currentStep === 1 && (
+              <StepCompanySetup
+                formData={formData}
+                onChange={handleChange}
+                onNext={() => goToStep(2)}
+              />
+            )}
+            {currentStep === 2 && (
+              <StepPrimaryObjective
+                formData={formData}
+                onChange={handleChange}
+                onNext={() => goToStep(3)}
+                onBack={() => goToStep(1)}
+              />
+            )}
+            {currentStep === 3 && (
+              <StepQuickStart
+                formData={formData}
+                onChange={handleChange}
+                onComplete={handleComplete}
+                onBack={() => goToStep(2)}
+              />
+            )}
+            {currentStep === 4 && (
+              <StepSuccess
+                formData={formData}
+                onFinish={handleFinish}
+              />
+            )}
+          </CardContent>
+        </Card>
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -12,6 +12,8 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useState } from "react";
 import { useVerticalLabels } from "@/lib/verticals";
+import { ProfileProgressWidget } from "@/components/ProfileProgressWidget";
+import { useQuery as useCrmQuery } from "@tanstack/react-query";
 
 const TIER_CONFIG: Record<string, { displayName: string; color: string; monitors: number; deepResearch: number }> = {
   free: { displayName: "Free", color: "secondary", monitors: 2, deepResearch: 2 },
@@ -50,6 +52,12 @@ export default function Account() {
   // Get subscription status
   const { data: subscriptionData, isLoading: subscriptionLoading } = useQuery({
     queryKey: ["/api/subscription/status"],
+    enabled: !!currentUser,
+  });
+
+  // Get CRM settings for profile completion calculation
+  const { data: crmSettings } = useCrmQuery({
+    queryKey: [`/api/crm/settings/${currentUser?.id}`],
     enabled: !!currentUser,
   });
 
@@ -151,6 +159,13 @@ export default function Account() {
             Manage your subscription and view usage
           </p>
         </div>
+
+        {/* Profile Progress Widget */}
+        <ProfileProgressWidget
+          user={user}
+          crmSettings={crmSettings}
+          className="mb-6"
+        />
 
         {/* Company Profile Card */}
         <Card className="mb-6" data-testid="card-company-profile">

@@ -566,32 +566,52 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const updates = validation.data;
-      
+
+      // Get current user for merging preferences and inferring industry
+      const currentUser = await storage.getUserById(auth.userId);
+      if (!currentUser) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      // Merge preferences instead of replacing
+      let mergedPreferences = currentUser.preferences || {};
+      if (updates.preferences) {
+        mergedPreferences = {
+          ...mergedPreferences,
+          ...updates.preferences,
+          // Deep merge onboardingChecklist if provided
+          onboardingChecklist: updates.preferences.onboardingChecklist
+            ? {
+                ...(mergedPreferences.onboardingChecklist || {}),
+                ...updates.preferences.onboardingChecklist,
+              }
+            : mergedPreferences.onboardingChecklist,
+        };
+      }
+
       // If company name or domain was provided, infer industry
       let inferredIndustry: string | null | undefined = undefined;
       let confidence: number | null | undefined = undefined;
-      
+
       if (updates.companyName || updates.companyDomain) {
-        const tempUser = await storage.getUserById(auth.userId);
-        if (tempUser) {
-          // Merge current user data with updates to get fresh context
-          const mergedUserData = {
-            ...tempUser,
-            companyName: updates.companyName ?? tempUser.companyName,
-            companyDomain: updates.companyDomain ?? tempUser.companyDomain,
-          };
-          
-          // Use context builder to infer industry from merged data
-          const ctx = buildSessionContext(mergedUserData as any);
-          
-          inferredIndustry = ctx.inferredIndustry ?? null;
-          confidence = ctx.confidence;
-        }
+        // Merge current user data with updates to get fresh context
+        const mergedUserData = {
+          ...currentUser,
+          companyName: updates.companyName ?? currentUser.companyName,
+          companyDomain: updates.companyDomain ?? currentUser.companyDomain,
+        };
+
+        // Use context builder to infer industry from merged data
+        const ctx = buildSessionContext(mergedUserData as any);
+
+        inferredIndustry = ctx.inferredIndustry ?? null;
+        confidence = ctx.confidence;
       }
 
-      // Update user profile
+      // Update user profile with merged preferences
       const updatedUser = await storage.updateUser(auth.userId, {
         ...updates,
+        preferences: mergedPreferences,
         inferredIndustry,
         confidence,
         lastContextRefresh: Date.now(),
@@ -609,6 +629,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         companyDomain: updatedUser.companyDomain,
         roleHint: updatedUser.roleHint,
         primaryObjective: updatedUser.primaryObjective,
+        preferences: updatedUser.preferences,
         inferredIndustry: updatedUser.inferredIndustry,
         confidence: updatedUser.confidence,
       });
@@ -3561,6 +3582,16 @@ CRITICAL RULES:
       res.json(conversations);
     } catch (error: any) {
       console.error("Error listing conversations:", error);
+
+      // Check if tables don't exist (graceful degradation for demo/new users)
+      if (error.message?.includes('relation "conversations" does not exist') ||
+          error.message?.includes('fetch failed')) {
+        return res.status(200).json({
+          conversations: [],
+          message: "No conversations yet. Start chatting to create your first conversation!"
+        });
+      }
+
       res.status(500).json({ error: error.message });
     }
   });
@@ -4146,6 +4177,15 @@ CRITICAL RULES:
       res.json(plan);
     } catch (error: any) {
       console.error("Error fetching plan:", error);
+
+      // Check if tables don't exist (graceful degradation for demo/new users)
+      if (error.message?.includes('relation "plans" does not exist') ||
+          error.message?.includes('relation "plan_') ||
+          error.message?.includes('fetch failed')) {
+        console.warn('[PLAN] Database tables unavailable, returning null plan');
+        return res.json(null);
+      }
+
       res.status(500).json({ error: error.message });
     }
   });
@@ -6252,13 +6292,15 @@ Return structured data with the EXACT placeId provided above: "${placeId}"`;
       res.json({ runs: runs.map(stripLargeOutput) });
     } catch (error: any) {
       console.error("Deep research list error:", error);
-      
-      // In demo mode, return empty runs if database is unavailable
-      if (isDemoMode() && (error.cause?.code === 'ENOTFOUND' || error.message?.includes('ENOTFOUND'))) {
-        console.warn('[DeepResearch] Database unavailable in demo mode, returning empty runs');
+
+      // Graceful degradation for demo/new users or when database is unavailable
+      if (error.message?.includes('relation "deep_research_runs" does not exist') ||
+          error.message?.includes('fetch failed') ||
+          (isDemoMode() && (error.cause?.code === 'ENOTFOUND' || error.message?.includes('ENOTFOUND')))) {
+        console.warn('[DeepResearch] Database or tables unavailable, returning empty runs');
         return res.json({ runs: [] });
       }
-      
+
       const apiError = analyzeDatabaseError(error, 'list deep research');
       res.status(500).json(apiError);
     }
@@ -7602,7 +7644,41 @@ ${run.outputText}`;
       res.status(500).json({ error: error.message || "Failed to update settings" });
     }
   });
-  
+
+  // DELETE /api/crm/sample-data/:workspaceId - Clear all sample data for onboarding
+  app.delete("/api/crm/sample-data/:workspaceId", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+
+      const { workspaceId } = req.params;
+
+      // SECURITY: Verify workspace belongs to authenticated user
+      if (workspaceId !== auth.userId) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+
+      // Delete sample customers, products, and orders
+      const deletedCustomers = await storage.deleteSampleCustomers(workspaceId);
+      const deletedProducts = await storage.deleteSampleProducts(workspaceId);
+      const deletedOrders = await storage.deleteSampleOrders(workspaceId);
+
+      res.json({
+        success: true,
+        deleted: {
+          customers: deletedCustomers,
+          products: deletedProducts,
+          orders: deletedOrders,
+        },
+      });
+    } catch (error: any) {
+      console.error("Error deleting sample data:", error);
+      res.status(500).json({ error: error.message || "Failed to delete sample data" });
+    }
+  });
+
   // GET /api/crm/customers/:workspaceId - List customers
   app.get("/api/crm/customers/:workspaceId", async (req, res) => {
     try {
@@ -11582,6 +11658,24 @@ ${run.outputText}`;
       res.json(kpis);
     } catch (error: any) {
       console.error("Error getting dashboard KPIs:", error);
+
+      // Check if tables don't exist (graceful degradation for demo/new users)
+      if (error.message?.includes('relation "crm_customers" does not exist') ||
+          error.message?.includes('relation "crm_orders" does not exist') ||
+          error.message?.includes('fetch failed')) {
+        return res.status(503).json({
+          error: "Dashboard KPIs not available",
+          message: "Customer and order data has not been imported yet. Connect to Xero to enable dashboard analytics.",
+          available: false,
+          kpis: {
+            totalCustomers: 0,
+            totalRevenue: 0,
+            totalOrders: 0,
+            averageOrderValue: 0
+          }
+        });
+      }
+
       res.status(500).json({ error: error.message || "Failed to get dashboard KPIs" });
     }
   });
@@ -11604,6 +11698,18 @@ ${run.outputText}`;
       res.json(data);
     } catch (error: any) {
       console.error("Error getting revenue by month:", error);
+
+      // Check if tables don't exist (graceful degradation for demo/new users)
+      if (error.message?.includes('relation "crm_orders" does not exist') ||
+          error.message?.includes('fetch failed')) {
+        return res.status(503).json({
+          error: "Revenue analytics not available",
+          message: "Order data has not been imported yet. Connect to Xero to enable revenue analytics.",
+          available: false,
+          data: []
+        });
+      }
+
       res.status(500).json({ error: error.message || "Failed to get revenue by month" });
     }
   });
@@ -11626,10 +11732,23 @@ ${run.outputText}`;
       res.json(customers);
     } catch (error: any) {
       console.error("Error getting top customers:", error);
+
+      // Check if tables don't exist (graceful degradation for demo/new users)
+      if (error.message?.includes('relation "crm_customers" does not exist') ||
+          error.message?.includes('relation "crm_orders" does not exist') ||
+          error.message?.includes('fetch failed')) {
+        return res.status(503).json({
+          error: "Customer analytics not available",
+          message: "Customer and order data has not been imported yet. Connect to Xero to enable customer analytics.",
+          available: false,
+          customers: []
+        });
+      }
+
       res.status(500).json({ error: error.message || "Failed to get top customers" });
     }
   });
-  
+
   // GET /api/crm/dashboard/top-products/:workspaceId - Get top products
   app.get("/api/crm/dashboard/top-products/:workspaceId", async (req, res) => {
     try {
@@ -11648,6 +11767,19 @@ ${run.outputText}`;
       res.json(products);
     } catch (error: any) {
       console.error("Error getting top products:", error);
+
+      // Check if tables don't exist (graceful degradation for demo/new users)
+      if (error.message?.includes('relation "crm_order_lines" does not exist') ||
+          error.message?.includes('relation "brew_products" does not exist') ||
+          error.message?.includes('fetch failed')) {
+        return res.status(503).json({
+          error: "Product analytics not available",
+          message: "Product and order data has not been imported yet. Connect to Xero to enable product analytics.",
+          available: false,
+          products: []
+        });
+      }
+
       res.status(500).json({ error: error.message || "Failed to get top products" });
     }
   });

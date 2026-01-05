@@ -82,6 +82,14 @@ export function createSuppliersRouter(storage: IStorage) {
       res.json(results);
     } catch (error: any) {
       console.error("[suppliers] List error:", error);
+
+      // Graceful degradation for missing suppliers table
+      if (error.message?.includes('relation "suppliers" does not exist') ||
+          error.message?.includes('fetch failed')) {
+        console.warn('[suppliers] Suppliers table unavailable, returning empty list');
+        return res.json([]);
+      }
+
       res.status(500).json({ error: error.message });
     }
   });
@@ -114,6 +122,14 @@ export function createSuppliersRouter(storage: IStorage) {
       res.json(supplier);
     } catch (error: any) {
       console.error("[suppliers] Get error:", error);
+
+      // Graceful degradation for missing suppliers table
+      if (error.message?.includes('relation "suppliers" does not exist') ||
+          error.message?.includes('fetch failed')) {
+        console.warn('[suppliers] Suppliers table unavailable');
+        return res.status(404).json({ error: "Supplier not found" });
+      }
+
       res.status(500).json({ error: error.message });
     }
   });
@@ -152,6 +168,14 @@ export function createSuppliersRouter(storage: IStorage) {
       res.status(201).json(newSupplier);
     } catch (error: any) {
       console.error("[suppliers] Create error:", error);
+
+      // Graceful degradation for missing suppliers table
+      if (error.message?.includes('relation "suppliers" does not exist') ||
+          error.message?.includes('fetch failed')) {
+        console.warn('[suppliers] Suppliers table unavailable');
+        return res.status(503).json({ error: "Supplier management is temporarily unavailable" });
+      }
+
       res.status(500).json({ error: error.message });
     }
   });
@@ -195,6 +219,14 @@ export function createSuppliersRouter(storage: IStorage) {
       res.json(updated);
     } catch (error: any) {
       console.error("[suppliers] Update error:", error);
+
+      // Graceful degradation for missing suppliers table
+      if (error.message?.includes('relation "suppliers" does not exist') ||
+          error.message?.includes('fetch failed')) {
+        console.warn('[suppliers] Suppliers table unavailable');
+        return res.status(404).json({ error: "Supplier not found" });
+      }
+
       res.status(500).json({ error: error.message });
     }
   });
@@ -243,6 +275,14 @@ export function createSuppliersRouter(storage: IStorage) {
       res.json({ success: true, message: "Supplier deleted" });
     } catch (error: any) {
       console.error("[suppliers] Delete error:", error);
+
+      // Graceful degradation for missing suppliers table
+      if (error.message?.includes('relation "suppliers" does not exist') ||
+          error.message?.includes('fetch failed')) {
+        console.warn('[suppliers] Suppliers table unavailable');
+        return res.status(404).json({ error: "Supplier not found" });
+      }
+
       res.status(500).json({ error: error.message });
     }
   });
@@ -283,6 +323,15 @@ export function createSuppliersRouter(storage: IStorage) {
       res.json(purchases);
     } catch (error: any) {
       console.error("[suppliers] Get purchases error:", error);
+
+      // Graceful degradation for missing suppliers table
+      if (error.message?.includes('relation "suppliers" does not exist') ||
+          error.message?.includes('relation "supplier_purchases" does not exist') ||
+          error.message?.includes('fetch failed')) {
+        console.warn('[suppliers] Suppliers/purchases table unavailable, returning empty list');
+        return res.json([]);
+      }
+
       res.status(500).json({ error: error.message });
     }
   });
@@ -323,6 +372,15 @@ export function createSuppliersRouter(storage: IStorage) {
       res.json(products);
     } catch (error: any) {
       console.error("[suppliers] Get products error:", error);
+
+      // Graceful degradation for missing suppliers table
+      if (error.message?.includes('relation "suppliers" does not exist') ||
+          error.message?.includes('relation "supplier_products" does not exist') ||
+          error.message?.includes('fetch failed')) {
+        console.warn('[suppliers] Suppliers/products table unavailable, returning empty list');
+        return res.json([]);
+      }
+
       res.status(500).json({ error: error.message });
     }
   });

@@ -10,6 +10,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { EmptyState } from "@/components/ui/empty-state";
+import { HelpTooltip } from "@/components/ui/help-tooltip";
 import { Users, Plus, Search, Edit } from "lucide-react";
 import { getCustomers, upsertCustomer, type BrewCustomer } from "@/lib/brewcrmService";
 
@@ -107,6 +109,7 @@ export default function BrewCrmCustomers() {
             <h2 className="text-2xl font-semibold flex items-center gap-2">
               <Users className="h-6 w-6" />
               Customers
+              <HelpTooltip content="Store customer details and track their purchase history. Add contacts, addresses, and notes to maintain strong relationships." />
             </h2>
             <p className="text-sm text-muted-foreground">Manage your customer accounts</p>
           </div>
@@ -152,9 +155,14 @@ export default function BrewCrmCustomers() {
         </CardHeader>
         <CardContent>
           {customers.length === 0 ? (
-            <p className="text-center text-muted-foreground py-8">
-              No customers found. Click "Add Customer" to create one.
-            </p>
+            <EmptyState
+              icon={<Users className="h-8 w-8" />}
+              title="No customers yet"
+              description="Add your first customer to start tracking sales and building relationships. You can add details now or fill them in later as you go."
+              actionLabel="Add Your First Customer"
+              onAction={openNew}
+              variant="minimal"
+            />
           ) : (
             <Table>
               <TableHeader>
