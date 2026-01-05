@@ -7,7 +7,7 @@
     "dev": "concurrently --names \"backend,ui\" --prefix-colors \"cyan,magenta\" \"npm run dev:backend\" \"npm run dev:ui\"",
     "dev:clean": "node scripts/dev-clean.js",
     "dev:all": "node scripts/dev-all.js",
-    "dev:backend": "cross-env NODE_ENV=development PORT=5001 EXPORT_KEY=dev-wyshbone-ui tsx server/index.ts",
+    "dev:backend": "cross-env NODE_ENV=development PORT=5001 EXPORT_KEY=dev-wyshbone-ui tsx watch server/index.ts",
     "dev:ui": "cd client && npm run dev",
     "build": "esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outfile=dist/index.js",
     "start": "cross-env NODE_ENV=production node dist/index.js",

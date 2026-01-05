@@ -10,6 +10,7 @@ export interface User {
 interface UserContextType {
   user: User;
   setUser: (user: User) => void;
+  isValidatingSession: boolean;
 }
 
 const UserContext = createContext<UserContextType | undefined>(undefined);
@@ -187,7 +188,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <UserContext.Provider value={{ user, setUser }}>
+    <UserContext.Provider value={{ user, setUser, isValidatingSession }}>
       {children}
     </UserContext.Provider>
   );

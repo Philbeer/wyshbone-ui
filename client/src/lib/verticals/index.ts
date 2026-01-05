@@ -44,11 +44,11 @@ export function getVerticalLabels(verticalId: VerticalId): VerticalLabels {
  * @returns { labels, verticalId, isLoading }
  */
 export function useVerticalLabels() {
-  const { user } = useUser();
-  
+  const { user, isValidatingSession } = useUser();
+
   const { data: settings, isLoading } = useQuery<{ industryVertical?: string }>({
     queryKey: ['/api/crm/settings', user.id],
-    enabled: !!user.id,
+    enabled: !!user.id && !isValidatingSession && user.id !== "demo-user",
   });
 
   // Default to brewery for demo purposes, can be changed to "generic" if needed

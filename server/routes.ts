@@ -6062,6 +6062,17 @@ Return structured data with the EXACT placeId provided above: "${placeId}"`;
       });
     } catch (e: any) {
       console.error("location-hints/search error:", e);
+
+      // Check if table doesn't exist
+      if (e.message?.includes('relation "location_hints" does not exist') ||
+          e.message?.includes('fetch failed')) {
+        return res.status(503).json({
+          error: "Location hints feature not available",
+          message: "The location_hints table has not been created yet. This feature requires additional setup.",
+          available: false
+        });
+      }
+
       return res.status(500).json({ error: e.message || "Failed to search location hints" });
     }
   });
@@ -6081,6 +6092,17 @@ Return structured data with the EXACT placeId provided above: "${placeId}"`;
       return res.json({ countries: results });
     } catch (e: any) {
       console.error("location-hints/countries error:", e);
+
+      // Check if table doesn't exist
+      if (e.message?.includes('relation "location_hints" does not exist') ||
+          e.message?.includes('fetch failed')) {
+        return res.status(503).json({
+          error: "Location hints feature not available",
+          message: "The location_hints table has not been created yet. This feature requires additional setup.",
+          available: false
+        });
+      }
+
       return res.status(500).json({ error: e.message || "Failed to get countries" });
     }
   });
@@ -6109,6 +6131,17 @@ Return structured data with the EXACT placeId provided above: "${placeId}"`;
       return res.json({ results });
     } catch (e: any) {
       console.error("location-hints/by-country error:", e);
+
+      // Check if table doesn't exist
+      if (e.message?.includes('relation "location_hints" does not exist') ||
+          e.message?.includes('fetch failed')) {
+        return res.status(503).json({
+          error: "Location hints feature not available",
+          message: "The location_hints table has not been created yet. This feature requires additional setup.",
+          available: false
+        });
+      }
+
       return res.status(500).json({ error: e.message || "Failed to get location hints by country" });
     }
   });
@@ -7438,28 +7471,39 @@ ${run.outputText}`;
   // CRM ROUTES (Core Multi-Vertical CRM)
   // ============================================================
   
-  // GET /api/crm/settings/:workspaceId - Get CRM settings
+  // GET /api/crm/settings/:workspaceId - Get CRM settings (auto-creates if not exists)
   app.get("/api/crm/settings/:workspaceId", async (req, res) => {
     try {
       const auth = await getAuthenticatedUserId(req);
       if (!auth) {
         return res.status(401).json({ error: "Unauthorized" });
       }
-      
+
       const { workspaceId } = req.params;
-      
+
       // SECURITY: Verify workspace belongs to authenticated user
       if (workspaceId !== auth.userId) {
         console.warn(`🚫 User ${auth.userEmail} attempted to access settings for workspace ${workspaceId}`);
         return res.status(403).json({ error: "Forbidden: Cannot access other workspaces' data" });
       }
-      
-      const settings = await storage.getCrmSettings(workspaceId);
-      
+
+      // Get existing settings or create defaults if not exists
+      let settings = await storage.getCrmSettings(workspaceId);
+
       if (!settings) {
-        return res.status(404).json({ error: "Settings not found" });
+        // Auto-create default settings for new workspace
+        console.log(`📝 Creating default CRM settings for workspace ${workspaceId}`);
+        const defaultSettings = {
+          id: `crm-settings-${workspaceId}-${Date.now()}`,
+          workspaceId,
+          industryVertical: 'generic',
+          defaultCountry: 'United Kingdom',
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        };
+        settings = await storage.createCrmSettings(defaultSettings);
       }
-      
+
       res.json(settings);
     } catch (error: any) {
       // Demo mode fallback: return default settings
