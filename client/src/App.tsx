@@ -210,6 +210,8 @@ function OnboardingWizards() {
   } = useOnboardingWizard();
 
   // Auto-open general wizard for new users (after 1s delay)
+  // TEMPORARILY DISABLED - Remove comments below to re-enable
+  /*
   useEffect(() => {
     const hasCompletedOnboarding = user?.preferences?.generalOnboardingCompleted;
     if (!hasCompletedOnboarding && user?.id) {
@@ -219,6 +221,7 @@ function OnboardingWizards() {
       return () => clearTimeout(timer);
     }
   }, [user?.id, user?.preferences?.generalOnboardingCompleted, openGeneralWizard]);
+  */
 
   return (
     <>
@@ -517,8 +520,15 @@ function AppContent() {
           throw new Error("Failed to fetch research output");
         }
         const data = await response.json();
+        console.log(`📊 Received data:`, {
+          hasRun: !!data.run,
+          status: data.run?.status,
+          outputTextLength: data.run?.outputText?.length || 0,
+          outputTextPreview: data.run?.outputText?.substring(0, 100) || '(none)'
+        });
+
         const output = data.run?.outputText || "Research in progress...";
-        
+
         // Open results in the right panel
         openResults('deep_research', {
           run: {
@@ -530,8 +540,8 @@ function AppContent() {
           topic: run.label,
           outputText: output,
         }, run.label);
-        
-        console.log(`✅ Opened deep research in ResultsPanel: ${run.label}`);
+
+        console.log(`✅ Opened deep research in ResultsPanel: ${run.label}, output length: ${output.length}`);
       } catch (error) {
         console.error("Failed to display research output:", error);
         // Still open the panel with error state

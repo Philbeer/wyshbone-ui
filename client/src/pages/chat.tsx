@@ -7,6 +7,7 @@ import { Send, User, CheckCircle2, Search, Building2, HelpCircle, Activity } fro
 import type { ChatMessage, AddNoteResponse, DeepResearchCreateRequest } from "@shared/schema";
 import wyshboneLogo from "@assets/wyshbone-logo_1759667581806.png";
 import { LocationSuggestions } from "@/components/LocationSuggestions";
+import { CopyButton } from "@/components/ui/copy-button";
 import WishboneSidebar from "@/components/WishboneSidebar";
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -1286,13 +1287,50 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                 } catch (e) {
                   // Not a JSON message, fall through to regular display
                 }
-                
-                // Check if this system message has search results to display
-                if (message.searchResults && Array.isArray(message.searchResults)) {
+
+                // Check if this is an email draft message
+                if (message.content.startsWith('✉️ Email draft:')) {
+                  const emailContent = message.content.replace('✉️ Email draft:\n\n', '').trim();
                   return (
                     <div
                       key={message.id}
-                      className="flex flex-col gap-3 w-full"
+                      className="flex flex-col gap-3 w-full max-w-3xl mx-auto"
+                      data-testid={`message-system-${message.id}`}
+                    >
+                      <div className="flex justify-center">
+                        <div className="bg-chart-2/20 text-chart-2 px-4 py-2 rounded-lg text-sm font-medium">
+                          ✉️ Email Draft Ready
+                        </div>
+                      </div>
+
+                      {/* Email Draft Card */}
+                      <div className="bg-card border border-card-border rounded-lg p-4">
+                        <div className="whitespace-pre-wrap text-sm leading-relaxed mb-4">
+                          {emailContent}
+                        </div>
+                        <div className="flex gap-2 justify-end border-t border-border pt-3">
+                          <CopyButton
+                            text={emailContent}
+                            label="Copy Email"
+                            variant="default"
+                            size="sm"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
+
+                // Check if this system message has search results to display
+                if (message.searchResults && Array.isArray(message.searchResults)) {
+                  const totalResults = message.searchResults.length;
+                  const previewResults = message.searchResults.slice(0, 5);
+                  const hasMore = totalResults > 5;
+
+                  return (
+                    <div
+                      key={message.id}
+                      className="flex flex-col gap-3 w-full max-w-3xl mx-auto"
                       data-testid={`message-system-${message.id}`}
                     >
                       <div className="flex justify-center">
@@ -1300,40 +1338,96 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                           {message.content}
                         </div>
                       </div>
-                      
-                      {/* Search Results Table */}
-                      <div className="bg-card border border-card-border rounded-lg p-4">
-                        <div className="overflow-x-auto">
-                          <table className="w-full">
-                            <thead>
-                              <tr className="border-b border-border">
-                                <th className="text-left py-2 px-3 font-semibold text-sm">Name</th>
-                                <th className="text-left py-2 px-3 font-semibold text-sm">Address</th>
-                                <th className="text-left py-2 px-3 font-semibold text-sm">Phone</th>
-                                <th className="text-left py-2 px-3 font-semibold text-sm">Rating</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {message.searchResults.map((place: any, index: number) => (
-                                <tr 
-                                  key={place.place_id || index} 
-                                  className="border-b border-border/50 hover-elevate active-elevate-2 cursor-pointer"
-                                  data-testid={`search-result-${index}`}
-                                >
-                                  <td className="py-3 px-3 text-sm font-medium">{place.name}</td>
-                                  <td className="py-3 px-3 text-sm text-muted-foreground">{place.address || '—'}</td>
-                                  <td className="py-3 px-3 text-sm text-muted-foreground">{place.phone || '—'}</td>
-                                  <td className="py-3 px-3 text-sm">
-                                    {place.rating ? (
-                                      <span className="text-yellow-600 dark:text-yellow-400">
-                                        ⭐ {place.rating}
+
+                      {/* Search Results Preview Card */}
+                      <div className="bg-card border border-card-border rounded-lg overflow-hidden">
+                        <div className="p-4">
+                          <div className="space-y-3">
+                            {previewResults.map((place: any, index: number) => (
+                              <div
+                                key={place.place_id || index}
+                                className="flex items-start gap-3 p-3 rounded-lg border border-border hover-elevate cursor-pointer"
+                                data-testid={`search-result-${index}`}
+                              >
+                                <div className="flex-1 min-w-0">
+                                  <div className="font-medium text-sm mb-1">{place.name}</div>
+                                  <div className="text-xs text-muted-foreground space-y-0.5">
+                                    {place.address && (
+                                      <div className="flex items-start gap-1">
+                                        <span>📍</span>
+                                        <span>{place.address}</span>
+                                      </div>
+                                    )}
+                                    {place.phone && (
+                                      <div className="flex items-center gap-1">
+                                        <span>📞</span>
+                                        <span>{place.phone}</span>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                                {place.rating && (
+                                  <div className="flex-shrink-0">
+                                    <div className="flex items-center gap-1 px-2 py-1 rounded-md bg-yellow-50 dark:bg-yellow-950/30">
+                                      <span className="text-yellow-600 dark:text-yellow-400">⭐</span>
+                                      <span className="text-xs font-medium text-yellow-700 dark:text-yellow-300">
+                                        {place.rating}
                                       </span>
-                                    ) : '—'}
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Action Buttons */}
+                        <div className="border-t border-border bg-muted/30 px-4 py-3 flex gap-2 justify-between flex-wrap">
+                          <div className="flex gap-2">
+                            {hasMore && (
+                              <Button
+                                variant="default"
+                                size="sm"
+                                onClick={() => {
+                                  // TODO: Open side panel or full results view
+                                  toast({
+                                    title: "View All Results",
+                                    description: `Showing all ${totalResults} results (coming soon)`,
+                                  });
+                                }}
+                              >
+                                View All {totalResults} Results →
+                              </Button>
+                            )}
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                // Convert results to CSV
+                                const csv = [
+                                  ['Name', 'Address', 'Phone', 'Rating'].join(','),
+                                  ...(message.searchResults || []).map((p: any) =>
+                                    [p.name, p.address || '', p.phone || '', p.rating || ''].join(',')
+                                  )
+                                ].join('\n');
+
+                                const blob = new Blob([csv], { type: 'text/csv' });
+                                const url = URL.createObjectURL(blob);
+                                const a = document.createElement('a');
+                                a.href = url;
+                                a.download = `search-results-${Date.now()}.csv`;
+                                a.click();
+                                URL.revokeObjectURL(url);
+
+                                toast({
+                                  title: "Exported",
+                                  description: `Downloaded ${totalResults} results as CSV`,
+                                });
+                              }}
+                            >
+                              📥 Export CSV
+                            </Button>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -1356,7 +1450,69 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
               const chatMessage = message as Message;
               const isUser = chatMessage.role === "user";
               const isSupervisor = chatMessage.source === 'supervisor';
-              
+
+              // Check if this is a monitor creation notification
+              if (!isUser && chatMessage.content.startsWith('🔔 MONITOR_CREATED')) {
+                const lines = chatMessage.content.split('\n');
+                const monitorData: Record<string, string> = {};
+                lines.forEach(line => {
+                  const [key, ...valueParts] = line.split(': ');
+                  if (valueParts.length > 0) {
+                    monitorData[key] = valueParts.join(': ');
+                  }
+                });
+
+                return (
+                  <div
+                    key={chatMessage.id}
+                    className="flex gap-3 flex-row"
+                    data-testid={`message-monitor-${chatMessage.id}`}
+                  >
+                    <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0">
+                      <img src={wyshboneLogo} alt="Wyshbone" className="w-full h-full object-cover" />
+                    </div>
+                    <div className="flex flex-col items-start max-w-3xl lg:max-w-none">
+                      <div className="bg-chart-2/20 border border-chart-2/30 rounded-lg px-4 py-3 w-full">
+                        <div className="flex items-center gap-2 mb-3">
+                          <CheckCircle2 className="w-5 h-5 text-chart-2" />
+                          <span className="font-semibold text-chart-2">Monitor Created Successfully</span>
+                        </div>
+                        <div className="space-y-2 text-sm mb-4">
+                          <div>
+                            <span className="font-medium">Name:</span> {monitorData['LABEL']}
+                          </div>
+                          <div>
+                            <span className="font-medium">Description:</span> {monitorData['DESCRIPTION']}
+                          </div>
+                          <div>
+                            <span className="font-medium">Schedule:</span> {monitorData['SCHEDULE']}
+                          </div>
+                          <div>
+                            <span className="font-medium">Type:</span> {monitorData['TYPE']}
+                          </div>
+                          <div>
+                            <span className="font-medium">Next Run:</span> {monitorData['NEXT_RUN']}
+                          </div>
+                        </div>
+                        <Button
+                          variant="default"
+                          size="sm"
+                          onClick={() => {
+                            // Navigate to monitors section - you may need to implement this navigation
+                            window.location.hash = '#monitors';
+                          }}
+                        >
+                          Go to Monitors →
+                        </Button>
+                      </div>
+                      <span className="text-xs text-muted-foreground mt-1">
+                        {chatMessage.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                      </span>
+                    </div>
+                  </div>
+                );
+              }
+
               return (
                 <div
                   key={chatMessage.id}

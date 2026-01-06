@@ -1,4 +1,5 @@
 import { Globe, MessageSquare, Bug, FilePlus, MessagesSquare, ChevronDown, ChevronRight, Clock, Edit2, Trash2, Mail, Link2, User, CreditCard, History, Users, Sparkles, Factory, HelpCircle, FlaskConical, Bot, Database, Calendar, ClipboardCheck, Search } from "lucide-react";
+import { Badge as UIBadge } from "@/components/ui/badge";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
@@ -627,7 +628,8 @@ export function AppSidebar({
   const [showScheduledMonitors, setShowScheduledMonitors] = useState(false);
   const [showIntegrations, setShowIntegrations] = useState(false);
   const [newRunIds, setNewRunIds] = useState<Set<string>>(new Set());
-  
+  const [viewedResearchIds, setViewedResearchIds] = useState<Set<string>>(new Set());
+
   const [flashingSection, setFlashingSection] = useState<string | null>(null);
 
   // Watch for flash triggers from other components
@@ -681,15 +683,27 @@ export function AppSidebar({
     return { todays: t, previous: p };
   }, [localRuns, showArchived]);
 
+  // Calculate unviewed deep research count
+  const unviewedResearchCount = useMemo(() => {
+    return localRuns.filter(run =>
+      run.runType === "deep_research" &&
+      run.status === "completed" &&
+      !viewedResearchIds.has(run.id)
+    ).length;
+  }, [localRuns, viewedResearchIds]);
+
   const mutate = (fn: (prev: RunItem[]) => RunItem[]) => {
     setLocalRuns((prev) => fn(prev));
   };
 
   const _select = async (id: string) => {
     const run = localRuns.find((r) => r.id === id);
-    
+
     // Track view for deep research runs (for summarization feature)
     if (run && run.runType === "deep_research") {
+      // Mark as viewed in local state
+      setViewedResearchIds(prev => new Set(prev).add(id));
+
       try {
         const response = await authedFetch(`/api/deep-research/${id}/view`, {
           method: "POST",
@@ -697,7 +711,7 @@ export function AppSidebar({
             "Content-Type": "application/json",
           },
         });
-        
+
         // DEV MODE: No auth gating for deep research - just log any errors
         if (!response.ok) {
           console.warn("View tracking returned non-OK status:", response.status);
@@ -709,7 +723,7 @@ export function AppSidebar({
         // Don't block the UI if tracking fails
       }
     }
-    
+
     onSelectRun?.(id);
   };
 
@@ -1131,8 +1145,13 @@ export function AppSidebar({
         </SidebarGroup>
 
         <SidebarGroup>
-          <SidebarGroupLabel className={flashingSection === 'deepResearch' ? 'animate-flash-border' : ''}>
-            Deep Researches
+          <SidebarGroupLabel className={`flex items-center gap-2 ${flashingSection === 'deepResearch' ? 'animate-flash-border' : ''}`}>
+            <span>Deep Researches</span>
+            {unviewedResearchCount > 0 && (
+              <UIBadge variant="default" className="ml-auto">
+                {unviewedResearchCount} NEW
+              </UIBadge>
+            )}
           </SidebarGroupLabel>
           <SidebarGroupContent className="px-3">
             <p className="text-xs text-muted-foreground mb-3">

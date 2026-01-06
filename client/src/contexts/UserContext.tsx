@@ -5,6 +5,20 @@ export interface User {
   id: string;
   email: string;
   name: string;
+  role?: string;
+  preferences?: {
+    generalOnboardingCompleted?: boolean;
+    generalOnboardingCompletedAt?: string;
+    breweryOnboardingCompleted?: boolean;
+    breweryOnboardingCompletedAt?: string;
+    onboardingChecklist?: Record<string, boolean>;
+  };
+  companyName?: string;
+  companyDomain?: string;
+  roleHint?: string;
+  primaryObjective?: string;
+  inferredIndustry?: string;
+  confidence?: number;
 }
 
 interface UserContextType {

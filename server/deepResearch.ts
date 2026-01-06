@@ -2,11 +2,28 @@ import type { DeepResearchRun, DeepResearchCreateRequest, DeepResearchRunSummary
 import { storage } from "./storage";
 import { appendMessage, loadConversationHistory } from "./memory";
 import { openai } from "./openai";
+import Anthropic from "@anthropic-ai/sdk";
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
 const OPENAI_BASE = "https://api.openai.com/v1";
 const OPENAI_MODEL = "gpt-4o";
+const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "";
+const ANTHROPIC_MODEL = "claude-sonnet-4-20250514";
 const POLL_INTERVAL_MS = 3000; // Poll every 3 seconds for faster status updates
+
+// Determine which AI provider to use (prefer Anthropic if key is available)
+const USE_ANTHROPIC = !!ANTHROPIC_API_KEY;
+let anthropicClient: Anthropic | null = null;
+
+function getAnthropicClient(): Anthropic {
+  if (!anthropicClient && ANTHROPIC_API_KEY) {
+    anthropicClient = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
+  }
+  if (!anthropicClient) {
+    throw new Error("Anthropic API key not configured");
+  }
+  return anthropicClient;
+}
 
 // ===========================
 // Depth Guidelines based on Intensity
@@ -375,12 +392,118 @@ function suggestDefaultLabel(prompt: string): string {
 
 export function stripLargeOutput(run: DeepResearchRun): DeepResearchRunSummary {
   const { outputText, ...rest } = run;
+
+  // Detect if outputText contains error messages and don't show them as preview
+  const isError = outputText && (
+    outputText.includes('401') ||
+    outputText.includes('403') ||
+    outputText.includes('500') ||
+    outputText.toLowerCase().includes('unauthorized') ||
+    outputText.toLowerCase().includes('error:') ||
+    outputText.toLowerCase().includes('failed to')
+  );
+
+  // If it's an error or no output, show appropriate status-based message
+  let preview = '';
+  if (!outputText || isError) {
+    if (run.status === 'completed') {
+      preview = 'Research completed - click to view';
+    } else if (run.status === 'failed') {
+      preview = 'Research failed';
+    } else if (run.status === 'running' || run.status === 'in_progress') {
+      preview = 'Research in progress...';
+    } else if (run.status === 'queued') {
+      preview = 'Waiting to start...';
+    }
+  } else {
+    // Normal preview for actual content
+    preview = outputText.slice(0, 240) + (outputText.length > 240 ? "…" : "");
+  }
+
   return {
     ...rest,
-    hasOutput: Boolean(outputText && outputText.length),
-    outputPreview:
-      outputText?.slice(0, 240) + (outputText && outputText.length > 240 ? "…" : ""),
+    hasOutput: Boolean(outputText && outputText.length && !isError),
+    outputPreview: preview,
   };
+}
+
+// ===========================
+// ANTHROPIC-BASED DEEP RESEARCH
+// ===========================
+
+async function runAnthropicDeepResearch(
+  run: DeepResearchRun,
+  prompt: string,
+  baseInstructions: string
+): Promise<void> {
+  try {
+    console.log(`🤖 [Anthropic] Starting research for ${run.id}`);
+
+    await storage.updateDeepResearchRun(run.id, { status: "running" });
+
+    const client = getAnthropicClient();
+
+    // Use Claude with extended thinking for deep research
+    const response = await client.messages.create({
+      model: ANTHROPIC_MODEL,
+      max_tokens: 16000,
+      thinking: {
+        type: "enabled",
+        budget_tokens: 10000
+      },
+      messages: [{
+        role: "user",
+        content: `${baseInstructions}\n\nRESEARCH TOPIC: ${prompt}\n\nNote: You don't have access to web_search. Use your knowledge and extended thinking to provide comprehensive analysis based on what you know. Be clear about information recency and limitations.`
+      }]
+    });
+
+    // Extract text content
+    let outputText = "";
+    for (const block of response.content) {
+      if (block.type === "text") {
+        outputText += block.text;
+      }
+    }
+
+    if (!outputText) {
+      throw new Error("No output generated from research");
+    }
+
+    // Reformat output
+    const reformattedOutput = await reformatResearchOutput(outputText, run.label || run.prompt);
+
+    // Ensure header is present
+    let finalOutput = reformattedOutput;
+    if (!finalOutput.includes("# 📊")) {
+      finalOutput = "# 📊 Deep Research Report\n\n" + finalOutput;
+    }
+
+    // Add note about knowledge limitations
+    finalOutput += "\n\n---\n\n*Note: This research is based on Claude's knowledge base (updated January 2025) without real-time web search. For the most current information, please verify key facts.*";
+
+    await storage.updateDeepResearchRun(run.id, {
+      status: "completed",
+      outputText: finalOutput,
+    });
+
+    console.log(`✅ [Anthropic] Research completed for ${run.id}`);
+
+    // Send completion notification if there's a session
+    if (run.sessionId) {
+      await sendCompletionNotification(run.sessionId, {
+        ...run,
+        status: "completed",
+        outputText: finalOutput
+      });
+    }
+
+  } catch (error: any) {
+    console.error(`❌ [Anthropic] Research failed for ${run.id}:`, error);
+    await storage.updateDeepResearchRun(run.id, {
+      status: "failed",
+      error: error.message || String(error),
+    });
+  }
 }
 
 export async function startBackgroundResponsesJob(
@@ -541,8 +664,21 @@ FORMATTING REQUIREMENTS:
 `;
   }
 
+  // Route to appropriate AI provider
+  if (USE_ANTHROPIC) {
+    console.log("🤖 Using Anthropic for deep research:", id);
+
+    // Run Anthropic research in background (don't await)
+    runAnthropicDeepResearch(run, prompt, baseInstructions).catch(error => {
+      console.error("Background research error:", error);
+    });
+
+    return run;
+  }
+
+  // Fall back to OpenAI if Anthropic not available
   try {
-    console.log("🔬 Starting deep research job:", id, "prompt:", prompt.slice(0, 100));
+    console.log("🔬 Starting deep research job (OpenAI):", id, "prompt:", prompt.slice(0, 100));
     const response = await fetch(`${OPENAI_BASE}/responses`, {
       method: "POST",
       headers: {
@@ -551,14 +687,14 @@ FORMATTING REQUIREMENTS:
       },
       body: JSON.stringify(body),
     });
-    
+
     const data = await response.json();
-    
+
     if (!response.ok) {
       console.error("❌ OpenAI Responses API error:", data);
       throw new Error(data?.error?.message || "Failed to create research job");
     }
-    
+
     console.log("✅ Research job created:", data.id, "status:", data.status);
     // Map OpenAI statuses to our statuses
     const apiStatus = data.status ?? "in_progress";

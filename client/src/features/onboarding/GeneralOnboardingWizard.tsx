@@ -503,7 +503,7 @@ export function GeneralOnboardingWizard({
   onOpenBreweryWizard?: () => void;
 }) {
   const [, navigate] = useLocation();
-  const { user } = useUser();
+  const { user, setUser } = useUser();
   const { toast } = useToast();
   const [currentStep, setCurrentStep] = useState<WizardStep>(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -542,8 +542,8 @@ export function GeneralOnboardingWizard({
   const handleComplete = async () => {
     setIsSubmitting(true);
     try {
-      // Save to backend
-      await apiRequest("PUT", "/api/auth/profile", {
+      // Save to backend and get updated user
+      const updatedUser = await apiRequest("PUT", "/api/auth/profile", {
         companyName: formData.companyName,
         companyDomain: formData.companyDomain || undefined,
         roleHint: formData.roleHint || undefined,
@@ -554,7 +554,10 @@ export function GeneralOnboardingWizard({
         },
       });
 
-      // Clear localStorage
+      // Update UserContext with new preferences
+      localStorage.setItem("wyshbone_user", JSON.stringify(updatedUser));
+
+      // Clear onboarding localStorage
       localStorage.removeItem("wyshbone.onboarding.formData");
       localStorage.removeItem("wyshbone.onboarding.currentStep");
 

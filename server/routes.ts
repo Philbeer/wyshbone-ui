@@ -549,6 +549,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       primaryObjective: user.primaryObjective,
       inferredIndustry: user.inferredIndustry,
       confidence: user.confidence,
+      preferences: user.preferences,
     });
   });
 
@@ -2074,11 +2075,11 @@ CRITICAL RULES:
             user_id: user.id,
             user_email: user.email
           });
-          
-          const response = await fetch(`http://localhost:5000/api/deep-research?${authParams}`, {
+
+          const response = await fetch(`http://localhost:5001/api/deep-research?${authParams}`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ 
+            body: JSON.stringify({
               prompt: researchTopic,
               conversationId,
               userId: user.id
@@ -2796,11 +2797,11 @@ CRITICAL RULES:
               user_id: user.id,
               user_email: user.email
             });
-            
-            const response = await fetch(`http://localhost:5000/api/deep-research?${authParams}`, {
+
+            const response = await fetch(`http://localhost:5001/api/deep-research?${authParams}`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ 
+              body: JSON.stringify({
                 prompt: params.prompt,
                 conversationId,
                 userId: user.id
@@ -3361,26 +3362,25 @@ CRITICAL RULES:
               updatedAt: now,
             });
             
-            // Format response
-            let responseText = `⏰ **Scheduled Monitor Created**\n\n`;
-            responseText += `✅ **${params.label}**\n\n`;
-            responseText += `📋 ${params.description}\n\n`;
-            responseText += `🔄 **Schedule:** ${params.schedule.charAt(0).toUpperCase() + params.schedule.slice(1)}`;
-            
-            if (params.scheduleDay) {
-              responseText += ` on ${params.scheduleDay.charAt(0).toUpperCase() + params.scheduleDay.slice(1)}s`;
-            }
-            if (params.scheduleTime) {
-              responseText += ` at ${params.scheduleTime}`;
-            }
-            responseText += `\n\n`;
-            
-            responseText += `📊 **Type:** ${params.monitorType === 'deep_research' ? 'Deep Research' : params.monitorType === 'business_search' ? 'Business Search' : 'Wyshbone Global Database'}\n\n`;
-            responseText += `🎯 Your monitor will run automatically according to the schedule. You can view and manage it in the sidebar under "Scheduled Monitors".\n\n`;
-            
+            // Format response with special marker for chat UI detection
             const nextRunDate = new Date(nextRunAt);
-            responseText += `⏭️ **Next run:** ${nextRunDate.toLocaleDateString('en-GB')} at ${nextRunDate.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false })}`;
-            
+            const scheduleText = params.schedule.charAt(0).toUpperCase() + params.schedule.slice(1) +
+              (params.scheduleDay ? ` on ${params.scheduleDay.charAt(0).toUpperCase() + params.scheduleDay.slice(1)}s` : '') +
+              (params.scheduleTime ? ` at ${params.scheduleTime}` : '');
+
+            const monitorTypeDisplay = params.monitorType === 'deep_research' ? 'Deep Research' :
+                                       params.monitorType === 'business_search' ? 'Business Search' :
+                                       'Wyshbone Global Database';
+
+            // Create a structured response that the UI can detect and render nicely
+            let responseText = `🔔 MONITOR_CREATED\n`;
+            responseText += `LABEL: ${params.label}\n`;
+            responseText += `DESCRIPTION: ${params.description}\n`;
+            responseText += `SCHEDULE: ${scheduleText}\n`;
+            responseText += `TYPE: ${monitorTypeDisplay}\n`;
+            responseText += `NEXT_RUN: ${nextRunDate.toLocaleDateString('en-GB')} at ${nextRunDate.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false })}\n`;
+            responseText += `MONITOR_ID: ${monitor.id}`;
+
             aiBuffer = responseText;
             res.write(`data: ${JSON.stringify({ content: responseText })}\n\n`);
             
@@ -3865,40 +3865,45 @@ CRITICAL RULES:
       
       // CRASH-SAFE: Read from database first if planId is provided
       if (planId) {
-        const { getPlanExecutionStatus } = await import('./leadgen-plan.js');
-        const dbStatus = await getPlanExecutionStatus(planId);
-        
-        if (dbStatus) {
-          // Build response from persisted step data
-          const currentStep = dbStatus.steps.find(s => s.stepStatus === 'running') ||
-                             dbStatus.steps.find(s => !s.stepStatus || s.stepStatus === 'pending');
-          
-          const steps = dbStatus.steps.map(step => ({
-            id: step.id,
-            type: step.type,
-            label: step.label,
-            status: step.stepStatus === 'running' ? 'executing' : (step.stepStatus || 'pending'),
-            resultSummary: step.resultSummary,
-            leadsCreated: step.leadsCreated,
-          }));
-          
-          return res.json({
-            goal: dbStatus.goal || goal || null,
-            planId: planId,
-            totalSteps: dbStatus.totalSteps,
-            completedSteps: dbStatus.completedSteps,
-            currentStep: currentStep ? {
-              id: currentStep.id,
-              type: currentStep.type,
-              label: currentStep.label,
-              status: currentStep.stepStatus === 'running' ? 'executing' : (currentStep.stepStatus || 'pending'),
-              resultSummary: currentStep.resultSummary,
-            } : null,
-            status: dbStatus.status,
-            steps,
-            lastUpdatedAt: new Date().toISOString(),
-            error: dbStatus.error,
-          });
+        try {
+          const { getPlanExecutionStatus } = await import('./leadgen-plan.js');
+          const dbStatus = await getPlanExecutionStatus(planId);
+
+          if (dbStatus) {
+            // Build response from persisted step data
+            const currentStep = dbStatus.steps.find(s => s.stepStatus === 'running') ||
+                               dbStatus.steps.find(s => !s.stepStatus || s.stepStatus === 'pending');
+
+            const steps = dbStatus.steps.map(step => ({
+              id: step.id,
+              type: step.type,
+              label: step.label,
+              status: step.stepStatus === 'running' ? 'executing' : (step.stepStatus || 'pending'),
+              resultSummary: step.resultSummary,
+              leadsCreated: step.leadsCreated,
+            }));
+
+            return res.json({
+              goal: dbStatus.goal || goal || null,
+              planId: planId,
+              totalSteps: dbStatus.totalSteps,
+              completedSteps: dbStatus.completedSteps,
+              currentStep: currentStep ? {
+                id: currentStep.id,
+                type: currentStep.type,
+                label: currentStep.label,
+                status: currentStep.stepStatus === 'running' ? 'executing' : (currentStep.stepStatus || 'pending'),
+                resultSummary: currentStep.resultSummary,
+              } : null,
+              status: dbStatus.status,
+              steps,
+              lastUpdatedAt: new Date().toISOString(),
+              error: dbStatus.error,
+            });
+          }
+        } catch (dbError: any) {
+          // Log but don't fail - fall through to in-memory check
+          console.warn(`⚠️ Database lookup failed for plan ${planId}:`, dbError.message);
         }
       }
       
@@ -4163,29 +4168,29 @@ CRITICAL RULES:
       }
       
       console.log(`📋 GET /api/plan for userId: ${auth.userId}`);
-      
-      // Get plan for this user (by userId, not sessionId)
-      const { getPlanByUserId } = await import('./leadgen-plan.js');
-      const plan = await getPlanByUserId(auth.userId);
-      
-      if (plan) {
-        console.log(`✅ Returning plan: ${plan.id}, status: ${plan.status}, goal: "${plan.goal}"`);
-      } else {
-        console.log(`ℹ️ No active plan found for user ${auth.userId}`);
-      }
-      
-      res.json(plan);
-    } catch (error: any) {
-      console.error("Error fetching plan:", error);
 
-      // Check if tables don't exist (graceful degradation for demo/new users)
-      if (error.message?.includes('relation "plans" does not exist') ||
-          error.message?.includes('relation "plan_') ||
-          error.message?.includes('fetch failed')) {
-        console.warn('[PLAN] Database tables unavailable, returning null plan');
+      // Get plan for this user (by userId, not sessionId)
+      try {
+        const { getPlanByUserId } = await import('./leadgen-plan.js');
+        const plan = await getPlanByUserId(auth.userId);
+
+        if (plan) {
+          console.log(`✅ Returning plan: ${plan.id}, status: ${plan.status}, goal: "${plan.goal}"`);
+        } else {
+          console.log(`ℹ️ No active plan found for user ${auth.userId}`);
+        }
+
+        res.json(plan);
+      } catch (dbError: any) {
+        console.error("Database error fetching plan:", dbError);
+
+        // Graceful degradation - return null plan instead of 500
+        console.warn('[PLAN] Database lookup failed, returning null plan');
         return res.json(null);
       }
-
+    } catch (error: any) {
+      console.error("Error in /api/plan endpoint:", error);
+      // This should rarely be reached now
       res.status(500).json({ error: error.message });
     }
   });
@@ -6313,7 +6318,13 @@ Return structured data with the EXACT placeId provided above: "${placeId}"`;
       if (!run) {
         return res.status(404).json({ error: "Research run not found" });
       }
-      
+
+      // DEBUG: Log what we're returning
+      console.log(`📊 GET /api/deep-research/${req.params.id}:`);
+      console.log(`   Status: ${run.status}`);
+      console.log(`   OutputText length: ${run.outputText?.length || 0}`);
+      console.log(`   OutputText preview: ${run.outputText?.substring(0, 100) || '(none)'}...`);
+
       res.json({ run });
     } catch (error: any) {
       console.error("Deep research get error:", error);
