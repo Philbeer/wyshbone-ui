@@ -850,13 +850,13 @@ export function createXeroOAuthRouter(storage: IStorage) {
   });
 
   /**
-   * Background function to run AI-powered customer import.
+   * Background function to run CRM customer import from Xero.
    */
   async function importCustomersWithAI(workspaceId: string, jobId: number) {
-    const logPrefix = `[xero-import-ai:${jobId}]`;
-    
-    // Import the AI matching module dynamically to avoid circular dependencies
-    const { importXeroCustomers } = await import("../lib/xero-import");
+    const logPrefix = `[xero-import-crm:${jobId}]`;
+
+    // Import the simplified CRM import (no entity matching)
+    const { importXeroCustomersToCRM } = await import("../lib/xero-import");
 
     // Update job to running
     await storage.updateXeroImportJob(jobId, workspaceId, {
@@ -886,18 +886,18 @@ export function createXeroOAuthRouter(storage: IStorage) {
         },
       };
 
-      // Run the AI-powered import
-      const summary = await importXeroCustomers(workspaceId, xeroStorage);
+      // Run the simplified CRM import
+      const summary = await importXeroCustomersToCRM(workspaceId, xeroStorage);
 
       // Update job with results
       await storage.updateXeroImportJob(jobId, workspaceId, {
         status: "completed",
         totalRecords: summary.total,
-        processedRecords: summary.matched + summary.newPubs,
+        processedRecords: summary.imported,
         failedRecords: summary.errors,
         completedAt: new Date(),
-        errorMessage: summary.errors > 0 
-          ? `${summary.errors} contacts failed to import. ${summary.needsReview} queued for review.`
+        errorMessage: summary.errors > 0
+          ? `${summary.errors} contacts failed to import`
           : null,
       });
 
@@ -907,9 +907,7 @@ export function createXeroOAuthRouter(storage: IStorage) {
       });
 
       console.log(`${logPrefix} ✅ Import completed:`, {
-        matched: summary.matched,
-        newPubs: summary.newPubs,
-        needsReview: summary.needsReview,
+        imported: summary.imported,
         skipped: summary.skipped,
         errors: summary.errors,
         total: summary.total,
@@ -1018,7 +1016,12 @@ export function createXeroOAuthRouter(storage: IStorage) {
     });
 
     try {
+      console.log(`📦 [PRODUCT IMPORT] Starting product import for workspace ${workspaceId}...`);
+
       // Fetch all items from Xero
+      console.log(`📦 [PRODUCT IMPORT] Fetching items from Xero API...`);
+      const fetchStart = Date.now();
+
       const itemsResponse = await fetch("https://api.xero.com/api.xro/2.0/Items", {
         headers: {
           Authorization: `Bearer ${accessToken}`,
@@ -1034,12 +1037,16 @@ export function createXeroOAuthRouter(storage: IStorage) {
       const itemsData = await itemsResponse.json();
       const items = itemsData.Items || [];
 
+      const fetchDuration = Date.now() - fetchStart;
+      console.log(`📦 [PRODUCT IMPORT] Found ${items.length} items from Xero (took ${fetchDuration}ms)`);
+
       await storage.updateXeroImportJob(jobId, workspaceId, {
         totalRecords: items.length,
       });
 
       let processedCount = 0;
       let failedCount = 0;
+      const processingStart = Date.now();
 
       for (const item of items) {
         try {
@@ -1099,6 +1106,9 @@ export function createXeroOAuthRouter(storage: IStorage) {
         }
       }
 
+      const processingDuration = Date.now() - processingStart;
+      const avgTimePerProduct = items.length > 0 ? Math.round(processingDuration / items.length) : 0;
+
       await storage.updateXeroImportJob(jobId, workspaceId, {
         status: "completed",
         processedRecords: processedCount,
@@ -1106,7 +1116,8 @@ export function createXeroOAuthRouter(storage: IStorage) {
         completedAt: new Date(),
       });
 
-      console.log(`✅ Xero product import completed: ${processedCount} imported, ${failedCount} failed`);
+      console.log(`✅ [PRODUCT IMPORT] Completed: ${processedCount} products imported, ${failedCount} failed`);
+      console.log(`📊 [PRODUCT IMPORT] Processing took ${processingDuration}ms (avg ${avgTimePerProduct}ms per product)`);
     } catch (error) {
       console.error("Product import failed:", error);
       await storage.updateXeroImportJob(jobId, workspaceId, {
@@ -1182,8 +1193,12 @@ export function createXeroOAuthRouter(storage: IStorage) {
       const fromDateStr = fromDate.toISOString().split('T')[0];
 
       // Fetch invoices from Xero with date filter
+      // CRITICAL: Only fetch ACCREC (sales invoices/orders), NOT ACCPAY (purchase invoices/bills)
       // Filter for AUTHORISED and PAID invoices only
-      const invoicesUrl = `https://api.xero.com/api.xro/2.0/Invoices?where=Date>DateTime(${fromDate.getFullYear()},${fromDate.getMonth()+1},${fromDate.getDate()})&Statuses=AUTHORISED,PAID`;
+      const invoicesUrl = `https://api.xero.com/api.xro/2.0/Invoices?where=Type=="ACCREC" AND Date>DateTime(${fromDate.getFullYear()},${fromDate.getMonth()+1},${fromDate.getDate()})&Statuses=AUTHORISED,PAID`;
+
+      console.log(`📦 [ORDER IMPORT] Fetching sales invoices from ${fromDateStr}...`);
+      console.log(`📦 [ORDER IMPORT] URL: ${invoicesUrl}`);
       
       const invoicesResponse = await fetch(invoicesUrl, {
         headers: {
@@ -1199,6 +1214,8 @@ export function createXeroOAuthRouter(storage: IStorage) {
 
       const invoicesData = await invoicesResponse.json();
       const invoices = invoicesData.Invoices || [];
+
+      console.log(`📦 [ORDER IMPORT] Found ${invoices.length} sales invoices from Xero`);
 
       await storage.updateXeroImportJob(jobId, workspaceId, {
         totalRecords: invoices.length,
@@ -1223,7 +1240,11 @@ export function createXeroOAuthRouter(storage: IStorage) {
           );
 
           if (!customer) {
-            console.warn(`Customer not found for invoice ${invoice.InvoiceNumber} (Contact: ${invoice.Contact?.ContactID})`);
+            console.warn(`⚠️ [ORDER IMPORT] Customer not found for invoice ${invoice.InvoiceNumber}`);
+            console.warn(`   Contact ID: ${invoice.Contact?.ContactID}`);
+            console.warn(`   Contact Name: ${invoice.Contact?.Name}`);
+            console.warn(`   Workspace ID: ${workspaceId}`);
+            console.warn(`   → Skipping this order. Make sure customers are imported first!`);
             failedCount++;
             continue;
           }
@@ -1353,7 +1374,10 @@ export function createXeroOAuthRouter(storage: IStorage) {
         completedAt: new Date(),
       });
 
-      console.log(`✅ Xero order import completed: ${processedCount} imported, ${failedCount} failed`);
+      console.log(`✅ [ORDER IMPORT] Completed: ${processedCount} orders imported, ${failedCount} failed`);
+      if (failedCount > 0) {
+        console.warn(`⚠️ [ORDER IMPORT] ${failedCount} orders failed - likely due to missing customers. Import customers first!`);
+      }
     } catch (error) {
       console.error("Order import failed:", error);
       await storage.updateXeroImportJob(jobId, workspaceId, {

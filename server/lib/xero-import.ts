@@ -8,7 +8,7 @@
 import { XeroClient } from "xero-node";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, sql } from "drizzle-orm";
 import {
   pubsMaster,
   entitySources,
@@ -593,37 +593,67 @@ export async function importXeroOrders(
 // ============================================
 
 /**
- * Create a new pub from Xero contact data.
+ * Create a new CRM customer from Xero contact data.
+ * Customers should go into crm_customers table, NOT pubs_master.
  */
-async function createNewPubFromXero(
+async function createNewCustomerFromXero(
   contact: any,
   streetAddress: any,
   phone: any,
-  workspaceId: number
-): Promise<SelectPubsMaster> {
+  workspaceId: string
+): Promise<{ id: string; name: string }> {
   const db = getDb();
 
-  const insertData: InsertPubsMaster = {
+  // Generate unique customer ID
+  const customerId = `cust_xero_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const now = Date.now();
+
+  const insertData = {
+    id: customerId,
     workspaceId,
     name: contact.name || 'Unknown',
+    primaryContactName: contact.firstName && contact.lastName
+      ? `${contact.firstName} ${contact.lastName}`.trim()
+      : null,
+    email: contact.emailAddress || null,
+    phone: phone?.phoneNumber || null,
     addressLine1: streetAddress?.addressLine1 || null,
     addressLine2: streetAddress?.addressLine2 || null,
     city: streetAddress?.city || null,
     postcode: streetAddress?.postalCode || null,
-    phone: phone?.phoneNumber || null,
-    email: contact.emailAddress || null,
-    country: streetAddress?.country || 'GB',
-    isCustomer: true,
-    discoveredBy: 'xero',
-    discoveredAt: new Date(),
-    createdAt: new Date(),
-    updatedAt: new Date(),
+    country: streetAddress?.country || 'UK',
+    notes: `Imported from Xero on ${new Date().toLocaleDateString()}`,
+    tags: ['xero-import'],
+    isActive: true,
+    customerSince: now,
+    lastOrderDate: null,
+    totalOrders: 0,
+    lifetimeValue: 0,
+    averageOrderValue: 0,
+    createdAt: now,
+    updatedAt: now,
   };
 
-  const [newPub] = await db.insert(pubsMaster).values(insertData).returning();
-  
-  console.log(`[xero-import] Created new pub: "${contact.name}" (id: ${newPub.id})`);
-  return newPub;
+  // Use raw SQL to insert into crm_customers
+  await db.execute(sql`
+    INSERT INTO crm_customers (
+      id, workspace_id, name, primary_contact_name, email, phone,
+      address_line1, address_line2, city, postcode, country,
+      notes, tags, is_active, customer_since, last_order_date,
+      total_orders, lifetime_value, average_order_value, created_at, updated_at
+    ) VALUES (
+      ${insertData.id}, ${insertData.workspaceId}, ${insertData.name},
+      ${insertData.primaryContactName}, ${insertData.email}, ${insertData.phone},
+      ${insertData.addressLine1}, ${insertData.addressLine2}, ${insertData.city},
+      ${insertData.postcode}, ${insertData.country}, ${insertData.notes},
+      ${JSON.stringify(insertData.tags)}, ${insertData.isActive}, ${insertData.customerSince},
+      ${insertData.lastOrderDate}, ${insertData.totalOrders}, ${insertData.lifetimeValue},
+      ${insertData.averageOrderValue}, ${insertData.createdAt}, ${insertData.updatedAt}
+    )
+  `);
+
+  console.log(`[xero-import] Created new CRM customer: "${contact.name}" (id: ${customerId})`);
+  return { id: customerId, name: contact.name || 'Unknown' };
 }
 
 /**
@@ -1292,6 +1322,161 @@ function mapXeroStatusToLocal(status?: string): string {
     'DELETED': 'voided',
   };
   return statusMap[status || ''] || 'draft';
+}
+
+// ============================================
+// SIMPLE CRM CUSTOMER IMPORT (NO ENTITY MATCHING)
+// ============================================
+
+/**
+ * Import Xero customers directly into CRM customers table.
+ * This is a simplified version that doesn't do entity matching -
+ * it just imports contacts as new CRM customers.
+ *
+ * @param workspaceId - Workspace ID (string)
+ * @param storage - Storage interface for Xero connection
+ * @returns Import summary
+ */
+export async function importXeroCustomersToCRM(
+  workspaceId: string,
+  storage: XeroStorage
+): Promise<{
+  imported: number;
+  skipped: number;
+  errors: number;
+  total: number;
+}> {
+  const logPrefix = `[xero-import:crm]`;
+  const db = getDb();
+
+  console.log(`${logPrefix} Starting Xero CRM customer import for workspace ${workspaceId}`);
+
+  const summary = {
+    imported: 0,
+    skipped: 0,
+    errors: 0,
+    total: 0,
+  };
+
+  // Get Xero client
+  const xeroData = await getXeroClient(workspaceId, storage);
+  if (!xeroData) {
+    throw new Error("Xero not connected or token expired");
+  }
+
+  const { client: xero, tenantId } = xeroData;
+
+  try {
+    // Fetch all contacts from Xero
+    console.log(`${logPrefix} Fetching contacts from Xero...`);
+    const response = await xero.accountingApi.getContacts(tenantId);
+    const contacts = response.body.contacts || [];
+
+    summary.total = contacts.length;
+    console.log(`${logPrefix} Found ${contacts.length} contacts in Xero`);
+
+    // Check which contacts are already imported FOR THIS WORKSPACE (proper isolation)
+    const existingCustomers = await db.execute(sql`
+      SELECT xero_contact_id FROM crm_customers
+      WHERE workspace_id = ${workspaceId}
+      AND xero_contact_id IS NOT NULL
+    `);
+
+    const existingXeroIds = new Set(
+      existingCustomers.rows.map((row: any) => row.xero_contact_id)
+    );
+
+    console.log(`${logPrefix} Found ${existingXeroIds.size} existing Xero customers for workspace ${workspaceId}`);
+
+    // Process each contact
+    for (const contact of contacts) {
+      const contactId = contact.contactID;
+      const contactName = contact.name || 'Unknown';
+
+      try {
+        // Skip if already imported FOR THIS WORKSPACE
+        if (existingXeroIds.has(contactId)) {
+          summary.skipped++;
+          console.log(`${logPrefix} Skipping ${contactName} - already exists in workspace ${workspaceId}`);
+          continue;
+        }
+
+        // Extract contact data
+        const streetAddress = contact.addresses?.find((a: any) => a.addressType === 'STREET');
+        const phone = contact.phones?.find((p: any) => p.phoneType === 'DEFAULT');
+
+        // Generate unique customer ID
+        const customerId = `cust_xero_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        const now = Date.now();
+
+        // Insert into crm_customers with proper xero_contact_id field
+        const syncTimestamp = new Date();
+
+        console.log(`${logPrefix} Attempting to insert customer: ${contactName} (ID: ${customerId}) into workspace ${workspaceId}`);
+
+        try {
+          await db.execute(sql`
+            INSERT INTO crm_customers (
+              id, workspace_id, name, primary_contact_name, email, phone,
+              address_line1, address_line2, city, postcode, country,
+              notes, xero_contact_id, last_xero_sync_at, xero_sync_status,
+              is_sample, created_at, updated_at
+            ) VALUES (
+              ${customerId},
+              ${workspaceId},
+              ${contactName},
+              ${contact.firstName && contact.lastName ? `${contact.firstName} ${contact.lastName}`.trim() : null},
+              ${contact.emailAddress || null},
+              ${phone?.phoneNumber || null},
+              ${streetAddress?.addressLine1 || null},
+              ${streetAddress?.addressLine2 || null},
+              ${streetAddress?.city || null},
+              ${streetAddress?.postalCode || null},
+              ${streetAddress?.country || 'UK'},
+              ${'Imported from Xero on ' + new Date().toLocaleDateString()},
+              ${contactId},
+              ${syncTimestamp},
+              ${'synced'},
+              ${false},
+              ${now},
+              ${now}
+            )
+          `);
+
+          summary.imported++;
+          console.log(`${logPrefix} ✅ Successfully imported customer: ${contactName} (Xero ID: ${contactId}) to workspace ${workspaceId}`);
+        } catch (insertError) {
+          console.error(`${logPrefix} ❌ SQL Insert failed for ${contactName}:`, insertError);
+          throw insertError; // Re-throw to be caught by outer catch
+        }
+
+      } catch (error) {
+        console.error(`${logPrefix} Error importing contact ${contactId} (${contactName}):`, error);
+        console.error(`${logPrefix} Full error details:`, JSON.stringify(error, null, 2));
+        summary.errors++;
+      }
+    }
+
+    console.log(`${logPrefix} Import complete:`, summary);
+
+    // Verify the import worked by checking the database
+    try {
+      const verifyResult = await db.execute(sql`
+        SELECT COUNT(*) as count FROM crm_customers
+        WHERE workspace_id = ${workspaceId}
+      `);
+      console.log(`${logPrefix} Verification: Found ${verifyResult.rows[0]?.count || 0} total customers for workspace ${workspaceId}`);
+    } catch (verifyError) {
+      console.error(`${logPrefix} Verification query failed:`, verifyError);
+    }
+
+    return summary;
+
+  } catch (error) {
+    console.error(`${logPrefix} Fatal error during import:`, error);
+    console.error(`${logPrefix} Error stack:`, (error as Error).stack);
+    throw error;
+  }
 }
 
 // ============================================

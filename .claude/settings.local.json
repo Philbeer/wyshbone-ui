@@ -47,7 +47,11 @@
       "Bash(then grep -i \"OPENAI_API_KEY\" .env)",
       "Bash(else echo \"No .env file\")",
       "Bash(timeout 15 bash:*)",
-      "Bash(timeout 10 bash -c 'while ! curl -s http://localhost:5001/health > /dev/null 2>&1; do echo \"\"Waiting for server...\"\"; sleep 1; done; echo \"\"Server ready!\"\"; curl -s http://localhost:5001/health | head -5')"
+      "Bash(timeout 10 bash -c 'while ! curl -s http://localhost:5001/health > /dev/null 2>&1; do echo \"\"Waiting for server...\"\"; sleep 1; done; echo \"\"Server ready!\"\"; curl -s http://localhost:5001/health | head -5')",
+      "Bash(timeout 10 bash -c 'while ! curl -s http://localhost:5001/health > /dev/null 2>&1; do echo \"\"Waiting for server...\"\"; sleep 1; done; echo \"\"Server ready!\"\"; curl -s http://localhost:5001/health')",
+      "Bash(do clear)",
+      "Bash(tasklist:*)",
+      "Bash(timeout:*)"
     ]
   }
 }
