@@ -19,7 +19,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
-import { useSearchBreweries, useBreweryBeers, useImportBeer, type UntappdBeer, type UntappdBrewery } from './useUntappd';
+import { useSearchBreweries, useAllBreweryBeers, useImportBeer, type UntappdBeer, type UntappdBrewery } from './useUntappd';
 import { useDebounce } from '@/hooks/useDebounce';
 import { calculateDutyRate } from '@/utils/dutyCalculations';
 
@@ -37,13 +37,77 @@ interface BeerToImport extends UntappdBeer {
   selected: boolean;
 }
 
-// Default package sizes for each type (in litres)
-const DEFAULT_PACKAGE_SIZES: Record<'cask' | 'keg' | 'can' | 'bottle', number> = {
-  cask: 40.9, // 9 gallon cask
-  keg: 30,    // 30L keg
-  can: 0.44,  // 440ml can
-  bottle: 0.5, // 500ml bottle
+// Package size options for each type (in litres)
+const PACKAGE_SIZE_OPTIONS: Record<'cask' | 'keg' | 'can' | 'bottle', Array<{ value: number; label: string }>> = {
+  cask: [
+    { value: 40.9, label: '40.9L (9 gallon)' },
+    { value: 20.45, label: '20.45L (4.5 gallon / half)' },
+  ],
+  keg: [
+    { value: 50, label: '50L' },
+    { value: 30, label: '30L' },
+    { value: 20, label: '20L' },
+  ],
+  can: [
+    { value: 0.568, label: '568ml (pint can)' },
+    { value: 0.5, label: '500ml' },
+    { value: 0.44, label: '440ml (UK standard)' },
+    { value: 0.33, label: '330ml (craft)' },
+  ],
+  bottle: [
+    { value: 0.75, label: '750ml (special release)' },
+    { value: 0.5, label: '500ml (UK standard)' },
+    { value: 0.33, label: '330ml (EU standard)' },
+    { value: 0.275, label: '275ml' },
+  ],
 };
+
+// Default package sizes for each type (in litres) - first option in each list
+const DEFAULT_PACKAGE_SIZES: Record<'cask' | 'keg' | 'can' | 'bottle', number> = {
+  cask: 40.9,
+  keg: 30,
+  can: 0.44,
+  bottle: 0.5,
+};
+
+/**
+ * Suggests package type and size based on Untappd serving_styles data
+ * @param servingStyles - Array of serving types from check-ins (e.g., ["Draft", "Bottle"])
+ * @returns Suggested package type and size
+ */
+function suggestPackageFromServingStyles(servingStyles?: string[]): { type: 'cask' | 'keg' | 'can' | 'bottle'; size: number } {
+  if (!servingStyles || servingStyles.length === 0) {
+    // Default to keg if no serving style data
+    return { type: 'keg', size: DEFAULT_PACKAGE_SIZES.keg };
+  }
+
+  // Normalize serving styles to lowercase for comparison
+  const normalized = servingStyles.map(s => s.toLowerCase());
+
+  // Priority order: Cask > Draft/Keg > Can > Bottle
+  // Cask is highly specific to UK breweries
+  if (normalized.some(s => s.includes('cask'))) {
+    return { type: 'cask', size: DEFAULT_PACKAGE_SIZES.cask };
+  }
+
+  // Draft usually means keg
+  if (normalized.some(s => s.includes('draft') || s.includes('tap') || s.includes('keg'))) {
+    return { type: 'keg', size: DEFAULT_PACKAGE_SIZES.keg };
+  }
+
+  // Can
+  if (normalized.some(s => s.includes('can'))) {
+    return { type: 'can', size: DEFAULT_PACKAGE_SIZES.can };
+  }
+
+  // Bottle
+  if (normalized.some(s => s.includes('bottle'))) {
+    return { type: 'bottle', size: DEFAULT_PACKAGE_SIZES.bottle };
+  }
+
+  // Default to keg
+  return { type: 'keg', size: DEFAULT_PACKAGE_SIZES.keg };
+}
 
 export function UntappdImportModal({ open, onOpenChange }: UntappdImportModalProps) {
   const [step, setStep] = useState<Step>('brewery-search');
@@ -58,7 +122,7 @@ export function UntappdImportModal({ open, onOpenChange }: UntappdImportModalPro
   const { data: breweryResults, isLoading: isSearchingBreweries } = useSearchBreweries(debouncedBreweryQuery, {
     enabled: step === 'brewery-search' && debouncedBreweryQuery.length > 0,
   });
-  const { data: breweryBeers, isLoading: isLoadingBeers } = useBreweryBeers(selectedBrewery?.brewery_id || null, {
+  const { data: breweryBeers, isLoading: isLoadingBeers } = useAllBreweryBeers(selectedBrewery?.brewery_id || null, {
     enabled: !!selectedBrewery,
   });
   const importBeer = useImportBeer();
@@ -82,15 +146,29 @@ export function UntappdImportModal({ open, onOpenChange }: UntappdImportModalPro
   // When brewery beers load, populate the beersToImport list
   useEffect(() => {
     if (breweryBeers && breweryBeers.beers.length > 0 && beersToImport.length === 0) {
-      const beers: BeerToImport[] = breweryBeers.beers.map((beer) => ({
-        ...beer,
-        packageType: 'keg',
-        packageSizeLitres: DEFAULT_PACKAGE_SIZES.keg,
-        unitPriceExVat: 0,
-        selected: true,
-      }));
+      const beers: BeerToImport[] = breweryBeers.beers.map((beer) => {
+        // Suggest package type and size based on serving_styles data from check-ins
+        const suggestion = suggestPackageFromServingStyles(beer.serving_styles);
+
+        return {
+          ...beer,
+          packageType: suggestion.type,
+          packageSizeLitres: suggestion.size,
+          unitPriceExVat: 0,
+          selected: true,
+        };
+      });
       setBeersToImport(beers);
       setStep('beer-list');
+
+      // Log serving style suggestions for debugging
+      console.log(`📊 Loaded ${beers.length} beers with serving style suggestions:`, {
+        totalBeers: beers.length,
+        source: breweryBeers.source,
+        checkinPagesFetched: breweryBeers.checkin_pages_fetched,
+        apiCallsUsed: breweryBeers.api_calls_used,
+        beersWithServingStyles: beers.filter(b => b.serving_styles && b.serving_styles.length > 0).length,
+      });
     }
   }, [breweryBeers, beersToImport.length]);
 
@@ -353,12 +431,24 @@ export function UntappdImportModal({ open, onOpenChange }: UntappdImportModalPro
                 <div className="flex-1">
                   <h3 className="font-bold text-lg">{currentBeer.beer_name}</h3>
                   <p className="text-sm text-muted-foreground">{currentBeer.brewery?.brewery_name || 'Unknown Brewery'}</p>
-                  <div className="flex gap-2 mt-2">
+                  <div className="flex gap-2 mt-2 flex-wrap">
                     <Badge variant="secondary">{currentBeer.beer_style}</Badge>
                     <Badge variant="outline">{currentBeer.beer_abv}% ABV</Badge>
+                    {currentBeer.serving_styles && currentBeer.serving_styles.length > 0 && (
+                      <>
+                        {currentBeer.serving_styles.map((style, idx) => (
+                          <Badge key={idx} variant="default" className="bg-blue-500">
+                            {style}
+                          </Badge>
+                        ))}
+                      </>
+                    )}
                   </div>
                   <p className="text-xs text-muted-foreground mt-2">
                     Duty Band: {calculateDutyRate(currentBeer.beer_abv).dutyBand}
+                    {currentBeer.serving_styles && currentBeer.serving_styles.length > 0 && (
+                      <span className="ml-2">• Package type suggested from {currentBeer.serving_styles.length} serving style{currentBeer.serving_styles.length > 1 ? 's' : ''}</span>
+                    )}
                   </p>
                 </div>
               </div>
@@ -372,24 +462,31 @@ export function UntappdImportModal({ open, onOpenChange }: UntappdImportModalPro
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="cask">Cask 9G (40.9L)</SelectItem>
-                      <SelectItem value="keg">Keg 30L</SelectItem>
-                      <SelectItem value="can">Can 440ml</SelectItem>
-                      <SelectItem value="bottle">Bottle 500ml</SelectItem>
+                      <SelectItem value="cask">Cask</SelectItem>
+                      <SelectItem value="keg">Keg</SelectItem>
+                      <SelectItem value="can">Can</SelectItem>
+                      <SelectItem value="bottle">Bottle</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="packageSize">Package Size (litres) *</Label>
-                  <Input
-                    id="packageSize"
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={currentBeer.packageSizeLitres}
-                    onChange={(e) => handleUpdateCurrentBeer({ packageSizeLitres: parseFloat(e.target.value) || 0 })}
-                  />
+                  <Label htmlFor="packageSize">Package Size *</Label>
+                  <Select
+                    value={currentBeer.packageSizeLitres.toString()}
+                    onValueChange={(value) => handleUpdateCurrentBeer({ packageSizeLitres: parseFloat(value) })}
+                  >
+                    <SelectTrigger id="packageSize">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {PACKAGE_SIZE_OPTIONS[currentBeer.packageType].map((option) => (
+                        <SelectItem key={option.value} value={option.value.toString()}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
 
                 <div className="space-y-2">
@@ -406,6 +503,25 @@ export function UntappdImportModal({ open, onOpenChange }: UntappdImportModalPro
                   <p className="text-xs text-muted-foreground">Leave blank to set later</p>
                 </div>
               </div>
+
+              {/* Serving Types Found on Untappd - Debug Panel */}
+              {currentBeer.serving_styles && currentBeer.serving_styles.length > 0 && (
+                <div className="border border-blue-200 rounded-lg p-4 bg-blue-50">
+                  <p className="font-semibold text-sm text-blue-900 mb-2">
+                    Dispense/Serving Types Found on Untappd:
+                  </p>
+                  <div className="flex gap-2 flex-wrap">
+                    {currentBeer.serving_styles.map((style, idx) => (
+                      <Badge key={idx} variant="default" className="bg-blue-600">
+                        {style}
+                      </Badge>
+                    ))}
+                  </div>
+                  <p className="text-xs text-blue-700 mt-2">
+                    Package type was auto-suggested based on {currentBeer.serving_styles.length} serving style{currentBeer.serving_styles.length > 1 ? 's' : ''} found in check-ins
+                  </p>
+                </div>
+              )}
 
               {currentBeer.beer_description && (
                 <div className="text-sm text-muted-foreground">

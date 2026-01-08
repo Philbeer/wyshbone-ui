@@ -29,6 +29,8 @@ export interface UntappdBeer {
     brewery_label: string;
     brewery_slug: string;
   };
+  serving_styles?: string[]; // Array of serving types found in check-ins (e.g., ["Draft", "Bottle"])
+  serving_styles_count?: number; // Number of unique serving styles
 }
 
 export interface UntappdBrewery {
@@ -145,6 +147,37 @@ export function useBreweryBeers(breweryId: number | null, options?: { enabled?: 
       }
 
       const response = await apiRequest('GET', `/api/untappd/brewery/${breweryId}/beers?limit=50`);
+      return response.json();
+    },
+    enabled: options?.enabled !== false && !!breweryId,
+    staleTime: 10 * 60 * 1000, // 10 minutes
+  });
+}
+
+// ============================================
+// GET ALL BREWERY BEERS (HYBRID WITH SERVING STYLES)
+// ============================================
+
+/**
+ * Fetch ALL beers from a brewery using hybrid approach:
+ * - Fetches first 25 beers from brewery/info
+ * - If brewery has >25 beers, fetches check-ins to find remaining beers
+ * - Always fetches check-ins to collect serving style data
+ * - Returns beers with serving_styles array indicating how they're commonly served
+ */
+export function useAllBreweryBeers(breweryId: number | null, options?: { enabled?: boolean }) {
+  return useQuery<UntappdBreweryBeersResult & {
+    source: string;
+    checkin_pages_fetched?: number;
+    api_calls_used?: number;
+  }>({
+    queryKey: ['untappd-brewery-all-beers', breweryId],
+    queryFn: async () => {
+      if (!breweryId) {
+        throw new Error('Brewery ID is required');
+      }
+
+      const response = await apiRequest('GET', `/api/untappd/brewery/${breweryId}/all-beers`);
       return response.json();
     },
     enabled: options?.enabled !== false && !!breweryId,

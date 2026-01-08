@@ -68,7 +68,10 @@
       "Bash(Select-Object ProcessName,Id,CPU)",
       "Bash(ConvertFrom-Json)",
       "Bash(Select-Object -Last 5)",
-      "Bash(ConvertTo-Json -Depth 10)"
+      "Bash(ConvertTo-Json -Depth 10)",
+      "Bash(powershell:*)",
+      "WebFetch(domain:docs.business.untappd.com)",
+      "WebFetch(domain:raw.githubusercontent.com)"
     ]
   }
 }
