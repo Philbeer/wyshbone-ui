@@ -243,9 +243,15 @@ export function createUntappdRouter(storage: IStorage): Router {
 
     try {
       // Call Untappd API
+      // Note: The brewery/info endpoint doesn't officially support pagination, but we'll try anyway
       const url = new URL(`${UNTAPPD_API_BASE}/brewery/info/${breweryId}`);
       url.searchParams.set("client_id", UNTAPPD_CLIENT_ID);
       url.searchParams.set("client_secret", UNTAPPD_CLIENT_SECRET);
+      // Try to request more beers (max documented limit is 50 for other endpoints)
+      url.searchParams.set("limit", "50");
+      if (offset > 0) {
+        url.searchParams.set("offset", offset.toString());
+      }
 
       const response = await fetch(url.toString());
       const data = await response.json() as any;
