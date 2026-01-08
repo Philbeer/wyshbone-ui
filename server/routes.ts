@@ -7911,7 +7911,7 @@ ${run.outputText}`;
         return res.status(403).json({ error: "Forbidden: Cannot access other workspaces' data" });
       }
       
-      const products = await storage.listCrmProducts(workspaceId);
+      const products = await storage.listBrewProducts(workspaceId);
       
       res.json(products);
     } catch (error: any) {

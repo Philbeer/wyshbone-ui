@@ -51,7 +51,10 @@
       "Bash(timeout 10 bash -c 'while ! curl -s http://localhost:5001/health > /dev/null 2>&1; do echo \"\"Waiting for server...\"\"; sleep 1; done; echo \"\"Server ready!\"\"; curl -s http://localhost:5001/health')",
       "Bash(do clear)",
       "Bash(tasklist:*)",
-      "Bash(timeout:*)"
+      "Bash(timeout:*)",
+      "Bash(dir:*)",
+      "Bash(DATABASE_URL=\"postgresql://postgres.zipsbmldjxytzowmmohu:Moby2014Moby2014Lister@aws-1-eu-west-2.pooler.supabase.com:6543/postgres\" npx tsx -e:*)",
+      "Bash(DATABASE_URL=\"postgresql://postgres.zipsbmldjxytzowmmohu:Moby2014Moby2014Lister@aws-1-eu-west-2.pooler.supabase.com:6543/postgres\" npx tsx -e \"\nimport postgres from ''postgres'';\nconst client = postgres\\(process.env.DATABASE_URL\\);\ntry {\n  // Test if we can query crm_orders with xero_invoice_id\n  const result = await client\\\\`\n    SELECT id, xero_invoice_id, workspace_id \n    FROM crm_orders \n    WHERE xero_invoice_id = ''test-id'' \n    AND workspace_id = ''test-workspace''\n    LIMIT 1\n  \\\\`;\n  console.log\\(''✅ Query succeeded, returned'', result.length, ''rows''\\);\n} catch \\(error\\) {\n  console.log\\(''❌ Query failed:'', error.message\\);\n  console.log\\(''Full error:'', error\\);\n}\nawait client.end\\(\\);\n\")"
     ]
   }
 }

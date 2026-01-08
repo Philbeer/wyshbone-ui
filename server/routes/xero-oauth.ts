@@ -1175,12 +1175,23 @@ export function createXeroOAuthRouter(storage: IStorage) {
 
   // Background order import function
   async function importOrdersFromXero(
-    workspaceId: string, 
-    jobId: number, 
-    accessToken: string, 
+    workspaceId: string,
+    jobId: number,
+    accessToken: string,
     tenantId: string,
     yearsBack: number = 2
   ) {
+    // File logging for debugging
+    const fs = await import('fs');
+    const logFile = './order-import-debug.log';
+    const log = (msg: string) => {
+      const timestamp = new Date().toISOString();
+      fs.appendFileSync(logFile, `[${timestamp}] ${msg}\n`);
+      console.log(msg);
+    };
+
+    log(`========== ORDER IMPORT STARTED (Job ${jobId}) ==========`);
+
     await storage.updateXeroImportJob(jobId, workspaceId, {
       status: "running",
       startedAt: new Date(),
@@ -1192,12 +1203,11 @@ export function createXeroOAuthRouter(storage: IStorage) {
       fromDate.setFullYear(fromDate.getFullYear() - yearsBack);
       const fromDateStr = fromDate.toISOString().split('T')[0];
 
-      // Fetch invoices from Xero with date filter
-      // CRITICAL: Only fetch ACCREC (sales invoices/orders), NOT ACCPAY (purchase invoices/bills)
-      // Filter for AUTHORISED and PAID invoices only
-      const invoicesUrl = `https://api.xero.com/api.xro/2.0/Invoices?where=Type=="ACCREC" AND Date>DateTime(${fromDate.getFullYear()},${fromDate.getMonth()+1},${fromDate.getDate()})&Statuses=AUTHORISED,PAID`;
+      // Fetch ALL invoices from Xero (same simple approach as customer import)
+      // We'll filter for ACCREC (sales invoices) after fetching
+      const invoicesUrl = `https://api.xero.com/api.xro/2.0/Invoices`;
 
-      console.log(`📦 [ORDER IMPORT] Fetching sales invoices from ${fromDateStr}...`);
+      console.log(`📦 [ORDER IMPORT] Fetching all invoices from Xero...`);
       console.log(`📦 [ORDER IMPORT] URL: ${invoicesUrl}`);
       
       const invoicesResponse = await fetch(invoicesUrl, {
@@ -1213,9 +1223,21 @@ export function createXeroOAuthRouter(storage: IStorage) {
       }
 
       const invoicesData = await invoicesResponse.json();
-      const invoices = invoicesData.Invoices || [];
+      const allInvoices = invoicesData.Invoices || [];
 
-      console.log(`📦 [ORDER IMPORT] Found ${invoices.length} sales invoices from Xero`);
+      // Filter for ACCREC (sales invoices) only, not ACCPAY (bills)
+      const invoices = allInvoices.filter((inv: any) => inv.Type === "ACCREC");
+
+      console.log(`📦 [ORDER IMPORT] Found ${allInvoices.length} total invoices, ${invoices.length} sales invoices (ACCREC)`);
+
+      if (invoices.length === 0) {
+        console.warn(`⚠️ [ORDER IMPORT] No sales invoices (ACCREC) found!`);
+        console.warn(`   Total invoices: ${allInvoices.length}`);
+        if (allInvoices.length > 0) {
+          const types = allInvoices.map((inv: any) => inv.Type).filter((t: any, i: number, arr: any[]) => arr.indexOf(t) === i);
+          console.warn(`   Invoice types found: ${types.join(', ')}`);
+        }
+      }
 
       await storage.updateXeroImportJob(jobId, workspaceId, {
         totalRecords: invoices.length,
@@ -1223,9 +1245,18 @@ export function createXeroOAuthRouter(storage: IStorage) {
 
       let processedCount = 0;
       let failedCount = 0;
+      let loopCounter = 0;
+
+      console.log(`📦 [ORDER IMPORT] Starting to process ${invoices.length} invoices...`);
 
       for (const invoice of invoices) {
+        loopCounter++;
+        console.log(`\n========== INVOICE ${loopCounter}/${invoices.length} ==========`);
         try {
+          console.log(`🔄 [ORDER IMPORT] Processing invoice ${invoice.InvoiceNumber || invoice.InvoiceID}`);
+          console.log(`   Status: ${invoice.Status}, Date: ${invoice.Date}, Contact: ${invoice.Contact?.Name}`);
+          console.log(`   Line Items: ${invoice.LineItems?.length || 0}`);
+
           // Skip if already imported
           const existing = await storage.getOrderByXeroInvoiceId(invoice.InvoiceID, workspaceId);
           if (existing) {
@@ -1233,20 +1264,72 @@ export function createXeroOAuthRouter(storage: IStorage) {
             continue; // Skip already imported
           }
 
-          // Find customer by Xero Contact ID
-          const customer = await storage.getCustomerByXeroContactId(
+          // Find customer by Xero Contact ID, or create if not found
+          let customer = await storage.getCustomerByXeroContactId(
             invoice.Contact?.ContactID,
             workspaceId
           );
 
           if (!customer) {
-            console.warn(`⚠️ [ORDER IMPORT] Customer not found for invoice ${invoice.InvoiceNumber}`);
-            console.warn(`   Contact ID: ${invoice.Contact?.ContactID}`);
-            console.warn(`   Contact Name: ${invoice.Contact?.Name}`);
-            console.warn(`   Workspace ID: ${workspaceId}`);
-            console.warn(`   → Skipping this order. Make sure customers are imported first!`);
-            failedCount++;
-            continue;
+            console.log(`📝 [ORDER IMPORT] Customer not found for invoice ${invoice.InvoiceNumber}, creating now...`);
+            console.log(`   Contact ID: ${invoice.Contact?.ContactID}`);
+            console.log(`   Contact Name: ${invoice.Contact?.Name}`);
+
+            // Fetch full contact details from Xero to create customer
+            try {
+              const contactResponse = await fetch(
+                `https://api.xero.com/api.xro/2.0/Contacts/${invoice.Contact?.ContactID}`,
+                {
+                  headers: {
+                    Authorization: `Bearer ${accessToken}`,
+                    "xero-tenant-id": tenantId,
+                    Accept: "application/json",
+                  },
+                }
+              );
+
+              if (contactResponse.ok) {
+                const contactData = await contactResponse.json();
+                const contact = contactData.Contacts?.[0];
+
+                if (contact) {
+                  // Find address and phone
+                  const streetAddress = contact.Addresses?.find((a: any) => a.AddressType === 'STREET');
+                  const phone = contact.Phones?.find((p: any) => p.PhoneType === 'DEFAULT');
+
+                  // Create customer
+                  const customerId = `cust_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+                  customer = await storage.createCrmCustomer({
+                    id: customerId,
+                    workspaceId,
+                    name: contact.Name || 'Unknown Customer',
+                    email: contact.EmailAddress || null,
+                    phone: phone?.PhoneNumber || null,
+                    addressLine1: streetAddress?.AddressLine1 || null,
+                    addressLine2: streetAddress?.AddressLine2 || null,
+                    city: streetAddress?.City || null,
+                    postcode: streetAddress?.PostalCode || null,
+                    country: streetAddress?.Country || 'United Kingdom',
+                    xeroContactId: contact.ContactID,
+                    xeroSyncStatus: 'synced',
+                    lastXeroSyncAt: new Date(),
+                    createdAt: Date.now(),
+                    updatedAt: Date.now(),
+                  });
+
+                  console.log(`✅ [ORDER IMPORT] Created customer: ${customer.name} (${customerId})`);
+                }
+              }
+            } catch (error) {
+              console.error(`❌ [ORDER IMPORT] Failed to create customer for contact ${invoice.Contact?.ContactID}:`, error);
+            }
+
+            // If we still don't have a customer, skip this order
+            if (!customer) {
+              console.warn(`⚠️ [ORDER IMPORT] Could not create customer for invoice ${invoice.InvoiceNumber}, skipping`);
+              failedCount++;
+              continue;
+            }
           }
 
           // Map Xero status to our status
@@ -1259,13 +1342,35 @@ export function createXeroOAuthRouter(storage: IStorage) {
           };
 
           // Parse invoice date
-          const invoiceDate = invoice.Date 
-            ? new Date(parseInt(invoice.Date.replace('/Date(', '').replace(')/', ''))).getTime()
-            : Date.now();
+          console.log(`   Raw Date value: ${invoice.Date}, type: ${typeof invoice.Date}`);
+          console.log(`   Raw DueDate value: ${invoice.DueDate}, type: ${typeof invoice.DueDate}`);
 
-          const dueDate = invoice.DueDate
-            ? new Date(parseInt(invoice.DueDate.replace('/Date(', '').replace(')/', ''))).getTime()
-            : undefined;
+          let invoiceDate: number;
+          let dueDate: number | undefined;
+
+          try {
+            // Handle both /Date(...)/ format and ISO string format
+            if (invoice.Date) {
+              if (typeof invoice.Date === 'string' && invoice.Date.includes('/Date(')) {
+                invoiceDate = new Date(parseInt(invoice.Date.replace('/Date(', '').replace(')/', ''))).getTime();
+              } else {
+                invoiceDate = new Date(invoice.Date).getTime();
+              }
+            } else {
+              invoiceDate = Date.now();
+            }
+
+            if (invoice.DueDate) {
+              if (typeof invoice.DueDate === 'string' && invoice.DueDate.includes('/Date(')) {
+                dueDate = new Date(parseInt(invoice.DueDate.replace('/Date(', '').replace(')/', ''))).getTime();
+              } else {
+                dueDate = new Date(invoice.DueDate).getTime();
+              }
+            }
+          } catch (dateError) {
+            console.error(`   ❌ Date parsing error:`, dateError);
+            throw new Error(`Date parsing failed: ${dateError instanceof Error ? dateError.message : String(dateError)}`);
+          }
 
           // Generate order ID and order number
           const orderId = `ord_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
@@ -1299,31 +1404,20 @@ export function createXeroOAuthRouter(storage: IStorage) {
           for (const line of invoice.LineItems || []) {
             // Try to find matching product by Xero item code
             let product = null;
-            
+
             if (line.ItemCode) {
               product = await storage.getProductByXeroItemCode(line.ItemCode, workspaceId);
+
+              if (!product) {
+                console.log(`   ℹ️  No product found for item code ${line.ItemCode}, will create order line without product link`);
+              }
+            } else {
+              console.log(`   ℹ️  Line item has no ItemCode, will create order line without product link`);
             }
-            
-            // If no product found and we have an item code, create a generic one
-            if (!product && line.ItemCode) {
-              const productId = `prod_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
-              product = await storage.createBrewProduct({
-                id: productId,
-                workspaceId,
-                name: line.Description || line.ItemCode,
-                sku: line.ItemCode,
-                abv: 0,
-                defaultPackageType: "can",
-                defaultPackageSizeLitres: 330,
-                dutyBand: "beer_standard",
-                defaultUnitPriceExVat: line.UnitAmount ? Math.round(parseFloat(line.UnitAmount) * 100) : 0,
-                defaultVatRate: 2000,
-                xeroItemCode: line.ItemCode,
-                isActive: 1,
-                createdAt: Date.now(),
-                updatedAt: Date.now(),
-              });
-            }
+
+            // Note: We don't auto-create products from invoice imports
+            // Products should be imported separately via product import
+            // Order lines can be created without product links
 
             // Create order line
             const lineId = `line_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
@@ -1362,21 +1456,50 @@ export function createXeroOAuthRouter(storage: IStorage) {
           }
 
         } catch (error) {
-          console.error(`Failed to import invoice ${invoice.InvoiceID}:`, error);
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          const errorStack = error instanceof Error ? error.stack : 'No stack';
+
+          log(`❌ FAILED to import invoice ${invoice.InvoiceNumber} (${invoice.InvoiceID})`);
+          log(`   Error message: ${errorMessage}`);
+          log(`   Stack: ${errorStack}`);
+          log(`   Invoice data: ${JSON.stringify(invoice).substring(0, 500)}`);
+
+          console.error(`❌ [ORDER IMPORT] Failed to import invoice ${invoice.InvoiceNumber} (${invoice.InvoiceID})`);
+          console.error(`   Error message: ${errorMessage}`);
+          console.error(`   Stack: ${errorStack}`);
+          console.error(`   Invoice data:`, JSON.stringify(invoice).substring(0, 500));
+
+          // Store first error for debugging
+          if (failedCount === 0) {
+            await storage.updateXeroImportJob(jobId, workspaceId, {
+              errorMessage: `First error: ${errorMessage}. Stack: ${errorStack?.substring(0, 200)}`
+            });
+          }
+
           failedCount++;
         }
       }
 
+      // If all invoices failed and we found some, mark as failed with helpful message
+      const finalStatus = (processedCount === 0 && invoices.length > 0) ? "failed" : "completed";
+      const finalErrorMessage = (processedCount === 0 && invoices.length > 0)
+        ? `All ${failedCount} invoices failed to import. Check server logs for details.`
+        : undefined;
+
       await storage.updateXeroImportJob(jobId, workspaceId, {
-        status: "completed",
+        status: finalStatus,
         processedRecords: processedCount,
         failedRecords: failedCount,
+        ...(finalErrorMessage && { errorMessage: finalErrorMessage }),
         completedAt: new Date(),
       });
 
+      log(`✅ COMPLETED: ${processedCount} orders imported, ${failedCount} failed`);
+      log(`========== ORDER IMPORT FINISHED (Job ${jobId}) ==========\n`);
+
       console.log(`✅ [ORDER IMPORT] Completed: ${processedCount} orders imported, ${failedCount} failed`);
       if (failedCount > 0) {
-        console.warn(`⚠️ [ORDER IMPORT] ${failedCount} orders failed - likely due to missing customers. Import customers first!`);
+        console.warn(`⚠️ [ORDER IMPORT] ${failedCount} orders failed - check error messages above`);
       }
     } catch (error) {
       console.error("Order import failed:", error);
@@ -1388,6 +1511,66 @@ export function createXeroOAuthRouter(storage: IStorage) {
       throw error;
     }
   }
+
+  // ============================================
+  // DEBUG ENDPOINT - Get raw Xero invoices
+  // ============================================
+
+  router.get("/debug/invoices", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req, storage);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+
+      const tokenData = await getValidAccessToken(auth.userId);
+      if (!tokenData) {
+        return res.status(400).json({ error: "Xero not connected" });
+      }
+
+      // Fetch invoices using same query as import
+      const veryOldDate = new Date();
+      veryOldDate.setFullYear(veryOldDate.getFullYear() - 10);
+      const invoicesUrl = `https://api.xero.com/api.xro/2.0/Invoices?where=Type=="ACCREC" AND Date>DateTime(${veryOldDate.getFullYear()},${veryOldDate.getMonth()+1},${veryOldDate.getDate()})`;
+
+      const invoicesResponse = await fetch(invoicesUrl, {
+        headers: {
+          Authorization: `Bearer ${tokenData.accessToken}`,
+          "xero-tenant-id": tokenData.tenantId,
+          Accept: "application/json",
+        },
+      });
+
+      const data = await invoicesResponse.json();
+      res.json({
+        count: data.Invoices?.length || 0,
+        invoices: data.Invoices || [],
+        query: invoicesUrl
+      });
+    } catch (error: any) {
+      console.error("Debug endpoint error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================
+  // DEBUG ENDPOINT - Get import job errors
+  // ============================================
+
+  router.get("/debug/import-jobs", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req, storage);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+
+      const jobs = await storage.getRecentXeroImportJobs(auth.workspaceId, 5);
+      res.json({ jobs });
+    } catch (error: any) {
+      console.error("Debug import jobs endpoint error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
 
   // ============================================
   // COMBINED IMPORT (PRODUCTS + ORDERS)

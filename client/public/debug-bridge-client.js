@@ -1,7 +1,7 @@
 // Debug Bridge - Browser Capture Script
 // Automatically captures errors and sends to debug server
 (function() {
-  const DEBUG_SERVER = 'http://localhost:9999/browser-data';
+  const DEBUG_SERVER = 'http://localhost:9998/browser-data';
   const isDevelopment = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 
   // Only run in development
