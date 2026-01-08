@@ -54,6 +54,25 @@ interface UntappdBeer {
   };
 }
 
+interface UntappdBrewery {
+  brewery_id: number;
+  brewery_name: string;
+  brewery_slug: string;
+  brewery_label: string;
+  country_name: string;
+  contact?: {
+    twitter?: string;
+    facebook?: string;
+    url?: string;
+  };
+  location?: {
+    brewery_city?: string;
+    brewery_state?: string;
+  };
+  brewery_type?: string;
+  beer_count?: number;
+}
+
 interface UntappdSearchResponse {
   meta: {
     code: number;
@@ -65,6 +84,10 @@ interface UntappdSearchResponse {
     beers?: {
       count: number;
       items: Array<{ beer: UntappdBeer }>;
+    };
+    brewery?: {
+      count: number;
+      items: Array<{ brewery: UntappdBrewery }>;
     };
   };
 }
@@ -129,6 +152,142 @@ export function createUntappdRouter(storage: IStorage): Router {
       return res.status(500).json({
         error: "Internal server error",
         message: error.message || "Failed to search Untappd"
+      });
+    }
+  });
+
+  /**
+   * GET /api/untappd/search/brewery
+   * Search for breweries on Untappd
+   *
+   * Query params:
+   * - q: Search query (brewery name)
+   * - limit: Number of results to return (default: 25, max: 50)
+   */
+  router.get("/search/brewery", async (req: Request, res: Response) => {
+    const auth = await getAuthenticatedUserId(req, storage);
+    if (!auth) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    if (!UNTAPPD_CLIENT_ID || !UNTAPPD_CLIENT_SECRET) {
+      return res.status(501).json({
+        error: "Untappd not configured",
+        message: "UNTAPPD_CLIENT_ID and UNTAPPD_CLIENT_SECRET must be set"
+      });
+    }
+
+    const query = req.query.q as string;
+    const limit = Math.min(parseInt(req.query.limit as string) || 25, 50);
+
+    if (!query || query.trim().length === 0) {
+      return res.status(400).json({ error: "Query parameter 'q' is required" });
+    }
+
+    try {
+      // Call Untappd API
+      const url = new URL(`${UNTAPPD_API_BASE}/search/brewery`);
+      url.searchParams.set("client_id", UNTAPPD_CLIENT_ID);
+      url.searchParams.set("client_secret", UNTAPPD_CLIENT_SECRET);
+      url.searchParams.set("q", query);
+
+      const response = await fetch(url.toString());
+      const data = await response.json() as UntappdSearchResponse;
+
+      if (data.meta.code !== 200) {
+        console.error("Untappd API error:", data.meta.error_detail);
+        return res.status(data.meta.code === 500 ? 503 : data.meta.code).json({
+          error: data.meta.error_type || "Untappd API error",
+          message: data.meta.error_detail || "Failed to search breweries"
+        });
+      }
+
+      // Return the brewery results
+      return res.json({
+        count: data.response.brewery?.count || 0,
+        breweries: data.response.brewery?.items.map(item => item.brewery) || []
+      });
+    } catch (error: any) {
+      console.error("Untappd brewery search error:", error);
+      return res.status(500).json({
+        error: "Internal server error",
+        message: error.message || "Failed to search breweries on Untappd"
+      });
+    }
+  });
+
+  /**
+   * GET /api/untappd/brewery/:brewery_id/beers
+   * Get all beers from a specific brewery
+   *
+   * Query params:
+   * - limit: Number of results to return (default: 50, max: 50)
+   * - offset: Offset for pagination (default: 0)
+   */
+  router.get("/brewery/:brewery_id/beers", async (req: Request, res: Response) => {
+    const auth = await getAuthenticatedUserId(req, storage);
+    if (!auth) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    if (!UNTAPPD_CLIENT_ID || !UNTAPPD_CLIENT_SECRET) {
+      return res.status(501).json({
+        error: "Untappd not configured",
+        message: "UNTAPPD_CLIENT_ID and UNTAPPD_CLIENT_SECRET must be set"
+      });
+    }
+
+    const breweryId = req.params.brewery_id;
+    const limit = Math.min(parseInt(req.query.limit as string) || 50, 50);
+    const offset = parseInt(req.query.offset as string) || 0;
+
+    try {
+      // Call Untappd API
+      const url = new URL(`${UNTAPPD_API_BASE}/brewery/info/${breweryId}`);
+      url.searchParams.set("client_id", UNTAPPD_CLIENT_ID);
+      url.searchParams.set("client_secret", UNTAPPD_CLIENT_SECRET);
+
+      const response = await fetch(url.toString());
+      const data = await response.json() as any;
+
+      if (data.meta.code !== 200) {
+        console.error("Untappd API error:", data.meta.error_detail);
+        return res.status(data.meta.code === 500 ? 503 : data.meta.code).json({
+          error: data.meta.error_type || "Untappd API error",
+          message: data.meta.error_detail || "Failed to fetch brewery beers"
+        });
+      }
+
+      // Extract beers from the brewery info response
+      const brewery = data.response.brewery;
+      const rawBeers = brewery.beer_list?.items?.map((item: any) => item.beer) || [];
+
+      // Add brewery info to each beer since Untappd's brewery endpoint doesn't include it
+      const beers = rawBeers.map((beer: any) => ({
+        ...beer,
+        brewery: {
+          brewery_id: brewery.brewery_id,
+          brewery_name: brewery.brewery_name,
+          brewery_label: brewery.brewery_label,
+          brewery_slug: brewery.brewery_slug || '',
+        }
+      }));
+
+      return res.json({
+        brewery: {
+          brewery_id: brewery.brewery_id,
+          brewery_name: brewery.brewery_name,
+          brewery_label: brewery.brewery_label,
+          beer_count: brewery.beer_count,
+        },
+        count: beers.length,
+        beers: beers.slice(offset, offset + limit)
+      });
+    } catch (error: any) {
+      console.error("Untappd brewery beers error:", error);
+      return res.status(500).json({
+        error: "Internal server error",
+        message: error.message || "Failed to fetch brewery beers from Untappd"
       });
     }
   });

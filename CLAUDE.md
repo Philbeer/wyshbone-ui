@@ -164,6 +164,38 @@ Get-Process | Where-Object {$_.ProcessName -like "*node*"}
 taskkill /IM node.exe /F
 ```
 
+## Autonomous Operation Mode
 
+**Default behavior:** Proceed with tasks autonomously without requesting permission for each individual action.
+
+**When to work autonomously:**
+- Creating new files
+- Editing existing files
+- Installing packages
+- Running build commands
+- Testing features
+- Debugging issues
+
+**When to ask first:**
+- Deleting files
+- Major architectural changes
+- Modifying production database
+- Changing authentication logic
+- Actions that could break existing functionality
+
+**Communication style:** 
+Inform me of significant actions as you complete them, but don't wait for approval before proceeding with standard development tasks.
+```
+
+Save and tell CC: `I've updated CLAUDE.md with autonomous operation instructions. Please read it and proceed accordingly.`
+
+---
+
+## **My Recommendation: Combine Option 1 + 3**
+
+1. **Add the autonomous section to CLAUDE.md** (permanent solution)
+2. **For this specific task, also add to your prompt:**
+```
+You have permission to proceed autonomously with this feature. Create all necessary files, install packages, and build the complete feature without asking for permission at each step. Just inform me of major milestones as you complete them.
 ---
 

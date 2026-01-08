@@ -2,13 +2,15 @@
  * Untappd Import Modal
  *
  * Multi-step modal flow for importing beers from Untappd:
- * 1. Search for beers
- * 2. Review and configure each beer (package type, price, etc.)
- * 3. Import selected beers
+ * 1. Search for brewery by name
+ * 2. Select brewery from search results
+ * 3. View all beers from that brewery
+ * 4. Review and configure each beer (package type, price, etc.)
+ * 5. Import selected beers
  */
 
-import { useState } from 'react';
-import { Search, Beer, Loader2, Check, X, ChevronRight, ArrowLeft } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Search, Beer, Loader2, Check, ChevronRight, ArrowLeft, Building2 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -16,8 +18,8 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Progress } from '@/components/ui/progress';
-import { useSearchBeers, useImportBeer, type UntappdBeer } from './useUntappd';
+import { Checkbox } from '@/components/ui/checkbox';
+import { useSearchBreweries, useBreweryBeers, useImportBeer, type UntappdBeer, type UntappdBrewery } from './useUntappd';
 import { useDebounce } from '@/hooks/useDebounce';
 import { calculateDutyRate } from '@/utils/dutyCalculations';
 
@@ -26,13 +28,13 @@ interface UntappdImportModalProps {
   onOpenChange: (open: boolean) => void;
 }
 
-type Step = 'search' | 'review' | 'complete';
+type Step = 'brewery-search' | 'beer-list' | 'beer-review' | 'complete';
 
 interface BeerToImport extends UntappdBeer {
   packageType: 'cask' | 'keg' | 'can' | 'bottle';
   packageSizeLitres: number;
   unitPriceExVat: number;
-  skip: boolean;
+  selected: boolean;
 }
 
 // Default package sizes for each type (in litres)
@@ -44,50 +46,97 @@ const DEFAULT_PACKAGE_SIZES: Record<'cask' | 'keg' | 'can' | 'bottle', number> =
 };
 
 export function UntappdImportModal({ open, onOpenChange }: UntappdImportModalProps) {
-  const [step, setStep] = useState<Step>('search');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedBeers, setSelectedBeers] = useState<BeerToImport[]>([]);
+  const [step, setStep] = useState<Step>('brewery-search');
+  const [brewerySearchQuery, setBrewerySearchQuery] = useState('');
+  const [selectedBrewery, setSelectedBrewery] = useState<UntappdBrewery | null>(null);
+  const [beersToImport, setBeersToImport] = useState<BeerToImport[]>([]);
   const [currentBeerIndex, setCurrentBeerIndex] = useState(0);
   const [importedCount, setImportedCount] = useState(0);
   const [skippedCount, setSkippedCount] = useState(0);
 
-  const debouncedQuery = useDebounce(searchQuery, 500);
-  const { data: searchResults, isLoading: isSearching } = useSearchBeers(debouncedQuery, {
-    enabled: step === 'search' && debouncedQuery.length > 0,
+  const debouncedBreweryQuery = useDebounce(brewerySearchQuery, 500);
+  const { data: breweryResults, isLoading: isSearchingBreweries } = useSearchBreweries(debouncedBreweryQuery, {
+    enabled: step === 'brewery-search' && debouncedBreweryQuery.length > 0,
+  });
+  const { data: breweryBeers, isLoading: isLoadingBeers } = useBreweryBeers(selectedBrewery?.brewery_id || null, {
+    enabled: !!selectedBrewery,
   });
   const importBeer = useImportBeer();
 
   const handleReset = () => {
-    setStep('search');
-    setSearchQuery('');
-    setSelectedBeers([]);
+    setStep('brewery-search');
+    setBrewerySearchQuery('');
+    setSelectedBrewery(null);
+    setBeersToImport([]);
     setCurrentBeerIndex(0);
     setImportedCount(0);
     setSkippedCount(0);
   };
 
-  const handleSelectBeer = (beer: UntappdBeer) => {
-    const beerToImport: BeerToImport = {
-      ...beer,
-      packageType: 'keg',
-      packageSizeLitres: DEFAULT_PACKAGE_SIZES.keg,
-      unitPriceExVat: 0,
-      skip: false,
-    };
-    setSelectedBeers([beerToImport]);
-    setCurrentBeerIndex(0);
-    setStep('review');
+  const handleSelectBrewery = (brewery: UntappdBrewery) => {
+    setSelectedBrewery(brewery);
+    // Clear beers when selecting a new brewery to force fresh data
+    setBeersToImport([]);
   };
 
-  const handleUpdateBeer = (updates: Partial<BeerToImport>) => {
-    const updatedBeers = [...selectedBeers];
-    updatedBeers[currentBeerIndex] = { ...updatedBeers[currentBeerIndex], ...updates };
-    setSelectedBeers(updatedBeers);
+  // When brewery beers load, populate the beersToImport list
+  useEffect(() => {
+    if (breweryBeers && breweryBeers.beers.length > 0 && beersToImport.length === 0) {
+      const beers: BeerToImport[] = breweryBeers.beers.map((beer) => ({
+        ...beer,
+        packageType: 'keg',
+        packageSizeLitres: DEFAULT_PACKAGE_SIZES.keg,
+        unitPriceExVat: 0,
+        selected: true,
+      }));
+      setBeersToImport(beers);
+      setStep('beer-list');
+    }
+  }, [breweryBeers, beersToImport.length]);
+
+  const handleToggleBeerSelection = (index: number) => {
+    const updated = [...beersToImport];
+    updated[index].selected = !updated[index].selected;
+    setBeersToImport(updated);
+  };
+
+  const handleSelectAllBeers = () => {
+    const updated = beersToImport.map((beer) => ({ ...beer, selected: true }));
+    setBeersToImport(updated);
+  };
+
+  const handleDeselectAllBeers = () => {
+    const updated = beersToImport.map((beer) => ({ ...beer, selected: false }));
+    setBeersToImport(updated);
+  };
+
+  const handleProceedToReview = () => {
+    // Find first selected beer
+    const firstSelectedIndex = beersToImport.findIndex((beer) => beer.selected);
+    if (firstSelectedIndex === -1) {
+      // No beers selected
+      return;
+    }
+    setCurrentBeerIndex(firstSelectedIndex);
+    setStep('beer-review');
+  };
+
+  const handleUpdateCurrentBeer = (updates: Partial<BeerToImport>) => {
+    const updated = [...beersToImport];
+    updated[currentBeerIndex] = { ...updated[currentBeerIndex], ...updates };
+    setBeersToImport(updated);
+  };
+
+  const handlePackageTypeChange = (packageType: 'cask' | 'keg' | 'can' | 'bottle') => {
+    handleUpdateCurrentBeer({
+      packageType,
+      packageSizeLitres: DEFAULT_PACKAGE_SIZES[packageType],
+    });
   };
 
   const handleImportCurrent = async () => {
-    const beer = selectedBeers[currentBeerIndex];
-    if (!beer.skip) {
+    const beer = beersToImport[currentBeerIndex];
+    if (beer.selected) {
       try {
         await importBeer.mutateAsync({
           bid: beer.bid,
@@ -104,40 +153,43 @@ export function UntappdImportModal({ open, onOpenChange }: UntappdImportModalPro
       setSkippedCount((prev) => prev + 1);
     }
 
-    // Move to complete or next beer
-    setStep('complete');
+    // Move to next selected beer or complete
+    const nextSelectedIndex = beersToImport.findIndex((beer, idx) => idx > currentBeerIndex && beer.selected);
+    if (nextSelectedIndex === -1) {
+      // No more beers to import
+      setStep('complete');
+    } else {
+      setCurrentBeerIndex(nextSelectedIndex);
+    }
   };
 
   const handleSkipCurrent = () => {
-    handleUpdateBeer({ skip: true });
     setSkippedCount((prev) => prev + 1);
-    setStep('complete');
+    // Move to next selected beer or complete
+    const nextSelectedIndex = beersToImport.findIndex((beer, idx) => idx > currentBeerIndex && beer.selected);
+    if (nextSelectedIndex === -1) {
+      setStep('complete');
+    } else {
+      setCurrentBeerIndex(nextSelectedIndex);
+    }
   };
 
-  const handlePackageTypeChange = (packageType: 'cask' | 'keg' | 'can' | 'bottle') => {
-    handleUpdateBeer({
-      packageType,
-      packageSizeLitres: DEFAULT_PACKAGE_SIZES[packageType],
-    });
-  };
-
-  const currentBeer = selectedBeers[currentBeerIndex];
-  const totalBeers = selectedBeers.length;
-  const progress = totalBeers > 0 ? ((importedCount + skippedCount) / totalBeers) * 100 : 0;
+  const currentBeer = beersToImport[currentBeerIndex];
+  const selectedBeersCount = beersToImport.filter((beer) => beer.selected).length;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
-        {/* STEP 1: SEARCH */}
-        {step === 'search' && (
+      <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
+        {/* STEP 1: BREWERY SEARCH */}
+        {step === 'brewery-search' && (
           <>
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
-                <Beer className="h-5 w-5" />
-                Import Products from Untappd
+                <Building2 className="h-5 w-5" />
+                Search for Your Brewery
               </DialogTitle>
               <DialogDescription>
-                Search for beers on Untappd and import them as products
+                Find your brewery on Untappd to import all your beers
               </DialogDescription>
             </DialogHeader>
 
@@ -146,44 +198,53 @@ export function UntappdImportModal({ open, onOpenChange }: UntappdImportModalPro
                 <div className="flex-1 relative">
                   <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                   <Input
-                    placeholder="Search for beers (e.g., IPA, Lager, Brewery name...)"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search for brewery name (e.g., Limehouse Brewery)..."
+                    value={brewerySearchQuery}
+                    onChange={(e) => setBrewerySearchQuery(e.target.value)}
                     className="pl-9"
                     autoFocus
                   />
                 </div>
               </div>
 
-              {isSearching && (
+              {isSearchingBreweries && (
                 <div className="flex items-center justify-center py-8">
                   <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                  <span className="ml-2 text-sm text-muted-foreground">Searching Untappd...</span>
+                  <span className="ml-2 text-sm text-muted-foreground">Searching breweries...</span>
                 </div>
               )}
 
-              {searchResults && searchResults.count > 0 && !isSearching && (
+              {breweryResults && breweryResults.count > 0 && !isSearchingBreweries && (
                 <div className="space-y-2">
                   <p className="text-sm text-muted-foreground">
-                    Found {searchResults.count} result{searchResults.count !== 1 ? 's' : ''}
+                    Found {breweryResults.count} brewery{breweryResults.count !== 1 ? 's' : ''}
                   </p>
                   <div className="space-y-2 max-h-[400px] overflow-y-auto">
-                    {searchResults.beers.map((beer) => (
-                      <Card key={beer.bid} className="cursor-pointer hover:bg-accent transition-colors" onClick={() => handleSelectBeer(beer)}>
+                    {breweryResults.breweries.map((brewery) => (
+                      <Card
+                        key={brewery.brewery_id}
+                        className="cursor-pointer hover:bg-accent transition-colors"
+                        onClick={() => handleSelectBrewery(brewery)}
+                      >
                         <CardContent className="p-4 flex gap-4">
                           <img
-                            src={beer.beer_label}
-                            alt={beer.beer_name}
+                            src={brewery.brewery_label}
+                            alt={brewery.brewery_name}
                             className="w-16 h-16 rounded object-cover"
                             loading="lazy"
                           />
                           <div className="flex-1 min-w-0">
-                            <h4 className="font-semibold truncate">{beer.beer_name}</h4>
-                            <p className="text-sm text-muted-foreground truncate">{beer.brewery?.brewery_name || 'Unknown Brewery'}</p>
-                            <div className="flex gap-2 mt-1">
-                              <Badge variant="secondary">{beer.beer_style}</Badge>
-                              <Badge variant="outline">{beer.beer_abv}% ABV</Badge>
-                            </div>
+                            <h4 className="font-semibold truncate">{brewery.brewery_name}</h4>
+                            <p className="text-sm text-muted-foreground truncate">
+                              {brewery.location?.brewery_city && brewery.location.brewery_state
+                                ? `${brewery.location.brewery_city}, ${brewery.location.brewery_state}`
+                                : brewery.country_name}
+                            </p>
+                            {brewery.beer_count && (
+                              <Badge variant="secondary" className="mt-1">
+                                {brewery.beer_count} beers
+                              </Badge>
+                            )}
                           </div>
                           <ChevronRight className="h-5 w-5 text-muted-foreground self-center" />
                         </CardContent>
@@ -193,39 +254,102 @@ export function UntappdImportModal({ open, onOpenChange }: UntappdImportModalPro
                 </div>
               )}
 
-              {searchResults && searchResults.count === 0 && !isSearching && (
+              {breweryResults && breweryResults.count === 0 && !isSearchingBreweries && (
                 <div className="text-center py-8">
-                  <p className="text-sm text-muted-foreground">No beers found. Try a different search.</p>
+                  <p className="text-sm text-muted-foreground">No breweries found. Try a different search.</p>
                 </div>
               )}
 
-              {!searchQuery && (
+              {!brewerySearchQuery && (
                 <div className="text-center py-8">
-                  <p className="text-sm text-muted-foreground">Start typing to search for beers on Untappd</p>
+                  <p className="text-sm text-muted-foreground">Start typing to search for your brewery on Untappd</p>
                 </div>
               )}
             </div>
           </>
         )}
 
-        {/* STEP 2: REVIEW */}
-        {step === 'review' && currentBeer && (
+        {/* STEP 2: BEER LIST */}
+        {step === 'beer-list' && selectedBrewery && (
+          <>
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Beer className="h-5 w-5" />
+                Select Beers to Import
+              </DialogTitle>
+              <DialogDescription>
+                {selectedBrewery.brewery_name} - {beersToImport.length} beers found
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4 py-4">
+              <div className="flex justify-between items-center">
+                <p className="text-sm text-muted-foreground">
+                  {selectedBeersCount} of {beersToImport.length} selected
+                </p>
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm" onClick={handleSelectAllBeers}>
+                    Select All
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={handleDeselectAllBeers}>
+                    Deselect All
+                  </Button>
+                </div>
+              </div>
+
+              <div className="space-y-2 max-h-[400px] overflow-y-auto border rounded-md p-2">
+                {beersToImport.map((beer, index) => (
+                  <div
+                    key={beer.bid}
+                    className="flex items-start gap-3 p-3 rounded-md hover:bg-accent transition-colors"
+                  >
+                    <Checkbox
+                      checked={beer.selected}
+                      onCheckedChange={() => handleToggleBeerSelection(index)}
+                      className="mt-1"
+                    />
+                    <img src={beer.beer_label} alt={beer.beer_name} className="w-12 h-12 rounded object-cover" />
+                    <div className="flex-1 min-w-0">
+                      <h4 className="font-medium text-sm truncate">{beer.beer_name}</h4>
+                      <p className="text-xs text-muted-foreground truncate">{beer.beer_style}</p>
+                      <div className="flex gap-2 mt-1">
+                        <Badge variant="outline" className="text-xs">
+                          {beer.beer_abv}% ABV
+                        </Badge>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <DialogFooter className="flex-col sm:flex-row gap-2">
+              <Button variant="ghost" onClick={() => setStep('brewery-search')} className="sm:mr-auto">
+                <ArrowLeft className="h-4 w-4 mr-2" />
+                Back to Search
+              </Button>
+              <Button onClick={handleProceedToReview} disabled={selectedBeersCount === 0}>
+                Review {selectedBeersCount} Beer{selectedBeersCount !== 1 ? 's' : ''}
+                <ChevronRight className="h-4 w-4 ml-2" />
+              </Button>
+            </DialogFooter>
+          </>
+        )}
+
+        {/* STEP 3: BEER REVIEW */}
+        {step === 'beer-review' && currentBeer && (
           <>
             <DialogHeader>
               <DialogTitle>Review & Configure Beer</DialogTitle>
               <DialogDescription>
-                Add package details and pricing for this beer
+                Beer {beersToImport.filter((b, i) => i <= currentBeerIndex && b.selected).length} of {selectedBeersCount}
               </DialogDescription>
             </DialogHeader>
 
             <div className="space-y-6 py-4">
               {/* Beer details */}
               <div className="flex gap-4">
-                <img
-                  src={currentBeer.beer_label}
-                  alt={currentBeer.beer_name}
-                  className="w-24 h-24 rounded object-cover"
-                />
+                <img src={currentBeer.beer_label} alt={currentBeer.beer_name} className="w-24 h-24 rounded object-cover" />
                 <div className="flex-1">
                   <h3 className="font-bold text-lg">{currentBeer.beer_name}</h3>
                   <p className="text-sm text-muted-foreground">{currentBeer.brewery?.brewery_name || 'Unknown Brewery'}</p>
@@ -243,10 +367,7 @@ export function UntappdImportModal({ open, onOpenChange }: UntappdImportModalPro
               <div className="space-y-4 border rounded-lg p-4">
                 <div className="space-y-2">
                   <Label htmlFor="packageType">Package Type *</Label>
-                  <Select
-                    value={currentBeer.packageType}
-                    onValueChange={(value) => handlePackageTypeChange(value as any)}
-                  >
+                  <Select value={currentBeer.packageType} onValueChange={(value) => handlePackageTypeChange(value as any)}>
                     <SelectTrigger id="packageType">
                       <SelectValue />
                     </SelectTrigger>
@@ -267,7 +388,7 @@ export function UntappdImportModal({ open, onOpenChange }: UntappdImportModalPro
                     step="0.01"
                     min="0"
                     value={currentBeer.packageSizeLitres}
-                    onChange={(e) => handleUpdateBeer({ packageSizeLitres: parseFloat(e.target.value) || 0 })}
+                    onChange={(e) => handleUpdateCurrentBeer({ packageSizeLitres: parseFloat(e.target.value) || 0 })}
                   />
                 </div>
 
@@ -280,7 +401,7 @@ export function UntappdImportModal({ open, onOpenChange }: UntappdImportModalPro
                     min="0"
                     placeholder="0.00"
                     value={currentBeer.unitPriceExVat || ''}
-                    onChange={(e) => handleUpdateBeer({ unitPriceExVat: parseFloat(e.target.value) || 0 })}
+                    onChange={(e) => handleUpdateCurrentBeer({ unitPriceExVat: parseFloat(e.target.value) || 0 })}
                   />
                   <p className="text-xs text-muted-foreground">Leave blank to set later</p>
                 </div>
@@ -295,37 +416,28 @@ export function UntappdImportModal({ open, onOpenChange }: UntappdImportModalPro
             </div>
 
             <DialogFooter className="flex-col sm:flex-row gap-2">
-              <Button
-                variant="ghost"
-                onClick={() => setStep('search')}
-                className="sm:mr-auto"
-              >
+              <Button variant="ghost" onClick={() => setStep('beer-list')} className="sm:mr-auto">
                 <ArrowLeft className="h-4 w-4 mr-2" />
-                Back to Search
+                Back to List
               </Button>
               <Button variant="outline" onClick={handleSkipCurrent}>
                 Skip This Beer
               </Button>
-              <Button
-                onClick={handleImportCurrent}
-                disabled={importBeer.isPending || currentBeer.packageSizeLitres <= 0}
-              >
+              <Button onClick={handleImportCurrent} disabled={importBeer.isPending || currentBeer.packageSizeLitres <= 0}>
                 {importBeer.isPending ? (
                   <>
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                     Importing...
                   </>
                 ) : (
-                  <>
-                    Import Beer
-                  </>
+                  <>Import Beer</>
                 )}
               </Button>
             </DialogFooter>
           </>
         )}
 
-        {/* STEP 3: COMPLETE */}
+        {/* STEP 4: COMPLETE */}
         {step === 'complete' && (
           <>
             <DialogHeader>
@@ -338,7 +450,9 @@ export function UntappdImportModal({ open, onOpenChange }: UntappdImportModalPro
             <div className="space-y-4 py-6">
               <div className="text-center">
                 <p className="text-sm text-muted-foreground mb-4">
-                  The beer has been successfully imported to your products.
+                  {importedCount > 0
+                    ? `Successfully imported ${importedCount} beer${importedCount !== 1 ? 's' : ''} to your products.`
+                    : 'No beers were imported.'}
                 </p>
 
                 <div className="flex justify-center gap-8 mb-4">
@@ -356,11 +470,9 @@ export function UntappdImportModal({ open, onOpenChange }: UntappdImportModalPro
 
             <DialogFooter>
               <Button variant="outline" onClick={handleReset}>
-                Import Another Beer
+                Import More Beers
               </Button>
-              <Button onClick={() => onOpenChange(false)}>
-                Done
-              </Button>
+              <Button onClick={() => onOpenChange(false)}>Done</Button>
             </DialogFooter>
           </>
         )}

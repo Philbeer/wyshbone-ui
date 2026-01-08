@@ -63,7 +63,12 @@
       "Bash(Select-Object -First 1)",
       "Bash(pkill:*)",
       "Bash(cmd.exe /c \"taskkill /PID 35100 /F\")",
-      "Bash(powershell -Command \"Stop-Process -Id 35100 -Force; Stop-Process -Id 36064 -Force\")"
+      "Bash(powershell -Command \"Stop-Process -Id 35100 -Force; Stop-Process -Id 36064 -Force\")",
+      "Bash(Where-Object {$_ProcessName -like \"*node*\"})",
+      "Bash(Select-Object ProcessName,Id,CPU)",
+      "Bash(ConvertFrom-Json)",
+      "Bash(Select-Object -Last 5)",
+      "Bash(ConvertTo-Json -Depth 10)"
     ]
   }
 }

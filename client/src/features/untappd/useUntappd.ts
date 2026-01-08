@@ -31,7 +31,42 @@ export interface UntappdBeer {
   };
 }
 
+export interface UntappdBrewery {
+  brewery_id: number;
+  brewery_name: string;
+  brewery_slug: string;
+  brewery_label: string;
+  country_name: string;
+  contact?: {
+    twitter?: string;
+    facebook?: string;
+    url?: string;
+  };
+  location?: {
+    brewery_city?: string;
+    brewery_state?: string;
+  };
+  brewery_type?: string;
+  beer_count?: number;
+}
+
 export interface UntappdSearchResult {
+  count: number;
+  beers: UntappdBeer[];
+}
+
+export interface UntappdBrewerySearchResult {
+  count: number;
+  breweries: UntappdBrewery[];
+}
+
+export interface UntappdBreweryBeersResult {
+  brewery: {
+    brewery_id: number;
+    brewery_name: string;
+    brewery_label: string;
+    beer_count: number;
+  };
   count: number;
   beers: UntappdBeer[];
 }
@@ -74,6 +109,46 @@ export function useSearchBeers(query: string, options?: { enabled?: boolean }) {
     },
     enabled: options?.enabled !== false && query.trim().length > 0,
     staleTime: 5 * 60 * 1000, // 5 minutes
+  });
+}
+
+// ============================================
+// SEARCH BREWERIES
+// ============================================
+
+export function useSearchBreweries(query: string, options?: { enabled?: boolean }) {
+  return useQuery<UntappdBrewerySearchResult>({
+    queryKey: ['untappd-search-brewery', query],
+    queryFn: async () => {
+      if (!query || query.trim().length === 0) {
+        return { count: 0, breweries: [] };
+      }
+
+      const response = await apiRequest('GET', `/api/untappd/search/brewery?q=${encodeURIComponent(query)}`);
+      return response.json();
+    },
+    enabled: options?.enabled !== false && query.trim().length > 0,
+    staleTime: 5 * 60 * 1000, // 5 minutes
+  });
+}
+
+// ============================================
+// GET BREWERY BEERS
+// ============================================
+
+export function useBreweryBeers(breweryId: number | null, options?: { enabled?: boolean }) {
+  return useQuery<UntappdBreweryBeersResult>({
+    queryKey: ['untappd-brewery-beers', breweryId],
+    queryFn: async () => {
+      if (!breweryId) {
+        throw new Error('Brewery ID is required');
+      }
+
+      const response = await apiRequest('GET', `/api/untappd/brewery/${breweryId}/beers?limit=50`);
+      return response.json();
+    },
+    enabled: options?.enabled !== false && !!breweryId,
+    staleTime: 10 * 60 * 1000, // 10 minutes
   });
 }
 
