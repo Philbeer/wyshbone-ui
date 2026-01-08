@@ -13,7 +13,8 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertBrewSettingsSchema } from "@shared/schema";
 import { z } from "zod";
-import { Calculator } from "lucide-react";
+import { Calculator, Beer } from "lucide-react";
+import { UntappdImportModal } from "@/features/untappd/UntappdImportModal";
 
 const formSchema = insertBrewSettingsSchema.omit({ id: true, workspaceId: true, createdAt: true, updatedAt: true });
 
@@ -43,6 +44,7 @@ export default function BrewCrmSettings() {
   const [annualHl, setAnnualHl] = useState<string>("");
   const [calculatedRates, setCalculatedRates] = useState<CalculatedRate[]>([]);
   const [isCalculating, setIsCalculating] = useState(false);
+  const [untappdModalOpen, setUntappdModalOpen] = useState(false);
 
   const { data: settings, isLoading } = useQuery({
     queryKey: ['/api/brewcrm/settings', workspaceId],
@@ -334,6 +336,25 @@ export default function BrewCrmSettings() {
           </Card>
         )}
 
+        {/* Untappd Product Import */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Beer className="h-5 w-5" />
+              Import from Untappd
+            </CardTitle>
+            <CardDescription>
+              Search and import beers from Untappd with pre-filled data including ABV, style, and brewery information
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button onClick={() => setUntappdModalOpen(true)} data-testid="button-open-untappd-import">
+              <Beer className="h-4 w-4 mr-2" />
+              Import Products from Untappd
+            </Button>
+          </CardContent>
+        </Card>
+
         {/* Duty Rate Calculator */}
         <Card>
           <CardHeader>
@@ -411,6 +432,9 @@ export default function BrewCrmSettings() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Untappd Import Modal */}
+      <UntappdImportModal open={untappdModalOpen} onOpenChange={setUntappdModalOpen} />
     </div>
   );
 }

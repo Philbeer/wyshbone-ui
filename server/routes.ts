@@ -43,6 +43,7 @@ import * as cheerio from "cheerio";
 import { neon } from "@neondatabase/serverless";
 import { createXeroOAuthRouter } from "./routes/xero-oauth";
 import { createXeroSyncRouter } from "./routes/xero-sync";
+import { createUntappdRouter } from "./routes/untappd";
 import { createSleeperAgentRouter } from "./routes/sleeper-agent";
 import { createThingsRouter } from "./routes/things";
 import { createEntityReviewRouter } from "./routes/entity-review";
@@ -6749,7 +6750,10 @@ ${run.outputText}`;
   // Register Xero Sync routes (webhooks and two-way sync)
   const xeroSyncRouter = createXeroSyncRouter(storage);
   app.use("/api/xero", xeroSyncRouter);
-  
+
+  // Register Untappd routes (beer data import)
+  app.use("/api/untappd", createUntappdRouter(storage));
+
   // Register Sleeper Agent routes (AI-powered pub and event discovery)
   app.use("/api/sleeper-agent", createSleeperAgentRouter(storage));
   
