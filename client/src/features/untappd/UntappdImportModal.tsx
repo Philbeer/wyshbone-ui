@@ -213,30 +213,48 @@ export function UntappdImportModal({ open, onOpenChange }: UntappdImportModalPro
   };
 
   const handleImportCurrent = async () => {
+    console.log('🍺 [Untappd] handleImportCurrent called');
     const beer = beersToImport[currentBeerIndex];
+    console.log('🍺 [Untappd] Current beer:', beer.beer_name, 'selected:', beer.selected);
+
     if (beer.selected) {
       try {
+        console.log('🍺 [Untappd] Calling importBeer.mutateAsync with:', {
+          bid: beer.bid,
+          packageType: beer.packageType,
+          packageSizeLitres: beer.packageSizeLitres,
+          unitPriceExVat: beer.unitPriceExVat > 0 ? beer.unitPriceExVat : undefined,
+        });
+
         await importBeer.mutateAsync({
           bid: beer.bid,
           packageType: beer.packageType,
           packageSizeLitres: beer.packageSizeLitres,
           unitPriceExVat: beer.unitPriceExVat > 0 ? beer.unitPriceExVat : undefined,
         });
+
+        console.log('🍺 [Untappd] Import successful!');
         setImportedCount((prev) => prev + 1);
       } catch (error) {
+        console.error('🍺 [Untappd] Import failed:', error);
         // Error is handled by the hook
         setSkippedCount((prev) => prev + 1);
       }
     } else {
+      console.log('🍺 [Untappd] Beer not selected, skipping');
       setSkippedCount((prev) => prev + 1);
     }
 
     // Move to next selected beer or complete
     const nextSelectedIndex = beersToImport.findIndex((beer, idx) => idx > currentBeerIndex && beer.selected);
+    console.log('🍺 [Untappd] Next selected index:', nextSelectedIndex);
+
     if (nextSelectedIndex === -1) {
       // No more beers to import
+      console.log('🍺 [Untappd] No more beers, moving to complete step');
       setStep('complete');
     } else {
+      console.log('🍺 [Untappd] Moving to next beer at index:', nextSelectedIndex);
       setCurrentBeerIndex(nextSelectedIndex);
     }
   };
@@ -539,7 +557,14 @@ export function UntappdImportModal({ open, onOpenChange }: UntappdImportModalPro
               <Button variant="outline" onClick={handleSkipCurrent}>
                 Skip This Beer
               </Button>
-              <Button onClick={handleImportCurrent} disabled={importBeer.isPending || currentBeer.packageSizeLitres <= 0}>
+              <Button
+                onClick={() => {
+                  console.log('🍺 [Untappd] Import Beer button clicked!');
+                  console.log('🍺 [Untappd] isPending:', importBeer.isPending, 'packageSize:', currentBeer.packageSizeLitres);
+                  handleImportCurrent();
+                }}
+                disabled={importBeer.isPending || currentBeer.packageSizeLitres <= 0}
+              >
                 {importBeer.isPending ? (
                   <>
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />

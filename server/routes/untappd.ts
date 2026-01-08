@@ -375,6 +375,7 @@ export function createUntappdRouter(storage: IStorage): Router {
         workspaceId: auth.workspaceId,
         name: beer.beer_name,
         style: beer.beer_style,
+        imageUrl: beer.beer_label, // Save Untappd beer label image URL
         sku: sku,
         abv: abvBasisPoints,
         defaultPackageType: packageType,
@@ -526,6 +527,12 @@ export function createUntappdRouter(storage: IStorage): Router {
         // Extract beers from check-ins
         for (const checkin of checkins) {
           const beer = checkin.beer;
+
+          // Debug: Log ENTIRE first checkin to see all available fields
+          if (checkInPages === 0 && checkins.indexOf(checkin) === 0) {
+            console.log('🔍 FULL FIRST CHECKIN:', JSON.stringify(checkin, null, 2));
+          }
+
           const servingType = checkin.serving_type;
 
           if (beer && beer.bid) {

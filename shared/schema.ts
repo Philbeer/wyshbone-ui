@@ -1070,6 +1070,7 @@ export const brewProducts = pgTable("brew_products", {
   workspaceId: text("workspace_id").notNull(),
   name: text("name").notNull(),
   style: text("style"),
+  imageUrl: text("image_url"), // Beer label/logo image URL (e.g., from Untappd)
   sku: text("sku"),
   abv: integer("abv").notNull(), // Stored as basis points (e.g., 450 = 4.5%)
   defaultPackageType: text("default_package_type").notNull(), // 'cask', 'keg', 'can', 'bottle'
