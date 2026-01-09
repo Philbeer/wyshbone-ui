@@ -720,7 +720,7 @@ export const phase2Tasks: PhaseTask[] = [
     id: 'p2-t6',
     title: 'Activity Feed UI component',
     description: 'Display autonomous agent activities in UI',
-    status: 'queued',
+    status: 'completed',
     priority: 'medium',
     blockedBy: ['p2-t3'],
     repo: 'wyshbone-ui',
