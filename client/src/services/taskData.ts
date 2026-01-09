@@ -442,7 +442,7 @@ But system still functions:
     id: 'p1-t4',
     title: 'Unify tool execution',
     description: 'Single /api/tools/execute endpoint for both UI and Supervisor',
-    status: 'queued',
+    status: 'completed',
     priority: 'high',
     repo: 'wyshbone-ui',
     repoPath: 'C:\\Users\\Phil Waite\\Documents\\GitHub\\wyshbone-ui',
