@@ -1591,7 +1591,13 @@ export function createXeroOAuthRouter(storage: IStorage) {
 
       const yearsBack = parseInt(req.body.yearsBack) || 2;
 
-      // Create jobs for both
+      // Create jobs for all three types
+      const customerJob = await storage.createXeroImportJob({
+        workspaceId: auth.userId,
+        jobType: "customers",
+        status: "pending",
+      });
+
       const productJob = await storage.createXeroImportJob({
         workspaceId: auth.userId,
         jobType: "products",
@@ -1604,9 +1610,10 @@ export function createXeroOAuthRouter(storage: IStorage) {
         status: "pending",
       });
 
-      // Run sequentially: products first, then orders
+      // Run sequentially: customers first, then products, then orders
       (async () => {
         try {
+          await importCustomersFromXero(auth.userId, customerJob.id, tokenData.accessToken, tokenData.tenantId);
           await importProductsFromXero(auth.userId, productJob.id, tokenData.accessToken, tokenData.tenantId);
           await importOrdersFromXero(auth.userId, orderJob.id, tokenData.accessToken, tokenData.tenantId, yearsBack);
         } catch (error) {
@@ -1614,10 +1621,11 @@ export function createXeroOAuthRouter(storage: IStorage) {
         }
       })();
 
-      res.status(202).json({ 
+      res.status(202).json({
+        customerJobId: customerJob.id,
         productJobId: productJob.id,
         orderJobId: orderJob.id,
-        message: "Import started (products first, then orders)" 
+        message: "Import started (customers, products, then orders)"
       });
     } catch (error: any) {
       console.error("Failed to start combined import:", error);

@@ -156,7 +156,7 @@ export function useXeroImportJob(jobId: number | null) {
 
 export function useXeroImportJobs() {
   const { user } = useUser();
-  
+
   return useQuery<XeroImportJob[]>({
     queryKey: ['xero-import-jobs', user.id],
     queryFn: async () => {
@@ -164,6 +164,14 @@ export function useXeroImportJobs() {
       return response.json();
     },
     enabled: !!user?.id,
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      // Poll every 2 seconds if any jobs are pending or running
+      if (data?.some(job => job.status === 'running' || job.status === 'pending')) {
+        return 2000;
+      }
+      return false;
+    },
   });
 }
 
