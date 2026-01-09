@@ -687,7 +687,7 @@ export const phase2Tasks: PhaseTask[] = [
     id: 'p2-t5',
     title: 'Daily cron job',
     description: 'Scheduled execution at 9am daily',
-    status: 'queued',
+    status: 'completed',
     priority: 'high',
     blockedBy: ['p2-t2', 'p2-t3', 'p2-t4'],
     repo: 'wyshbone-supervisor',
