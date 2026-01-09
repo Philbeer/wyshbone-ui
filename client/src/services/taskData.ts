@@ -557,7 +557,7 @@ export const phase2Tasks: PhaseTask[] = [
     id: 'p2-t1',
     title: 'Database schema for agent activities',
     description: 'Create tables for agent runs, decisions, and outcomes',
-    status: 'queued',
+    status: 'completed',
     priority: 'high',
     blockedBy: ['p1-t4'],
     repo: 'wyshbone-ui',
