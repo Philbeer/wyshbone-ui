@@ -14,7 +14,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { getDevProgressData, DevProgressData } from '@/services/devProgressService';
 import { ArchitectureHealth } from '@/components/dev-dashboard/ArchitectureHealth';
 import { PhaseProgress } from '@/components/dev-dashboard/PhaseProgress';
-import { WorkQueue } from '@/components/dev-dashboard/WorkQueue';
 import { AutonomyGap } from '@/components/dev-dashboard/AutonomyGap';
 import { ComponentStatus } from '@/components/dev-dashboard/ComponentStatus';
 import { BlockersDashboard } from '@/components/dev-dashboard/BlockersDashboard';
@@ -50,6 +49,13 @@ export default function DevProgressPage() {
 
   useEffect(() => {
     loadData();
+
+    // Auto-refresh every 30 seconds
+    const pollInterval = setInterval(() => {
+      loadData(true);
+    }, 30000);
+
+    return () => clearInterval(pollInterval);
   }, []);
 
   const handleRefresh = () => {
@@ -283,28 +289,15 @@ ${data.developmentVelocity.todosByFile.map(f => `- ${f.file}: ${f.count} TODOs`)
         </div>
 
         {/* Main Content Tabs */}
-        <Tabs defaultValue="queue" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-7">
-            <TabsTrigger value="queue" className="font-semibold">🚀 Work Queue</TabsTrigger>
+        <Tabs defaultValue="phases" className="space-y-6">
+          <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
+            <TabsTrigger value="phases" className="font-semibold">🚀 Phases</TabsTrigger>
             <TabsTrigger value="overview">Overview</TabsTrigger>
-            <TabsTrigger value="phases">Phases</TabsTrigger>
             <TabsTrigger value="components">Components</TabsTrigger>
             <TabsTrigger value="blockers">Blockers</TabsTrigger>
             <TabsTrigger value="tools">Tools</TabsTrigger>
             <TabsTrigger value="velocity">Velocity</TabsTrigger>
           </TabsList>
-
-          {/* Work Queue Tab - Brain-Dead Simple Top-to-Bottom */}
-          <TabsContent value="queue">
-            <div className="mb-4">
-              <h2 className="text-2xl font-semibold mb-2">🚀 Work Queue - Just Work Top to Bottom</h2>
-              <p className="text-muted-foreground">
-                Brain-dead simple. The top task is always what to do next. Complete it, list reorders automatically.
-                No thinking required. Just execute! 🤖
-              </p>
-            </div>
-            <WorkQueue phases={data.phases} />
-          </TabsContent>
 
           {/* Overview Tab */}
           <TabsContent value="overview" className="space-y-6">

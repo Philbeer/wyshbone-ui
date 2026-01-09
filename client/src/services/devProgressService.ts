@@ -36,55 +36,26 @@ export interface ComponentStatus {
 }
 
 export interface PhaseTask {
+  // Core identification
   id: string;
   title: string;
-  description: string;
-  status: 'pending' | 'in-progress' | 'completed' | 'blocked';
-  priority: 'critical' | 'high' | 'medium' | 'low';
-  blockers?: string[];
+  status: 'queued' | 'in-progress' | 'testing' | 'fixing' | 'completed';
 
-  // Repo and branch info
+  // Execution context
   repo: 'wyshbone-ui' | 'wyshbone-supervisor' | 'wyshbone-tower' | 'WABS';
   repoPath: string;
   branchName: string;
-
-  // Task details
-  location?: string;
-  problem?: string;
-  requiredFix?: string;
-  acceptanceCriteria: string[];
   files: string[];
-  verification: string[];
-  additionalContext?: string;
 
-  // Generated prompt (will be computed)
+  // Dependencies
+  blockedBy?: string[]; // Task IDs that block this task
+
+  // Optional fields for backward compatibility with existing data
+  priority?: 'critical' | 'high' | 'medium' | 'low';
+  description?: string;
+  location?: string;
   prompt?: string;
-
-  // Smart task guidance fields
-  safetyLevel?: 'MUST_TEST_NOW' | 'QUICK_CHECK_RECOMMENDED' | 'CAN_TEST_LATER';
-  blockedBy?: string[]; // Task IDs that must be completed first
-  blocksOtherTasks?: string[]; // Task IDs that this task blocks
-  quickVerification?: string[]; // Quick 30s-2min verification steps
-  quickTestTime?: string; // e.g., "2 minutes"
-  fullTestingTime?: string; // e.g., "5 minutes"
-  riskIfSkipped?: string; // Description of risk if verification is skipped
-  canContinueWithout?: boolean; // Can user continue to next task without verifying this one?
-
-  // Detailed human verification fields
-  humanVerification?: {
-    whatToCheck: string[]; // Clear steps for human to verify
-    successLooksLike: string; // What "working" means
-    commonIssues: string[]; // What might go wrong
-    whereToCheck: string; // Where to look (browser console, UI, etc.)
-    timeNeeded: string; // How long verification takes
-  };
-
-  dependencyExplanations?: {
-    whyThisBlocksThat: Record<string, string>; // taskId -> reason
-    whyThatBlocksThis: Record<string, string>; // taskId -> reason
-  };
-
-  impactIfBroken?: string; // What happens if this doesn't work
+  [key: string]: any; // Allow other fields to exist without breaking
 }
 
 export interface Phase {
@@ -227,15 +198,36 @@ export async function analyzeDevProgress(): Promise<DevProgressData> {
   ];
 
   // Define phases based on plan documents
+  const phase1Tasks = getPhase1TasksWithPrompts();
+  const phase2Tasks = getPhase2TasksWithPrompts();
+  const phase3Tasks = getPhase3TasksWithPrompts();
+
+  // Calculate dynamic completion percentages
+  const calculateCompletion = (tasks: PhaseTask[]) => {
+    const completed = tasks.filter(t => t.status === 'completed').length;
+    return tasks.length > 0 ? Math.round((completed / tasks.length) * 100) : 0;
+  };
+
+  const phase1Completion = calculateCompletion(phase1Tasks);
+  const phase2Completion = calculateCompletion(phase2Tasks);
+  const phase3Completion = calculateCompletion(phase3Tasks);
+
+  // Determine phase status
+  const getPhaseStatus = (completion: number, tasks: PhaseTask[]): Phase['status'] => {
+    if (completion === 100) return 'completed';
+    if (completion > 0 || tasks.some(t => t.status === 'in-progress' || t.status === 'testing')) return 'in-progress';
+    return 'not-started';
+  };
+
   const phases: Phase[] = [
     {
       id: 'phase-1',
       name: 'Phase 1: Fix Foundation',
       description: 'Make user-led mode work perfectly',
       duration: 'Week 1',
-      status: 'in-progress',
-      completion: 60,
-      tasks: getPhase1TasksWithPrompts(),
+      status: getPhaseStatus(phase1Completion, phase1Tasks),
+      completion: phase1Completion,
+      tasks: phase1Tasks,
       successCriteria: [
         'Zero 401 errors',
         'All 5 tools work correctly',
@@ -249,9 +241,9 @@ export async function analyzeDevProgress(): Promise<DevProgressData> {
       name: 'Phase 2: Build Autonomous Agent',
       description: 'Simple autonomous agent that runs daily without user input',
       duration: 'Weeks 2-3',
-      status: 'not-started',
-      completion: 0,
-      tasks: getPhase2TasksWithPrompts(),
+      status: getPhaseStatus(phase2Completion, phase2Tasks),
+      completion: phase2Completion,
+      tasks: phase2Tasks,
       successCriteria: [
         'Agent runs daily at 9am',
         'Generates 3-5 tasks per user',
@@ -265,9 +257,9 @@ export async function analyzeDevProgress(): Promise<DevProgressData> {
       name: 'Phase 3: Add Intelligence',
       description: 'Sophisticated autonomous behaviors with learning and adaptation',
       duration: 'Week 4+',
-      status: 'not-started',
-      completion: 0,
-      tasks: getPhase3TasksWithPrompts(),
+      status: getPhaseStatus(phase3Completion, phase3Tasks),
+      completion: phase3Completion,
+      tasks: phase3Tasks,
       successCriteria: [
         'Agent learns from outcomes',
         'Strategies improve over time',
@@ -508,11 +500,24 @@ export async function analyzeDevProgress(): Promise<DevProgressData> {
     ],
   };
 
+  // Calculate weighted overall completion
+  // Phase 1: 40%, Phase 2: 35%, Phase 3: 25%
+  const overallCompletion = Math.round(
+    (phase1Completion * 0.4) + (phase2Completion * 0.35) + (phase3Completion * 0.25)
+  );
+
+  // Determine current phase based on progress
+  const currentPhase = phase1Completion < 100
+    ? 'Phase 1: Fix Foundation'
+    : phase2Completion < 100
+    ? 'Phase 2: Build Autonomous Agent'
+    : 'Phase 3: Add Intelligence';
+
   return {
     timestamp,
     overview: {
-      currentPhase: 'Phase 1: Fix Foundation',
-      overallCompletion: 60,
+      currentPhase,
+      overallCompletion,
       criticalBlockersCount: blockers.filter((b) => b.severity === 'critical').length,
       todoCount: 102, // From grep results
     },
