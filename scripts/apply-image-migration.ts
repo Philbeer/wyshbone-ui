@@ -51,7 +51,7 @@ async function applyMigration() {
     const result = await client.query(`
       SELECT column_name, data_type
       FROM information_schema.columns
-      WHERE table_name = 'brew_products' AND column_name = 'image_url'
+      WHERE table_name = 'crm_products' AND column_name = 'image_url'
     `);
 
     if (result.rows.length > 0) {

@@ -34,7 +34,7 @@ const REQUIRED_CRM_TABLES = [
 ];
 
 const REQUIRED_BREWERY_TABLES = [
-  'brew_products',
+  // Note: brew_products was renamed to crm_products (universal products table)
   'brew_batches',
   'brew_inventory_items',
   'brew_containers',
@@ -60,14 +60,18 @@ const REQUIRED_COLUMNS: Record<string, string[]> = {
     'line_vat_amount',
     'line_total_inc_vat',
   ],
-  'brew_products': [
-    'default_unit_price_ex_vat',
-    'default_vat_rate',
-  ],
+  // Note: brew_products renamed to crm_products (universal products table for all verticals)
   'crm_products': [
     'default_unit_price_ex_vat',
     'default_vat_rate',
     'track_stock',
+    'description',
+    'category',
+    'unit_type',
+    // Brewery-specific fields (nullable)
+    'abv',
+    'duty_band',
+    'style',
   ],
 };
 

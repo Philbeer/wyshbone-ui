@@ -589,7 +589,7 @@ export function createXeroSyncRouter(storage: IStorage) {
     const existing = await storage.getProductByXeroItemId(itemId, workspaceId);
 
     if (existing) {
-      await storage.updateBrewProduct(existing.id, workspaceId, {
+      await storage.updateCrmProduct(existing.id, workspaceId, {
         name: item.name || existing.name,
         sku: item.code || existing.sku,
         description: item.description || existing.description,
@@ -602,7 +602,7 @@ export function createXeroSyncRouter(storage: IStorage) {
       const now = Date.now();
       const productId = `prod_${now}_${Math.random().toString(36).slice(2, 8)}`;
 
-      await storage.createBrewProduct({
+      await storage.createCrmProduct({
         id: productId,
         workspaceId,
         name: item.name || 'Unknown Product',

@@ -5,7 +5,7 @@
  */
 
 import { useState } from 'react';
-import { Plus, BookOpen, DollarSign, Users } from 'lucide-react';
+import { Plus, BookOpen, PoundSterling, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -82,7 +82,7 @@ export default function PriceBooks() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Active Price Books</CardTitle>
-              <DollarSign className="h-4 w-4 text-muted-foreground" />
+              <PoundSterling className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">
@@ -126,7 +126,7 @@ export default function PriceBooks() {
         <Card className="border-dashed">
           <CardHeader className="text-center">
             <div className="mx-auto rounded-full bg-muted p-4 w-fit mb-4">
-              <DollarSign className="h-8 w-8 text-muted-foreground" />
+              <PoundSterling className="h-8 w-8 text-muted-foreground" />
             </div>
             <CardTitle>No price books yet</CardTitle>
             <CardDescription className="max-w-md mx-auto">

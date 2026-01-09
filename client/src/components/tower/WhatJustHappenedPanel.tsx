@@ -9,7 +9,7 @@ import { useState } from 'react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, RefreshCw, Clock, AlertCircle, Database, Bot, User, Zap, Calendar, DollarSign, Package, Building2, Activity } from 'lucide-react';
+import { Loader2, RefreshCw, Clock, AlertCircle, Database, Bot, User, Zap, Calendar, PoundSterling, Package, Building2, Activity } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { formatDistanceToNow } from 'date-fns';
 import { isDemoMode } from '@/hooks/useDemoMode';
@@ -42,7 +42,7 @@ function getCategoryIcon(category: string, activityType?: string) {
   switch (activityType) {
     case 'xero_sync':
     case 'xero_export':
-      return <DollarSign className="h-4 w-4 text-blue-500" />;
+      return <PoundSterling className="h-4 w-4 text-blue-500" />;
     case 'event_found':
       return <Calendar className="h-4 w-4 text-purple-500" />;
     case 'entity_match':

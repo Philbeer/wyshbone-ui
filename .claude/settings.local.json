@@ -71,7 +71,8 @@
       "Bash(ConvertTo-Json -Depth 10)",
       "Bash(powershell:*)",
       "WebFetch(domain:docs.business.untappd.com)",
-      "WebFetch(domain:raw.githubusercontent.com)"
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(~/.claude/hooks/session-start-continuity.sh)"
     ]
   }
 }

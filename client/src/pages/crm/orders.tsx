@@ -404,7 +404,10 @@ export default function CrmOrders() {
   };
 
   const onSubmit = (formValues: OrderFormValues) => {
+    console.log('[DEBUG] Form submission values:', JSON.stringify(formValues, null, 2));
+    console.log('[DEBUG] Status field in submission:', formValues.status);
     if (editingOrder) {
+      console.log('[DEBUG] Updating order:', editingOrder.id);
       updateMutation.mutate({ id: editingOrder.id, ...formValues });
     } else {
       createMutation.mutate(formValues);
@@ -854,7 +857,13 @@ export default function CrmOrders() {
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel>Status *</FormLabel>
-                          <Select onValueChange={field.onChange} value={field.value || "draft"}>
+                          <Select
+                            onValueChange={(value) => {
+                              console.log('[DEBUG] Status changed to:', value);
+                              field.onChange(value);
+                            }}
+                            value={field.value || "draft"}
+                          >
                             <FormControl>
                               <SelectTrigger data-testid="select-status">
                                 <SelectValue />
@@ -921,8 +930,6 @@ export default function CrmOrders() {
                             </FormControl>
                             <SelectContent>
                               <SelectItem value="GBP">GBP (£)</SelectItem>
-                              <SelectItem value="USD">USD ($)</SelectItem>
-                              <SelectItem value="EUR">EUR (€)</SelectItem>
                             </SelectContent>
                           </Select>
                           <FormMessage />

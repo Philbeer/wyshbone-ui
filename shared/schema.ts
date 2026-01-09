@@ -1063,40 +1063,50 @@ export const selectSupplierProductSchema = createSelectSchema(supplierProducts);
 export type InsertSupplierProduct = typeof supplierProducts.$inferInsert;
 export type SelectSupplierProduct = typeof supplierProducts.$inferSelect;
 
-// ============= BREWERY VERTICAL TABLES =============
-// Brewery Products (beers)
-export const brewProducts = pgTable("brew_products", {
+// ============= UNIVERSAL CRM PRODUCTS TABLE =============
+// Universal products table for ALL verticals (brewery, physio, trades, etc.)
+// Brewery-specific fields (abv, dutyBand, style, etc.) are nullable and only populated for brewery products
+export const crmProducts = pgTable("crm_products", {
   id: text("id").primaryKey(),
   workspaceId: text("workspace_id").notNull(),
   name: text("name").notNull(),
-  style: text("style"),
-  imageUrl: text("image_url"), // Beer label/logo image URL (e.g., from Untappd)
   sku: text("sku"),
-  abv: integer("abv").notNull(), // Stored as basis points (e.g., 450 = 4.5%)
-  defaultPackageType: text("default_package_type").notNull(), // 'cask', 'keg', 'can', 'bottle'
-  defaultPackageSizeLitres: integer("default_package_size_litres").notNull(), // In millilitres (e.g., 40900 = 40.9L)
-  dutyBand: text("duty_band").notNull(), // 'beer_standard', 'beer_small_producer', etc.
-  defaultUnitPriceExVat: integer("default_unit_price_ex_vat").default(0), // In pence/cents - used for order line defaults
+  description: text("description"), // Generic product description (all verticals)
+  category: text("category"), // Generic category (e.g., 'Services', 'Goods', 'Digital')
+  unitType: text("unit_type").default("each"), // 'each', 'hour', 'kg', 'litre', 'pack' (all verticals)
+  // Brewery-specific fields (nullable - only populated for brewery products)
+  style: text("style"), // e.g., "IPA", "Stout"
+  imageUrl: text("image_url"), // Product image URL (e.g., beer label from Untappd)
+  abv: integer("abv"), // Stored as basis points (e.g., 450 = 4.5%)
+  defaultPackageType: text("default_package_type"), // 'cask', 'keg', 'can', 'bottle'
+  defaultPackageSizeLitres: integer("default_package_size_litres"), // In millilitres (e.g., 40900 = 40.9L)
+  dutyBand: text("duty_band"), // 'beer_standard', 'beer_small_producer', etc.
+  // Pricing & status (all verticals)
+  defaultUnitPriceExVat: integer("default_unit_price_ex_vat").default(0), // In pence/cents
   defaultVatRate: integer("default_vat_rate").default(2000), // Stored as basis points (e.g., 2000 = 20%, 500 = 5%)
   isActive: integer("is_active").notNull().default(1), // 1 = true, 0 = false
-  // Xero sync fields
+  trackStock: integer("track_stock").default(0), // 1 = track inventory, 0 = don't track (for non-brewery verticals)
+  isSample: boolean("is_sample").default(false), // Flag for onboarding sample data
+  // Xero sync fields (all verticals)
   xeroItemId: text("xero_item_id"), // Xero ItemID for sync tracking
   xeroItemCode: text("xero_item_code"), // Xero Item Code (maps to SKU)
   lastXeroSyncAt: timestamp("last_xero_sync_at"), // Last sync timestamp
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
   updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
 }, (table) => ({
-  workspaceIdIdx: index("brew_products_workspace_id_idx").on(table.workspaceId),
-  skuIdx: index("brew_products_sku_idx").on(table.sku),
-  isActiveIdx: index("brew_products_is_active_idx").on(table.isActive),
-  xeroItemIdIdx: index("brew_products_xero_item_id_idx").on(table.xeroItemId),
-  xeroItemCodeIdx: index("brew_products_xero_item_code_idx").on(table.xeroItemCode),
+  workspaceIdIdx: index("crm_products_workspace_id_idx").on(table.workspaceId),
+  skuIdx: index("crm_products_sku_idx").on(table.sku),
+  isActiveIdx: index("crm_products_is_active_idx").on(table.isActive),
+  categoryIdx: index("crm_products_category_idx").on(table.category),
+  isSampleIdx: index("crm_products_is_sample_idx").on(table.isSample),
+  xeroItemIdIdx: index("crm_products_xero_item_id_idx").on(table.xeroItemId),
+  xeroItemCodeIdx: index("crm_products_xero_item_code_idx").on(table.xeroItemCode),
 }));
 
-export const insertBrewProductSchema = createInsertSchema(brewProducts);
-export const selectBrewProductSchema = createSelectSchema(brewProducts);
-export type InsertBrewProduct = typeof brewProducts.$inferInsert;
-export type SelectBrewProduct = typeof brewProducts.$inferSelect;
+export const insertCrmProductSchema = createInsertSchema(crmProducts);
+export const selectCrmProductSchema = createSelectSchema(crmProducts);
+export type InsertCrmProduct = typeof crmProducts.$inferInsert;
+export type SelectCrmProduct = typeof crmProducts.$inferSelect;
 
 // Brewery Batches
 export const brewBatches = pgTable("brew_batches", {
@@ -1232,35 +1242,9 @@ export const selectBrewSettingsSchema = createSelectSchema(brewSettings);
 export type InsertBrewSettings = typeof brewSettings.$inferInsert;
 export type SelectBrewSettings = typeof brewSettings.$inferSelect;
 
-// ============= GENERIC CRM PRODUCTS TABLE =============
-// Generic products for non-brewery verticals
-export const crmProducts = pgTable("crm_products", {
-  id: text("id").primaryKey(),
-  workspaceId: text("workspace_id").notNull(),
-  name: text("name").notNull(),
-  sku: text("sku"),
-  description: text("description"),
-  category: text("category"), // e.g., 'Services', 'Goods', 'Digital'
-  unitType: text("unit_type").notNull().default("each"), // 'each', 'hour', 'kg', 'litre', 'pack'
-  defaultUnitPriceExVat: integer("default_unit_price_ex_vat").default(0), // In pence/cents
-  defaultVatRate: integer("default_vat_rate").default(2000), // Stored as basis points (e.g., 2000 = 20%)
-  isActive: integer("is_active").notNull().default(1), // 1 = true, 0 = false
-  trackStock: integer("track_stock").notNull().default(0), // 1 = track inventory, 0 = don't track
-  isSample: boolean("is_sample").default(false), // Flag for onboarding sample data
-  createdAt: bigint("created_at", { mode: "number" }).notNull(),
-  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
-}, (table) => ({
-  workspaceIdIdx: index("crm_products_workspace_id_idx").on(table.workspaceId),
-  skuIdx: index("crm_products_sku_idx").on(table.sku),
-  isActiveIdx: index("crm_products_is_active_idx").on(table.isActive),
-  categoryIdx: index("crm_products_category_idx").on(table.category),
-  isSampleIdx: index("crm_products_is_sample_idx").on(table.isSample),
-}));
-
-export const insertCrmProductSchema = createInsertSchema(crmProducts);
-export const selectCrmProductSchema = createSelectSchema(crmProducts);
-export type InsertCrmProduct = typeof crmProducts.$inferInsert;
-export type SelectCrmProduct = typeof crmProducts.$inferSelect;
+// NOTE: Universal CRM Products table is now defined at line ~1069 (renamed from brewProducts)
+// It includes brewery-specific fields (abv, dutyBand, etc.) as nullable columns
+// This old generic-only definition has been removed to avoid duplication
 
 // ============= GENERIC CRM STOCK/INVENTORY TABLE =============
 // Generic stock tracking for non-brewery verticals
@@ -1349,7 +1333,7 @@ export type SelectBrewPriceBook = typeof brewPriceBooks.$inferSelect;
 export const brewProductPrices = pgTable("brew_product_prices", {
   id: serial("id").primaryKey(),
   workspaceId: text("workspace_id").notNull(),
-  productId: text("product_id").notNull(), // References brew_products.id
+  productId: text("product_id").notNull(), // References crm_products.id
   priceBookId: integer("price_book_id").notNull(), // References brew_price_books.id
   price: integer("price").notNull(), // Price in pence/cents
   createdAt: bigint("created_at", { mode: "number" }).notNull(),

@@ -1060,10 +1060,10 @@ export function createXeroOAuthRouter(storage: IStorage) {
 
           if (existing) {
             // Update existing product
-            await storage.updateBrewProduct(existing.id, {
+            await storage.updateCrmProduct(existing.id, {
               name: item.Name || existing.name,
               sku: item.Code || existing.sku,
-              // Note: Description can't be stored directly in brewProducts schema
+              // Note: Description can't be stored directly in crmProducts schema
               // but xeroItemCode is updated
               xeroItemCode: item.Code || existing.xeroItemCode,
               defaultUnitPriceExVat: unitPrice || existing.defaultUnitPriceExVat,
@@ -1073,7 +1073,7 @@ export function createXeroOAuthRouter(storage: IStorage) {
           } else {
             // Create new product
             const productId = `prod_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
-            await storage.createBrewProduct({
+            await storage.createCrmProduct({
               id: productId,
               workspaceId,
               name: item.Name || "Unknown Product",

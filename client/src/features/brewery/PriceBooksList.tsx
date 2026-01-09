@@ -5,7 +5,7 @@
  */
 
 import { useState } from 'react';
-import { Edit, Trash2, DollarSign, Star, MoreVertical, Copy } from 'lucide-react';
+import { Edit, Trash2, PoundSterling, Star, MoreVertical, Copy } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -106,7 +106,7 @@ export function PriceBooksList({ priceBooks, onEdit }: PriceBooksListProps) {
                       </DropdownMenuItem>
                       <DropdownMenuItem asChild>
                         <Link href={`/brew/price-books/${book.id}`}>
-                          <DollarSign className="mr-2 h-4 w-4" />
+                          <PoundSterling className="mr-2 h-4 w-4" />
                           Manage Prices
                         </Link>
                       </DropdownMenuItem>
@@ -142,7 +142,7 @@ export function PriceBooksList({ priceBooks, onEdit }: PriceBooksListProps) {
                     asChild
                   >
                     <Link href={`/brew/price-books/${book.id}`}>
-                      <DollarSign className="w-4 h-4 mr-2" />
+                      <PoundSterling className="w-4 h-4 mr-2" />
                       Manage Product Prices
                     </Link>
                   </Button>

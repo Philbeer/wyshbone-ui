@@ -1,6 +1,6 @@
 /**
  * Migration script for Xero sync - Parts 2 & 3
- * - Adds Xero sync columns to brew_products, crm_orders, crm_order_lines
+ * - Adds Xero sync columns to crm_products, crm_orders, crm_order_lines
  * - Creates xero_webhook_events and xero_sync_queue tables for Part 3
  */
 import postgres from 'postgres';
@@ -32,15 +32,15 @@ async function runMigration() {
     // ============================================
     console.log('\n📦 PART 2: Basic Xero columns');
     
-    // Add columns to brew_products
-    console.log('  Adding columns to brew_products...');
+    // Add columns to crm_products
+    console.log('  Adding columns to crm_products...');
     await sql`
-      ALTER TABLE brew_products
+      ALTER TABLE crm_products
       ADD COLUMN IF NOT EXISTS xero_item_id TEXT,
       ADD COLUMN IF NOT EXISTS xero_item_code TEXT,
       ADD COLUMN IF NOT EXISTS last_xero_sync_at TIMESTAMP
     `;
-    console.log('  ✅ brew_products columns added');
+    console.log('  ✅ crm_products columns added');
     
     // Add columns to crm_orders
     console.log('  Adding columns to crm_orders...');
@@ -62,10 +62,10 @@ async function runMigration() {
     // Create indexes for Part 2
     console.log('  Creating indexes...');
     await sql`
-      CREATE INDEX IF NOT EXISTS idx_brew_products_xero_item_id ON brew_products(xero_item_id)
+      CREATE INDEX IF NOT EXISTS idx_crm_products_xero_item_id ON crm_products(xero_item_id)
     `;
     await sql`
-      CREATE INDEX IF NOT EXISTS idx_brew_products_xero_item_code ON brew_products(xero_item_code)
+      CREATE INDEX IF NOT EXISTS idx_crm_products_xero_item_code ON crm_products(xero_item_code)
     `;
     await sql`
       CREATE INDEX IF NOT EXISTS idx_crm_orders_xero_invoice_id_uniq ON crm_orders(xero_invoice_id) WHERE xero_invoice_id IS NOT NULL
@@ -134,7 +134,7 @@ async function runMigration() {
       ADD COLUMN IF NOT EXISTS last_sync_error TEXT
     `;
     await sql`
-      ALTER TABLE brew_products
+      ALTER TABLE crm_products
       ADD COLUMN IF NOT EXISTS sync_status VARCHAR(20) DEFAULT 'synced',
       ADD COLUMN IF NOT EXISTS last_sync_error TEXT
     `;

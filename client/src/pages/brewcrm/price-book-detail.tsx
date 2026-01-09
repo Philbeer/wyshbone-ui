@@ -7,7 +7,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useParams, Link } from 'wouter';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowLeft, Save, Copy, Search, DollarSign, Package } from 'lucide-react';
+import { ArrowLeft, Save, Copy, Search, PoundSterling, Package } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -41,7 +41,7 @@ import { formatPrice, isPriceBookDefault, isPriceBookActive } from '@/features/b
 import { useUser } from '@/contexts/UserContext';
 import { apiRequest } from '@/lib/queryClient';
 
-interface BrewProduct {
+interface CrmProduct {
   id: string;
   name: string;
   sku: string | null;
@@ -63,7 +63,7 @@ export default function PriceBookDetail() {
   const copyPrices = useCopyPriceBookPrices();
   
   // Fetch products
-  const { data: products, isLoading: loadingProducts } = useQuery<BrewProduct[]>({
+  const { data: products, isLoading: loadingProducts } = useQuery<CrmProduct[]>({
     queryKey: ['/api/brewcrm/products', workspaceId],
     queryFn: async () => {
       const response = await apiRequest('GET', `/api/brewcrm/products/${workspaceId}`);
@@ -234,7 +234,7 @@ export default function PriceBookDetail() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Products with Prices</CardTitle>
-            <DollarSign className="h-4 w-4 text-muted-foreground" />
+            <PoundSterling className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">

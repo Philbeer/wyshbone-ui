@@ -199,3 +199,61 @@ Save and tell CC: `I've updated CLAUDE.md with autonomous operation instructions
 You have permission to proceed autonomously with this feature. Create all necessary files, install packages, and build the complete feature without asking for permission at each step. Just inform me of major milestones as you complete them.
 ---
 
+
+ERROR LOGGING PROTOCOL:
+When any operation fails:
+1. Auto-append to claude-errors.jsonl: {timestamp, task, error, files, category}
+2. Auto-categorize based on error type: auth-error | ui-disconnect | multi-repo-sync | entity-resolution | xero-integration
+3. Before new tasks, check claude-errors.jsonl for similar patterns
+
+Format: One line JSON per error for easy searching
+
+
+
+## Safety Hooks - Always Require Approval
+
+Before executing these operations, STOP and ask for explicit approval:
+
+**Database Operations:**
+- Running migrations (up or down)
+- Modifying table schemas
+- Bulk delete operations
+
+**Financial/Integration Code:**
+- Changes to Xero integration logic
+- Modifications to duty calculation formulas
+- Webhook handling for payment systems
+
+**Authentication/Security:**
+- Token generation/validation logic
+- Permission checking code
+- Session management
+
+**Deployment:**
+- Commits to main branch
+- Production environment config changes
+
+For everything else, proceed autonomously and inform me of significant actions.
+
+## Subagent Orchestration
+
+Use subagents liberally for parallel work and separation of concerns.
+
+**Proven Fast Pattern (Browser + Debug Bridge):**
+When debugging UI issues:
+- Subagent 1: Use Chrome to test UI flows (click, navigate, trigger features)
+- Subagent 2: Monitor debug bridge continuously: `curl http://localhost:9998/browser-data/errors`
+- Main: Spot patterns from error stream and implement fixes
+
+This parallel approach is significantly faster than test → check logs → fix → repeat.
+
+**Always spawn subagents for:**
+- Testing while main thread writes code
+- Working across multiple repos simultaneously  
+- API integration testing (Untappd, Xero) while main thread handles integration code
+- Monitoring debug bridge/logs while fixing issues
+
+**Multi-repo strategy:**
+When task spans wyshbone-ui/supervisor/tower/agents:
+- One subagent per affected repo
+- Main thread coordinates and integrates changes

@@ -37,7 +37,7 @@ import {
   AlertTriangle,
   Info,
   Zap,
-  DollarSign,
+  PoundSterling,
   Calendar,
   Globe,
   Brain,
@@ -495,7 +495,7 @@ function CostCalculatorCard({
     <Card>
       <CardHeader className="pb-3">
         <CardTitle className="flex items-center gap-2">
-          <DollarSign className="w-5 h-5" />
+          <PoundSterling className="w-5 h-5" />
           Cost Calculator
         </CardTitle>
       </CardHeader>
@@ -655,7 +655,7 @@ function RecommendationsCard({ onApply }: RecommendationsCardProps) {
     {
       key: 'budget' as const,
       title: '💷 Budget Mode',
-      icon: DollarSign,
+      icon: PoundSterling,
       color: 'text-blue-500',
       bg: 'bg-blue-50 dark:bg-blue-950/30',
       border: 'border-blue-200 dark:border-blue-800',

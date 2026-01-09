@@ -73,7 +73,7 @@ export default function CrmProducts() {
   const createMutation = useMutation({
     mutationFn: (data: any) => apiRequest('POST', '/api/crm/products', data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/crm/products'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/crm/products', workspaceId] });
       toast({ title: "Product created successfully" });
       setIsDialogOpen(false);
       form.reset();
@@ -86,7 +86,7 @@ export default function CrmProducts() {
   const updateMutation = useMutation({
     mutationFn: ({ id, ...data }: any) => apiRequest('PATCH', `/api/crm/products/${id}`, data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/crm/products'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/crm/products', workspaceId] });
       toast({ title: "Product updated successfully" });
       setIsDialogOpen(false);
       setEditingProduct(null);
@@ -100,7 +100,7 @@ export default function CrmProducts() {
   const deleteMutation = useMutation({
     mutationFn: (id: string) => apiRequest('DELETE', `/api/crm/products/${id}`),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/crm/products'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/crm/products', workspaceId] });
       toast({ title: "Product deleted successfully" });
       setDeletingProductId(null);
     },
@@ -120,6 +120,7 @@ export default function CrmProducts() {
   }
 
   const handleEdit = (product: any) => {
+    console.log('[Products] handleEdit called with product:', product);
     setEditingProduct(product);
     form.reset({
       name: product.name || "",
@@ -132,10 +133,12 @@ export default function CrmProducts() {
       isActive: product.isActive ?? 1,
       trackStock: product.trackStock ?? 0,
     });
+    console.log('[Products] Opening dialog, isDialogOpen will be set to true');
     setIsDialogOpen(true);
   };
 
   const handleAddNew = () => {
+    console.log('[Products] handleAddNew called');
     setEditingProduct(null);
     form.reset({
       name: "",
@@ -148,18 +151,23 @@ export default function CrmProducts() {
       isActive: 1,
       trackStock: 0,
     });
+    console.log('[Products] Opening dialog for new product');
     setIsDialogOpen(true);
   };
 
   const onSubmit = (formValues: FormValues) => {
+    console.log('[Products] onSubmit called with formValues:', formValues);
     const payload = {
       ...formValues,
       defaultUnitPriceExVat: Math.round((formValues.defaultUnitPriceExVat || 0) * 100),
     };
-    
+    console.log('[Products] Prepared payload:', payload);
+
     if (editingProduct) {
+      console.log('[Products] Calling updateMutation with id:', editingProduct.id);
       updateMutation.mutate({ id: editingProduct.id, ...payload });
     } else {
+      console.log('[Products] Calling createMutation');
       createMutation.mutate(payload);
     }
   };
@@ -254,7 +262,10 @@ export default function CrmProducts() {
         </div>
       )}
 
-      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+      <Dialog open={isDialogOpen} onOpenChange={(open) => {
+        console.log('[Products] Dialog onOpenChange called with open:', open);
+        setIsDialogOpen(open);
+      }}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle data-testid="text-dialog-title">

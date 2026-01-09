@@ -370,7 +370,7 @@ export function createUntappdRouter(storage: IStorage): Router {
       const productId = generateId();
       const now = Date.now();
 
-      await storage.createBrewProduct({
+      await storage.createCrmProduct({
         id: productId,
         workspaceId: auth.workspaceId,
         name: beer.beer_name,

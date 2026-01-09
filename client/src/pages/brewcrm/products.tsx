@@ -14,13 +14,13 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { insertBrewProductSchema } from "@shared/schema";
+import { insertCrmProductSchema } from "@shared/schema";
 import { z } from "zod";
 import { Plus, Pencil, Trash2, Package } from "lucide-react";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 
-const formSchema = insertBrewProductSchema.omit({ id: true, workspaceId: true, createdAt: true, updatedAt: true });
+const formSchema = insertCrmProductSchema.omit({ id: true, workspaceId: true, createdAt: true, updatedAt: true });
 
 export default function BrewCrmProducts() {
   const { user } = useUser();

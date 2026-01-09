@@ -31,7 +31,7 @@ import {
   insertCrmProductSchema,
   insertCrmStockSchema,
   insertCrmCallDiarySchema,
-  insertBrewProductSchema,
+  insertCrmProductSchema,
   insertBrewBatchSchema,
   insertBrewInventoryItemSchema,
   insertBrewContainerSchema,
@@ -7906,17 +7906,17 @@ ${run.outputText}`;
       if (!auth) {
         return res.status(401).json({ error: "Unauthorized" });
       }
-      
+
       const { workspaceId } = req.params;
-      
+
       // SECURITY: Verify workspace belongs to authenticated user
       if (workspaceId !== auth.userId) {
         console.warn(`🚫 User ${auth.userEmail} attempted to access products for workspace ${workspaceId}`);
         return res.status(403).json({ error: "Forbidden: Cannot access other workspaces' data" });
       }
-      
-      const products = await storage.listBrewProducts(workspaceId);
-      
+
+      const products = await storage.listCrmProducts(workspaceId);
+
       res.json(products);
     } catch (error: any) {
       // Demo mode fallback: return empty array if database is unavailable
@@ -8105,9 +8105,11 @@ ${run.outputText}`;
       if (!auth) {
         return res.status(401).json({ error: "Unauthorized" });
       }
-      
+
       const { id } = req.params;
-      
+      console.log('[Routes] PATCH /api/crm/products/:id called with id:', id);
+      console.log('[Routes] Request body:', JSON.stringify(req.body, null, 2));
+
       // VALIDATION: Validate partial update using Zod schema
       const validationResult = insertCrmProductSchema.partial().omit({ 
         id: true, 
@@ -8136,12 +8138,14 @@ ${run.outputText}`;
       }
       
       const data = validationResult.data;
-      
+      console.log('[Routes] Validated data:', JSON.stringify(data, null, 2));
+
       const product = await storage.updateCrmProduct(id, {
         ...data,
         updatedAt: Date.now(),
       });
-      
+
+      console.log('[Routes] Product after update:', JSON.stringify(product, null, 2));
       res.json(product);
     } catch (error: any) {
       // Demo mode fallback: return mock updated product
@@ -8177,9 +8181,10 @@ ${run.outputText}`;
       if (!auth) {
         return res.status(401).json({ error: "Unauthorized" });
       }
-      
+
       const { id } = req.params;
-      
+      console.log('[Routes] DELETE /api/crm/products/:id called with id:', id);
+
       // SECURITY: Verify product exists and belongs to authenticated user's workspace
       const existing = await storage.getCrmProduct(id);
       if (!existing) {
@@ -8189,9 +8194,10 @@ ${run.outputText}`;
         console.warn(`🚫 User ${auth.userEmail} attempted to delete product ${id} owned by workspace ${existing.workspaceId}`);
         return res.status(403).json({ error: "Forbidden: Cannot delete other workspaces' data" });
       }
-      
+
       const success = await storage.deleteCrmProduct(id);
-      
+      console.log('[Routes] Delete success:', success);
+
       res.json({ success });
     } catch (error: any) {
       // Demo mode fallback: return success
@@ -8969,15 +8975,18 @@ ${run.outputText}`;
       }
       
       // VALIDATION: Validate partial update using Zod schema (omit immutable fields)
+      console.log('[DEBUG] Order PATCH request body:', JSON.stringify(req.body, null, 2));
       const validationResult = insertCrmOrderSchema.partial().omit({ id: true, workspaceId: true, createdAt: true }).safeParse(req.body);
       if (!validationResult.success) {
-        return res.status(400).json({ 
-          error: "Validation failed", 
-          details: validationResult.error.errors 
+        return res.status(400).json({
+          error: "Validation failed",
+          details: validationResult.error.errors
         });
       }
-      
+
       const data = validationResult.data;
+      console.log('[DEBUG] Validated order data:', JSON.stringify(data, null, 2));
+      console.log('[DEBUG] Status field in data:', data.status);
       
       // SECURITY: If customerId is being updated, verify it belongs to authenticated user's workspace
       if (data.customerId) {
@@ -8995,12 +9004,16 @@ ${run.outputText}`;
         }
       }
       
-      const order = await storage.updateCrmOrder(id, {
+      const updatePayload = {
         ...data,
         syncStatus: 'pending',
         updatedAt: Date.now(),
-      });
-      
+      };
+      console.log('[DEBUG] Sending to updateCrmOrder:', JSON.stringify(updatePayload, null, 2));
+      const order = await storage.updateCrmOrder(id, updatePayload);
+      console.log('[DEBUG] Updated order returned:', JSON.stringify(order, null, 2));
+      console.log('[DEBUG] Status field in returned order:', order?.status);
+
       // Auto-sync update to Xero if connected (async, don't block response)
       // NOTE: Use auth.userId (UUID string) for Xero connection lookup, not existing.workspaceId
       if ((xeroSyncRouter as any).updateOrderInXero) {
@@ -9187,7 +9200,7 @@ ${run.outputText}`;
         if (crmProduct && crmProduct.workspaceId === auth.userId) {
           productValid = true;
         } else {
-          const brewProduct = await storage.getBrewProduct(data.productId);
+          const brewProduct = await storage.getCrmProduct(data.productId);
           if (brewProduct && brewProduct.workspaceId === auth.userId) {
             productValid = true;
           }
@@ -9281,7 +9294,7 @@ ${run.outputText}`;
         if (crmProduct && crmProduct.workspaceId === auth.userId) {
           productValid = true;
         } else {
-          const brewProduct = await storage.getBrewProduct(data.productId);
+          const brewProduct = await storage.getCrmProduct(data.productId);
           if (brewProduct && brewProduct.workspaceId === auth.userId) {
             productValid = true;
           }
@@ -9496,7 +9509,7 @@ ${run.outputText}`;
         return res.status(403).json({ error: "Forbidden: Cannot access other workspaces' data" });
       }
       
-      const products = await storage.listBrewProducts(workspaceId);
+      const products = await storage.listCrmProducts(workspaceId);
       
       res.json(products);
     } catch (error: any) {
@@ -9514,7 +9527,7 @@ ${run.outputText}`;
       }
       
       const { id } = req.params;
-      const product = await storage.getBrewProduct(id);
+      const product = await storage.getCrmProduct(id);
       
       if (!product) {
         return res.status(404).json({ error: "Product not found" });
@@ -9542,7 +9555,7 @@ ${run.outputText}`;
       }
       
       // VALIDATION: Validate request body using Zod schema
-      const validationResult = insertBrewProductSchema.omit({ id: true, createdAt: true, updatedAt: true }).safeParse(req.body);
+      const validationResult = insertCrmProductSchema.omit({ id: true, createdAt: true, updatedAt: true }).safeParse(req.body);
       if (!validationResult.success) {
         return res.status(400).json({ 
           error: "Validation failed", 
@@ -9556,7 +9569,7 @@ ${run.outputText}`;
       const workspaceId = auth.userId;
       
       const now = Date.now();
-      const product = await storage.createBrewProduct({
+      const product = await storage.createCrmProduct({
         id: `product_${Date.now()}_${Math.random().toString(36).substring(7)}`,
         workspaceId,
         sku: data.sku,
@@ -9591,7 +9604,7 @@ ${run.outputText}`;
       const { id } = req.params;
       
       // SECURITY: Verify product exists and belongs to authenticated user's workspace
-      const existing = await storage.getBrewProduct(id);
+      const existing = await storage.getCrmProduct(id);
       if (!existing) {
         return res.status(404).json({ error: "Product not found" });
       }
@@ -9601,7 +9614,7 @@ ${run.outputText}`;
       }
       
       // VALIDATION: Validate partial update using Zod schema (omit immutable fields)
-      const validationResult = insertBrewProductSchema.partial().omit({ id: true, workspaceId: true, createdAt: true }).safeParse(req.body);
+      const validationResult = insertCrmProductSchema.partial().omit({ id: true, workspaceId: true, createdAt: true }).safeParse(req.body);
       if (!validationResult.success) {
         return res.status(400).json({ 
           error: "Validation failed", 
@@ -9609,7 +9622,7 @@ ${run.outputText}`;
         });
       }
       
-      const product = await storage.updateBrewProduct(id, {
+      const product = await storage.updateCrmProduct(id, {
         ...validationResult.data,
         updatedAt: Date.now(),
       });
@@ -9632,7 +9645,7 @@ ${run.outputText}`;
       const { id } = req.params;
       
       // SECURITY: Verify product exists and belongs to authenticated user's workspace
-      const existing = await storage.getBrewProduct(id);
+      const existing = await storage.getCrmProduct(id);
       if (!existing) {
         return res.status(404).json({ error: "Product not found" });
       }
@@ -9641,7 +9654,7 @@ ${run.outputText}`;
         return res.status(403).json({ error: "Forbidden: Cannot delete other workspaces' data" });
       }
       
-      const success = await storage.deleteBrewProduct(id);
+      const success = await storage.deleteCrmProduct(id);
       
       res.json({ success });
     } catch (error: any) {
@@ -9726,7 +9739,7 @@ ${run.outputText}`;
       const workspaceId = auth.userId;
       
       // SECURITY: Verify productId belongs to authenticated user's workspace
-      const product = await storage.getBrewProduct(data.productId);
+      const product = await storage.getCrmProduct(data.productId);
       if (!product || product.workspaceId !== auth.userId) {
         return res.status(403).json({ error: "Forbidden: Product does not belong to your workspace" });
       }
@@ -9788,7 +9801,7 @@ ${run.outputText}`;
       
       // SECURITY: If productId is being updated, verify it belongs to authenticated user's workspace
       if (data.productId) {
-        const product = await storage.getBrewProduct(data.productId);
+        const product = await storage.getCrmProduct(data.productId);
         if (!product || product.workspaceId !== auth.userId) {
           return res.status(403).json({ error: "Forbidden: Product does not belong to your workspace" });
         }
@@ -9871,7 +9884,7 @@ ${run.outputText}`;
       const { productId } = req.params;
       
       // SECURITY: Verify productId belongs to authenticated user's workspace
-      const product = await storage.getBrewProduct(productId);
+      const product = await storage.getCrmProduct(productId);
       if (!product) {
         return res.status(404).json({ error: "Product not found" });
       }
@@ -9916,7 +9929,7 @@ ${run.outputText}`;
       const workspaceId = auth.userId;
       
       // SECURITY: Verify productId belongs to authenticated user's workspace
-      const product = await storage.getBrewProduct(data.productId);
+      const product = await storage.getCrmProduct(data.productId);
       if (!product || product.workspaceId !== auth.userId) {
         return res.status(403).json({ error: "Forbidden: Product does not belong to your workspace" });
       }
@@ -9973,7 +9986,7 @@ ${run.outputText}`;
       
       // SECURITY: If productId is being updated, verify it belongs to authenticated user's workspace
       if (data.productId) {
-        const product = await storage.getBrewProduct(data.productId);
+        const product = await storage.getCrmProduct(data.productId);
         if (!product || product.workspaceId !== auth.userId) {
           return res.status(403).json({ error: "Forbidden: Product does not belong to your workspace" });
         }
@@ -11797,7 +11810,7 @@ ${run.outputText}`;
       const workspaceId = auth.userId;
       
       const now = Date.now();
-      const product = await storage.createBrewProduct({
+      const product = await storage.createCrmProduct({
         id: `product_${Date.now()}_${Math.random().toString(36).substring(7)}`,
         workspaceId,
         sku: sku || `SKU-${Date.now()}`,
@@ -11844,7 +11857,7 @@ ${run.outputText}`;
       
       let finalProductId = productId;
       if (!finalProductId && productName) {
-        const products = await storage.listBrewProducts(workspaceId);
+        const products = await storage.listCrmProducts(workspaceId);
         const matchedProduct = products.find(p => p.name.toLowerCase().includes(productName.toLowerCase()));
         if (matchedProduct) {
           finalProductId = matchedProduct.id;
@@ -11856,7 +11869,7 @@ ${run.outputText}`;
       }
       
       // SECURITY: Verify productId belongs to authenticated user's workspace
-      const product = await storage.getBrewProduct(finalProductId);
+      const product = await storage.getCrmProduct(finalProductId);
       if (!product || product.workspaceId !== auth.userId) {
         return res.status(403).json({ error: "Forbidden: Product does not belong to your workspace" });
       }
@@ -11908,7 +11921,7 @@ ${run.outputText}`;
       
       let finalProductId = productId;
       if (!finalProductId && productName) {
-        const products = await storage.listBrewProducts(workspaceId);
+        const products = await storage.listCrmProducts(workspaceId);
         const matchedProduct = products.find(p => p.name.toLowerCase().includes(productName.toLowerCase()));
         if (matchedProduct) {
           finalProductId = matchedProduct.id;
@@ -11920,7 +11933,7 @@ ${run.outputText}`;
       }
       
       // SECURITY: Verify productId belongs to authenticated user's workspace
-      const product = await storage.getBrewProduct(finalProductId);
+      const product = await storage.getCrmProduct(finalProductId);
       if (!product || product.workspaceId !== auth.userId) {
         return res.status(403).json({ error: "Forbidden: Product does not belong to your workspace" });
       }
@@ -11988,7 +12001,7 @@ ${run.outputText}`;
       }
       
       if (!type || type === 'products') {
-        const allProducts = await storage.listBrewProducts(workspaceId);
+        const allProducts = await storage.listCrmProducts(workspaceId);
         results.products = allProducts.filter(p => 
           p.name.toLowerCase().includes(query.toLowerCase()) ||
           (p.sku && p.sku.toLowerCase().includes(query.toLowerCase()))

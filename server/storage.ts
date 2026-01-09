@@ -34,8 +34,8 @@ import type {
   SelectCrmProduct,
   InsertCrmStock,
   SelectCrmStock,
-  InsertBrewProduct,
-  SelectBrewProduct,
+  InsertCrmProduct,
+  SelectCrmProduct,
   InsertBrewBatch,
   SelectBrewBatch,
   InsertBrewInventoryItem,
@@ -51,8 +51,8 @@ import type {
   SelectCrmCallDiary,
   InsertBrewPriceBook,
   SelectBrewPriceBook,
-  InsertBrewProductPrice,
-  SelectBrewProductPrice,
+  InsertCrmProductPrice,
+  SelectCrmProductPrice,
   InsertBrewPriceBand,
   SelectBrewPriceBand,
   InsertBrewTradeStoreSettings,
@@ -118,7 +118,7 @@ import {
   crmOrderLines,
   crmProducts,
   crmStock,
-  brewProducts,
+  crmProducts,
   brewBatches,
   brewInventoryItems,
   brewContainers,
@@ -390,16 +390,16 @@ export interface IStorage {
   getCallsForEntity(entityType: string, entityId: string, workspaceId: string): Promise<SelectCrmCallDiary[]>;
   
   // ============= BREWERY PRODUCTS CRUD METHODS =============
-  createBrewProduct(product: InsertBrewProduct): Promise<SelectBrewProduct>;
-  getBrewProduct(id: string): Promise<SelectBrewProduct | null>;
-  listBrewProducts(workspaceId: string): Promise<SelectBrewProduct[]>;
-  listActiveBrewProducts(workspaceId: string): Promise<SelectBrewProduct[]>;
-  updateBrewProduct(id: string, updates: Partial<InsertBrewProduct>): Promise<SelectBrewProduct | null>;
-  deleteBrewProduct(id: string): Promise<boolean>;
+  createCrmProduct(product: InsertCrmProduct): Promise<SelectCrmProduct>;
+  getCrmProduct(id: string): Promise<SelectCrmProduct | null>;
+  listCrmProducts(workspaceId: string): Promise<SelectCrmProduct[]>;
+  listActiveCrmProducts(workspaceId: string): Promise<SelectCrmProduct[]>;
+  updateCrmProduct(id: string, updates: Partial<InsertCrmProduct>): Promise<SelectCrmProduct | null>;
+  deleteCrmProduct(id: string): Promise<boolean>;
   // Xero product lookups
-  getProductByXeroItemId(xeroItemId: string, workspaceId: string): Promise<SelectBrewProduct | null>;
-  getProductByXeroItemCode(xeroItemCode: string, workspaceId: string): Promise<SelectBrewProduct | null>;
-  getProductBySKU(sku: string, workspaceId: string): Promise<SelectBrewProduct | null>;
+  getProductByXeroItemId(xeroItemId: string, workspaceId: string): Promise<SelectCrmProduct | null>;
+  getProductByXeroItemCode(xeroItemCode: string, workspaceId: string): Promise<SelectCrmProduct | null>;
+  getProductBySKU(sku: string, workspaceId: string): Promise<SelectCrmProduct | null>;
   
   // ============= BREWERY BATCHES CRUD METHODS =============
   createBrewBatch(batch: InsertBrewBatch): Promise<SelectBrewBatch>;
@@ -452,9 +452,9 @@ export interface IStorage {
   unsetDefaultPriceBook(workspaceId: string): Promise<void>;
   
   // ============= BREWERY PRODUCT PRICES CRUD METHODS =============
-  createBrewProductPrice(productPrice: InsertBrewProductPrice): Promise<SelectBrewProductPrice>;
-  getProductPricesByPriceBook(priceBookId: number, workspaceId: string): Promise<SelectBrewProductPrice[]>;
-  getProductPriceForBook(productId: string, priceBookId: number, workspaceId: string): Promise<SelectBrewProductPrice | null>;
+  createCrmProductPrice(productPrice: InsertCrmProductPrice): Promise<SelectCrmProductPrice>;
+  getProductPricesByPriceBook(priceBookId: number, workspaceId: string): Promise<SelectCrmProductPrice[]>;
+  getProductPriceForBook(productId: string, priceBookId: number, workspaceId: string): Promise<SelectCrmProductPrice | null>;
   bulkUpsertProductPrices(priceBookId: number, workspaceId: string, prices: Array<{ productId: string; price: number }>): Promise<void>;
   copyPriceBookPrices(sourcePriceBookId: number, targetPriceBookId: number, workspaceId: string): Promise<void>;
   deleteProductPricesByPriceBook(priceBookId: number, workspaceId: string): Promise<void>;
@@ -1027,9 +1027,9 @@ export class MemStorage implements IStorage {
   async updateBrewPriceBook(id: number, workspaceId: string, updates: Partial<InsertBrewPriceBook>): Promise<SelectBrewPriceBook | null> { return null; }
   async deleteBrewPriceBook(id: number, workspaceId: string): Promise<boolean> { return false; }
   async unsetDefaultPriceBook(workspaceId: string): Promise<void> {}
-  async createBrewProductPrice(productPrice: InsertBrewProductPrice): Promise<SelectBrewProductPrice> { throw new Error("MemStorage: Product price operations not supported"); }
-  async getProductPricesByPriceBook(priceBookId: number, workspaceId: string): Promise<SelectBrewProductPrice[]> { return []; }
-  async getProductPriceForBook(productId: string, priceBookId: number, workspaceId: string): Promise<SelectBrewProductPrice | null> { return null; }
+  async createCrmProductPrice(productPrice: InsertCrmProductPrice): Promise<SelectCrmProductPrice> { throw new Error("MemStorage: Product price operations not supported"); }
+  async getProductPricesByPriceBook(priceBookId: number, workspaceId: string): Promise<SelectCrmProductPrice[]> { return []; }
+  async getProductPriceForBook(productId: string, priceBookId: number, workspaceId: string): Promise<SelectCrmProductPrice | null> { return null; }
   async bulkUpsertProductPrices(priceBookId: number, workspaceId: string, prices: Array<{ productId: string; price: number }>): Promise<void> {}
   async copyPriceBookPrices(sourcePriceBookId: number, targetPriceBookId: number, workspaceId: string): Promise<void> {}
   async deleteProductPricesByPriceBook(priceBookId: number, workspaceId: string): Promise<void> {}
@@ -1101,9 +1101,9 @@ export class MemStorage implements IStorage {
   async getTopProductsBySales(workspaceId: string, limit?: number): Promise<any[]> { return []; }
   
   // Xero product/order lookups - stub methods
-  async getProductByXeroItemId(xeroItemId: string, workspaceId: string): Promise<SelectBrewProduct | null> { return null; }
-  async getProductByXeroItemCode(xeroItemCode: string, workspaceId: string): Promise<SelectBrewProduct | null> { return null; }
-  async getProductBySKU(sku: string, workspaceId: string): Promise<SelectBrewProduct | null> { return null; }
+  async getProductByXeroItemId(xeroItemId: string, workspaceId: string): Promise<SelectCrmProduct | null> { return null; }
+  async getProductByXeroItemCode(xeroItemCode: string, workspaceId: string): Promise<SelectCrmProduct | null> { return null; }
+  async getProductBySKU(sku: string, workspaceId: string): Promise<SelectCrmProduct | null> { return null; }
   async getOrderByXeroInvoiceId(xeroInvoiceId: string, workspaceId: string): Promise<SelectCrmOrder | null> { return null; }
   
   // Xero Connections - stub methods
@@ -2326,15 +2326,22 @@ export class DbStorage implements IStorage {
   }
   
   async updateCrmProduct(id: string, updates: Partial<InsertCrmProduct>): Promise<SelectCrmProduct | null> {
+    console.log('[Storage] updateCrmProduct called with id:', id);
+    console.log('[Storage] updateCrmProduct updates:', JSON.stringify(updates, null, 2));
+
     const [updated] = await db.update(crmProducts)
       .set(updates)
       .where(eq(crmProducts.id, id))
       .returning();
+
+    console.log('[Storage] updateCrmProduct result:', updated ? JSON.stringify(updated, null, 2) : 'null');
     return updated || null;
   }
   
   async deleteCrmProduct(id: string): Promise<boolean> {
-    await db.delete(crmProducts).where(eq(crmProducts.id, id));
+    console.log('[Storage] deleteCrmProduct called with id:', id);
+    const result = await db.delete(crmProducts).where(eq(crmProducts.id, id));
+    console.log('[Storage] deleteCrmProduct result:', result);
     return true;
   }
   
@@ -2540,66 +2547,66 @@ export class DbStorage implements IStorage {
   }
   
   // ============= BREWERY PRODUCTS CRUD METHODS =============
-  async createBrewProduct(product: InsertBrewProduct): Promise<SelectBrewProduct> {
-    const [created] = await db.insert(brewProducts).values(product).returning();
+  async createCrmProduct(product: InsertCrmProduct): Promise<SelectCrmProduct> {
+    const [created] = await db.insert(crmProducts).values(product).returning();
     return created;
   }
   
-  async getBrewProduct(id: string): Promise<SelectBrewProduct | null> {
-    const [product] = await db.select().from(brewProducts).where(eq(brewProducts.id, id));
+  async getCrmProduct(id: string): Promise<SelectCrmProduct | null> {
+    const [product] = await db.select().from(crmProducts).where(eq(crmProducts.id, id));
     return product || null;
   }
   
-  async listBrewProducts(workspaceId: string): Promise<SelectBrewProduct[]> {
-    return await db.select().from(brewProducts).where(eq(brewProducts.workspaceId, workspaceId)).orderBy(brewProducts.name);
+  async listCrmProducts(workspaceId: string): Promise<SelectCrmProduct[]> {
+    return await db.select().from(crmProducts).where(eq(crmProducts.workspaceId, workspaceId)).orderBy(crmProducts.name);
   }
   
-  async listActiveBrewProducts(workspaceId: string): Promise<SelectBrewProduct[]> {
-    return await db.select().from(brewProducts)
+  async listActiveCrmProducts(workspaceId: string): Promise<SelectCrmProduct[]> {
+    return await db.select().from(crmProducts)
       .where(and(
-        eq(brewProducts.workspaceId, workspaceId),
-        eq(brewProducts.isActive, 1)
+        eq(crmProducts.workspaceId, workspaceId),
+        eq(crmProducts.isActive, 1)
       ))
-      .orderBy(brewProducts.name);
+      .orderBy(crmProducts.name);
   }
   
-  async updateBrewProduct(id: string, updates: Partial<InsertBrewProduct>): Promise<SelectBrewProduct | null> {
-    const [updated] = await db.update(brewProducts)
+  async updateCrmProduct(id: string, updates: Partial<InsertCrmProduct>): Promise<SelectCrmProduct | null> {
+    const [updated] = await db.update(crmProducts)
       .set({ ...updates, updatedAt: Date.now() })
-      .where(eq(brewProducts.id, id))
+      .where(eq(crmProducts.id, id))
       .returning();
     return updated || null;
   }
   
-  async deleteBrewProduct(id: string): Promise<boolean> {
-    const result = await db.delete(brewProducts).where(eq(brewProducts.id, id));
+  async deleteCrmProduct(id: string): Promise<boolean> {
+    const result = await db.delete(crmProducts).where(eq(crmProducts.id, id));
     return true;
   }
   
   // Xero product lookups
-  async getProductByXeroItemId(xeroItemId: string, workspaceId: string): Promise<SelectBrewProduct | null> {
-    const [product] = await db.select().from(brewProducts)
+  async getProductByXeroItemId(xeroItemId: string, workspaceId: string): Promise<SelectCrmProduct | null> {
+    const [product] = await db.select().from(crmProducts)
       .where(and(
-        eq(brewProducts.xeroItemId, xeroItemId),
-        eq(brewProducts.workspaceId, workspaceId)
+        eq(crmProducts.xeroItemId, xeroItemId),
+        eq(crmProducts.workspaceId, workspaceId)
       ));
     return product || null;
   }
   
-  async getProductByXeroItemCode(xeroItemCode: string, workspaceId: string): Promise<SelectBrewProduct | null> {
-    const [product] = await db.select().from(brewProducts)
+  async getProductByXeroItemCode(xeroItemCode: string, workspaceId: string): Promise<SelectCrmProduct | null> {
+    const [product] = await db.select().from(crmProducts)
       .where(and(
-        eq(brewProducts.xeroItemCode, xeroItemCode),
-        eq(brewProducts.workspaceId, workspaceId)
+        eq(crmProducts.xeroItemCode, xeroItemCode),
+        eq(crmProducts.workspaceId, workspaceId)
       ));
     return product || null;
   }
   
-  async getProductBySKU(sku: string, workspaceId: string): Promise<SelectBrewProduct | null> {
-    const [product] = await db.select().from(brewProducts)
+  async getProductBySKU(sku: string, workspaceId: string): Promise<SelectCrmProduct | null> {
+    const [product] = await db.select().from(crmProducts)
       .where(and(
-        eq(brewProducts.sku, sku),
-        eq(brewProducts.workspaceId, workspaceId)
+        eq(crmProducts.sku, sku),
+        eq(crmProducts.workspaceId, workspaceId)
       ));
     return product || null;
   }
@@ -2917,12 +2924,12 @@ export class DbStorage implements IStorage {
 
   // ============= BREWERY PRODUCT PRICES CRUD METHODS =============
 
-  async createBrewProductPrice(productPrice: InsertBrewProductPrice): Promise<SelectBrewProductPrice> {
+  async createCrmProductPrice(productPrice: InsertCrmProductPrice): Promise<SelectCrmProductPrice> {
     const [created] = await db.insert(brewProductPrices).values(productPrice).returning();
     return created;
   }
 
-  async getProductPricesByPriceBook(priceBookId: number, workspaceId: string): Promise<SelectBrewProductPrice[]> {
+  async getProductPricesByPriceBook(priceBookId: number, workspaceId: string): Promise<SelectCrmProductPrice[]> {
     return await db.select().from(brewProductPrices)
       .where(and(
         eq(brewProductPrices.priceBookId, priceBookId),
@@ -2930,7 +2937,7 @@ export class DbStorage implements IStorage {
       ));
   }
 
-  async getProductPriceForBook(productId: string, priceBookId: number, workspaceId: string): Promise<SelectBrewProductPrice | null> {
+  async getProductPriceForBook(productId: string, priceBookId: number, workspaceId: string): Promise<SelectCrmProductPrice | null> {
     const [price] = await db.select().from(brewProductPrices)
       .where(and(
         eq(brewProductPrices.productId, productId),
@@ -3096,11 +3103,11 @@ export class DbStorage implements IStorage {
     }
 
     // 4. Fallback to product's default price
-    const [product] = await db.select({ price: brewProducts.defaultUnitPriceExVat })
-      .from(brewProducts)
+    const [product] = await db.select({ price: crmProducts.defaultUnitPriceExVat })
+      .from(crmProducts)
       .where(and(
-        eq(brewProducts.id, productId),
-        eq(brewProducts.workspaceId, workspaceId)
+        eq(crmProducts.id, productId),
+        eq(crmProducts.workspaceId, workspaceId)
       ));
 
     return { 
@@ -3607,11 +3614,11 @@ export class DbStorage implements IStorage {
   async getTopProductsBySales(workspaceId: string, limit: number = 10): Promise<any[]> {
     const results = await db.select({
       productId: crmOrderLines.productId,
-      productName: brewProducts.name,
+      productName: crmProducts.name,
       quantity: crmOrderLines.quantity,
       unitPrice: crmOrderLines.unitPriceExVat,
     }).from(crmOrderLines)
-      .innerJoin(brewProducts, eq(crmOrderLines.productId, brewProducts.id))
+      .innerJoin(crmProducts, eq(crmOrderLines.productId, crmProducts.id))
       .where(eq(crmOrderLines.workspaceId, workspaceId));
     
     // Aggregate in JS
@@ -3939,12 +3946,12 @@ export class DbStorage implements IStorage {
       updates.lastXeroSyncAt = new Date();
     }
     await db
-      .update(brewProducts)
+      .update(crmProducts)
       .set(updates)
       .where(
         and(
-          eq(brewProducts.id, productId),
-          eq(brewProducts.workspaceId, workspaceId)
+          eq(crmProducts.id, productId),
+          eq(crmProducts.workspaceId, workspaceId)
         )
       );
   }

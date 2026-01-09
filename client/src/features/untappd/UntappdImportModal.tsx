@@ -141,6 +141,8 @@ export function UntappdImportModal({ open, onOpenChange }: UntappdImportModalPro
     setSelectedBrewery(brewery);
     // Clear beers when selecting a new brewery to force fresh data
     setBeersToImport([]);
+    // Immediately change to beer-list step to show loading feedback
+    setStep('beer-list');
   };
 
   // When brewery beers load, populate the beersToImport list
@@ -159,7 +161,7 @@ export function UntappdImportModal({ open, onOpenChange }: UntappdImportModalPro
         };
       });
       setBeersToImport(beers);
-      setStep('beer-list');
+      // Step change now happens immediately in handleSelectBrewery
 
       // Log serving style suggestions for debugging
       console.log(`📊 Loaded ${beers.length} beers with serving style suggestions:`, {
@@ -374,57 +376,67 @@ export function UntappdImportModal({ open, onOpenChange }: UntappdImportModalPro
                 Select Beers to Import
               </DialogTitle>
               <DialogDescription>
-                {selectedBrewery.brewery_name} - {beersToImport.length} beers found
+                {selectedBrewery.brewery_name} - {isLoadingBeers ? 'Loading beers...' : `${beersToImport.length} beers found`}
               </DialogDescription>
             </DialogHeader>
 
             <div className="space-y-4 py-4">
-              <div className="flex justify-between items-center">
-                <p className="text-sm text-muted-foreground">
-                  {selectedBeersCount} of {beersToImport.length} selected
-                </p>
-                <div className="flex gap-2">
-                  <Button variant="outline" size="sm" onClick={handleSelectAllBeers}>
-                    Select All
-                  </Button>
-                  <Button variant="outline" size="sm" onClick={handleDeselectAllBeers}>
-                    Deselect All
-                  </Button>
+              {isLoadingBeers ? (
+                <div className="flex flex-col items-center justify-center py-12">
+                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground mb-3" />
+                  <span className="text-sm text-muted-foreground">Loading beers from {selectedBrewery.brewery_name}...</span>
+                  <span className="text-xs text-muted-foreground mt-1">This may take a moment</span>
                 </div>
-              </div>
-
-              <div className="space-y-2 max-h-[400px] overflow-y-auto border rounded-md p-2">
-                {beersToImport.map((beer, index) => (
-                  <div
-                    key={beer.bid}
-                    className="flex items-start gap-3 p-3 rounded-md hover:bg-accent transition-colors"
-                  >
-                    <Checkbox
-                      checked={beer.selected}
-                      onCheckedChange={() => handleToggleBeerSelection(index)}
-                      className="mt-1"
-                    />
-                    <img src={beer.beer_label} alt={beer.beer_name} className="w-12 h-12 rounded object-cover" />
-                    <div className="flex-1 min-w-0">
-                      <h4 className="font-medium text-sm truncate">{beer.beer_name}</h4>
-                      <p className="text-xs text-muted-foreground truncate">{beer.beer_style}</p>
-                      <div className="flex gap-2 mt-1">
-                        <Badge variant="outline" className="text-xs">
-                          {beer.beer_abv}% ABV
-                        </Badge>
-                      </div>
+              ) : (
+                <>
+                  <div className="flex justify-between items-center">
+                    <p className="text-sm text-muted-foreground">
+                      {selectedBeersCount} of {beersToImport.length} selected
+                    </p>
+                    <div className="flex gap-2">
+                      <Button variant="outline" size="sm" onClick={handleSelectAllBeers}>
+                        Select All
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={handleDeselectAllBeers}>
+                        Deselect All
+                      </Button>
                     </div>
                   </div>
-                ))}
-              </div>
+
+                  <div className="space-y-2 max-h-[400px] overflow-y-auto border rounded-md p-2">
+                    {beersToImport.map((beer, index) => (
+                      <div
+                        key={beer.bid}
+                        className="flex items-start gap-3 p-3 rounded-md hover:bg-accent transition-colors"
+                      >
+                        <Checkbox
+                          checked={beer.selected}
+                          onCheckedChange={() => handleToggleBeerSelection(index)}
+                          className="mt-1"
+                        />
+                        <img src={beer.beer_label} alt={beer.beer_name} className="w-12 h-12 rounded object-cover" />
+                        <div className="flex-1 min-w-0">
+                          <h4 className="font-medium text-sm truncate">{beer.beer_name}</h4>
+                          <p className="text-xs text-muted-foreground truncate">{beer.beer_style}</p>
+                          <div className="flex gap-2 mt-1">
+                            <Badge variant="outline" className="text-xs">
+                              {beer.beer_abv}% ABV
+                            </Badge>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
             </div>
 
             <DialogFooter className="flex-col sm:flex-row gap-2">
-              <Button variant="ghost" onClick={() => setStep('brewery-search')} className="sm:mr-auto">
+              <Button variant="ghost" onClick={() => setStep('brewery-search')} className="sm:mr-auto" disabled={isLoadingBeers}>
                 <ArrowLeft className="h-4 w-4 mr-2" />
                 Back to Search
               </Button>
-              <Button onClick={handleProceedToReview} disabled={selectedBeersCount === 0}>
+              <Button onClick={handleProceedToReview} disabled={selectedBeersCount === 0 || isLoadingBeers}>
                 Review {selectedBeersCount} Beer{selectedBeersCount !== 1 ? 's' : ''}
                 <ChevronRight className="h-4 w-4 ml-2" />
               </Button>

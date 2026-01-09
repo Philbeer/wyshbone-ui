@@ -1,6 +1,6 @@
 import { Route, Switch, Link, useLocation } from "wouter";
 import { useUser } from "@/contexts/UserContext";
-import { Building2, Users, Package, Truck, Settings, Warehouse, Beer, FileText, Container, Boxes, Phone, DollarSign, BarChart3, CheckSquare, Activity, Store, QrCode, Calendar, ClipboardCheck, Factory, MapPin } from "lucide-react";
+import { Building2, Users, Package, Truck, Settings, Warehouse, Beer, FileText, Container, Boxes, Phone, PoundSterling, BarChart3, CheckSquare, Activity, Store, QrCode, Calendar, ClipboardCheck, Factory, MapPin } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
@@ -209,7 +209,7 @@ export default function CrmLayout() {
             </Button>
             <Button variant={locationPath.startsWith("/brew/price-books") ? "default" : "ghost"} size="sm" asChild>
               <Link href="/brew/price-books" data-testid="link-brewcrm-price-books">
-                <DollarSign className="w-4 h-4 mr-2" />
+                <PoundSterling className="w-4 h-4 mr-2" />
                 Price Books
               </Link>
             </Button>
