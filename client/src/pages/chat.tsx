@@ -938,6 +938,47 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
           triggerSidebarFlash('emailFinder');
         }
         
+        // Handle SCHEDULED_MONITOR results
+        if (result.id && result.schedule && result.monitorType) {
+          const systemMessage: SystemMessage = {
+            id: crypto.randomUUID(),
+            type: "system",
+            content: `⏰ Monitor "${result.label}" created! Scheduled to run ${result.schedule}. View it in the Results panel.`,
+            timestamp: new Date(),
+          };
+          setMessages((prev) => [...prev, systemMessage]);
+
+          // Open results in right panel
+          openResults('scheduled_monitor', {
+            monitor: result,
+            id: result.id,
+            label: result.label,
+            schedule: result.schedule,
+            status: result.status,
+          }, `Monitor: ${result.label}`);
+        }
+
+        // Handle GET_NUDGES results
+        if (result.nudges !== undefined) {
+          const nudgesCount = Array.isArray(result.nudges) ? result.nudges.length : 0;
+          const systemMessage: SystemMessage = {
+            id: crypto.randomUUID(),
+            type: "system",
+            content: nudgesCount > 0
+              ? `👉 Found ${nudgesCount} nudge${nudgesCount === 1 ? '' : 's'}. View in the Results panel.`
+              : `📭 No pending nudges at the moment.`,
+            timestamp: new Date(),
+          };
+          setMessages((prev) => [...prev, systemMessage]);
+
+          // Open results in right panel
+          openResults('nudges', {
+            nudges: result.nudges || [],
+            count: nudgesCount,
+            message: result.message,
+          }, `Nudges (${nudgesCount})`);
+        }
+
         // Handle DRAFT_EMAIL results
         if (result.draft) {
           const systemMessage: SystemMessage = {

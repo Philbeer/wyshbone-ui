@@ -115,6 +115,25 @@ export interface ScheduledMonitorResult {
 }
 
 // =============================================================================
+// NUDGES
+// =============================================================================
+
+export interface NudgesParams {
+  limit?: number;          // Max nudges to return (default: 10)
+}
+
+export interface NudgesResult {
+  nudges: Array<{
+    id?: string;
+    message?: string;
+    type?: string;
+    priority?: string;
+  }>;
+  count: number;
+  message?: string;
+}
+
+// =============================================================================
 // INTENT DETECTION
 // =============================================================================
 
@@ -154,7 +173,7 @@ export interface ToolExecutionRequest {
 
 export interface ToolExecutionResult {
   ok: boolean;
-  data?: QuickSearchResult | DeepResearchResult | EmailFinderResult | ScheduledMonitorResult;
+  data?: QuickSearchResult | DeepResearchResult | EmailFinderResult | ScheduledMonitorResult | NudgesResult;
   note?: string;
   error?: string;
 }

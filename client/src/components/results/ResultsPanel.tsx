@@ -38,11 +38,12 @@ import { useResultsPanel, ResultType } from '@/contexts/ResultsPanelContext';
 import { cn } from '@/lib/utils';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import type { 
-  QuickSearchResult, 
-  DeepResearchResult, 
+import type {
+  QuickSearchResult,
+  DeepResearchResult,
   EmailFinderResult,
   ScheduledMonitorResult,
+  NudgesResult,
   PlaceResult,
 } from '@/types/agent-tools';
 
@@ -579,6 +580,67 @@ function ScheduledMonitorFullView({ data }: { data: ScheduledMonitorResult }) {
 }
 
 // =============================================================================
+// NUDGES FULL VIEW
+// =============================================================================
+
+function NudgesFullView({ data }: { data: NudgesResult }) {
+  return (
+    <div className="space-y-4">
+      {/* Header */}
+      <div>
+        <h3 className="text-lg font-semibold flex items-center gap-2">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-5 w-5 text-amber-600">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" />
+          </svg>
+          Nudges & Suggestions
+        </h3>
+        <p className="text-sm text-muted-foreground">
+          {data.count} suggestion{data.count === 1 ? '' : 's'}
+        </p>
+      </div>
+
+      {data.count === 0 ? (
+        <Card>
+          <CardContent className="py-8 text-center">
+            <div className="text-muted-foreground">
+              <p className="text-sm">{data.message || 'No pending nudges at the moment'}</p>
+              <p className="text-xs mt-2">Check back later for AI-generated follow-up suggestions</p>
+            </div>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-2">
+          {data.nudges.map((nudge, index) => (
+            <Card key={nudge.id || index}>
+              <CardContent className="py-4">
+                <div className="space-y-2">
+                  {nudge.type && (
+                    <div className="text-xs text-muted-foreground uppercase tracking-wide">
+                      {nudge.type}
+                    </div>
+                  )}
+                  <p className="text-sm">{nudge.message}</p>
+                  {nudge.priority && (
+                    <div className={cn(
+                      "text-xs font-medium inline-block px-2 py-0.5 rounded",
+                      nudge.priority === 'high' && "bg-red-100 text-red-700",
+                      nudge.priority === 'medium' && "bg-amber-100 text-amber-700",
+                      nudge.priority === 'low' && "bg-blue-100 text-blue-700"
+                    )}>
+                      {nudge.priority} priority
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// =============================================================================
 // MAIN RESULTS PANEL
 // =============================================================================
 
@@ -595,6 +657,11 @@ export function ResultsPanel() {
       case 'deep_research': return <FileText className="h-5 w-5" />;
       case 'email_finder': return <Mail className="h-5 w-5" />;
       case 'scheduled_monitor': return <Clock className="h-5 w-5" />;
+      case 'nudges': return (
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-5 w-5">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" />
+        </svg>
+      );
       default: return null;
     }
   };
@@ -639,6 +706,9 @@ export function ResultsPanel() {
             )}
             {currentResult.type === 'scheduled_monitor' && (
               <ScheduledMonitorFullView data={currentResult.data as ScheduledMonitorResult} />
+            )}
+            {currentResult.type === 'nudges' && (
+              <NudgesFullView data={currentResult.data as NudgesResult} />
             )}
           </div>
         </ScrollArea>
