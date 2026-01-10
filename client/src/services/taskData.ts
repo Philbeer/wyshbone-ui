@@ -331,7 +331,7 @@ export const phase3Tasks: PhaseTask[] = [
     id: 'p3-t1',
     title: 'WABS scoring engine',
     description: 'Score results 0-100 for "interestingness" based on user goals',
-    status: 'queued',
+    status: 'completed',
     priority: 'critical',
     repo: 'wyshbone-tower',
     repoPath: 'C:\\Users\\Phil Waite\\Documents\\GitHub\\wyshbone-control-tower',
