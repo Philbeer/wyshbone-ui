@@ -8,7 +8,9 @@
 import {
   getPhase1TasksWithPrompts,
   getPhase2TasksWithPrompts,
-  getPhase3TasksWithPrompts
+  getPhase3TasksWithPrompts,
+  getPhase4TasksWithPrompts,
+  getPhase5TasksWithPrompts
 } from './taskData';
 
 export interface RepoStatus {
@@ -201,6 +203,8 @@ export async function analyzeDevProgress(): Promise<DevProgressData> {
   const phase1Tasks = getPhase1TasksWithPrompts();
   const phase2Tasks = getPhase2TasksWithPrompts();
   const phase3Tasks = getPhase3TasksWithPrompts();
+  const phase4Tasks = getPhase4TasksWithPrompts();
+  const phase5Tasks = getPhase5TasksWithPrompts();
 
   // Calculate dynamic completion percentages
   const calculateCompletion = (tasks: PhaseTask[]) => {
@@ -211,6 +215,8 @@ export async function analyzeDevProgress(): Promise<DevProgressData> {
   const phase1Completion = calculateCompletion(phase1Tasks);
   const phase2Completion = calculateCompletion(phase2Tasks);
   const phase3Completion = calculateCompletion(phase3Tasks);
+  const phase4Completion = calculateCompletion(phase4Tasks);
+  const phase5Completion = calculateCompletion(phase5Tasks);
 
   // Determine phase status
   const getPhaseStatus = (completion: number, tasks: PhaseTask[]): Phase['status'] => {
@@ -222,50 +228,72 @@ export async function analyzeDevProgress(): Promise<DevProgressData> {
   const phases: Phase[] = [
     {
       id: 'phase-1',
-      name: 'Phase 1: Fix Foundation',
-      description: 'Make user-led mode work perfectly',
-      duration: 'Week 1',
+      name: 'Phase 1: Complete ACT',
+      description: 'Agent Communication Toolkit - Finish tool execution layer',
+      duration: '1-2 weeks',
       status: getPhaseStatus(phase1Completion, phase1Tasks),
       completion: phase1Completion,
       tasks: phase1Tasks,
       successCriteria: [
-        'Zero 401 errors',
-        'All 5 tools work correctly',
-        'Results display in UI within 5 seconds',
-        'Activity feed shows last 10 actions',
-        'Clean error messages',
+        'All 5 tools execute without errors',
+        'Results display correctly in UI',
+        'Single unified execution endpoint',
       ],
     },
     {
       id: 'phase-2',
-      name: 'Phase 2: Build Autonomous Agent',
-      description: 'Simple autonomous agent that runs daily without user input',
-      duration: 'Weeks 2-3',
+      name: 'Phase 2: Build ADAPT',
+      description: 'Learning System - Agent remembers outcomes and learns preferences',
+      duration: '2-3 weeks',
       status: getPhaseStatus(phase2Completion, phase2Tasks),
       completion: phase2Completion,
       tasks: phase2Tasks,
       successCriteria: [
-        'Agent runs daily at 9am',
-        'Generates 3-5 tasks per user',
-        'Tasks execute without errors',
-        'Users receive well-formatted emails',
-        'Activity visible in UI feed',
+        'Agent remembers 90% of outcomes',
+        'Planning influenced by past success/failure',
+        'User preferences learned within 7 days',
       ],
     },
     {
       id: 'phase-3',
-      name: 'Phase 3: Add Intelligence',
-      description: 'Sophisticated autonomous behaviors with learning and adaptation',
-      duration: 'Week 4+',
+      name: 'Phase 3: Integrate WABS',
+      description: 'Judgement Layer - Agent determines what\'s "interesting" without human input',
+      duration: '2-3 weeks',
       status: getPhaseStatus(phase3Completion, phase3Tasks),
       completion: phase3Completion,
       tasks: phase3Tasks,
       successCriteria: [
-        'Agent learns from outcomes',
-        'Strategies improve over time',
-        'Failure handling is automatic',
-        'Plans adapt to results',
-        'ROI tracking operational',
+        '80% accuracy on "interesting" predictions',
+        'User overrides <20% of flagged results',
+        'Scoring improves 10% month-over-month',
+      ],
+    },
+    {
+      id: 'phase-4',
+      name: 'Phase 4: Commercial EVALUATE',
+      description: 'Measure strategy effectiveness and optimize for commercial success',
+      duration: '2-3 weeks',
+      status: getPhaseStatus(phase4Completion, phase4Tasks),
+      completion: phase4Completion,
+      tasks: phase4Tasks,
+      successCriteria: [
+        'Can measure ROI per action',
+        'A/B tests show statistically significant winners',
+        'Multi-user performance benchmarks available',
+      ],
+    },
+    {
+      id: 'phase-5',
+      name: 'Phase 5: Enable REPEAT',
+      description: 'Autonomy - Fully autonomous operation without human intervention',
+      duration: '3-4 weeks',
+      status: getPhaseStatus(phase5Completion, phase5Tasks),
+      completion: phase5Completion,
+      tasks: phase5Tasks,
+      successCriteria: [
+        '7 days of autonomous operation without human intervention',
+        'Self-heals 95% of errors',
+        '10 paying customers on production system',
       ],
     },
   ];
