@@ -358,7 +358,7 @@ export const phase3Tasks: PhaseTask[] = [
     id: 'p3-t2',
     title: 'Automatic outcome marking',
     description: 'Automatically flag interesting findings for notifications',
-    status: 'queued',
+    status: 'completed',
     priority: 'critical',
     repo: 'wyshbone-tower',
     repoPath: 'C:\\Users\\Phil Waite\\Documents\\GitHub\\wyshbone-control-tower',
