@@ -1,5 +1,7 @@
 ---
+name: implement_plan
 description: Implement technical plans from thoughts/shared/plans with verification
+user-invocable: false
 ---
 
 # Implement Plan
@@ -35,7 +37,31 @@ When given a plan path:
 - **Read files fully** - never use limit/offset parameters, you need complete context
 - Think deeply about how the pieces fit together
 - Create a todo list to track your progress
-- Start implementing if you understand what needs to be done
+
+### Pre-Implementation Risk Check
+
+Before starting implementation, run a deep pre-mortem:
+
+```
+/premortem deep <plan-path>
+```
+
+This analyzes the plan against comprehensive checklists:
+- Technical risks (scalability, dependencies, data, security)
+- Integration risks (breaking changes, migration, rollback)
+- Process risks (unclear requirements, stakeholder input)
+- Testing risks (coverage gaps, load testing needs)
+
+**If HIGH severity risks are identified:**
+- The premortem will block via AskUserQuestion
+- User must: accept risks explicitly, add mitigations, or research solutions
+- If mitigations are added, update the plan before proceeding
+
+**Skip premortem if:**
+- Plan already has a "## Risks (Pre-Mortem)" section with mitigations
+- User explicitly requests to skip (`--skip-premortem`)
+
+After premortem passes, start implementing if you understand what needs to be done.
 
 If no plan path provided, ask for one.
 
@@ -113,7 +139,7 @@ The resumed agent retains its full prior context (research, codebase analysis).
 
 Available agents to resume:
 - `plan-agent` - Created the implementation plan
-- `research-agent` - Researched best practices
+- `oracle` - Researched best practices
 - `debug-agent` - Investigated issues
 
 ## Resuming Work

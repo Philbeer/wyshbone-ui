@@ -1,6 +1,8 @@
 ---
+name: research
 description: Document codebase as-is with thoughts directory for historical context
 model: opus
+user-invocable: false
 ---
 
 # Research Codebase
@@ -45,9 +47,7 @@ Then wait for the user's research query.
    - We now have specialized agents that know how to do specific research tasks:
 
    **For codebase research:**
-   - Use the **codebase-locator** agent to find WHERE files and components live
-   - Use the **codebase-analyzer** agent to understand HOW specific code works (without critiquing it)
-   - Use the **codebase-pattern-finder** agent to find examples of existing patterns (without evaluating them)
+   - Use the **scout** agent for comprehensive codebase exploration (combines locating, analyzing, and pattern finding)
 
    **IMPORTANT**: All agents are documentarians, not critics. They will describe what exists without suggesting improvements or identifying issues.
 
