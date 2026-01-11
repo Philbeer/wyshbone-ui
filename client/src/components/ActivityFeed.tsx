@@ -10,6 +10,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AlertCircle, CheckCircle2, Clock, Sparkles } from "lucide-react";
 import { ActivityDetailModal } from "./ActivityDetailModal";
+import { WABSScore } from "./WABSScore";
 
 interface AgentActivity {
   id: string;
@@ -27,6 +28,20 @@ interface AgentActivity {
   runId: string | null;
   metadata: any;
   createdAt: number;
+}
+
+interface WABSScoreData {
+  task_id: string;
+  user_id: string;
+  wabs_score: number;
+  wabs_signals: {
+    relevance: number;
+    novelty: number;
+    actionability: number;
+    urgency: number;
+  };
+  result: any;
+  created_at: string;
 }
 
 interface ActivityFeedProps {
@@ -49,6 +64,7 @@ export function ActivityFeed({
   const [error, setError] = useState<string | null>(null);
   const [selectedActivity, setSelectedActivity] = useState<AgentActivity | null>(null);
   const [detailModalOpen, setDetailModalOpen] = useState(false);
+  const [wabsScores, setWabsScores] = useState<Record<string, WABSScoreData>>({});
 
   const fetchActivities = async () => {
     try {
@@ -68,6 +84,8 @@ export function ActivityFeed({
       if (data.ok) {
         setActivities(data.activities);
         setError(null);
+        // Fetch WABS scores for activities that have taskIds
+        await fetchWABSScoresForActivities(data.activities);
       } else {
         throw new Error(data.error || "Unknown error");
       }
@@ -77,6 +95,33 @@ export function ActivityFeed({
     } finally {
       setLoading(false);
     }
+  };
+
+  const fetchWABSScoresForActivities = async (activities: AgentActivity[]) => {
+    const scoresMap: Record<string, WABSScoreData> = {};
+
+    for (const activity of activities) {
+      // Try to get taskId from metadata or use runId as fallback
+      const taskId = activity.metadata?.taskId || activity.runId;
+
+      if (!taskId) continue;
+
+      try {
+        const response = await fetch(`/api/wabs-scores/${taskId}`);
+
+        if (response.ok) {
+          const data = await response.json();
+          if (data.ok && data.score) {
+            scoresMap[taskId] = data.score;
+          }
+        }
+      } catch (err) {
+        // Silently fail - WABS scores are optional enhancement
+        console.debug(`Could not fetch WABS score for task ${taskId}:`, err);
+      }
+    }
+
+    setWabsScores(scoresMap);
   };
 
   // Initial fetch
@@ -234,7 +279,7 @@ export function ActivityFeed({
                     ${activity.interestingFlag === 1 ? "border-purple-300 bg-purple-50/50" : "border-gray-200"}
                   `}
                 >
-                  {/* Header: Status Icon, Interesting Flag, Timestamp */}
+                  {/* Header: Status Icon, Interesting Flag, WABS Score, Timestamp */}
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
                       {getStatusIcon(activity.status)}
@@ -245,6 +290,18 @@ export function ActivityFeed({
                         </Badge>
                       )}
                       {getStatusBadge(activity.status)}
+                      {/* Display WABS score if available */}
+                      {(() => {
+                        const taskId = activity.metadata?.taskId || activity.runId;
+                        const wabsScore = taskId ? wabsScores[taskId] : null;
+                        return wabsScore ? (
+                          <WABSScore
+                            score={wabsScore.wabs_score}
+                            signals={wabsScore.wabs_signals}
+                            compact={true}
+                          />
+                        ) : null;
+                      })()}
                     </div>
                     <span className="text-xs text-muted-foreground">
                       {formatTimestamp(activity.timestamp)}
