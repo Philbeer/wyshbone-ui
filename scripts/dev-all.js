@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 /**
  * dev-all.js - Start all dev services with fixed ports
- * 
+ *
  * Services:
  *   5173 - Frontend (Vite)
  *   5001 - UI Backend (Express)
- *   5000 - Supervisor
+ *   3001 - Supervisor
  *   3000 - Tower
- * 
+ *
  * If any port is busy, prints an error and suggests running dev:clean.
  * Usage: node scripts/dev-all.js
  */
@@ -24,8 +24,8 @@ const ROOT_DIR = resolve(__dirname, '..');
 const SERVICES = [
   { name: 'Frontend',   port: 5173, cmd: 'npm', args: ['run', 'dev:ui'],        cwd: ROOT_DIR, color: '\x1b[35m' },  // magenta
   { name: 'Backend',    port: 5001, cmd: 'npm', args: ['run', 'dev:backend'],   cwd: ROOT_DIR, color: '\x1b[36m' },  // cyan
-  { name: 'Supervisor', port: 5000, cmd: 'npm', args: ['run', 'dev'],           cwd: resolve(ROOT_DIR, 'supervisor'), color: '\x1b[33m' },  // yellow
-  { name: 'Tower',      port: 3000, cmd: 'npm', args: ['run', 'dev'],           cwd: resolve(ROOT_DIR, 'tower'), color: '\x1b[32m' },  // green
+  { name: 'Supervisor', port: 3001, cmd: 'npm', args: ['run', 'dev'],           cwd: resolve(ROOT_DIR, '..', 'wyshbone-supervisor'), color: '\x1b[33m', env: { PORT: '3001' } },  // yellow
+  { name: 'Tower',      port: 3000, cmd: 'npm', args: ['run', 'dev'],           cwd: resolve(ROOT_DIR, '..', 'wyshbone-control-tower'), color: '\x1b[32m' },  // green
 ];
 
 const RESET = '\x1b[0m';
@@ -84,7 +84,7 @@ console.log('');
 console.log('Services:');
 console.log(`   Frontend:   http://localhost:5173`);
 console.log(`   Backend:    http://localhost:5001`);
-console.log(`   Supervisor: http://localhost:5000`);
+console.log(`   Supervisor: http://localhost:3001`);
 console.log(`   Tower:      http://localhost:3000`);
 console.log('');
 console.log('Press Ctrl+C to stop all services.');
@@ -95,12 +95,12 @@ const children = [];
 
 for (const svc of SERVICES) {
   const prefix = `${svc.color}[${svc.name.padEnd(10)}]${RESET}`;
-  
+
   const child = spawn(svc.cmd, svc.args, {
     cwd: svc.cwd,
     shell: true,
     stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env, FORCE_COLOR: '1' },
+    env: { ...process.env, FORCE_COLOR: '1', ...(svc.env || {}) },
   });
   
   children.push({ name: svc.name, process: child });

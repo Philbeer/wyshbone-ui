@@ -103,6 +103,16 @@ app.get('/health', (_req, res) => {
   });
 });
 
+// Health check endpoint alias for Tower compatibility
+app.get('/api/health', (_req, res) => {
+  res.status(200).json({
+    status: 'healthy',
+    service: 'wyshbone-ui',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime()
+  });
+});
+
 // Client error reporting endpoint - receives browser errors for debugging
 interface ClientErrorPayload {
   message?: string;

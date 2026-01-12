@@ -4,6 +4,8 @@
   "type": "module",
   "license": "MIT",
   "scripts": {
+    "up": "node scripts/dev-up.js",
+    "down": "node scripts/dev-down.js",
     "dev": "concurrently --names \"backend,ui\" --prefix-colors \"cyan,magenta\" \"npm run dev:backend\" \"npm run dev:ui\"",
     "dev:clean": "node scripts/dev-clean.js",
     "dev:all": "node scripts/dev-all.js",

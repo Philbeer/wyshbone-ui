@@ -1,14 +1,10 @@
 #!/usr/bin/env node
 /**
- * dev-clean.js - Kill processes on known dev ports (Windows-friendly)
- * 
- * Ports:
- *   5173 - Frontend (Vite)
- *   5001 - UI Backend (Express)
- *   5000 - Supervisor
- *   3000 - Tower
- * 
- * Usage: node scripts/dev-clean.js
+ * dev-down.js - Stop all dev services
+ *
+ * Kills processes on all dev ports (5173, 5001, 5000, 3000)
+ *
+ * Usage: npm run down
  */
 
 import { execSync } from 'child_process';
@@ -29,18 +25,15 @@ function isWindows() {
 
 function killPortWindows(port) {
   try {
-    // Find the PID using the port
-    const result = execSync(`netstat -ano | findstr :${port}`, { 
+    const result = execSync(`netstat -ano | findstr :${port}`, {
       encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'] 
+      stdio: ['pipe', 'pipe', 'pipe']
     });
-    
-    // Parse PIDs from the netstat output
+
     const pids = new Set();
     const lines = result.trim().split('\n');
-    
+
     for (const line of lines) {
-      // Match LISTENING state (the actual server)
       if (line.includes('LISTENING')) {
         const parts = line.trim().split(/\s+/);
         const pid = parts[parts.length - 1];
@@ -49,56 +42,49 @@ function killPortWindows(port) {
         }
       }
     }
-    
+
     if (pids.size === 0) {
-      return { killed: false, reason: 'no listener' };
+      return { killed: false };
     }
-    
-    // Kill each PID
+
     const killedPids = [];
     for (const pid of pids) {
       try {
         execSync(`taskkill /F /PID ${pid}`, { stdio: 'pipe' });
         killedPids.push(pid);
-      } catch {
-        // Process may have already exited
-      }
+      } catch {}
     }
-    
+
     return { killed: killedPids.length > 0, pids: killedPids };
   } catch {
-    return { killed: false, reason: 'not in use' };
+    return { killed: false };
   }
 }
 
 function killPortUnix(port) {
   try {
-    // Find the PID using lsof
-    const result = execSync(`lsof -ti:${port}`, { 
+    const result = execSync(`lsof -ti:${port}`, {
       encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'] 
+      stdio: ['pipe', 'pipe', 'pipe']
     });
-    
+
     const pids = result.trim().split('\n').filter(Boolean);
-    
+
     if (pids.length === 0) {
-      return { killed: false, reason: 'no listener' };
+      return { killed: false };
     }
-    
-    // Kill each PID
+
     const killedPids = [];
     for (const pid of pids) {
       try {
         execSync(`kill -9 ${pid}`, { stdio: 'pipe' });
         killedPids.push(pid);
-      } catch {
-        // Process may have already exited
-      }
+      } catch {}
     }
-    
+
     return { killed: killedPids.length > 0, pids: killedPids };
   } catch {
-    return { killed: false, reason: 'not in use' };
+    return { killed: false };
   }
 }
 
@@ -106,8 +92,9 @@ function killPort(port) {
   return isWindows() ? killPortWindows(port) : killPortUnix(port);
 }
 
-console.log('\n🧹 dev:clean - Freeing dev ports\n');
-console.log(`Platform: ${platform()}`);
+console.log('\n' + '='.repeat(60));
+console.log('🛑 Stopping Wyshbone Development Stack');
+console.log('='.repeat(60));
 console.log('');
 
 let anyKilled = false;
@@ -115,20 +102,19 @@ let anyKilled = false;
 for (const port of DEV_PORTS) {
   const label = PORT_LABELS[port] || 'Unknown';
   const result = killPort(port);
-  
+
   if (result.killed) {
-    console.log(`✅ Port ${port} (${label}) - Killed PID(s): ${result.pids.join(', ')}`);
+    console.log(`   ✅ Port ${port} (${label}) - Stopped`);
     anyKilled = true;
   } else {
-    console.log(`⚪ Port ${port} (${label}) - ${result.reason || 'free'}`);
+    console.log(`   ⚪ Port ${port} (${label}) - Not running`);
   }
 }
 
 console.log('');
 if (anyKilled) {
-  console.log('✨ Done! Ports freed.');
+  console.log('✨ All services stopped.');
 } else {
-  console.log('✨ All ports were already free.');
+  console.log('✨ No services were running.');
 }
 console.log('');
-

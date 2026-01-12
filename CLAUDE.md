@@ -149,7 +149,24 @@ If 9998 is occupied: Kill it and restart the bridge
 
 ## Important Commands
 
-**Start Vite dev server:**
+### One-Click Development (RECOMMENDED)
+
+**Start all services (kills ports automatically, then starts everything):**
+```powershell
+npm run up
+```
+This starts: Frontend (5173), Backend (5001), Supervisor (3001), Tower (3000)
+
+**Stop all services:**
+```powershell
+npm run down
+```
+
+See `README-DEV.md` for full details.
+
+### Individual Services
+
+**Start Vite dev server (UI only):**
 ```powershell
 npm run dev
 ```
