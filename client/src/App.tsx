@@ -61,6 +61,7 @@ import EntityReviewPage from "@/pages/entity-review";
 import SleeperAgentMonitor from "@/pages/dev/sleeper-agent-monitor";
 import DevProgressPage from "@/pages/dev/progress";
 import DatabaseMaintenance from "@/pages/admin/database-maintenance";
+import WorkflowPage from "@/pages/workflow";
 import { LayoutToggle } from "@/components/LayoutToggle";
 
 // No demo runs - users only see their own data
@@ -98,7 +99,10 @@ function AgentFirstRouter({
       
       {/* Settings page */}
       <Route path="/settings" component={SettingsPage} />
-      
+
+      {/* Workflow dashboard */}
+      <Route path="/workflow" component={WorkflowPage} />
+
       {/* CRM Preview for mobile */}
       <Route path="/crm-preview" component={CrmPreviewPage} />
       
@@ -171,6 +175,7 @@ function Router({
       <Route path="/auth" component={AuthPage} />
       <Route path="/pricing" component={PricingPage} />
       <Route path="/account" component={AccountPage} />
+      <Route path="/workflow" component={WorkflowPage} />
       <Route path="/debug" component={DebugPage} />
       <Route path="/batch-history" component={BatchHistoryPage} />
       <Route path="/batch/:id" component={BatchPipeline} />

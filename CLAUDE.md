@@ -257,3 +257,7 @@ This parallel approach is significantly faster than test → check logs → fix 
 When task spans wyshbone-ui/supervisor/tower/agents:
 - One subagent per affected repo
 - Main thread coordinates and integrates changes
+
+
+
+Never work inside nested repos. Only treat the top-level repos in /GitHub as authoritative

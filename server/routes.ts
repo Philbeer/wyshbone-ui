@@ -12220,6 +12220,33 @@ ${run.outputText}`;
     res.redirect(dashboardUrl);
   });
 
+  /**
+   * GET /api/workflow/ledger
+   * Serve the canonical workflow ledger
+   */
+  app.get("/api/workflow/ledger", async (req, res) => {
+    try {
+      const fs = await import('fs');
+      const path = await import('path');
+
+      // Ledger is in parent directory: thoughts/ledgers/WORKFLOW-wyshbone.md
+      const ledgerPath = path.join(process.cwd(), '..', 'thoughts', 'ledgers', 'WORKFLOW-wyshbone.md');
+
+      // Check if file exists
+      if (!fs.existsSync(ledgerPath)) {
+        return res.status(404).json({ error: 'Workflow ledger not found' });
+      }
+
+      // Read and return the ledger as text
+      const ledgerContent = fs.readFileSync(ledgerPath, 'utf-8');
+      res.setHeader('Content-Type', 'text/markdown');
+      res.send(ledgerContent);
+    } catch (error: any) {
+      console.error("❌ Error reading workflow ledger:", error.message);
+      res.status(500).json({ error: "Failed to read workflow ledger", details: error.message });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }
