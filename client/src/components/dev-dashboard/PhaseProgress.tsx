@@ -1,6 +1,8 @@
 /**
  * Phase Progress Component - Collapsible Tree UI
  * Clean autonomous progress tracker with Phase → Epic → Task → Microtask hierarchy
+ *
+ * See docs/ralph-wiggum-dev-progress.md for architecture and planned ladder.
  */
 
 import { useState } from 'react';
@@ -8,7 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
-import { ChevronDown, ChevronRight, Loader2, Play, CheckCircle2 } from 'lucide-react';
+import { ChevronDown, ChevronRight, Loader2, Play, CheckCircle2, Eye } from 'lucide-react';
 import { Phase, PhaseTask } from '@/services/devProgressService';
 import {
   Dialog,
@@ -20,51 +22,83 @@ import {
 } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
 
 interface Props {
   phases: Phase[];
 }
 
-// Microtask UI-only type with success criteria and evidence
+// Microtask UI-only type with success criteria, evidence, and verification
 interface Microtask {
   id: string;
   description: string;
-  status: 'idle' | 'running' | 'done';
+  status: 'idle' | 'running' | 'pending_verify' | 'verified';
   successCriteria?: string;
   evidence?: string;
 }
 
-// Task name to microtasks mapping
+// Task name to microtasks mapping - Wyshbone-relevant content
 const TASK_MICROTASK_TEMPLATES: Record<string, string[]> = {
+  'Order fulfillment dashboard': [
+    'Build order status widget showing pending/in-progress/completed counts',
+    'Add order timeline visualization with fulfillment stages',
+    'Implement real-time order updates via WebSocket',
+    'Create order filtering by date range and brewery',
+    'Add export orders to CSV functionality',
+  ],
+  'Customer engagement A/B testing': [
+    'Design experiment configuration form for email variants',
+    'Implement customer cohort assignment logic',
+    'Build conversion tracking dashboard (open rate, click rate, orders)',
+    'Add statistical significance calculator for experiment results',
+    'Create experiment start/stop/rollback controls',
+    'Implement winner auto-promotion workflow',
+  ],
+  'Brewery pricing calculator': [
+    'Build ingredient cost input form (grains, hops, yeast)',
+    'Implement overhead cost allocation (utilities, labor, packaging)',
+    'Create price recommendation engine based on target margin',
+    'Add scenario comparison view (different batch sizes)',
+    'Build export pricing sheet to PDF',
+  ],
+  'Multi-brewery analytics dashboard': [
+    'Design brewery selector dropdown with tenant filtering',
+    'Create aggregated metrics cards (total orders, revenue, inventory)',
+    'Build comparative performance chart (brewery vs brewery)',
+    'Implement drill-down view by individual brewery',
+    'Add low-inventory alerts per brewery',
+    'Create consolidated CSV export across all breweries',
+  ],
+  // Legacy names (for backward compatibility if data source still uses old names)
   'Strategy performance tracking': [
-    'Add performance metrics table to strategy detail page',
-    'Implement real-time P&L calculation display',
-    'Create win/loss ratio visualization component',
-    'Add trade execution timeline chart',
-    'Build performance comparison vs benchmark',
+    'Build order status widget showing pending/in-progress/completed counts',
+    'Add order timeline visualization with fulfillment stages',
+    'Implement real-time order updates via WebSocket',
+    'Create order filtering by date range and brewery',
+    'Add export orders to CSV functionality',
   ],
   'A/B testing framework': [
-    'Design experiment configuration UI',
-    'Create variant assignment logic',
-    'Build metrics tracking dashboard',
-    'Implement statistical significance calculator',
-    'Add experiment results export',
-    'Create rollout controls (start/stop/rollback)',
+    'Design experiment configuration form for email variants',
+    'Implement customer cohort assignment logic',
+    'Build conversion tracking dashboard (open rate, click rate, orders)',
+    'Add statistical significance calculator for experiment results',
+    'Create experiment start/stop/rollback controls',
+    'Implement winner auto-promotion workflow',
   ],
   'ROI calculator': [
-    'Build input form for investment parameters',
-    'Implement ROI calculation engine',
-    'Create visualization for projected returns',
-    'Add scenario comparison feature',
-    'Build export to PDF functionality',
+    'Build ingredient cost input form (grains, hops, yeast)',
+    'Implement overhead cost allocation (utilities, labor, packaging)',
+    'Create price recommendation engine based on target margin',
+    'Add scenario comparison view (different batch sizes)',
+    'Build export pricing sheet to PDF',
   ],
   'Multi-tenant performance analytics': [
-    'Design tenant-scoped data filtering',
-    'Create aggregated metrics dashboard',
-    'Build tenant comparison view',
-    'Implement drill-down by tenant',
-    'Add tenant performance alerts',
-    'Create tenant usage report generator',
+    'Design brewery selector dropdown with tenant filtering',
+    'Create aggregated metrics cards (total orders, revenue, inventory)',
+    'Build comparative performance chart (brewery vs brewery)',
+    'Implement drill-down view by individual brewery',
+    'Add low-inventory alerts per brewery',
+    'Create consolidated CSV export across all breweries',
   ],
 };
 
@@ -117,7 +151,7 @@ const getStatusBadge = (status: string) => {
 };
 
 // Microtask status badge
-const getMicrotaskStatusBadge = (status: 'idle' | 'running' | 'done') => {
+const getMicrotaskStatusBadge = (status: 'idle' | 'running' | 'pending_verify' | 'verified') => {
   switch (status) {
     case 'idle':
       return <Badge variant="outline" className="text-xs">Idle</Badge>;
@@ -128,11 +162,18 @@ const getMicrotaskStatusBadge = (status: 'idle' | 'running' | 'done') => {
           Running
         </Badge>
       );
-    case 'done':
+    case 'pending_verify':
+      return (
+        <Badge className="bg-yellow-500 text-white text-xs flex items-center gap-1">
+          <Eye className="h-3 w-3" />
+          Pending Verify
+        </Badge>
+      );
+    case 'verified':
       return (
         <Badge className="bg-green-500 text-white text-xs flex items-center gap-1">
           <CheckCircle2 className="h-3 w-3" />
-          Done
+          Verified
         </Badge>
       );
   }
@@ -150,12 +191,14 @@ export function PhaseProgress({ phases }: Props) {
   // Modal state
   const [showSuccessCriteriaModal, setShowSuccessCriteriaModal] = useState(false);
   const [showEvidenceModal, setShowEvidenceModal] = useState(false);
+  const [showVerifyModal, setShowVerifyModal] = useState(false);
   const [currentMicrotaskContext, setCurrentMicrotaskContext] = useState<{
     taskId: string;
     microtaskId: string;
   } | null>(null);
   const [successCriteriaInput, setSuccessCriteriaInput] = useState('');
   const [evidenceInput, setEvidenceInput] = useState('');
+  const [verifyCheckbox, setVerifyCheckbox] = useState(false);
 
   const togglePhase = (phaseId: string) => {
     setExpandedPhases((prev) => {
@@ -231,6 +274,16 @@ export function PhaseProgress({ phases }: Props) {
     setExpandedTasks((prev) => new Set(prev).add(taskId));
   };
 
+  // Check if any microtask is running or pending verification
+  const hasRunningMicrotask = () => {
+    for (const microtasks of Object.values(microtasksByTask)) {
+      if (microtasks.some((m) => m.status === 'running' || m.status === 'pending_verify')) {
+        return true;
+      }
+    }
+    return false;
+  };
+
   const handleStartMicrotask = (taskId: string, microtaskId: string) => {
     const microtask = microtasksByTask[taskId]?.find((m) => m.id === microtaskId);
 
@@ -273,7 +326,7 @@ export function PhaseProgress({ phases }: Props) {
     setSuccessCriteriaInput('');
   };
 
-  const handleMarkDone = (taskId: string, microtaskId: string) => {
+  const handleSubmitEvidence = (taskId: string, microtaskId: string) => {
     const microtask = microtasksByTask[taskId]?.find((m) => m.id === microtaskId);
 
     if (!microtask) return;
@@ -289,12 +342,12 @@ export function PhaseProgress({ phases }: Props) {
 
     const { taskId, microtaskId } = currentMicrotaskContext;
 
-    // Save evidence and mark as done
+    // Save evidence and move to pending_verify
     setMicrotasksByTask((prev) => {
       const taskMicrotasks = prev[taskId] || [];
       const updated = taskMicrotasks.map((m) => {
         if (m.id === microtaskId) {
-          return { ...m, evidence: evidenceInput.trim(), status: 'done' as const };
+          return { ...m, evidence: evidenceInput.trim(), status: 'pending_verify' as const };
         }
         return m;
       });
@@ -309,7 +362,35 @@ export function PhaseProgress({ phases }: Props) {
     setEvidenceInput('');
   };
 
-  const updateMicrotaskStatus = (taskId: string, microtaskId: string, status: 'idle' | 'running' | 'done') => {
+  const handleVerify = (taskId: string, microtaskId: string) => {
+    const microtask = microtasksByTask[taskId]?.find((m) => m.id === microtaskId);
+
+    if (!microtask || !microtask.successCriteria) return;
+
+    // Open verify modal
+    setCurrentMicrotaskContext({ taskId, microtaskId });
+    setVerifyCheckbox(false);
+    setShowVerifyModal(true);
+  };
+
+  const handleConfirmVerify = () => {
+    if (!currentMicrotaskContext || !verifyCheckbox) return;
+
+    const { taskId, microtaskId } = currentMicrotaskContext;
+
+    // Mark as verified
+    updateMicrotaskStatus(taskId, microtaskId, 'verified');
+
+    setShowVerifyModal(false);
+    setCurrentMicrotaskContext(null);
+    setVerifyCheckbox(false);
+  };
+
+  const updateMicrotaskStatus = (
+    taskId: string,
+    microtaskId: string,
+    status: 'idle' | 'running' | 'pending_verify' | 'verified'
+  ) => {
     setMicrotasksByTask((prev) => {
       const taskMicrotasks = prev[taskId] || [];
       const updated = taskMicrotasks.map((m) => {
@@ -389,7 +470,9 @@ export function PhaseProgress({ phases }: Props) {
                     microtasksByTask={microtasksByTask}
                     onCreateMicrotasks={createMicrotasks}
                     onStartMicrotask={handleStartMicrotask}
-                    onMarkDone={handleMarkDone}
+                    onSubmitEvidence={handleSubmitEvidence}
+                    onVerify={handleVerify}
+                    hasRunningMicrotask={hasRunningMicrotask()}
                   />
                 </CardContent>
               )}
@@ -412,7 +495,7 @@ export function PhaseProgress({ phases }: Props) {
               <Label htmlFor="successCriteria">Success Criteria</Label>
               <Textarea
                 id="successCriteria"
-                placeholder="e.g., 'Performance table visible with 5 columns showing metrics', 'ROI chart renders with projected values'"
+                placeholder="e.g., 'Order status widget shows 3 cards with correct counts', 'Pricing calculator displays cost breakdown table'"
                 value={successCriteriaInput}
                 onChange={(e) => setSuccessCriteriaInput(e.target.value)}
                 rows={4}
@@ -443,7 +526,7 @@ export function PhaseProgress({ phases }: Props) {
           <DialogHeader>
             <DialogTitle>Provide Evidence</DialogTitle>
             <DialogDescription>
-              Short note confirming what you observed (e.g., "Table renders with 3 rows", "Chart shows correct data").
+              Short note confirming what you observed (e.g., "Widget renders with 3 cards showing pending=5, in-progress=2, completed=12").
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
@@ -451,7 +534,7 @@ export function PhaseProgress({ phases }: Props) {
               <Label htmlFor="evidence">Evidence</Label>
               <Textarea
                 id="evidence"
-                placeholder="e.g., 'Confirmed performance metrics table displays with all 5 columns and live data'"
+                placeholder="e.g., 'Confirmed order status widget displays correctly with live data from Supabase'"
                 value={evidenceInput}
                 onChange={(e) => setEvidenceInput(e.target.value)}
                 rows={3}
@@ -470,7 +553,69 @@ export function PhaseProgress({ phases }: Props) {
               Cancel
             </Button>
             <Button onClick={handleSaveEvidence} disabled={!evidenceInput.trim()}>
-              Mark Done
+              Submit Evidence
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Verify Modal */}
+      <Dialog open={showVerifyModal} onOpenChange={setShowVerifyModal}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Verify Microtask</DialogTitle>
+            <DialogDescription>
+              Confirm that you observed the success criteria.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            {currentMicrotaskContext && (
+              <div className="space-y-3">
+                <div className="p-3 bg-muted rounded-lg">
+                  <p className="text-sm font-semibold mb-1">Success Criteria:</p>
+                  <p className="text-sm text-muted-foreground">
+                    {microtasksByTask[currentMicrotaskContext.taskId]?.find(
+                      (m) => m.id === currentMicrotaskContext.microtaskId
+                    )?.successCriteria}
+                  </p>
+                </div>
+                <div className="p-3 bg-green-50 rounded-lg border border-green-200">
+                  <p className="text-sm font-semibold mb-1 text-green-800">Evidence:</p>
+                  <p className="text-sm text-green-700">
+                    {microtasksByTask[currentMicrotaskContext.taskId]?.find(
+                      (m) => m.id === currentMicrotaskContext.microtaskId
+                    )?.evidence}
+                  </p>
+                </div>
+                <div className="flex items-start space-x-2 pt-2">
+                  <Checkbox
+                    id="verify"
+                    checked={verifyCheckbox}
+                    onCheckedChange={(checked) => setVerifyCheckbox(checked === true)}
+                  />
+                  <label
+                    htmlFor="verify"
+                    className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                  >
+                    I observed the success criteria
+                  </label>
+                </div>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowVerifyModal(false);
+                setCurrentMicrotaskContext(null);
+                setVerifyCheckbox(false);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button onClick={handleConfirmVerify} disabled={!verifyCheckbox}>
+              Mark Verified
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -493,7 +638,9 @@ interface EpicRowProps {
   microtasksByTask: Record<string, Microtask[]>;
   onCreateMicrotasks: (taskId: string, taskTitle: string) => void;
   onStartMicrotask: (taskId: string, microtaskId: string) => void;
-  onMarkDone: (taskId: string, microtaskId: string) => void;
+  onSubmitEvidence: (taskId: string, microtaskId: string) => void;
+  onVerify: (taskId: string, microtaskId: string) => void;
+  hasRunningMicrotask: boolean;
 }
 
 function EpicRow({
@@ -505,7 +652,9 @@ function EpicRow({
   microtasksByTask,
   onCreateMicrotasks,
   onStartMicrotask,
-  onMarkDone,
+  onSubmitEvidence,
+  onVerify,
+  hasRunningMicrotask,
 }: EpicRowProps) {
   const completed = epic.tasks.filter((t) => t.status === 'completed').length;
   const total = epic.tasks.length;
@@ -542,7 +691,9 @@ function EpicRow({
               microtasks={microtasksByTask[task.id] || []}
               onCreateMicrotasks={() => onCreateMicrotasks(task.id, task.title)}
               onStartMicrotask={(microtaskId) => onStartMicrotask(task.id, microtaskId)}
-              onMarkDone={(microtaskId) => onMarkDone(task.id, microtaskId)}
+              onSubmitEvidence={(microtaskId) => onSubmitEvidence(task.id, microtaskId)}
+              onVerify={(microtaskId) => onVerify(task.id, microtaskId)}
+              hasRunningMicrotask={hasRunningMicrotask}
             />
           ))}
         </div>
@@ -559,7 +710,9 @@ interface TaskRowProps {
   microtasks: Microtask[];
   onCreateMicrotasks: () => void;
   onStartMicrotask: (microtaskId: string) => void;
-  onMarkDone: (microtaskId: string) => void;
+  onSubmitEvidence: (microtaskId: string) => void;
+  onVerify: (microtaskId: string) => void;
+  hasRunningMicrotask: boolean;
 }
 
 function TaskRow({
@@ -569,7 +722,9 @@ function TaskRow({
   microtasks,
   onCreateMicrotasks,
   onStartMicrotask,
-  onMarkDone,
+  onSubmitEvidence,
+  onVerify,
+  hasRunningMicrotask,
 }: TaskRowProps) {
   const hasMicrotasks = microtasks.length > 0;
 
@@ -624,7 +779,9 @@ function TaskRow({
                   key={microtask.id}
                   microtask={microtask}
                   onStartMicrotask={() => onStartMicrotask(microtask.id)}
-                  onMarkDone={() => onMarkDone(microtask.id)}
+                  onSubmitEvidence={() => onSubmitEvidence(microtask.id)}
+                  onVerify={() => onVerify(microtask.id)}
+                  hasRunningMicrotask={hasRunningMicrotask}
                 />
               ))}
             </div>
@@ -639,10 +796,23 @@ function TaskRow({
 interface MicrotaskRowProps {
   microtask: Microtask;
   onStartMicrotask: () => void;
-  onMarkDone: () => void;
+  onSubmitEvidence: () => void;
+  onVerify: () => void;
+  hasRunningMicrotask: boolean;
 }
 
-function MicrotaskRow({ microtask, onStartMicrotask, onMarkDone }: MicrotaskRowProps) {
+function MicrotaskRow({
+  microtask,
+  onStartMicrotask,
+  onSubmitEvidence,
+  onVerify,
+  hasRunningMicrotask,
+}: MicrotaskRowProps) {
+  // Disable Start button if another microtask is running or pending verify, and this one is idle
+  const isStartDisabled =
+    microtask.status === 'idle' &&
+    hasRunningMicrotask;
+
   return (
     <div className="flex flex-col gap-2 p-3 bg-muted/30 rounded border border-border/50">
       <div className="flex items-center justify-between">
@@ -657,6 +827,7 @@ function MicrotaskRow({ microtask, onStartMicrotask, onMarkDone }: MicrotaskRowP
               variant="default"
               className="h-7 px-2 text-xs"
               onClick={onStartMicrotask}
+              disabled={isStartDisabled}
             >
               <Play className="h-3 w-3 mr-1" />
               Start
@@ -666,11 +837,21 @@ function MicrotaskRow({ microtask, onStartMicrotask, onMarkDone }: MicrotaskRowP
             <Button
               size="sm"
               variant="default"
-              className="h-7 px-2 text-xs bg-green-600 hover:bg-green-700"
-              onClick={onMarkDone}
+              className="h-7 px-2 text-xs bg-yellow-600 hover:bg-yellow-700"
+              onClick={onSubmitEvidence}
             >
-              <CheckCircle2 className="h-3 w-3 mr-1" />
-              Mark Done
+              Submit Evidence
+            </Button>
+          )}
+          {microtask.status === 'pending_verify' && (
+            <Button
+              size="sm"
+              variant="default"
+              className="h-7 px-2 text-xs bg-green-600 hover:bg-green-700"
+              onClick={onVerify}
+            >
+              <Eye className="h-3 w-3 mr-1" />
+              Verify
             </Button>
           )}
         </div>
