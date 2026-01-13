@@ -3,6 +3,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { CheckCircle2, Circle, PlayCircle, AlertCircle } from 'lucide-react';
 
+interface Microtask {
+  description: string;
+  completed: boolean;
+}
+
 interface Task {
   id: string;
   description: string;
@@ -10,6 +15,7 @@ interface Task {
   outcome?: string;
   verification?: string;
   evidence?: string;
+  microtasks?: Microtask[];
 }
 
 interface Epic {
@@ -172,6 +178,20 @@ export default function WorkflowPage() {
       else if (line.match(/^\s+- Evidence:/)) {
         if (currentTask) currentTask.evidence = line.replace(/^\s+- Evidence: /, '').trim();
       }
+      // Microtasks header
+      else if (line.match(/^\s+- Microtasks:/)) {
+        if (currentTask) {
+          currentTask.microtasks = [];
+        }
+      }
+      // Individual microtask (4+ spaces, checkbox)
+      else if (line.match(/^\s{4,}- \[([ x])\]/)) {
+        if (currentTask && currentTask.microtasks) {
+          const completed = line.includes('[x]');
+          const description = line.replace(/^\s{4,}- \[[ x]\] /, '').trim();
+          currentTask.microtasks.push({ description, completed });
+        }
+      }
     }
 
     // Push final phase/epic/task
@@ -300,6 +320,23 @@ export default function WorkflowPage() {
                                 <p className="text-xs text-muted-foreground mt-1">
                                   Evidence: {task.evidence}
                                 </p>
+                              )}
+                              {task.microtasks && task.microtasks.length > 0 && (
+                                <div className="mt-2 ml-6 space-y-1">
+                                  <p className="text-xs font-medium text-muted-foreground">Microtasks:</p>
+                                  {task.microtasks.map((microtask, idx) => (
+                                    <div key={idx} className="flex items-start gap-1.5 text-xs text-muted-foreground">
+                                      {microtask.completed ? (
+                                        <CheckCircle2 className="h-3 w-3 text-green-600 mt-0.5 flex-shrink-0" />
+                                      ) : (
+                                        <Circle className="h-3 w-3 text-gray-400 mt-0.5 flex-shrink-0" />
+                                      )}
+                                      <span className={microtask.completed ? 'line-through' : ''}>
+                                        {microtask.description}
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
                               )}
                             </div>
                           </div>

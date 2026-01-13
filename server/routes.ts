@@ -12229,7 +12229,7 @@ ${run.outputText}`;
       const fs = await import('fs');
       const path = await import('path');
 
-      // Ledger is in parent directory: thoughts/ledgers/WORKFLOW-wyshbone.md
+      // Ledger is in parent directory: GitHub/thoughts/ledgers/WORKFLOW-wyshbone.md
       const ledgerPath = path.join(process.cwd(), '..', 'thoughts', 'ledgers', 'WORKFLOW-wyshbone.md');
 
       // Check if file exists
@@ -12244,6 +12244,291 @@ ${run.outputText}`;
     } catch (error: any) {
       console.error("❌ Error reading workflow ledger:", error.message);
       res.status(500).json({ error: "Failed to read workflow ledger", details: error.message });
+    }
+  });
+
+  /**
+   * POST /api/workflow/continue
+   * DEV-ONLY: Find next incomplete microtask in phase or epic
+   * Body: { scope: "phase" | "epic", id: "1" | "1.1" }
+   * Response: { phaseId, epicId, taskId, taskDescription, microtaskIndex, microtaskText }
+   */
+  app.post("/api/workflow/continue", async (req, res) => {
+    try {
+      const fs = await import('fs');
+      const path = await import('path');
+
+      const { scope, id } = req.body;
+
+      if (!scope || !id) {
+        return res.status(400).json({ error: 'Missing scope or id in request body' });
+      }
+
+      if (scope !== 'phase' && scope !== 'epic') {
+        return res.status(400).json({ error: 'Scope must be "phase" or "epic"' });
+      }
+
+      const ledgerPath = path.join(process.cwd(), '..', 'thoughts', 'ledgers', 'WORKFLOW-wyshbone.md');
+      if (!fs.existsSync(ledgerPath)) {
+        return res.status(404).json({ error: 'Workflow ledger not found' });
+      }
+
+      const ledgerContent = fs.readFileSync(ledgerPath, 'utf-8').replace(/\r\n/g, '\n');  // Normalize Windows line endings
+      const lines = ledgerContent.split('\n');
+
+      let currentPhase: string | null = null;
+      let currentPhaseId: string | null = null;
+      let currentEpic: string | null = null;
+      let currentEpicId: string | null = null;
+      let currentTask: string | null = null;
+      let currentTaskId: string | null = null;
+      let currentTaskDescription: string | null = null;
+      let inMicrotasks = false;
+      let microtaskIndex = 0;
+
+      let inTargetScope = false;
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+
+        // Phase header (## Phase X:)
+        if (line.match(/^## Phase (\d+):/)) {
+          const match = line.match(/^## Phase (\d+): (.+)$/);
+          if (match) {
+            currentPhaseId = match[1];
+            currentPhase = match[2];
+            currentEpic = null;
+            currentEpicId = null;
+            currentTask = null;
+            currentTaskId = null;
+            currentTaskDescription = null;
+            inMicrotasks = false;
+
+            // When searching by phase, set scope for the whole phase
+            if (scope === 'phase') {
+              inTargetScope = currentPhaseId === id;
+            }
+            // When searching by epic, we're now out of any previous epic
+            else if (scope === 'epic') {
+              inTargetScope = false;
+            }
+          }
+        }
+
+        // Epic header (### Epic X.Y:)
+        else if (line.match(/^### Epic (\d+\.\d+):/)) {
+          const match = line.match(/^### Epic (\d+\.\d+): (.+)$/);
+          if (match) {
+            currentEpicId = match[1];
+            currentEpic = match[2];
+            currentTask = null;
+            currentTaskId = null;
+            currentTaskDescription = null;
+            inMicrotasks = false;
+
+            // When searching by epic, only set scope for the target epic
+            if (scope === 'epic') {
+              inTargetScope = currentEpicId === id;
+            }
+            // When searching by phase, stay in scope (don't change it)
+          }
+        }
+
+        // Task (- [ ] Task X:)
+        else if (line.match(/^- \[([ →x!])\] Task (\d+): (.+)$/)) {
+          const match = line.match(/^- \[([ →x!])\] Task (\d+): (.+)$/);
+          if (match) {
+            const status = match[1];
+            currentTaskId = match[2];
+            currentTaskDescription = match[3];
+            inMicrotasks = false;
+            microtaskIndex = 0;
+
+            // Skip completed or blocked tasks
+            if (status === 'x' || status === '!') {
+              currentTask = null;
+              currentTaskId = null;
+              currentTaskDescription = null;
+            } else {
+              currentTask = `${currentTaskId}: ${currentTaskDescription}`;
+            }
+          }
+        }
+
+        // Microtasks header
+        else if (line.match(/^\s+- Microtasks:/)) {
+          inMicrotasks = true;
+          microtaskIndex = 0;
+        }
+
+        // Individual microtask (4+ spaces, checkbox)
+        else if (line.match(/^\s{4,}- \[([ x])\] (.+)$/)) {
+          if (inTargetScope && inMicrotasks && currentTask) {
+            const match = line.match(/^\s{4,}- \[([ x])\] (.+)$/);
+            if (match) {
+              const completed = match[1] === 'x';
+              const microtaskText = match[2];
+
+              console.log(`[DEBUG] Found microtask: "${microtaskText}", completed=${completed}, inTargetScope=${inTargetScope}, currentEpicId=${currentEpicId}, currentTaskId=${currentTaskId}`);
+
+              // Found incomplete microtask!
+              if (!completed) {
+                return res.json({
+                  phaseId: currentPhaseId,
+                  phaseName: currentPhase,
+                  epicId: currentEpicId,
+                  epicName: currentEpic,
+                  taskId: currentTaskId,
+                  taskDescription: currentTaskDescription,
+                  microtaskIndex,
+                  microtaskText,
+                  textBlock: `Phase ${currentPhaseId}: ${currentPhase}\nEpic ${currentEpicId}: ${currentEpic}\n\nTask ${currentTaskId}: ${currentTaskDescription}\n\nMicrotask ${microtaskIndex + 1}: ${microtaskText}`
+                });
+              }
+
+              microtaskIndex++;
+            }
+          }
+        }
+      }
+
+      // No incomplete microtask found
+      return res.status(404).json({
+        error: 'No incomplete microtasks found in the specified scope',
+        scope,
+        id
+      });
+
+    } catch (error: any) {
+      console.error("❌ Error in /api/workflow/continue:", error.message);
+      res.status(500).json({ error: "Failed to process continue request", details: error.message });
+    }
+  });
+
+  /**
+   * POST /api/workflow/mark
+   * DEV-ONLY: Mark a microtask as done/in-progress/blocked and update ledger
+   * Body: { epicId: "1.1", taskId: "1", microtaskIndex: 0, status: "done" | "in-progress" | "blocked", evidence?: string }
+   */
+  app.post("/api/workflow/mark", async (req, res) => {
+    try {
+      const fs = await import('fs');
+      const path = await import('path');
+
+      const { epicId, taskId, microtaskIndex, status, evidence } = req.body;
+
+      if (!epicId || !taskId || microtaskIndex === undefined || !status) {
+        return res.status(400).json({ error: 'Missing required fields: epicId, taskId, microtaskIndex, status' });
+      }
+
+      if (!['done', 'in-progress', 'blocked'].includes(status)) {
+        return res.status(400).json({ error: 'Status must be "done", "in-progress", or "blocked"' });
+      }
+
+      const ledgerPath = path.join(process.cwd(), '..', 'thoughts', 'ledgers', 'WORKFLOW-wyshbone.md');
+      if (!fs.existsSync(ledgerPath)) {
+        return res.status(404).json({ error: 'Workflow ledger not found' });
+      }
+
+      let ledgerContent = fs.readFileSync(ledgerPath, 'utf-8').replace(/\r\n/g, '\n');  // Normalize Windows line endings
+      const lines = ledgerContent.split('\n');
+
+      let currentEpicId: string | null = null;
+      let currentTaskId: string | null = null;
+      let inMicrotasks = false;
+      let currentMicrotaskIndex = 0;
+      let updated = false;
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+
+        // Epic header
+        if (line.match(/^### Epic (\d+\.\d+):/)) {
+          const match = line.match(/^### Epic (\d+\.\d+):/);
+          if (match) {
+            currentEpicId = match[1];
+            inMicrotasks = false;
+            currentMicrotaskIndex = 0;
+          }
+        }
+
+        // Task
+        else if (line.match(/^- \[([ →x!])\] Task (\d+):/)) {
+          const match = line.match(/^- \[([ →x!])\] Task (\d+):/);
+          if (match) {
+            currentTaskId = match[2];
+            inMicrotasks = false;
+            currentMicrotaskIndex = 0;
+          }
+        }
+
+        // Microtasks header
+        else if (line.match(/^\s+- Microtasks:/)) {
+          inMicrotasks = true;
+          currentMicrotaskIndex = 0;
+        }
+
+        // Individual microtask
+        else if (inMicrotasks && line.match(/^\s{4,}- \[([ x])\] (.+)$/)) {
+          if (currentEpicId === epicId && currentTaskId === taskId && currentMicrotaskIndex === microtaskIndex) {
+            // Update this microtask
+            const checkbox = status === 'done' ? 'x' : ' ';
+            const microtaskText = line.replace(/^\s{4,}- \[[ x]\] /, '');
+            const indent = line.match(/^(\s{4,})/)?.[1] || '    ';
+            lines[i] = `${indent}- [${checkbox}] ${microtaskText}`;
+            updated = true;
+
+            // If evidence is provided, update the Evidence field of the parent task
+            if (evidence) {
+              // Find the Evidence line for the current task
+              for (let j = i - 1; j >= 0; j--) {
+                if (lines[j].match(/^- \[/)) {
+                  // Found the task line, now find Evidence
+                  for (let k = j + 1; k < i; k++) {
+                    if (lines[k].match(/^\s+- Evidence:/)) {
+                      lines[k] = `  - Evidence: ${evidence}`;
+                      break;
+                    }
+                  }
+                  break;
+                }
+              }
+            }
+
+            break;
+          }
+
+          currentMicrotaskIndex++;
+        }
+      }
+
+      if (!updated) {
+        return res.status(404).json({
+          error: 'Microtask not found',
+          epicId,
+          taskId,
+          microtaskIndex
+        });
+      }
+
+      // Write back to file
+      const updatedContent = lines.join('\n');
+      fs.writeFileSync(ledgerPath, updatedContent, 'utf-8');
+
+      console.log(`✅ Updated microtask: Epic ${epicId}, Task ${taskId}, Microtask ${microtaskIndex} -> ${status}`);
+
+      return res.json({
+        success: true,
+        epicId,
+        taskId,
+        microtaskIndex,
+        status,
+        evidence: evidence || null
+      });
+
+    } catch (error: any) {
+      console.error("❌ Error in /api/workflow/mark:", error.message);
+      res.status(500).json({ error: "Failed to update workflow ledger", details: error.message });
     }
   });
 
