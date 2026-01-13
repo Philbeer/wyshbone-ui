@@ -37,6 +37,12 @@ interface Microtask {
   evidence?: string;
 }
 
+// Microtask guidance for Start modal
+interface MicrotaskGuidance {
+  explanation: string;
+  suggestedSuccessCriteria: string;
+}
+
 // Task name to microtasks mapping - Wyshbone-relevant content
 const TASK_MICROTASK_TEMPLATES: Record<string, string[]> = {
   'Order fulfillment dashboard': [
@@ -101,6 +107,119 @@ const TASK_MICROTASK_TEMPLATES: Record<string, string[]> = {
     'Create consolidated CSV export across all breweries',
   ],
 };
+
+// Microtask-specific guidance mapping
+const MICROTASK_GUIDANCE: Record<string, MicrotaskGuidance> = {
+  // Order fulfillment dashboard microtasks
+  'Build order status widget showing pending/in-progress/completed counts': {
+    explanation: 'Create a dashboard widget that shows how many orders are pending, in progress, and completed so staff can see order progress at a glance.',
+    suggestedSuccessCriteria: 'I can see a widget on the dashboard showing three counts: pending, in-progress, and completed orders.',
+  },
+  'Add order timeline visualization with fulfillment stages': {
+    explanation: 'Add a visual timeline that shows each order moving through stages like received, processing, ready, and shipped.',
+    suggestedSuccessCriteria: 'I can see a timeline chart for an order showing stages like "Received", "Processing", "Ready", and "Shipped" with dates.',
+  },
+  'Implement real-time order updates via WebSocket': {
+    explanation: 'Make the order dashboard update automatically when orders change, without needing to refresh the page.',
+    suggestedSuccessCriteria: 'When an order status changes in the database, I can see the dashboard update automatically within 2 seconds without refreshing.',
+  },
+  'Create order filtering by date range and brewery': {
+    explanation: 'Add filters so users can view only orders from a specific date range or from a particular brewery.',
+    suggestedSuccessCriteria: 'I can select a date range and brewery from dropdown filters, and the order list updates to show only matching orders.',
+  },
+  'Add export orders to CSV functionality': {
+    explanation: 'Add a button that lets users download the current order list as a spreadsheet file they can open in Excel.',
+    suggestedSuccessCriteria: 'I can click an "Export to CSV" button and download a file containing the order list with all visible columns.',
+  },
+
+  // Customer engagement A/B testing microtasks
+  'Design experiment configuration form for email variants': {
+    explanation: 'Create a form where users can set up an A/B test by defining different email versions to test against each other.',
+    suggestedSuccessCriteria: 'I can see a form where I can enter two email subject lines and body text for variant A and variant B.',
+  },
+  'Implement customer cohort assignment logic': {
+    explanation: 'Write code that automatically splits customers into groups (A or B) so they receive different email variants.',
+    suggestedSuccessCriteria: 'When I create an experiment, customers are automatically split 50/50 into variant A and B groups visible in the database.',
+  },
+  'Build conversion tracking dashboard (open rate, click rate, orders)': {
+    explanation: 'Create a dashboard showing how well each email variant performed: how many people opened it, clicked it, and placed orders.',
+    suggestedSuccessCriteria: 'I can see a dashboard showing open rate %, click rate %, and order count for both variant A and variant B.',
+  },
+  'Add statistical significance calculator for experiment results': {
+    explanation: 'Add a calculator that shows if the difference between variants is meaningful or just random chance.',
+    suggestedSuccessCriteria: 'I can see a p-value and confidence level displayed next to each metric, indicating if results are statistically significant.',
+  },
+  'Create experiment start/stop/rollback controls': {
+    explanation: 'Add buttons that let users start, pause, or completely undo an A/B test experiment.',
+    suggestedSuccessCriteria: 'I can see Start, Pause, and Rollback buttons on the experiment page, and clicking them changes the experiment status.',
+  },
+  'Implement winner auto-promotion workflow': {
+    explanation: 'Automatically make the winning email variant the default for all customers once the test concludes.',
+    suggestedSuccessCriteria: 'When an experiment ends, the variant with better performance is automatically set as the default email template.',
+  },
+
+  // Brewery pricing calculator microtasks
+  'Build ingredient cost input form (grains, hops, yeast)': {
+    explanation: 'Create a form where brewers can enter the costs of their ingredients like grains, hops, and yeast.',
+    suggestedSuccessCriteria: 'I can see input fields for grain cost, hop cost, and yeast cost with labels and a "Calculate" button.',
+  },
+  'Implement overhead cost allocation (utilities, labor, packaging)': {
+    explanation: 'Add fields for fixed costs like electricity, employee wages, and packaging materials that apply to each batch.',
+    suggestedSuccessCriteria: 'I can see input fields for utilities, labor hours, and packaging costs, and they are included in the total cost calculation.',
+  },
+  'Create price recommendation engine based on target margin': {
+    explanation: 'Calculate and suggest a selling price based on total costs plus the desired profit margin percentage.',
+    suggestedSuccessCriteria: 'When I enter a target margin of 40%, I see a recommended selling price that includes costs plus the margin.',
+  },
+  'Add scenario comparison view (different batch sizes)': {
+    explanation: 'Show side-by-side pricing for small, medium, and large batch sizes so brewers can compare economics.',
+    suggestedSuccessCriteria: 'I can see a table showing cost per unit and recommended price for batch sizes of 10, 50, and 100 barrels.',
+  },
+  'Build export pricing sheet to PDF': {
+    explanation: 'Add a button that creates a downloadable PDF with the pricing breakdown and recommendations.',
+    suggestedSuccessCriteria: 'I can click "Export to PDF" and download a file showing all costs, margins, and recommended prices.',
+  },
+
+  // Multi-brewery analytics dashboard microtasks
+  'Design brewery selector dropdown with tenant filtering': {
+    explanation: 'Add a dropdown menu that lets users choose which brewery's data they want to view.',
+    suggestedSuccessCriteria: 'I can see a dropdown at the top of the page listing all breweries, and selecting one filters all data to that brewery.',
+  },
+  'Create aggregated metrics cards (total orders, revenue, inventory)': {
+    explanation: 'Show summary cards at the top of the dashboard displaying key numbers like total orders, total revenue, and inventory levels.',
+    suggestedSuccessCriteria: 'I can see three cards at the top showing: total orders count, total revenue amount, and current inventory units.',
+  },
+  'Build comparative performance chart (brewery vs brewery)': {
+    explanation: 'Create a chart that shows how different breweries compare to each other in terms of sales or orders.',
+    suggestedSuccessCriteria: 'I can see a bar chart comparing monthly revenue across all breweries side by side.',
+  },
+  'Implement drill-down view by individual brewery': {
+    explanation: 'Allow users to click on a brewery to see detailed information just for that brewery.',
+    suggestedSuccessCriteria: 'When I click on a brewery name, I see a detail page showing that brewery's orders, revenue, and inventory.',
+  },
+  'Add low-inventory alerts per brewery': {
+    explanation: 'Show warnings when any brewery's inventory drops below a safe level.',
+    suggestedSuccessCriteria: 'I can see a red alert badge next to any brewery with inventory below 10 units.',
+  },
+  'Create consolidated CSV export across all breweries': {
+    explanation: 'Add a button to download a single spreadsheet containing data from all breweries combined.',
+    suggestedSuccessCriteria: 'I can click "Export All Breweries" and download a CSV file with rows for each brewery showing key metrics.',
+  },
+};
+
+// Helper to get guidance for a microtask
+function getMicrotaskGuidance(microtaskTitle: string): MicrotaskGuidance {
+  const specific = MICROTASK_GUIDANCE[microtaskTitle];
+  if (specific) {
+    return specific;
+  }
+
+  // Fallback to generic guidance
+  return {
+    explanation: `This microtask involves implementing and validating: ${microtaskTitle}`,
+    suggestedSuccessCriteria: `I can verify that the following is complete and working: ${microtaskTitle.toLowerCase()}`,
+  };
+}
 
 // Repo color mapping
 const repoColors = {
@@ -195,6 +314,7 @@ export function PhaseProgress({ phases }: Props) {
   const [currentMicrotaskContext, setCurrentMicrotaskContext] = useState<{
     taskId: string;
     microtaskId: string;
+    microtaskTitle: string;
   } | null>(null);
   const [successCriteriaInput, setSuccessCriteriaInput] = useState('');
   const [evidenceInput, setEvidenceInput] = useState('');
@@ -289,10 +409,11 @@ export function PhaseProgress({ phases }: Props) {
 
     if (!microtask) return;
 
-    // If no success criteria, prompt for it
+    // If no success criteria, prompt for it with guidance
     if (!microtask.successCriteria) {
-      setCurrentMicrotaskContext({ taskId, microtaskId });
-      setSuccessCriteriaInput('');
+      const guidance = getMicrotaskGuidance(microtask.description);
+      setCurrentMicrotaskContext({ taskId, microtaskId, microtaskTitle: microtask.description });
+      setSuccessCriteriaInput(guidance.suggestedSuccessCriteria);
       setShowSuccessCriteriaModal(true);
       return;
     }
@@ -332,7 +453,7 @@ export function PhaseProgress({ phases }: Props) {
     if (!microtask) return;
 
     // Prompt for evidence
-    setCurrentMicrotaskContext({ taskId, microtaskId });
+    setCurrentMicrotaskContext({ taskId, microtaskId, microtaskTitle: microtask.description });
     setEvidenceInput('');
     setShowEvidenceModal(true);
   };
@@ -368,7 +489,7 @@ export function PhaseProgress({ phases }: Props) {
     if (!microtask || !microtask.successCriteria) return;
 
     // Open verify modal
-    setCurrentMicrotaskContext({ taskId, microtaskId });
+    setCurrentMicrotaskContext({ taskId, microtaskId, microtaskTitle: microtask.description });
     setVerifyCheckbox(false);
     setShowVerifyModal(true);
   };
@@ -483,23 +604,39 @@ export function PhaseProgress({ phases }: Props) {
 
       {/* Success Criteria Modal */}
       <Dialog open={showSuccessCriteriaModal} onOpenChange={setShowSuccessCriteriaModal}>
-        <DialogContent>
+        <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>Define Success Criteria</DialogTitle>
             <DialogDescription>
-              Must be human-observable (something you can see in UI / numbers / table row).
+              Review and customize the success criteria for this microtask.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
+            {/* Explanation Section */}
+            {currentMicrotaskContext && (
+              <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
+                <p className="text-sm font-semibold text-blue-900 mb-2">What this microtask means:</p>
+                <p className="text-sm text-blue-800">
+                  {getMicrotaskGuidance(currentMicrotaskContext.microtaskTitle).explanation}
+                </p>
+              </div>
+            )}
+
+            {/* Success Criteria Input */}
             <div className="space-y-2">
-              <Label htmlFor="successCriteria">Success Criteria</Label>
+              <Label htmlFor="successCriteria">
+                Success Criteria <span className="text-muted-foreground text-xs">(editable)</span>
+              </Label>
               <Textarea
                 id="successCriteria"
-                placeholder="e.g., 'Order status widget shows 3 cards with correct counts', 'Pricing calculator displays cost breakdown table'"
                 value={successCriteriaInput}
                 onChange={(e) => setSuccessCriteriaInput(e.target.value)}
                 rows={4}
+                className="resize-none"
               />
+              <p className="text-xs text-muted-foreground">
+                Must be human-observable (something you can see in UI / numbers / table row).
+              </p>
             </div>
           </div>
           <DialogFooter>
@@ -809,9 +946,7 @@ function MicrotaskRow({
   hasRunningMicrotask,
 }: MicrotaskRowProps) {
   // Disable Start button if another microtask is running or pending verify, and this one is idle
-  const isStartDisabled =
-    microtask.status === 'idle' &&
-    hasRunningMicrotask;
+  const isStartDisabled = microtask.status === 'idle' && hasRunningMicrotask;
 
   return (
     <div className="flex flex-col gap-2 p-3 bg-muted/30 rounded border border-border/50">
