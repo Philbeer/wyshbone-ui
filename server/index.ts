@@ -32,8 +32,8 @@ function log(message: string, source = "express") {
 
 const app = express();
 
-// CORS configuration for cross-origin requests (Vercel frontend → Render backend)
-// Vite may use ports 5173-5179 depending on availability
+// CORS configuration for cross-origin requests
+// Supports localhost, Vercel, and Replit deployments
 const allowedOrigins = [
   'http://localhost:3000',
   'http://localhost:5173',
@@ -45,17 +45,25 @@ const allowedOrigins = [
   'http://localhost:5179',
   'http://localhost:5000',
   'http://localhost:5001',
-  process.env.FRONTEND_URL, // e.g., https://wyshbone.vercel.app
+  'http://127.0.0.1:5000',
+  'http://127.0.0.1:5001',
+  process.env.FRONTEND_URL,
 ].filter(Boolean) as string[];
 
 app.use(cors({
   origin: (origin, callback) => {
-    // Allow requests with no origin (like mobile apps or curl)
     if (!origin) return callback(null, true);
-    // Return the actual origin (not true) to avoid Access-Control-Allow-Origin: * with credentials
-    if (allowedOrigins.includes(origin) || origin.endsWith('.vercel.app')) {
+    if (allowedOrigins.includes(origin)) {
       return callback(null, origin);
     }
+    if (origin.endsWith('.vercel.app') || 
+        origin.endsWith('.replit.app') || 
+        origin.endsWith('.replit.dev') ||
+        origin.endsWith('.repl.co') ||
+        origin.includes('.replit.')) {
+      return callback(null, origin);
+    }
+    console.log(`⚠️ CORS: Rejecting origin ${origin}`);
     callback(new Error('Not allowed by CORS'));
   },
   credentials: true,
