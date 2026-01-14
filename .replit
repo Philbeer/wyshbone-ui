@@ -1,9 +1,9 @@
-modules = ["nodejs-20", "web", "postgresql-16"]
+modules = ["nodejs-20", "web", "bash"]
 run = "npm run dev"
 hidden = [".config", ".git", "generated-icon.png", "node_modules", "dist"]
 
 [nix]
-channel = "stable-24_05"
+channel = "stable-25_05"
 
 [deployment]
 deploymentTarget = "autoscale"
@@ -13,66 +13,6 @@ run = ["npm", "run", "start"]
 [[ports]]
 localPort = 5000
 externalPort = 80
-
-[[ports]]
-localPort = 32833
-externalPort = 8008
-
-[[ports]]
-localPort = 33823
-externalPort = 5000
-
-[[ports]]
-localPort = 34509
-externalPort = 3003
-
-[[ports]]
-localPort = 37137
-externalPort = 6800
-
-[[ports]]
-localPort = 39207
-externalPort = 8080
-
-[[ports]]
-localPort = 40475
-externalPort = 3002
-
-[[ports]]
-localPort = 40847
-externalPort = 8000
-
-[[ports]]
-localPort = 40951
-externalPort = 8099
-
-[[ports]]
-localPort = 41213
-externalPort = 4200
-
-[[ports]]
-localPort = 42399
-externalPort = 8081
-
-[[ports]]
-localPort = 44013
-externalPort = 5173
-
-[[ports]]
-localPort = 45353
-externalPort = 3001
-
-[[ports]]
-localPort = 45415
-externalPort = 6000
-
-[[ports]]
-localPort = 45741
-externalPort = 9000
-
-[[ports]]
-localPort = 46361
-externalPort = 3000
 
 [env]
 PORT = "5000"
@@ -100,3 +40,4 @@ waitForPort = 5000
 
 [agent]
 integrations = ["javascript_openai:1.0.0", "resend:1.0.0"]
+expertMode = true

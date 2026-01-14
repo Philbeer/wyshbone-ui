@@ -24,8 +24,10 @@ export default defineConfig({
     },
   },
   server: {
-    port: 5173,
-    strictPort: true, // Fail with clear error if port 5173 is busy (don't auto-bump)
+    host: "0.0.0.0",
+    port: 5000,
+    strictPort: true,
+    allowedHosts: true,
     // Proxy API requests to backend server in development
     proxy: {
       '/api': {
