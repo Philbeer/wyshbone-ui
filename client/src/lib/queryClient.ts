@@ -1,3 +1,46 @@
+/**
+ * V1-1.3: Unified API Client & Error Handling
+ * ============================================
+ * 
+ * This module provides the canonical API helpers for all Supervisor-facing UI actions.
+ * All API calls should go through these helpers for consistent behavior.
+ * 
+ * ## When to use each helper:
+ * 
+ * ### `apiRequest(method, url, data?)` - For mutations (POST/PUT/PATCH/DELETE)
+ *   - Use for any action that modifies server state
+ *   - Automatically sets Content-Type: application/json for requests with body
+ *   - Throws on non-2xx responses with error message
+ *   - Example: await apiRequest("POST", "/api/plan/approve", { planId })
+ * 
+ * ### `authedFetch(url, options?)` - For reads (GET) or custom requests
+ *   - Use for GET requests, especially with react-query
+ *   - Use when you need access to the raw Response object
+ *   - Does NOT automatically throw on error - check response.ok yourself
+ *   - Example: const response = await authedFetch("/api/goal")
+ * 
+ * ### `handleApiError(error, context)` - Unified error handler
+ *   - Use in catch blocks for user-facing API actions
+ *   - Logs error to console with context
+ *   - Returns a user-friendly error message
+ *   - Example: catch (err) { const msg = handleApiError(err, "approve plan"); toast({ title: msg }) }
+ * 
+ * ## Error handling pattern:
+ * ```ts
+ * try {
+ *   await apiRequest("POST", "/api/some/endpoint", data);
+ *   // Success handling...
+ * } catch (error) {
+ *   const message = handleApiError(error, "operation name");
+ *   toast({ title: "Operation failed", description: message, variant: "destructive" });
+ * }
+ * ```
+ * 
+ * ## Base URL:
+ * - Set VITE_API_BASE_URL for separate backend deployment
+ * - If not set, uses same-origin (relative URLs)
+ */
+
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
 // Get API base URL from environment (for separate backend deployment)
@@ -14,11 +57,150 @@ export function buildApiUrl(path: string): string {
   return path;
 }
 
+// Structured API error from backend
+interface ApiErrorResponse {
+  code?: string;
+  message?: string;
+  error?: string;
+  hint?: string;
+}
+
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
-    const text = (await res.text()) || res.statusText;
-    throw new Error(`${res.status}: ${text}`);
+    let errorMessage = res.statusText;
+    let hint: string | undefined;
+    
+    try {
+      const text = await res.text();
+      if (text) {
+        // Try to parse JSON error response
+        try {
+          const json: ApiErrorResponse = JSON.parse(text);
+          // Use message or error field
+          errorMessage = json.message || json.error || text;
+          hint = json.hint;
+        } catch {
+          errorMessage = text;
+        }
+      }
+    } catch {
+      // Failed to read response body
+    }
+    
+    // Include hint in error message if provided
+    const fullMessage = hint ? `${errorMessage} (Hint: ${hint})` : errorMessage;
+    throw new Error(`${res.status}: ${fullMessage}`);
   }
+}
+
+/**
+ * Unified API error handler for user-facing actions.
+ * 
+ * Use this in catch blocks when calling apiRequest or authedFetch for
+ * actions that should show feedback to the user.
+ * 
+ * @param error - The caught error (can be Error, string, or unknown)
+ * @param context - Short description of the operation (e.g., "save goal", "approve plan")
+ * @returns User-friendly error message string
+ * 
+ * @example
+ * try {
+ *   await apiRequest("POST", "/api/plan/approve", { planId });
+ * } catch (error) {
+ *   const message = handleApiError(error, "approve plan");
+ *   toast({ title: "Failed to approve plan", description: message, variant: "destructive" });
+ * }
+ */
+/**
+ * Unified API error handler for user-facing actions.
+ * 
+ * Error Classification:
+ * - 401: Auth required (different messages for dev vs prod)
+ * - 500 with message: Shows server error message + hint if available
+ * - Network error (no response): CORS/connection blocked
+ * - Other: Shows raw message
+ */
+export function handleApiError(error: unknown, context: string): string {
+  const isDev = import.meta.env.MODE === 'development';
+  
+  // Extract message from various error types
+  let message: string;
+  
+  if (error instanceof Error) {
+    message = error.message;
+  } else if (typeof error === "string") {
+    message = error;
+  } else {
+    message = "An unexpected error occurred";
+  }
+  
+  // Log with context for debugging
+  console.error(`[API Error] ${context}:`, message);
+  
+  // Check for HTTP status code format: "500: error message"
+  const statusMatch = message.match(/^(\d{3}):\s*(.*)$/);
+  if (statusMatch) {
+    const status = statusMatch[1];
+    const serverMessage = statusMatch[2]?.trim();
+    
+    // Handle specific status codes
+    if (status === '401') {
+      return isDev 
+        ? 'Unauthorized - demo auth may not be working. Check backend logs.'
+        : 'Please log in to continue.';
+    }
+    
+    if (status === '403') {
+      return "You don't have permission to perform this action.";
+    }
+    
+    // For 500 errors, show the server message if meaningful
+    if (status === '500') {
+      if (serverMessage && 
+          serverMessage !== 'Internal Server Error' && 
+          serverMessage !== 'OK' &&
+          !serverMessage.startsWith('Failed query:')) {
+        return serverMessage;
+      }
+      // For raw SQL errors in dev, make it clearer
+      if (isDev && serverMessage?.includes('Failed query:')) {
+        return 'Database error. Check server logs for details.';
+      }
+      return 'Server error. Please try again.';
+    }
+    
+    // If server provided a meaningful message, use it
+    if (serverMessage && serverMessage !== 'Internal Server Error' && serverMessage !== 'OK') {
+      return serverMessage;
+    }
+    
+    // Otherwise show HTTP status
+    return `HTTP ${status} error`;
+  }
+  
+  // Handle specific auth errors (without status prefix)
+  if (message.includes("401") || message.toLowerCase().includes("unauthorized")) {
+    return isDev 
+      ? 'Unauthorized - demo auth may not be working. Check backend logs.'
+      : 'Please log in to continue.';
+  }
+  if (message.includes("403") || message.toLowerCase().includes("forbidden")) {
+    return "You don't have permission to perform this action.";
+  }
+  
+  // TRUE network/CORS errors - these happen when fetch() itself fails
+  // (browser blocked the request, no internet, server not reachable)
+  if (message.includes("Failed to fetch") || 
+      message.includes("NetworkError") || 
+      message.includes("net::") ||
+      message.includes("Load failed")) {
+    // This is genuinely a network issue - could be CORS, could be offline
+    return isDev
+      ? 'Network error: Server may be down, or CORS is blocking. Is backend running on port 5001?'
+      : 'Network error. Please check your connection.';
+  }
+  
+  return message;
 }
 
 // Helper to get current user from localStorage for development auth

@@ -7,6 +7,16 @@
   --button-outline: rgba(0,0,0, .10);
   --badge-outline: rgba(0,0,0, .05);
 
+  /* Agent UI - Primary (Agent-First Architecture) */
+  --agent-primary: 217 91% 50%;
+  --agent-active: 142 71% 40%;
+  --agent-success: 142 69% 45%;
+  --agent-thinking: 32 95% 44%;
+  
+  /* Panel Layout */
+  --agent-panel-width: 40%;
+  --workspace-panel-width: 60%;
+
   /* Automatic computation of border around primary / danger buttons */
   --opaque-button-border-intensity: -8; /* In terms of percentages */
 
@@ -125,6 +135,16 @@
 .dark {
   --button-outline: rgba(255,255,255, .10);
   --badge-outline: rgba(255,255,255, .05);
+
+  /* Agent UI - Primary (Agent-First Architecture) */
+  --agent-primary: 217 91% 60%;
+  --agent-active: 142 71% 55%;
+  --agent-success: 142 69% 55%;
+  --agent-thinking: 32 95% 58%;
+  
+  /* Panel Layout */
+  --agent-panel-width: 40%;
+  --workspace-panel-width: 60%;
 
   --opaque-button-border-intensity: 9;  /* In terms of percentages */
 
@@ -350,5 +370,195 @@
 
   .animate-flash-border {
     animation: flash-border 2s ease-in-out;
+  }
+
+  /* Agent-First Layout Utilities */
+  
+  /* Split screen layout for desktop */
+  .agent-split-layout {
+    display: flex;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+  }
+  
+  .agent-left-panel {
+    width: var(--agent-panel-width);
+    min-width: 320px;
+    max-width: 500px;
+    border-right: 1px solid hsl(var(--border));
+    display: flex;
+    flex-direction: column;
+    background: hsl(var(--sidebar));
+  }
+  
+  .agent-right-panel {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    background: hsl(var(--background));
+  }
+  
+  /* Mobile: hide split layout, show mobile layout */
+  @media (max-width: 768px) {
+    .agent-split-layout {
+      display: none;
+    }
+    
+    .mobile-agent-layout {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+    }
+    
+    .desktop-only {
+      display: none !important;
+    }
+  }
+  
+  /* Desktop: hide mobile layout */
+  @media (min-width: 769px) {
+    .mobile-agent-layout {
+      display: none;
+    }
+    
+    .mobile-only {
+      display: none !important;
+    }
+  }
+  
+  /* Tablet: Adjusted split */
+  @media (min-width: 769px) and (max-width: 1024px) {
+    .agent-left-panel {
+      width: 45%;
+    }
+  }
+  
+  /* Large desktop: Standard split */
+  @media (min-width: 1025px) {
+    .agent-left-panel {
+      width: 40%;
+    }
+  }
+  
+  /* Agent status indicator animations */
+  @keyframes agent-pulse {
+    0%, 100% {
+      opacity: 1;
+      transform: scale(1);
+    }
+    50% {
+      opacity: 0.7;
+      transform: scale(1.05);
+    }
+  }
+  
+  .agent-status-active {
+    animation: agent-pulse 2s ease-in-out infinite;
+  }
+  
+  /* Safe area inset for mobile bottom nav */
+  .safe-area-inset-bottom {
+    padding-bottom: env(safe-area-inset-bottom, 0);
+  }
+  
+  /* Desktop Split Layout (from manual guide) */
+  .desktop-split-layout {
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+  }
+
+  .left-panel {
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .right-panel {
+    position: relative;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Hide desktop layout on mobile */
+  @media (max-width: 768px) {
+    .desktop-split-layout {
+      display: none !important;
+    }
+  }
+  
+  /* Agent Chat Panel */
+  .agent-chat-panel {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+  }
+
+  .chat-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 1rem;
+  }
+
+  .message {
+    margin-bottom: 1rem;
+  }
+
+  .agent-message {
+    margin-right: 3rem;
+  }
+
+  .user-message {
+    margin-left: 3rem;
+    text-align: right;
+  }
+
+  .message-bubble {
+    display: inline-block;
+    max-width: 80%;
+    word-wrap: break-word;
+  }
+  
+  /* Mobile Agent Layout */
+  .mobile-agent-layout {
+    display: none; /* Hidden on desktop by default */
+  }
+
+  @media (max-width: 768px) {
+    .mobile-agent-layout {
+      display: flex !important;
+      flex-direction: column;
+      height: 100vh;
+    }
+  }
+
+  .mobile-nav {
+    position: sticky;
+    bottom: 0;
+    background: hsl(var(--card));
+    border-top: 1px solid hsl(var(--border));
+  }
+
+  .nav-item {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  
+  /* Loading spinner animation */
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+  
+  .animate-spin {
+    animation: spin 1s linear infinite;
   }
 }

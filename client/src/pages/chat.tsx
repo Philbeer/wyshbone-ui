@@ -1,12 +1,13 @@
 import { useState, useRef, useEffect } from "react";
-import { useMutation } from "@tanstack/react-query";
-import { apiRequest, addDevAuthParams, buildApiUrl } from "@/lib/queryClient";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { apiRequest, authedFetch, addDevAuthParams, buildApiUrl, handleApiError } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Send, User, CheckCircle2, Search, Building2, HelpCircle } from "lucide-react";
+import { Send, User, CheckCircle2, Search, Building2, HelpCircle, Activity } from "lucide-react";
 import type { ChatMessage, AddNoteResponse, DeepResearchCreateRequest } from "@shared/schema";
 import wyshboneLogo from "@assets/wyshbone-logo_1759667581806.png";
 import { LocationSuggestions } from "@/components/LocationSuggestions";
+import { CopyButton } from "@/components/ui/copy-button";
 import WishboneSidebar from "@/components/WishboneSidebar";
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -16,6 +17,10 @@ import { AddToXeroDialog } from "@/components/AddToXeroDialog";
 import { useSidebarFlash } from "@/contexts/SidebarFlashContext";
 import { subscribeSupervisorMessages, type SupervisorMessage } from "@/lib/supabase";
 import { useUserGoal } from "@/hooks/use-user-goal";
+import { publishEvent } from "@/lib/events";
+import { getCurrentVerticalId } from "@/contexts/VerticalContext";
+import { WhatJustHappenedPanel } from "@/components/tower/WhatJustHappenedPanel";
+import { useResultsPanel } from "@/contexts/ResultsPanelContext";
 
 type Message = ChatMessage & {
   id: string;
@@ -49,11 +54,13 @@ interface ChatPageProps {
   onLoadConversation?: (fn: (conversationId: string) => void) => void;
 }
 
-export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage, addRun, updateRun, getActiveRunId, onNewChat, onLoadConversation }: ChatPageProps) {
+export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage, addRun, updateRun, getActiveRunId, onNewChat, onLoadConversation }: ChatPageProps) {
   const { user } = useUser();
   const { toast } = useToast();
   const { trigger: triggerSidebarFlash } = useSidebarFlash();
   const { goal, hasGoal, isLoading: isLoadingGoal } = useUserGoal();
+  const { openResults } = useResultsPanel();
+  const queryClient = useQueryClient();
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
@@ -75,6 +82,9 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
   // Functions panel visibility control (default hidden to not interfere with agentic flow)
   const [showFunctionsPanel, setShowFunctionsPanel] = useState(false);
   
+  // UI-18: "What just happened?" Tower log viewer
+  const [isWhatJustHappenedOpen, setWhatJustHappenedOpen] = useState(false);
+  
   // MEGA Agent mode toggle
   const [chatMode, setChatMode] = useState<"standard" | "mega">(() => {
     return (localStorage.getItem('chatMode') as "standard" | "mega") || "standard";
@@ -90,6 +100,43 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
   useEffect(() => {
     localStorage.setItem('chatMode', chatMode);
   }, [chatMode]);
+
+  // Demo mode clean slate: Clear all state on EVERY page load for demo users
+  useEffect(() => {
+    const isDemoUser =
+      user.email.includes('demo@') ||
+      user.email.endsWith('@wyshbone.demo') ||
+      user.id === 'temp-demo-user' ||
+      user.id.startsWith('demo-');
+
+    if (isDemoUser) {
+      console.log('🎭 Demo mode detected: Resetting to clean slate on page load');
+
+      // Clear all persisted state - runs on EVERY page load/refresh
+      localStorage.removeItem('currentConversationId');
+      localStorage.removeItem('chatMode');
+      sessionStorage.removeItem(`labelsRegenerated_${user.id}`);
+
+      // Clear any other conversation-related storage
+      Object.keys(localStorage).forEach(key => {
+        if (key.startsWith('conversation_') || key.includes('_messages')) {
+          localStorage.removeItem(key);
+        }
+      });
+
+      // Clear React Query cache (goals, cached API data, etc.)
+      queryClient.clear();
+
+      // Reset component state
+      setMessages([]);
+      setConversationId(undefined);
+      setChatMode('standard');
+      hasLoadedHistoryRef.current = false;
+      hasShownGreetingRef.current = false;
+
+      console.log('✅ Demo mode clean slate applied - fresh "first time" experience ready');
+    }
+  }, [user.id, user.email, queryClient]);
 
   // Subscribe to Supervisor responses via Supabase realtime
   useEffect(() => {
@@ -115,6 +162,14 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
           return prev;
         }
         return [...prev, displayMessage];
+      });
+
+      // Publish event for message received from supervisor
+      publishEvent("CHAT_MESSAGE_RECEIVED", {
+        conversationId: supervisorMessage.conversation_id,
+        messageId: supervisorMessage.id,
+        content: supervisorMessage.content,
+        source: "supervisor",
       });
       
       // Clear waiting state and timeout
@@ -158,10 +213,15 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
 
   const startDeepResearch = async (request: DeepResearchCreateRequest) => {
     try {
+      // UI-16: Include current vertical in deep research request
+      const verticalId = getCurrentVerticalId();
+      console.log(`🔬 Starting deep research with vertical: ${verticalId}`);
+      
       const response = await apiRequest("POST", "/api/deep-research", {
         ...request,
         conversationId,
-        userId: user.id
+        userId: user.id,
+        verticalId,
       });
 
       const data = await response.json();
@@ -221,7 +281,7 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
       
       setIsLoadingHistory(true);
       try {
-        const response = await fetch(buildApiUrl(`/api/debug/conversations/${storedConversationId}/messages`));
+        const response = await authedFetch(`/api/debug/conversations/${storedConversationId}/messages`);
         if (response.ok) {
           const data = await response.json();
           const historicalMessages: Message[] = data.messages.map((msg: any) => ({
@@ -236,7 +296,7 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
           }
         }
       } catch (error) {
-        console.error('Failed to load conversation history:', error);
+        handleApiError(error, "load conversation history");
       } finally {
         setIsLoadingHistory(false);
       }
@@ -284,7 +344,7 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
 
       for (const [messageId, batchId] of Array.from(batchJobTracking.entries())) {
         try {
-          const response = await fetch(buildApiUrl(addDevAuthParams(`/api/batch/${batchId}`)));
+          const response = await authedFetch(`/api/batch/${batchId}`);
           if (response.ok) {
             const job = await response.json();
             
@@ -338,13 +398,21 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
     };
   }, [batchJobTracking]);
 
-  // Expose send message function to parent
+  // Expose send message function to parent (use ref to avoid dependency issues)
+  const handleSendRef = useRef<((content?: string) => void) | null>(null);
+  const setMessagesRef = useRef<React.Dispatch<React.SetStateAction<DisplayMessage[]>> | null>(null);
+
+  useEffect(() => {
+    handleSendRef.current = handleSend;
+    setMessagesRef.current = setMessages;
+  });
+
   useEffect(() => {
     if (onInjectSystemMessage) {
       const injectMessage = (content: string, asUser: boolean = true) => {
         if (asUser) {
           // Send to AI
-          handleSend(content);
+          handleSendRef.current?.(content);
         } else {
           // Add as assistant message directly
           const message: Message = {
@@ -353,12 +421,11 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
             content,
             timestamp: new Date(),
           };
-          setMessages((prev) => [...prev, message]);
+          setMessagesRef.current?.((prev) => [...prev, message]);
         }
       };
       onInjectSystemMessage(injectMessage);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onInjectSystemMessage]);
 
   // Expose new chat function to parent
@@ -417,8 +484,7 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
         // Load conversation messages
         setIsLoadingHistory(true);
         try {
-          const url = addDevAuthParams(`/api/conversations/${newConversationId}/messages`);
-          const response = await fetch(buildApiUrl(url));
+          const response = await authedFetch(`/api/conversations/${newConversationId}/messages`);
           if (response.ok) {
             const messages = await response.json();
             const loadedMessages: DisplayMessage[] = messages.map((msg: any) => ({
@@ -434,7 +500,7 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
             console.error("Failed to load conversation history");
           }
         } catch (error) {
-          console.error("Error loading conversation:", error);
+          handleApiError(error, "load conversation");
         } finally {
           setIsLoadingHistory(false);
         }
@@ -803,11 +869,20 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
           const systemMessage: SystemMessage = {
             id: crypto.randomUUID(),
             type: "system",
-            content: `✅ Found ${result.places.length} places via Wyshbone Global Database. Results displayed below.`,
+            content: `✅ Found ${result.places.length} places. Click "View Results" to see full details.`,
             timestamp: new Date(),
-            searchResults: result.places,
+            searchResults: result.places.slice(0, 5), // Show preview of 5
           };
           setMessages((prev) => [...prev, systemMessage]);
+          
+          // Open results in right panel
+          openResults('quick_search', {
+            places: result.places,
+            count: result.places.length,
+            query: result.query || '',
+            location: result.location || '',
+            country: result.country || defaultCountry,
+          }, `${result.places.length} businesses found`);
         }
         
         // Handle DEEP_RESEARCH results
@@ -825,10 +900,22 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
           const systemMessage: SystemMessage = {
             id: crypto.randomUUID(),
             type: "system",
-            content: `🔬 Deep research started. Check the sidebar for progress.`,
+            content: `🔬 Deep research started! Research is running in the background. View progress in the Results panel.`,
             timestamp: new Date(),
           };
           setMessages((prev) => [...prev, systemMessage]);
+          
+          // Open results in right panel
+          openResults('deep_research', {
+            run: {
+              id: result.run.id,
+              label: result.run.label || result.topic,
+              status: result.run.status || 'running',
+            },
+            topic: result.topic || result.run.label || 'Research',
+          }, result.run.label || 'Deep Research');
+          
+          triggerSidebarFlash('deepResearch');
         }
         
         // Handle BATCH_CONTACT_FINDER results
@@ -836,12 +923,62 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
           const systemMessage: SystemMessage = {
             id: crypto.randomUUID(),
             type: "system",
-            content: `📧 Batch contact finder started. Job ID: ${result.job.id}. This will run in the background.`,
+            content: `📧 Email finder started! Finding contacts in the background. View progress in the Results panel.`,
             timestamp: new Date(),
           };
           setMessages((prev) => [...prev, systemMessage]);
+          
+          // Open results in right panel
+          openResults('email_finder', {
+            batchId: result.job.id,
+            status: 'running',
+            viewUrl: `/batch/${result.job.id}`,
+          }, 'Email Finder');
+          
+          triggerSidebarFlash('emailFinder');
         }
         
+        // Handle SCHEDULED_MONITOR results
+        if (result.id && result.schedule && result.monitorType) {
+          const systemMessage: SystemMessage = {
+            id: crypto.randomUUID(),
+            type: "system",
+            content: `⏰ Monitor "${result.label}" created! Scheduled to run ${result.schedule}. View it in the Results panel.`,
+            timestamp: new Date(),
+          };
+          setMessages((prev) => [...prev, systemMessage]);
+
+          // Open results in right panel
+          openResults('scheduled_monitor', {
+            monitor: result,
+            id: result.id,
+            label: result.label,
+            schedule: result.schedule,
+            status: result.status,
+          }, `Monitor: ${result.label}`);
+        }
+
+        // Handle GET_NUDGES results
+        if (result.nudges !== undefined) {
+          const nudgesCount = Array.isArray(result.nudges) ? result.nudges.length : 0;
+          const systemMessage: SystemMessage = {
+            id: crypto.randomUUID(),
+            type: "system",
+            content: nudgesCount > 0
+              ? `👉 Found ${nudgesCount} nudge${nudgesCount === 1 ? '' : 's'}. View in the Results panel.`
+              : `📭 No pending nudges at the moment.`,
+            timestamp: new Date(),
+          };
+          setMessages((prev) => [...prev, systemMessage]);
+
+          // Open results in right panel
+          openResults('nudges', {
+            nudges: result.nudges || [],
+            count: nudgesCount,
+            message: result.message,
+          }, `Nudges (${nudgesCount})`);
+        }
+
         // Handle DRAFT_EMAIL results
         if (result.draft) {
           const systemMessage: SystemMessage = {
@@ -877,12 +1014,72 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
     }
   };
 
+  // Intent classification: Determines if user wants to start fresh or continue
+  const classifyIntent = (newMessage: string, history: Message[]): 'NEW_REPLACE' | 'CONTINUE' | 'MODIFY' | 'NEW_UNRELATED' => {
+    const lowerMsg = newMessage.toLowerCase();
+
+    // No history = always NEW
+    if (history.length === 0) return 'NEW_REPLACE';
+
+    // Strong NEW_REPLACE signals (explicit goal change)
+    const newReplacePatterns = [
+      /^(find|search for|look for|get me|show me).+in [a-z]/i,  // "Find pubs in Manchester" (new location/topic)
+      /^(i want to|i need to|let's|can you).+(instead|now)/i,   // "I want to search Leeds instead"
+      /^(actually|wait|no|forget that)/i,                       // "Actually, let's do Birmingham"
+      /^(new search|start over|different)/i,                    // "New search for..."
+    ];
+
+    if (newReplacePatterns.some(p => p.test(newMessage))) {
+      // Check if it's truly different from last user message
+      const lastUserMsg = [...history].reverse().find(m => m.role === 'user');
+      if (lastUserMsg) {
+        const oldLocation = lastUserMsg.content.match(/in ([a-z\s]+)/i)?.[1];
+        const newLocation = newMessage.match(/in ([a-z\s]+)/i)?.[1];
+        if (oldLocation && newLocation && oldLocation.toLowerCase() !== newLocation.toLowerCase()) {
+          return 'NEW_REPLACE';
+        }
+      }
+    }
+
+    // MODIFY signals (tweaking existing request)
+    const modifyPatterns = [
+      /^(make that|change (?:that|it) to|actually|instead of)/i,  // "Make that 100 instead of 60"
+      /^(increase|decrease|more|less|fewer|add|remove)/i,          // "Increase to 100"
+      /\b(not|instead of|rather than)\b/i,                         // "Not 60, 100"
+    ];
+
+    if (modifyPatterns.some(p => p.test(newMessage)) && history.length > 0) {
+      return 'MODIFY';
+    }
+
+    // NEW_UNRELATED signals (completely different task)
+    const lastUserMsg = [...history].reverse().find(m => m.role === 'user');
+    if (lastUserMsg) {
+      const wasResearching = /find|search|look|show|get/i.test(lastUserMsg.content);
+      const nowDrafting = /draft|write|compose|create.*email/i.test(lowerMsg);
+      const nowAnalyzing = /analyze|review|check/i.test(lowerMsg);
+
+      if ((wasResearching && nowDrafting) || (wasResearching && nowAnalyzing)) {
+        return 'NEW_UNRELATED';
+      }
+    }
+
+    // Default: CONTINUE (follow-up questions, clarifications)
+    return 'CONTINUE';
+  };
+
   const handleSend = async (promptOverride?: string) => {
     const messageContent = promptOverride || input.trim();
     if (!messageContent || isStreaming) return;
 
     // Hide location suggestions
     setShowLocationSuggestions(false);
+
+    // INTENT CLASSIFICATION: Determine if this is a new goal or continuation
+    const currentHistory = messages.filter((msg): msg is Message => !("type" in msg));
+    const intent = classifyIntent(messageContent, currentHistory);
+
+    console.log(`🎯 Intent classified: ${intent} for message: "${messageContent.slice(0, 50)}..."`);
 
     const userMessage: Message = {
       id: crypto.randomUUID(),
@@ -891,9 +1088,29 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
       timestamp: new Date(),
     };
 
-    // Update UI state immediately
-    setMessages((prev) => [...prev, userMessage]);
+    // Handle intent-based context management
+    if (intent === 'NEW_REPLACE') {
+      // Clear old context, start fresh
+      console.log('🔄 NEW_REPLACE: Clearing old context and starting fresh');
+      setMessages([userMessage]);  // Only keep new message
+    } else if (intent === 'NEW_UNRELATED') {
+      // Could implement multi-threading here, for now start fresh
+      console.log('🆕 NEW_UNRELATED: Starting new thread');
+      setMessages([userMessage]);
+    } else {
+      // CONTINUE or MODIFY: Keep existing context
+      setMessages((prev) => [...prev, userMessage]);
+    }
+
     setInput("");
+
+    // Publish event for message sent
+    publishEvent("CHAT_MESSAGE_SENT", {
+      conversationId: conversationId || "pending",
+      messageId: userMessage.id,
+      content: messageContent,
+      mode: chatMode,
+    });
 
     // Route to MEGA agent if in MEGA mode
     if (chatMode === "mega") {
@@ -910,14 +1127,14 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
         timestamp: new Date(),
       };
       setMessages((prev) => [...prev, assistantMessage]);
-      
+
       // Store the research request for the user to confirm
       const researchRequest: DeepResearchCreateRequest = {
         prompt: messageContent,
         label: messageContent.length > 60 ? messageContent.slice(0, 57) + "…" : messageContent,
         mode: "report",
       };
-      
+
       // Add confirmation button (we'll do this via a special system message)
       const confirmMessage: SystemMessage = {
         id: crypto.randomUUID(),
@@ -929,20 +1146,25 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
       return;
     }
 
-    // Build conversation history BEFORE adding new message to state
-    const conversationHistory = messages
-      .filter((msg): msg is Message => !("type" in msg))
-      .map(({ role, content }) => ({ role, content }));
+    // Build conversation history based on intent
+    let conversationHistory: ChatMessage[];
 
-    // LIMIT TO LAST 6 MESSAGES (3 exchanges) to prevent old context pollution
-    // This prevents the AI from seeing very old searches when starting a new one
-    const recentHistory = conversationHistory.slice(-6);
+    if (intent === 'NEW_REPLACE' || intent === 'NEW_UNRELATED') {
+      // For new goals, only send the current message (no old context)
+      conversationHistory = [{ role: userMessage.role, content: userMessage.content }];
+    } else {
+      // For CONTINUE/MODIFY, send recent history
+      const allHistory = messages
+        .filter((msg): msg is Message => !("type" in msg))
+        .map(({ role, content }) => ({ role, content }));
 
-    // Add new user message to the history
-    const fullConversation = [...recentHistory, { role: userMessage.role, content: userMessage.content }];
+      // LIMIT TO LAST 6 MESSAGES (3 exchanges) to prevent old context pollution
+      const recentHistory = allHistory.slice(-6);
+      conversationHistory = [...recentHistory, { role: userMessage.role, content: userMessage.content }];
+    }
 
-    // Send recent conversation only
-    streamChatResponse(fullConversation);
+    // Send conversation to backend
+    streamChatResponse(conversationHistory);
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -988,6 +1210,38 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
               </div>
               <h2 className="text-xl font-semibold mb-6">Loading...</h2>
             </div>
+          ) : messages.length === 0 && !isLoadingHistory ? (
+            /* UI-19: Welcome state with sample prompts */
+            <div className="flex flex-col items-center justify-center h-full min-h-[400px] text-center px-4">
+              <div className="w-20 h-20 rounded-full overflow-hidden mb-6 shadow-lg">
+                <img src={wyshboneLogo} alt="Wyshbone" className="w-full h-full object-cover" />
+              </div>
+              <h2 className="text-2xl font-semibold mb-2">What can I help you with?</h2>
+              <p className="text-muted-foreground mb-8 max-w-md">
+                Tell me what you need — I can find leads, research markets, draft emails, and more.
+              </p>
+              
+              {/* Sample prompt chips */}
+              <div className="flex flex-wrap justify-center gap-2 max-w-xl">
+                {[
+                  "Find 30 pubs in Yorkshire that serve cask ale",
+                  "Deep research on the micropub market in Manchester",
+                  "Find decision-makers at breweries in Wales",
+                  "Draft an intro email for a new pub contact",
+                ].map((prompt, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => {
+                      setInput(prompt);
+                      textareaRef.current?.focus();
+                    }}
+                    className="px-3 py-2 text-sm rounded-lg border border-border bg-card hover:bg-accent hover:border-primary/50 transition-colors text-left"
+                  >
+                    {prompt}
+                  </button>
+                ))}
+              </div>
+            </div>
           ) : (
             messages
               .filter((message) => {
@@ -1030,19 +1284,11 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
                           onClick={async () => {
                             // Start Very Deep Program (multi-iteration)
                             try {
-                              const response = await fetch(buildApiUrl(addDevAuthParams("/api/very-deep-program")), {
-                                method: "POST",
-                                headers: { "Content-Type": "application/json" },
-                                body: JSON.stringify({
-                                  ...parsed.data,
-                                  conversationId,
-                                  userId: user.id
-                                }),
+                              await apiRequest("POST", "/api/very-deep-program", {
+                                ...parsed.data,
+                                conversationId,
+                                userId: user.id
                               });
-                              
-                              if (!response.ok) {
-                                throw new Error("Failed to start Very Deep Program");
-                              }
                               
                               // Remove confirmation message and show notification
                               setMessages((prev) => prev.filter((m) => m.id !== message.id));
@@ -1052,9 +1298,10 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
                                 description: "Running 3 sequential research passes. This will take several minutes...",
                               });
                             } catch (error) {
+                              const message = handleApiError(error, "start Very Deep Dive");
                               toast({
                                 title: "Error",
-                                description: "Failed to start Very Deep Dive. Please try again.",
+                                description: message,
                                 variant: "destructive",
                               });
                             }
@@ -1081,13 +1328,50 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
                 } catch (e) {
                   // Not a JSON message, fall through to regular display
                 }
-                
-                // Check if this system message has search results to display
-                if (message.searchResults && Array.isArray(message.searchResults)) {
+
+                // Check if this is an email draft message
+                if (message.content.startsWith('✉️ Email draft:')) {
+                  const emailContent = message.content.replace('✉️ Email draft:\n\n', '').trim();
                   return (
                     <div
                       key={message.id}
-                      className="flex flex-col gap-3 w-full"
+                      className="flex flex-col gap-3 w-full max-w-3xl mx-auto"
+                      data-testid={`message-system-${message.id}`}
+                    >
+                      <div className="flex justify-center">
+                        <div className="bg-chart-2/20 text-chart-2 px-4 py-2 rounded-lg text-sm font-medium">
+                          ✉️ Email Draft Ready
+                        </div>
+                      </div>
+
+                      {/* Email Draft Card */}
+                      <div className="bg-card border border-card-border rounded-lg p-4">
+                        <div className="whitespace-pre-wrap text-sm leading-relaxed mb-4">
+                          {emailContent}
+                        </div>
+                        <div className="flex gap-2 justify-end border-t border-border pt-3">
+                          <CopyButton
+                            text={emailContent}
+                            label="Copy Email"
+                            variant="default"
+                            size="sm"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
+
+                // Check if this system message has search results to display
+                if (message.searchResults && Array.isArray(message.searchResults)) {
+                  const totalResults = message.searchResults.length;
+                  const previewResults = message.searchResults.slice(0, 5);
+                  const hasMore = totalResults > 5;
+
+                  return (
+                    <div
+                      key={message.id}
+                      className="flex flex-col gap-3 w-full max-w-3xl mx-auto"
                       data-testid={`message-system-${message.id}`}
                     >
                       <div className="flex justify-center">
@@ -1095,40 +1379,96 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
                           {message.content}
                         </div>
                       </div>
-                      
-                      {/* Search Results Table */}
-                      <div className="bg-card border border-card-border rounded-lg p-4">
-                        <div className="overflow-x-auto">
-                          <table className="w-full">
-                            <thead>
-                              <tr className="border-b border-border">
-                                <th className="text-left py-2 px-3 font-semibold text-sm">Name</th>
-                                <th className="text-left py-2 px-3 font-semibold text-sm">Address</th>
-                                <th className="text-left py-2 px-3 font-semibold text-sm">Phone</th>
-                                <th className="text-left py-2 px-3 font-semibold text-sm">Rating</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {message.searchResults.map((place: any, index: number) => (
-                                <tr 
-                                  key={place.place_id || index} 
-                                  className="border-b border-border/50 hover-elevate active-elevate-2 cursor-pointer"
-                                  data-testid={`search-result-${index}`}
-                                >
-                                  <td className="py-3 px-3 text-sm font-medium">{place.name}</td>
-                                  <td className="py-3 px-3 text-sm text-muted-foreground">{place.address || '—'}</td>
-                                  <td className="py-3 px-3 text-sm text-muted-foreground">{place.phone || '—'}</td>
-                                  <td className="py-3 px-3 text-sm">
-                                    {place.rating ? (
-                                      <span className="text-yellow-600 dark:text-yellow-400">
-                                        ⭐ {place.rating}
+
+                      {/* Search Results Preview Card */}
+                      <div className="bg-card border border-card-border rounded-lg overflow-hidden">
+                        <div className="p-4">
+                          <div className="space-y-3">
+                            {previewResults.map((place: any, index: number) => (
+                              <div
+                                key={place.place_id || index}
+                                className="flex items-start gap-3 p-3 rounded-lg border border-border hover-elevate cursor-pointer"
+                                data-testid={`search-result-${index}`}
+                              >
+                                <div className="flex-1 min-w-0">
+                                  <div className="font-medium text-sm mb-1">{place.name}</div>
+                                  <div className="text-xs text-muted-foreground space-y-0.5">
+                                    {place.address && (
+                                      <div className="flex items-start gap-1">
+                                        <span>📍</span>
+                                        <span>{place.address}</span>
+                                      </div>
+                                    )}
+                                    {place.phone && (
+                                      <div className="flex items-center gap-1">
+                                        <span>📞</span>
+                                        <span>{place.phone}</span>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                                {place.rating && (
+                                  <div className="flex-shrink-0">
+                                    <div className="flex items-center gap-1 px-2 py-1 rounded-md bg-yellow-50 dark:bg-yellow-950/30">
+                                      <span className="text-yellow-600 dark:text-yellow-400">⭐</span>
+                                      <span className="text-xs font-medium text-yellow-700 dark:text-yellow-300">
+                                        {place.rating}
                                       </span>
-                                    ) : '—'}
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Action Buttons */}
+                        <div className="border-t border-border bg-muted/30 px-4 py-3 flex gap-2 justify-between flex-wrap">
+                          <div className="flex gap-2">
+                            {hasMore && (
+                              <Button
+                                variant="default"
+                                size="sm"
+                                onClick={() => {
+                                  // TODO: Open side panel or full results view
+                                  toast({
+                                    title: "View All Results",
+                                    description: `Showing all ${totalResults} results (coming soon)`,
+                                  });
+                                }}
+                              >
+                                View All {totalResults} Results →
+                              </Button>
+                            )}
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                // Convert results to CSV
+                                const csv = [
+                                  ['Name', 'Address', 'Phone', 'Rating'].join(','),
+                                  ...(message.searchResults || []).map((p: any) =>
+                                    [p.name, p.address || '', p.phone || '', p.rating || ''].join(',')
+                                  )
+                                ].join('\n');
+
+                                const blob = new Blob([csv], { type: 'text/csv' });
+                                const url = URL.createObjectURL(blob);
+                                const a = document.createElement('a');
+                                a.href = url;
+                                a.download = `search-results-${Date.now()}.csv`;
+                                a.click();
+                                URL.revokeObjectURL(url);
+
+                                toast({
+                                  title: "Exported",
+                                  description: `Downloaded ${totalResults} results as CSV`,
+                                });
+                              }}
+                            >
+                              📥 Export CSV
+                            </Button>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -1151,7 +1491,69 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
               const chatMessage = message as Message;
               const isUser = chatMessage.role === "user";
               const isSupervisor = chatMessage.source === 'supervisor';
-              
+
+              // Check if this is a monitor creation notification
+              if (!isUser && chatMessage.content.startsWith('🔔 MONITOR_CREATED')) {
+                const lines = chatMessage.content.split('\n');
+                const monitorData: Record<string, string> = {};
+                lines.forEach(line => {
+                  const [key, ...valueParts] = line.split(': ');
+                  if (valueParts.length > 0) {
+                    monitorData[key] = valueParts.join(': ');
+                  }
+                });
+
+                return (
+                  <div
+                    key={chatMessage.id}
+                    className="flex gap-3 flex-row"
+                    data-testid={`message-monitor-${chatMessage.id}`}
+                  >
+                    <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0">
+                      <img src={wyshboneLogo} alt="Wyshbone" className="w-full h-full object-cover" />
+                    </div>
+                    <div className="flex flex-col items-start max-w-3xl lg:max-w-none">
+                      <div className="bg-chart-2/20 border border-chart-2/30 rounded-lg px-4 py-3 w-full">
+                        <div className="flex items-center gap-2 mb-3">
+                          <CheckCircle2 className="w-5 h-5 text-chart-2" />
+                          <span className="font-semibold text-chart-2">Monitor Created Successfully</span>
+                        </div>
+                        <div className="space-y-2 text-sm mb-4">
+                          <div>
+                            <span className="font-medium">Name:</span> {monitorData['LABEL']}
+                          </div>
+                          <div>
+                            <span className="font-medium">Description:</span> {monitorData['DESCRIPTION']}
+                          </div>
+                          <div>
+                            <span className="font-medium">Schedule:</span> {monitorData['SCHEDULE']}
+                          </div>
+                          <div>
+                            <span className="font-medium">Type:</span> {monitorData['TYPE']}
+                          </div>
+                          <div>
+                            <span className="font-medium">Next Run:</span> {monitorData['NEXT_RUN']}
+                          </div>
+                        </div>
+                        <Button
+                          variant="default"
+                          size="sm"
+                          onClick={() => {
+                            // Navigate to monitors section - you may need to implement this navigation
+                            window.location.hash = '#monitors';
+                          }}
+                        >
+                          Go to Monitors →
+                        </Button>
+                      </div>
+                      <span className="text-xs text-muted-foreground mt-1">
+                        {chatMessage.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                      </span>
+                    </div>
+                  </div>
+                );
+              }
+
               return (
                 <div
                   key={chatMessage.id}
@@ -1316,23 +1718,39 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
                 🚀 MEGA
               </Button>
               <span className="text-xs text-muted-foreground ml-2">
-                {chatMode === "mega" ? "Action-first AI with follow-up suggestions" : "Streaming chat with web search"}
+                {chatMode === "mega" ? "Takes action immediately, suggests next steps" : "Conversational, can search the web"}
               </span>
             </div>
             
-            {/* Functions Panel Toggle - only show when panel is hidden */}
-            {!showFunctionsPanel && (
+            <div className="flex items-center gap-2">
+              {/* UI-18: What just happened? button - shows recent Tower activity */}
               <Button
-                variant="outline"
+                variant="ghost"
                 size="sm"
-                onClick={() => setShowFunctionsPanel(true)}
-                className="flex items-center gap-1"
-                data-testid="button-show-functions"
+                onClick={() => setWhatJustHappenedOpen(true)}
+                className="flex items-center gap-1 text-muted-foreground hover:text-foreground"
+                data-testid="button-what-just-happened"
+                title="View recent Wyshbone activity"
               >
-                <HelpCircle className="h-3 w-3" />
-                <span className="hidden sm:inline">Show functions</span>
+                <Activity className="h-3 w-3" />
+                <span className="hidden sm:inline">Activity log</span>
               </Button>
-            )}
+              
+              {/* Quick Actions Panel Toggle - only show when panel is hidden */}
+              {!showFunctionsPanel && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowFunctionsPanel(true)}
+                  className="flex items-center gap-1"
+                  data-testid="button-show-functions"
+                  title="Show quick action buttons"
+                >
+                  <HelpCircle className="h-3 w-3" />
+                  <span className="hidden sm:inline">Quick actions</span>
+                </Button>
+              )}
+            </div>
           </div>
 
           {/* MEGA Chips (Follow-up suggestions) */}
@@ -1373,7 +1791,7 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
               value={input}
               onChange={handleInputChange}
               onKeyDown={handleKeyDown}
-              placeholder="Type your message..."
+              placeholder="Tell Wyshbone what you need — find leads, research a market, draft an email..."
               className="resize-none border-0 bg-transparent text-[15px] focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 min-h-[48px] max-h-[200px]"
               rows={1}
               data-testid="input-message"
@@ -1400,6 +1818,13 @@ export default function ChatPage({ defaultCountry = 'US', onInjectSystemMessage,
       />
       
       {/* Add to Xero features temporarily removed for layout debugging */}
+      
+      {/* UI-18: What just happened? Tower log viewer */}
+      <WhatJustHappenedPanel
+        isOpen={isWhatJustHappenedOpen}
+        onClose={() => setWhatJustHappenedOpen(false)}
+        conversationId={conversationId}
+      />
     </div>
   );
 }

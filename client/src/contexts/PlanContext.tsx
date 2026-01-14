@@ -1,7 +1,13 @@
 import { createContext, useContext, ReactNode } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useUser } from "@/contexts/UserContext";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, handleApiError } from "@/lib/queryClient";
+import { publishEvent } from "@/lib/events";
+import { getCurrentVerticalId } from "@/contexts/VerticalContext";
+
+// FAST DEV MODE: Use fast polling in development
+const IS_DEV = import.meta.env.MODE === 'development';
+const PLAN_POLL_INTERVAL = IS_DEV ? 500 : 5000; // 500ms in dev, 5s in prod
 
 export interface LeadGenStep {
   id: string;
@@ -45,51 +51,94 @@ export function PlanProvider({ children }: { children: ReactNode }) {
   const { data: plan, isLoading, error } = useQuery<LeadGenPlan | null>({
     queryKey: ["/api/plan"],
     enabled: !!user,
-    refetchInterval: 5000, // Poll every 5 seconds for plan updates
-    staleTime: 3000,
+    refetchInterval: PLAN_POLL_INTERVAL, // Fast in dev, slow in prod
+    staleTime: IS_DEV ? 200 : 3000,
   });
 
   // Mutation to start a new plan
   const startPlanMutation = useMutation({
     mutationFn: async (goal: string) => {
-      console.log(`[PLAN_DEBUG] startPlan called with goal:`, goal.substring(0, 50) + "...");
+      // UI-16: Include current vertical in plan request
+      const verticalId = getCurrentVerticalId();
+      console.log(`[PLAN_DEBUG] startPlan called with goal:`, goal.substring(0, 50) + "...", `vertical: ${verticalId}`);
       
       const response = await apiRequest("POST", "/api/plan/start", {
         goal,
+        verticalId,
       });
       const data = await response.json();
       
       console.log(`[PLAN_DEBUG] startPlan response:`, data);
-      return data;
+      return { data, goal };
     },
-    onSuccess: () => {
+    onSuccess: ({ data, goal }) => {
       // Just invalidate - let the backend provide the new plan
       console.log(`[PLAN_DEBUG] startPlan succeeded - invalidating queries`);
       queryClient.invalidateQueries({ queryKey: ["/api/plan"] });
+
+      // Publish event for plan created
+      if (data?.plan?.id) {
+        publishEvent("PLAN_CREATED", {
+          planId: data.plan.id,
+          sessionId: data.plan.sessionId,
+          goal,
+          stepCount: data.plan.steps?.length || 0,
+        });
+      }
     },
     onError: (error) => {
-      console.error(`[PLAN_DEBUG] startPlan failed:`, error);
+      handleApiError(error, "start plan");
     },
   });
 
   // Mutation to approve a plan
   const approveMutation = useMutation({
     mutationFn: async (planId: string) => {
-      console.log(`[PLAN_DEBUG] approvePlan called for planId=${planId}`);
+      console.log(`[PLAN_CONTEXT] Calling POST /api/plan/approve for planId=${planId}`);
       
       const response = await apiRequest("POST", "/api/plan/approve", { planId });
+      
+      // Check HTTP status first
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`[PLAN_CONTEXT] HTTP error ${response.status}:`, errorText);
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
+      }
+      
       const data = await response.json();
       
-      console.log(`[PLAN_DEBUG] approvePlan API response:`, data);
-      return { data, planId };
+      console.log(`[PLAN_CONTEXT] /api/plan/approve response:`, data);
+      console.log(`   ok: ${data.ok}`);
+      console.log(`   success: ${data.success}`);
+      console.log(`   Status: ${data.status}`);
+      console.log(`   PlanId: ${data.planId}`);
+      
+      // Accept response if ok OR success is true (backwards compatibility)
+      if (data.ok || data.success) {
+        console.log(`✅ [PLAN_CONTEXT] Approval successful`);
+        return { data, planId, success: true };
+      }
+      
+      // If we got here, response was 200 but body indicates failure
+      console.error(`[PLAN_CONTEXT] Response body indicates failure:`, data);
+      throw new Error(data.error || 'Approval failed');
     },
-    onSuccess: () => {
-      // Just invalidate - let the backend update the status
-      console.log(`[PLAN_DEBUG] approvePlan succeeded - invalidating queries`);
+    onSuccess: ({ data, planId }) => {
+      console.log(`✅ [PLAN_CONTEXT] Plan approved and execution started on backend`);
+      console.log(`   Backend status: ${data.status}`);
+      
+      // Invalidate plan query so UI updates
       queryClient.invalidateQueries({ queryKey: ["/api/plan"] });
+
+      // Publish event for plan approved
+      publishEvent("PLAN_APPROVED", {
+        planId,
+        sessionId: plan?.sessionId,
+      });
     },
     onError: (error) => {
-      console.error(`[PLAN_DEBUG] approvePlan failed:`, error);
+      console.error(`❌ [PLAN_CONTEXT] Approve plan failed:`, error);
+      handleApiError(error, "approve plan");
     },
   });
 
@@ -110,7 +159,7 @@ export function PlanProvider({ children }: { children: ReactNode }) {
       queryClient.invalidateQueries({ queryKey: ["/api/plan"] });
     },
     onError: (error) => {
-      console.error(`❌ PlanContext: regeneration failed:`, error);
+      handleApiError(error, "regenerate plan");
     },
   });
 

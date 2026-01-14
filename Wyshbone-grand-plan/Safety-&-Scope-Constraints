@@ -1,0 +1,697 @@
+# Claude Code Task Scope & Boundaries
+
+**Tier 5: Safety & Scope Constraints**  
+*Defining what Claude Code can do autonomously vs. what requires human oversight*
+
+---
+
+## Purpose
+
+This document defines clear boundaries for Claude Code's autonomous work on Wyshbone. It ensures Claude Code is maximally helpful while preventing catastrophic errors, security vulnerabilities, and business logic bugs.
+
+---
+
+## 1. Autonomy Levels
+
+### Level 1: Fully Autonomous ✅
+Claude Code can complete these tasks without human approval. Changes are safe and easily reversible.
+
+**Allowed:**
+- Writing new test files
+- Creating documentation
+- Adding code comments
+- Formatting/linting code
+- Generating TypeScript types from schemas
+- Creating new utility functions (non-critical paths)
+- Adding logging/debugging statements
+- Creating example/demo code
+- Generating mock data for tests
+
+**Examples:**
+- "Add tests for the pub search endpoint"
+- "Document the entity resolution matcher algorithm"
+- "Generate TypeScript types for the new API response"
+- "Add JSDoc comments to the customer service"
+
+---
+
+### Level 2: Review Required ⚠️
+Claude Code can propose changes and implement with explicit approval. Human reviews before execution.
+
+**Allowed:**
+- Modifying existing business logic
+- Adding new API endpoints
+- Database query optimization
+- Adding new dependencies
+- Refactoring non-critical code
+- UI component changes
+- Integration with new external services
+- Performance optimizations
+
+**Process:**
+1. Claude Code explains the change and its impact
+2. Shows code diff or implementation plan
+3. Waits for explicit "go ahead" from human
+4. Implements the change
+5. Reports completion
+
+**Examples:**
+- "I can refactor the customer search to use full-text search. This will modify the query builder. Proceed?"
+- "I'll add a new endpoint for bulk customer export. It will require adding a dependency on 'csv-writer'. OK?"
+
+---
+
+### Level 3: Human Implementation Only 🚫
+Claude Code NEVER implements these autonomously. Can provide guidance, but human must write code.
+
+**Forbidden:**
+- Modifying protected files (see protected-files.md)
+- Database migrations
+- Authentication/security logic
+- Financial calculations
+- Payment processing
+- Data privacy/GDPR code
+- Production infrastructure
+- CI/CD pipelines
+- Environment configuration
+
+**Role:**
+1. Explain the requirements
+2. Provide pseudocode or algorithm
+3. Suggest test cases
+4. Review human's implementation
+5. Help debug if needed
+
+**Examples:**
+- "I need you to review my duty calculation changes" ← Claude reviews, human implements
+- "Help me understand the entity resolution confidence scoring" ← Claude explains, human implements
+- "Walk me through adding a new OAuth integration" ← Claude guides, human implements
+
+---
+
+## 2. Scope Boundaries by Feature Area
+
+### 2.1 Database & Data
+
+**CAN DO:**
+- Write database queries for read operations
+- Optimize existing queries (with approval)
+- Create test database seeds
+- Write data validation logic
+- Add database indexes (with approval)
+
+**CANNOT DO:**
+- Create or modify migrations
+- Change schema directly
+- Modify production seed data
+- Write data deletion logic
+- Change data retention policies
+
+**Boundary Example:**
+```typescript
+// ✅ ALLOWED - New read query
+async function findBreweriesByRegion(region: string) {
+  return db.brewery.findMany({ where: { region } });
+}
+
+// ⚠️ APPROVAL NEEDED - New write operation
+async function updateBreweryStatus(id: string, status: string) {
+  // Claude asks: "This will update brewery status in the database. Proceed?"
+  return db.brewery.update({ where: { id }, data: { status } });
+}
+
+// 🚫 FORBIDDEN - Schema change
+// Claude responds: "I cannot create migrations. Here's the SQL you'll need:
+// ALTER TABLE breweries ADD COLUMN region VARCHAR(100);
+// Run this as a new migration file."
+```
+
+---
+
+### 2.2 API Development
+
+**CAN DO:**
+- Create new API endpoints (with approval)
+- Add input validation
+- Write API tests
+- Generate OpenAPI documentation
+- Add error handling
+
+**CANNOT DO:**
+- Modify authentication middleware
+- Change rate limiting
+- Modify CORS configuration
+- Change API versioning strategy
+- Modify webhook handlers
+
+**Boundary Example:**
+```typescript
+// ✅ ALLOWED - New endpoint with validation
+router.post('/api/breweries', 
+  validateBreweryInput,  // New validation middleware - OK to create
+  async (req, res) => { /* ... */ }
+);
+
+// ⚠️ APPROVAL NEEDED - Modifying existing endpoint
+// Claude asks: "I'll modify the brewery update endpoint to support partial updates. Proceed?"
+
+// 🚫 FORBIDDEN - Changing auth
+// Claude responds: "Authentication middleware is protected. I can explain the 
+// change you need, but you should implement it manually after security review."
+```
+
+---
+
+### 2.3 Frontend Development
+
+**CAN DO:**
+- Create new components
+- Add UI functionality
+- Write component tests
+- Add styling
+- Create page layouts
+- Add form validation
+
+**CANNOT DO:**
+- Modify auth components
+- Change routing configuration
+- Modify global state management (with approval)
+- Change build configuration
+- Modify environment detection
+
+**Boundary Example:**
+```typescript
+// ✅ ALLOWED - New component
+export function BreweryList({ breweries }: BreweryListProps) {
+  return <div>{/* new component code */}</div>;
+}
+
+// ⚠️ APPROVAL NEEDED - Modifying shared component
+// Claude asks: "I'll update the DataTable component to support row selection. 
+// This is used in 8 places. Proceed?"
+
+// 🚫 FORBIDDEN - Auth component
+// Claude responds: "AuthProvider is a protected component. I'll explain the 
+// change needed for you to implement after security review."
+```
+
+---
+
+### 2.4 Business Logic
+
+**CAN DO:**
+- Implement new business rules (with approval)
+- Add validation logic
+- Create utility functions
+- Write algorithms for non-critical features
+
+**CANNOT DO:**
+- Modify financial calculations
+- Change duty/tax logic
+- Modify pricing algorithms
+- Change legal compliance code
+- Modify entity resolution core
+
+**Boundary Example:**
+```typescript
+// ✅ ALLOWED - New business logic
+function calculateBreweryTier(volume: number): string {
+  if (volume < 5000) return 'small';
+  if (volume < 30000) return 'medium';
+  return 'large';
+}
+
+// ⚠️ APPROVAL NEEDED - Non-critical business rule change
+// Claude asks: "I'll update the customer segmentation to include 'inactive' status. Proceed?"
+
+// 🚫 FORBIDDEN - Financial calculation
+// Claude responds: "Duty calculations are protected and legally binding. 
+// I'll provide the algorithm, but you must implement and validate against 
+// your Excel model."
+```
+
+---
+
+### 2.5 Agent System
+
+**CAN DO:**
+- Create new agent tools (with approval)
+- Add agent prompts
+- Write agent tests
+- Add tool validators
+
+**CANNOT DO:**
+- Modify agent orchestrator core
+- Change tool execution logic
+- Modify agent safety checks
+- Change context management
+- Modify learning system core
+
+**Boundary Example:**
+```typescript
+// ✅ ALLOWED - New agent tool
+const searchPubsTool = {
+  name: 'search_pubs',
+  description: 'Search for pubs in a region',
+  schema: z.object({ region: z.string() }),
+  execute: async (input) => { /* ... */ }
+};
+
+// ⚠️ APPROVAL NEEDED - Modifying existing tool
+// Claude asks: "I'll update the email tool to support attachments. Proceed?"
+
+// 🚫 FORBIDDEN - Orchestrator change
+// Claude responds: "The agent orchestrator is protected. I can explain the 
+// change needed for you to implement with comprehensive testing."
+```
+
+---
+
+### 2.6 Testing
+
+**CAN DO:**
+- Write unit tests
+- Write integration tests
+- Create test utilities
+- Add test data
+- Generate mocks
+
+**CANNOT DO:**
+- Delete existing production tests (requires approval)
+- Modify test infrastructure
+- Change test database configuration
+
+**Boundary Example:**
+```typescript
+// ✅ ALLOWED - New test
+describe('BreweryService', () => {
+  it('should find breweries by region', async () => {
+    // New test - fully autonomous
+  });
+});
+
+// ⚠️ APPROVAL NEEDED - Modifying existing test
+// Claude asks: "The brewery search test is failing because the API changed. 
+// I'll update the test expectations. Proceed?"
+
+// 🚫 FORBIDDEN - Test config
+// Claude responds: "Test database configuration is protected. I'll explain 
+// what needs to change, but you should make the config update."
+```
+
+---
+
+## 3. Cross-Repo Work
+
+### 3.1 Single Repo Changes
+**Autonomy:** Level 1 or 2 (depending on file type)  
+**Process:** Normal approval flow
+
+---
+
+### 3.2 Multi-Repo Changes
+**Autonomy:** Always Level 2 (requires approval)  
+**Reason:** Cross-repo changes must be coordinated for deployment
+
+**Process:**
+1. Claude Code identifies all affected repos
+2. Explains the change scope across repos
+3. Shows interdependencies
+4. Waits for explicit approval
+5. Implements changes in dependency order
+6. Provides deployment sequence
+
+**Example:**
+```
+I need to make changes across 3 repos:
+
+1. wyshbone-api: Add customer export endpoint
+2. wyshbone-web: Add UI button to trigger export
+3. wyshbone-agents: Add agent tool to schedule exports
+
+These must be deployed in order: API → Web → Agents
+
+Proceed with all three changes?
+```
+
+---
+
+## 4. Error Recovery & Rollback
+
+### 4.1 When Claude Code Makes a Mistake
+
+**If Level 1 (Autonomous) change breaks tests:**
+1. Claude Code attempts automatic fix
+2. If can't fix in 2 attempts, reverts changes
+3. Reports what went wrong
+4. Asks for guidance
+
+**If Level 2 (Approved) change breaks tests:**
+1. Claude Code reports failure
+2. Asks: "Revert or debug?"
+3. If revert: rolls back changes
+4. If debug: provides diagnostic info for human
+
+---
+
+### 4.2 Rollback Capability
+
+**Claude Code MUST be able to rollback:**
+- Any code change it made
+- Any file it created
+- Any dependency it added
+
+**Claude Code CANNOT rollback:**
+- Database migrations (never creates them)
+- Production deployments (never does them)
+- Environment changes (never touches them)
+
+---
+
+## 5. Safety Checks
+
+### 5.1 Pre-Execution Checks
+
+Before implementing any change, Claude Code verifies:
+
+```
+☐ Is this file in protected-files.md? → If yes, STOP
+☐ Does this change financial/legal code? → If yes, human-only
+☐ Does this change authentication/security? → If yes, human-only  
+☐ Does this modify production config? → If yes, human-only
+☐ Does this affect multiple repos? → If yes, require approval
+☐ Does this add new dependencies? → If yes, require approval
+☐ Does this modify existing tests? → If yes, require approval
+☐ Does this change database schema? → If yes, STOP
+```
+
+---
+
+### 5.2 Post-Execution Checks
+
+After implementing changes, Claude Code verifies:
+
+```
+☐ Do all tests pass? → If no, attempt fix or revert
+☐ Does TypeScript compile? → If no, fix errors
+☐ Are there linting errors? → If yes, auto-fix
+☐ Did I create any TODO comments? → If yes, list them
+☐ Did I leave debug statements? → If yes, remove them
+☐ Are there console.log()s in production code? → If yes, remove or use proper logging
+```
+
+---
+
+## 6. Communication Standards
+
+### 6.1 Before Starting Work
+
+Claude Code should clearly state:
+- What it plans to do
+- Which files will be modified
+- What autonomy level applies
+- Whether approval is needed
+- Estimated scope (small/medium/large)
+
+**Example:**
+```
+I'll add tests for the pub search endpoint.
+
+Autonomy Level: 1 (Fully Autonomous)
+Files to modify: 
+  - tests/services/pub-service.test.ts (new file)
+Scope: Small (~50 lines)
+No approval needed - proceeding...
+```
+
+---
+
+### 6.2 Requesting Approval
+
+When approval needed, Claude Code should:
+- Explain the change clearly
+- Show expected impact
+- Highlight risks
+- Suggest alternatives if risky
+- Wait for explicit "yes" or "go ahead"
+
+**Example:**
+```
+I'll refactor the customer search to use PostgreSQL full-text search.
+
+Autonomy Level: 2 (Review Required)
+Files to modify:
+  - services/customer-service.ts
+  - repositories/customer-repository.ts
+Impact: 
+  - Faster search (10x improvement on 10k+ customers)
+  - Different result ranking
+  - Requires PostgreSQL >= 12
+Risks:
+  - Changes result ordering (users might notice)
+  - Need to rebuild search index on deploy
+Alternative:
+  - Keep current search, just optimize query
+
+Proceed with full-text search refactor?
+```
+
+---
+
+### 6.3 Reporting Completion
+
+After completing work:
+- List what was changed
+- Confirm tests pass
+- Highlight any TODOs or follow-ups
+- Suggest next steps
+
+**Example:**
+```
+✅ Completed: Added pub search tests
+
+Changes:
+  - Created tests/services/pub-service.test.ts (12 tests)
+  - All tests passing ✓
+  - Coverage: 95% on pub-service.ts
+
+TODOs:
+  - None
+
+Suggestions:
+  - Could add integration tests for pub search API endpoint
+  - Might want to add performance tests for large datasets
+```
+
+---
+
+## 7. Task Complexity Guidelines
+
+### 7.1 Small Tasks (< 1 hour)
+**Scope:** Single file, < 100 lines, no dependencies  
+**Autonomy:** Usually Level 1  
+**Examples:** Add utility function, write tests, add comments
+
+---
+
+### 7.2 Medium Tasks (1-4 hours)
+**Scope:** Multiple files, < 500 lines, may add dependencies  
+**Autonomy:** Usually Level 2  
+**Examples:** New API endpoint, refactor service, add feature
+
+---
+
+### 7.3 Large Tasks (> 4 hours)
+**Scope:** Many files, cross-repo, significant changes  
+**Autonomy:** Break into smaller tasks  
+**Process:**
+1. Claude Code creates implementation plan
+2. Breaks plan into Level 1 and Level 2 tasks
+3. Proposes task sequence
+4. Executes tasks one at a time with approval
+
+**Example:**
+```
+This is a large task. I'll break it into phases:
+
+Phase 1 (Autonomous): Write comprehensive tests
+Phase 2 (Approval needed): Implement core algorithm  
+Phase 3 (Approval needed): Integrate with existing services
+Phase 4 (Autonomous): Add documentation
+
+Start with Phase 1?
+```
+
+---
+
+## 8. Innovate UK Project Considerations
+
+### 8.1 Grant-Funded Work
+When working on Innovate UK funded features:
+
+**EXTRA CAUTION REQUIRED:**
+- These features are contractually committed
+- Failures could impact grant funding
+- Documentation requirements are higher
+- Testing must be more comprehensive
+
+**Process:**
+1. Verify task is part of Innovate UK scope
+2. Apply Level 2 (approval) even for normally autonomous tasks
+3. Document changes extensively
+4. Create audit trail of decisions
+
+---
+
+### 8.2 Reporting & Documentation
+
+For Innovate UK features, Claude Code should:
+- Link changes to grant deliverables
+- Document technical decisions
+- Track time spent (for reporting)
+- Flag when milestone progress is made
+
+**Example:**
+```
+✅ Completed: Entity resolution confidence scoring
+
+Innovate UK Deliverable: WP2.3 - Adaptive Learning System
+Milestone Impact: Moves WP2 from 60% → 75% complete
+Time Spent: 3.5 hours
+Documentation: Added to entity-resolution/README.md
+
+Next for WP2: Pattern recognition (estimated 8 hours)
+```
+
+---
+
+## 9. Emergency Overrides
+
+### 9.1 Production Incidents
+
+During active production incidents:
+
+**Temporarily elevated autonomy:**
+- Claude Code can propose protected file changes
+- Still requires approval, but approval can be verbal/chat
+- Document override in commit message
+
+**Process:**
+1. Identify minimum viable fix
+2. Propose change with clear rationale
+3. Get rapid approval
+4. Implement fix
+5. Create follow-up ticket for proper review
+6. Log incident in emergency-fixes.md
+
+---
+
+### 9.2 Override Documentation
+
+**Template:**
+```markdown
+## Emergency Override: [Date]
+
+**Incident:** Production duty calculator returning incorrect values for kegs > 40L
+**Protected File Modified:** wyshbone-brewery/src/lib/duty/duty-calculator.ts
+**Change:** Fixed band lookup for large keg volumes
+**Approved By:** Phil (verbal approval in Slack)
+**Follow-up:** Issue #456 - Proper review and test coverage
+**Rollback Plan:** Git revert commit abc123
+```
+
+---
+
+## 10. Learning & Improvement
+
+### 10.1 Feedback Loop
+
+Claude Code should learn from:
+- Rejected proposals → Understand why
+- Approved changes that broke things → Add safety check
+- Successful autonomous work → Expand scope safely
+
+---
+
+### 10.2 Updating This Document
+
+When patterns emerge:
+
+**Add to autonomous list if:**
+- Task type has been approved 10+ times without issues
+- Clear safety bounds exist
+- Easy to rollback
+
+**Add to forbidden list if:**
+- Task type caused production incident
+- Requires domain expertise
+- Legal/compliance implications
+
+**Process:**
+1. Claude Code suggests change to this doc
+2. Human reviews and approves
+3. Update document
+4. Communicate to team
+
+---
+
+## 11. Quick Reference
+
+### "Can I Do This?" Decision Tree
+
+```
+Is the file in protected-files.md?
+├─ YES → Human-only (Level 3)
+└─ NO
+   │
+   Does it change auth/security/financial/legal code?
+   ├─ YES → Human-only (Level 3)
+   └─ NO
+      │
+      Is it a new test, doc, or comment?
+      ├─ YES → Autonomous (Level 1)
+      └─ NO
+         │
+         Does it change existing business logic or add dependencies?
+         ├─ YES → Approval required (Level 2)
+         └─ NO → Autonomous (Level 1)
+```
+
+---
+
+### Common Tasks Cheat Sheet
+
+| Task | Level | Notes |
+|------|-------|-------|
+| Write new test | 1 | Autonomous |
+| Add documentation | 1 | Autonomous |
+| Format code | 1 | Autonomous |
+| New utility function | 1 | Autonomous |
+| New API endpoint | 2 | Needs approval |
+| Modify existing endpoint | 2 | Needs approval |
+| Add dependency | 2 | Needs approval |
+| Refactor service | 2 | Needs approval |
+| Database migration | 3 | Human-only |
+| Auth change | 3 | Human-only |
+| Financial calculation | 3 | Human-only |
+| Production config | 3 | Human-only |
+
+---
+
+## Document Maintenance
+
+**Review Frequency:** Monthly or after any protected file incident  
+**Owner:** Phil (Founder/Technical Lead)  
+**Last Updated:** 2026-01-03
+
+**Changelog:**
+- 2026-01-03: Initial version defining 3 autonomy levels
+- [Future updates logged here]
+
+---
+
+## Final Reminder
+
+**When in doubt, ask.** It's better to request approval unnecessarily than to cause a production incident. The goal is to be maximally helpful while maintaining safety and quality standards.
+
+**Trust is earned.** As Claude Code demonstrates reliability in one area, scope can expand. As mistakes happen, scope tightens. This document evolves based on real-world outcomes.

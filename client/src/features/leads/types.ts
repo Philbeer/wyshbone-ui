@@ -1,0 +1,169 @@
+/**
+ * Lead type definition for V1-1.1: Real Supabase lead data
+ * Extended in UI-14 to support brewery-specific fields for pubs/venues.
+ * 
+ * V1-1.4: Added industry_vertical and direct brewery fields on leads table.
+ */
+
+export type LeadSource = "google" | "database" | "manual" | "supervisor";
+
+/**
+ * V1-1.5: Lead status (pipeline stage)
+ * Using string type for flexibility - actual values defined in leadOptions.ts
+ */
+export type LeadStatus = string;
+
+/**
+ * V1-1.4: Industry vertical type
+ * - 'generic': Standard CRM mode, no vertical-specific fields shown
+ * - 'brewery': Brewery vertical, shows brewery-specific fields
+ */
+export type IndustryVertical = "generic" | "brewery";
+
+/**
+ * V1-1.5: Lead entity type - distinguishes between different business types
+ * Using string type for flexibility - actual values defined in leadOptions.ts
+ */
+export type LeadEntityType = string;
+
+/**
+ * V1-1.5: Relationship role - the lead's relationship with you
+ * Using string type for flexibility - actual values defined in leadOptions.ts
+ */
+export type RelationshipRole = string;
+
+/**
+ * V1-1.5: Priority tag - for lead categorization/prioritization
+ * Using string type for flexibility - actual values defined in leadOptions.ts
+ */
+export type PriorityTag = string;
+
+/**
+ * Pub ownership/affiliation type
+ */
+export type PubType = "freehouse" | "tied" | "pubco" | "group" | "independent";
+
+/**
+ * Beer range preference (cask vs keg bias)
+ */
+export type CaskBias = "cask-led" | "keg-led" | "balanced";
+
+/**
+ * V1-1.4: Distribution type options
+ */
+export type DistributionType = "local" | "regional" | "national" | "export" | "mixed";
+
+/**
+ * V1-1.4: Beer focus options
+ */
+export type BeerFocus = "cask" | "keg" | "balanced" | "craft_keg" | "lager";
+
+/**
+ * UI-14: Brewery-specific metadata for leads (pubs/venues).
+ * These fields are optional and only shown when vertical = "brewery".
+ * Stored as JSONB in Supabase `brewery_metadata` column.
+ * 
+ * @deprecated V1-1.4: Moving to direct fields on Lead. Keep for backwards compat.
+ */
+export interface BreweryLeadMetadata {
+  /** Pub type - freehouse, tied house, pubco, group, independent */
+  pubType?: PubType;
+  /** Short description of beer offering, e.g. "4 cask lines, 6 keg lines" */
+  beerRangeSummary?: string;
+  /** Rotation behaviour, e.g. "rotating guests", "core range only", "seasonal" */
+  rotationStyle?: string;
+  /** Cask / keg bias - "cask-led", "keg-led", "balanced" */
+  caskBias?: CaskBias;
+  /** Number of cask lines/handpulls */
+  caskLines?: number;
+  /** Number of keg lines */
+  kegLines?: number;
+  /** Does the venue serve food? */
+  servesFood?: boolean;
+  /** Does the venue have a beer garden / outdoor space? */
+  hasBeerGarden?: boolean;
+  /** Any additional notes about the venue */
+  venueNotes?: string;
+}
+
+export interface Lead {
+  id: string;
+  businessName: string;
+  location: string;
+  source: LeadSource;
+  status: LeadStatus;
+  
+  /** Contact email (optional) */
+  email?: string;
+  /** Contact phone (optional) */
+  phone?: string;
+  /** Business website (optional) */
+  website?: string;
+  /** Additional notes */
+  notes?: string;
+  
+  /**
+   * V1-1.4: Industry vertical for this lead.
+   * Determines which vertical-specific fields are shown.
+   */
+  industry_vertical?: IndustryVertical | null;
+  
+  /**
+   * V1-1.4: Lead entity type - what kind of business this is.
+   * Used to determine which fields to show (e.g., brewery fields only for breweries/groups).
+   */
+  lead_entity_type?: LeadEntityType | null;
+  
+  /**
+   * V1-1.5: Relationship role - the lead's relationship with you.
+   */
+  relationship_role?: RelationshipRole | null;
+  
+  /**
+   * V1-1.5: Priority tag - for lead categorization/prioritization.
+   */
+  priority_tag?: PriorityTag | null;
+  
+  // ============================================
+  // V1-1.4: Pub/venue-specific fields (Option A)
+  // These are stored directly on the leads table.
+  // Only populated/rendered when industry_vertical === 'brewery'.
+  // ============================================
+  
+  /** Is this a freehouse (not tied to a brewery/pubco)? */
+  is_freehouse?: boolean | null;
+  /** Number of cask lines/handpulls */
+  cask_lines?: number | null;
+  /** Number of keg lines */
+  keg_lines?: number | null;
+  /** Does the venue have a taproom? */
+  has_taproom?: boolean | null;
+  /** Annual production in hectoliters */
+  annual_production_hl?: number | null;
+  /** Distribution type (local, regional, national, export, mixed) */
+  distribution_type?: DistributionType | null;
+  /** Beer focus (cask, keg, balanced, craft_keg, lager) */
+  beer_focus?: BeerFocus | null;
+  /** Does this brewery own pubs? */
+  owns_pubs?: boolean | null;
+  
+  /**
+   * UI-14: Legacy brewery metadata (JSONB).
+   * @deprecated V1-1.4: Use direct fields above instead. Keep for backwards compat.
+   */
+  breweryMetadata?: BreweryLeadMetadata;
+  
+  // ============================================
+  // Draft Outreach Fields
+  // Generated by the draft_outreach plan step
+  // ============================================
+  
+  /** Draft outreach email subject line */
+  draft_outreach_subject?: string | null;
+  /** Draft outreach email body */
+  draft_outreach_body?: string | null;
+  /** Persona/tone used for the draft (e.g., "friendly", "professional") */
+  draft_outreach_persona?: string | null;
+  /** When the draft was generated */
+  draft_outreach_generated_at?: string | null;
+}

@@ -1,59 +1,21 @@
-import { useState, useEffect } from "react";
-
+/**
+ * CountryHint - disabled in V1
+ * 
+ * This pop-up was too noisy for the current flow.
+ * The country selector is still available in the sidebar and header.
+ * 
+ * To re-enable: remove the early return below.
+ */
 export default function CountryHint() {
+  // V1: Disabled - do not show the country hint pop-up
+  return null;
+
+  // Original implementation kept for potential future use:
+  /*
   const [isVisible, setIsVisible] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
-
-  // Detect mobile viewport
-  useEffect(() => {
-    const checkMobile = () => {
-      setIsMobile(window.innerWidth < 768); // md breakpoint
-    };
-
-    checkMobile();
-    window.addEventListener('resize', checkMobile);
-    return () => window.removeEventListener('resize', checkMobile);
-  }, []);
-
-  useEffect(() => {
-    // Check if user has permanently dismissed the hint
-    const isPermanentlyDismissed = localStorage.getItem('countryHintDismissedForever') === 'true';
-    
-    if (!isPermanentlyDismissed) {
-      // Show hint after a short delay every time page loads
-      const timer = setTimeout(() => setIsVisible(true), 1000);
-      return () => clearTimeout(timer);
-    }
-  }, []);
-
-  const handleClose = () => {
-    // Temporary close - just for this session
-    setIsVisible(false);
-  };
-
-  const handleCloseForever = () => {
-    // Permanent close - never show again
-    setIsVisible(false);
-    localStorage.setItem('countryHintDismissedForever', 'true');
-  };
-
-  // Hide when user interacts with the country dropdown (both mobile and desktop)
-  useEffect(() => {
-    const handleClick = (e: MouseEvent) => {
-      const target = e.target as HTMLElement;
-      if (
-        target.closest('[data-testid="select-default-country"]') ||
-        target.closest('[data-testid="select-default-country-mobile"]')
-      ) {
-        handleClose();
-      }
-    };
-
-    document.addEventListener('click', handleClick);
-    return () => document.removeEventListener('click', handleClick);
-  }, []);
-
-  if (!isVisible) return null;
+  ... rest of the component
+  */
 
   // Mobile positioning: below header, pointing up
   if (isMobile) {

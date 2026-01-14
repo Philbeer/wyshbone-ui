@@ -15,6 +15,8 @@ import {
   getOrCreateRunId,
   resetRunId,
 } from "./memory";
+import { getDemoConfig, isDemoMode, DEMO_USER_ID, DEMO_USER_EMAIL, logDemoConfig } from "./demo-config";
+import { analyzeDatabaseError, createAuthError, createApiError, type ApiError } from "./error-helpers";
 import {
   chatRequestSchema,
   addNoteRequestSchema,
@@ -26,7 +28,10 @@ import {
   insertCrmDeliveryRunSchema,
   insertCrmOrderSchema,
   insertCrmOrderLineSchema,
-  insertBrewProductSchema,
+  insertCrmProductSchema,
+  insertCrmStockSchema,
+  insertCrmCallDiarySchema,
+  insertCrmProductSchema,
   insertBrewBatchSchema,
   insertBrewInventoryItemSchema,
   insertBrewContainerSchema,
@@ -37,6 +42,17 @@ import { storage } from "./storage";
 import * as cheerio from "cheerio";
 import { neon } from "@neondatabase/serverless";
 import { createXeroOAuthRouter } from "./routes/xero-oauth";
+import { createXeroSyncRouter } from "./routes/xero-sync";
+import { createUntappdRouter } from "./routes/untappd";
+import { createSleeperAgentRouter } from "./routes/sleeper-agent";
+import { createThingsRouter } from "./routes/things";
+import { createEntityReviewRouter } from "./routes/entity-review";
+import { createDevToolsRouter } from "./routes/dev-tools";
+import { createDatabaseMaintenanceRouter } from "./routes/admin/database-maintenance";
+import { createSuppliersRouter } from "./routes/suppliers";
+import { createActivityLogRouter } from "./routes/activity-log";
+import { routePlannerRoutes } from "./routes/route-planner";
+import { agentActivitiesRouter } from "./routes/agent-activities";
 import { hashPassword, verifyPassword, generateId, canCreateMonitor, canCreateDeepResearch, TIER_LIMITS } from "./auth";
 import { signupRequestSchema, loginRequestSchema, updateProfileRequestSchema } from "@shared/schema";
 import { buildSessionContext, generatePersonalizedOpening, type SessionContext } from "./lib/context";
@@ -49,6 +65,36 @@ import { startRunLog, completeRunLog, logToolCall, isTowerLoggingEnabled } from 
 import { getUserGoal, setUserGoal, hasUserGoal } from './userGoalHelper';
 
 const sql = neon(process.env.DATABASE_URL!);
+
+// ============================================
+// STRIPE CONFIGURATION (optional for dev)
+// ============================================
+const isStripeEnabled = !!process.env.STRIPE_SECRET_KEY;
+let stripe: Stripe | null = null;
+
+if (isStripeEnabled) {
+  stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+    apiVersion: "2024-11-20.acacia",
+  });
+  console.log('✅ Stripe initialized');
+} else {
+  console.warn('⚠️  Stripe disabled: STRIPE_SECRET_KEY not set');
+  console.warn('   Stripe-related endpoints will return 501 Not Configured');
+}
+
+/**
+ * Middleware to check if Stripe is enabled
+ * Returns 501 if Stripe is not configured
+ */
+function requireStripe(req: import("express").Request, res: import("express").Response, next: import("express").NextFunction) {
+  if (!isStripeEnabled || !stripe) {
+    return res.status(501).json({
+      error: 'Stripe not configured',
+      message: 'This endpoint requires STRIPE_SECRET_KEY to be set. Stripe features are disabled in this environment.',
+    });
+  }
+  next();
+}
 
 // Export API key generation/validation
 const EXPORT_KEY = process.env.EXPORT_KEY || (() => {
@@ -76,64 +122,72 @@ const EXPORT_KEY = process.env.EXPORT_KEY || (() => {
 })();
 
 // Initialize Stripe
-if (!process.env.STRIPE_SECRET_KEY) {
-  throw new Error('Missing required Stripe secret: STRIPE_SECRET_KEY');
-}
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
-  apiVersion: "2024-11-20.acacia",
-});
+// Stripe initialization moved above (see isStripeEnabled)
 
 // Helper to identify each user's session (Bubble should send x-session-id)
 function getSessionId(req: import("express").Request) {
   return (req.headers["x-session-id"] as string) || req.ip || "anon";
 }
 
-// SECURITY: Authentication middleware to validate session and extract userId
+// SECURITY: Centralized authentication for all API routes
+// 
+// Authentication Priority:
+// 1. Session header (x-session-id) - production auth
+// 2. URL params (user_id + user_email) - demo/dev mode only
+// 3. Demo-user fallback - demo/dev mode only, provides default identity
+//
+// In demo mode (DEMO_MODE=true or NODE_ENV=development):
+// - All requests get a valid user identity
+// - No per-route bypasses needed
+// - Production auth is NOT weakened (session validation still works)
+//
 async function getAuthenticatedUserId(req: import("express").Request): Promise<{ userId: string; userEmail: string } | null> {
-  // Development fallback: allow URL parameters for testing ONLY
-  const urlUserId = (req.params.userId || req.query.userId || req.query.user_id) as string | undefined;
-  const urlUserEmail = req.query.user_email as string | undefined;
+  const demoConfig = getDemoConfig();
   
-  // Debug logging
-  console.log('🔍 Auth check:', {
-    env: process.env.NODE_ENV,
-    urlUserId,
-    urlUserEmail,
-    query: req.query,
-    hasSessionHeader: !!req.headers["x-session-id"]
-  });
-  
-  // If development mode and URL params present, allow (but warn)
-  if (process.env.NODE_ENV === 'development' && urlUserId && urlUserEmail) {
-    console.warn(`⚠️ DEV MODE: Using URL auth for ${urlUserEmail} - DISABLE IN PRODUCTION`);
-    return { userId: urlUserId, userEmail: urlUserEmail };
-  }
-  
-  // Production path: validate session
+  // 1. Try session-based auth first (works in all modes)
   const sessionId = req.headers["x-session-id"] as string | undefined;
-  if (!sessionId) {
-    console.log('❌ No session ID and no valid dev auth params');
-    return null;
+  if (sessionId) {
+    try {
+      const session = await storage.getSession(sessionId);
+      if (session) {
+        console.log(`✅ Session valid for user: ${session.userEmail}`);
+        return {
+          userId: session.userId,
+          userEmail: session.userEmail
+        };
+      }
+      console.log(`❌ Session not found: ${sessionId}`);
+    } catch (error) {
+      console.error("Session validation error:", error);
+    }
   }
   
-  try {
-    // Validate session and get user info
-    console.log(`🔍 Validating session: ${sessionId}`);
-    const session = await storage.getSession(sessionId);
-    if (!session) {
-      console.log(`❌ Session not found in database: ${sessionId}`);
-      return null;
+  // 2. DEMO MODE: Allow URL parameters for testing
+  if (demoConfig.enabled) {
+    const urlUserId = (req.params.userId || req.query.userId || req.query.user_id) as string | undefined;
+    const urlUserEmail = req.query.user_email as string | undefined;
+    
+    if (urlUserId && urlUserEmail) {
+      console.log(`✅ DEMO MODE: URL auth for ${urlUserEmail}`);
+      return { userId: urlUserId, userEmail: urlUserEmail };
     }
     
-    console.log(`✅ Session valid for user: ${session.userEmail}`);
-    return {
-      userId: session.userId,
-      userEmail: session.userEmail
-    };
-  } catch (error) {
-    console.error("Session validation error:", error);
-    return null;
+    if (urlUserId) {
+      console.log(`✅ DEMO MODE: URL userId ${urlUserId}`);
+      return { userId: urlUserId, userEmail: `${urlUserId}@dev.local` };
+    }
   }
+  
+  // 3. DEMO MODE FALLBACK: Provide demo-user identity when no other auth
+  // This ensures all API routes work in demo mode without per-route bypasses
+  if (demoConfig.enabled) {
+    console.log(`✅ DEMO MODE: Fallback to ${demoConfig.user.email}`);
+    return { userId: demoConfig.user.id, userEmail: demoConfig.user.email };
+  }
+  
+  // Production: No valid auth found
+  console.log('❌ No valid authentication');
+  return null;
 }
 
 // Helper to validate export key for Tower testing
@@ -496,6 +550,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       primaryObjective: user.primaryObjective,
       inferredIndustry: user.inferredIndustry,
       confidence: user.confidence,
+      preferences: user.preferences,
     });
   });
 
@@ -513,32 +568,52 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const updates = validation.data;
-      
+
+      // Get current user for merging preferences and inferring industry
+      const currentUser = await storage.getUserById(auth.userId);
+      if (!currentUser) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      // Merge preferences instead of replacing
+      let mergedPreferences = currentUser.preferences || {};
+      if (updates.preferences) {
+        mergedPreferences = {
+          ...mergedPreferences,
+          ...updates.preferences,
+          // Deep merge onboardingChecklist if provided
+          onboardingChecklist: updates.preferences.onboardingChecklist
+            ? {
+                ...(mergedPreferences.onboardingChecklist || {}),
+                ...updates.preferences.onboardingChecklist,
+              }
+            : mergedPreferences.onboardingChecklist,
+        };
+      }
+
       // If company name or domain was provided, infer industry
       let inferredIndustry: string | null | undefined = undefined;
       let confidence: number | null | undefined = undefined;
-      
+
       if (updates.companyName || updates.companyDomain) {
-        const tempUser = await storage.getUserById(auth.userId);
-        if (tempUser) {
-          // Merge current user data with updates to get fresh context
-          const mergedUserData = {
-            ...tempUser,
-            companyName: updates.companyName ?? tempUser.companyName,
-            companyDomain: updates.companyDomain ?? tempUser.companyDomain,
-          };
-          
-          // Use context builder to infer industry from merged data
-          const ctx = buildSessionContext(mergedUserData as any);
-          
-          inferredIndustry = ctx.inferredIndustry ?? null;
-          confidence = ctx.confidence;
-        }
+        // Merge current user data with updates to get fresh context
+        const mergedUserData = {
+          ...currentUser,
+          companyName: updates.companyName ?? currentUser.companyName,
+          companyDomain: updates.companyDomain ?? currentUser.companyDomain,
+        };
+
+        // Use context builder to infer industry from merged data
+        const ctx = buildSessionContext(mergedUserData as any);
+
+        inferredIndustry = ctx.inferredIndustry ?? null;
+        confidence = ctx.confidence;
       }
 
-      // Update user profile
+      // Update user profile with merged preferences
       const updatedUser = await storage.updateUser(auth.userId, {
         ...updates,
+        preferences: mergedPreferences,
         inferredIndustry,
         confidence,
         lastContextRefresh: Date.now(),
@@ -556,6 +631,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         companyDomain: updatedUser.companyDomain,
         roleHint: updatedUser.roleHint,
         primaryObjective: updatedUser.primaryObjective,
+        preferences: updatedUser.preferences,
         inferredIndustry: updatedUser.inferredIndustry,
         confidence: updatedUser.confidence,
       });
@@ -610,6 +686,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // POST /agent/chat - MEGA Agent Kernel (Hybrid Mode)
   // This runs alongside the standard chat for testing/comparison
   app.post("/agent/chat", async (req, res) => {
+    // DEV MODE: Check for missing OPENAI_API_KEY and return helpful error
+    if (!process.env.OPENAI_API_KEY) {
+      console.warn('⚠️ OPENAI_API_KEY not set - agent chat unavailable');
+      return res.status(503).json({
+        ok: false,
+        error: 'Chat unavailable: OPENAI_API_KEY not configured',
+        natural: '⚠️ **Chat unavailable**: OPENAI_API_KEY is not configured.\n\nTo fix this:\n1. Create a `.env.local` file in the repo root\n2. Add: `OPENAI_API_KEY=sk-your-key-here`\n3. Restart the dev server\n\n*Other features (CRM, products, orders) should still work.*',
+        plan: null,
+      });
+    }
+    
     try {
       const auth = await getAuthenticatedUserId(req);
       if (!auth) {
@@ -678,7 +765,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ===========================
 
   // POST /api/subscription/create - Create Stripe subscription
-  app.post("/api/subscription/create", async (req, res) => {
+  app.post("/api/subscription/create", requireStripe, async (req, res) => {
     try {
       const auth = await getAuthenticatedUserId(req);
       if (!auth) {
@@ -718,7 +805,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Create or retrieve Stripe customer
       let customerId = user.stripeCustomerId;
       if (!customerId) {
-        const customer = await stripe.customers.create({
+        const customer = await stripe!.customers.create({
           email: user.email,
           name: user.name || undefined,
           metadata: { userId: user.id },
@@ -728,7 +815,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Create Stripe Checkout Session
-      const session = await stripe.checkout.sessions.create({
+      const session = await stripe!.checkout.sessions.create({
         customer: customerId,
         mode: 'subscription',
         payment_method_types: ['card'],
@@ -756,7 +843,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // GET /api/subscription/status - Get subscription status
-  app.get("/api/subscription/status", async (req, res) => {
+  app.get("/api/subscription/status", requireStripe, async (req, res) => {
     try {
       const auth = await getAuthenticatedUserId(req);
       if (!auth) {
@@ -781,7 +868,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Fetch from Stripe
-      const subscription = await stripe.subscriptions.retrieve(user.stripeSubscriptionId);
+      const subscription = await stripe!.subscriptions.retrieve(user.stripeSubscriptionId);
       
       res.json({
         tier: user.subscriptionTier,
@@ -800,7 +887,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // POST /api/subscription/cancel - Cancel subscription
-  app.post("/api/subscription/cancel", async (req, res) => {
+  app.post("/api/subscription/cancel", requireStripe, async (req, res) => {
     try {
       const auth = await getAuthenticatedUserId(req);
       if (!auth) {
@@ -812,7 +899,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "No active subscription" });
       }
 
-      await stripe.subscriptions.cancel(user.stripeSubscriptionId);
+      await stripe!.subscriptions.cancel(user.stripeSubscriptionId);
       
       await storage.updateUser(user.id, {
         subscriptionStatus: "cancelled",
@@ -929,10 +1016,71 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ===========================
+  // POST /api/agent/chat – Claude AI with Tool Use
+  // ===========================
+  app.post("/api/agent/chat", async (req, res) => {
+    console.log('🤖 POST /api/agent/chat received');
+    
+    // Check for Anthropic API key
+    if (!process.env.ANTHROPIC_API_KEY) {
+      console.warn('⚠️ ANTHROPIC_API_KEY not set');
+      return res.status(503).json({ 
+        error: "Agent unavailable", 
+        message: "ANTHROPIC_API_KEY is not configured. Please add it to your environment variables." 
+      });
+    }
+    
+    try {
+      const { message, conversationHistory, userId } = req.body;
+      
+      if (!message || typeof message !== 'string') {
+        return res.status(400).json({ error: "Message is required" });
+      }
+      
+      // Get authenticated user ID
+      const auth = await getAuthenticatedUserId(req);
+      const actualUserId = userId || auth?.userId;
+      
+      // Import and call the Claude agent
+      const { chatWithClaude } = await import('./anthropic-agent');
+      
+      const response = await chatWithClaude(
+        message,
+        conversationHistory || [],
+        actualUserId,
+        storage
+      );
+      
+      res.json(response);
+    } catch (error: any) {
+      console.error('❌ Claude agent error:', error);
+      res.status(500).json({ 
+        error: "Agent error", 
+        message: error.message || "An error occurred while processing your request"
+      });
+    }
+  });
+
+  // ===========================
   // POST /api/chat – streaming + MEMORY
   // ===========================
   app.post("/api/chat", async (req, res) => {
     console.log('🎯 POST /api/chat received', { query: req.query, hasBody: !!req.body });
+    
+    // DEV MODE: Check for missing OPENAI_API_KEY and return helpful stub response
+    if (!process.env.OPENAI_API_KEY) {
+      console.warn('⚠️ OPENAI_API_KEY not set - returning stub response');
+      res.setHeader('Content-Type', 'text/plain');
+      res.setHeader('Transfer-Encoding', 'chunked');
+      res.write('⚠️ **Chat unavailable**: OPENAI_API_KEY is not configured.\n\n');
+      res.write('To fix this:\n');
+      res.write('1. Create a `.env.local` file in the repo root\n');
+      res.write('2. Add: `OPENAI_API_KEY=sk-your-key-here`\n');
+      res.write('3. Restart the dev server\n\n');
+      res.write('*Other features (CRM, products, orders) should still work.*');
+      res.end();
+      return;
+    }
     
     // 🏢 TOWER: Declare variables at top level for error handler access
     let runId = '';
@@ -1832,21 +1980,13 @@ Examples:
         // Continue with normal flow if classification fails
       }
 
-      // Handle "both_possible" - ask user to clarify
+      // DISABLED: Don't ask "four ways" clarification - just execute quick search by default
+      // When intent is ambiguous, default to quick search since it's the most common use case
       if (userIntent?.intent === "both_possible") {
-        const clarificationMsg = `I can help with that in four ways:\n\n` +
-          `📊 **Deep Research** - I'll perform comprehensive research and provide a detailed report with findings, sources, and analysis\n\n` +
-          `🔍 **Wyshbone Global Database** - I'll search our global database and return a quick list of businesses with Place IDs, phone numbers, addresses, and websites\n\n` +
-          `📧 **Wyshbone Global Database and Email Finder** - I'll find businesses with verified contact emails using Hunter.io, then add them to your SalesHandy campaign with AI-generated personal lines\n\n` +
-          `⏰ **Scheduled Monitoring** - I'll set up recurring automated monitoring to check regularly (e.g., every Monday) and build reports over time\n\n` +
-          `Which would you prefer?`;
-        
-        appendMessage(sessionId, { role: "assistant", content: clarificationMsg });
-        await saveMessage(conversationId, "assistant", clarificationMsg);
-        console.log("💾 Saved assistant clarification message to database");
-        res.write(`data: ${JSON.stringify({ content: clarificationMsg })}\n\n`);
-        res.write(`data: [DONE]\n\n`);
-        return res.end();
+        console.log("🔍 Ambiguous intent detected - defaulting to quick_search (most common use case)");
+        userIntent.intent = "quick_search";
+        userIntent.confidence = "medium";
+        // Continue with normal tool execution flow
       }
 
       // Handle clear deep_research intent
@@ -1936,11 +2076,11 @@ CRITICAL RULES:
             user_id: user.id,
             user_email: user.email
           });
-          
-          const response = await fetch(`http://localhost:5000/api/deep-research?${authParams}`, {
+
+          const response = await fetch(`http://localhost:5001/api/deep-research?${authParams}`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ 
+            body: JSON.stringify({
               prompt: researchTopic,
               conversationId,
               userId: user.id
@@ -2351,13 +2491,15 @@ CRITICAL RULES:
         await clearLeadContext(sessionId);
       }
       
-      // Let handleLeadClarification own the entire clarification flow
-      // It handles: awaiting detection, answer parsing, context merging, and flag clearing
-      const clarificationResult = await handleLeadClarification({
-        sessionId,
-        userMessage: latestUserText,
-        conversationHistory: memoryMessages.map(m => String(m.content || ''))
-      });
+      // DISABLED: Lead clarification was causing unnecessary follow-up questions
+      // Claude can handle clarification naturally when needed - it knows when to ask
+      // Original code:
+      // const clarificationResult = await handleLeadClarification({
+      //   sessionId,
+      //   userMessage: latestUserText,
+      //   conversationHistory: memoryMessages.map(m => String(m.content || ''))
+      // });
+      const clarificationResult = { type: 'skip' } as const;
       
       if (clarificationResult.type === 'clarify') {
         // Missing fields - ask clarifying questions and return early
@@ -2508,198 +2650,6 @@ CRITICAL RULES:
               args: toolArgs,
               error: err.message
             });
-          }
-        }
-        // TODO: REMOVE THIS LEGACY HANDLER - deep_research now routes through plan system above
-        // This code is unreachable for tools in heavyTools set but kept temporarily for safety
-        else if (isToolCall && toolCallBuffer.name === "deep_research") {
-          console.log("🔬 Deep research tool call detected");
-          console.log("📦 Arguments:", toolCallBuffer.arguments);
-          
-          try {
-            const params = JSON.parse(toolCallBuffer.arguments);
-            
-            if (!params.prompt) {
-              throw new Error("Missing prompt parameter");
-            }
-            
-            // ENHANCE VAGUE PROMPTS: If prompt is vague, extract actual topic from conversation
-            const vaguePhrases = ['deep dive', 'yes', 'do it', 'go ahead', 'sure', 'okay', 'please', 'start', 'begin'];
-            const isVaguePrompt = vaguePhrases.some(phrase => 
-              params.prompt.toLowerCase().trim() === phrase || 
-              params.prompt.toLowerCase().includes(phrase) && params.prompt.split(' ').length <= 3
-            );
-            
-            if (isVaguePrompt) {
-              console.log(`🔍 Vague prompt detected: "${params.prompt}" - extracting topic from conversation...`);
-              
-              // Extract actual topic from conversation history
-              const extractionPrompt = [
-                {
-                  role: "system" as const,
-                  content: `Extract the research topic from the conversation. The user said a vague phrase like "${params.prompt}", but there should be a clear topic/business type and location mentioned in recent messages.
-
-Return JSON with ONLY the extracted topic:
-{
-  "extracted_topic": "business type in location" or null
-}
-
-Examples:
-- Recent messages show "pubs in Kendal" → {"extracted_topic": "pubs in Kendal"}
-- Recent messages show "coffee shops" and "London" → {"extracted_topic": "coffee shops in London"}
-- Recent messages show "dentists" and "Manchester" → {"extracted_topic": "dentists in Manchester"}
-- No clear topic found → {"extracted_topic": null}
-
-RULES:
-1. Extract BOTH business type AND location from recent messages
-2. Combine them naturally: "[business] in [location]"
-3. Return null only if you genuinely cannot find a topic`
-                },
-                {
-                  role: "user" as const,
-                  content: `User said: "${latestUserText}"\n\nRecent conversation (most recent first):\n${memoryMessages.slice(-8).reverse().filter(m => m.role !== 'system').map((m, i) => `[${i}] ${m.role}: ${m.content.substring(0, 300)}`).join('\n')}\n\nExtract the research topic:`
-                }
-              ];
-              
-              const extractionResp = await openai.chat.completions.create({
-                model: "gpt-4o-mini",
-                messages: extractionPrompt,
-                response_format: { type: "json_object" },
-              });
-              
-              const extraction = JSON.parse(extractionResp.choices[0]?.message?.content || "{}");
-              console.log("📍 Topic extraction result:", extraction);
-              
-              if (extraction.extracted_topic) {
-                console.log(`✅ Enhanced prompt: "${params.prompt}" → "${extraction.extracted_topic}"`);
-                params.prompt = extraction.extracted_topic;
-              } else {
-                console.log("⚠️ Could not extract topic from conversation");
-              }
-            }
-            
-            // VALIDATE: Check if the prompt was inferred from context vs. explicitly stated
-            const validationPrompt = [
-              {
-                role: "system" as const,
-                content: `Analyze if the user's current message clearly indicates what they want to research. Only ask for confirmation if genuinely ambiguous.
-
-Return JSON with:
-{
-  "topic_source": "explicit" | "inferred_from_context",
-  "confirmation_needed": true/false,
-  "confirmation_question": "question to ask" or null
-}
-
-Examples:
-- User: "I'm interested in Texas" → Prompt: "pubs in Texas" → {"topic_source": "inferred_from_context", "confirmation_needed": true, "confirmation_question": "Would you like me to research pubs in Texas?"}
-- User: "I want deep research for pubs in Texas" → Prompt: "pubs in Texas" → {"topic_source": "explicit", "confirmation_needed": false, "confirmation_question": null}
-- User: "research pubs in Texas" → Prompt: "pubs in Texas" → {"topic_source": "explicit", "confirmation_needed": false, "confirmation_question": null}
-- User: "pubs in Texas" (in context of research) → Prompt: "pubs in Texas" → {"topic_source": "explicit", "confirmation_needed": false, "confirmation_question": null}
-- User: "deep dive" (after discussing pubs in Texas) → Prompt: "pubs in Texas" → {"topic_source": "explicit", "confirmation_needed": false, "confirmation_question": null}
-- User: "yes" after confirmation question → {"topic_source": "explicit", "confirmation_needed": false, "confirmation_question": null}
-
-CRITICAL RULES:
-1. topic_source = "explicit" if the user's current message (or recent 2-3 messages) clearly mentions BOTH business type AND location
-2. topic_source = "explicit" if user said "yes", "go ahead", "do it" in response to a confirmation question
-3. topic_source = "explicit" if the research prompt matches what was recently discussed (last 2-3 messages)
-4. confirmation_needed = true ONLY when genuinely ambiguous or missing key information
-5. Don't ask for confirmation just because context was used - if the intent is clear, proceed`
-              },
-              {
-                role: "user" as const,
-                content: `User's current message: "${latestUserText}"\n\nResearch prompt AI wants to use: "${params.prompt}"\n\nConversation context (recent messages):\n${memoryMessages.slice(-10).reverse().filter(m => m.role !== 'system').map((m, i) => `[${i}] ${m.role}: ${m.content.substring(0, 200)}`).join('\n')}\n\nDetermine if confirmation is needed:`
-              }
-            ];
-
-            const validationResp = await openai.chat.completions.create({
-              model: "gpt-4o-mini",
-              messages: validationPrompt,
-              response_format: { type: "json_object" },
-            });
-
-            const validation = JSON.parse(validationResp.choices[0]?.message?.content || "{}");
-            console.log("✅ Deep research validation:", validation);
-
-            // If confirmation needed, ask the user instead of auto-starting
-            if (validation.confirmation_needed && validation.confirmation_question) {
-              const askMsg = validation.confirmation_question;
-              aiBuffer = askMsg;
-              appendMessage(sessionId, { role: "assistant", content: askMsg });
-              await saveMessage(conversationId, "assistant", askMsg);
-              console.log("💾 Saved confirmation question to database");
-              
-              res.write(`data: ${JSON.stringify({ content: askMsg })}\n\n`);
-              res.write(`data: [DONE]\n\n`);
-              return res.end();
-            }
-            
-            // Confirmed or explicit - check subscription limits before starting
-            const currentUser = await storage.getUserById(user.id);
-            if (currentUser) {
-              const tier = currentUser.subscriptionTier as keyof typeof TIER_LIMITS;
-              if (!canCreateDeepResearch(tier, currentUser.deepResearchCount)) {
-                const limitMsg = `You've reached your deep research limit (${TIER_LIMITS[tier].deepResearch} for ${TIER_LIMITS[tier].displayName}). Please upgrade your subscription to continue.`;
-                aiBuffer = limitMsg;
-                appendMessage(sessionId, { role: "assistant", content: limitMsg });
-                await saveMessage(conversationId, "assistant", limitMsg);
-                
-                res.write(`data: ${JSON.stringify({ content: limitMsg })}\n\n`);
-                res.write(`data: [DONE]\n\n`);
-                return res.end();
-              }
-            }
-            
-            // Confirmed or explicit - start deep research
-            // Add auth params for development mode
-            const authParams = new URLSearchParams({
-              user_id: user.id,
-              user_email: user.email
-            });
-            
-            const response = await fetch(`http://localhost:5000/api/deep-research?${authParams}`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ 
-                prompt: params.prompt,
-                conversationId,
-                userId: user.id
-              }),
-            });
-
-            const data = await response.json();
-            
-            if (response.ok) {
-              // Increment deep research count
-              await storage.incrementDeepResearchCount(user.id);
-              
-              const confirmMsg = `🔬 Deep research started!\n\nI'm investigating: "${params.prompt}"\n\nYou can view the progress in the sidebar. I'll notify you when it's complete.`;
-              aiBuffer = confirmMsg;
-              appendMessage(sessionId, { role: "assistant", content: confirmMsg });
-              
-              // Save assistant message to database before returning
-              await saveMessage(conversationId, "assistant", confirmMsg);
-              console.log("💾 Saved assistant message to database");
-              
-              res.write(`data: ${JSON.stringify({ content: confirmMsg })}\n\n`);
-              res.write(`data: [DONE]\n\n`);
-              return res.end();
-            } else {
-              throw new Error(data.error || "Failed to start deep research");
-            }
-          } catch (err: any) {
-            console.error("❌ Deep research tool error:", err.message);
-            const errorMsg = `Sorry, I couldn't start the deep research: ${err.message}`;
-            aiBuffer = errorMsg;
-            appendMessage(sessionId, { role: "assistant", content: errorMsg });
-            
-            // Save error message to database before returning
-            await saveMessage(conversationId, "assistant", errorMsg);
-            console.log("💾 Saved assistant error message to database");
-            
-            res.write(`data: ${JSON.stringify({ content: errorMsg })}\n\n`);
-            res.write(`data: [DONE]\n\n`);
-            return res.end();
           }
         } else if (isToolCall && toolCallBuffer.name === "bubble_run_batch") {
           console.log("🔧 Tool call detected:", toolCallBuffer.name);
@@ -3221,26 +3171,25 @@ CRITICAL RULES:
               updatedAt: now,
             });
             
-            // Format response
-            let responseText = `⏰ **Scheduled Monitor Created**\n\n`;
-            responseText += `✅ **${params.label}**\n\n`;
-            responseText += `📋 ${params.description}\n\n`;
-            responseText += `🔄 **Schedule:** ${params.schedule.charAt(0).toUpperCase() + params.schedule.slice(1)}`;
-            
-            if (params.scheduleDay) {
-              responseText += ` on ${params.scheduleDay.charAt(0).toUpperCase() + params.scheduleDay.slice(1)}s`;
-            }
-            if (params.scheduleTime) {
-              responseText += ` at ${params.scheduleTime}`;
-            }
-            responseText += `\n\n`;
-            
-            responseText += `📊 **Type:** ${params.monitorType === 'deep_research' ? 'Deep Research' : params.monitorType === 'business_search' ? 'Business Search' : 'Wyshbone Global Database'}\n\n`;
-            responseText += `🎯 Your monitor will run automatically according to the schedule. You can view and manage it in the sidebar under "Scheduled Monitors".\n\n`;
-            
+            // Format response with special marker for chat UI detection
             const nextRunDate = new Date(nextRunAt);
-            responseText += `⏭️ **Next run:** ${nextRunDate.toLocaleDateString('en-GB')} at ${nextRunDate.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false })}`;
-            
+            const scheduleText = params.schedule.charAt(0).toUpperCase() + params.schedule.slice(1) +
+              (params.scheduleDay ? ` on ${params.scheduleDay.charAt(0).toUpperCase() + params.scheduleDay.slice(1)}s` : '') +
+              (params.scheduleTime ? ` at ${params.scheduleTime}` : '');
+
+            const monitorTypeDisplay = params.monitorType === 'deep_research' ? 'Deep Research' :
+                                       params.monitorType === 'business_search' ? 'Business Search' :
+                                       'Wyshbone Global Database';
+
+            // Create a structured response that the UI can detect and render nicely
+            let responseText = `🔔 MONITOR_CREATED\n`;
+            responseText += `LABEL: ${params.label}\n`;
+            responseText += `DESCRIPTION: ${params.description}\n`;
+            responseText += `SCHEDULE: ${scheduleText}\n`;
+            responseText += `TYPE: ${monitorTypeDisplay}\n`;
+            responseText += `NEXT_RUN: ${nextRunDate.toLocaleDateString('en-GB')} at ${nextRunDate.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false })}\n`;
+            responseText += `MONITOR_ID: ${monitor.id}`;
+
             aiBuffer = responseText;
             res.write(`data: ${JSON.stringify({ content: responseText })}\n\n`);
             
@@ -3442,6 +3391,16 @@ CRITICAL RULES:
       res.json(conversations);
     } catch (error: any) {
       console.error("Error listing conversations:", error);
+
+      // Check if tables don't exist (graceful degradation for demo/new users)
+      if (error.message?.includes('relation "conversations" does not exist') ||
+          error.message?.includes('fetch failed')) {
+        return res.status(200).json({
+          conversations: [],
+          message: "No conversations yet. Start chatting to create your first conversation!"
+        });
+      }
+
       res.status(500).json({ error: error.message });
     }
   });
@@ -3693,11 +3652,14 @@ CRITICAL RULES:
   // ===========================
   
   // GET /api/plan-status - Get current plan/goal execution status (UI-020)
+  // Now reads from DATABASE FIRST for crash-safety, falls back to in-memory
   app.get("/api/plan-status", async (req, res) => {
+    console.log(`📥 [PLAN] GET /api/plan-status received`);
+    
     try {
-      // SECURITY: Validate authenticated user
       const auth = await getAuthenticatedUserId(req);
       if (!auth) {
+        console.log(`❌ [PLAN] Unauthorized request`);
         return res.status(401).json({ error: "Unauthorized" });
       }
       
@@ -3707,12 +3669,55 @@ CRITICAL RULES:
       // Get current goal
       const goal = await getUserGoal(sessionId);
       
-      // Check for active plan execution using the leadgen-executor
-      const { getExecutionBySession, getExecutionByConversation, getPlanExecution } = await import('./leadgen-executor.js');
-      
-      // Try to get execution by planId first (if provided), then conversation ID, then session
       const planId = req.query.planId as string | undefined;
       const conversationId = req.query.conversationId as string | undefined;
+      
+      // CRASH-SAFE: Read from database first if planId is provided
+      if (planId) {
+        try {
+          const { getPlanExecutionStatus } = await import('./leadgen-plan.js');
+          const dbStatus = await getPlanExecutionStatus(planId);
+
+          if (dbStatus) {
+            // Build response from persisted step data
+            const currentStep = dbStatus.steps.find(s => s.stepStatus === 'running') ||
+                               dbStatus.steps.find(s => !s.stepStatus || s.stepStatus === 'pending');
+
+            const steps = dbStatus.steps.map(step => ({
+              id: step.id,
+              type: step.type,
+              label: step.label,
+              status: step.stepStatus === 'running' ? 'executing' : (step.stepStatus || 'pending'),
+              resultSummary: step.resultSummary,
+              leadsCreated: step.leadsCreated,
+            }));
+
+            return res.json({
+              goal: dbStatus.goal || goal || null,
+              planId: planId,
+              totalSteps: dbStatus.totalSteps,
+              completedSteps: dbStatus.completedSteps,
+              currentStep: currentStep ? {
+                id: currentStep.id,
+                type: currentStep.type,
+                label: currentStep.label,
+                status: currentStep.stepStatus === 'running' ? 'executing' : (currentStep.stepStatus || 'pending'),
+                resultSummary: currentStep.resultSummary,
+              } : null,
+              status: dbStatus.status,
+              steps,
+              lastUpdatedAt: new Date().toISOString(),
+              error: dbStatus.error,
+            });
+          }
+        } catch (dbError: any) {
+          // Log but don't fail - fall through to in-memory check
+          console.warn(`⚠️ Database lookup failed for plan ${planId}:`, dbError.message);
+        }
+      }
+      
+      // Fallback: Check in-memory execution state (for backwards compatibility)
+      const { getExecutionBySession, getExecutionByConversation, getPlanExecution } = await import('./leadgen-executor.js');
       
       let execution = planId 
         ? getPlanExecution(planId)
@@ -3785,10 +3790,12 @@ CRITICAL RULES:
   
   // GET /api/goal - Get current user's goal
   app.get("/api/goal", async (req, res) => {
+    console.log(`📥 [GOAL] GET /api/goal received`);
+    
     try {
-      // SECURITY: Validate authenticated user
       const auth = await getAuthenticatedUserId(req);
       if (!auth) {
+        console.log(`❌ [GOAL] Unauthorized request`);
         return res.status(401).json({ error: "Unauthorized" });
       }
       
@@ -3808,10 +3815,53 @@ CRITICAL RULES:
   
   // PUT /api/goal - Update current user's goal
   app.put("/api/goal", async (req, res) => {
+    console.log(`📥 [GOAL] PUT /api/goal received`);
+    
     try {
-      // SECURITY: Validate authenticated user
       const auth = await getAuthenticatedUserId(req);
       if (!auth) {
+        console.log(`❌ [GOAL] Unauthorized request`);
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { goal } = req.body;
+      
+      if (typeof goal !== 'string') {
+        return res.status(400).json({ error: "Goal must be a string" });
+      }
+      
+      const trimmedGoal = goal.trim();
+      
+      if (trimmedGoal === '') {
+        return res.status(400).json({ error: "Goal cannot be empty" });
+      }
+      
+      // Get session ID (same as UI-001 and other routes)
+      const sessionId = getSessionId(req);
+      await setUserGoal(sessionId, trimmedGoal);
+      
+      console.log(`✅ Goal saved for session ${sessionId}: "${trimmedGoal.substring(0, 50)}${trimmedGoal.length > 50 ? '...' : ''}"`);
+      console.log(`📋 Goal hasGoal=true after save`);
+      
+      // Return format matching GET /api/goal
+      res.json({
+        goal: trimmedGoal,
+        hasGoal: true
+      });
+    } catch (error: any) {
+      console.error("❌ Error updating goal:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+  
+  // POST /api/goal - Create/update current user's goal (mirrors PUT for frontend compatibility)
+  app.post("/api/goal", async (req, res) => {
+    console.log(`📥 [GOAL] POST /api/goal received`);
+    
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        console.log(`❌ [GOAL] Unauthorized request`);
         return res.status(401).json({ error: "Unauthorized" });
       }
       
@@ -3846,124 +3896,221 @@ CRITICAL RULES:
   });
 
   // ===========================
+  // CAPABILITIES API
+  // ===========================
+  
+  // GET /api/capabilities - Return available actions and feature flags
+  app.get("/api/capabilities", async (req, res) => {
+    try {
+      // No auth required for capabilities - this is public config info
+      
+      // Check which services are configured
+      const hasHunterApiKey = !!(process.env.HUNTER_API_KEY || process.env.HUNTER_IO_API_KEY);
+      const hasGooglePlacesKey = !!process.env.GOOGLE_PLACES_API_KEY;
+      const hasSalesHandy = !!(process.env.SALESHANDY_API_KEY && process.env.SALESHANDY_TEAM_EMAIL);
+      const hasSupabase = isSupabaseConfigured();
+      
+      // Define available step types with labels
+      const stepTypes = {
+        places_search: {
+          enabled: hasGooglePlacesKey,
+          label: "Search Businesses",
+          description: "Find businesses matching your criteria via Google Places"
+        },
+        deep_research: {
+          enabled: true, // Always available (uses OpenAI)
+          label: "Deep Research",
+          description: "In-depth research on a topic or company"
+        },
+        email_enrich: {
+          enabled: hasHunterApiKey,
+          label: "Enrich Emails",
+          description: "Find verified email addresses via Hunter.io"
+        },
+        draft_outreach: {
+          enabled: true, // Always available (uses OpenAI)
+          label: "Draft Outreach",
+          description: "Generate personalized outreach messages"
+        }
+      };
+      
+      // Quick actions that users can trigger from UI
+      const quickActions = [
+        { id: "places_search", label: "Find Leads", enabled: stepTypes.places_search.enabled },
+        { id: "deep_research", label: "Research", enabled: stepTypes.deep_research.enabled },
+        { id: "email_enrich", label: "Find Emails", enabled: stepTypes.email_enrich.enabled },
+        { id: "draft_outreach", label: "Draft Messages", enabled: stepTypes.draft_outreach.enabled }
+      ].filter(a => a.enabled);
+      
+      // Feature flags
+      const flags = {
+        outreach_send_enabled: hasSalesHandy,
+        realtime_leads_enabled: hasSupabase,
+        monitor_enabled: hasSupabase,
+        plan_approval_required: true // Always require plan approval for now
+      };
+      
+      res.json({
+        stepTypes,
+        quickActions,
+        flags
+      });
+    } catch (error: any) {
+      console.error("Error fetching capabilities:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ===========================
   // PLAN APPROVAL API (UI-030)
   // ===========================
   
   // GET /api/plan - Get current leadgen plan for approval
   app.get("/api/plan", async (req, res) => {
+    console.log(`📥 [PLAN] GET /api/plan received`);
+    
     try {
-      // SECURITY: Validate authenticated user
       const auth = await getAuthenticatedUserId(req);
       if (!auth) {
+        console.log(`❌ [PLAN] Unauthorized request`);
         return res.status(401).json({ error: "Unauthorized" });
       }
       
       console.log(`📋 GET /api/plan for userId: ${auth.userId}`);
-      
+
       // Get plan for this user (by userId, not sessionId)
-      const { getPlanByUserId } = await import('./leadgen-plan.js');
-      const plan = await getPlanByUserId(auth.userId);
-      
-      if (plan) {
-        console.log(`✅ Returning plan: ${plan.id}, status: ${plan.status}, goal: "${plan.goal}"`);
-      } else {
-        console.log(`ℹ️ No active plan found for user ${auth.userId}`);
+      try {
+        const { getPlanByUserId } = await import('./leadgen-plan.js');
+        const plan = await getPlanByUserId(auth.userId);
+
+        if (plan) {
+          console.log(`✅ Returning plan: ${plan.id}, status: ${plan.status}, goal: "${plan.goal}"`);
+        } else {
+          console.log(`ℹ️ No active plan found for user ${auth.userId}`);
+        }
+
+        res.json(plan);
+      } catch (dbError: any) {
+        console.error("Database error fetching plan:", dbError);
+
+        // Graceful degradation - return null plan instead of 500
+        console.warn('[PLAN] Database lookup failed, returning null plan');
+        return res.json(null);
       }
-      
-      res.json(plan);
     } catch (error: any) {
-      console.error("Error fetching plan:", error);
+      console.error("Error in /api/plan endpoint:", error);
+      // This should rarely be reached now
       res.status(500).json({ error: error.message });
     }
   });
   
   // POST /api/plan/approve - Approve a plan and trigger execution
   app.post("/api/plan/approve", async (req, res) => {
+    console.log(`📥 [APPROVE_API] POST /api/plan/approve received`);
+    console.log(`📥 [APPROVE_API] Body:`, JSON.stringify(req.body || {}));
+    
     try {
-      // SECURITY: Validate authenticated user
+      const { planId } = req.body || {};
+      
+      // Validate planId first (before auth, so we can give a clear error)
+      if (!planId) {
+        console.log(`❌ [APPROVE_API] Missing planId in request body`);
+        return res.status(400).json({ error: "Plan ID is required", ok: false });
+      }
+      
       const auth = await getAuthenticatedUserId(req);
       if (!auth) {
-        return res.status(401).json({ error: "Unauthorized" });
+        console.log(`❌ [APPROVE_API] Unauthorized request`);
+        return res.status(401).json({ error: "Unauthorized", ok: false });
       }
       
-      const { planId } = req.body;
-      
-      console.log(`📋 /api/plan/approve called for planId: ${planId}`);
-      
-      if (!planId) {
-        return res.status(400).json({ error: "Plan ID is required" });
-      }
+      console.log(`[APPROVE_API] planId: ${planId}, userId: ${auth.userId}`);
       
       const { approvePlan, getPlanById, updatePlanStatus } = await import('./leadgen-plan.js');
+      const { startPlanExecution, getPlanExecution } = await import('./leadgen-executor.js');
       
       // Get the plan first to validate it exists
       const plan = await getPlanById(planId);
       if (!plan) {
-        console.error(`❌ Plan not found: ${planId}`);
-        return res.status(404).json({ error: "Plan not found" });
+        console.error(`❌ [APPROVE_API] Plan not found: ${planId}`);
+        return res.status(404).json({ error: "Plan not found", ok: false });
       }
       
-      console.log(`✅ Found plan: ${planId}, status: ${plan.status}`);
+      console.log(`✅ [APPROVE_API] Found plan: ${planId}`);
+      console.log(`   Status: ${plan.status}`);
+      console.log(`   Goal: ${plan.goal}`);
+      console.log(`   Steps: ${plan.steps.map((s: any) => s.type).join(' → ')}`);
       
-      // Approve the plan
+      // Guard against duplicate execution
+      const existingExecution = getPlanExecution(planId);
+      if (existingExecution) {
+        console.log(`⚠️ [APPROVE_API] Execution already exists for plan ${planId}, status: ${existingExecution.status}`);
+        return res.json({
+          ok: true,
+          success: true,  // For legacy UI compatibility
+          planId: plan.id,
+          status: existingExecution.status
+        });
+      }
+      
+      // Approve the plan FIRST (persist to DB)
       const approvedPlan = await approvePlan(planId);
       
       if (!approvedPlan) {
-        console.error(`❌ Failed to approve plan: ${planId}`);
-        return res.status(404).json({ error: "Plan not found" });
+        console.error(`❌ [APPROVE_API] Failed to approve plan: ${planId}`);
+        return res.status(404).json({ error: "Failed to approve plan", ok: false });
       }
       
-      console.log(`✅ Plan approved: ${planId}`);
+      // Update debug state
+      const { debugOnPlanApproval } = await import('./debugState.js');
+      debugOnPlanApproval(planId);
       
-      // Trigger SUP-002 execution using the leadgen-executor
-      try {
-        const { startPlanExecution, getPlanExecution } = await import('./leadgen-executor.js');
+      console.log(`✅ [APPROVE_API] Plan approved and persisted`);
+      
+      // Update plan status to executing
+      await updatePlanStatus(planId, 'executing');
+      
+      // Return success IMMEDIATELY (decouple execution from HTTP response)
+      console.log(`✅ [APPROVE_API] Returning 200 OK immediately, execution will run async`);
+      res.json({
+        ok: true,
+        success: true,  // For legacy UI compatibility
+        planId: approvedPlan.id,
+        status: 'executing'
+      });
+      
+      // Kick off execution ASYNCHRONOUSLY (after response sent)
+      // This ensures approval never fails due to execution errors
+      setImmediate(async () => {
+        console.log(`\n🏃 [APPROVE_API] Starting async execution for plan ${planId}...`);
         
-        // Guard against duplicate execution
-        const existingExecution = getPlanExecution(planId);
-        if (existingExecution) {
-          console.log(`⚠️ Execution already exists for plan ${planId}, status: ${existingExecution.status}`);
+        try {
+          await startPlanExecution(approvedPlan);
+          console.log(`✅ [APPROVE_API] Async execution completed for plan ${planId}`);
+        } catch (executionError: any) {
+          console.error(`❌ [APPROVE_API] Async execution failed for plan ${planId}:`, executionError.message);
           
-          // If execution is still running, return current state
-          if (existingExecution.status === 'executing') {
-            return res.json({
-              planId: approvedPlan.id,
-              status: 'executing'
-            });
+          // Update plan status to failed (don't crash server)
+          try {
+            await updatePlanStatus(planId, 'failed');
+            console.log(`💾 [APPROVE_API] Plan ${planId} status updated to 'failed'`);
+          } catch (updateError: any) {
+            console.error(`❌ [APPROVE_API] Failed to update plan status:`, updateError.message);
           }
-          
-          // If execution completed or failed, allow viewing the result
-          return res.json({
-            planId: approvedPlan.id,
-            status: existingExecution.status
-          });
         }
-        
-        // Start background execution
-        const execution = await startPlanExecution(approvedPlan);
-        
-        // Update plan status to executing
-        await updatePlanStatus(planId, 'executing');
-        
-        console.log(`✅ Plan ${planId} approved and SUP-002 execution started`);
-        console.log(`  📊 Execution has ${execution.steps.length} steps to complete`);
-        
-        // Return success response
-        res.json({
-          planId: approvedPlan.id,
-          status: 'executing'
-        });
-      } catch (executionError: any) {
-        console.error(`❌ Failed to start execution for plan ${planId}:`, executionError);
-        
-        // Plan is approved but execution failed to start
-        return res.status(500).json({ 
-          error: `Plan approved but failed to start execution: ${executionError.message}` 
-        });
-      }
+      });
+      
     } catch (error: any) {
-      console.error("❌ Error approving plan:", error);
-      res.status(500).json({ error: error.message });
+      console.error(`❌ [APPROVE_API] Error approving plan:`, error);
+      console.error(`❌ [APPROVE_API] Stack:`, error.stack);
+      
+      // Return JSON error (never crash)
+      const isDev = process.env.NODE_ENV === 'development';
+      res.status(500).json({ 
+        ok: false,
+        error: isDev ? error.message : 'Failed to approve plan',
+        ...(isDev && { stack: error.stack })
+      });
     }
   });
   
@@ -4006,6 +4153,19 @@ CRITICAL RULES:
       console.error("Error regenerating plan:", error);
       res.status(500).json({ error: error.message });
     }
+  });
+  
+  // GET /api/debug/last-plan - DEV ONLY: Get debug info about the last plan execution
+  app.get("/api/debug/last-plan", async (req, res) => {
+    // DEV ONLY - only allow in development
+    if (process.env.NODE_ENV !== 'development') {
+      return res.status(403).json({ error: "Debug endpoint only available in development" });
+    }
+    
+    const { getDebugState } = await import('./debugState.js');
+    const debugState = getDebugState();
+    
+    res.json(debugState);
   });
   
   // POST /api/plan/start - Create a new plan for the current goal (SUP-001)
@@ -4075,6 +4235,216 @@ CRITICAL RULES:
       console.error("Error creating test plan:", error);
       res.status(500).json({ error: error.message });
     }
+  });
+
+  // =========================================
+  // LEGACY ROUTE ALIASES
+  // UI calls /approve, /start, /plan, /plan-status
+  // These redirect to the /api/plan/* handlers
+  // =========================================
+  
+  // Legacy: POST /approve → /api/plan/approve
+  // Handles: POST /approve?planId=xxx or POST /approve with body { planId }
+  app.post("/approve", async (req, res) => {
+    console.log(`🔀 [LEGACY] POST /approve → delegating to /api/plan/approve handler`);
+    
+    // Merge query params into body (UI may pass planId in query string)
+    const planId = req.body?.planId || req.query?.planId;
+    if (planId) {
+      req.body = { ...req.body, planId };
+    }
+    console.log(`   planId: ${planId}`);
+    
+    // Forward to the same logic as /api/plan/approve
+    // We inline the delegation here to avoid Express router issues
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      if (!planId) {
+        return res.status(400).json({ error: "Plan ID is required" });
+      }
+      
+      const { approvePlan, getPlanById, updatePlanStatus } = await import('./leadgen-plan.js');
+      const { startPlanExecution, getPlanExecution } = await import('./leadgen-executor.js');
+      
+      const plan = await getPlanById(planId as string);
+      if (!plan) {
+        return res.status(404).json({ error: "Plan not found" });
+      }
+      
+      // Guard against duplicate execution
+      const existingExecution = getPlanExecution(planId as string);
+      if (existingExecution) {
+        return res.json({
+          ok: true,
+          success: true,
+          planId: plan.id,
+          status: existingExecution.status
+        });
+      }
+      
+      // Approve and persist
+      const approvedPlan = await approvePlan(planId as string);
+      if (!approvedPlan) {
+        return res.status(404).json({ error: "Plan not found" });
+      }
+      
+      await updatePlanStatus(planId as string, 'executing');
+      
+      // Return success IMMEDIATELY
+      res.json({
+        ok: true,
+        success: true,
+        planId: approvedPlan.id,
+        status: 'executing'
+      });
+      
+      // Kick off execution asynchronously
+      setImmediate(async () => {
+        try {
+          await startPlanExecution(approvedPlan);
+        } catch (err: any) {
+          console.error(`❌ [LEGACY /approve] Async execution failed:`, err.message);
+          try {
+            await updatePlanStatus(planId as string, 'failed');
+          } catch {}
+        }
+      });
+      
+    } catch (error: any) {
+      console.error(`❌ [LEGACY /approve] Error:`, error.message);
+      res.status(500).json({ 
+        error: process.env.NODE_ENV === 'development' ? error.message : 'Failed to approve plan'
+      });
+    }
+  });
+  
+  // Legacy: GET /approve (some UIs use GET with query params)
+  app.get("/approve", async (req, res) => {
+    console.log(`🔀 [LEGACY] GET /approve → delegating to approve handler`);
+    
+    const planId = req.query?.planId as string;
+    console.log(`   planId: ${planId}`);
+    
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      if (!planId) {
+        return res.status(400).json({ error: "Plan ID is required" });
+      }
+      
+      const { approvePlan, getPlanById, updatePlanStatus } = await import('./leadgen-plan.js');
+      const { startPlanExecution, getPlanExecution } = await import('./leadgen-executor.js');
+      
+      const plan = await getPlanById(planId);
+      if (!plan) {
+        return res.status(404).json({ error: "Plan not found" });
+      }
+      
+      // Guard against duplicate execution
+      const existingExecution = getPlanExecution(planId);
+      if (existingExecution) {
+        return res.json({
+          ok: true,
+          success: true,
+          planId: plan.id,
+          status: existingExecution.status
+        });
+      }
+      
+      // Approve and persist
+      const approvedPlan = await approvePlan(planId);
+      if (!approvedPlan) {
+        return res.status(404).json({ error: "Plan not found" });
+      }
+      
+      await updatePlanStatus(planId, 'executing');
+      
+      // Return success IMMEDIATELY
+      res.json({
+        ok: true,
+        success: true,
+        planId: approvedPlan.id,
+        status: 'executing'
+      });
+      
+      // Kick off execution asynchronously
+      setImmediate(async () => {
+        try {
+          await startPlanExecution(approvedPlan);
+        } catch (err: any) {
+          console.error(`❌ [LEGACY GET /approve] Async execution failed:`, err.message);
+          try {
+            await updatePlanStatus(planId, 'failed');
+          } catch {}
+        }
+      });
+      
+    } catch (error: any) {
+      console.error(`❌ [LEGACY GET /approve] Error:`, error.message);
+      res.status(500).json({ 
+        error: process.env.NODE_ENV === 'development' ? error.message : 'Failed to approve plan'
+      });
+    }
+  });
+  
+  // Legacy: POST /start → /api/plan/start
+  app.post("/start", (req, res, next) => {
+    console.log(`🔀 [LEGACY] POST /start → /api/plan/start`);
+    // Merge query params into body
+    req.body = { ...req.query, ...req.body };
+    req.url = '/api/plan/start';
+    app._router.handle(req, res, next);
+  });
+  
+  // Legacy: GET /start (some UIs use GET with query params)
+  app.get("/start", (req, res, next) => {
+    console.log(`🔀 [LEGACY] GET /start → POST /api/plan/start`);
+    req.body = { ...req.query, ...req.body };
+    req.method = 'POST';
+    req.url = '/api/plan/start';
+    app._router.handle(req, res, next);
+  });
+  
+  // Legacy: GET /plan-status → /api/plan-status
+  app.get("/plan-status", (req, res, next) => {
+    console.log(`🔀 [LEGACY] GET /plan-status → /api/plan-status`);
+    req.url = '/api/plan-status';
+    app._router.handle(req, res, next);
+  });
+  
+  // Legacy: GET /plan → /api/plan
+  app.get("/plan", (req, res, next) => {
+    console.log(`🔀 [LEGACY] GET /plan → /api/plan`);
+    req.url = '/api/plan';
+    app._router.handle(req, res, next);
+  });
+  
+  // Legacy: POST /plan → /api/plan/start (create new plan)
+  app.post("/plan", (req, res, next) => {
+    console.log(`🔀 [LEGACY] POST /plan → /api/plan/start`);
+    req.url = '/api/plan/start';
+    app._router.handle(req, res, next);
+  });
+  
+  // Legacy: GET /plans → /api/plan (list plans)
+  app.get("/plans", (req, res, next) => {
+    console.log(`🔀 [LEGACY] GET /plans → /api/plan`);
+    req.url = '/api/plan';
+    app._router.handle(req, res, next);
+  });
+  
+  // Legacy: GET /status → /api/plan-status
+  app.get("/status", (req, res, next) => {
+    console.log(`🔀 [LEGACY] GET /status → /api/plan-status`);
+    req.url = '/api/plan-status';
+    app._router.handle(req, res, next);
   });
 
   // =========================================
@@ -5546,6 +5916,17 @@ Return structured data with the EXACT placeId provided above: "${placeId}"`;
       });
     } catch (e: any) {
       console.error("location-hints/search error:", e);
+
+      // Check if table doesn't exist
+      if (e.message?.includes('relation "location_hints" does not exist') ||
+          e.message?.includes('fetch failed')) {
+        return res.status(503).json({
+          error: "Location hints feature not available",
+          message: "The location_hints table has not been created yet. This feature requires additional setup.",
+          available: false
+        });
+      }
+
       return res.status(500).json({ error: e.message || "Failed to search location hints" });
     }
   });
@@ -5565,6 +5946,17 @@ Return structured data with the EXACT placeId provided above: "${placeId}"`;
       return res.json({ countries: results });
     } catch (e: any) {
       console.error("location-hints/countries error:", e);
+
+      // Check if table doesn't exist
+      if (e.message?.includes('relation "location_hints" does not exist') ||
+          e.message?.includes('fetch failed')) {
+        return res.status(503).json({
+          error: "Location hints feature not available",
+          message: "The location_hints table has not been created yet. This feature requires additional setup.",
+          available: false
+        });
+      }
+
       return res.status(500).json({ error: e.message || "Failed to get countries" });
     }
   });
@@ -5593,6 +5985,17 @@ Return structured data with the EXACT placeId provided above: "${placeId}"`;
       return res.json({ results });
     } catch (e: any) {
       console.error("location-hints/by-country error:", e);
+
+      // Check if table doesn't exist
+      if (e.message?.includes('relation "location_hints" does not exist') ||
+          e.message?.includes('fetch failed')) {
+        return res.status(503).json({
+          error: "Location hints feature not available",
+          message: "The location_hints table has not been created yet. This feature requires additional setup.",
+          available: false
+        });
+      }
+
       return res.status(500).json({ error: e.message || "Failed to get location hints by country" });
     }
   });
@@ -5703,7 +6106,17 @@ Return structured data with the EXACT placeId provided above: "${placeId}"`;
       res.json({ runs: runs.map(stripLargeOutput) });
     } catch (error: any) {
       console.error("Deep research list error:", error);
-      res.status(500).json({ error: error.message || "Failed to list research runs" });
+
+      // Graceful degradation for demo/new users or when database is unavailable
+      if (error.message?.includes('relation "deep_research_runs" does not exist') ||
+          error.message?.includes('fetch failed') ||
+          (isDemoMode() && (error.cause?.code === 'ENOTFOUND' || error.message?.includes('ENOTFOUND')))) {
+        console.warn('[DeepResearch] Database or tables unavailable, returning empty runs');
+        return res.json({ runs: [] });
+      }
+
+      const apiError = analyzeDatabaseError(error, 'list deep research');
+      res.status(500).json(apiError);
     }
   });
 
@@ -5714,7 +6127,13 @@ Return structured data with the EXACT placeId provided above: "${placeId}"`;
       if (!run) {
         return res.status(404).json({ error: "Research run not found" });
       }
-      
+
+      // DEBUG: Log what we're returning
+      console.log(`📊 GET /api/deep-research/${req.params.id}:`);
+      console.log(`   Status: ${run.status}`);
+      console.log(`   OutputText length: ${run.outputText?.length || 0}`);
+      console.log(`   OutputText preview: ${run.outputText?.substring(0, 100) || '(none)'}...`);
+
       res.json({ run });
     } catch (error: any) {
       console.error("Deep research get error:", error);
@@ -6263,6 +6682,34 @@ ${run.outputText}`;
   });
 
   // Debug endpoints for viewing persistent memory
+  // GET /api/debug/supabase - Debug Supabase configuration
+  app.get("/api/debug/supabase", async (_req, res) => {
+    try {
+      const { isSupabaseConfigured, getSupabaseUrlForLogging } = await import('./supabase-client.js');
+      
+      const supabaseUrl = process.env.SUPABASE_URL || '(not set)';
+      const hasServiceRoleKey = !!process.env.SUPABASE_SERVICE_ROLE_KEY;
+      const isConfigured = isSupabaseConfigured();
+      const urlForLogging = getSupabaseUrlForLogging();
+      
+      console.log(`[DEBUG] /api/debug/supabase called`);
+      console.log(`   SUPABASE_URL: ${urlForLogging}`);
+      console.log(`   SUPABASE_SERVICE_ROLE_KEY: ${hasServiceRoleKey ? 'set (masked)' : 'NOT SET'}`);
+      console.log(`   isConfigured: ${isConfigured}`);
+      
+      res.json({
+        supabaseUrl: urlForLogging,
+        hasServiceRoleKey,
+        isConfigured,
+        // Also include the raw URL (first 50 chars) for debugging
+        rawUrlPrefix: supabaseUrl.substring(0, 50) + (supabaseUrl.length > 50 ? '...' : ''),
+      });
+    } catch (error: any) {
+      console.error("Debug supabase error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   app.get("/api/debug/conversations", async (_req, res) => {
     try {
       const conversations = await storage.listAllConversations();
@@ -6299,6 +6746,40 @@ ${run.outputText}`;
   
   // Register Xero OAuth routes
   app.use("/api/integrations/xero", createXeroOAuthRouter(storage));
+  
+  // Register Xero Sync routes (webhooks and two-way sync)
+  const xeroSyncRouter = createXeroSyncRouter(storage);
+  app.use("/api/xero", xeroSyncRouter);
+
+  // Register Untappd routes (beer data import)
+  app.use("/api/untappd", createUntappdRouter(storage));
+
+  // Register Sleeper Agent routes (AI-powered pub and event discovery)
+  app.use("/api/sleeper-agent", createSleeperAgentRouter(storage));
+  
+  // Register Things (Events) routes
+  app.use("/api/things", createThingsRouter(storage));
+  
+  // Register Entity Review routes (manual review queue)
+  app.use("/api/entity-review", createEntityReviewRouter(storage));
+  
+  // Register Dev Tools routes (sleeper agent monitoring)
+  app.use("/api/dev", createDevToolsRouter(storage));
+  
+  // Register Database Maintenance routes (admin only)
+  app.use("/api/admin/maintenance", createDatabaseMaintenanceRouter(storage));
+
+  // Register Suppliers routes
+  app.use("/api/suppliers", createSuppliersRouter(storage));
+
+  // Register Activity Log routes (local system activity tracking)
+  app.use("/api/activity-log", createActivityLogRouter(storage));
+
+  // Register Agent Activities routes (autonomous agent activity feed)
+  app.use(agentActivitiesRouter(storage));
+
+  // Register Route Planner routes
+  app.use("/api", routePlannerRoutes);
 
   // ===========================
   // INTEGRATIONS (NANGO.DEV CRM/ACCOUNTING CONNECTIONS)
@@ -6855,30 +7336,53 @@ ${run.outputText}`;
   // CRM ROUTES (Core Multi-Vertical CRM)
   // ============================================================
   
-  // GET /api/crm/settings/:workspaceId - Get CRM settings
+  // GET /api/crm/settings/:workspaceId - Get CRM settings (auto-creates if not exists)
   app.get("/api/crm/settings/:workspaceId", async (req, res) => {
     try {
       const auth = await getAuthenticatedUserId(req);
       if (!auth) {
         return res.status(401).json({ error: "Unauthorized" });
       }
-      
+
       const { workspaceId } = req.params;
-      
+
       // SECURITY: Verify workspace belongs to authenticated user
       if (workspaceId !== auth.userId) {
         console.warn(`🚫 User ${auth.userEmail} attempted to access settings for workspace ${workspaceId}`);
         return res.status(403).json({ error: "Forbidden: Cannot access other workspaces' data" });
       }
-      
-      const settings = await storage.getCrmSettings(workspaceId);
-      
+
+      // Get existing settings or create defaults if not exists
+      let settings = await storage.getCrmSettings(workspaceId);
+
       if (!settings) {
-        return res.status(404).json({ error: "Settings not found" });
+        // Auto-create default settings for new workspace
+        console.log(`📝 Creating default CRM settings for workspace ${workspaceId}`);
+        const defaultSettings = {
+          id: `crm-settings-${workspaceId}-${Date.now()}`,
+          workspaceId,
+          industryVertical: 'generic',
+          defaultCountry: 'United Kingdom',
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        };
+        settings = await storage.createCrmSettings(defaultSettings);
       }
-      
+
       res.json(settings);
     } catch (error: any) {
+      // Demo mode fallback: return default settings
+      if (error.cause?.code === 'ENOTFOUND' && req.params.workspaceId === 'demo-user') {
+        console.warn('[CRM] Database DNS failed for demo-user settings, returning defaults');
+        return res.json({
+          id: 'demo-settings',
+          workspaceId: 'demo-user',
+          industryVertical: 'breweries',
+          defaultCountry: 'GB',
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        });
+      }
       console.error("Error getting CRM settings:", error);
       res.status(500).json({ error: error.message || "Failed to get settings" });
     }
@@ -6893,7 +7397,7 @@ ${run.outputText}`;
       }
       
       // VALIDATION: Validate request body using Zod schema
-      const validationResult = insertCrmSettingsSchema.omit({ id: true, createdAt: true, updatedAt: true }).safeParse(req.body);
+      const validationResult = insertCrmSettingsSchema.omit({ id: true, workspaceId: true, createdAt: true, updatedAt: true }).safeParse(req.body);
       if (!validationResult.success) {
         return res.status(400).json({ 
           error: "Validation failed", 
@@ -6963,7 +7467,41 @@ ${run.outputText}`;
       res.status(500).json({ error: error.message || "Failed to update settings" });
     }
   });
-  
+
+  // DELETE /api/crm/sample-data/:workspaceId - Clear all sample data for onboarding
+  app.delete("/api/crm/sample-data/:workspaceId", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+
+      const { workspaceId } = req.params;
+
+      // SECURITY: Verify workspace belongs to authenticated user
+      if (workspaceId !== auth.userId) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+
+      // Delete sample customers, products, and orders
+      const deletedCustomers = await storage.deleteSampleCustomers(workspaceId);
+      const deletedProducts = await storage.deleteSampleProducts(workspaceId);
+      const deletedOrders = await storage.deleteSampleOrders(workspaceId);
+
+      res.json({
+        success: true,
+        deleted: {
+          customers: deletedCustomers,
+          products: deletedProducts,
+          orders: deletedOrders,
+        },
+      });
+    } catch (error: any) {
+      console.error("Error deleting sample data:", error);
+      res.status(500).json({ error: error.message || "Failed to delete sample data" });
+    }
+  });
+
   // GET /api/crm/customers/:workspaceId - List customers
   app.get("/api/crm/customers/:workspaceId", async (req, res) => {
     try {
@@ -6984,6 +7522,11 @@ ${run.outputText}`;
       
       res.json(customers);
     } catch (error: any) {
+      // Demo mode fallback: return empty array
+      if (error.cause?.code === 'ENOTFOUND' && req.params.workspaceId === 'demo-user') {
+        console.warn('[CRM] Database DNS failed for demo-user customers, returning empty array');
+        return res.json([]);
+      }
       console.error("Error listing customers:", error);
       res.status(500).json({ error: error.message || "Failed to list customers" });
     }
@@ -7055,8 +7598,8 @@ ${run.outputText}`;
         return res.status(401).json({ error: "Unauthorized" });
       }
       
-      // VALIDATION: Validate request body using Zod schema
-      const validationResult = insertCrmCustomerSchema.omit({ id: true, createdAt: true, updatedAt: true }).safeParse(req.body);
+      // VALIDATION: Validate request body using Zod schema (omit workspaceId - set from auth)
+      const validationResult = insertCrmCustomerSchema.omit({ id: true, workspaceId: true, createdAt: true, updatedAt: true }).safeParse(req.body);
       if (!validationResult.success) {
         return res.status(400).json({ 
           error: "Validation failed", 
@@ -7083,9 +7626,17 @@ ${run.outputText}`;
         postcode: data.postcode || null,
         country: data.country || 'United Kingdom',
         notes: data.notes || null,
+        xeroSyncStatus: 'pending',
         createdAt: now,
         updatedAt: now,
       });
+      
+      // Auto-sync to Xero if connected (async, don't block response)
+      if ((xeroSyncRouter as any).syncCustomerToXero) {
+        (xeroSyncRouter as any).syncCustomerToXero(customer.id, workspaceId).catch((error: any) => {
+          console.error(`Auto-sync customer ${customer.id} to Xero failed:`, error.message);
+        });
+      }
       
       res.json(customer);
     } catch (error: any) {
@@ -7125,8 +7676,16 @@ ${run.outputText}`;
       
       const customer = await storage.updateCrmCustomer(id, {
         ...validationResult.data,
+        xeroSyncStatus: 'pending',
         updatedAt: Date.now(),
       });
+      
+      // Auto-sync update to Xero if connected (async, don't block response)
+      if ((xeroSyncRouter as any).updateCustomerInXero) {
+        (xeroSyncRouter as any).updateCustomerInXero(id, existing.workspaceId).catch((error: any) => {
+          console.error(`Auto-sync customer update ${id} to Xero failed:`, error.message);
+        });
+      }
       
       res.json(customer);
     } catch (error: any) {
@@ -7232,7 +7791,7 @@ ${run.outputText}`;
       }
       
       // VALIDATION: Validate request body using Zod schema
-      const validationResult = insertCrmDeliveryRunSchema.omit({ id: true, createdAt: true, updatedAt: true }).safeParse(req.body);
+      const validationResult = insertCrmDeliveryRunSchema.omit({ id: true, workspaceId: true, createdAt: true, updatedAt: true }).safeParse(req.body);
       if (!validationResult.success) {
         return res.status(400).json({ 
           error: "Validation failed", 
@@ -7336,6 +7895,853 @@ ${run.outputText}`;
     }
   });
   
+  // ============================================================
+  // GENERIC CRM PRODUCTS ROUTES
+  // ============================================================
+  
+  // GET /api/crm/products/:workspaceId - List products
+  app.get("/api/crm/products/:workspaceId", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+
+      const { workspaceId } = req.params;
+
+      // SECURITY: Verify workspace belongs to authenticated user
+      if (workspaceId !== auth.userId) {
+        console.warn(`🚫 User ${auth.userEmail} attempted to access products for workspace ${workspaceId}`);
+        return res.status(403).json({ error: "Forbidden: Cannot access other workspaces' data" });
+      }
+
+      const products = await storage.listCrmProducts(workspaceId);
+
+      res.json(products);
+    } catch (error: any) {
+      // Demo mode fallback: return empty array if database is unavailable
+      const errorMsg = error.message || '';
+      const causeMsg = error.cause?.message || '';
+      const isDbUnavailable = 
+        error.cause?.code === 'ENOTFOUND' ||
+        errorMsg.includes('does not exist') ||
+        causeMsg.includes('does not exist') ||
+        errorMsg.includes('ECONNREFUSED') ||
+        causeMsg.includes('ECONNREFUSED');
+      
+      if (isDbUnavailable && isDemoMode()) {
+        console.warn('[CRM] Database unavailable in demo mode, returning empty products array');
+        return res.json([]);
+      }
+      
+      console.error("[CRM Products] Error listing products:", error);
+      const apiError = analyzeDatabaseError(error, 'list products');
+      res.status(500).json({ 
+        error: apiError.message,
+        code: apiError.code,
+        message: apiError.message,
+        hint: apiError.hint
+      });
+    }
+  });
+  
+  // GET /api/crm/products/detail/:id - Get single product
+  app.get("/api/crm/products/detail/:id", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { id } = req.params;
+      const product = await storage.getCrmProduct(id);
+      
+      if (!product) {
+        return res.status(404).json({ error: "Product not found" });
+      }
+      
+      // SECURITY: Verify product belongs to authenticated user's workspace
+      if (product.workspaceId !== auth.userId) {
+        console.warn(`🚫 User ${auth.userEmail} attempted to access product ${id} owned by workspace ${product.workspaceId}`);
+        return res.status(403).json({ error: "Forbidden: Cannot access other workspaces' data" });
+      }
+      
+      res.json(product);
+    } catch (error: any) {
+      console.error("Error getting product:", error);
+      res.status(500).json({ error: error.message || "Failed to get product" });
+    }
+  });
+  
+  // POST /api/crm/products - Create product
+  app.post("/api/crm/products", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ 
+          error: "Unauthorized",
+          code: "AUTH_REQUIRED",
+          message: "Authentication required to create products"
+        });
+      }
+      
+      // VALIDATION: Validate request body using Zod schema
+      const validationResult = insertCrmProductSchema.omit({ 
+        id: true, 
+        workspaceId: true,
+        createdAt: true, 
+        updatedAt: true 
+      }).safeParse(req.body);
+      
+      if (!validationResult.success) {
+        console.warn('[CRM Products] Validation failed:', validationResult.error.errors);
+        return res.status(422).json({ 
+          error: "Validation failed",
+          code: "VALIDATION_ERROR",
+          message: validationResult.error.errors.map(e => `${e.path.join('.')}: ${e.message}`).join(', '),
+          details: validationResult.error.errors 
+        });
+      }
+      
+      const data = validationResult.data;
+      
+      // SECURITY: Force workspaceId to be the authenticated user's ID
+      const workspaceId = auth.userId;
+      
+      const now = Date.now();
+      const productData = {
+        id: `crm_product_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+        workspaceId,
+        name: data.name,
+        sku: data.sku || null,
+        description: data.description || null,
+        category: data.category || null,
+        unitType: data.unitType || 'each',
+        defaultUnitPriceExVat: data.defaultUnitPriceExVat ?? 0,
+        defaultVatRate: data.defaultVatRate ?? 2000,
+        isActive: data.isActive ?? 1,
+        trackStock: data.trackStock ?? 0,
+        createdAt: now,
+        updatedAt: now,
+      };
+      
+      // Helper to return mock product in demo mode when DB is unavailable
+      const returnMockProduct = () => {
+        console.warn('[CRM] Database unavailable in demo mode, returning mock product');
+        const mockProduct = {
+          ...productData,
+          id: `crm_product_demo_${now}`,
+          workspaceId: isDemoMode() ? 'demo-user' : workspaceId,
+        };
+        return res.json(mockProduct);
+      };
+      
+      // In demo mode, use a timeout to fail fast if DB is unreachable
+      if (isDemoMode()) {
+        const DB_TIMEOUT_MS = 8000; // 8 second timeout for demo mode
+        const timeoutPromise = new Promise<never>((_, reject) => 
+          setTimeout(() => reject(new Error('DB_TIMEOUT')), DB_TIMEOUT_MS)
+        );
+        
+        try {
+          const product = await Promise.race([
+            storage.createCrmProduct(productData),
+            timeoutPromise
+          ]);
+          return res.json(product);
+        } catch (error: any) {
+          // In demo mode, gracefully handle all database errors with mock data
+          const errorMsg = error.message || '';
+          const causeMsg = error.cause?.message || '';
+          const isDbError = 
+            errorMsg === 'DB_TIMEOUT' || 
+            error.cause?.code === 'ENOTFOUND' ||
+            errorMsg.includes('does not exist') ||
+            causeMsg.includes('does not exist') ||
+            errorMsg.includes('ECONNREFUSED') ||
+            causeMsg.includes('ECONNREFUSED');
+          
+          if (isDbError) {
+            return returnMockProduct();
+          }
+          throw error; // Re-throw non-database errors
+        }
+      }
+      
+      // Normal mode - full error handling
+      const product = await storage.createCrmProduct(productData);
+      res.json(product);
+      
+    } catch (error: any) {
+      // Full stack trace for server logs
+      console.error("[CRM Products] Error creating product:", error);
+      
+      // Use structured error analysis for user-facing message
+      const apiError = analyzeDatabaseError(error, 'create product');
+      
+      // Determine appropriate status code
+      let statusCode = 500;
+      if (apiError.code === 'DB_TABLE_MISSING' || apiError.code === 'DB_COLUMN_MISSING') {
+        statusCode = 503; // Service unavailable - need migration
+      } else if (apiError.code === 'DB_DUPLICATE_KEY') {
+        statusCode = 409; // Conflict
+      } else if (apiError.code === 'DB_NULL_VIOLATION' || apiError.code === 'DB_TYPE_ERROR') {
+        statusCode = 422; // Unprocessable entity
+      }
+      
+      res.status(statusCode).json({ 
+        error: apiError.message,
+        code: apiError.code,
+        message: apiError.message,
+        hint: apiError.hint
+      });
+    }
+  });
+  
+  // PATCH /api/crm/products/:id - Update product
+  app.patch("/api/crm/products/:id", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+
+      const { id } = req.params;
+      console.log('[Routes] PATCH /api/crm/products/:id called with id:', id);
+      console.log('[Routes] Request body:', JSON.stringify(req.body, null, 2));
+
+      // VALIDATION: Validate partial update using Zod schema
+      const validationResult = insertCrmProductSchema.partial().omit({ 
+        id: true, 
+        workspaceId: true, 
+        createdAt: true 
+      }).safeParse(req.body);
+      
+      if (!validationResult.success) {
+        console.warn('[CRM Products] Validation failed:', validationResult.error.errors);
+        return res.status(422).json({ 
+          error: "Validation failed",
+          code: "VALIDATION_ERROR",
+          message: validationResult.error.errors.map(e => `${e.path.join('.')}: ${e.message}`).join(', '),
+          details: validationResult.error.errors 
+        });
+      }
+      
+      // SECURITY: Verify product exists and belongs to authenticated user's workspace
+      const existing = await storage.getCrmProduct(id);
+      if (!existing) {
+        return res.status(404).json({ error: "Product not found" });
+      }
+      if (existing.workspaceId !== auth.userId) {
+        console.warn(`🚫 User ${auth.userEmail} attempted to update product ${id} owned by workspace ${existing.workspaceId}`);
+        return res.status(403).json({ error: "Forbidden: Cannot modify other workspaces' data" });
+      }
+      
+      const data = validationResult.data;
+      console.log('[Routes] Validated data:', JSON.stringify(data, null, 2));
+
+      const product = await storage.updateCrmProduct(id, {
+        ...data,
+        updatedAt: Date.now(),
+      });
+
+      console.log('[Routes] Product after update:', JSON.stringify(product, null, 2));
+      res.json(product);
+    } catch (error: any) {
+      // Demo mode fallback: return mock updated product
+      const errorMsg = error.message || '';
+      const causeMsg = error.cause?.message || '';
+      const isDbUnavailable = 
+        error.cause?.code === 'ENOTFOUND' ||
+        errorMsg.includes('does not exist') ||
+        causeMsg.includes('does not exist') ||
+        errorMsg.includes('ECONNREFUSED') ||
+        causeMsg.includes('ECONNREFUSED');
+      
+      if (isDbUnavailable && isDemoMode()) {
+        console.warn('[CRM] Database unavailable in demo mode, returning mock updated product');
+        return res.json({ id: req.params.id, ...req.body, updatedAt: Date.now() });
+      }
+      
+      console.error("[CRM Products] Error updating product:", error);
+      const apiError = analyzeDatabaseError(error, 'update product');
+      res.status(500).json({ 
+        error: apiError.message,
+        code: apiError.code,
+        message: apiError.message,
+        hint: apiError.hint
+      });
+    }
+  });
+  
+  // DELETE /api/crm/products/:id - Delete product
+  app.delete("/api/crm/products/:id", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+
+      const { id } = req.params;
+      console.log('[Routes] DELETE /api/crm/products/:id called with id:', id);
+
+      // SECURITY: Verify product exists and belongs to authenticated user's workspace
+      const existing = await storage.getCrmProduct(id);
+      if (!existing) {
+        return res.status(404).json({ error: "Product not found" });
+      }
+      if (existing.workspaceId !== auth.userId) {
+        console.warn(`🚫 User ${auth.userEmail} attempted to delete product ${id} owned by workspace ${existing.workspaceId}`);
+        return res.status(403).json({ error: "Forbidden: Cannot delete other workspaces' data" });
+      }
+
+      const success = await storage.deleteCrmProduct(id);
+      console.log('[Routes] Delete success:', success);
+
+      res.json({ success });
+    } catch (error: any) {
+      // Demo mode fallback: return success
+      const errorMsg = error.message || '';
+      const causeMsg = error.cause?.message || '';
+      const isDbUnavailable = 
+        error.cause?.code === 'ENOTFOUND' ||
+        errorMsg.includes('does not exist') ||
+        causeMsg.includes('does not exist') ||
+        errorMsg.includes('ECONNREFUSED') ||
+        causeMsg.includes('ECONNREFUSED');
+      
+      if (isDbUnavailable && isDemoMode()) {
+        console.warn('[CRM] Database unavailable in demo mode, returning mock delete success');
+        return res.json({ success: true });
+      }
+      
+      console.error("[CRM Products] Error deleting product:", error);
+      const apiError = analyzeDatabaseError(error, 'delete product');
+      res.status(500).json({ 
+        error: apiError.message,
+        code: apiError.code,
+        message: apiError.message,
+        hint: apiError.hint
+      });
+    }
+  });
+  
+  // ============================================================
+  // GENERIC CRM STOCK ROUTES
+  // ============================================================
+  
+  // GET /api/crm/stock/:workspaceId - List stock
+  app.get("/api/crm/stock/:workspaceId", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { workspaceId } = req.params;
+      
+      // SECURITY: Verify workspace belongs to authenticated user
+      if (workspaceId !== auth.userId) {
+        console.warn(`🚫 User ${auth.userEmail} attempted to access stock for workspace ${workspaceId}`);
+        return res.status(403).json({ error: "Forbidden: Cannot access other workspaces' data" });
+      }
+      
+      const stock = await storage.listCrmStock(workspaceId);
+      
+      res.json(stock);
+    } catch (error: any) {
+      console.error("Error listing stock:", error);
+      res.status(500).json({ error: error.message || "Failed to list stock" });
+    }
+  });
+  
+  // GET /api/crm/stock/detail/:id - Get single stock record
+  app.get("/api/crm/stock/detail/:id", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { id } = req.params;
+      const stock = await storage.getCrmStock(id);
+      
+      if (!stock) {
+        return res.status(404).json({ error: "Stock record not found" });
+      }
+      
+      // SECURITY: Verify stock belongs to authenticated user's workspace
+      if (stock.workspaceId !== auth.userId) {
+        console.warn(`🚫 User ${auth.userEmail} attempted to access stock ${id} owned by workspace ${stock.workspaceId}`);
+        return res.status(403).json({ error: "Forbidden: Cannot access other workspaces' data" });
+      }
+      
+      res.json(stock);
+    } catch (error: any) {
+      console.error("Error getting stock:", error);
+      res.status(500).json({ error: error.message || "Failed to get stock" });
+    }
+  });
+  
+  // POST /api/crm/stock - Create stock record
+  app.post("/api/crm/stock", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const data = req.body;
+      
+      // SECURITY: Verify product belongs to authenticated user's workspace
+      if (data.productId) {
+        const product = await storage.getCrmProduct(data.productId);
+        if (!product || product.workspaceId !== auth.userId) {
+          return res.status(403).json({ error: "Forbidden: Product does not belong to your workspace" });
+        }
+      }
+      
+      // SECURITY: Force workspaceId to be the authenticated user's ID
+      const workspaceId = auth.userId;
+      
+      const now = Date.now();
+      const stock = await storage.createCrmStock({
+        id: `crm_stock_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+        workspaceId,
+        productId: data.productId,
+        location: data.location || 'Main Warehouse',
+        quantityOnHand: data.quantityOnHand || 0,
+        quantityReserved: data.quantityReserved || 0,
+        reorderLevel: data.reorderLevel || 0,
+        reorderQuantity: data.reorderQuantity || 0,
+        costPricePerUnit: data.costPricePerUnit || 0,
+        notes: data.notes || null,
+        createdAt: now,
+        updatedAt: now,
+      });
+      
+      res.json(stock);
+    } catch (error: any) {
+      console.error("Error creating stock:", error);
+      res.status(500).json({ error: error.message || "Failed to create stock" });
+    }
+  });
+  
+  // PATCH /api/crm/stock/:id - Update stock record
+  app.patch("/api/crm/stock/:id", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { id } = req.params;
+      
+      // SECURITY: Verify stock exists and belongs to authenticated user's workspace
+      const existing = await storage.getCrmStock(id);
+      if (!existing) {
+        return res.status(404).json({ error: "Stock record not found" });
+      }
+      if (existing.workspaceId !== auth.userId) {
+        console.warn(`🚫 User ${auth.userEmail} attempted to update stock ${id} owned by workspace ${existing.workspaceId}`);
+        return res.status(403).json({ error: "Forbidden: Cannot modify other workspaces' data" });
+      }
+      
+      const data = req.body;
+      
+      const stock = await storage.updateCrmStock(id, {
+        ...data,
+        updatedAt: Date.now(),
+      });
+      
+      res.json(stock);
+    } catch (error: any) {
+      console.error("Error updating stock:", error);
+      res.status(500).json({ error: error.message || "Failed to update stock" });
+    }
+  });
+  
+  // DELETE /api/crm/stock/:id - Delete stock record
+  app.delete("/api/crm/stock/:id", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { id } = req.params;
+      
+      // SECURITY: Verify stock exists and belongs to authenticated user's workspace
+      const existing = await storage.getCrmStock(id);
+      if (!existing) {
+        return res.status(404).json({ error: "Stock record not found" });
+      }
+      if (existing.workspaceId !== auth.userId) {
+        console.warn(`🚫 User ${auth.userEmail} attempted to delete stock ${id} owned by workspace ${existing.workspaceId}`);
+        return res.status(403).json({ error: "Forbidden: Cannot delete other workspaces' data" });
+      }
+      
+      const success = await storage.deleteCrmStock(id);
+      
+      res.json({ success });
+    } catch (error: any) {
+      console.error("Error deleting stock:", error);
+      res.status(500).json({ error: error.message || "Failed to delete stock" });
+    }
+  });
+  
+  // ============================================================
+  // CRM CALL DIARY (SALES DIARY) ROUTES
+  // ============================================================
+  
+  // GET /api/crm/call-diary/:workspaceId - List all call diary entries
+  app.get("/api/crm/call-diary/:workspaceId", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { workspaceId } = req.params;
+      
+      // SECURITY: Verify workspace belongs to authenticated user
+      if (workspaceId !== auth.userId) {
+        console.warn(`🚫 User ${auth.userEmail} attempted to access call diary for workspace ${workspaceId}`);
+        return res.status(403).json({ error: "Forbidden: Cannot access other workspaces' data" });
+      }
+      
+      // Parse query filters
+      const filters: any = {};
+      if (req.query.entityType) filters.entityType = req.query.entityType as string;
+      if (req.query.completed === 'true') filters.completed = true;
+      if (req.query.completed === 'false') filters.completed = false;
+      if (req.query.startDate) filters.startDate = parseInt(req.query.startDate as string);
+      if (req.query.endDate) filters.endDate = parseInt(req.query.endDate as string);
+      if (req.query.limit) filters.limit = parseInt(req.query.limit as string);
+      if (req.query.offset) filters.offset = parseInt(req.query.offset as string);
+      
+      const entries = await storage.listCallDiaryEntries(workspaceId, filters);
+      
+      res.json(entries);
+    } catch (error: any) {
+      console.error("[Call Diary] Error listing entries:", error);
+      res.status(500).json({ error: error.message || "Failed to list call diary entries" });
+    }
+  });
+  
+  // GET /api/crm/call-diary/:workspaceId/upcoming - Get upcoming calls (today + future)
+  app.get("/api/crm/call-diary/:workspaceId/upcoming", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { workspaceId } = req.params;
+      
+      // SECURITY: Verify workspace belongs to authenticated user
+      if (workspaceId !== auth.userId) {
+        return res.status(403).json({ error: "Forbidden: Cannot access other workspaces' data" });
+      }
+      
+      // Parse query filters
+      const filters: any = {};
+      if (req.query.entityType) filters.entityType = req.query.entityType as string;
+      if (req.query.limit) filters.limit = parseInt(req.query.limit as string);
+      
+      const entries = await storage.listUpcomingCalls(workspaceId, filters);
+      
+      res.json(entries);
+    } catch (error: any) {
+      console.error("[Call Diary] Error listing upcoming calls:", error);
+      res.status(500).json({ error: error.message || "Failed to list upcoming calls" });
+    }
+  });
+  
+  // GET /api/crm/call-diary/:workspaceId/overdue - Get overdue calls (past, not completed)
+  app.get("/api/crm/call-diary/:workspaceId/overdue", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { workspaceId } = req.params;
+      
+      // SECURITY: Verify workspace belongs to authenticated user
+      if (workspaceId !== auth.userId) {
+        return res.status(403).json({ error: "Forbidden: Cannot access other workspaces' data" });
+      }
+      
+      // Parse query filters
+      const filters: any = {};
+      if (req.query.entityType) filters.entityType = req.query.entityType as string;
+      if (req.query.limit) filters.limit = parseInt(req.query.limit as string);
+      
+      const entries = await storage.listOverdueCalls(workspaceId, filters);
+      
+      res.json(entries);
+    } catch (error: any) {
+      console.error("[Call Diary] Error listing overdue calls:", error);
+      res.status(500).json({ error: error.message || "Failed to list overdue calls" });
+    }
+  });
+  
+  // GET /api/crm/call-diary/:workspaceId/history - Get call history (completed calls)
+  app.get("/api/crm/call-diary/:workspaceId/history", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { workspaceId } = req.params;
+      
+      // SECURITY: Verify workspace belongs to authenticated user
+      if (workspaceId !== auth.userId) {
+        return res.status(403).json({ error: "Forbidden: Cannot access other workspaces' data" });
+      }
+      
+      // Parse query filters
+      const filters: any = {};
+      if (req.query.entityType) filters.entityType = req.query.entityType as string;
+      if (req.query.startDate) filters.startDate = parseInt(req.query.startDate as string);
+      if (req.query.endDate) filters.endDate = parseInt(req.query.endDate as string);
+      if (req.query.limit) filters.limit = parseInt(req.query.limit as string);
+      if (req.query.offset) filters.offset = parseInt(req.query.offset as string);
+      
+      const entries = await storage.listCallHistory(workspaceId, filters);
+      
+      res.json(entries);
+    } catch (error: any) {
+      console.error("[Call Diary] Error listing call history:", error);
+      res.status(500).json({ error: error.message || "Failed to list call history" });
+    }
+  });
+  
+  // GET /api/crm/call-diary/detail/:id - Get single call diary entry
+  app.get("/api/crm/call-diary/detail/:id", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { id } = req.params;
+      const entry = await storage.getCallDiaryEntry(parseInt(id), auth.userId);
+      
+      if (!entry) {
+        return res.status(404).json({ error: "Call diary entry not found" });
+      }
+      
+      res.json(entry);
+    } catch (error: any) {
+      console.error("[Call Diary] Error getting entry:", error);
+      res.status(500).json({ error: error.message || "Failed to get call diary entry" });
+    }
+  });
+  
+  // GET /api/crm/call-diary/entity/:entityType/:entityId - Get calls for a specific customer/lead
+  app.get("/api/crm/call-diary/entity/:entityType/:entityId", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { entityType, entityId } = req.params;
+      
+      if (!['customer', 'lead'].includes(entityType)) {
+        return res.status(400).json({ error: "entityType must be 'customer' or 'lead'" });
+      }
+      
+      const entries = await storage.getCallsForEntity(entityType, entityId, auth.userId);
+      
+      res.json(entries);
+    } catch (error: any) {
+      console.error("[Call Diary] Error getting calls for entity:", error);
+      res.status(500).json({ error: error.message || "Failed to get calls for entity" });
+    }
+  });
+  
+  // POST /api/crm/call-diary - Create call diary entry
+  app.post("/api/crm/call-diary", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      // VALIDATION: Validate request body
+      const validationResult = insertCrmCallDiarySchema.omit({ id: true, workspaceId: true, createdAt: true, updatedAt: true }).safeParse(req.body);
+      if (!validationResult.success) {
+        return res.status(400).json({ 
+          error: "Validation failed", 
+          details: validationResult.error.errors 
+        });
+      }
+      
+      const data = validationResult.data;
+      
+      // Validate entityType
+      if (!['customer', 'lead'].includes(data.entityType)) {
+        return res.status(400).json({ error: "entityType must be 'customer' or 'lead'" });
+      }
+      
+      // SECURITY: Force workspaceId to be the authenticated user's ID
+      const workspaceId = auth.userId;
+      const now = Date.now();
+      
+      const entry = await storage.createCallDiaryEntry({
+        workspaceId,
+        entityType: data.entityType,
+        entityId: data.entityId,
+        scheduledDate: data.scheduledDate,
+        completed: data.completed ?? 0,
+        completedDate: data.completedDate || null,
+        notes: data.notes || null,
+        outcome: data.outcome || null,
+        createdAt: now,
+        createdBy: auth.userId,
+        updatedAt: now,
+      });
+      
+      res.json(entry);
+    } catch (error: any) {
+      console.error("[Call Diary] Error creating entry:", error);
+      res.status(500).json({ error: error.message || "Failed to create call diary entry" });
+    }
+  });
+  
+  // PATCH /api/crm/call-diary/:id - Update call diary entry
+  app.patch("/api/crm/call-diary/:id", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { id } = req.params;
+      
+      // SECURITY: Verify entry exists and belongs to authenticated user's workspace
+      const existing = await storage.getCallDiaryEntry(parseInt(id), auth.userId);
+      if (!existing) {
+        return res.status(404).json({ error: "Call diary entry not found" });
+      }
+      
+      // VALIDATION: Validate partial update
+      const validationResult = insertCrmCallDiarySchema.partial().omit({ id: true, workspaceId: true, createdAt: true, createdBy: true }).safeParse(req.body);
+      if (!validationResult.success) {
+        return res.status(400).json({ 
+          error: "Validation failed", 
+          details: validationResult.error.errors 
+        });
+      }
+      
+      const entry = await storage.updateCallDiaryEntry(parseInt(id), auth.userId, {
+        ...validationResult.data,
+        updatedAt: Date.now(),
+      });
+      
+      res.json(entry);
+    } catch (error: any) {
+      console.error("[Call Diary] Error updating entry:", error);
+      res.status(500).json({ error: error.message || "Failed to update call diary entry" });
+    }
+  });
+  
+  // PATCH /api/crm/call-diary/:id/complete - Mark call as complete
+  app.patch("/api/crm/call-diary/:id/complete", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { id } = req.params;
+      const { outcome, notes } = req.body;
+      
+      // SECURITY: Verify entry exists and belongs to authenticated user's workspace
+      const existing = await storage.getCallDiaryEntry(parseInt(id), auth.userId);
+      if (!existing) {
+        return res.status(404).json({ error: "Call diary entry not found" });
+      }
+      
+      const now = Date.now();
+      const entry = await storage.updateCallDiaryEntry(parseInt(id), auth.userId, {
+        completed: 1,
+        completedDate: now,
+        outcome: outcome || existing.outcome,
+        notes: notes || existing.notes,
+        updatedAt: now,
+      });
+      
+      res.json(entry);
+    } catch (error: any) {
+      console.error("[Call Diary] Error completing call:", error);
+      res.status(500).json({ error: error.message || "Failed to mark call as complete" });
+    }
+  });
+  
+  // PATCH /api/crm/call-diary/:id/reschedule - Reschedule call
+  app.patch("/api/crm/call-diary/:id/reschedule", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { id } = req.params;
+      const { scheduledDate } = req.body;
+      
+      if (!scheduledDate) {
+        return res.status(400).json({ error: "scheduledDate is required" });
+      }
+      
+      // SECURITY: Verify entry exists and belongs to authenticated user's workspace
+      const existing = await storage.getCallDiaryEntry(parseInt(id), auth.userId);
+      if (!existing) {
+        return res.status(404).json({ error: "Call diary entry not found" });
+      }
+      
+      const entry = await storage.updateCallDiaryEntry(parseInt(id), auth.userId, {
+        scheduledDate,
+        outcome: 'rescheduled',
+        updatedAt: Date.now(),
+      });
+      
+      res.json(entry);
+    } catch (error: any) {
+      console.error("[Call Diary] Error rescheduling call:", error);
+      res.status(500).json({ error: error.message || "Failed to reschedule call" });
+    }
+  });
+  
+  // DELETE /api/crm/call-diary/:id - Delete call diary entry
+  app.delete("/api/crm/call-diary/:id", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { id } = req.params;
+      
+      // SECURITY: Verify entry exists and belongs to authenticated user's workspace
+      const existing = await storage.getCallDiaryEntry(parseInt(id), auth.userId);
+      if (!existing) {
+        return res.status(404).json({ error: "Call diary entry not found" });
+      }
+      
+      const success = await storage.deleteCallDiaryEntry(parseInt(id), auth.userId);
+      
+      res.json({ success });
+    } catch (error: any) {
+      console.error("[Call Diary] Error deleting entry:", error);
+      res.status(500).json({ error: error.message || "Failed to delete call diary entry" });
+    }
+  });
+  
   // ============= HELPER: Recalculate Order Totals from Line Items =============
   /**
    * Recalculates order totals (subtotal, VAT, total) from all line items.
@@ -7411,6 +8817,11 @@ ${run.outputText}`;
       
       res.json(orders);
     } catch (error: any) {
+      // Demo mode fallback: return empty array
+      if (error.cause?.code === 'ENOTFOUND' && req.params.workspaceId === 'demo-user') {
+        console.warn('[CRM] Database DNS failed for demo-user orders, returning empty array');
+        return res.json([]);
+      }
       console.error("Error listing orders:", error);
       res.status(500).json({ error: error.message || "Failed to list orders" });
     }
@@ -7443,6 +8854,37 @@ ${run.outputText}`;
       res.status(500).json({ error: error.message || "Failed to get order" });
     }
   });
+
+  // GET /api/crm/orders/customer/:customerId - Get orders for a specific customer
+  app.get("/api/crm/orders/customer/:customerId", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { customerId } = req.params;
+      
+      // Verify the customer exists and belongs to this workspace
+      const customer = await storage.getCrmCustomer(customerId);
+      if (!customer) {
+        return res.status(404).json({ error: "Customer not found" });
+      }
+      
+      if (customer.workspaceId !== auth.userId) {
+        console.warn(`🚫 User ${auth.userEmail} attempted to access customer ${customerId} owned by workspace ${customer.workspaceId}`);
+        return res.status(403).json({ error: "Forbidden: Cannot access other workspaces' data" });
+      }
+      
+      // Get orders for this customer
+      const orders = await storage.listCrmOrdersByCustomer(customerId);
+      
+      res.json(orders);
+    } catch (error: any) {
+      console.error("Error getting customer orders:", error);
+      res.status(500).json({ error: error.message || "Failed to get customer orders" });
+    }
+  });
   
   // POST /api/crm/orders - Create order
   app.post("/api/crm/orders", async (req, res) => {
@@ -7453,7 +8895,7 @@ ${run.outputText}`;
       }
       
       // VALIDATION: Validate request body using Zod schema
-      const validationResult = insertCrmOrderSchema.omit({ id: true, createdAt: true, updatedAt: true }).safeParse(req.body);
+      const validationResult = insertCrmOrderSchema.omit({ id: true, workspaceId: true, createdAt: true, updatedAt: true }).safeParse(req.body);
       if (!validationResult.success) {
         return res.status(400).json({ 
           error: "Validation failed", 
@@ -7493,9 +8935,17 @@ ${run.outputText}`;
         currency: data.currency || 'GBP',
         totalAmount: data.totalAmount || null,
         notes: data.notes || null,
+        syncStatus: 'pending',
         createdAt: now,
         updatedAt: now,
       });
+      
+      // Auto-sync to Xero if connected (async, don't block response)
+      if ((xeroSyncRouter as any).syncOrderToXero) {
+        (xeroSyncRouter as any).syncOrderToXero(order.id, workspaceId).catch((error: any) => {
+          console.error(`Auto-sync order ${order.id} to Xero failed:`, error.message);
+        });
+      }
       
       res.json(order);
     } catch (error: any) {
@@ -7525,15 +8975,18 @@ ${run.outputText}`;
       }
       
       // VALIDATION: Validate partial update using Zod schema (omit immutable fields)
+      console.log('[DEBUG] Order PATCH request body:', JSON.stringify(req.body, null, 2));
       const validationResult = insertCrmOrderSchema.partial().omit({ id: true, workspaceId: true, createdAt: true }).safeParse(req.body);
       if (!validationResult.success) {
-        return res.status(400).json({ 
-          error: "Validation failed", 
-          details: validationResult.error.errors 
+        return res.status(400).json({
+          error: "Validation failed",
+          details: validationResult.error.errors
         });
       }
-      
+
       const data = validationResult.data;
+      console.log('[DEBUG] Validated order data:', JSON.stringify(data, null, 2));
+      console.log('[DEBUG] Status field in data:', data.status);
       
       // SECURITY: If customerId is being updated, verify it belongs to authenticated user's workspace
       if (data.customerId) {
@@ -7551,10 +9004,23 @@ ${run.outputText}`;
         }
       }
       
-      const order = await storage.updateCrmOrder(id, {
+      const updatePayload = {
         ...data,
+        syncStatus: 'pending',
         updatedAt: Date.now(),
-      });
+      };
+      console.log('[DEBUG] Sending to updateCrmOrder:', JSON.stringify(updatePayload, null, 2));
+      const order = await storage.updateCrmOrder(id, updatePayload);
+      console.log('[DEBUG] Updated order returned:', JSON.stringify(order, null, 2));
+      console.log('[DEBUG] Status field in returned order:', order?.status);
+
+      // Auto-sync update to Xero if connected (async, don't block response)
+      // NOTE: Use auth.userId (UUID string) for Xero connection lookup, not existing.workspaceId
+      if ((xeroSyncRouter as any).updateOrderInXero) {
+        (xeroSyncRouter as any).updateOrderInXero(id, auth.userId).catch((error: any) => {
+          console.error(`Auto-sync order update ${id} to Xero failed:`, error.message);
+        });
+      }
       
       res.json(order);
     } catch (error: any) {
@@ -7583,6 +9049,13 @@ ${run.outputText}`;
         return res.status(403).json({ error: "Forbidden: Cannot delete other workspaces' data" });
       }
       
+      // Void in Xero first (async, don't block response)
+      if ((xeroSyncRouter as any).voidOrderInXero) {
+        (xeroSyncRouter as any).voidOrderInXero(id, existing.workspaceId).catch((error: any) => {
+          console.error(`Auto-void order ${id} in Xero failed:`, error.message);
+        });
+      }
+      
       const success = await storage.deleteCrmOrder(id);
       
       res.json({ success });
@@ -7592,6 +9065,71 @@ ${run.outputText}`;
     }
   });
   
+  // POST /api/crm/orders/:id/export-xero - Export order to Xero as invoice
+  app.post("/api/crm/orders/:id/export-xero", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { id } = req.params;
+      
+      // SECURITY: Verify order exists and belongs to authenticated user's workspace
+      const order = await storage.getCrmOrder(id);
+      if (!order) {
+        return res.status(404).json({ error: "Order not found" });
+      }
+      if (order.workspaceId !== auth.userId) {
+        console.warn(`🚫 User ${auth.userEmail} attempted to export order ${id} owned by workspace ${order.workspaceId}`);
+        return res.status(403).json({ error: "Forbidden: Cannot export other workspaces' data" });
+      }
+      
+      // Check if order already has a Xero invoice
+      if (order.xeroInvoiceId) {
+        return res.json({ 
+          success: true, 
+          message: "Order already exported to Xero",
+          invoiceId: order.xeroInvoiceId,
+          invoiceNumber: order.xeroInvoiceNumber
+        });
+      }
+      
+      // Check if Xero sync function is available
+      if (!(xeroSyncRouter as any).syncOrderToXero) {
+        return res.status(503).json({ error: "Xero sync not available" });
+      }
+      
+      // Export to Xero
+      // NOTE: Use auth.userId (UUID string) for Xero connection lookup, not order.workspaceId (integer)
+      console.log(`📤 Exporting order ${id} to Xero (user: ${auth.userId})...`);
+      await (xeroSyncRouter as any).syncOrderToXero(id, auth.userId);
+      
+      // Refetch order to get the new Xero invoice details
+      const updatedOrder = await storage.getCrmOrder(id);
+      
+      res.json({ 
+        success: true, 
+        message: "Order exported to Xero",
+        invoiceId: updatedOrder?.xeroInvoiceId,
+        invoiceNumber: updatedOrder?.xeroInvoiceNumber
+      });
+    } catch (error: any) {
+      console.error("Error exporting order to Xero:", error);
+      
+      // Handle specific Xero connection errors with appropriate status codes
+      if (error.message?.includes("Xero not connected") || error.message?.includes("token expired")) {
+        return res.status(400).json({ 
+          error: "Xero not connected", 
+          message: "Please connect your Xero account first in Integrations settings.",
+          requiresConnection: true
+        });
+      }
+      
+      res.status(500).json({ error: error.message || "Failed to export order to Xero" });
+    }
+  });
+
   // GET /api/crm/order-lines/:orderId - List order lines for an order
   app.get("/api/crm/order-lines/:orderId", async (req, res) => {
     try {
@@ -7630,7 +9168,15 @@ ${run.outputText}`;
       }
       
       // VALIDATION: Validate request body using Zod schema
-      const validationResult = insertCrmOrderLineSchema.omit({ id: true, createdAt: true, updatedAt: true }).safeParse(req.body);
+      // Omit calculated fields - backend will compute lineSubtotalExVat, lineVatAmount, lineTotalIncVat
+      const validationResult = insertCrmOrderLineSchema.omit({ 
+        id: true, 
+        createdAt: true, 
+        updatedAt: true,
+        lineSubtotalExVat: true,
+        lineVatAmount: true,
+        lineTotalIncVat: true,
+      }).safeParse(req.body);
       if (!validationResult.success) {
         return res.status(400).json({ 
           error: "Validation failed", 
@@ -7647,9 +9193,19 @@ ${run.outputText}`;
       }
       
       // SECURITY: If productId is provided, verify it belongs to the workspace
+      // First check CRM products, then fall back to Brew products for brewery vertical
       if (data.productId) {
-        const product = await storage.getBrewProduct(data.productId);
-        if (!product || product.workspaceId !== auth.userId) {
+        let productValid = false;
+        const crmProduct = await storage.getCrmProduct(data.productId);
+        if (crmProduct && crmProduct.workspaceId === auth.userId) {
+          productValid = true;
+        } else {
+          const brewProduct = await storage.getCrmProduct(data.productId);
+          if (brewProduct && brewProduct.workspaceId === auth.userId) {
+            productValid = true;
+          }
+        }
+        if (!productValid) {
           return res.status(403).json({ error: "Forbidden: Product does not belong to your workspace" });
         }
       }
@@ -7731,9 +9287,19 @@ ${run.outputText}`;
       const data = validationResult.data;
       
       // SECURITY: If productId is being updated, verify it belongs to the workspace
+      // First check CRM products, then fall back to Brew products for brewery vertical
       if (data.productId) {
-        const product = await storage.getBrewProduct(data.productId);
-        if (!product || product.workspaceId !== auth.userId) {
+        let productValid = false;
+        const crmProduct = await storage.getCrmProduct(data.productId);
+        if (crmProduct && crmProduct.workspaceId === auth.userId) {
+          productValid = true;
+        } else {
+          const brewProduct = await storage.getCrmProduct(data.productId);
+          if (brewProduct && brewProduct.workspaceId === auth.userId) {
+            productValid = true;
+          }
+        }
+        if (!productValid) {
           return res.status(403).json({ error: "Forbidden: Product does not belong to your workspace" });
         }
       }
@@ -7943,7 +9509,7 @@ ${run.outputText}`;
         return res.status(403).json({ error: "Forbidden: Cannot access other workspaces' data" });
       }
       
-      const products = await storage.listBrewProducts(workspaceId);
+      const products = await storage.listCrmProducts(workspaceId);
       
       res.json(products);
     } catch (error: any) {
@@ -7961,7 +9527,7 @@ ${run.outputText}`;
       }
       
       const { id } = req.params;
-      const product = await storage.getBrewProduct(id);
+      const product = await storage.getCrmProduct(id);
       
       if (!product) {
         return res.status(404).json({ error: "Product not found" });
@@ -7989,7 +9555,7 @@ ${run.outputText}`;
       }
       
       // VALIDATION: Validate request body using Zod schema
-      const validationResult = insertBrewProductSchema.omit({ id: true, createdAt: true, updatedAt: true }).safeParse(req.body);
+      const validationResult = insertCrmProductSchema.omit({ id: true, createdAt: true, updatedAt: true }).safeParse(req.body);
       if (!validationResult.success) {
         return res.status(400).json({ 
           error: "Validation failed", 
@@ -8003,7 +9569,7 @@ ${run.outputText}`;
       const workspaceId = auth.userId;
       
       const now = Date.now();
-      const product = await storage.createBrewProduct({
+      const product = await storage.createCrmProduct({
         id: `product_${Date.now()}_${Math.random().toString(36).substring(7)}`,
         workspaceId,
         sku: data.sku,
@@ -8038,7 +9604,7 @@ ${run.outputText}`;
       const { id } = req.params;
       
       // SECURITY: Verify product exists and belongs to authenticated user's workspace
-      const existing = await storage.getBrewProduct(id);
+      const existing = await storage.getCrmProduct(id);
       if (!existing) {
         return res.status(404).json({ error: "Product not found" });
       }
@@ -8048,7 +9614,7 @@ ${run.outputText}`;
       }
       
       // VALIDATION: Validate partial update using Zod schema (omit immutable fields)
-      const validationResult = insertBrewProductSchema.partial().omit({ id: true, workspaceId: true, createdAt: true }).safeParse(req.body);
+      const validationResult = insertCrmProductSchema.partial().omit({ id: true, workspaceId: true, createdAt: true }).safeParse(req.body);
       if (!validationResult.success) {
         return res.status(400).json({ 
           error: "Validation failed", 
@@ -8056,7 +9622,7 @@ ${run.outputText}`;
         });
       }
       
-      const product = await storage.updateBrewProduct(id, {
+      const product = await storage.updateCrmProduct(id, {
         ...validationResult.data,
         updatedAt: Date.now(),
       });
@@ -8079,7 +9645,7 @@ ${run.outputText}`;
       const { id } = req.params;
       
       // SECURITY: Verify product exists and belongs to authenticated user's workspace
-      const existing = await storage.getBrewProduct(id);
+      const existing = await storage.getCrmProduct(id);
       if (!existing) {
         return res.status(404).json({ error: "Product not found" });
       }
@@ -8088,7 +9654,7 @@ ${run.outputText}`;
         return res.status(403).json({ error: "Forbidden: Cannot delete other workspaces' data" });
       }
       
-      const success = await storage.deleteBrewProduct(id);
+      const success = await storage.deleteCrmProduct(id);
       
       res.json({ success });
     } catch (error: any) {
@@ -8173,7 +9739,7 @@ ${run.outputText}`;
       const workspaceId = auth.userId;
       
       // SECURITY: Verify productId belongs to authenticated user's workspace
-      const product = await storage.getBrewProduct(data.productId);
+      const product = await storage.getCrmProduct(data.productId);
       if (!product || product.workspaceId !== auth.userId) {
         return res.status(403).json({ error: "Forbidden: Product does not belong to your workspace" });
       }
@@ -8235,7 +9801,7 @@ ${run.outputText}`;
       
       // SECURITY: If productId is being updated, verify it belongs to authenticated user's workspace
       if (data.productId) {
-        const product = await storage.getBrewProduct(data.productId);
+        const product = await storage.getCrmProduct(data.productId);
         if (!product || product.workspaceId !== auth.userId) {
           return res.status(403).json({ error: "Forbidden: Product does not belong to your workspace" });
         }
@@ -8318,7 +9884,7 @@ ${run.outputText}`;
       const { productId } = req.params;
       
       // SECURITY: Verify productId belongs to authenticated user's workspace
-      const product = await storage.getBrewProduct(productId);
+      const product = await storage.getCrmProduct(productId);
       if (!product) {
         return res.status(404).json({ error: "Product not found" });
       }
@@ -8363,7 +9929,7 @@ ${run.outputText}`;
       const workspaceId = auth.userId;
       
       // SECURITY: Verify productId belongs to authenticated user's workspace
-      const product = await storage.getBrewProduct(data.productId);
+      const product = await storage.getCrmProduct(data.productId);
       if (!product || product.workspaceId !== auth.userId) {
         return res.status(403).json({ error: "Forbidden: Product does not belong to your workspace" });
       }
@@ -8420,7 +9986,7 @@ ${run.outputText}`;
       
       // SECURITY: If productId is being updated, verify it belongs to authenticated user's workspace
       if (data.productId) {
-        const product = await storage.getBrewProduct(data.productId);
+        const product = await storage.getCrmProduct(data.productId);
         if (!product || product.workspaceId !== auth.userId) {
           return res.status(403).json({ error: "Forbidden: Product does not belong to your workspace" });
         }
@@ -8772,6 +10338,1288 @@ ${run.outputText}`;
     }
   });
   
+  // GET /api/brewcrm/duty-lookup-bands - List active duty lookup bands
+  // NOTE: Duty bands are public reference data (UK alcohol duty legislation).
+  // Auth is handled centrally via getAuthenticatedUserId (supports dev/demo mode).
+  app.get("/api/brewcrm/duty-lookup-bands", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const regime = (req.query.regime as string) || 'UK';
+      console.log(`[API] Fetching duty lookup bands for regime=${regime}, user=${auth.userEmail}`);
+      
+      const bands = await storage.listActiveDutyLookupBands(regime);
+      console.log(`[API] Returning ${bands.length} duty lookup bands`);
+      
+      res.json(bands);
+    } catch (error: any) {
+      console.error("Error fetching duty lookup bands:", error);
+      console.error("Error stack:", error.stack);
+      // Check if it's a "relation does not exist" error (table not created yet)
+      if (error.message?.includes('relation') && error.message?.includes('does not exist')) {
+        return res.status(500).json({ 
+          error: "Duty lookup bands table not found. Please run the SQL migration: drizzle/brew_duty_lookup_bands.sql" 
+        });
+      }
+      res.status(500).json({ error: error.message || "Failed to fetch duty lookup bands" });
+    }
+  });
+  
+  // ============================================================
+  // PRICE BOOKS ENDPOINTS
+  // ============================================================
+  
+  // GET /api/brewcrm/price-books/:workspaceId - List all price books
+  app.get("/api/brewcrm/price-books/:workspaceId", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { workspaceId } = req.params;
+      
+      // SECURITY: Verify workspace belongs to authenticated user
+      if (workspaceId !== auth.userId) {
+        return res.status(403).json({ error: "Forbidden: Cannot access other workspaces' data" });
+      }
+      
+      const priceBooks = await storage.listBrewPriceBooks(workspaceId);
+      res.json(priceBooks);
+    } catch (error: any) {
+      console.error("Error listing price books:", error);
+      res.status(500).json({ error: error.message || "Failed to list price books" });
+    }
+  });
+  
+  // GET /api/brewcrm/price-books/:workspaceId/active - List active price books
+  app.get("/api/brewcrm/price-books/:workspaceId/active", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { workspaceId } = req.params;
+      
+      if (workspaceId !== auth.userId) {
+        return res.status(403).json({ error: "Forbidden: Cannot access other workspaces' data" });
+      }
+      
+      const priceBooks = await storage.listActiveBrewPriceBooks(workspaceId);
+      res.json(priceBooks);
+    } catch (error: any) {
+      console.error("Error listing active price books:", error);
+      res.status(500).json({ error: error.message || "Failed to list active price books" });
+    }
+  });
+  
+  // GET /api/brewcrm/price-books/detail/:id - Get single price book with product prices
+  app.get("/api/brewcrm/price-books/detail/:id", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const priceBookId = parseInt(req.params.id);
+      if (isNaN(priceBookId)) {
+        return res.status(400).json({ error: "Invalid price book ID" });
+      }
+      
+      const workspaceId = auth.userId;
+      const priceBook = await storage.getBrewPriceBook(priceBookId, workspaceId);
+      
+      if (!priceBook) {
+        return res.status(404).json({ error: "Price book not found" });
+      }
+      
+      // Also get product prices for this price book
+      const productPrices = await storage.getProductPricesByPriceBook(priceBookId, workspaceId);
+      const priceBands = await storage.getPriceBandsByPriceBook(priceBookId, workspaceId);
+      
+      res.json({
+        ...priceBook,
+        productPrices,
+        priceBands,
+      });
+    } catch (error: any) {
+      console.error("Error getting price book:", error);
+      res.status(500).json({ error: error.message || "Failed to get price book" });
+    }
+  });
+  
+  // POST /api/brewcrm/price-books - Create price book
+  app.post("/api/brewcrm/price-books", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const workspaceId = auth.userId;
+      const { name, description, isDefault, parentPriceBookId, discountType, discountValue, isActive } = req.body;
+      
+      if (!name || typeof name !== 'string' || name.length > 100) {
+        return res.status(400).json({ error: "Name is required and must be less than 100 characters" });
+      }
+      
+      // If this is set as default, unset other defaults first
+      if (isDefault) {
+        await storage.unsetDefaultPriceBook(workspaceId);
+      }
+      
+      const now = Date.now();
+      const priceBook = await storage.createBrewPriceBook({
+        workspaceId,
+        name,
+        description: description || null,
+        isDefault: isDefault ? 1 : 0,
+        parentPriceBookId: parentPriceBookId || null,
+        discountType: discountType || null,
+        discountValue: discountValue || null,
+        isActive: isActive !== false ? 1 : 0,
+        createdAt: now,
+        updatedAt: now,
+      });
+      
+      res.status(201).json(priceBook);
+    } catch (error: any) {
+      console.error("Error creating price book:", error);
+      // Check for unique constraint violation
+      if (error.message?.includes('unique') || error.message?.includes('duplicate')) {
+        return res.status(400).json({ error: "A price book with this name already exists" });
+      }
+      res.status(500).json({ error: error.message || "Failed to create price book" });
+    }
+  });
+  
+  // PATCH /api/brewcrm/price-books/:id - Update price book
+  app.patch("/api/brewcrm/price-books/:id", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const priceBookId = parseInt(req.params.id);
+      if (isNaN(priceBookId)) {
+        return res.status(400).json({ error: "Invalid price book ID" });
+      }
+      
+      const workspaceId = auth.userId;
+      const { name, description, isDefault, parentPriceBookId, discountType, discountValue, isActive } = req.body;
+      
+      // Check if price book exists
+      const existing = await storage.getBrewPriceBook(priceBookId, workspaceId);
+      if (!existing) {
+        return res.status(404).json({ error: "Price book not found" });
+      }
+      
+      // If this is set as default, unset other defaults first
+      if (isDefault) {
+        await storage.unsetDefaultPriceBook(workspaceId);
+      }
+      
+      const updates: any = {};
+      if (name !== undefined) updates.name = name;
+      if (description !== undefined) updates.description = description;
+      if (isDefault !== undefined) updates.isDefault = isDefault ? 1 : 0;
+      if (parentPriceBookId !== undefined) updates.parentPriceBookId = parentPriceBookId;
+      if (discountType !== undefined) updates.discountType = discountType;
+      if (discountValue !== undefined) updates.discountValue = discountValue;
+      if (isActive !== undefined) updates.isActive = isActive ? 1 : 0;
+      
+      const updated = await storage.updateBrewPriceBook(priceBookId, workspaceId, updates);
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Error updating price book:", error);
+      if (error.message?.includes('unique') || error.message?.includes('duplicate')) {
+        return res.status(400).json({ error: "A price book with this name already exists" });
+      }
+      res.status(500).json({ error: error.message || "Failed to update price book" });
+    }
+  });
+  
+  // DELETE /api/brewcrm/price-books/:id - Delete price book
+  app.delete("/api/brewcrm/price-books/:id", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const priceBookId = parseInt(req.params.id);
+      if (isNaN(priceBookId)) {
+        return res.status(400).json({ error: "Invalid price book ID" });
+      }
+      
+      const workspaceId = auth.userId;
+      
+      // Check if any customers are using this price book
+      const customersUsingBook = await storage.getCustomersByPriceBook(priceBookId, workspaceId);
+      if (customersUsingBook.length > 0) {
+        return res.status(400).json({ 
+          error: "Cannot delete price book",
+          message: `${customersUsingBook.length} customer(s) are assigned to this price book. Please reassign them first.`
+        });
+      }
+      
+      // Delete product prices first
+      await storage.deleteProductPricesByPriceBook(priceBookId, workspaceId);
+      
+      const deleted = await storage.deleteBrewPriceBook(priceBookId, workspaceId);
+      if (!deleted) {
+        return res.status(404).json({ error: "Price book not found" });
+      }
+      
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error deleting price book:", error);
+      res.status(500).json({ error: error.message || "Failed to delete price book" });
+    }
+  });
+  
+  // ============================================================
+  // PRODUCT PRICES IN PRICE BOOKS
+  // ============================================================
+  
+  // GET /api/brewcrm/price-books/:id/prices - Get product prices for a price book
+  app.get("/api/brewcrm/price-books/:id/prices", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const priceBookId = parseInt(req.params.id);
+      if (isNaN(priceBookId)) {
+        return res.status(400).json({ error: "Invalid price book ID" });
+      }
+      
+      const workspaceId = auth.userId;
+      const productPrices = await storage.getProductPricesByPriceBook(priceBookId, workspaceId);
+      res.json(productPrices);
+    } catch (error: any) {
+      console.error("Error getting product prices:", error);
+      res.status(500).json({ error: error.message || "Failed to get product prices" });
+    }
+  });
+  
+  // POST /api/brewcrm/price-books/:id/prices - Bulk update product prices for a price book
+  app.post("/api/brewcrm/price-books/:id/prices", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const priceBookId = parseInt(req.params.id);
+      if (isNaN(priceBookId)) {
+        return res.status(400).json({ error: "Invalid price book ID" });
+      }
+      
+      const workspaceId = auth.userId;
+      const { productPrices } = req.body;
+      
+      if (!Array.isArray(productPrices)) {
+        return res.status(400).json({ error: "productPrices must be an array" });
+      }
+      
+      // Validate each price entry
+      for (const pp of productPrices) {
+        if (!pp.productId || typeof pp.price !== 'number' || pp.price < 0) {
+          return res.status(400).json({ error: "Each price entry must have productId and a non-negative price" });
+        }
+      }
+      
+      await storage.bulkUpsertProductPrices(priceBookId, workspaceId, productPrices);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error updating product prices:", error);
+      res.status(500).json({ error: error.message || "Failed to update product prices" });
+    }
+  });
+  
+  // POST /api/brewcrm/price-books/:id/copy-prices - Copy prices from another price book
+  app.post("/api/brewcrm/price-books/:id/copy-prices", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const targetPriceBookId = parseInt(req.params.id);
+      if (isNaN(targetPriceBookId)) {
+        return res.status(400).json({ error: "Invalid target price book ID" });
+      }
+      
+      const { sourcePriceBookId } = req.body;
+      if (!sourcePriceBookId || isNaN(parseInt(sourcePriceBookId))) {
+        return res.status(400).json({ error: "sourcePriceBookId is required" });
+      }
+      
+      const workspaceId = auth.userId;
+      await storage.copyPriceBookPrices(parseInt(sourcePriceBookId), targetPriceBookId, workspaceId);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error copying prices:", error);
+      res.status(500).json({ error: error.message || "Failed to copy prices" });
+    }
+  });
+  
+  // ============================================================
+  // EFFECTIVE PRICING ENDPOINT
+  // ============================================================
+  
+  // GET /api/brewcrm/products/:productId/effective-price - Get effective price for a product
+  app.get("/api/brewcrm/products/:productId/effective-price", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { productId } = req.params;
+      const customerId = req.query.customerId as string | undefined;
+      const quantity = req.query.quantity ? parseInt(req.query.quantity as string) : 1;
+      
+      const workspaceId = auth.userId;
+      const effectivePrice = await storage.getEffectiveProductPrice(productId, workspaceId, customerId, quantity);
+      
+      res.json(effectivePrice);
+    } catch (error: any) {
+      console.error("Error getting effective product price:", error);
+      res.status(500).json({ error: error.message || "Failed to get effective product price" });
+    }
+  });
+  
+  // ============================================================
+  // CUSTOMER PRICE BOOK ASSIGNMENT
+  // ============================================================
+  
+  // PATCH /api/crm/customers/:id/price-book - Update customer's price book assignment
+  app.patch("/api/crm/customers/:id/price-book", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const customerId = req.params.id;
+      const { priceBookId } = req.body;
+      
+      // priceBookId can be null (to unassign) or a number
+      if (priceBookId !== null && (typeof priceBookId !== 'number' || isNaN(priceBookId))) {
+        return res.status(400).json({ error: "priceBookId must be a number or null" });
+      }
+      
+      const workspaceId = auth.userId;
+      
+      // Verify customer exists
+      const customer = await storage.getCrmCustomer(customerId);
+      if (!customer || customer.workspaceId !== workspaceId) {
+        return res.status(404).json({ error: "Customer not found" });
+      }
+      
+      // If assigning a price book, verify it exists
+      if (priceBookId !== null) {
+        const priceBook = await storage.getBrewPriceBook(priceBookId, workspaceId);
+        if (!priceBook) {
+          return res.status(404).json({ error: "Price book not found" });
+        }
+      }
+      
+      await storage.updateCustomerPriceBook(customerId, workspaceId, priceBookId);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error updating customer price book:", error);
+      res.status(500).json({ error: error.message || "Failed to update customer price book" });
+    }
+  });
+  
+  // ============================================================
+  // TRADE STORE ENDPOINTS
+  // ============================================================
+  
+  // GET /api/brewcrm/trade-store/settings - Get trade store settings
+  app.get("/api/brewcrm/trade-store/settings", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const settings = await storage.getTradeStoreSettings(auth.userId);
+      res.json(settings || {});
+    } catch (error: any) {
+      console.error("Error getting trade store settings:", error);
+      res.status(500).json({ error: error.message || "Failed to get trade store settings" });
+    }
+  });
+  
+  // POST /api/brewcrm/trade-store/settings - Update trade store settings
+  app.post("/api/brewcrm/trade-store/settings", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const settings = await storage.createOrUpdateTradeStoreSettings({
+        ...req.body,
+        workspaceId: auth.userId,
+      });
+      res.json(settings);
+    } catch (error: any) {
+      console.error("Error updating trade store settings:", error);
+      res.status(500).json({ error: error.message || "Failed to update trade store settings" });
+    }
+  });
+  
+  // GET /api/brewcrm/trade-store/access - List customer access
+  app.get("/api/brewcrm/trade-store/access", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const list = await storage.getTradeStoreAccessList(auth.userId);
+      res.json(list);
+    } catch (error: any) {
+      console.error("Error listing trade store access:", error);
+      res.status(500).json({ error: error.message || "Failed to list trade store access" });
+    }
+  });
+  
+  // POST /api/brewcrm/trade-store/access - Grant customer access
+  app.post("/api/brewcrm/trade-store/access", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { customerId } = req.body;
+      if (!customerId) {
+        return res.status(400).json({ error: "customerId is required" });
+      }
+      
+      const accessCode = `TS-${Math.random().toString(36).substring(2, 15).toUpperCase()}`;
+      const now = Date.now();
+      
+      const access = await storage.createTradeStoreAccess({
+        workspaceId: auth.userId,
+        customerId,
+        accessCode,
+        isActive: 1,
+        approvedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      });
+      
+      res.status(201).json(access);
+    } catch (error: any) {
+      console.error("Error granting trade store access:", error);
+      res.status(500).json({ error: error.message || "Failed to grant trade store access" });
+    }
+  });
+  
+  // POST /api/trade-store/login - Customer login (public endpoint)
+  app.post("/api/trade-store/login", async (req, res) => {
+    try {
+      const { accessCode } = req.body;
+      if (!accessCode) {
+        return res.status(400).json({ error: "accessCode is required" });
+      }
+      
+      const access = await storage.getTradeStoreAccessByCode(accessCode);
+      if (!access || !access.isActive) {
+        return res.status(401).json({ error: "Invalid or inactive access code" });
+      }
+      
+      const crypto = await import('crypto');
+      const sessionToken = crypto.randomBytes(32).toString('hex');
+      const expiresAt = Date.now() + (7 * 24 * 60 * 60 * 1000); // 7 days
+      
+      await storage.createTradeStoreSession({
+        workspaceId: access.workspaceId,
+        customerId: access.customerId,
+        sessionToken,
+        expiresAt,
+        createdAt: Date.now(),
+      });
+      
+      // Update last login
+      await storage.updateTradeStoreAccess(access.id, access.workspaceId, {
+        lastLoginAt: Date.now(),
+      });
+      
+      res.json({ sessionToken, expiresAt, customerId: access.customerId });
+    } catch (error: any) {
+      console.error("Error logging into trade store:", error);
+      res.status(500).json({ error: error.message || "Login failed" });
+    }
+  });
+  
+  // ============================================================
+  // CRM TAGS ENDPOINTS
+  // ============================================================
+  
+  // GET /api/crm/tags/:workspaceId - List customer tags
+  app.get("/api/crm/tags/:workspaceId", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { workspaceId } = req.params;
+      if (workspaceId !== auth.userId) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+      
+      const tags = await storage.getCustomerTags(workspaceId);
+      res.json(tags);
+    } catch (error: any) {
+      console.error("Error listing tags:", error);
+      res.status(500).json({ error: error.message || "Failed to list tags" });
+    }
+  });
+  
+  // POST /api/crm/tags - Create tag
+  app.post("/api/crm/tags", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { name, color } = req.body;
+      if (!name) {
+        return res.status(400).json({ error: "name is required" });
+      }
+      
+      const tag = await storage.createCustomerTag({
+        workspaceId: auth.userId,
+        name,
+        color: color || '#6b7280',
+        createdAt: Date.now(),
+      });
+      
+      res.status(201).json(tag);
+    } catch (error: any) {
+      console.error("Error creating tag:", error);
+      res.status(500).json({ error: error.message || "Failed to create tag" });
+    }
+  });
+  
+  // DELETE /api/crm/tags/:id - Delete tag
+  app.delete("/api/crm/tags/:id", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const deleted = await storage.deleteCustomerTag(parseInt(req.params.id), auth.userId);
+      if (!deleted) {
+        return res.status(404).json({ error: "Tag not found" });
+      }
+      
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error deleting tag:", error);
+      res.status(500).json({ error: error.message || "Failed to delete tag" });
+    }
+  });
+  
+  // GET /api/crm/customers/:id/tags - Get customer's tags
+  app.get("/api/crm/customers/:id/tags", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const tags = await storage.getCustomerTagsForCustomer(req.params.id, auth.userId);
+      res.json(tags);
+    } catch (error: any) {
+      console.error("Error getting customer tags:", error);
+      res.status(500).json({ error: error.message || "Failed to get customer tags" });
+    }
+  });
+  
+  // POST /api/crm/customers/:id/tags - Assign tag to customer
+  app.post("/api/crm/customers/:id/tags", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { tagId } = req.body;
+      if (!tagId) {
+        return res.status(400).json({ error: "tagId is required" });
+      }
+      
+      await storage.assignTagToCustomer(req.params.id, tagId, auth.userId);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error assigning tag:", error);
+      res.status(500).json({ error: error.message || "Failed to assign tag" });
+    }
+  });
+  
+  // DELETE /api/crm/customers/:id/tags/:tagId - Remove tag from customer
+  app.delete("/api/crm/customers/:id/tags/:tagId", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      await storage.removeTagFromCustomer(req.params.id, parseInt(req.params.tagId), auth.userId);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error removing tag:", error);
+      res.status(500).json({ error: error.message || "Failed to remove tag" });
+    }
+  });
+  
+  // ============================================================
+  // CRM GROUPS ENDPOINTS
+  // ============================================================
+  
+  // GET /api/crm/groups/:workspaceId - List customer groups
+  app.get("/api/crm/groups/:workspaceId", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { workspaceId } = req.params;
+      if (workspaceId !== auth.userId) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+      
+      const groups = await storage.getCustomerGroups(workspaceId);
+      res.json(groups);
+    } catch (error: any) {
+      console.error("Error listing groups:", error);
+      res.status(500).json({ error: error.message || "Failed to list groups" });
+    }
+  });
+  
+  // POST /api/crm/groups - Create group
+  app.post("/api/crm/groups", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { name, description } = req.body;
+      if (!name) {
+        return res.status(400).json({ error: "name is required" });
+      }
+      
+      const now = Date.now();
+      const group = await storage.createCustomerGroup({
+        workspaceId: auth.userId,
+        name,
+        description: description || null,
+        createdAt: now,
+        updatedAt: now,
+      });
+      
+      res.status(201).json(group);
+    } catch (error: any) {
+      console.error("Error creating group:", error);
+      res.status(500).json({ error: error.message || "Failed to create group" });
+    }
+  });
+  
+  // DELETE /api/crm/groups/:id - Delete group
+  app.delete("/api/crm/groups/:id", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const deleted = await storage.deleteCustomerGroup(parseInt(req.params.id), auth.userId);
+      if (!deleted) {
+        return res.status(404).json({ error: "Group not found" });
+      }
+      
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error deleting group:", error);
+      res.status(500).json({ error: error.message || "Failed to delete group" });
+    }
+  });
+  
+  // ============================================================
+  // CRM SAVED FILTERS ENDPOINTS
+  // ============================================================
+  
+  // GET /api/crm/saved-filters/:workspaceId - List saved filters
+  app.get("/api/crm/saved-filters/:workspaceId", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { workspaceId } = req.params;
+      if (workspaceId !== auth.userId) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+      
+      const filters = await storage.getSavedFilters(workspaceId);
+      res.json(filters);
+    } catch (error: any) {
+      console.error("Error listing saved filters:", error);
+      res.status(500).json({ error: error.message || "Failed to list saved filters" });
+    }
+  });
+  
+  // POST /api/crm/saved-filters - Create saved filter
+  app.post("/api/crm/saved-filters", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { name, description, filterConfig } = req.body;
+      if (!name || !filterConfig) {
+        return res.status(400).json({ error: "name and filterConfig are required" });
+      }
+      
+      const now = Date.now();
+      const filter = await storage.createSavedFilter({
+        workspaceId: auth.userId,
+        name,
+        description: description || null,
+        filterConfig,
+        isDynamic: 1,
+        createdAt: now,
+        updatedAt: now,
+      });
+      
+      res.status(201).json(filter);
+    } catch (error: any) {
+      console.error("Error creating saved filter:", error);
+      res.status(500).json({ error: error.message || "Failed to create saved filter" });
+    }
+  });
+  
+  // DELETE /api/crm/saved-filters/:id - Delete saved filter
+  app.delete("/api/crm/saved-filters/:id", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const deleted = await storage.deleteSavedFilter(parseInt(req.params.id), auth.userId);
+      if (!deleted) {
+        return res.status(404).json({ error: "Filter not found" });
+      }
+      
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error deleting saved filter:", error);
+      res.status(500).json({ error: error.message || "Failed to delete saved filter" });
+    }
+  });
+  
+  // ============================================================
+  // CRM ACTIVITIES ENDPOINTS
+  // ============================================================
+  
+  // GET /api/crm/activities/:workspaceId - List activities
+  app.get("/api/crm/activities/:workspaceId", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { workspaceId } = req.params;
+      if (workspaceId !== auth.userId) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+      
+      const activities = await storage.getActivities(workspaceId);
+      res.json(activities);
+    } catch (error: any) {
+      console.error("Error listing activities:", error);
+      res.status(500).json({ error: error.message || "Failed to list activities" });
+    }
+  });
+  
+  // GET /api/crm/customers/:id/activities - Get customer's activities
+  app.get("/api/crm/customers/:id/activities", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const activities = await storage.getActivitiesForCustomer(req.params.id, auth.userId);
+      res.json(activities);
+    } catch (error: any) {
+      console.error("Error getting customer activities:", error);
+      res.status(500).json({ error: error.message || "Failed to get customer activities" });
+    }
+  });
+  
+  // POST /api/crm/activities - Create activity
+  app.post("/api/crm/activities", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { customerId, leadId, activityType, subject, notes, outcome, durationMinutes } = req.body;
+      if (!activityType) {
+        return res.status(400).json({ error: "activityType is required" });
+      }
+      
+      const now = Date.now();
+      const activity = await storage.createActivity({
+        workspaceId: auth.userId,
+        customerId: customerId || null,
+        leadId: leadId || null,
+        activityType,
+        subject: subject || null,
+        notes: notes || null,
+        outcome: outcome || null,
+        durationMinutes: durationMinutes || null,
+        completedAt: now,
+        createdBy: auth.userId,
+        createdAt: now,
+        updatedAt: now,
+      });
+      
+      res.status(201).json(activity);
+    } catch (error: any) {
+      console.error("Error creating activity:", error);
+      res.status(500).json({ error: error.message || "Failed to create activity" });
+    }
+  });
+  
+  // ============================================================
+  // CRM TASKS ENDPOINTS
+  // ============================================================
+  
+  // GET /api/crm/tasks/:workspaceId - List tasks
+  app.get("/api/crm/tasks/:workspaceId", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { workspaceId } = req.params;
+      if (workspaceId !== auth.userId) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+      
+      const tasks = await storage.getTasks(workspaceId, req.query);
+      res.json(tasks);
+    } catch (error: any) {
+      console.error("Error listing tasks:", error);
+      res.status(500).json({ error: error.message || "Failed to list tasks" });
+    }
+  });
+  
+  // GET /api/crm/tasks/:workspaceId/upcoming - List upcoming tasks
+  app.get("/api/crm/tasks/:workspaceId/upcoming", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { workspaceId } = req.params;
+      if (workspaceId !== auth.userId) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+      
+      const tasks = await storage.getUpcomingTasks(workspaceId);
+      res.json(tasks);
+    } catch (error: any) {
+      console.error("Error listing upcoming tasks:", error);
+      res.status(500).json({ error: error.message || "Failed to list upcoming tasks" });
+    }
+  });
+  
+  // GET /api/crm/tasks/:workspaceId/overdue - List overdue tasks
+  app.get("/api/crm/tasks/:workspaceId/overdue", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { workspaceId } = req.params;
+      if (workspaceId !== auth.userId) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+      
+      const tasks = await storage.getOverdueTasks(workspaceId);
+      res.json(tasks);
+    } catch (error: any) {
+      console.error("Error listing overdue tasks:", error);
+      res.status(500).json({ error: error.message || "Failed to list overdue tasks" });
+    }
+  });
+  
+  // POST /api/crm/tasks - Create task
+  app.post("/api/crm/tasks", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { customerId, leadId, title, description, dueDate, priority } = req.body;
+      if (!title || !dueDate) {
+        return res.status(400).json({ error: "title and dueDate are required" });
+      }
+      
+      const now = Date.now();
+      const task = await storage.createTask({
+        workspaceId: auth.userId,
+        customerId: customerId || null,
+        leadId: leadId || null,
+        title,
+        description: description || null,
+        dueDate,
+        priority: priority || 'normal',
+        status: 'pending',
+        assignedTo: auth.userId,
+        createdBy: auth.userId,
+        createdAt: now,
+        updatedAt: now,
+      });
+      
+      res.status(201).json(task);
+    } catch (error: any) {
+      console.error("Error creating task:", error);
+      res.status(500).json({ error: error.message || "Failed to create task" });
+    }
+  });
+  
+  // PATCH /api/crm/tasks/:id - Update task
+  app.patch("/api/crm/tasks/:id", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const task = await storage.updateTask(parseInt(req.params.id), auth.userId, req.body);
+      if (!task) {
+        return res.status(404).json({ error: "Task not found" });
+      }
+      
+      res.json(task);
+    } catch (error: any) {
+      console.error("Error updating task:", error);
+      res.status(500).json({ error: error.message || "Failed to update task" });
+    }
+  });
+  
+  // POST /api/crm/tasks/:id/complete - Complete task
+  app.post("/api/crm/tasks/:id/complete", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const task = await storage.completeTask(parseInt(req.params.id), auth.userId);
+      if (!task) {
+        return res.status(404).json({ error: "Task not found" });
+      }
+      
+      res.json(task);
+    } catch (error: any) {
+      console.error("Error completing task:", error);
+      res.status(500).json({ error: error.message || "Failed to complete task" });
+    }
+  });
+  
+  // ============================================================
+  // CONTAINER QR TRACKING ENDPOINTS
+  // ============================================================
+  
+  // POST /api/brewcrm/containers/:id/generate-qr - Generate QR code for container
+  app.post("/api/brewcrm/containers/:id/generate-qr", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const container = await storage.generateContainerQRCode(req.params.id, auth.userId);
+      if (!container) {
+        return res.status(404).json({ error: "Container not found" });
+      }
+      
+      res.json(container);
+    } catch (error: any) {
+      console.error("Error generating QR code:", error);
+      res.status(500).json({ error: error.message || "Failed to generate QR code" });
+    }
+  });
+  
+  // GET /api/brewcrm/containers/scan/:qrCode - Scan QR code to get container
+  app.get("/api/brewcrm/containers/scan/:qrCode", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const container = await storage.getContainerByQRCode(req.params.qrCode);
+      if (!container) {
+        return res.status(404).json({ error: "Container not found" });
+      }
+      
+      res.json(container);
+    } catch (error: any) {
+      console.error("Error scanning QR code:", error);
+      res.status(500).json({ error: error.message || "Failed to scan QR code" });
+    }
+  });
+  
+  // POST /api/brewcrm/containers/:id/movements - Log container movement
+  app.post("/api/brewcrm/containers/:id/movements", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { movementType, fromLocation, toLocation, customerId, orderId, batchId, notes } = req.body;
+      if (!movementType) {
+        return res.status(400).json({ error: "movementType is required" });
+      }
+      
+      const now = Date.now();
+      const movement = await storage.logContainerMovement({
+        workspaceId: auth.userId,
+        containerId: req.params.id,
+        movementType,
+        fromLocation: fromLocation || null,
+        toLocation: toLocation || null,
+        customerId: customerId || null,
+        orderId: orderId || null,
+        batchId: batchId || null,
+        notes: notes || null,
+        scannedBy: auth.userId,
+        scannedAt: now,
+        createdAt: now,
+      });
+      
+      res.status(201).json(movement);
+    } catch (error: any) {
+      console.error("Error logging container movement:", error);
+      res.status(500).json({ error: error.message || "Failed to log container movement" });
+    }
+  });
+  
+  // GET /api/brewcrm/containers/:id/movements - Get container movements
+  app.get("/api/brewcrm/containers/:id/movements", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const movements = await storage.getContainerMovements(req.params.id, auth.userId);
+      res.json(movements);
+    } catch (error: any) {
+      console.error("Error getting container movements:", error);
+      res.status(500).json({ error: error.message || "Failed to get container movements" });
+    }
+  });
+  
+  // GET /api/crm/customers/:id/containers - Get containers with customer
+  app.get("/api/crm/customers/:id/containers", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const containers = await storage.getContainersWithCustomer(req.params.id, auth.userId);
+      res.json(containers);
+    } catch (error: any) {
+      console.error("Error getting customer containers:", error);
+      res.status(500).json({ error: error.message || "Failed to get customer containers" });
+    }
+  });
+  
+  // ============================================================
+  // DASHBOARD & REPORTING ENDPOINTS
+  // ============================================================
+  
+  // GET /api/crm/dashboard/kpis/:workspaceId - Get dashboard KPIs
+  app.get("/api/crm/dashboard/kpis/:workspaceId", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { workspaceId } = req.params;
+      if (workspaceId !== auth.userId) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+      
+      const kpis = await storage.getDashboardKPIs(workspaceId);
+      res.json(kpis);
+    } catch (error: any) {
+      console.error("Error getting dashboard KPIs:", error);
+
+      // Check if tables don't exist (graceful degradation for demo/new users)
+      if (error.message?.includes('relation "crm_customers" does not exist') ||
+          error.message?.includes('relation "crm_orders" does not exist') ||
+          error.message?.includes('fetch failed')) {
+        return res.status(503).json({
+          error: "Dashboard KPIs not available",
+          message: "Customer and order data has not been imported yet. Connect to Xero to enable dashboard analytics.",
+          available: false,
+          kpis: {
+            totalCustomers: 0,
+            totalRevenue: 0,
+            totalOrders: 0,
+            averageOrderValue: 0
+          }
+        });
+      }
+
+      res.status(500).json({ error: error.message || "Failed to get dashboard KPIs" });
+    }
+  });
+  
+  // GET /api/crm/dashboard/revenue-by-month/:workspaceId - Get revenue by month
+  app.get("/api/crm/dashboard/revenue-by-month/:workspaceId", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { workspaceId } = req.params;
+      if (workspaceId !== auth.userId) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+      
+      const months = req.query.months ? parseInt(req.query.months as string) : 12;
+      const data = await storage.getRevenueByMonth(workspaceId, months);
+      res.json(data);
+    } catch (error: any) {
+      console.error("Error getting revenue by month:", error);
+
+      // Check if tables don't exist (graceful degradation for demo/new users)
+      if (error.message?.includes('relation "crm_orders" does not exist') ||
+          error.message?.includes('fetch failed')) {
+        return res.status(503).json({
+          error: "Revenue analytics not available",
+          message: "Order data has not been imported yet. Connect to Xero to enable revenue analytics.",
+          available: false,
+          data: []
+        });
+      }
+
+      res.status(500).json({ error: error.message || "Failed to get revenue by month" });
+    }
+  });
+  
+  // GET /api/crm/dashboard/top-customers/:workspaceId - Get top customers
+  app.get("/api/crm/dashboard/top-customers/:workspaceId", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { workspaceId } = req.params;
+      if (workspaceId !== auth.userId) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+      
+      const limit = req.query.limit ? parseInt(req.query.limit as string) : 10;
+      const customers = await storage.getTopCustomersByRevenue(workspaceId, limit);
+      res.json(customers);
+    } catch (error: any) {
+      console.error("Error getting top customers:", error);
+
+      // Check if tables don't exist (graceful degradation for demo/new users)
+      if (error.message?.includes('relation "crm_customers" does not exist') ||
+          error.message?.includes('relation "crm_orders" does not exist') ||
+          error.message?.includes('fetch failed')) {
+        return res.status(503).json({
+          error: "Customer analytics not available",
+          message: "Customer and order data has not been imported yet. Connect to Xero to enable customer analytics.",
+          available: false,
+          customers: []
+        });
+      }
+
+      res.status(500).json({ error: error.message || "Failed to get top customers" });
+    }
+  });
+
+  // GET /api/crm/dashboard/top-products/:workspaceId - Get top products
+  app.get("/api/crm/dashboard/top-products/:workspaceId", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { workspaceId } = req.params;
+      if (workspaceId !== auth.userId) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+      
+      const limit = req.query.limit ? parseInt(req.query.limit as string) : 10;
+      const products = await storage.getTopProductsBySales(workspaceId, limit);
+      res.json(products);
+    } catch (error: any) {
+      console.error("Error getting top products:", error);
+
+      // Check if tables don't exist (graceful degradation for demo/new users)
+      if (error.message?.includes('relation "crm_order_lines" does not exist') ||
+          error.message?.includes('relation "brew_products" does not exist') ||
+          error.message?.includes('fetch failed')) {
+        return res.status(503).json({
+          error: "Product analytics not available",
+          message: "Product and order data has not been imported yet. Connect to Xero to enable product analytics.",
+          available: false,
+          products: []
+        });
+      }
+
+      res.status(500).json({ error: error.message || "Failed to get top products" });
+    }
+  });
+  
   // ============================================================
   // AGENT ACTION ENDPOINTS (Natural Language Wrappers)
   // ============================================================
@@ -8962,7 +11810,7 @@ ${run.outputText}`;
       const workspaceId = auth.userId;
       
       const now = Date.now();
-      const product = await storage.createBrewProduct({
+      const product = await storage.createCrmProduct({
         id: `product_${Date.now()}_${Math.random().toString(36).substring(7)}`,
         workspaceId,
         sku: sku || `SKU-${Date.now()}`,
@@ -9009,7 +11857,7 @@ ${run.outputText}`;
       
       let finalProductId = productId;
       if (!finalProductId && productName) {
-        const products = await storage.listBrewProducts(workspaceId);
+        const products = await storage.listCrmProducts(workspaceId);
         const matchedProduct = products.find(p => p.name.toLowerCase().includes(productName.toLowerCase()));
         if (matchedProduct) {
           finalProductId = matchedProduct.id;
@@ -9021,7 +11869,7 @@ ${run.outputText}`;
       }
       
       // SECURITY: Verify productId belongs to authenticated user's workspace
-      const product = await storage.getBrewProduct(finalProductId);
+      const product = await storage.getCrmProduct(finalProductId);
       if (!product || product.workspaceId !== auth.userId) {
         return res.status(403).json({ error: "Forbidden: Product does not belong to your workspace" });
       }
@@ -9073,7 +11921,7 @@ ${run.outputText}`;
       
       let finalProductId = productId;
       if (!finalProductId && productName) {
-        const products = await storage.listBrewProducts(workspaceId);
+        const products = await storage.listCrmProducts(workspaceId);
         const matchedProduct = products.find(p => p.name.toLowerCase().includes(productName.toLowerCase()));
         if (matchedProduct) {
           finalProductId = matchedProduct.id;
@@ -9085,7 +11933,7 @@ ${run.outputText}`;
       }
       
       // SECURITY: Verify productId belongs to authenticated user's workspace
-      const product = await storage.getBrewProduct(finalProductId);
+      const product = await storage.getCrmProduct(finalProductId);
       if (!product || product.workspaceId !== auth.userId) {
         return res.status(403).json({ error: "Forbidden: Product does not belong to your workspace" });
       }
@@ -9153,7 +12001,7 @@ ${run.outputText}`;
       }
       
       if (!type || type === 'products') {
-        const allProducts = await storage.listBrewProducts(workspaceId);
+        const allProducts = await storage.listCrmProducts(workspaceId);
         results.products = allProducts.filter(p => 
           p.name.toLowerCase().includes(query.toLowerCase()) ||
           (p.sku && p.sku.toLowerCase().includes(query.toLowerCase()))
@@ -9257,6 +12105,430 @@ ${run.outputText}`;
     } catch (error: any) {
       console.error("Error processing Tower alert:", error);
       res.status(500).json({ error: error.message || "Failed to process alert" });
+    }
+  });
+
+  // ===========================
+  // UI-18: Tower proxy endpoints for "What just happened?" viewer
+  // ===========================
+  
+  const TOWER_URL = process.env.TOWER_URL || '';
+  const TOWER_API_KEY = process.env.TOWER_API_KEY || process.env.EXPORT_KEY || '';
+
+  /**
+   * GET /api/tower/runs
+   * Proxy to Tower's /tower/runs endpoint for fetching recent runs
+   */
+  app.get("/api/tower/runs", async (req, res) => {
+    if (!TOWER_URL) {
+      return res.status(503).json({ error: "Tower not configured" });
+    }
+
+    try {
+      const limit = req.query.limit || '10';
+      const conversationId = req.query.conversationId as string | undefined;
+      
+      let url = `${TOWER_URL}/tower/runs?limit=${limit}`;
+      
+      // Note: Tower may not support conversationId filtering directly
+      // If needed, we filter client-side
+      
+      console.log(`📡 [TowerProxy] Fetching runs from ${url}`);
+      
+      const response = await fetch(url, {
+        headers: {
+          'Authorization': `Bearer ${TOWER_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`❌ [TowerProxy] Tower returned ${response.status}: ${errorText}`);
+        return res.status(response.status).json({ error: `Tower error: ${response.status}` });
+      }
+
+      let runs = await response.json();
+      
+      // Filter by conversationId if provided (client-side filtering)
+      if (conversationId && Array.isArray(runs)) {
+        runs = runs.filter((run: any) => 
+          run.meta?.conversationId === conversationId
+        );
+      }
+
+      res.json(runs);
+    } catch (error: any) {
+      console.error("❌ [TowerProxy] Error fetching runs:", error.message);
+      res.status(503).json({ error: "Failed to connect to Tower" });
+    }
+  });
+
+  /**
+   * GET /api/tower/runs/live
+   * Proxy to Tower's /tower/runs/live endpoint for live_user runs only
+   */
+  app.get("/api/tower/runs/live", async (req, res) => {
+    if (!TOWER_URL) {
+      return res.status(503).json({ error: "Tower not configured" });
+    }
+
+    try {
+      const limit = req.query.limit || '10';
+      const url = `${TOWER_URL}/tower/runs/live?limit=${limit}`;
+      
+      console.log(`📡 [TowerProxy] Fetching live runs from ${url}`);
+      
+      const response = await fetch(url, {
+        headers: {
+          'Authorization': `Bearer ${TOWER_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`❌ [TowerProxy] Tower returned ${response.status}: ${errorText}`);
+        return res.status(response.status).json({ error: `Tower error: ${response.status}` });
+      }
+
+      const runs = await response.json();
+      res.json(runs);
+    } catch (error: any) {
+      console.error("❌ [TowerProxy] Error fetching live runs:", error.message);
+      res.status(503).json({ error: "Failed to connect to Tower" });
+    }
+  });
+
+  /**
+   * GET /api/tower/dashboard
+   * Redirect to Tower dashboard (for "Open in Tower" links)
+   */
+  app.get("/api/tower/dashboard", (req, res) => {
+    if (!TOWER_URL) {
+      return res.status(503).json({ error: "Tower not configured" });
+    }
+
+    const runId = req.query.runId as string | undefined;
+    
+    // Redirect to Tower's dashboard
+    // Tower dashboard is typically at /dashboard
+    const dashboardUrl = runId 
+      ? `${TOWER_URL}/dashboard?runId=${encodeURIComponent(runId)}`
+      : `${TOWER_URL}/dashboard`;
+    
+    res.redirect(dashboardUrl);
+  });
+
+  /**
+   * GET /api/workflow/ledger
+   * Serve the canonical workflow ledger
+   */
+  app.get("/api/workflow/ledger", async (req, res) => {
+    try {
+      const fs = await import('fs');
+      const path = await import('path');
+
+      // Ledger is in parent directory: GitHub/thoughts/ledgers/WORKFLOW-wyshbone.md
+      const ledgerPath = path.join(process.cwd(), '..', 'thoughts', 'ledgers', 'WORKFLOW-wyshbone.md');
+
+      // Check if file exists
+      if (!fs.existsSync(ledgerPath)) {
+        return res.status(404).json({ error: 'Workflow ledger not found' });
+      }
+
+      // Read and return the ledger as text
+      const ledgerContent = fs.readFileSync(ledgerPath, 'utf-8');
+      res.setHeader('Content-Type', 'text/markdown');
+      res.send(ledgerContent);
+    } catch (error: any) {
+      console.error("❌ Error reading workflow ledger:", error.message);
+      res.status(500).json({ error: "Failed to read workflow ledger", details: error.message });
+    }
+  });
+
+  /**
+   * POST /api/workflow/continue
+   * DEV-ONLY: Find next incomplete microtask in phase or epic
+   * Body: { scope: "phase" | "epic", id: "1" | "1.1" }
+   * Response: { phaseId, epicId, taskId, taskDescription, microtaskIndex, microtaskText }
+   */
+  app.post("/api/workflow/continue", async (req, res) => {
+    try {
+      const fs = await import('fs');
+      const path = await import('path');
+
+      const { scope, id } = req.body;
+
+      if (!scope || !id) {
+        return res.status(400).json({ error: 'Missing scope or id in request body' });
+      }
+
+      if (scope !== 'phase' && scope !== 'epic') {
+        return res.status(400).json({ error: 'Scope must be "phase" or "epic"' });
+      }
+
+      const ledgerPath = path.join(process.cwd(), '..', 'thoughts', 'ledgers', 'WORKFLOW-wyshbone.md');
+      if (!fs.existsSync(ledgerPath)) {
+        return res.status(404).json({ error: 'Workflow ledger not found' });
+      }
+
+      const ledgerContent = fs.readFileSync(ledgerPath, 'utf-8').replace(/\r\n/g, '\n');  // Normalize Windows line endings
+      const lines = ledgerContent.split('\n');
+
+      let currentPhase: string | null = null;
+      let currentPhaseId: string | null = null;
+      let currentEpic: string | null = null;
+      let currentEpicId: string | null = null;
+      let currentTask: string | null = null;
+      let currentTaskId: string | null = null;
+      let currentTaskDescription: string | null = null;
+      let inMicrotasks = false;
+      let microtaskIndex = 0;
+
+      let inTargetScope = false;
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+
+        // Phase header (## Phase X:)
+        if (line.match(/^## Phase (\d+):/)) {
+          const match = line.match(/^## Phase (\d+): (.+)$/);
+          if (match) {
+            currentPhaseId = match[1];
+            currentPhase = match[2];
+            currentEpic = null;
+            currentEpicId = null;
+            currentTask = null;
+            currentTaskId = null;
+            currentTaskDescription = null;
+            inMicrotasks = false;
+
+            // When searching by phase, set scope for the whole phase
+            if (scope === 'phase') {
+              inTargetScope = currentPhaseId === id;
+            }
+            // When searching by epic, we're now out of any previous epic
+            else if (scope === 'epic') {
+              inTargetScope = false;
+            }
+          }
+        }
+
+        // Epic header (### Epic X.Y:)
+        else if (line.match(/^### Epic (\d+\.\d+):/)) {
+          const match = line.match(/^### Epic (\d+\.\d+): (.+)$/);
+          if (match) {
+            currentEpicId = match[1];
+            currentEpic = match[2];
+            currentTask = null;
+            currentTaskId = null;
+            currentTaskDescription = null;
+            inMicrotasks = false;
+
+            // When searching by epic, only set scope for the target epic
+            if (scope === 'epic') {
+              inTargetScope = currentEpicId === id;
+            }
+            // When searching by phase, stay in scope (don't change it)
+          }
+        }
+
+        // Task (- [ ] Task X:)
+        else if (line.match(/^- \[([ →x!])\] Task (\d+): (.+)$/)) {
+          const match = line.match(/^- \[([ →x!])\] Task (\d+): (.+)$/);
+          if (match) {
+            const status = match[1];
+            currentTaskId = match[2];
+            currentTaskDescription = match[3];
+            inMicrotasks = false;
+            microtaskIndex = 0;
+
+            // Skip completed or blocked tasks
+            if (status === 'x' || status === '!') {
+              currentTask = null;
+              currentTaskId = null;
+              currentTaskDescription = null;
+            } else {
+              currentTask = `${currentTaskId}: ${currentTaskDescription}`;
+            }
+          }
+        }
+
+        // Microtasks header
+        else if (line.match(/^\s+- Microtasks:/)) {
+          inMicrotasks = true;
+          microtaskIndex = 0;
+        }
+
+        // Individual microtask (4+ spaces, checkbox)
+        else if (line.match(/^\s{4,}- \[([ x])\] (.+)$/)) {
+          if (inTargetScope && inMicrotasks && currentTask) {
+            const match = line.match(/^\s{4,}- \[([ x])\] (.+)$/);
+            if (match) {
+              const completed = match[1] === 'x';
+              const microtaskText = match[2];
+
+              console.log(`[DEBUG] Found microtask: "${microtaskText}", completed=${completed}, inTargetScope=${inTargetScope}, currentEpicId=${currentEpicId}, currentTaskId=${currentTaskId}`);
+
+              // Found incomplete microtask!
+              if (!completed) {
+                return res.json({
+                  phaseId: currentPhaseId,
+                  phaseName: currentPhase,
+                  epicId: currentEpicId,
+                  epicName: currentEpic,
+                  taskId: currentTaskId,
+                  taskDescription: currentTaskDescription,
+                  microtaskIndex,
+                  microtaskText,
+                  textBlock: `Phase ${currentPhaseId}: ${currentPhase}\nEpic ${currentEpicId}: ${currentEpic}\n\nTask ${currentTaskId}: ${currentTaskDescription}\n\nMicrotask ${microtaskIndex + 1}: ${microtaskText}`
+                });
+              }
+
+              microtaskIndex++;
+            }
+          }
+        }
+      }
+
+      // No incomplete microtask found
+      return res.status(404).json({
+        error: 'No incomplete microtasks found in the specified scope',
+        scope,
+        id
+      });
+
+    } catch (error: any) {
+      console.error("❌ Error in /api/workflow/continue:", error.message);
+      res.status(500).json({ error: "Failed to process continue request", details: error.message });
+    }
+  });
+
+  /**
+   * POST /api/workflow/mark
+   * DEV-ONLY: Mark a microtask as done/in-progress/blocked and update ledger
+   * Body: { epicId: "1.1", taskId: "1", microtaskIndex: 0, status: "done" | "in-progress" | "blocked", evidence?: string }
+   */
+  app.post("/api/workflow/mark", async (req, res) => {
+    try {
+      const fs = await import('fs');
+      const path = await import('path');
+
+      const { epicId, taskId, microtaskIndex, status, evidence } = req.body;
+
+      if (!epicId || !taskId || microtaskIndex === undefined || !status) {
+        return res.status(400).json({ error: 'Missing required fields: epicId, taskId, microtaskIndex, status' });
+      }
+
+      if (!['done', 'in-progress', 'blocked'].includes(status)) {
+        return res.status(400).json({ error: 'Status must be "done", "in-progress", or "blocked"' });
+      }
+
+      const ledgerPath = path.join(process.cwd(), '..', 'thoughts', 'ledgers', 'WORKFLOW-wyshbone.md');
+      if (!fs.existsSync(ledgerPath)) {
+        return res.status(404).json({ error: 'Workflow ledger not found' });
+      }
+
+      let ledgerContent = fs.readFileSync(ledgerPath, 'utf-8').replace(/\r\n/g, '\n');  // Normalize Windows line endings
+      const lines = ledgerContent.split('\n');
+
+      let currentEpicId: string | null = null;
+      let currentTaskId: string | null = null;
+      let inMicrotasks = false;
+      let currentMicrotaskIndex = 0;
+      let updated = false;
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+
+        // Epic header
+        if (line.match(/^### Epic (\d+\.\d+):/)) {
+          const match = line.match(/^### Epic (\d+\.\d+):/);
+          if (match) {
+            currentEpicId = match[1];
+            inMicrotasks = false;
+            currentMicrotaskIndex = 0;
+          }
+        }
+
+        // Task
+        else if (line.match(/^- \[([ →x!])\] Task (\d+):/)) {
+          const match = line.match(/^- \[([ →x!])\] Task (\d+):/);
+          if (match) {
+            currentTaskId = match[2];
+            inMicrotasks = false;
+            currentMicrotaskIndex = 0;
+          }
+        }
+
+        // Microtasks header
+        else if (line.match(/^\s+- Microtasks:/)) {
+          inMicrotasks = true;
+          currentMicrotaskIndex = 0;
+        }
+
+        // Individual microtask
+        else if (inMicrotasks && line.match(/^\s{4,}- \[([ x])\] (.+)$/)) {
+          if (currentEpicId === epicId && currentTaskId === taskId && currentMicrotaskIndex === microtaskIndex) {
+            // Update this microtask
+            const checkbox = status === 'done' ? 'x' : ' ';
+            const microtaskText = line.replace(/^\s{4,}- \[[ x]\] /, '');
+            const indent = line.match(/^(\s{4,})/)?.[1] || '    ';
+            lines[i] = `${indent}- [${checkbox}] ${microtaskText}`;
+            updated = true;
+
+            // If evidence is provided, update the Evidence field of the parent task
+            if (evidence) {
+              // Find the Evidence line for the current task
+              for (let j = i - 1; j >= 0; j--) {
+                if (lines[j].match(/^- \[/)) {
+                  // Found the task line, now find Evidence
+                  for (let k = j + 1; k < i; k++) {
+                    if (lines[k].match(/^\s+- Evidence:/)) {
+                      lines[k] = `  - Evidence: ${evidence}`;
+                      break;
+                    }
+                  }
+                  break;
+                }
+              }
+            }
+
+            break;
+          }
+
+          currentMicrotaskIndex++;
+        }
+      }
+
+      if (!updated) {
+        return res.status(404).json({
+          error: 'Microtask not found',
+          epicId,
+          taskId,
+          microtaskIndex
+        });
+      }
+
+      // Write back to file
+      const updatedContent = lines.join('\n');
+      fs.writeFileSync(ledgerPath, updatedContent, 'utf-8');
+
+      console.log(`✅ Updated microtask: Epic ${epicId}, Task ${taskId}, Microtask ${microtaskIndex} -> ${status}`);
+
+      return res.json({
+        success: true,
+        epicId,
+        taskId,
+        microtaskIndex,
+        status,
+        evidence: evidence || null
+      });
+
+    } catch (error: any) {
+      console.error("❌ Error in /api/workflow/mark:", error.message);
+      res.status(500).json({ error: "Failed to update workflow ledger", details: error.message });
     }
   });
 

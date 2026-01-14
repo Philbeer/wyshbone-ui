@@ -32,29 +32,29 @@ export default defineConfig({
     emptyOutDir: true,
   },
   server: {
+    port: 5177,
     fs: {
       strict: true,
       deny: ["**/.*"],
     },
-    // Proxy API requests to backend server in development
     proxy: {
-      '/api': {
-        target: 'http://localhost:5000',
+      "/api": {
+        target: "http://localhost:5001",
         changeOrigin: true,
         secure: false,
       },
-      '/agent': {
-        target: 'http://localhost:5000',
+      "/agent": {
+        target: "http://localhost:5001",
         changeOrigin: true,
         secure: false,
       },
-      '/export': {
-        target: 'http://localhost:5000',
+      "/export": {
+        target: "http://localhost:5001",
         changeOrigin: true,
         secure: false,
       },
-      '/health': {
-        target: 'http://localhost:5000',
+      "/health": {
+        target: "http://localhost:5001",
         changeOrigin: true,
         secure: false,
       },

@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, ReactNode } from 'react';
+import { publishEvent } from "@/lib/events";
 
 export type SidebarSection = 'emailFinder' | 'scheduledMonitors' | 'deepResearch';
 
@@ -20,6 +21,9 @@ export function SidebarFlashProvider({ children }: { children: ReactNode }) {
       next.set(section, Date.now());
       return next;
     });
+
+    // Publish event for sidebar flash
+    publishEvent("SIDEBAR_FLASH", { section });
   };
 
   return (

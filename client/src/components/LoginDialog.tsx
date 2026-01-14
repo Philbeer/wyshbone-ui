@@ -53,10 +53,20 @@ export function LoginDialog() {
     }
   };
 
+  // Clear fields when dialog opens
+  const handleOpenChange = (newOpen: boolean) => {
+    setOpen(newOpen);
+    if (newOpen) {
+      // Clear form fields when opening the dialog
+      setEmail("");
+      setName("");
+    }
+  };
+
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <Button 
-        variant="ghost" 
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <Button
+        variant="ghost"
         size="sm"
         className="gap-1.5 sidebar:gap-2"
         data-testid="button-user-menu"
@@ -81,6 +91,9 @@ export function LoginDialog() {
               <div className="flex-1 min-w-0">
                 <div className="font-medium text-sm">{user.name}</div>
                 <div className="text-xs text-muted-foreground truncate">{user.email}</div>
+                <div className="text-xs text-muted-foreground/70 font-mono mt-1">
+                  ID: {user.id}
+                </div>
               </div>
             </div>
           </div>
@@ -96,10 +109,11 @@ export function LoginDialog() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && handleLogin()}
+                  autoComplete="off"
                   data-testid="input-email"
                 />
               </div>
-              
+
               <div className="space-y-2">
                 <Label htmlFor="name">Name (Optional)</Label>
                 <Input
@@ -109,6 +123,7 @@ export function LoginDialog() {
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && handleLogin()}
+                  autoComplete="off"
                   data-testid="input-name"
                 />
               </div>

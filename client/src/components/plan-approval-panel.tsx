@@ -87,25 +87,83 @@ export function PlanApprovalPanel() {
   }
 
   const handleApprove = async () => {
-    console.log(`[PLAN_DEBUG] PlanApprovalPanel: handleApprove called for plan ${plan.id}`);
+    console.log(`\n========================================`);
+    console.log(`🚀 [APPROVE] Approve Plan clicked for plan ${plan.id}`);
+    console.log(`   Goal: ${plan.goal}`);
+    console.log(`   Steps: ${plan.steps.map(s => s.type).join(' → ')}`);
+    console.log(`========================================\n`);
+    
     try {
-      await approvePlan(plan.id);
-      console.log(`[PLAN_DEBUG] PlanApprovalPanel: plan ${plan.id} approved successfully, starting execution`);
+      console.log(`[APPROVE] Calling POST /api/plan/approve...`);
+      const result = await approvePlan(plan.id);
+      console.log(`[APPROVE] Backend response:`, result);
       
-      // Notify ExecutionController to start tracking this plan
-      startExecution(plan.id);
+      // Check if result indicates success (ok OR success field)
+      const isSuccess = result?.success || result?.data?.ok || result?.data?.success;
+      console.log(`[APPROVE] isSuccess=${isSuccess}, result.success=${result?.success}`);
       
-      toast({
-        title: "Plan Approved",
-        description: "Wyshbone will now execute your plan.",
-      });
-    } catch (error) {
-      console.error(`[PLAN_DEBUG] PlanApprovalPanel: failed to approve plan ${plan.id}:`, error);
-      toast({
-        title: "Approval Failed",
-        description: "Failed to approve plan. Please try again.",
-        variant: "destructive",
-      });
+      if (isSuccess) {
+        console.log(`✅ [APPROVE] Plan ${plan.id} approved - execution started on backend`);
+        
+        // Notify ExecutionController to start polling for status
+        console.log(`[APPROVE] Starting status polling for plan ${plan.id}...`);
+        startExecution(plan.id);
+        
+        toast({
+          title: "Plan Approved",
+          description: "Wyshbone is now executing your plan. Check progress below.",
+        });
+      } else {
+        // Response came back but wasn't successful - still don't show "Approval Failed"
+        // because execution failures should be handled via status polling
+        console.warn(`[APPROVE] Response received but success flag not found. Starting polling anyway.`);
+        startExecution(plan.id);
+        
+        toast({
+          title: "Plan Submitted",
+          description: "Checking execution status...",
+        });
+      }
+    } catch (error: any) {
+      console.error(`❌ [APPROVE] Failed to approve plan ${plan.id}:`, error);
+      console.error(`   Error message: ${error?.message}`);
+      console.error(`   Error stack:`, error?.stack);
+      
+      // Only show failure toast for actual network/auth errors
+      // NOT for execution errors (those are handled via status polling)
+      const errorMessage = error?.message || String(error);
+      const isNetworkError = errorMessage.includes('fetch') || errorMessage.includes('network');
+      const isAuthError = errorMessage.includes('401') || errorMessage.includes('Unauthorized');
+      const is404Error = errorMessage.includes('404') || errorMessage.includes('not found');
+      
+      if (isAuthError) {
+        toast({
+          title: "Authentication Required",
+          description: "Please log in to approve plans.",
+          variant: "destructive",
+        });
+      } else if (is404Error) {
+        toast({
+          title: "Plan Not Found",
+          description: "This plan may have been deleted or already processed.",
+          variant: "destructive",
+        });
+      } else if (isNetworkError) {
+        toast({
+          title: "Connection Error",
+          description: "Could not connect to the server. Please try again.",
+          variant: "destructive",
+        });
+      } else {
+        // For any other error, still try to start polling in case execution already started
+        console.warn(`[APPROVE] Error occurred but starting polling anyway in case execution started`);
+        startExecution(plan.id);
+        
+        toast({
+          title: "Approval Submitted",
+          description: "Checking execution status...",
+        });
+      }
     }
   };
 

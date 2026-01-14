@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { useSearch } from "wouter";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useUser } from "@/contexts/UserContext";
 import { useToast } from "@/hooks/use-toast";
@@ -14,22 +15,79 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertCrmCustomerSchema } from "@shared/schema";
 import { z } from "zod";
-import { Plus, Pencil, Trash2 } from "lucide-react";
+import { Plus, Pencil, Trash2, ShoppingCart, FileText, ExternalLink, Mail, Phone, MapPin } from "lucide-react";
+import { useLocation } from "wouter";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Separator } from "@/components/ui/separator";
+import { Link } from "wouter";
+import type { SelectCrmOrder } from "@shared/schema";
 
 const formSchema = insertCrmCustomerSchema.omit({ id: true, workspaceId: true, createdAt: true, updatedAt: true });
 
+function formatCurrency(pence: number): string {
+  return `£${(pence / 100).toFixed(2)}`;
+}
+
+function getStatusBadgeVariant(status: string): "secondary" | "default" | "outline" | "destructive" {
+  switch (status) {
+    case "draft": return "secondary";
+    case "confirmed": return "default";
+    case "invoiced": return "outline";
+    case "paid": return "default";
+    case "dispatched": return "outline";
+    case "delivered": return "default";
+    case "cancelled": return "destructive";
+    default: return "secondary";
+  }
+}
+
 export default function CrmCustomers() {
   const { user } = useUser();
-  const workspaceId = user.id;
+  const workspaceId = user?.id;
   const { toast } = useToast();
+  const [, setLocation] = useLocation();
+  const searchString = useSearch();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState<any>(null);
   const [deletingCustomerId, setDeletingCustomerId] = useState<string | null>(null);
+  const [viewingCustomer, setViewingCustomer] = useState<any>(null);
 
   const { data: customers, isLoading } = useQuery({
     queryKey: ['/api/crm/customers', workspaceId],
     enabled: !!workspaceId,
+  });
+
+  // Handle URL parameter for editing a specific customer (only on initial load)
+  const [hasHandledEditId, setHasHandledEditId] = useState(false);
+  useEffect(() => {
+    if (hasHandledEditId) return;
+    
+    const params = new URLSearchParams(searchString);
+    const editId = params.get('editId');
+    if (editId && customers && customers.length > 0) {
+      const customerToEdit = customers.find((c: any) => c.id === editId);
+      if (customerToEdit) {
+        setHasHandledEditId(true);
+        // Use setTimeout to avoid state update conflicts
+        setTimeout(() => {
+          handleEdit(customerToEdit);
+          setLocation('/customers', { replace: true });
+        }, 0);
+      }
+    }
+  }, [searchString, customers, hasHandledEditId]);
+
+  // Fetch orders for the customer being viewed
+  const { data: customerOrders = [], isLoading: ordersLoading } = useQuery<SelectCrmOrder[]>({
+    queryKey: ['/api/crm/orders/customer', viewingCustomer?.id],
+    queryFn: async () => {
+      const response = await apiRequest('GET', `/api/crm/orders/customer/${viewingCustomer.id}`);
+      return response.json();
+    },
+    enabled: !!viewingCustomer?.id,
   });
 
   const form = useForm<z.infer<typeof formSchema>>({
@@ -87,6 +145,16 @@ export default function CrmCustomers() {
     },
   });
 
+  // Early return if user not loaded yet (after all hooks)
+  if (!user) {
+    return (
+      <div className="p-6">
+        <Skeleton className="h-8 w-48 mb-4" />
+        <Skeleton className="h-64 w-full" />
+      </div>
+    );
+  }
+
   const handleEdit = (customer: any) => {
     setEditingCustomer(customer);
     form.reset({
@@ -106,8 +174,23 @@ export default function CrmCustomers() {
 
   const handleAddNew = () => {
     setEditingCustomer(null);
-    form.reset();
+    form.reset({
+      name: "",
+      primaryContactName: "",
+      email: "",
+      phone: "",
+      addressLine1: "",
+      addressLine2: "",
+      city: "",
+      postcode: "",
+      country: "United Kingdom",
+      notes: "",
+    });
     setIsDialogOpen(true);
+  };
+
+  const handleViewOrders = (customerId: string) => {
+    setLocation(`/orders?customerId=${customerId}`);
   };
 
   const onSubmit = (data: z.infer<typeof formSchema>) => {
@@ -159,7 +242,17 @@ export default function CrmCustomers() {
                 </TableRow>
               ) : (
                 customers?.map((customer: any) => (
-                  <TableRow key={customer.id} data-testid={`row-customer-${customer.id}`}>
+                  <TableRow 
+                    key={customer.id} 
+                    data-testid={`row-customer-${customer.id}`}
+                    className="cursor-pointer hover:bg-muted/50 select-none"
+                    onClick={(e) => {
+                      // Only handle if not clicking on a button or interactive element
+                      const target = e.target as HTMLElement;
+                      if (target.closest('button')) return;
+                      handleEdit(customer);
+                    }}
+                  >
                     <TableCell className="font-medium">{customer.name}</TableCell>
                     <TableCell>{customer.primaryContactName || "-"}</TableCell>
                     <TableCell>{customer.email || "-"}</TableCell>
@@ -168,18 +261,44 @@ export default function CrmCustomers() {
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-2">
                         <Button
+                          type="button"
                           variant="ghost"
                           size="icon"
-                          onClick={() => handleEdit(customer)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            handleViewOrders(customer.id);
+                          }}
+                          data-testid={`button-orders-customer-${customer.id}`}
+                          title="View orders"
+                        >
+                          <ShoppingCart className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            handleEdit(customer);
+                          }}
                           data-testid={`button-edit-customer-${customer.id}`}
+                          title="Edit"
                         >
                           <Pencil className="w-4 h-4" />
                         </Button>
                         <Button
+                          type="button"
                           variant="ghost"
                           size="icon"
-                          onClick={() => setDeletingCustomerId(customer.id)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            setDeletingCustomerId(customer.id);
+                          }}
                           data-testid={`button-delete-customer-${customer.id}`}
+                          title="Delete"
                         >
                           <Trash2 className="w-4 h-4" />
                         </Button>
@@ -346,13 +465,30 @@ export default function CrmCustomers() {
                 )}
               />
 
-              <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)} data-testid="button-cancel">
-                  Cancel
-                </Button>
-                <Button type="submit" disabled={createMutation.isPending || updateMutation.isPending} data-testid="button-submit">
-                  {createMutation.isPending || updateMutation.isPending ? "Saving..." : editingCustomer ? "Update" : "Create"}
-                </Button>
+              <DialogFooter className="flex flex-row items-center gap-2 sm:justify-between">
+                {editingCustomer ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      setIsDialogOpen(false);
+                      handleViewOrders(editingCustomer.id);
+                    }}
+                  >
+                    <ShoppingCart className="w-4 h-4 mr-2" />
+                    View Orders
+                  </Button>
+                ) : (
+                  <div /> 
+                )}
+                <div className="flex gap-2">
+                  <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)} data-testid="button-cancel">
+                    Cancel
+                  </Button>
+                  <Button type="submit" disabled={createMutation.isPending || updateMutation.isPending} data-testid="button-submit">
+                    {createMutation.isPending || updateMutation.isPending ? "Saving..." : editingCustomer ? "Update" : "Create"}
+                  </Button>
+                </div>
               </DialogFooter>
             </form>
           </Form>
@@ -378,6 +514,214 @@ export default function CrmCustomers() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Customer Detail Dialog */}
+      <Dialog open={!!viewingCustomer} onOpenChange={(open) => !open && setViewingCustomer(null)}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileText className="w-5 h-5" />
+              {viewingCustomer?.name}
+            </DialogTitle>
+          </DialogHeader>
+
+          {viewingCustomer && (
+            <Tabs defaultValue="orders" className="w-full">
+              <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="details">Customer Details</TabsTrigger>
+                <TabsTrigger value="orders">
+                  Orders ({customerOrders.length})
+                </TabsTrigger>
+              </TabsList>
+
+              {/* Customer Details Tab */}
+              <TabsContent value="details" className="space-y-4">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg">Contact Information</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {viewingCustomer.primaryContactName && (
+                      <div className="flex items-center gap-2 text-sm">
+                        <span className="text-muted-foreground w-24">Contact:</span>
+                        <span>{viewingCustomer.primaryContactName}</span>
+                      </div>
+                    )}
+                    {viewingCustomer.email && (
+                      <div className="flex items-center gap-2 text-sm">
+                        <Mail className="w-4 h-4 text-muted-foreground" />
+                        <a href={`mailto:${viewingCustomer.email}`} className="text-primary hover:underline">
+                          {viewingCustomer.email}
+                        </a>
+                      </div>
+                    )}
+                    {viewingCustomer.phone && (
+                      <div className="flex items-center gap-2 text-sm">
+                        <Phone className="w-4 h-4 text-muted-foreground" />
+                        <a href={`tel:${viewingCustomer.phone}`} className="hover:underline">
+                          {viewingCustomer.phone}
+                        </a>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {(viewingCustomer.addressLine1 || viewingCustomer.city) && (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-lg flex items-center gap-2">
+                        <MapPin className="w-4 h-4" />
+                        Address
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-sm space-y-1">
+                        {viewingCustomer.addressLine1 && <div>{viewingCustomer.addressLine1}</div>}
+                        {viewingCustomer.addressLine2 && <div>{viewingCustomer.addressLine2}</div>}
+                        <div>
+                          {[viewingCustomer.city, viewingCustomer.postcode].filter(Boolean).join(", ")}
+                        </div>
+                        {viewingCustomer.country && <div>{viewingCustomer.country}</div>}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {viewingCustomer.notes && (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-lg">Notes</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-sm text-muted-foreground whitespace-pre-wrap">
+                        {viewingCustomer.notes}
+                      </p>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {viewingCustomer.xeroContactId && (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-lg">Xero Integration</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <Badge variant="outline" className="text-green-600">
+                        <ExternalLink className="w-3 h-3 mr-1" />
+                        Synced from Xero
+                      </Badge>
+                    </CardContent>
+                  </Card>
+                )}
+              </TabsContent>
+
+              {/* Orders Tab */}
+              <TabsContent value="orders">
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between">
+                    <CardTitle className="text-lg">Order History</CardTitle>
+                    <Link href="/orders">
+                      <Button variant="outline" size="sm">
+                        <ExternalLink className="w-4 h-4 mr-2" />
+                        View All Orders
+                      </Button>
+                    </Link>
+                  </CardHeader>
+                  <CardContent>
+                    {ordersLoading ? (
+                      <div className="space-y-2">
+                        {[...Array(3)].map((_, i) => (
+                          <Skeleton key={i} className="h-12 w-full" />
+                        ))}
+                      </div>
+                    ) : customerOrders.length === 0 ? (
+                      <div className="text-center py-8 text-muted-foreground">
+                        <FileText className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                        <p>No orders found for this customer</p>
+                      </div>
+                    ) : (
+                      <div className="border rounded-md">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Order #</TableHead>
+                              <TableHead>Date</TableHead>
+                              <TableHead>Status</TableHead>
+                              <TableHead className="text-right">Total</TableHead>
+                              <TableHead>Xero</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {customerOrders.map((order) => (
+                              <TableRow key={order.id}>
+                                <TableCell className="font-medium">
+                                  {order.orderNumber || (order as any).xeroInvoiceNumber || '-'}
+                                </TableCell>
+                                <TableCell>
+                                  {new Date(order.orderDate).toLocaleDateString()}
+                                </TableCell>
+                                <TableCell>
+                                  <Badge variant={getStatusBadgeVariant(order.status)}>
+                                    {order.status}
+                                  </Badge>
+                                </TableCell>
+                                <TableCell className="text-right font-medium">
+                                  {formatCurrency(order.totalIncVat || 0)}
+                                </TableCell>
+                                <TableCell>
+                                  {(order as any).xeroInvoiceId ? (
+                                    <Badge variant="outline" className="text-green-600 text-xs">
+                                      Xero
+                                    </Badge>
+                                  ) : (
+                                    <span className="text-muted-foreground text-xs">-</span>
+                                  )}
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    )}
+
+                    {/* Order Summary */}
+                    {customerOrders.length > 0 && (
+                      <div className="mt-4 pt-4 border-t">
+                        <div className="flex justify-between items-center">
+                          <div className="text-sm text-muted-foreground">
+                            {customerOrders.length} order{customerOrders.length !== 1 ? 's' : ''} total
+                          </div>
+                          <div className="text-right">
+                            <div className="text-sm text-muted-foreground">Total Lifetime Value</div>
+                            <div className="text-xl font-semibold">
+                              {formatCurrency(
+                                customerOrders.reduce((sum, o) => sum + (o.totalIncVat || 0), 0)
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </TabsContent>
+            </Tabs>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setViewingCustomer(null)}>
+              Close
+            </Button>
+            <Button onClick={() => {
+              handleEdit(viewingCustomer);
+              setViewingCustomer(null);
+            }}>
+              <Pencil className="w-4 h-4 mr-2" />
+              Edit Customer
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

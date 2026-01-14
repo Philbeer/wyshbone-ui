@@ -3,6 +3,10 @@ import { useQuery } from '@tanstack/react-query';
 import { useUser } from './UserContext';
 import { authedFetch } from '@/lib/queryClient';
 
+// FAST DEV MODE: Use fast polling in development
+const IS_DEV = import.meta.env.MODE === 'development';
+const EXECUTION_POLL_INTERVAL = IS_DEV ? 300 : 3000; // 300ms in dev, 3s in prod
+
 interface ExecutionState {
   isExecuting: boolean;
   shouldPoll: boolean;
@@ -37,23 +41,29 @@ export function PlanExecutionProvider({ children }: { children: ReactNode }) {
       return data;
     },
     enabled: !!user && !!activePlanId,
-    refetchInterval: activePlanId ? 3000 : false,
+    refetchInterval: activePlanId ? EXECUTION_POLL_INTERVAL : false, // Fast in dev
   });
 
   const status = statusData?.status || (activePlanId ? 'executing' : 'idle');
   const shouldPoll = status === 'executing';
   
-  // Clear activePlanId when status becomes terminal
+  // Log when status becomes terminal
   useEffect(() => {
     if (statusData && (statusData.status === 'completed' || statusData.status === 'failed')) {
-      console.log(`[EXECUTION_CONTROLLER] plan ${activePlanId} finished with status ${statusData.status}`);
+      console.log(`\n========================================`);
+      console.log(`🏁 [EXECUTION_CONTROLLER] Execution finished!`);
+      console.log(`   Plan: ${activePlanId}`);
+      console.log(`   Status: ${statusData.status}`);
+      console.log(`========================================\n`);
       // Keep activePlanId so progress widget can show final state
       // It will be cleared when a new plan starts
     }
   }, [statusData, activePlanId]);
   
   const startExecution = useCallback((planId: string) => {
-    console.log(`[EXECUTION_CONTROLLER] starting execution for plan ${planId}`);
+    console.log(`\n========================================`);
+    console.log(`▶️ [EXECUTION_CONTROLLER] Starting to poll status for plan ${planId}`);
+    console.log(`========================================\n`);
     setActivePlanId(planId);
   }, []);
   

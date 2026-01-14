@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -24,6 +24,17 @@ export default function AuthPage() {
     email: "",
     password: "",
   });
+
+  // Clear signup fields when component mounts (but allow login to remember)
+  useEffect(() => {
+    setSignupData({
+      email: "",
+      password: "",
+      confirmPassword: "",
+      name: "",
+    });
+    // Don't clear loginData - let browser autofill work naturally
+  }, []);
 
   const signupMutation = useMutation({
     mutationFn: async (data: { email: string; password: string; name: string }) => {
@@ -133,16 +144,18 @@ export default function AuthPage() {
             </TabsList>
             
             <TabsContent value="login">
-              <form onSubmit={handleLogin} className="space-y-4">
+              <form onSubmit={handleLogin} className="space-y-4" name="wyshbone-login">
                 <div className="space-y-2">
                   <Label htmlFor="login-email">Email</Label>
                   <Input
                     id="login-email"
+                    name="email"
                     type="email"
                     placeholder="you@example.com"
                     value={loginData.email}
                     onChange={(e) => setLoginData({ ...loginData, email: e.target.value })}
                     required
+                    autoComplete="username email"
                     data-testid="input-login-email"
                   />
                 </div>
@@ -150,10 +163,12 @@ export default function AuthPage() {
                   <Label htmlFor="login-password">Password</Label>
                   <Input
                     id="login-password"
+                    name="password"
                     type="password"
                     value={loginData.password}
                     onChange={(e) => setLoginData({ ...loginData, password: e.target.value })}
                     required
+                    autoComplete="current-password"
                     data-testid="input-login-password"
                   />
                 </div>
@@ -169,7 +184,7 @@ export default function AuthPage() {
             </TabsContent>
 
             <TabsContent value="signup">
-              <form onSubmit={handleSignup} className="space-y-4">
+              <form onSubmit={handleSignup} className="space-y-4" autoComplete="off">
                 <div className="space-y-2">
                   <Label htmlFor="signup-name">Name (optional)</Label>
                   <Input
@@ -178,6 +193,7 @@ export default function AuthPage() {
                     placeholder="Your name"
                     value={signupData.name}
                     onChange={(e) => setSignupData({ ...signupData, name: e.target.value })}
+                    autoComplete="off"
                     data-testid="input-signup-name"
                   />
                 </div>
@@ -190,18 +206,20 @@ export default function AuthPage() {
                     value={signupData.email}
                     onChange={(e) => setSignupData({ ...signupData, email: e.target.value })}
                     required
+                    autoComplete="off"
                     data-testid="input-signup-email"
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="signup-password">Password</Label>
+                  <Label htmlFor="signup-password">Password (min 8 characters)</Label>
                   <Input
                     id="signup-password"
                     type="password"
                     value={signupData.password}
                     onChange={(e) => setSignupData({ ...signupData, password: e.target.value })}
                     required
-                    minLength={6}
+                    minLength={8}
+                    autoComplete="new-password"
                     data-testid="input-signup-password"
                   />
                 </div>
@@ -213,7 +231,8 @@ export default function AuthPage() {
                     value={signupData.confirmPassword}
                     onChange={(e) => setSignupData({ ...signupData, confirmPassword: e.target.value })}
                     required
-                    minLength={6}
+                    minLength={8}
+                    autoComplete="new-password"
                     data-testid="input-signup-confirm-password"
                   />
                 </div>

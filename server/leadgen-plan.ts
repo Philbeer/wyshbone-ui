@@ -11,6 +11,13 @@ export interface LeadGenStep {
   label: string;
   description: string;
   estimatedTime?: string;
+  // Execution state (persisted during plan run)
+  stepStatus?: 'pending' | 'running' | 'completed' | 'failed';
+  resultSummary?: string;
+  error?: string;
+  startedAt?: string;
+  completedAt?: string;
+  leadsCreated?: number; // For search steps: how many leads were saved
 }
 
 export interface LeadGenPlan {
@@ -215,4 +222,103 @@ export async function updatePlanMetadata(
   } catch (error) {
     console.error(`Error updating plan metadata for ${planId}:`, error);
   }
+}
+
+/**
+ * Update step progress in the plan (persisted to database)
+ * This makes plan execution crash-safe - state is recovered from DB on restart
+ */
+export async function updateStepProgress(
+  planId: string,
+  stepId: string,
+  update: Partial<Pick<LeadGenStep, 'stepStatus' | 'resultSummary' | 'error' | 'startedAt' | 'completedAt' | 'leadsCreated'>>
+): Promise<void> {
+  try {
+    // Get current plan
+    const plan = await getPlanById(planId);
+    if (!plan) {
+      console.error(`[STEP_PERSIST] Plan ${planId} not found`);
+      return;
+    }
+    
+    // Find and update the step
+    const updatedSteps = plan.steps.map(step => {
+      if (step.id === stepId) {
+        return { ...step, ...update };
+      }
+      return step;
+    });
+    
+    // Persist to database
+    await storage.updateLeadGenPlan(planId, { steps: updatedSteps });
+    console.log(`💾 [STEP_PERSIST] Updated step ${stepId} in plan ${planId}: ${update.stepStatus || 'update'}`);
+  } catch (error) {
+    console.error(`❌ [STEP_PERSIST] Error updating step ${stepId} in plan ${planId}:`, error);
+  }
+}
+
+/**
+ * Get plan execution status from the database
+ * Returns computed execution state from persisted step data
+ */
+export async function getPlanExecutionStatus(planId: string): Promise<{
+  status: 'pending' | 'executing' | 'completed' | 'failed';
+  steps: LeadGenStep[];
+  currentStepIndex: number;
+  completedSteps: number;
+  totalSteps: number;
+  goal: string;
+  error?: string;
+} | null> {
+  const plan = await getPlanById(planId);
+  if (!plan) return null;
+  
+  const steps = plan.steps;
+  const totalSteps = steps.length;
+  
+  // Count completed and find current step
+  let completedSteps = 0;
+  let currentStepIndex = 0;
+  let hasFailure = false;
+  let errorMessage: string | undefined;
+  
+  for (let i = 0; i < steps.length; i++) {
+    const step = steps[i];
+    if (step.stepStatus === 'completed') {
+      completedSteps++;
+    } else if (step.stepStatus === 'failed') {
+      hasFailure = true;
+      errorMessage = step.error;
+      currentStepIndex = i;
+      break;
+    } else if (step.stepStatus === 'running') {
+      currentStepIndex = i;
+      break;
+    } else if (step.stepStatus === 'pending' || !step.stepStatus) {
+      currentStepIndex = i;
+      break;
+    }
+  }
+  
+  // Determine overall status
+  let status: 'pending' | 'executing' | 'completed' | 'failed' = 'pending';
+  if (hasFailure) {
+    status = 'failed';
+  } else if (completedSteps === totalSteps) {
+    status = 'completed';
+  } else if (completedSteps > 0 || steps.some(s => s.stepStatus === 'running')) {
+    status = 'executing';
+  } else if (plan.status === 'executing') {
+    status = 'executing';
+  }
+  
+  return {
+    status,
+    steps,
+    currentStepIndex,
+    completedSteps,
+    totalSteps,
+    goal: plan.goal,
+    error: errorMessage,
+  };
 }

@@ -16,7 +16,11 @@ import AuthPage from "@/pages/auth";
 import PricingPage from "@/pages/pricing";
 import AccountPage from "@/pages/account";
 import CrmLayout from "@/pages/crm";
+import LeadsPage from "@/pages/leads";
+import NudgesPage from "@/pages/nudges";
 import NotFound from "@/pages/not-found";
+import { BreweryOnboardingWizard } from "@/features/onboarding";
+import { GeneralOnboardingWizard } from "@/features/onboarding/GeneralOnboardingWizard";
 import CountryHint from "@/components/CountryHint";
 import { LoginDialog } from "@/components/LoginDialog";
 import { useState, useEffect, useRef, useCallback } from "react";
@@ -24,12 +28,119 @@ import { UserProvider, useUser } from "@/contexts/UserContext";
 import { SidebarFlashProvider } from "@/contexts/SidebarFlashContext";
 import { PlanProvider } from "@/contexts/PlanContext";
 import { PlanExecutionProvider } from "@/contexts/PlanExecutionController";
+import { AgentStatusProvider, useAgentStatus } from "@/contexts/AgentStatusContext";
+import { VerticalProvider } from "@/contexts/VerticalContext";
+import { CapabilitiesProvider } from "@/contexts/CapabilitiesContext";
+import { VerticalIndicator } from "@/components/VerticalSelector";
+import { OnboardingTourProvider } from "@/contexts/OnboardingTourContext";
+import { OnboardingTour } from "@/components/onboarding/OnboardingTour";
+import { DemoModeProvider } from "@/contexts/DemoModeContext";
+import { OnboardingWizardProvider, useOnboardingWizard } from "@/contexts/OnboardingWizardContext";
+import { DemoModeBanner } from "@/components/DemoModeBanner";
+import { DevBanner } from "@/components/DevBanner";
+import { AgentChatPanel } from "@/components/agent/AgentChatPanel";
 import { MyGoalsPanel } from "@/components/my-goals-panel";
 import { PlanApprovalPanel } from "@/components/plan-approval-panel";
 import { ProgressWidget } from "@/components/progress-widget";
+import { AgentStatusBadge } from "@/components/AgentStatusBadge";
+import { XeroStatusBadge } from "@/components/XeroStatusBadge";
+// Results Panel imports
+import { ResultsPanelProvider, useResultsPanel } from "@/contexts/ResultsPanelContext";
+import { ResultsPanel } from "@/components/results/ResultsPanel";
+// Agent-First UI imports
+import { AgentFirstProvider, useAgentFirst } from "@/contexts/AgentFirstContext";
+import { DesktopSplitLayout } from "@/layouts/DesktopSplitLayout";
+import { MobileAgentLayout } from "@/layouts/MobileAgentLayout";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { AgentWorkspace } from "@/components/agent/AgentWorkspace";
+import ActivityPage from "@/pages/activity";
+import SettingsPage from "@/pages/settings";
+import CrmPreviewPage from "@/pages/crm-preview";
+import EventsPage from "@/pages/events";
+import EntityReviewPage from "@/pages/entity-review";
+import SleeperAgentMonitor from "@/pages/dev/sleeper-agent-monitor";
+import DevProgressPage from "@/pages/dev/progress";
+import DatabaseMaintenance from "@/pages/admin/database-maintenance";
+import WorkflowPage from "@/pages/workflow";
+import { LayoutToggle } from "@/components/LayoutToggle";
 
 // No demo runs - users only see their own data
 const DEMO_RUNS: RunItem[] = [];
+
+/**
+ * Agent-First Router - Routes for the new split-screen layout
+ * Left panel: Chat (handled by DesktopSplitLayout)
+ * Right panel: These routes
+ */
+function AgentFirstRouter({ 
+  defaultCountry, 
+  onInjectSystemMessage,
+  addRunFn,
+  updateRunFn,
+  getActiveRunId,
+  onNewChat,
+  onLoadConversation
+}: { 
+  defaultCountry: string;
+  onInjectSystemMessage: (fn: (msg: string, asUser?: boolean) => void) => void;
+  addRunFn: (run: Partial<RunItem>) => string;
+  updateRunFn: (runId: string, updates: Partial<RunItem>) => void;
+  getActiveRunId: () => string | null;
+  onNewChat: (fn: () => void) => void;
+  onLoadConversation: (fn: (conversationId: string) => void) => void;
+}) {
+  return (
+    <Switch>
+      {/* Default home shows Agent Workspace with activity */}
+      <Route path="/" component={AgentWorkspace} />
+      
+      {/* Activity page for mobile */}
+      <Route path="/activity" component={ActivityPage} />
+      
+      {/* Settings page */}
+      <Route path="/settings" component={SettingsPage} />
+
+      {/* Workflow dashboard */}
+      <Route path="/workflow" component={WorkflowPage} />
+
+      {/* CRM Preview for mobile */}
+      <Route path="/crm-preview" component={CrmPreviewPage} />
+      
+      {/* Full chat page (for dedicated chat view) */}
+      <Route path="/chat">
+        {() => <ChatPage 
+          defaultCountry={defaultCountry} 
+          onInjectSystemMessage={onInjectSystemMessage} 
+          addRun={addRunFn} 
+          updateRun={updateRunFn}
+          getActiveRunId={getActiveRunId}
+          onNewChat={onNewChat}
+          onLoadConversation={onLoadConversation}
+        />}
+      </Route>
+      
+      {/* CRM routes */}
+      <Route path="/auth/crm" nest component={CrmLayout} />
+      <Route path="/leads" component={LeadsPage} />
+      <Route path="/nudges" component={NudgesPage} />
+      <Route path="/events" component={EventsPage} />
+      <Route path="/entity-review" component={EntityReviewPage} />
+      <Route path="/dev/sleeper-agent" component={SleeperAgentMonitor} />
+      <Route path="/dev/progress" component={DevProgressPage} />
+      <Route path="/admin/database-maintenance" component={DatabaseMaintenance} />
+
+      {/* Other routes */}
+      <Route path="/auth" component={AuthPage} />
+      <Route path="/pricing" component={PricingPage} />
+      <Route path="/account" component={AccountPage} />
+      <Route path="/debug" component={DebugPage} />
+      <Route path="/batch-history" component={BatchHistoryPage} />
+      <Route path="/batch/:id" component={BatchPipeline} />
+      <Route path="/onboarding/brewery" component={BreweryOnboardingWizard} />
+      <Route component={NotFound} />
+    </Switch>
+  );
+}
 
 function Router({ 
   defaultCountry, 
@@ -64,10 +175,19 @@ function Router({
       <Route path="/auth" component={AuthPage} />
       <Route path="/pricing" component={PricingPage} />
       <Route path="/account" component={AccountPage} />
+      <Route path="/workflow" component={WorkflowPage} />
       <Route path="/debug" component={DebugPage} />
       <Route path="/batch-history" component={BatchHistoryPage} />
       <Route path="/batch/:id" component={BatchPipeline} />
       <Route path="/auth/crm" nest component={CrmLayout} />
+      <Route path="/leads" component={LeadsPage} />
+      <Route path="/nudges" component={NudgesPage} />
+      <Route path="/events" component={EventsPage} />
+      <Route path="/entity-review" component={EntityReviewPage} />
+      <Route path="/dev/sleeper-agent" component={SleeperAgentMonitor} />
+      <Route path="/dev/progress" component={DevProgressPage} />
+      <Route path="/admin/database-maintenance" component={DatabaseMaintenance} />
+      <Route path="/onboarding/brewery" component={BreweryOnboardingWizard} />
       <Route component={NotFound} />
     </Switch>
   );
@@ -80,22 +200,70 @@ export type ConversationItem = {
   createdAt: number;
 };
 
+/**
+ * Onboarding Wizards Component - Auto-opens wizards for new users
+ */
+function OnboardingWizards() {
+  const { user } = useUser();
+  const {
+    isGeneralWizardOpen,
+    isBreweryWizardOpen,
+    openGeneralWizard,
+    closeGeneralWizard,
+    openBreweryWizard,
+    closeBreweryWizard,
+  } = useOnboardingWizard();
+
+  // Auto-open general wizard for new users (after 1s delay)
+  // TEMPORARILY DISABLED - Remove comments below to re-enable
+  /*
+  useEffect(() => {
+    const hasCompletedOnboarding = user?.preferences?.generalOnboardingCompleted;
+    if (!hasCompletedOnboarding && user?.id) {
+      const timer = setTimeout(() => {
+        openGeneralWizard();
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [user?.id, user?.preferences?.generalOnboardingCompleted, openGeneralWizard]);
+  */
+
+  return (
+    <>
+      {isGeneralWizardOpen && (
+        <GeneralOnboardingWizard
+          onComplete={closeGeneralWizard}
+          onOpenBreweryWizard={openBreweryWizard}
+        />
+      )}
+      {isBreweryWizardOpen && (
+        <BreweryOnboardingWizard
+          isSequential={true}
+          onComplete={closeBreweryWizard}
+        />
+      )}
+    </>
+  );
+}
+
 function AppContent() {
   const { user } = useUser();
   const [location, setLocation] = useLocation();
+  const { openResults } = useResultsPanel();
   const [runs, setRuns] = useState<RunItem[]>(DEMO_RUNS);
   const [conversations, setConversations] = useState<ConversationItem[]>([]);
   const prevUserIdRef = useRef<string>(user.id);
   
   const [defaultCountry, setDefaultCountry] = useState<string>(() => {
-    const stored = localStorage.getItem('defaultCountry') || 'US';
+    // V1: Default to GB (United Kingdom) instead of US
+    const stored = localStorage.getItem('defaultCountry') || 'GB';
     console.log(`🌍 Initializing default country: ${stored}`);
     return stored;
   });
   
   // Clear React Query cache when user changes
   useEffect(() => {
-    if (prevUserIdRef.current !== user.id && prevUserIdRef.current !== "demo-user") {
+    if (prevUserIdRef.current !== user.id && prevUserIdRef.current !== "temp-demo-user") {
       console.log(`🧹 USER CHANGED: Clearing React Query cache (${prevUserIdRef.current} → ${user.id})`);
       queryClient.clear();
       // Also clear local state
@@ -348,23 +516,49 @@ function AppContent() {
       return;
     }
 
-    // Handle deep research runs - fetch and display output
-    if (run.runType === "deep_research" && run.status === "completed") {
+    // Handle deep research runs - fetch and display output in ResultsPanel
+    if (run.runType === "deep_research") {
       try {
+        console.log(`📊 Fetching deep research: ${id}`);
         const response = await authedFetch(`/api/deep-research/${id}`);
         if (!response.ok) {
           throw new Error("Failed to fetch research output");
         }
         const data = await response.json();
-        const output = data.run?.outputText || "No output available";
-        
-        // Inject the research output into the chat as assistant message
-        if (systemMessageInjectorRef.current) {
-          const formattedOutput = `# 📊 ${run.label}\n\n${output}`;
-          systemMessageInjectorRef.current(formattedOutput, false);
-        }
+        console.log(`📊 Received data:`, {
+          hasRun: !!data.run,
+          status: data.run?.status,
+          outputTextLength: data.run?.outputText?.length || 0,
+          outputTextPreview: data.run?.outputText?.substring(0, 100) || '(none)'
+        });
+
+        const output = data.run?.outputText || "Research in progress...";
+
+        // Open results in the right panel
+        openResults('deep_research', {
+          run: {
+            id: run.id,
+            label: run.label,
+            status: run.status,
+            outputText: output,
+          },
+          topic: run.label,
+          outputText: output,
+        }, run.label);
+
+        console.log(`✅ Opened deep research in ResultsPanel: ${run.label}, output length: ${output.length}`);
       } catch (error) {
         console.error("Failed to display research output:", error);
+        // Still open the panel with error state
+        openResults('deep_research', {
+          run: {
+            id: run.id,
+            label: run.label,
+            status: run.status,
+          },
+          topic: run.label,
+          error: 'Failed to load research results',
+        }, run.label);
       }
       return;
     }
@@ -375,36 +569,243 @@ function AppContent() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <PlanProvider>
-        <PlanExecutionProvider>
-          <TooltipProvider>
-            <SidebarProvider style={style as React.CSSProperties}>
-              <AppLayout
-              defaultCountry={defaultCountry}
-              setDefaultCountry={setDefaultCountry}
-              runs={runs}
-              conversations={conversations}
-              handleSelectRun={handleSelectRun}
-              handleSelectConversation={handleSelectConversation}
-              handleRunRun={handleRunRun}
-              handleNewChatClick={handleNewChatClick}
-              newChatCallbackRef={newChatCallbackRef}
-              theme={theme}
-              toggleTheme={toggleTheme}
-              handleInjectSystemMessage={handleInjectSystemMessage}
-              addRun={addRun}
-              updateRun={updateRun}
-              getActiveRunId={getActiveRunId}
-              handleNewChat={handleNewChat}
-              handleLoadConversation={handleLoadConversation}
-            />
-              <CountryHint />
-            </SidebarProvider>
-            <Toaster />
-          </TooltipProvider>
-        </PlanExecutionProvider>
-      </PlanProvider>
+      <CapabilitiesProvider>
+        <PlanProvider>
+          <PlanExecutionProvider>
+            <TooltipProvider>
+              <LayoutSwitcher
+                defaultCountry={defaultCountry}
+                setDefaultCountry={setDefaultCountry}
+                runs={runs}
+                conversations={conversations}
+                handleSelectRun={handleSelectRun}
+                handleSelectConversation={handleSelectConversation}
+                handleRunRun={handleRunRun}
+                handleNewChatClick={handleNewChatClick}
+                newChatCallbackRef={newChatCallbackRef}
+                theme={theme}
+                toggleTheme={toggleTheme}
+                handleInjectSystemMessage={handleInjectSystemMessage}
+                addRun={addRun}
+                updateRun={updateRun}
+                getActiveRunId={getActiveRunId}
+                handleNewChat={handleNewChat}
+                handleLoadConversation={handleLoadConversation}
+                style={style}
+              />
+              <Toaster />
+              <OnboardingWizards />
+            </TooltipProvider>
+          </PlanExecutionProvider>
+        </PlanProvider>
+      </CapabilitiesProvider>
     </QueryClientProvider>
+  );
+}
+
+/**
+ * LayoutSwitcher - Switches between Agent-First and Classic layouts
+ * based on the feature flag in AgentFirstContext
+ */
+function LayoutSwitcher(props: any) {
+  const { isAgentFirstEnabled } = useAgentFirst();
+  
+  if (isAgentFirstEnabled) {
+    // Use the new Agent-First split-screen layout
+    return (
+      <>
+        <AgentFirstAppLayout
+          defaultCountry={props.defaultCountry}
+          setDefaultCountry={props.setDefaultCountry}
+          runs={props.runs}
+          conversations={props.conversations}
+          handleSelectRun={props.handleSelectRun}
+          handleSelectConversation={props.handleSelectConversation}
+          handleRunRun={props.handleRunRun}
+          handleNewChatClick={props.handleNewChatClick}
+          theme={props.theme}
+          toggleTheme={props.toggleTheme}
+          handleInjectSystemMessage={props.handleInjectSystemMessage}
+          addRun={props.addRun}
+          updateRun={props.updateRun}
+          getActiveRunId={props.getActiveRunId}
+          handleNewChat={props.handleNewChat}
+          handleLoadConversation={props.handleLoadConversation}
+        />
+        <LayoutToggle />
+      </>
+    );
+  }
+
+  // Use the classic sidebar + main content layout
+  return (
+    <>
+      <SidebarProvider style={props.style as React.CSSProperties}>
+        <AppLayout
+          defaultCountry={props.defaultCountry}
+          setDefaultCountry={props.setDefaultCountry}
+          runs={props.runs}
+          conversations={props.conversations}
+          handleSelectRun={props.handleSelectRun}
+          handleSelectConversation={props.handleSelectConversation}
+          handleRunRun={props.handleRunRun}
+          handleNewChatClick={props.handleNewChatClick}
+          newChatCallbackRef={props.newChatCallbackRef}
+          theme={props.theme}
+          toggleTheme={props.toggleTheme}
+          handleInjectSystemMessage={props.handleInjectSystemMessage}
+          addRun={props.addRun}
+          updateRun={props.updateRun}
+          getActiveRunId={props.getActiveRunId}
+          handleNewChat={props.handleNewChat}
+          handleLoadConversation={props.handleLoadConversation}
+        />
+        <CountryHint />
+      </SidebarProvider>
+      <LayoutToggle />
+    </>
+  );
+}
+
+/**
+ * Wrapper component that connects AgentStatusBadge to context
+ */
+function AgentStatusBadgeWrapper() {
+  const { status } = useAgentStatus();
+  return <AgentStatusBadge status={status} className="mr-2" />;
+}
+
+/**
+ * Dev info badge showing user ID and workspace ID for debugging
+ */
+function DevInfoBadge() {
+  const { user } = useUser();
+  
+  // Only show in development
+  if (import.meta.env.PROD) return null;
+  
+  // Parse numeric workspace ID (falls back to 1 for UUIDs in dev)
+  const numericId = parseInt(user.id);
+  const workspaceId = isNaN(numericId) ? 1 : numericId;
+  const isUuid = isNaN(parseInt(user.id));
+  
+  return (
+    <div 
+      className="hidden sm:flex items-center gap-1 px-2 py-1 rounded bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-200 text-[10px] font-mono mr-2"
+      title={`User ID: ${user.id}\nWorkspace ID: ${workspaceId}${isUuid ? ' (UUID → 1)' : ''}`}
+    >
+      <span className="opacity-70">WS:</span>
+      <span className="font-semibold">{workspaceId}</span>
+      {isUuid && <span className="opacity-50">(dev)</span>}
+    </div>
+  );
+}
+
+/**
+ * Right Panel Content - Shows ResultsPanel when active, otherwise MyGoalsPanel
+ * Conditionally renders based on results context
+ */
+function RightPanelContent() {
+  const { isOpen, currentResult } = useResultsPanel();
+  
+  // If results panel is open, show it
+  if (isOpen && currentResult) {
+    return (
+      <div className="h-full">
+        <ResultsPanel />
+      </div>
+    );
+  }
+  
+  // Otherwise show the default goal/progress panels
+  return (
+    <div className="p-4 flex flex-col gap-4 overflow-y-auto h-full">
+      <MyGoalsPanel />
+      <PlanApprovalPanel />
+      <ProgressWidget />
+    </div>
+  );
+}
+
+/**
+ * Agent-First App Layout - The new split-screen layout
+ * Desktop: Left panel (40%) = Chat, Right panel (60%) = Workspace
+ * Mobile: Full-screen agent chat with bottom nav
+ */
+function AgentFirstAppLayout({
+  defaultCountry,
+  setDefaultCountry,
+  runs,
+  conversations,
+  handleSelectRun,
+  handleSelectConversation,
+  handleRunRun,
+  handleNewChatClick,
+  theme,
+  toggleTheme,
+  handleInjectSystemMessage,
+  addRun,
+  updateRun,
+  getActiveRunId,
+  handleNewChat,
+  handleLoadConversation
+}: any) {
+  const isMobile = useIsMobile();
+
+  // For mobile, use the mobile layout
+  if (isMobile) {
+    return (
+      <>
+        <div className="h-screen w-full overflow-hidden">
+          <MobileAgentLayout>
+            <AgentFirstRouter
+              defaultCountry={defaultCountry}
+              onInjectSystemMessage={handleInjectSystemMessage}
+              addRunFn={addRun}
+              updateRunFn={updateRun}
+              getActiveRunId={getActiveRunId}
+              onNewChat={handleNewChat}
+              onLoadConversation={handleLoadConversation}
+            />
+          </MobileAgentLayout>
+        </div>
+        {/* Fixed position badges - don't affect layout */}
+        <DevBanner />
+        <DemoModeBanner />
+      </>
+    );
+  }
+
+  // For desktop, use the split layout with chat on left and workspace on right
+  return (
+    <>
+      <div className="h-screen w-full overflow-hidden">
+        <DesktopSplitLayout
+          leftPanel={
+            /* Left panel: Direct Claude API chat with tool support */
+            <AgentChatPanel 
+              defaultCountry={defaultCountry}
+            />
+          }
+        >
+          {/* Right panel content - routes */}
+          <div className="h-full overflow-y-auto">
+            <AgentFirstRouter
+              defaultCountry={defaultCountry}
+              onInjectSystemMessage={handleInjectSystemMessage}
+              addRunFn={addRun}
+              updateRunFn={updateRun}
+              getActiveRunId={getActiveRunId}
+              onNewChat={handleNewChat}
+              onLoadConversation={handleLoadConversation}
+            />
+          </div>
+        </DesktopSplitLayout>
+      </div>
+      {/* Fixed position badges - don't affect layout */}
+      <DevBanner />
+      <DemoModeBanner />
+    </>
   );
 }
 
@@ -465,8 +866,10 @@ function AppLayout({
   };
 
   return (
-    <div className="flex h-screen w-full overflow-hidden">
-      <AppSidebar 
+    <>
+      <div className="flex flex-col h-screen w-full overflow-hidden">
+        <div className="flex flex-1 overflow-hidden">
+        <AppSidebar 
         defaultCountry={defaultCountry} 
         onCountryChange={setDefaultCountry}
         runs={runs}
@@ -506,6 +909,10 @@ function AppLayout({
             className="flex items-center gap-0.5 sidebar:gap-1 ml-auto"
             style={{ marginRight: userMenuMargin }}
           >
+            <VerticalIndicator />
+            <XeroStatusBadge className="mr-1" />
+            <DevInfoBadge />
+            <AgentStatusBadgeWrapper />
             <LoginDialog />
             {showNewTabButton && (
               <Button
@@ -530,7 +937,7 @@ function AppLayout({
           </div>
         </header>
         <main className="flex-1 overflow-hidden flex">
-          <div className="flex-1 min-w-0">
+          <div className="flex-1 min-w-0" data-tour-id="chat">
             <Router 
               defaultCountry={defaultCountry} 
               onInjectSystemMessage={handleInjectSystemMessage}
@@ -541,23 +948,41 @@ function AppLayout({
               onLoadConversation={handleLoadConversation}
             />
           </div>
-          <div className="hidden xl:flex w-80 border-l p-4 flex-col gap-4 overflow-y-auto">
-            <MyGoalsPanel />
-            <PlanApprovalPanel />
-            <ProgressWidget />
+          <div className="hidden lg:flex w-80 border-l flex-col overflow-hidden" data-tour-id="actions">
+            <RightPanelContent />
           </div>
         </main>
+        </div>
       </div>
     </div>
+      {/* Fixed position badges - don't affect layout */}
+      <DevBanner />
+      <DemoModeBanner />
+    </>
   );
 }
 
 function App() {
   return (
     <UserProvider>
-      <SidebarFlashProvider>
-        <AppContent />
-      </SidebarFlashProvider>
+      <VerticalProvider>
+        <DemoModeProvider>
+          <OnboardingWizardProvider>
+            <OnboardingTourProvider>
+              <SidebarFlashProvider>
+                <AgentStatusProvider>
+                  <ResultsPanelProvider>
+                    <AgentFirstProvider>
+                      <AppContent />
+                      <OnboardingTour />
+                    </AgentFirstProvider>
+                  </ResultsPanelProvider>
+                </AgentStatusProvider>
+              </SidebarFlashProvider>
+            </OnboardingTourProvider>
+          </OnboardingWizardProvider>
+        </DemoModeProvider>
+      </VerticalProvider>
     </UserProvider>
   );
 }

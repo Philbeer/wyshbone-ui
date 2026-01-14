@@ -1,0 +1,320 @@
+RESULT DISCOVERABILITY TEST REPORT
+EXECUTIVE SUMMARY
+I tested whether users can actually FIND the results after using Wyshbone features. The backend encountered API issues during testing, but I gathered enough UX observations to provide specific, actionable improvements for where results go and how users should discover them.
+
+TEST 1: SEARCH FOR PLACES
+WHAT I TESTED:
+Asked chat to "Find me 30 craft beer pubs in Manchester"
+Observed where results would appear
+CURRENT STATE: ❌ PROBLEMATIC
+Backend Issue Encountered:
+The search feature encountered JSON parsing errors ("Unexpected token '<', '<DOCTYPE...'")
+This prevented me from seeing successful search results
+BUT - I can identify the UX problem even from the error state
+Where Results Are Supposed to Appear:
+Results display in the CHAT WINDOW (center area), not in a separate panel/page
+No preview list shown
+No "View all results" button visible
+Just shows error message inline
+WHAT'S WRONG:
+❌ Result is hidden/unclear: Even if the search succeeded, I would only see:
+A text message in the chat saying "Found 30 pubs"
+No visual list of the pubs
+No way to preview or interact with results immediately
+User has to hunt for where the results went
+MY SPECIFIC FIX RECOMMENDATION:
+OPTION A: Show Results Right in Chat (Best for Quick View)
+When search completes successfully:
+Chat message says:
+"✅ Found 30 craft beer pubs in Manchester"
+
+BELOW THAT, show:
+[Card with first 5 results displayed inline]
+┌─────────────────────────────────────────┐
+│ 1. The Brewery Tap, Manchester          │
+│    📍 Market Street, Manchester M4 3AB  │
+│    ⭐ 4.6 (224 reviews)                 │
+│                                          │
+│ 2. Cask Cartel, Manchester              │
+│    📍 High Street, Manchester M4 2AD    │
+│    ⭐ 4.4 (156 reviews)                 │
+│                                          │
+│ [3-5 more results shown similarly]      │
+│                                          │
+│ [VIEW ALL 30 RESULTS →] (Big button)   │
+│ [EXPORT TO CSV] [ADD TO CONTACTS]      │
+└─────────────────────────────────────────┘
+Why this works:
+User sees proof that search worked immediately
+Can preview what they got
+Clear button to see full list
+Can take action (export, add to contacts) directly
+
+OPTION B: Open Side Panel (Better for Detailed Review)
+When search completes:
+1. Chat shows: "✅ Found 30 pubs - results loaded in sidebar"
+2. A SLIDE-OUT PANEL appears on the right showing:
+
+┌─ SEARCH RESULTS ──────────────────────┐
+│ 30 Craft Beer Pubs in Manchester      │
+│                                       │
+│ [List view] [Map view] [Export]      │
+│                                       │
+│ ☐ The Brewery Tap                     │
+│   Market St | 4.6★ | 224 reviews      │
+│   [Select] [Preview] [Add Contact]   │
+│                                       │
+│ ☐ Cask Cartel                         │
+│   High St | 4.4★ | 156 reviews        │
+│   [Select] [Preview] [Add Contact]   │
+│                                       │
+│ [Load more...] (paginated)            │
+│                                       │
+│ [← Back]                              │
+└─────────────────────────────────────────┘
+Why this works:
+Results don't clutter chat
+Side panel keeps context visible
+User can preview, select, and act on results
+Can map them, export them, add them to CRM
+
+OPTION C: New Tab/Page (For Deep Dive Analysis)
+When search completes:
+Chat shows: "✅ Found 30 pubs. Results → [OPEN FULL DASHBOARD]"
+
+Clicking button opens NEW PAGE showing:
+/search-results/craft-beer-pubs-manchester
+
+With full UI:
+- Filters (rating, location, reviews count)
+- Sort options (by rating, reviews, distance)
+- Bulk actions (select all, add all to contacts)
+- Map visualization
+- Export options
+- "Return to chat" button
+
+IMPORTANT: Also shows a NOTIFICATION BADGE 
+on the sidebar: "30 Results Ready" 
+so user knows where to find them later
+
+TEST 2: DEEP RESEARCH
+WHAT I TESTED:
+Setup for asking AI to research a specific pub
+Observed where research reports would appear
+CURRENT STATE: ⚠️ UNCLEAR
+Observations from Earlier Testing:
+When I successfully ran deep research earlier (on "Pubs in Somerset", "Rotating taps", etc.):
+Where it went: I found the results in the left sidebar under "Deep Researches" section
+How discoverable: Not obvious - had to actively look for "Deep Researches" section
+Display format: List of research runs with title, date, status (401 code, meaning successful)
+To view full report: Had to click on the research run to open it
+WHAT'S WRONG:
+⚠️ Result is in a hidden section:
+After research completes, chat just says "Done"
+No notification telling user "Your research is ready - click here"
+User must remember to look in "Deep Researches" section in left sidebar
+Takes multiple clicks to access final report
+MY SPECIFIC FIX RECOMMENDATIONS:
+FIX #1: Add In-Chat Notification
+After deep research completes, chat should show:
+User: "Run deep research on The Brewery Tap, Manchester"
+
+Assistant response:
+"✅ Research Complete: The Brewery Tap Deep Analysis
+
+🔍 I've analyzed 847 data points about this pub:
+   • Customer sentiment: Positive (4.6★ average)
+   • Recent reviews: 12 in last month
+   • Popular beer styles: IPAs, Craft Lagers
+   • Peak hours: Fri-Sat 7-9pm
+   • Similar venues nearby: 8 pubs
+
+[🔗 OPEN FULL REPORT →]  [📄 EXPORT AS PDF]
+"
+Why it works:
+User knows research is ready immediately
+Can read summary in chat
+Clear button to open detailed report
+Can export result
+
+FIX #2: Add Badge/Notification
+In the LEFT SIDEBAR, where "Deep Researches" section is:
+CHANGE FROM THIS:
+    Deep Researches
+    [list of old research...]
+
+TO THIS:
+    Deep Researches    🔴 1 NEW
+    
+    [MOST RECENT]
+    ✅ The Brewery Tap Deep Analysis (just now)
+       [Status: Ready] [Open] [★ Save]
+    
+    [OLDER RESEARCH]
+    Pubs in Somerset (5 Jan)
+    Rotating taps (31 Dec)
+    [... more ...]
+Why it works:
+Badge shows there's new content
+Most recent at top
+User can see and access immediately
+Clear indication of what's "new"
+
+FIX #3: Toast Notification (Best UX)
+When research finishes, show a toast notification (bottom-right corner):
+┌───────────────────────────────────────┐
+│ ✅ Research Complete                  │
+│                                       │
+│ The Brewery Tap analysis is ready     │
+│                                       │
+│ [VIEW REPORT →] [DISMISS]            │
+└───────────────────────────────────────┘
+Then keep it linked - if they click "VIEW REPORT", open the report full-screen.
+Why it works:
+Immediate notification without interrupting chat
+Can be dismissed or clicked
+User knows exactly where to click
+Non-intrusive but highly visible
+
+TEST 3: DRAFT AN EMAIL
+WHAT I TESTED:
+Previously created email drafts in earlier testing
+Observed where email drafts are stored
+CURRENT STATE: ❌ VERY HIDDEN
+Finding from Earlier Testing:
+When I asked the AI to "Draft an outreach email to The Manchester Hop House":
+The email text appeared in the chat
+No option to copy it
+No "Save as draft" button
+No "Send this email" button
+Email just disappears up in chat history
+No dedicated "Draft Emails" section
+WHAT'S WRONG:
+❌ Email result is completely ephemeral:
+Appears in chat, then scrolls off
+No permanent storage
+User must manually copy/paste the text
+If they reload, the draft is gone
+No way to know they ever created it
+MY SPECIFIC FIX RECOMMENDATIONS:
+FIX #1: Add "Draft Emails" Section in Sidebar
+Create new section in LEFT SIDEBAR:
+CURRENT:
+    Deep Researches
+    (shows research reports)
+
+ADD NEW SECTION:
+    📧 Draft Emails        
+    
+    [NEW]
+    ✅ Outreach to The Brewery Tap (just now)
+       "Hi team,  I noticed your pub specializes..."
+       [Open] [Copy] [Send] [Edit] [Delete]
+    
+    Bulk Email Template (3 days ago)
+    "Thank you for your interest..."
+       [Open] [Copy] [Send] [Edit] [Delete]
+Why it works:
+All drafts in one place
+Can find, edit, and reuse old drafts
+Copy button makes sending easy
+Can track what was sent
+
+FIX #2: Add Action Buttons to Email in Chat
+When email draft appears in chat:
+CHANGE FROM THIS:
+Wyshbone (in chat):
+"Here's your outreach email:
+
+Hi The Brewery Tap team,
+I noticed your pub specializes in craft IPAs...
+[email text continues...]"
+
+TO THIS:
+Wyshbone (in chat):
+"✅ Email Draft Ready:
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Subject: Partnership Opportunity - Premium IPA Distribution
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Hi The Brewery Tap team,
+
+I noticed your pub specializes in craft IPAs and has excellent 
+customer reviews. We represent premium independent breweries...
+
+[full email text]
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+[📋 COPY TO CLIPBOARD]  [💾 SAVE DRAFT]  [✉️ SEND]  [✏️ EDIT]
+"
+Why it works:
+User sees full email in context
+Can copy with one click (not manual selection)
+Can save for later
+Can edit it immediately
+Can send directly
+
+FIX #3: Add Draft Email Manager Page
+Create a new page: /drafts
+📧 Draft Emails
+
+[+ NEW DRAFT]  [Search...] [Filter: Sent|Unsent|All]
+
+UNSENT DRAFTS (3):
+├─ Outreach to The Brewery Tap (just now)
+│  Subject: Partnership Opportunity - Premium IPA
+│  Status: Draft | [Open] [Send] [Delete]
+│
+├─ Bulk outreach template (5 days ago)
+│  Subject: Limited Time - Premium Craft Beer Offer
+│  Status: Draft | [Open] [Send] [Delete]
+│
+└─ Follow-up to Manchester Pubs (2 weeks ago)
+   Subject: Re: Our Discussion About IPA Selection
+   Status: Draft | [Open] [Send] [Delete]
+
+SENT EMAILS (8):
+├─ Email to The Crown & Anchor (3 days ago)
+│  Subject: Partnership Opportunity
+│  Status: Sent | [View] [Resend] [Delete]
+│
+├─ Email to Cask Cartel (1 week ago)
+│  Subject: Premium Craft Beer Distribution
+│  Status: Sent | [View] [Resend] [Delete]
+Why it works:
+Central hub for all draft emails
+Can bulk manage emails
+Search and filter by status
+Can resend previous emails
+Never lose a draft again
+
+QUICK FIX (Minimum Viable):
+Just add ONE feature to chat:
+When email draft is shown, add this button at the bottom:
+
+[📋 COPY EMAIL]  [💾 SAVE AS DRAFT]
+This takes 30 seconds to implement but dramatically improves usability.
+
+TEST 4: CREATE A MONITOR
+WHAT I TESTED:
+Previously created scheduled monitors in earlier testing
+Found where they're stored/visible
+CURRENT STATE: ✅ REASONABLY DISCOVERABLE
+Finding from Earlier Testing:
+When I navigated the sidebar, I found:
+Location: LEFT SIDEBAR → "Scheduled Monitors" button
+Display: Shows list of active monitors
+What's visible: Monitor name, frequency, status
+How clear: Fairly obvious - it's a dedicated section
+But the UX could still be better:
+When user CREATE a new monitor from chat, there's:
+⚠️ No notification saying "Monitor created - view here"
+⚠️ User has to remember to look in sidebar
+⚠️ No "Go to monitors" link after creation
+MY SPECIFIC FIX RECOMMENDATIONS:
+FIX #1: Add Chat Notification After Monitor Creation
+After successful monitor creation:
+User: "Set up a monitor to track new reviews for The Brewery Tap"
+

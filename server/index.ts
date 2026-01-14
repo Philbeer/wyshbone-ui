@@ -1,14 +1,23 @@
+// CRITICAL: Configure DNS resolution FIRST (before any network imports)
+// Some Supabase endpoints only have IPv6 addresses - prefer IPv6 to avoid ENOTFOUND errors
+import dns from 'node:dns';
+dns.setDefaultResultOrder('ipv6first');
+
 // CRITICAL: Load environment variables FIRST
-// Using import syntax ensures this runs before other modules are evaluated
-import "dotenv/config";
-import dotenv from "dotenv";
-// Also load .env.local for local overrides
-dotenv.config({ path: '.env.local', override: true });
+// This must be the very first import - it validates env and exits if missing
+import './env.js';
 
 import express, { type Request, Response, NextFunction } from "express";
 import cors from "cors";
 import { registerRoutes } from "./routes";
 import { nangoRouter } from "./routes/nango";
+import { taskTrackingRouter } from "./routes/task-tracking";
+import { toolsExecuteRouter } from "./routes/tools-execute";
+import { createSuppliersRouter } from "./routes/suppliers";
+import { wabsScoresRouter } from "./routes/wabs-scores";
+import { storage } from "./storage";
+import { logDemoConfig } from "./demo-config";
+import { runSchemaHealthCheck } from "./schema-check";
 
 // Simple log function (no Vite dependency for production)
 function log(message: string, source = "express") {
@@ -24,10 +33,18 @@ function log(message: string, source = "express") {
 const app = express();
 
 // CORS configuration for cross-origin requests (Vercel frontend → Render backend)
+// Vite may use ports 5173-5179 depending on availability
 const allowedOrigins = [
   'http://localhost:3000',
   'http://localhost:5173',
+  'http://localhost:5174',
+  'http://localhost:5175',
+  'http://localhost:5176',
+  'http://localhost:5177',
+  'http://localhost:5178',
+  'http://localhost:5179',
   'http://localhost:5000',
+  'http://localhost:5001',
   process.env.FRONTEND_URL, // e.g., https://wyshbone.vercel.app
 ].filter(Boolean) as string[];
 
@@ -59,8 +76,35 @@ app.use(express.urlencoded({ extended: false }));
 // Mount Nango router
 app.use(nangoRouter);
 
+// Mount task tracking router (for Claude Code auto-detection)
+app.use(taskTrackingRouter);
+console.log('✅ Task tracking router mounted');
+
+// Mount tools execution router (unified tool endpoint)
+app.use(toolsExecuteRouter);
+console.log('✅ Tools execution router mounted');
+
+// Mount WABS scores router (WABS judgement system scores)
+app.use(wabsScoresRouter);
+console.log('✅ WABS scores router mounted');
+
+// Mount suppliers router (CRM suppliers management)
+const suppliersRouter = createSuppliersRouter(storage);
+app.use("/api/suppliers", suppliersRouter);
+console.log('✅ Suppliers router mounted at /api/suppliers');
+
 // Health check endpoint for load balancers and monitoring
 app.get('/health', (_req, res) => {
+  res.status(200).json({
+    status: 'healthy',
+    service: 'wyshbone-ui',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime()
+  });
+});
+
+// Health check endpoint alias for Tower compatibility
+app.get('/api/health', (_req, res) => {
   res.status(200).json({
     status: 'healthy',
     service: 'wyshbone-ui',
@@ -162,6 +206,12 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // Log demo mode configuration
+  logDemoConfig();
+  
+  // Run non-fatal schema health check (logs warnings if CRM tables missing)
+  await runSchemaHealthCheck();
+  
   const server = await registerRoutes(app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
@@ -192,6 +242,24 @@ app.use((req, res, next) => {
     // Start monitor background worker
     const { startMonitorWorker } = await import('./monitor-worker');
     startMonitorWorker();
+    
+    // Start Xero sync cron jobs (if webhook key configured)
+    if (process.env.XERO_CLIENT_ID) {
+      const { startXeroSyncCron } = await import('./cron/xero-sync');
+      const { getXeroSyncFunctions } = await import('./routes/xero-sync');
+      const syncFunctions = getXeroSyncFunctions();
+      if (syncFunctions) {
+        startXeroSyncCron({
+          processSyncQueue: syncFunctions.processSyncQueue,
+          backupPollXero: syncFunctions.backupPollXero,
+        });
+      }
+    }
+    
+    // Start nightly database maintenance cron jobs
+    // Only runs in production or when ENABLE_CRON=true
+    const { setupCronJobs } = await import('./cron/nightly-maintenance');
+    setupCronJobs();
     
     // Print region service documentation
     console.log('\n' + '='.repeat(80));

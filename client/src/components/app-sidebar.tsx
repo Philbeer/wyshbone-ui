@@ -1,10 +1,15 @@
-import { Globe, MessageSquare, Bug, FilePlus, MessagesSquare, ChevronDown, ChevronRight, Clock, Edit2, Trash2, Mail, Link2, User, CreditCard, History } from "lucide-react";
+import { Globe, MessageSquare, Bug, FilePlus, MessagesSquare, ChevronDown, ChevronRight, Clock, Edit2, Trash2, Mail, Link2, User, CreditCard, History, Users, Sparkles, Factory, HelpCircle, FlaskConical, Bot, Database, Calendar, ClipboardCheck, Search } from "lucide-react";
+import { Badge as UIBadge } from "@/components/ui/badge";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { useUser } from "@/contexts/UserContext";
 import { authedFetch, buildApiUrl, addDevAuthParams } from "@/lib/queryClient";
 import { useSidebarFlash } from "@/contexts/SidebarFlashContext";
+import { useVerticalLabels } from "@/lib/verticals";
+import { VerticalSelector } from "@/components/VerticalSelector";
+import { useOnboardingTourContext } from "@/contexts/OnboardingTourContext";
+import { useDemoModeContext } from "@/contexts/DemoModeContext";
 import {
   Sidebar,
   SidebarContent,
@@ -331,12 +336,60 @@ const Badge: React.FC<{ status: RunStatus }> = ({ status }) => {
     failed: "bg-rose-100 text-rose-800 dark:bg-rose-900 dark:text-rose-200",
     stopped: "bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200",
   };
+  
+  // Status emoji mapping
+  const emoji: Record<RunStatus, string> = {
+    queued: "⏳",
+    running: "🔄",
+    in_progress: "🔄",
+    completed: "✅",
+    failed: "❌",
+    stopped: "⏹️",
+  };
+  
   return (
     <span className={`inline-block text-[10px] px-2 py-0.5 rounded-full ${map[status]}`}>
-      {status}
+      {emoji[status]} {status === 'in_progress' ? 'running' : status}
     </span>
   );
 };
+
+/**
+ * Extract a clean, short title from a deep research query
+ * "Deep research on pubs in Leeds, UK. Please deliver..." → "Leeds Pubs Research"
+ */
+function extractCleanTitle(label: string, startedAt: string): string {
+  // Try to extract "on [topic]" pattern
+  const onMatch = label.match(/(?:deep\s+research\s+)?on\s+(.+?)(?:\.|,|please|deliver|include|focus|in\s+the\s+format)/i);
+  let topic = onMatch ? onMatch[1].trim() : label;
+  
+  // If still too long, take first part before period or comma
+  if (topic.length > 60) {
+    const firstPart = topic.split(/[.,]/)[0];
+    topic = firstPart.length > 60 ? firstPart.slice(0, 57) + '...' : firstPart;
+  }
+  
+  // Clean up common patterns
+  topic = topic
+    .replace(/^(deep\s+research\s+on\s+)/i, '')
+    .replace(/\s+uk$/i, '')
+    .replace(/\s+usa$/i, '')
+    .trim();
+  
+  // Capitalize nicely
+  topic = topic.charAt(0).toUpperCase() + topic.slice(1);
+  
+  // Add date
+  const date = new Date(startedAt);
+  const dateStr = date.toLocaleDateString('en-GB', { month: 'short', day: 'numeric' });
+  
+  // Limit total length
+  if (topic.length > 40) {
+    topic = topic.slice(0, 37) + '...';
+  }
+  
+  return `${topic} • ${dateStr}`;
+}
 
 
 const RunRow: React.FC<{
@@ -375,7 +428,7 @@ const RunRow: React.FC<{
           </span>
           <div className="flex items-start gap-2 mb-2 flex-wrap">
             <span className="text-[14px] font-semibold text-foreground leading-snug">
-              {run.label}
+              {isDeepResearch ? extractCleanTitle(run.label, run.startedAt) : run.label}
             </span>
             <Badge status={run.status} />
           </div>
@@ -502,6 +555,54 @@ const RunRow: React.FC<{
   );
 };
 
+/**
+ * UI-17: Tour Button Component
+ * Shows a "Take a Tour" button that opens the onboarding walkthrough.
+ * UI-19: Improved label copy
+ */
+function TourButton() {
+  const { startTour, hasCompletedTour } = useOnboardingTourContext();
+  
+  return (
+    <SidebarMenuItem>
+      <SidebarMenuButton
+        onClick={startTour}
+        data-testid="button-start-tour"
+        className="text-muted-foreground hover:text-foreground"
+        title="Quick walkthrough of Wyshbone's main features"
+      >
+        <HelpCircle className="h-4 w-4" />
+        <span>{hasCompletedTour ? 'Show me around again' : 'Show me around'}</span>
+      </SidebarMenuButton>
+    </SidebarMenuItem>
+  );
+}
+
+/**
+ * UI-20: Demo Mode Toggle Button
+ * Allows users to toggle demo mode on/off from the sidebar.
+ */
+function DemoModeToggle() {
+  const { demoMode, enableDemoMode, disableDemoMode } = useDemoModeContext();
+  
+  return (
+    <SidebarMenuItem>
+      <SidebarMenuButton
+        onClick={() => demoMode ? disableDemoMode() : enableDemoMode()}
+        data-testid="button-toggle-demo"
+        className={demoMode 
+          ? "text-amber-600 hover:text-amber-700 bg-amber-50 dark:bg-amber-950/30" 
+          : "text-muted-foreground hover:text-foreground"
+        }
+        title={demoMode ? "Exit demo mode and use real data" : "Try Wyshbone with sample brewery data"}
+      >
+        <FlaskConical className="h-4 w-4" />
+        <span>{demoMode ? 'Exit Demo Mode' : 'Try Demo Mode'}</span>
+      </SidebarMenuButton>
+    </SidebarMenuItem>
+  );
+}
+
 export function AppSidebar({ 
   defaultCountry, 
   onCountryChange,
@@ -520,13 +621,15 @@ export function AppSidebar({
   const { user } = useUser();
   const [location, setLocation] = useLocation();
   const { lastTriggerBySection } = useSidebarFlash();
+  const { labels } = useVerticalLabels();
   const [showArchived, setShowArchived] = useState(false);
   const [localRuns, setLocalRuns] = useState<RunItem[]>(runs);
   const [showPreviousChats, setShowPreviousChats] = useState(false);
   const [showScheduledMonitors, setShowScheduledMonitors] = useState(false);
   const [showIntegrations, setShowIntegrations] = useState(false);
   const [newRunIds, setNewRunIds] = useState<Set<string>>(new Set());
-  
+  const [viewedResearchIds, setViewedResearchIds] = useState<Set<string>>(new Set());
+
   const [flashingSection, setFlashingSection] = useState<string | null>(null);
 
   // Watch for flash triggers from other components
@@ -580,15 +683,27 @@ export function AppSidebar({
     return { todays: t, previous: p };
   }, [localRuns, showArchived]);
 
+  // Calculate unviewed deep research count
+  const unviewedResearchCount = useMemo(() => {
+    return localRuns.filter(run =>
+      run.runType === "deep_research" &&
+      run.status === "completed" &&
+      !viewedResearchIds.has(run.id)
+    ).length;
+  }, [localRuns, viewedResearchIds]);
+
   const mutate = (fn: (prev: RunItem[]) => RunItem[]) => {
     setLocalRuns((prev) => fn(prev));
   };
 
   const _select = async (id: string) => {
     const run = localRuns.find((r) => r.id === id);
-    
+
     // Track view for deep research runs (for summarization feature)
     if (run && run.runType === "deep_research") {
+      // Mark as viewed in local state
+      setViewedResearchIds(prev => new Set(prev).add(id));
+
       try {
         const response = await authedFetch(`/api/deep-research/${id}/view`, {
           method: "POST",
@@ -596,7 +711,7 @@ export function AppSidebar({
             "Content-Type": "application/json",
           },
         });
-        
+
         // DEV MODE: No auth gating for deep research - just log any errors
         if (!response.ok) {
           console.warn("View tracking returned non-OK status:", response.status);
@@ -608,7 +723,7 @@ export function AppSidebar({
         // Don't block the UI if tracking fails
       }
     }
-    
+
     onSelectRun?.(id);
   };
 
@@ -703,10 +818,10 @@ export function AppSidebar({
     const ref = localRuns.find((r) => r.id === id);
     if (!ref) return;
     
-    // Handle deep research runs
+    // Handle deep research runs - use onSelectRun to open in ResultsPanel
     if (ref.runType === "deep_research") {
-      const url = buildApiUrl(addDevAuthParams(`/api/deep-research/${id}`));
-      window.open(url, "_blank", "noopener,noreferrer");
+      // Call the same handler as clicking the run card - this opens ResultsPanel
+      onSelectRun?.(id);
       return;
     }
     
@@ -782,6 +897,16 @@ export function AppSidebar({
                 </Select>
               </SidebarMenuItem>
             </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        <SidebarGroup data-tour-id="vertical">
+          <SidebarGroupLabel className="flex items-center gap-2 ml-5">
+            <Factory className="h-4 w-4" />
+            Industry Vertical
+          </SidebarGroupLabel>
+          <SidebarGroupContent>
+            <VerticalSelector />
           </SidebarGroupContent>
         </SidebarGroup>
 
@@ -866,6 +991,22 @@ export function AppSidebar({
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={location === "/leads"} data-testid="link-leads">
+                  <Link href="/leads">
+                    <Users className="h-4 w-4" />
+                    <span>{labels.nav_leads}</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem data-tour-id="nudges">
+                <SidebarMenuButton asChild isActive={location === "/nudges"} data-testid="link-nudges">
+                  <Link href="/nudges">
+                    <Sparkles className="h-4 w-4" />
+                    <span>Nudges</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
                 <Collapsible open={showIntegrations} onOpenChange={setShowIntegrations}>
                   <CollapsibleTrigger asChild>
                     <SidebarMenuButton data-testid="button-toggle-integrations">
@@ -888,9 +1029,73 @@ export function AppSidebar({
                   </CollapsibleContent>
                 </Collapsible>
               </SidebarMenuItem>
+              <TourButton />
+              <DemoModeToggle />
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
+
+        {/* Discovery Section */}
+        <SidebarGroup>
+          <SidebarGroupLabel>Discovery</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={location === "/auth/crm/events" || location === "/events"} data-testid="link-events">
+                  <Link href="/auth/crm/events">
+                    <Calendar className="h-4 w-4" />
+                    <span>📅 Events</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={location === "/auth/crm/entity-review" || location === "/entity-review"} data-testid="link-entity-review">
+                  <Link href="/auth/crm/entity-review">
+                    <ClipboardCheck className="h-4 w-4" />
+                    <span>📋 Review Queue</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        {/* Developer Tools - only shown in development or to admins */}
+        {(process.env.NODE_ENV === 'development' || user?.role === 'admin' || ['phil@wyshbone.com', 'phil@listersbrewery.com'].includes(user?.email?.toLowerCase() || '')) && (
+          <SidebarGroup>
+            <SidebarGroupLabel>Dev Tools</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                <SidebarMenuItem>
+                  <SidebarMenuButton asChild isActive={location === "/dev/sleeper-agent"} data-testid="link-dev-sleeper-agent">
+                    <Link href="/dev/sleeper-agent">
+                      <Bot className="h-4 w-4" />
+                      <span>🤖 Sleeper Monitor</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+                <SidebarMenuItem>
+                  <SidebarMenuButton asChild isActive={location === "/dev/progress"} data-testid="link-dev-progress">
+                    <Link href="/dev/progress">
+                      <FlaskConical className="h-4 w-4" />
+                      <span>📊 Dev Progress</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+                {(user?.role === 'admin' || ['phil@wyshbone.com', 'phil@listersbrewery.com'].includes(user?.email?.toLowerCase() || '')) && (
+                  <SidebarMenuItem>
+                    <SidebarMenuButton asChild isActive={location === "/admin/database-maintenance"} data-testid="link-admin-db-maintenance">
+                      <Link href="/admin/database-maintenance">
+                        <Database className="h-4 w-4" />
+                        <span>🗄️ DB Maintenance</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                )}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
 
         <SidebarGroup>
           <SidebarGroupLabel>Monitors</SidebarGroupLabel>
@@ -940,8 +1145,13 @@ export function AppSidebar({
         </SidebarGroup>
 
         <SidebarGroup>
-          <SidebarGroupLabel className={flashingSection === 'deepResearch' ? 'animate-flash-border' : ''}>
-            Deep Researches
+          <SidebarGroupLabel className={`flex items-center gap-2 ${flashingSection === 'deepResearch' ? 'animate-flash-border' : ''}`}>
+            <span>Deep Researches</span>
+            {unviewedResearchCount > 0 && (
+              <UIBadge variant="default" className="ml-auto">
+                {unviewedResearchCount} NEW
+              </UIBadge>
+            )}
           </SidebarGroupLabel>
           <SidebarGroupContent className="px-3">
             <p className="text-xs text-muted-foreground mb-3">

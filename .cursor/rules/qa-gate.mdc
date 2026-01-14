@@ -1,0 +1,56 @@
+---
+alwaysApply: false
+name: qa_gate
+description: |
+  QA guidelines for agent tasks. Smoke tests are OPTIONAL for local development
+  and run automatically in CI. Only run when explicitly requested or for major changes.
+---
+
+# QA Guidelines
+
+## Local Development (Default)
+
+For most local changes, **skip smoke tests**. Use fast checks only:
+
+```bash
+npm run check      # TypeScript typecheck (fast)
+```
+
+**Smoke tests (`npm run smoke`) are NOT required for every task.**
+
+## When to Run Smoke Tests
+
+Run smoke tests ONLY when:
+1. User explicitly requests it ("run smoke", "full QA", "test everything")
+2. Making significant changes to core CRM flows (products, orders, customers)
+3. User says "done" or "ship it" on a major feature
+
+## CI Automation
+
+Smoke tests run automatically in GitHub Actions on:
+- Push to main/develop branches
+- Pull requests
+
+## If Smoke Tests Are Requested
+
+Run `npm run smoke` and report results:
+
+```markdown
+## QA Report
+
+| Step | Result |
+|------|--------|
+| 1. Boot FE+BE | ✅/❌ |
+| 2. Create Product | ✅/❌ |
+| 3. List Products | ✅/❌ |
+| 4. Edit Product | ✅/❌ |
+| 5. Create Order | ✅/❌ |
+| 6. Add Line Item | ✅/❌ |
+| 7. Refresh | ✅/❌ |
+| 8. No Errors | ✅/❌ |
+```
+
+## Skipping QA
+
+For documentation-only changes or when user says "skip QA", state:
+> "QA skipped - no code changes" or "QA skipped per user request"

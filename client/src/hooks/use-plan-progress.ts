@@ -3,6 +3,10 @@ import { useUser } from "@/contexts/UserContext";
 import { authedFetch } from "@/lib/queryClient";
 import { useRef, useEffect } from "react";
 
+// FAST DEV MODE: Use fast polling in development
+const IS_DEV = import.meta.env.MODE === 'development';
+const PROGRESS_POLL_INTERVAL = IS_DEV ? 300 : 5000; // 300ms in dev, 5s in prod
+
 export interface PlanStepProgress {
   id: string;
   type: string;
@@ -66,8 +70,8 @@ export function usePlanProgress(planId: string | null, isActive: boolean): PlanP
       return responseData;
     },
     enabled: !!user && !!planId && isActive,
-    refetchInterval: isActive ? 5000 : false, // Poll every 5 seconds only when active
-    staleTime: 3000,
+    refetchInterval: isActive ? PROGRESS_POLL_INTERVAL : false, // Fast in dev, slow in prod
+    staleTime: IS_DEV ? 100 : 3000,
   });
 
   // Update snapshot when we get new data
