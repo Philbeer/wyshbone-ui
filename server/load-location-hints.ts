@@ -2,7 +2,8 @@ import fs from 'fs';
 import { parse } from 'csv-parse/sync';
 import { neon } from '@neondatabase/serverless';
 
-const sql = neon(process.env.DATABASE_URL!);
+const dbUrl = process.env.SUPABASE_DATABASE_URL || process.env.DATABASE_URL;
+const sql = neon(dbUrl!);
 
 async function loadLocationHints() {
   console.log('🚀 Starting location hints import...');

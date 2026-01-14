@@ -1144,15 +1144,18 @@ export class MemStorage implements IStorage {
 }
 
 // Database connection validation and setup
-if (!process.env.DATABASE_URL) {
-  console.error('❌ FATAL: DATABASE_URL environment variable is not set.');
-  console.error('   Please set DATABASE_URL in your .env or .env.local file.');
-  console.error('   Example: DATABASE_URL=postgres://user:pass@host:5432/dbname');
-  throw new Error('DATABASE_URL is required but not set. Check your environment configuration.');
+// Prefer SUPABASE_DATABASE_URL to avoid conflict with Replit's built-in DATABASE_URL
+const DATABASE_CONNECTION_URL = process.env.SUPABASE_DATABASE_URL || process.env.DATABASE_URL;
+
+if (!DATABASE_CONNECTION_URL) {
+  console.error('❌ FATAL: Database URL environment variable is not set.');
+  console.error('   Please set SUPABASE_DATABASE_URL or DATABASE_URL in your .env or .env.local file.');
+  console.error('   Example: SUPABASE_DATABASE_URL=postgres://user:pass@host:5432/dbname');
+  throw new Error('Database URL is required but not set. Check your environment configuration.');
 }
 
 // Set faster connection and query timeout for quicker fallback in demo mode
-const queryClient = postgres(process.env.DATABASE_URL, {
+const queryClient = postgres(DATABASE_CONNECTION_URL, {
   connect_timeout: 5, // 5 second connection timeout (default is much longer)
   idle_timeout: 10,
   max_lifetime: 60 * 30,

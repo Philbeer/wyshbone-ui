@@ -130,9 +130,10 @@ export async function runSchemaHealthCheck(): Promise<SchemaCheckResult> {
     warnings: [],
   };
 
-  // Skip check if DATABASE_URL not configured
-  if (!process.env.DATABASE_URL) {
-    console.warn('⚠️ [Schema Check] DATABASE_URL not set, skipping schema check');
+  // Skip check if database URL not configured
+  const dbUrl = process.env.SUPABASE_DATABASE_URL || process.env.DATABASE_URL;
+  if (!dbUrl) {
+    console.warn('⚠️ [Schema Check] Database URL not set, skipping schema check');
     return result;
   }
 
@@ -140,7 +141,7 @@ export async function runSchemaHealthCheck(): Promise<SchemaCheckResult> {
   
   try {
     // Create a dedicated connection for schema check with short timeout
-    queryClient = postgres(process.env.DATABASE_URL, {
+    queryClient = postgres(dbUrl, {
       connect_timeout: 5,
       idle_timeout: 5,
       max: 1,
