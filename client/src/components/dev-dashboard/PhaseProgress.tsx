@@ -182,7 +182,7 @@ const MICROTASK_GUIDANCE: Record<string, MicrotaskGuidance> = {
 
   // Multi-brewery analytics dashboard microtasks
   'Design brewery selector dropdown with tenant filtering': {
-    explanation: 'Add a dropdown menu that lets users choose which brewery's data they want to view.',
+    explanation: 'Add a dropdown menu that lets users choose which brewery data they want to view.',
     suggestedSuccessCriteria: 'I can see a dropdown at the top of the page listing all breweries, and selecting one filters all data to that brewery.',
   },
   'Create aggregated metrics cards (total orders, revenue, inventory)': {
@@ -195,10 +195,10 @@ const MICROTASK_GUIDANCE: Record<string, MicrotaskGuidance> = {
   },
   'Implement drill-down view by individual brewery': {
     explanation: 'Allow users to click on a brewery to see detailed information just for that brewery.',
-    suggestedSuccessCriteria: 'When I click on a brewery name, I see a detail page showing that brewery's orders, revenue, and inventory.',
+    suggestedSuccessCriteria: 'When I click on a brewery name, I see a detail page showing that brewery orders, revenue, and inventory.',
   },
   'Add low-inventory alerts per brewery': {
-    explanation: 'Show warnings when any brewery's inventory drops below a safe level.',
+    explanation: 'Show warnings when any brewery inventory drops below a safe level.',
     suggestedSuccessCriteria: 'I can see a red alert badge next to any brewery with inventory below 10 units.',
   },
   'Create consolidated CSV export across all breweries': {
