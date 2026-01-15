@@ -183,9 +183,9 @@ function DataSourceBadge() {
             To switch to <strong>{targetLabel}</strong>:
           </p>
           <ol style={{ margin: '0 0 10px 0', paddingLeft: '20px', color: '#aaa' }}>
-            <li>Open the <strong>Secrets</strong> panel in Replit</li>
-            <li>Set <code style={{ background: '#333', padding: '2px 6px', borderRadius: '2px' }}>VITE_USE_MOCK_AFR={targetValue}</code></li>
-            <li>Restart the application</li>
+            <li>Open the <strong>Secrets</strong> tab in your Replit project (left sidebar)</li>
+            <li>Find <code style={{ background: '#333', padding: '2px 6px', borderRadius: '2px' }}>VITE_USE_MOCK_AFR</code> and change it to <code style={{ background: '#333', padding: '2px 6px', borderRadius: '2px' }}>{targetValue}</code></li>
+            <li>Restart the application (click Stop then Run)</li>
           </ol>
           <button
             onClick={() => setShowInstructions(false)}
