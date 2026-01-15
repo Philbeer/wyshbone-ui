@@ -96,7 +96,9 @@ import type {
   InsertDeliveryBase,
   SelectDeliveryBase,
   InsertAgentActivity,
-  SelectAgentActivity
+  SelectAgentActivity,
+  InsertAfrRuleUpdate,
+  SelectAfrRuleUpdate
 } from "@shared/schema";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
@@ -148,7 +150,8 @@ import {
   deliveryBases,
   deliveryRoutes,
   routeStops,
-  routeOptimizationResults
+  routeOptimizationResults,
+  afrRuleUpdates
 } from "@shared/schema";
 import { eq, or, and, desc, asc, lt, gt, lte, gte, isNull, sql } from "drizzle-orm";
 
@@ -4263,6 +4266,43 @@ export class DbStorage implements IStorage {
       .where(eq(routeOptimizationResults.workspaceId, workspaceId))
       .orderBy(desc(routeOptimizationResults.createdAt))
       .limit(50);
+  }
+
+  // ============================================
+  // AFR (Agent Flight Recorder)
+  // ============================================
+
+  async listAfrRuleUpdates(limit: number = 200): Promise<SelectAfrRuleUpdate[]> {
+    return await db
+      .select()
+      .from(afrRuleUpdates)
+      .orderBy(desc(afrRuleUpdates.createdAt))
+      .limit(limit);
+  }
+
+  async getAfrRuleUpdate(id: string): Promise<SelectAfrRuleUpdate | null> {
+    const results = await db
+      .select()
+      .from(afrRuleUpdates)
+      .where(eq(afrRuleUpdates.id, id))
+      .limit(1);
+    return results[0] || null;
+  }
+
+  async getAfrRuleUpdatesByEvidenceRunId(runId: string): Promise<SelectAfrRuleUpdate[]> {
+    return await db
+      .select()
+      .from(afrRuleUpdates)
+      .where(sql`${runId} = ANY(${afrRuleUpdates.evidenceRunIds})`)
+      .orderBy(desc(afrRuleUpdates.createdAt));
+  }
+
+  async listDeepResearchRunsForAfr(limit: number = 200): Promise<SelectDeepResearchRun[]> {
+    return await db
+      .select()
+      .from(deepResearchRuns)
+      .orderBy(desc(deepResearchRuns.createdAt))
+      .limit(limit);
   }
 }
 

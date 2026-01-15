@@ -10,11 +10,11 @@ export interface Run {
   created_at: string;
   vertical: string;
   goal_summary: string;
-  goal_worth: GoalWorth;
-  status: 'running' | 'completed' | 'failed' | 'stopped';
-  score?: number;
+  goal_worth: GoalWorth | null;
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'stopped';
+  score?: number | null;
   stop_triggered: boolean;
-  verdict?: 'continue' | 'revise' | 'abandon';
+  verdict?: 'continue' | 'revise' | 'abandon' | null;
 }
 
 export interface Decision {
@@ -45,7 +45,11 @@ export interface Outcome {
   id: string;
   run_id?: string;
   decision_id?: string;
-  outcome_summary: string;
+  outcome_summary?: string;
+  summary?: string;
+  full_output?: string;
+  status?: 'success' | 'partial' | 'failed';
+  created_at?: string;
   metrics_json?: Record<string, any>;
 }
 
@@ -59,11 +63,24 @@ export interface TowerVerdict {
 export interface RuleUpdate {
   id: string;
   created_at: string;
+  updated_at?: string;
   rule_text: string;
   scope: string;
   confidence: 'low' | 'med' | 'high';
-  status: 'active' | 'disabled';
+  status: 'active' | 'disabled' | 'invalid';
   update_type: 'create' | 'adjust' | 'retire';
-  reason: string;
+  reason: string | null;
   evidence_run_ids: string[];
+  source?: 'human' | 'agent' | 'hybrid';
+  supersedes_rule_id?: string | null;
+}
+
+export interface RunBundle {
+  run: Run;
+  decisions: Decision[];
+  expected_signals: ExpectedSignal[];
+  stop_conditions: StopCondition[];
+  outcome: Outcome | null;
+  tower_verdict: TowerVerdict | null;
+  related_rule_updates: RuleUpdate[];
 }

@@ -53,6 +53,7 @@ import { createSuppliersRouter } from "./routes/suppliers";
 import { createActivityLogRouter } from "./routes/activity-log";
 import { routePlannerRoutes } from "./routes/route-planner";
 import { agentActivitiesRouter } from "./routes/agent-activities";
+import { createAfrRouter } from "./routes/afr";
 import { hashPassword, verifyPassword, generateId, canCreateMonitor, canCreateDeepResearch, TIER_LIMITS } from "./auth";
 import { signupRequestSchema, loginRequestSchema, updateProfileRequestSchema } from "@shared/schema";
 import { buildSessionContext, generatePersonalizedOpening, type SessionContext } from "./lib/context";
@@ -6777,6 +6778,9 @@ ${run.outputText}`;
 
   // Register Agent Activities routes (autonomous agent activity feed)
   app.use(agentActivitiesRouter(storage));
+
+  // Register AFR (Agent Flight Recorder) routes - dev inspector API
+  app.use("/api/afr", createAfrRouter(storage));
 
   // Register Route Planner routes
   app.use("/api", routePlannerRoutes);
