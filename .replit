@@ -45,4 +45,4 @@ expertMode = true
 [userenv]
 
 [userenv.shared]
-VITE_USE_MOCK_AFR = "true"
+VITE_USE_MOCK_AFR = "false"
