@@ -1,8 +1,8 @@
 import { Router } from "express";
-import type { DbStorage } from "../storage";
+import { storage } from "../storage";
 import type { Run, RuleUpdate, RunBundle } from "../../client/src/types/afr";
 
-export function createAfrRouter(storage: DbStorage) {
+export function createAfrRouter(_storage: typeof storage) {
   const router = Router();
 
   router.get("/runs", async (req, res) => {

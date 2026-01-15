@@ -1,18 +1,7 @@
 import { useState, useEffect } from 'react';
-import { useLocation, useSearch } from 'wouter';
-import type { Run, RuleUpdate } from '@/types/afr';
-import {
-  getAllRuns,
-  getRunById,
-  getDecisionsForRun,
-  getSignalsForRun,
-  getStopConditionsForRun,
-  getOutcomeForRun,
-  getVerdictForRun,
-  getRulesReferencingRun,
-  getAllRules,
-  getRuleById,
-} from '@/mock/afr';
+import { useSearch } from 'wouter';
+import type { Run, RuleUpdate, RunBundle } from '@/types/afr';
+import { fetchRuns, fetchRunBundle, fetchRules, fetchRule, isUsingMockData } from '@/lib/afr-data';
 
 type View = 'runs' | 'run-detail' | 'ledger';
 
@@ -42,25 +31,6 @@ export default function InspectorPage() {
   const [selectedRunId, setSelectedRunId] = useState<string | null>(initialRunId);
   const [selectedRuleId, setSelectedRuleId] = useState<string | null>(initialRuleId);
   const [notFoundId, setNotFoundId] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (initialRunId) {
-      const run = getRunById(initialRunId);
-      if (!run) {
-        setNotFoundId(initialRunId);
-        setView('runs');
-        setSelectedRunId(null);
-      }
-    }
-    if (initialRuleId) {
-      const rule = getRuleById(initialRuleId);
-      if (!rule) {
-        setNotFoundId(initialRuleId);
-        setView('ledger');
-        setSelectedRuleId(null);
-      }
-    }
-  }, []);
 
   const handleRunClick = (runId: string) => {
     setSelectedRunId(runId);
@@ -104,7 +74,8 @@ export default function InspectorPage() {
   return (
     <div style={{ padding: '20px', fontFamily: 'monospace', background: '#1a1a1a', color: '#e0e0e0', minHeight: '100vh' }}>
       <h1 style={{ marginBottom: '10px', color: '#ff6b6b' }}>Agent Flight Recorder (AFR)</h1>
-      <p style={{ color: '#888', marginBottom: '20px' }}>Internal dev inspector - read only</p>
+      <p style={{ color: '#888', marginBottom: '10px' }}>Internal dev inspector - read only</p>
+      <DataSourceBadge />
 
       <div style={{ marginBottom: '20px', display: 'flex', gap: '10px' }}>
         <TabButton active={view === 'runs'} onClick={() => handleTabChange('runs')}>
@@ -155,6 +126,27 @@ export default function InspectorPage() {
   );
 }
 
+function DataSourceBadge() {
+  const isMock = isUsingMockData();
+  return (
+    <div style={{ 
+      marginBottom: '15px', 
+      padding: '8px 12px', 
+      background: isMock ? '#4a3f00' : '#003d00',
+      border: `1px solid ${isMock ? '#ffa500' : '#4aff4a'}`,
+      borderRadius: '4px',
+      fontSize: '12px',
+    }}>
+      <strong>Data Source:</strong>{' '}
+      {isMock ? (
+        <span style={{ color: '#ffa500' }}>MOCK DATA (VITE_USE_MOCK_AFR=true)</span>
+      ) : (
+        <span style={{ color: '#4aff4a' }}>REAL DATABASE (Supabase)</span>
+      )}
+    </div>
+  );
+}
+
 function TabButton({ active, onClick, disabled, children }: { 
   active: boolean; 
   onClick: () => void; 
@@ -180,11 +172,24 @@ function TabButton({ active, onClick, disabled, children }: {
 }
 
 function RunsList({ onRunClick }: { onRunClick: (runId: string) => void }) {
-  const runs = getAllRuns();
+  const [runs, setRuns] = useState<Run[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetchRuns()
+      .then(setRuns)
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return <div style={{ color: '#888' }}>Loading runs...</div>;
+  if (error) return <div style={{ color: '#ff4a4a' }}>Error: {error}</div>;
+  if (runs.length === 0) return <div style={{ color: '#888' }}>No runs found. Create some runs to see them here.</div>;
 
   return (
     <div>
-      <h2 style={{ color: '#4a9eff', marginBottom: '15px' }}>Runs List (newest first)</h2>
+      <h2 style={{ color: '#4a9eff', marginBottom: '15px' }}>Runs List (newest first) - {runs.length} runs</h2>
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
         <thead>
           <tr style={{ background: '#2a2a2a', textAlign: 'left' }}>
@@ -207,7 +212,7 @@ function RunsList({ onRunClick }: { onRunClick: (runId: string) => void }) {
               onMouseOut={(e) => (e.currentTarget.style.background = 'transparent')}
             >
               <td style={tdStyle}>{new Date(run.created_at).toLocaleString()}</td>
-              <td style={tdStyle}>{run.goal_summary.substring(0, 50)}...</td>
+              <td style={tdStyle}>{run.goal_summary?.substring(0, 50) || 'No goal'}...</td>
               <td style={tdStyle}><VerticalBadge vertical={run.vertical} /></td>
               <td style={tdStyle}><StatusBadge status={run.status} /></td>
               <td style={tdStyle}>{run.stop_triggered ? '🛑 YES' : '—'}</td>
@@ -226,27 +231,26 @@ function RunDetail({ runId, onBack, onRuleClick }: {
   onBack: () => void;
   onRuleClick: (ruleId: string) => void;
 }) {
+  const [bundle, setBundle] = useState<RunBundle | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-  const run = getRunById(runId);
-  if (!run) return <div>Run not found: {runId}</div>;
 
-  const decisions = getDecisionsForRun(runId);
-  const signals = getSignalsForRun(runId);
-  const stopConditions = getStopConditionsForRun(runId);
-  const outcome = getOutcomeForRun(runId);
-  const verdict = getVerdictForRun(runId);
-  const relatedRules = getRulesReferencingRun(runId);
+  useEffect(() => {
+    setLoading(true);
+    fetchRunBundle(runId)
+      .then(setBundle)
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false));
+  }, [runId]);
+
+  if (loading) return <div style={{ color: '#888' }}>Loading run details...</div>;
+  if (error) return <div style={{ color: '#ff4a4a' }}>Error: {error}</div>;
+  if (!bundle) return <div>Run not found: {runId}</div>;
+
+  const { run, decisions, expected_signals, stop_conditions, outcome, tower_verdict, related_rule_updates } = bundle;
 
   const handleCopyBundle = async () => {
-    const bundle = {
-      run,
-      decisions,
-      expected_signals: signals,
-      stop_conditions: stopConditions,
-      outcome: outcome || null,
-      tower_verdict: verdict || null,
-      related_rule_updates: relatedRules,
-    };
     await navigator.clipboard.writeText(JSON.stringify(bundle, null, 2));
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -274,15 +278,19 @@ function RunDetail({ runId, onBack, onRuleClick }: {
 
       <Block title="1. Goal & Worth">
         <p><strong>Goal:</strong> {run.goal_summary}</p>
-        <p style={{ color: '#888', fontSize: '12px' }}>
-          Value: ${run.goal_worth.value} | Budget: ${run.goal_worth.budget} | 
-          Horizon: {run.goal_worth.time_horizon} | Risk: {run.goal_worth.risk}
-        </p>
+        {run.goal_worth ? (
+          <p style={{ color: '#888', fontSize: '12px' }}>
+            Value: ${run.goal_worth.value} | Budget: ${run.goal_worth.budget} | 
+            Horizon: {run.goal_worth.time_horizon} | Risk: {run.goal_worth.risk}
+          </p>
+        ) : (
+          <NotInstrumented label="Goal worth not captured" />
+        )}
       </Block>
 
       <Block title="2. Decisions Timeline">
         {decisions.length === 0 ? (
-          <p style={{ color: '#666' }}>No decisions recorded</p>
+          <NotInstrumented label="Decision capture not instrumented yet" />
         ) : (
           decisions.map(d => (
             <div key={d.id} style={{ marginBottom: '10px', paddingLeft: '10px', borderLeft: '2px solid #4a9eff' }}>
@@ -295,21 +303,21 @@ function RunDetail({ runId, onBack, onRuleClick }: {
       </Block>
 
       <Block title="3. Expected Signals">
-        {signals.length === 0 ? (
-          <p style={{ color: '#666' }}>No signals defined</p>
+        {expected_signals.length === 0 ? (
+          <NotInstrumented label="Signal capture not instrumented yet" />
         ) : (
           <ul style={{ margin: 0, paddingLeft: '20px' }}>
-            {signals.map(s => <li key={s.id}>{s.signal}</li>)}
+            {expected_signals.map(s => <li key={s.id}>{s.signal}</li>)}
           </ul>
         )}
       </Block>
 
       <Block title="4. Stop Conditions">
-        {stopConditions.length === 0 ? (
-          <p style={{ color: '#666' }}>No stop conditions defined</p>
+        {stop_conditions.length === 0 ? (
+          <NotInstrumented label="Stop conditions not instrumented yet" />
         ) : (
           <ul style={{ margin: 0, paddingLeft: '20px' }}>
-            {stopConditions.map(s => <li key={s.id}>{s.condition}</li>)}
+            {stop_conditions.map(s => <li key={s.id}>{s.condition}</li>)}
           </ul>
         )}
       </Block>
@@ -317,7 +325,16 @@ function RunDetail({ runId, onBack, onRuleClick }: {
       <Block title="5. Outcomes + Tower Verdict">
         {outcome ? (
           <div style={{ marginBottom: '10px' }}>
-            <strong>Outcome:</strong> {outcome.outcome_summary}
+            <strong>Outcome:</strong> {outcome.outcome_summary || outcome.summary || 'No summary'}
+            {outcome.full_output && (
+              <details style={{ marginTop: '5px' }}>
+                <summary style={{ cursor: 'pointer', color: '#4a9eff' }}>View full output</summary>
+                <pre style={{ background: '#222', padding: '8px', fontSize: '11px', marginTop: '5px', whiteSpace: 'pre-wrap' }}>
+                  {outcome.full_output.substring(0, 2000)}
+                  {outcome.full_output.length > 2000 && '...'}
+                </pre>
+              </details>
+            )}
             {outcome.metrics_json && (
               <pre style={{ background: '#222', padding: '8px', fontSize: '11px', marginTop: '5px' }}>
                 {JSON.stringify(outcome.metrics_json, null, 2)}
@@ -325,22 +342,22 @@ function RunDetail({ runId, onBack, onRuleClick }: {
             )}
           </div>
         ) : (
-          <p style={{ color: '#666' }}>No outcome recorded</p>
+          <NotInstrumented label="Outcome capture not instrumented yet" />
         )}
-        {verdict ? (
+        {tower_verdict ? (
           <div style={{ marginTop: '10px' }}>
-            <strong>Tower Verdict:</strong> <VerdictBadge verdict={verdict.verdict} />
-            <p style={{ color: '#888', fontSize: '12px', marginTop: '5px' }}>{verdict.reason}</p>
+            <strong>Tower Verdict:</strong> <VerdictBadge verdict={tower_verdict.verdict} />
+            <p style={{ color: '#888', fontSize: '12px', marginTop: '5px' }}>{tower_verdict.reason}</p>
           </div>
         ) : (
-          <p style={{ color: '#666' }}>No verdict yet</p>
+          <NotInstrumented label="Tower verdict not available (Tower integration pending)" />
         )}
       </Block>
 
-      {relatedRules.length > 0 && (
+      {related_rule_updates.length > 0 && (
         <Block title="Related Rules (from Judgment Ledger)">
           <ul style={{ margin: 0, paddingLeft: '20px' }}>
-            {relatedRules.map(r => (
+            {related_rule_updates.map(r => (
               <li key={r.id}>
                 <button 
                   onClick={() => onRuleClick(r.id)}
@@ -363,8 +380,28 @@ function JudgmentLedger({ selectedRuleId, onRuleClick, onRunClick, onBackToList 
   onRunClick: (runId: string) => void;
   onBackToList: () => void;
 }) {
-  const rules = getAllRules();
-  const selectedRule = selectedRuleId ? getRuleById(selectedRuleId) : null;
+  const [rules, setRules] = useState<RuleUpdate[]>([]);
+  const [selectedRule, setSelectedRule] = useState<RuleUpdate | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetchRules()
+      .then(setRules)
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    if (selectedRuleId) {
+      fetchRule(selectedRuleId).then(setSelectedRule);
+    } else {
+      setSelectedRule(null);
+    }
+  }, [selectedRuleId]);
+
+  if (loading) return <div style={{ color: '#888' }}>Loading rules...</div>;
+  if (error) return <div style={{ color: '#ff4a4a' }}>Error: {error}</div>;
 
   if (selectedRule) {
     return (
@@ -376,9 +413,10 @@ function JudgmentLedger({ selectedRuleId, onRuleClick, onRunClick, onBackToList 
           <p><strong>{selectedRule.rule_text}</strong></p>
           <p style={{ color: '#888', fontSize: '12px' }}>
             Scope: {selectedRule.scope} | Confidence: <ConfidenceBadge confidence={selectedRule.confidence} /> | 
-            Status: <StatusBadge status={selectedRule.status as any} /> | Type: {selectedRule.update_type}
+            Status: <StatusBadge status={selectedRule.status} /> | Type: {selectedRule.update_type}
+            {selectedRule.source && <> | Source: {selectedRule.source}</>}
           </p>
-          <p style={{ color: '#888', fontSize: '12px' }}>Reason: {selectedRule.reason}</p>
+          <p style={{ color: '#888', fontSize: '12px' }}>Reason: {selectedRule.reason || 'No reason provided'}</p>
           <p style={{ color: '#666', fontSize: '11px' }}>Created: {new Date(selectedRule.created_at).toLocaleString()}</p>
         </Block>
 
@@ -389,19 +427,16 @@ function JudgmentLedger({ selectedRuleId, onRuleClick, onRunClick, onBackToList 
             </div>
           ) : (
             <ul style={{ margin: 0, paddingLeft: '20px' }}>
-              {selectedRule.evidence_run_ids.map(runId => {
-                const run = getRunById(runId);
-                return (
-                  <li key={runId}>
-                    <button
-                      onClick={() => onRunClick(runId)}
-                      style={{ background: 'none', border: 'none', color: '#4a9eff', cursor: 'pointer', textDecoration: 'underline' }}
-                    >
-                      {runId}: {run?.goal_summary.substring(0, 40) || 'Unknown'}...
-                    </button>
-                  </li>
-                );
-              })}
+              {selectedRule.evidence_run_ids.map(runId => (
+                <li key={runId}>
+                  <button
+                    onClick={() => onRunClick(runId)}
+                    style={{ background: 'none', border: 'none', color: '#4a9eff', cursor: 'pointer', textDecoration: 'underline' }}
+                  >
+                    {runId}
+                  </button>
+                </li>
+              ))}
             </ul>
           )}
         </Block>
@@ -409,9 +444,18 @@ function JudgmentLedger({ selectedRuleId, onRuleClick, onRunClick, onBackToList 
     );
   }
 
+  if (rules.length === 0) {
+    return (
+      <div>
+        <h2 style={{ color: '#4a9eff', marginBottom: '15px' }}>Judgment Ledger (Rules)</h2>
+        <div style={{ color: '#888' }}>No rules found. Rules will appear here as the system learns from runs.</div>
+      </div>
+    );
+  }
+
   return (
     <div>
-      <h2 style={{ color: '#4a9eff', marginBottom: '15px' }}>Judgment Ledger (Rules)</h2>
+      <h2 style={{ color: '#4a9eff', marginBottom: '15px' }}>Judgment Ledger (Rules) - {rules.length} rules</h2>
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
         <thead>
           <tr style={{ background: '#2a2a2a', textAlign: 'left' }}>
@@ -435,7 +479,7 @@ function JudgmentLedger({ selectedRuleId, onRuleClick, onRunClick, onBackToList 
               <td style={tdStyle}>{rule.rule_text.substring(0, 50)}...</td>
               <td style={tdStyle}>{rule.scope}</td>
               <td style={tdStyle}><ConfidenceBadge confidence={rule.confidence} /></td>
-              <td style={tdStyle}><StatusBadge status={rule.status as any} /></td>
+              <td style={tdStyle}><StatusBadge status={rule.status} /></td>
               <td style={tdStyle}>
                 {rule.evidence_run_ids.length === 0 ? (
                   <span style={{ color: '#ff4444', fontWeight: 'bold' }}>⚠️ NONE</span>
@@ -452,6 +496,21 @@ function JudgmentLedger({ selectedRuleId, onRuleClick, onRunClick, onBackToList 
   );
 }
 
+function NotInstrumented({ label }: { label: string }) {
+  return (
+    <div style={{ 
+      background: '#3d3d00', 
+      border: '1px dashed #888', 
+      padding: '10px', 
+      color: '#ccc',
+      fontSize: '12px',
+      fontStyle: 'italic',
+    }}>
+      ⚙️ {label}
+    </div>
+  );
+}
+
 function Block({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div style={{ background: '#222', padding: '15px', marginBottom: '15px', borderRadius: '4px' }}>
@@ -463,12 +522,14 @@ function Block({ title, children }: { title: string; children: React.ReactNode }
 
 function StatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {
+    pending: '#888',
     running: '#4a9eff',
     completed: '#4aff4a',
     failed: '#ff4a4a',
     stopped: '#ff9f4a',
     active: '#4aff4a',
     disabled: '#888',
+    invalid: '#ff4a4a',
   };
   return (
     <span style={{ 
@@ -484,7 +545,7 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-function VerdictBadge({ verdict }: { verdict?: string }) {
+function VerdictBadge({ verdict }: { verdict?: string | null }) {
   if (!verdict) return <span style={{ color: '#666' }}>—</span>;
   const colors: Record<string, string> = {
     continue: '#4aff4a',
