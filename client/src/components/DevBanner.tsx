@@ -136,6 +136,18 @@ export function DevBanner() {
               Backend connected ✓
             </div>
           )}
+          
+          {/* Dev Tools Links */}
+          <div className="flex items-center gap-2 mt-2 pt-2 border-t border-slate-200/50">
+            <span className="text-[10px] text-slate-500">Dev:</span>
+            <a 
+              href="/inspector" 
+              className="text-[10px] text-blue-600 hover:text-blue-800 underline"
+              onClick={(e) => e.stopPropagation()}
+            >
+              Inspector (AFR)
+            </a>
+          </div>
         </div>
       )}
     </div>
