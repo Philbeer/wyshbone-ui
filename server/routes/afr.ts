@@ -61,10 +61,9 @@ export function createAfrRouter(_storage: typeof storage) {
           ? {
               id: `outcome_${runId}`,
               run_id: runId,
-              created_at: new Date(dbRun.updatedAt).toISOString(),
-              summary: dbRun.outputText.slice(0, 500),
+              outcome_summary: dbRun.outputText.slice(0, 500),
               full_output: dbRun.outputText,
-              status: dbRun.status === "completed" ? "success" : "partial",
+              metrics_json: null,
             }
           : null,
         tower_verdict: null,
