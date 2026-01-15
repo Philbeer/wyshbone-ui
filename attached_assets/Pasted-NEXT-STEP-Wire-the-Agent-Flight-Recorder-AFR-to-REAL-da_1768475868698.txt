@@ -1,0 +1,66 @@
+NEXT STEP: Wire the Agent Flight Recorder (AFR) to REAL data via the database (Supabase), not by “monitoring repos”.
+
+Do this in two phases:
+
+PHASE 1 — Inventory + Map (NO code changes yet)
+1) Identify which Supabase project/environment this repo points to (dev).
+2) List ALL tables currently in use by the Wyshbone system that look related to:
+   - runs / plans / executions
+   - logs / events / activity
+   - conversations
+   - evaluations / tower
+3) For each table, provide:
+   - table name
+   - key columns (id, created_at, foreign keys, status fields)
+   - which repo/service writes it (UI / Supervisor / Tower / WABS if known)
+   - which repo/service reads it
+4) Based on what exists, propose the best “canonical Run” mapping for AFR:
+   - Which table is the closest to Run today?
+   - Which table(s) contain verdict/evaluation today (if any)?
+   - If decisions/signals/stop conditions are not stored anywhere, say so explicitly.
+
+Output a concise “Data Flow Map”:
+Repo/Service → Writes → Tables → Read by AFR
+
+PHASE 2 — Minimal Real AFR Integration (DO code changes)
+Goal: AFR UI should load REAL runs list + real run detail bundle, and load the Judgment Ledger from a dedicated table.
+
+A) Create ONE new Supabase table for the mentorship/judgment moat:
+   Table: afr_rule_updates (or judgment_ledger)
+   Required columns:
+   - id (uuid, pk)
+   - created_at (timestamp default now())
+   - updated_at (timestamp)
+   - rule_text (text, not null)
+   - scope (text, not null)  // e.g. "Pubs/UK/Rural"
+   - confidence (text enum: low|med|high)
+   - status (text enum: active|disabled|invalid)
+   - update_type (text enum: create|adjust|retire)
+   - reason (text)
+   - evidence_run_ids (text[] or uuid[])  // MUST exist
+   - source (text enum: human|agent|hybrid)
+   - supersedes_rule_id (uuid, nullable) // optional but useful
+
+   Add RLS policy appropriate for dev so the UI can READ via anon key (or specify the safer alternative below).
+   IMPORTANT: Do NOT expose service role key to the browser.
+
+B) Add a small read-only API layer (preferred) OR safe Supabase anon reads:
+   - If we already have an API server in this repo, add endpoints:
+     GET /api/afr/runs?limit=200
+     GET /api/afr/runs/:run_id  (returns run bundle: run + decisions + signals + stops + outcomes + verdict)
+     GET /api/afr/rules?limit=200
+     GET /api/afr/rules/:rule_id
+   - If no API server exists, explain the safest approach for UI to read from Supabase without privileged keys.
+
+C) Update the AFR UI data source toggle:
+   - Use VITE_USE_MOCK_AFR=true for mock
+   - If false, fetch from the real API/DB above
+   - Keep the UI types exactly the same (client/src/types/afr.ts)
+
+D) Acceptance checks (must demonstrate):
+   1) /dev/inspector loads a REAL runs list from Supabase (not mock) when VITE_USE_MOCK_AFR=false
+   2) Clicking a run shows real run detail (even if decisions are partial, show “NOT INSTRUMENTED YET” rather than faking)
+   3) Judgment Ledger loads from afr_rule_updates and evidence links work
+   4) No security mistakes (no service role key in client)
+
+Before implementing Phase 2, show me the Phase 1 Data Flow Map and your proposed canonical Run mapping, then proceed.
