@@ -90,28 +90,28 @@ interface AfrBundleData {
 function analyzeOutputForAfr(outputText: string, prompt: string): AfrBundleData {
   const now = new Date().toISOString();
   
+  // Check for list-like structure
   const hasBulletPoints = /^[\s]*[-*•]\s/m.test(outputText) || /\n[-*•]\s/m.test(outputText);
   const hasNumberedList = /^\d+\.\s/m.test(outputText) || /\n\d+\.\s/m.test(outputText);
   const hasTableStructure = /\|.*\|.*\|/m.test(outputText);
-  const hasHeadings = /^#{1,3}\s/m.test(outputText) || /\n#{1,3}\s/m.test(outputText);
-  const hasEvidenceMarkers = /place_?id|whatpub\.com|tripadvisor|google\.com\/maps|ChI[a-zA-Z0-9_-]+/i.test(outputText);
   const hasMultipleVenues = (outputText.match(/\*\*[^*]+\*\*/g) || []).length >= 3;
+  const hasListStructure = hasBulletPoints || hasNumberedList || hasTableStructure || hasMultipleVenues;
   
-  const hasStructuredContent = hasBulletPoints || hasNumberedList || hasTableStructure || hasMultipleVenues;
-  const hasEvidence = hasEvidenceMarkers;
+  // Check for obvious entity markers (venue names/addresses, evidence IDs)
+  const hasPlaceIds = /place_?id|ChI[a-zA-Z0-9_-]+/i.test(outputText);
+  const hasExternalLinks = /whatpub\.com|tripadvisor|google\.com\/maps|yelp\.com/i.test(outputText);
+  const hasAddressPatterns = /\b[A-Z]{1,2}\d{1,2}\s?\d[A-Z]{2}\b/i.test(outputText); // UK postcodes
+  const hasEntityMarkers = hasPlaceIds || hasExternalLinks || hasAddressPatterns;
   
+  // Simple heuristic per requirements:
+  // If no list-like structure AND no obvious entity markers => revise, score=30
+  // Else => continue, score=70
   let verdict: "continue" | "revise" = "continue";
   let score = 70;
   
-  if (!hasStructuredContent) {
+  if (!hasListStructure && !hasEntityMarkers) {
     verdict = "revise";
     score = 30;
-  } else if (!hasEvidence && !hasHeadings) {
-    verdict = "revise";
-    score = 40;
-  } else if (hasStructuredContent && hasEvidence) {
-    verdict = "continue";
-    score = 85;
   }
   
   return {
@@ -907,6 +907,16 @@ export async function pollOneRun(run: DeepResearchRun): Promise<void> {
         status,
         outputText: finalOutput,
       });
+      
+      // Populate AFR bundle with analysis of the output
+      try {
+        const bundleData = analyzeOutputForAfr(finalOutput, run.prompt);
+        await storage.upsertAfrRunBundle(run.id, bundleData);
+        console.log(`[AFR] Updated bundle for run ${run.id}: verdict=${bundleData.verdict}, score=${bundleData.score}`);
+      } catch (err) {
+        console.log(`[AFR] Could not update bundle for run ${run.id}:`, (err as Error).message);
+      }
+      
       console.log(`✅ Research job ${run.id} completed, output length: ${outputText?.length || 0}`);
       
       // Send chat notification if status changed to completed and we have a sessionId
