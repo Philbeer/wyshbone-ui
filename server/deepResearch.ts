@@ -74,6 +74,71 @@ function getDepthGuidelines(intensity: "standard" | "ultra" = "standard"): Depth
 }
 
 // ===========================
+// AFR Bundle Analysis for Agent Truth
+// ===========================
+
+interface AfrBundleData {
+  goal_worth: null;
+  decisions: Array<{ id: string; ts: string; choice: string; why: string }>;
+  expected_signals: Array<{ id: string; text: string }>;
+  stop_conditions: Array<{ id: string; text: string }>;
+  verdict: "continue" | "revise" | null;
+  score: number | null;
+  tower_verdict: null;
+}
+
+function analyzeOutputForAfr(outputText: string, prompt: string): AfrBundleData {
+  const now = new Date().toISOString();
+  
+  const hasBulletPoints = /^[\s]*[-*•]\s/m.test(outputText) || /\n[-*•]\s/m.test(outputText);
+  const hasNumberedList = /^\d+\.\s/m.test(outputText) || /\n\d+\.\s/m.test(outputText);
+  const hasTableStructure = /\|.*\|.*\|/m.test(outputText);
+  const hasHeadings = /^#{1,3}\s/m.test(outputText) || /\n#{1,3}\s/m.test(outputText);
+  const hasEvidenceMarkers = /place_?id|whatpub\.com|tripadvisor|google\.com\/maps|ChI[a-zA-Z0-9_-]+/i.test(outputText);
+  const hasMultipleVenues = (outputText.match(/\*\*[^*]+\*\*/g) || []).length >= 3;
+  
+  const hasStructuredContent = hasBulletPoints || hasNumberedList || hasTableStructure || hasMultipleVenues;
+  const hasEvidence = hasEvidenceMarkers;
+  
+  let verdict: "continue" | "revise" = "continue";
+  let score = 70;
+  
+  if (!hasStructuredContent) {
+    verdict = "revise";
+    score = 30;
+  } else if (!hasEvidence && !hasHeadings) {
+    verdict = "revise";
+    score = 40;
+  } else if (hasStructuredContent && hasEvidence) {
+    verdict = "continue";
+    score = 85;
+  }
+  
+  return {
+    goal_worth: null,
+    decisions: [
+      {
+        id: "d1",
+        ts: now,
+        choice: "Use deep research tool",
+        why: "User asked for research; deep research chosen as fastest first-pass for comprehensive analysis"
+      }
+    ],
+    expected_signals: [
+      { id: "s1", text: "Outputs a structured list of venues/leads, not just narrative" },
+      { id: "s2", text: "Includes evidence identifiers/links for each lead (Place ID / WhatPub / etc) OR explicitly states missing" }
+    ],
+    stop_conditions: [
+      { id: "st1", text: "If output is only an essay with no structured entities, verdict=REVISE" },
+      { id: "st2", text: "If output lacks any evidence/IDs, verdict=REVISE" }
+    ],
+    verdict,
+    score,
+    tower_verdict: null
+  };
+}
+
+// ===========================
 // Context Extraction for Vague Prompts
 // ===========================
 
@@ -485,6 +550,15 @@ async function runAnthropicDeepResearch(
       status: "completed",
       outputText: finalOutput,
     });
+
+    // Populate AFR bundle with analysis of the output
+    try {
+      const bundleData = analyzeOutputForAfr(finalOutput, run.prompt);
+      await storage.upsertAfrRunBundle(run.id, bundleData);
+      console.log(`[AFR] Updated bundle for run ${run.id}: verdict=${bundleData.verdict}, score=${bundleData.score}`);
+    } catch (err) {
+      console.log(`[AFR] Could not update bundle for run ${run.id}:`, (err as Error).message);
+    }
 
     console.log(`✅ [Anthropic] Research completed for ${run.id}`);
 
