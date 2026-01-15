@@ -1,5 +1,6 @@
-import { useState } from 'react';
-import { useLocation } from 'wouter';
+import { useState, useEffect } from 'react';
+import { useLocation, useSearch } from 'wouter';
+import type { Run, RuleUpdate } from '@/types/afr';
 import {
   getAllRuns,
   getRunById,
@@ -11,33 +12,93 @@ import {
   getRulesReferencingRun,
   getAllRules,
   getRuleById,
-  type Run,
-  type RuleUpdate,
 } from '@/mock/afr';
 
 type View = 'runs' | 'run-detail' | 'ledger';
 
+function updateURLParams(params: Record<string, string | null>) {
+  const url = new URL(window.location.href);
+  Object.entries(params).forEach(([key, value]) => {
+    if (value === null) {
+      url.searchParams.delete(key);
+    } else {
+      url.searchParams.set(key, value);
+    }
+  });
+  window.history.replaceState({}, '', url.toString());
+}
+
 export default function InspectorPage() {
-  const [view, setView] = useState<View>('runs');
-  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
-  const [selectedRuleId, setSelectedRuleId] = useState<string | null>(null);
+  const searchString = useSearch();
+  const urlParams = new URLSearchParams(searchString);
+  const initialRunId = urlParams.get('run');
+  const initialRuleId = urlParams.get('rule');
+
+  const [view, setView] = useState<View>(() => {
+    if (initialRunId) return 'run-detail';
+    if (initialRuleId) return 'ledger';
+    return 'runs';
+  });
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(initialRunId);
+  const [selectedRuleId, setSelectedRuleId] = useState<string | null>(initialRuleId);
+  const [notFoundId, setNotFoundId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (initialRunId) {
+      const run = getRunById(initialRunId);
+      if (!run) {
+        setNotFoundId(initialRunId);
+        setView('runs');
+        setSelectedRunId(null);
+      }
+    }
+    if (initialRuleId) {
+      const rule = getRuleById(initialRuleId);
+      if (!rule) {
+        setNotFoundId(initialRuleId);
+        setView('ledger');
+        setSelectedRuleId(null);
+      }
+    }
+  }, []);
 
   const handleRunClick = (runId: string) => {
     setSelectedRunId(runId);
+    setSelectedRuleId(null);
+    setNotFoundId(null);
     setView('run-detail');
+    updateURLParams({ run: runId, rule: null });
   };
 
   const handleRuleClick = (ruleId: string) => {
     setSelectedRuleId(ruleId);
+    setNotFoundId(null);
+    updateURLParams({ rule: ruleId });
   };
 
   const handleBackToRuns = () => {
     setSelectedRunId(null);
+    setNotFoundId(null);
     setView('runs');
+    updateURLParams({ run: null, rule: null });
   };
 
   const handleBackToLedger = () => {
     setSelectedRuleId(null);
+    setNotFoundId(null);
+    updateURLParams({ rule: null });
+  };
+
+  const handleTabChange = (newView: View) => {
+    setNotFoundId(null);
+    if (newView === 'runs') {
+      setSelectedRunId(null);
+      updateURLParams({ run: null, rule: null });
+    } else if (newView === 'ledger') {
+      setSelectedRuleId(null);
+      updateURLParams({ rule: null });
+    }
+    setView(newView);
   };
 
   return (
@@ -46,23 +107,40 @@ export default function InspectorPage() {
       <p style={{ color: '#888', marginBottom: '20px' }}>Internal dev inspector - read only</p>
 
       <div style={{ marginBottom: '20px', display: 'flex', gap: '10px' }}>
-        <TabButton active={view === 'runs'} onClick={() => { setView('runs'); setSelectedRunId(null); }}>
+        <TabButton active={view === 'runs'} onClick={() => handleTabChange('runs')}>
           Runs List
         </TabButton>
         <TabButton active={view === 'run-detail'} onClick={() => setView('run-detail')} disabled={!selectedRunId}>
           Run Detail
         </TabButton>
-        <TabButton active={view === 'ledger'} onClick={() => { setView('ledger'); setSelectedRuleId(null); }}>
+        <TabButton active={view === 'ledger'} onClick={() => handleTabChange('ledger')}>
           Judgment Ledger
         </TabButton>
       </div>
+
+      {notFoundId && (
+        <div style={{ 
+          background: '#5c2020', 
+          border: '1px solid #ff6b6b', 
+          padding: '12px 16px', 
+          marginBottom: '20px',
+          borderRadius: '4px'
+        }}>
+          <strong style={{ color: '#ff6b6b' }}>Not found:</strong>{' '}
+          <code style={{ background: '#333', padding: '2px 6px', borderRadius: '2px' }}>{notFoundId}</code>
+        </div>
+      )}
 
       {view === 'runs' && <RunsList onRunClick={handleRunClick} />}
       {view === 'run-detail' && selectedRunId && (
         <RunDetail 
           runId={selectedRunId} 
           onBack={handleBackToRuns}
-          onRuleClick={(ruleId) => { setSelectedRuleId(ruleId); setView('ledger'); }}
+          onRuleClick={(ruleId) => { 
+            setSelectedRuleId(ruleId); 
+            setView('ledger'); 
+            updateURLParams({ run: selectedRunId, rule: ruleId });
+          }}
         />
       )}
       {view === 'ledger' && (
