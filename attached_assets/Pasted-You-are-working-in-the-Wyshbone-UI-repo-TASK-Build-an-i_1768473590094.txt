@@ -1,0 +1,73 @@
+You are working in the Wyshbone UI repo.
+
+TASK: Build an internal “Agent Flight Recorder (AFR)” inspector UI so the developer can SEE the agent loop (goal → decisions → expected signals → stop conditions → outcomes → Tower verdict → rule updates) over time.
+
+This is NOT a user feature. It is a read-only dev/ops inspector. Keep it minimal and ugly. No chat UI, no CRM UI, no lead pipeline UI, no extra dashboards.
+
+DELIVERABLES (must all be implemented):
+
+1) Add a new page/route: /inspector (or /afr) titled “Agent Flight Recorder”.
+2) This page has 3 views (tabs or subroutes):
+   A) Runs List
+   B) Run Detail
+   C) Judgment Ledger
+
+DATA CONTRACT (use these shapes exactly, even if mocked initially):
+- Run:
+  id, created_at, vertical, goal_summary, goal_worth { value, budget, time_horizon, risk }, status, score?, stop_triggered, verdict?
+- Decision:
+  id, run_id, index, title, choice, why, options_considered?
+- ExpectedSignal:
+  id, run_id OR decision_id, signal
+- StopCondition:
+  id, run_id OR decision_id, condition
+- Outcome:
+  id, run_id OR decision_id, outcome_summary, metrics_json?
+- TowerVerdict:
+  id, run_id, verdict (continue|revise|abandon), reason
+- RuleUpdate:
+  id, created_at, rule_text, scope, confidence (low|med|high), status (active|disabled), update_type (create|adjust|retire), reason,
+  evidence_run_ids: string[]   <<< THIS IS CRITICAL
+
+VIEW REQUIREMENTS:
+
+A) Runs List
+- Table (newest first) with: created_at, goal_summary, vertical, status, stop_triggered, verdict, score(optional)
+- Clicking a row opens Run Detail for that run.
+
+B) Run Detail (the “truth page”)
+Show 5 blocks, compact:
+1. Goal & Worth (goal_summary + worth fields)
+2. Decisions Timeline (D1..Dn: choice + why in 1–2 lines each)
+3. Expected Signals (bullets)
+4. Stop Conditions (bullets)
+5. Outcomes + Tower Verdict (outcome summary + verdict + reason)
+If there are RuleUpdates referencing this run in their evidence_run_ids, show them as links to the Judgment Ledger filtered to those rules.
+
+C) Judgment Ledger (the “moat page”)
+- List RuleUpdates with: rule_text, scope, confidence, created_at/last_updated, status
+- Clicking a rule shows an “Evidence” section listing evidence_run_ids as links back to those runs’ Run Detail pages.
+- IMPORTANT: If evidence_run_ids is empty, show a red warning “NO EVIDENCE (invalid rule)”.
+
+BACKEND INTEGRATION:
+- First try to read from Supabase (or existing API endpoints) if present.
+- If the schema/endpoints are missing, DO NOT STOP: create a temporary local mock data module (e.g. /src/mock/afr.ts) that returns realistic sample data in the exact shapes above.
+- Wrap data source behind a simple switch like:
+  const USE_MOCK_AFR = process.env.NEXT_PUBLIC_USE_MOCK_AFR === "true"
+  so we can flip to real data later without changing UI.
+
+NAVIGATION:
+- Add a small “Inspector” link in the dev nav (only visible in dev mode or behind a feature flag).
+
+ACCEPTANCE TESTS (you must satisfy these):
+- I can click Rule → Evidence Run → Decision/Outcome, end-to-end.
+- Every run detail page renders even with only minimal data.
+- Works with mock data today, but is structured to plug into real Supabase tables later.
+- No scope creep.
+
+OUTPUT:
+- List the files you created/changed.
+- Explain how to run it locally.
+- Provide screenshots or describe what I should see on each screen.
+
+Start implementing now.
