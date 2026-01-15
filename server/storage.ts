@@ -98,7 +98,10 @@ import type {
   InsertAgentActivity,
   SelectAgentActivity,
   InsertAfrRuleUpdate,
-  SelectAfrRuleUpdate
+  SelectAfrRuleUpdate,
+  InsertAfrRunBundle,
+  SelectAfrRunBundle,
+  AfrRunBundleData
 } from "@shared/schema";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
@@ -151,7 +154,8 @@ import {
   deliveryRoutes,
   routeStops,
   routeOptimizationResults,
-  afrRuleUpdates
+  afrRuleUpdates,
+  afrRunBundles
 } from "@shared/schema";
 import { eq, or, and, desc, asc, lt, gt, lte, gte, isNull, sql } from "drizzle-orm";
 
@@ -4328,6 +4332,43 @@ export class DbStorage implements IStorage {
       .from(deepResearchRuns)
       .orderBy(desc(deepResearchRuns.createdAt))
       .limit(limit);
+  }
+
+  async getAfrRunBundle(runId: string): Promise<SelectAfrRunBundle | null> {
+    try {
+      const results = await db
+        .select()
+        .from(afrRunBundles)
+        .where(eq(afrRunBundles.runId, runId))
+        .limit(1);
+      return results[0] || null;
+    } catch (error: any) {
+      if (error?.cause?.code === '42P01') {
+        console.log('[AFR] afr_run_bundles table not found - returning null');
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  async upsertAfrRunBundle(runId: string, bundleJson: AfrRunBundleData): Promise<SelectAfrRunBundle> {
+    try {
+      const [result] = await db
+        .insert(afrRunBundles)
+        .values({ runId, bundle: bundleJson })
+        .onConflictDoUpdate({
+          target: afrRunBundles.runId,
+          set: { bundle: bundleJson }
+        })
+        .returning();
+      return result;
+    } catch (error: any) {
+      if (error?.cause?.code === '42P01') {
+        console.log('[AFR] afr_run_bundles table not found - cannot upsert');
+        throw new Error('afr_run_bundles table not found');
+      }
+      throw error;
+    }
   }
 }
 

@@ -2394,6 +2394,31 @@ export type InsertAfrRuleUpdate = typeof afrRuleUpdates.$inferInsert;
 export type SelectAfrRuleUpdate = typeof afrRuleUpdates.$inferSelect;
 
 // ============================================
+// AFR RUN BUNDLES (structured agent truth per run)
+// ============================================
+export const afrRunBundles = pgTable("afr_run_bundles", {
+  runId: text("run_id").primaryKey(),
+  bundle: jsonb("bundle").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const afrRunBundleSchema = z.object({
+  goal_worth: z.string().nullable(),
+  decisions: z.array(z.any()).default([]),
+  expected_signals: z.array(z.any()).default([]),
+  stop_conditions: z.array(z.any()).default([]),
+  verdict: z.string().nullable(),
+  score: z.number().nullable(),
+  tower_verdict: z.string().nullable(),
+});
+
+export const insertAfrRunBundleSchema = createInsertSchema(afrRunBundles);
+export const selectAfrRunBundleSchema = createSelectSchema(afrRunBundles);
+export type InsertAfrRunBundle = typeof afrRunBundles.$inferInsert;
+export type SelectAfrRunBundle = typeof afrRunBundles.$inferSelect;
+export type AfrRunBundleData = z.infer<typeof afrRunBundleSchema>;
+
+// ============================================
 // RELATIONS
 // ============================================
 import { relations } from "drizzle-orm";
