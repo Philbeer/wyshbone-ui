@@ -63,7 +63,7 @@ export function createAfrRouter(_storage: typeof storage) {
               run_id: runId,
               outcome_summary: dbRun.outputText.slice(0, 500),
               full_output: dbRun.outputText,
-              metrics_json: null,
+              metrics_json: undefined,
             }
           : null,
         tower_verdict: null,

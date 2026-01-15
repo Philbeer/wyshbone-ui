@@ -72,12 +72,21 @@ export default function InspectorPage() {
   };
 
   return (
-    <div style={{ padding: '20px', fontFamily: 'monospace', background: '#1a1a1a', color: '#e0e0e0', minHeight: '100vh' }}>
-      <h1 style={{ marginBottom: '10px', color: '#ff6b6b' }}>Agent Flight Recorder (AFR)</h1>
-      <p style={{ color: '#888', marginBottom: '10px' }}>Internal dev inspector - read only</p>
+    <div style={{ 
+      padding: '20px', 
+      fontFamily: 'monospace', 
+      background: '#1a1a1a', 
+      color: '#e0e0e0', 
+      height: '100vh',
+      display: 'flex',
+      flexDirection: 'column',
+      overflow: 'hidden',
+    }}>
+      <h1 style={{ marginBottom: '10px', color: '#ff6b6b', flexShrink: 0 }}>Agent Flight Recorder (AFR)</h1>
+      <p style={{ color: '#888', marginBottom: '10px', flexShrink: 0 }}>Internal dev inspector - read only</p>
       <DataSourceBadge />
 
-      <div style={{ marginBottom: '20px', display: 'flex', gap: '10px' }}>
+      <div style={{ marginBottom: '20px', display: 'flex', gap: '10px', flexShrink: 0 }}>
         <TabButton active={view === 'runs'} onClick={() => handleTabChange('runs')}>
           Runs List
         </TabButton>
@@ -95,33 +104,36 @@ export default function InspectorPage() {
           border: '1px solid #ff6b6b', 
           padding: '12px 16px', 
           marginBottom: '20px',
-          borderRadius: '4px'
+          borderRadius: '4px',
+          flexShrink: 0,
         }}>
           <strong style={{ color: '#ff6b6b' }}>Not found:</strong>{' '}
           <code style={{ background: '#333', padding: '2px 6px', borderRadius: '2px' }}>{notFoundId}</code>
         </div>
       )}
 
-      {view === 'runs' && <RunsList onRunClick={handleRunClick} />}
-      {view === 'run-detail' && selectedRunId && (
-        <RunDetail 
-          runId={selectedRunId} 
-          onBack={handleBackToRuns}
-          onRuleClick={(ruleId) => { 
-            setSelectedRuleId(ruleId); 
-            setView('ledger'); 
-            updateURLParams({ run: selectedRunId, rule: ruleId });
-          }}
-        />
-      )}
-      {view === 'ledger' && (
-        <JudgmentLedger 
-          selectedRuleId={selectedRuleId}
-          onRuleClick={handleRuleClick}
-          onRunClick={handleRunClick}
-          onBackToList={handleBackToLedger}
-        />
-      )}
+      <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
+        {view === 'runs' && <RunsList onRunClick={handleRunClick} />}
+        {view === 'run-detail' && selectedRunId && (
+          <RunDetail 
+            runId={selectedRunId} 
+            onBack={handleBackToRuns}
+            onRuleClick={(ruleId) => { 
+              setSelectedRuleId(ruleId); 
+              setView('ledger'); 
+              updateURLParams({ run: selectedRunId, rule: ruleId });
+            }}
+          />
+        )}
+        {view === 'ledger' && (
+          <JudgmentLedger 
+            selectedRuleId={selectedRuleId}
+            onRuleClick={handleRuleClick}
+            onRunClick={handleRunClick}
+            onBackToList={handleBackToLedger}
+          />
+        )}
+      </div>
     </div>
   );
 }
@@ -134,7 +146,7 @@ function DataSourceBadge() {
   const targetLabel = isMock ? 'REAL data' : 'MOCK data';
   
   return (
-    <div style={{ marginBottom: '15px' }}>
+    <div style={{ marginBottom: '15px', flexShrink: 0 }}>
       <div style={{ 
         padding: '8px 12px', 
         background: isMock ? '#4a3f00' : '#003d00',
