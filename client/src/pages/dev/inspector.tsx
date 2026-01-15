@@ -127,21 +127,81 @@ export default function InspectorPage() {
 }
 
 function DataSourceBadge() {
+  const [showInstructions, setShowInstructions] = useState(false);
   const isMock = isUsingMockData();
+  
+  const targetValue = isMock ? 'false' : 'true';
+  const targetLabel = isMock ? 'REAL data' : 'MOCK data';
+  
   return (
-    <div style={{ 
-      marginBottom: '15px', 
-      padding: '8px 12px', 
-      background: isMock ? '#4a3f00' : '#003d00',
-      border: `1px solid ${isMock ? '#ffa500' : '#4aff4a'}`,
-      borderRadius: '4px',
-      fontSize: '12px',
-    }}>
-      <strong>Data Source:</strong>{' '}
-      {isMock ? (
-        <span style={{ color: '#ffa500' }}>MOCK DATA (VITE_USE_MOCK_AFR=true)</span>
-      ) : (
-        <span style={{ color: '#4aff4a' }}>REAL DATABASE (Supabase)</span>
+    <div style={{ marginBottom: '15px' }}>
+      <div style={{ 
+        padding: '8px 12px', 
+        background: isMock ? '#4a3f00' : '#003d00',
+        border: `1px solid ${isMock ? '#ffa500' : '#4aff4a'}`,
+        borderRadius: '4px',
+        fontSize: '12px',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: '12px',
+      }}>
+        <div>
+          <strong>Data Source:</strong>{' '}
+          {isMock ? (
+            <span style={{ color: '#ffa500' }}>MOCK DATA</span>
+          ) : (
+            <span style={{ color: '#4aff4a' }}>REAL DATABASE (Supabase)</span>
+          )}
+        </div>
+        <button
+          onClick={() => setShowInstructions(!showInstructions)}
+          style={{
+            background: '#555',
+            color: '#fff',
+            border: 'none',
+            padding: '4px 10px',
+            borderRadius: '3px',
+            cursor: 'pointer',
+            fontSize: '11px',
+          }}
+        >
+          Switch to {targetLabel}
+        </button>
+      </div>
+      
+      {showInstructions && (
+        <div style={{
+          marginTop: '8px',
+          padding: '12px',
+          background: '#2a2a2a',
+          border: '1px solid #555',
+          borderRadius: '4px',
+          fontSize: '12px',
+        }}>
+          <p style={{ margin: '0 0 8px 0', color: '#ccc' }}>
+            To switch to <strong>{targetLabel}</strong>:
+          </p>
+          <ol style={{ margin: '0 0 10px 0', paddingLeft: '20px', color: '#aaa' }}>
+            <li>Open the <strong>Secrets</strong> panel in Replit</li>
+            <li>Set <code style={{ background: '#333', padding: '2px 6px', borderRadius: '2px' }}>VITE_USE_MOCK_AFR={targetValue}</code></li>
+            <li>Restart the application</li>
+          </ol>
+          <button
+            onClick={() => setShowInstructions(false)}
+            style={{
+              background: '#444',
+              color: '#aaa',
+              border: 'none',
+              padding: '4px 8px',
+              borderRadius: '3px',
+              cursor: 'pointer',
+              fontSize: '11px',
+            }}
+          >
+            Dismiss
+          </button>
+        </div>
       )}
     </div>
   );
