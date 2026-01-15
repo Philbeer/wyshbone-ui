@@ -4290,11 +4290,20 @@ export class DbStorage implements IStorage {
   }
 
   async getAfrRuleUpdatesByEvidenceRunId(runId: string): Promise<SelectAfrRuleUpdate[]> {
-    return await db
-      .select()
-      .from(afrRuleUpdates)
-      .where(sql`${runId} = ANY(${afrRuleUpdates.evidenceRunIds})`)
-      .orderBy(desc(afrRuleUpdates.createdAt));
+    try {
+      return await db
+        .select()
+        .from(afrRuleUpdates)
+        .where(sql`${afrRuleUpdates.evidenceRunIds} @> ARRAY[${runId}]::text[]`)
+        .orderBy(desc(afrRuleUpdates.createdAt));
+    } catch (error: any) {
+      // Table may not exist in dev database (migrated to Supabase)
+      if (error?.cause?.code === '42P01') {
+        console.log('[AFR] afr_rule_updates table not found - returning empty array');
+        return [];
+      }
+      throw error;
+    }
   }
 
   async listDeepResearchRunsForAfr(limit: number = 200): Promise<SelectDeepResearchRun[]> {
