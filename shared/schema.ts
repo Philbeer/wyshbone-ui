@@ -2362,6 +2362,38 @@ export type InsertActivityLog = typeof activityLog.$inferInsert;
 export type SelectActivityLog = typeof activityLog.$inferSelect;
 
 // ============================================
+// AFR RULE UPDATES (Judgment Ledger)
+// ============================================
+export const afrRuleUpdates = pgTable("afr_rule_updates", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  ruleText: text("rule_text").notNull(),
+  scope: text("scope").notNull(),
+  confidence: text("confidence").notNull(), // low | med | high
+  status: text("status").notNull(), // active | disabled | invalid
+  updateType: text("update_type").notNull(), // create | adjust | retire
+  reason: text("reason"),
+  evidenceRunIds: text("evidence_run_ids").array(),
+  source: text("source").notNull(), // human | agent | hybrid
+  supersedesRuleId: uuid("supersedes_rule_id"),
+}, (table) => ({
+  statusIdx: index("afr_rule_updates_status_idx").on(table.status),
+  createdAtIdx: index("afr_rule_updates_created_at_idx").on(table.createdAt),
+  scopeIdx: index("afr_rule_updates_scope_idx").on(table.scope),
+}));
+
+export const afrRuleUpdateConfidenceSchema = z.enum(["low", "med", "high"]);
+export const afrRuleUpdateStatusSchema = z.enum(["active", "disabled", "invalid"]);
+export const afrRuleUpdateTypeSchema = z.enum(["create", "adjust", "retire"]);
+export const afrRuleUpdateSourceSchema = z.enum(["human", "agent", "hybrid"]);
+
+export const insertAfrRuleUpdateSchema = createInsertSchema(afrRuleUpdates);
+export const selectAfrRuleUpdateSchema = createSelectSchema(afrRuleUpdates);
+export type InsertAfrRuleUpdate = typeof afrRuleUpdates.$inferInsert;
+export type SelectAfrRuleUpdate = typeof afrRuleUpdates.$inferSelect;
+
+// ============================================
 // RELATIONS
 // ============================================
 import { relations } from "drizzle-orm";

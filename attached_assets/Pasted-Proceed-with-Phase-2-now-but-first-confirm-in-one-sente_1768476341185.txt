@@ -1,0 +1,54 @@
+Proceed with Phase 2 now, but first: confirm (in one sentence) that the server is using SUPABASE_DATABASE_URL (not any local/Replit DB). No deep investigation—just confirm the config path.
+
+IMPORTANT ARCHITECTURE DECISION:
+- AFR UI reads from ONE canonical source: our server API (not direct Supabase from browser).
+- Do NOT put service role keys in client.
+- Do NOT expand deep_research_runs schema yet. Treat it as a temporary “Run stub”.
+
+PHASE 2 — Do in this exact order:
+
+Step 1) Create afr_rule_updates table (ONLY new table for now)
+- Add Drizzle schema + migration and create it in Supabase.
+- Columns (minimum):
+  id (uuid pk), created_at, updated_at,
+  rule_text (text not null),
+  scope (text not null),
+  confidence (low|med|high),
+  status (active|disabled|invalid),
+  update_type (create|adjust|retire),
+  reason (text),
+  evidence_run_ids (text[] or uuid[]),
+  source (human|agent|hybrid),
+  supersedes_rule_id (uuid nullable)
+
+Step 2) Add read-only API endpoints for AFR
+Implement these endpoints (server-side):
+- GET /api/afr/runs?limit=200
+  -> returns AFR Run[] derived from deep_research_runs (map fields; fill missing with null/default)
+- GET /api/afr/runs/:id
+  -> returns a “Run Bundle” object:
+     { run, decisions:[], expectedSignals:[], stopConditions:[], outcomes:[], towerVerdict:null, relatedRuleUpdates:[] }
+  - decisions/signals/stops should be empty arrays for now (NOT INSTRUMENTED YET)
+  - relatedRuleUpdates pulled by matching evidence_run_ids contains the run id
+- GET /api/afr/rules?limit=200
+  -> returns RuleUpdate[] from afr_rule_updates
+- GET /api/afr/rules/:id (optional)
+
+Step 3) Wire AFR UI to API behind feature flag
+- Use VITE_USE_MOCK_AFR=true for mock
+- If false, fetch from the API endpoints above
+- Keep the AFR types as-is (client/src/types/afr.ts)
+
+Step 4) UI honesty requirement
+- If decisions/signals/stops/outcomes/verdict are missing, show “NOT INSTRUMENTED YET”
+- Do NOT fake data.
+
+After Step 1–4:
+- Provide a short verification checklist:
+  1) With VITE_USE_MOCK_AFR=false, /dev/inspector loads REAL deep_research_runs rows
+  2) /dev/inspector?run=<id> loads the real run bundle (even if partial)
+  3) Judgment Ledger loads from afr_rule_updates
+  4) Rule → Evidence Run link works (even if run has partial details)
+
+DO NOT add more tables yet. DO NOT alter deep_research_runs schema yet.
+Proceed now.
