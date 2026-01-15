@@ -546,6 +546,21 @@ export async function startBackgroundResponsesJob(
   };
   const run = await storage.createDeepResearchRun(runData);
 
+  try {
+    await storage.upsertAfrRunBundle(id, {
+      goal_worth: null,
+      decisions: [],
+      expected_signals: [],
+      stop_conditions: [],
+      verdict: null,
+      score: null,
+      tower_verdict: null
+    });
+    console.log(`[AFR] Created starter bundle for run ${id}`);
+  } catch (err) {
+    console.log(`[AFR] Could not create starter bundle for run ${id}:`, (err as Error).message);
+  }
+
   const scopeHints: string[] = [];
   if (Array.isArray(counties) && counties.length) {
     scopeHints.push(`Restrict focus to these regions: ${counties.join(", ")}.`);

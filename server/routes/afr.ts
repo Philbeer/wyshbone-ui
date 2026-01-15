@@ -32,11 +32,26 @@ export function createAfrRouter(_storage: typeof storage) {
   router.get("/runs/:id", async (req, res) => {
     try {
       const runId = req.params.id;
-      const dbRun = await storage.getDeepResearchRun(runId);
+      
+      const [dbRun, afrBundle, relatedRuleUpdates] = await Promise.all([
+        storage.getDeepResearchRun(runId),
+        storage.getAfrRunBundle(runId),
+        storage.getAfrRuleUpdatesByEvidenceRunId(runId)
+      ]);
 
       if (!dbRun) {
         return res.status(404).json({ error: "Run not found" });
       }
+
+      const bundleData = afrBundle?.bundle as {
+        goal_worth?: string | null;
+        decisions?: any[];
+        expected_signals?: any[];
+        stop_conditions?: any[];
+        verdict?: string | null;
+        score?: number | null;
+        tower_verdict?: string | null;
+      } | null;
 
       const run: Run = {
         id: dbRun.id,
@@ -44,19 +59,17 @@ export function createAfrRouter(_storage: typeof storage) {
         goal_summary: dbRun.label || dbRun.prompt?.slice(0, 100) || "Untitled Run",
         vertical: "hospitality",
         status: mapDbStatus(dbRun.status),
-        goal_worth: null,
+        goal_worth: bundleData?.goal_worth || null,
         stop_triggered: false,
-        score: null,
-        verdict: null,
+        score: bundleData?.score || null,
+        verdict: bundleData?.verdict || null,
       };
-
-      const relatedRuleUpdates = await storage.getAfrRuleUpdatesByEvidenceRunId(runId);
 
       const bundle: RunBundle = {
         run,
-        decisions: [],
-        expected_signals: [],
-        stop_conditions: [],
+        decisions: bundleData?.decisions || [],
+        expected_signals: bundleData?.expected_signals || [],
+        stop_conditions: bundleData?.stop_conditions || [],
         outcome: dbRun.outputText
           ? {
               id: `outcome_${runId}`,
@@ -66,7 +79,7 @@ export function createAfrRouter(_storage: typeof storage) {
               metrics_json: undefined,
             }
           : null,
-        tower_verdict: null,
+        tower_verdict: bundleData?.tower_verdict || null,
         related_rule_updates: relatedRuleUpdates.map((r) => ({
           id: r.id,
           created_at: r.createdAt?.toISOString() || new Date().toISOString(),
@@ -81,6 +94,10 @@ export function createAfrRouter(_storage: typeof storage) {
           source: r.source as "human" | "agent" | "hybrid",
           supersedes_rule_id: r.supersedesRuleId || null,
         })),
+        goal_worth: bundleData?.goal_worth || null,
+        verdict: bundleData?.verdict || null,
+        score: bundleData?.score || null,
+        bundle_present: !!afrBundle,
       };
 
       res.json(bundle);

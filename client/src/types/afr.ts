@@ -81,6 +81,10 @@ export interface RunBundle {
   expected_signals: ExpectedSignal[];
   stop_conditions: StopCondition[];
   outcome: Outcome | null;
-  tower_verdict: TowerVerdict | null;
+  tower_verdict: TowerVerdict | string | null;
   related_rule_updates: RuleUpdate[];
+  goal_worth?: string | null;
+  verdict?: string | null;
+  score?: number | null;
+  bundle_present?: boolean;
 }
