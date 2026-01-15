@@ -226,6 +226,7 @@ function RunDetail({ runId, onBack, onRuleClick }: {
   onBack: () => void;
   onRuleClick: (ruleId: string) => void;
 }) {
+  const [copied, setCopied] = useState(false);
   const run = getRunById(runId);
   if (!run) return <div>Run not found: {runId}</div>;
 
@@ -236,9 +237,39 @@ function RunDetail({ runId, onBack, onRuleClick }: {
   const verdict = getVerdictForRun(runId);
   const relatedRules = getRulesReferencingRun(runId);
 
+  const handleCopyBundle = async () => {
+    const bundle = {
+      run,
+      decisions,
+      expected_signals: signals,
+      stop_conditions: stopConditions,
+      outcome: outcome || null,
+      tower_verdict: verdict || null,
+      related_rule_updates: relatedRules,
+    };
+    await navigator.clipboard.writeText(JSON.stringify(bundle, null, 2));
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
   return (
     <div>
-      <button onClick={onBack} style={backButtonStyle}>← Back to Runs</button>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '15px' }}>
+        <button onClick={onBack} style={backButtonStyle}>← Back to Runs</button>
+        <button 
+          onClick={handleCopyBundle}
+          style={{
+            padding: '6px 12px',
+            background: copied ? '#22c55e' : '#4a9eff',
+            color: '#fff',
+            border: 'none',
+            cursor: 'pointer',
+            fontSize: '12px',
+          }}
+        >
+          {copied ? '✓ Copied!' : 'Copy Run Bundle JSON'}
+        </button>
+      </div>
       <h2 style={{ color: '#4a9eff', marginBottom: '15px' }}>Run Detail: {runId}</h2>
 
       <Block title="1. Goal & Worth">
