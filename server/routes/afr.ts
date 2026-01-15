@@ -112,8 +112,12 @@ export function createAfrRouter(_storage: typeof storage) {
 
       res.json(rules);
     } catch (error: any) {
-      console.error("AFR /rules error:", error);
-      res.status(500).json({ error: "Failed to fetch rules" });
+      const rootCause = error?.cause?.message || error?.message || "Unknown error";
+      console.error("AFR /rules error:", error?.message, error?.stack);
+      res.status(500).json({ 
+        error: "Failed to fetch rules", 
+        detail: rootCause 
+      });
     }
   });
 

@@ -4273,11 +4273,27 @@ export class DbStorage implements IStorage {
   // ============================================
 
   async listAfrRuleUpdates(limit: number = 200): Promise<SelectAfrRuleUpdate[]> {
-    return await db
-      .select()
-      .from(afrRuleUpdates)
-      .orderBy(desc(afrRuleUpdates.createdAt))
-      .limit(limit);
+    try {
+      const result = await db
+        .select()
+        .from(afrRuleUpdates)
+        .orderBy(desc(afrRuleUpdates.createdAt))
+        .limit(limit);
+      console.log(`[AFR] listAfrRuleUpdates: found ${result.length} rules`);
+      return result;
+    } catch (error: any) {
+      console.error('[AFR] listAfrRuleUpdates error:', {
+        message: error?.message,
+        causeCode: error?.cause?.code,
+        causeName: error?.cause?.constructor?.name,
+      });
+      // Table may not exist in dev database (migrated to Supabase)
+      if (error?.cause?.code === '42P01') {
+        console.log('[AFR] afr_rule_updates table not found - returning empty array');
+        return [];
+      }
+      throw error;
+    }
   }
 
   async getAfrRuleUpdate(id: string): Promise<SelectAfrRuleUpdate | null> {
