@@ -61,7 +61,7 @@ import EntityReviewPage from "@/pages/entity-review";
 import SleeperAgentMonitor from "@/pages/dev/sleeper-agent-monitor";
 import DevProgressPage from "@/pages/dev/progress";
 import DatabaseMaintenance from "@/pages/admin/database-maintenance";
-import InspectorPage from "@/pages/inspector";
+import InspectorPage from "@/pages/dev/inspector";
 import WorkflowPage from "@/pages/workflow";
 import { LayoutToggle } from "@/components/LayoutToggle";
 
@@ -128,7 +128,7 @@ function AgentFirstRouter({
       <Route path="/entity-review" component={EntityReviewPage} />
       <Route path="/dev/sleeper-agent" component={SleeperAgentMonitor} />
       <Route path="/dev/progress" component={DevProgressPage} />
-      <Route path="/inspector" component={InspectorPage} />
+      <Route path="/dev/inspector" component={InspectorPage} />
       <Route path="/admin/database-maintenance" component={DatabaseMaintenance} />
 
       {/* Other routes */}
@@ -188,7 +188,7 @@ function Router({
       <Route path="/entity-review" component={EntityReviewPage} />
       <Route path="/dev/sleeper-agent" component={SleeperAgentMonitor} />
       <Route path="/dev/progress" component={DevProgressPage} />
-      <Route path="/inspector" component={InspectorPage} />
+      <Route path="/dev/inspector" component={InspectorPage} />
       <Route path="/admin/database-maintenance" component={DatabaseMaintenance} />
       <Route path="/onboarding/brewery" component={BreweryOnboardingWizard} />
       <Route component={NotFound} />
