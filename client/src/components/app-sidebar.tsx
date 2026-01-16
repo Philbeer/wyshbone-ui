@@ -1056,6 +1056,14 @@ export function AppSidebar({
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={location === "/reddit"} data-testid="link-reddit">
+                  <Link href="/reddit">
+                    <MessageSquare className="h-4 w-4" />
+                    <span>🔍 Reddit</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
