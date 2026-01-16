@@ -2438,6 +2438,23 @@ export type InsertHnReply = typeof hnReplies.$inferInsert;
 export type SelectHnReply = typeof hnReplies.$inferSelect;
 
 // ============================================
+// HN DONE TRACKING
+// ============================================
+
+export const hnDone = pgTable("hn_done", {
+  itemId: integer("item_id").primaryKey(),
+  source: text("source").notNull().default("hackernews"),
+  done: boolean("done").notNull().default(true),
+  doneAt: timestamp("done_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertHnDoneSchema = createInsertSchema(hnDone);
+export const selectHnDoneSchema = createSelectSchema(hnDone);
+export type InsertHnDone = typeof hnDone.$inferInsert;
+export type SelectHnDone = typeof hnDone.$inferSelect;
+
+// ============================================
 // RELATIONS
 // ============================================
 import { relations } from "drizzle-orm";

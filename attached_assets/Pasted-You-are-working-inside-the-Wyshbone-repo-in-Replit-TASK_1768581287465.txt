@@ -1,0 +1,89 @@
+You are working inside the Wyshbone repo in Replit.
+
+TASK:
+Enhance “Hacker News Discovery” with persistent “done” tracking + filters:
+- Mark as done
+- Unmark as done
+- Hide done (default ON)
+- Show only done (toggle)
+
+────────────────────────────────
+DEFINITION OF SUCCESS
+────────────────────────────────
+
+1) Each HN item has a BIG toggle button:
+   - If not done: “Mark as done”
+   - If done: “Undo (mark as not done)”
+2) Done state persists across refreshes and across sessions.
+3) Global filters exist at the top of the page:
+   - [x] Hide done (DEFAULT ON)
+   - [ ] Show only done (DEFAULT OFF)
+   Rules:
+   - If “Show only done” is ON, it overrides “Hide done”.
+4) UI clearly indicates done items (badge + muted styling).
+5) The list updates immediately when toggling done/undo (optimistic UI is fine).
+
+────────────────────────────────
+BACKEND REQUIREMENTS
+────────────────────────────────
+
+Create persistent storage for done state:
+
+Table (or equivalent persistent store):
+hn_done {
+  item_id: number PRIMARY KEY,
+  source: "hackernews",
+  done: boolean DEFAULT true,
+  done_at: timestamp,
+  updated_at: timestamp
+}
+
+Endpoints:
+- POST /api/hn/done
+  body: { item_id: number }
+  -> marks done (upsert)
+- POST /api/hn/undo
+  body: { item_id: number }
+  -> unmarks done (delete row OR set done=false)
+- GET /api/hn/done-ids
+  -> returns { ids: number[] }
+
+When returning search results:
+- Include `is_done: boolean` per item (based on hn_done table)
+
+────────────────────────────────
+UI REQUIREMENTS
+────────────────────────────────
+
+Top controls:
+- Keywords input (existing)
+- Limit selector (existing)
+- Refresh button (existing)
+- Filters (NEW):
+  - Checkbox: “Hide done” (default ON)
+  - Checkbox: “Show only done” (default OFF)
+
+Per-item row/card:
+- Done badge if is_done
+- Big button:
+  - “Mark as done” / “Undo”
+- If done: muted styling
+
+Filtering logic (frontend):
+- if showOnlyDone: display only items where is_done === true
+- else if hideDone: display only items where is_done === false
+- else display all items
+
+────────────────────────────────
+IMPORTANT
+────────────────────────────────
+
+- Keep manual posting only (no auto-posting)
+- Do not break existing draft-reply functionality
+- Use minimal dependencies
+- Add basic error handling and show any backend error in UI
+
+DELIVERABLE:
+- Working done/unmark + show-only-done + hide-done filters
+- Persisted done state
+- End-to-end verified in the UI

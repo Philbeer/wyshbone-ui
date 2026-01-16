@@ -1,8 +1,8 @@
 import { Router } from 'express';
 import { searchHN, DEFAULT_HN_KEYWORDS, HNItem } from '../lib/hn-client';
 import { openai } from '../openai';
-import { hnReplies } from '../../shared/schema';
-import { eq, inArray } from 'drizzle-orm';
+import { hnReplies, hnDone } from '../../shared/schema';
+import { eq, inArray, and } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 
@@ -91,7 +91,7 @@ function scoreRelevance(item: HNItem): { score: number; label: 'High' | 'Medium'
 export interface ScoredHNItem extends HNItem {
   relevance_score: number;
   relevance_label: 'High' | 'Medium' | 'Low';
-  already_replied: boolean;
+  is_done: boolean;
 }
 
 hnRouter.get('/api/hn/search', async (req, res) => {
@@ -113,14 +113,17 @@ hnRouter.get('/api/hn/search', async (req, res) => {
     const posts = await searchHN(keywords, limit);
 
     const postIds = posts.map(p => p.id);
-    let repliedIds: Set<number> = new Set();
+    let doneIds: Set<number> = new Set();
 
     if (postIds.length > 0) {
-      const repliedRows = await db
-        .select({ itemId: hnReplies.itemId })
-        .from(hnReplies)
-        .where(inArray(hnReplies.itemId, postIds));
-      repliedIds = new Set(repliedRows.map(r => r.itemId));
+      const doneRows = await db
+        .select({ itemId: hnDone.itemId })
+        .from(hnDone)
+        .where(and(
+          inArray(hnDone.itemId, postIds),
+          eq(hnDone.done, true)
+        ));
+      doneIds = new Set(doneRows.map((r: { itemId: number }) => r.itemId));
     }
 
     const scoredPosts: ScoredHNItem[] = posts.map(post => {
@@ -129,7 +132,7 @@ hnRouter.get('/api/hn/search', async (req, res) => {
         ...post,
         relevance_score: score,
         relevance_label: label,
-        already_replied: repliedIds.has(post.id),
+        is_done: doneIds.has(post.id),
       };
     });
 
@@ -154,10 +157,72 @@ hnRouter.get('/api/hn/default-keywords', (_req, res) => {
   res.json({ keywords: DEFAULT_HN_KEYWORDS });
 });
 
+hnRouter.get('/api/hn/done-ids', async (_req, res) => {
+  try {
+    const rows = await db
+      .select({ itemId: hnDone.itemId })
+      .from(hnDone)
+      .where(eq(hnDone.done, true));
+    res.json({ ids: rows.map((r: { itemId: number }) => r.itemId) });
+  } catch (err) {
+    console.error('❌ Failed to fetch done IDs:', (err as Error).message);
+    res.status(500).json({ error: 'Failed to fetch done IDs' });
+  }
+});
+
+hnRouter.post('/api/hn/done', async (req, res) => {
+  try {
+    const { item_id } = req.body as { item_id: number };
+
+    if (!item_id || typeof item_id !== 'number') {
+      return res.status(400).json({ error: 'item_id is required and must be a number' });
+    }
+
+    const existing = await db
+      .select()
+      .from(hnDone)
+      .where(eq(hnDone.itemId, item_id))
+      .limit(1);
+
+    if (existing.length > 0) {
+      await db.update(hnDone)
+        .set({ done: true, updatedAt: new Date() })
+        .where(eq(hnDone.itemId, item_id));
+      return res.json({ success: true, already_existed: true });
+    }
+
+    await db.insert(hnDone).values({ itemId: item_id, done: true });
+
+    console.log(`✅ Marked HN item ${item_id} as done`);
+    res.json({ success: true, already_existed: false });
+  } catch (err) {
+    console.error('❌ Failed to mark as done:', (err as Error).message);
+    res.status(500).json({ error: 'Failed to mark as done' });
+  }
+});
+
+hnRouter.post('/api/hn/undo', async (req, res) => {
+  try {
+    const { item_id } = req.body as { item_id: number };
+
+    if (!item_id || typeof item_id !== 'number') {
+      return res.status(400).json({ error: 'item_id is required and must be a number' });
+    }
+
+    await db.delete(hnDone).where(eq(hnDone.itemId, item_id));
+
+    console.log(`✅ Unmarked HN item ${item_id} as done`);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('❌ Failed to undo done:', (err as Error).message);
+    res.status(500).json({ error: 'Failed to undo done' });
+  }
+});
+
 hnRouter.get('/api/hn/replied-ids', async (_req, res) => {
   try {
     const rows = await db.select({ itemId: hnReplies.itemId }).from(hnReplies);
-    res.json({ ids: rows.map(r => r.itemId) });
+    res.json({ ids: rows.map((r: { itemId: number }) => r.itemId) });
   } catch (err) {
     console.error('❌ Failed to fetch replied IDs:', (err as Error).message);
     res.status(500).json({ error: 'Failed to fetch replied IDs' });

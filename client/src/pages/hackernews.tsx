@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { ExternalLink, Copy, Check, RefreshCw, Loader2, Eye, EyeOff, CheckCircle, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -45,7 +45,7 @@ interface HNPost {
   type: "Story" | "Ask HN" | "Show HN";
   relevance_score: number;
   relevance_label: "High" | "Medium" | "Low";
-  already_replied: boolean;
+  is_done: boolean;
 }
 
 interface SearchResponse {
@@ -62,7 +62,8 @@ export default function HackerNewsPage() {
   const [keywords, setKeywords] = useState(DEFAULT_HN_KEYWORDS.join(", "));
   const [limit, setLimit] = useState<string>("300");
   const [hasSearched, setHasSearched] = useState(false);
-  const [hideReplied, setHideReplied] = useState(true);
+  const [hideDone, setHideDone] = useState(true);
+  const [showOnlyDone, setShowOnlyDone] = useState(false);
   const [sortBy, setSortBy] = useState<"relevance" | "score" | "time">("relevance");
 
   const [draftModalOpen, setDraftModalOpen] = useState(false);
@@ -72,7 +73,7 @@ export default function HackerNewsPage() {
   const [copiedDraft, setCopiedDraft] = useState(false);
   const [draftError, setDraftError] = useState(false);
 
-  const [togglingReplied, setTogglingReplied] = useState<Set<number>>(new Set());
+  const [togglingDone, setTogglingDone] = useState<Set<number>>(new Set());
 
   const fetchPosts = useCallback(async () => {
     try {
@@ -99,15 +100,15 @@ export default function HackerNewsPage() {
     fetchPosts();
   }, []);
 
-  const toggleReplied = async (post: HNPost) => {
-    if (togglingReplied.has(post.id)) return;
+  const toggleDone = async (post: HNPost) => {
+    if (togglingDone.has(post.id)) return;
 
-    setTogglingReplied(prev => new Set(prev).add(post.id));
+    setTogglingDone(prev => new Set(prev).add(post.id));
 
     try {
-      const endpoint = post.already_replied
-        ? '/api/hn/unmark-replied'
-        : '/api/hn/mark-replied';
+      const endpoint = post.is_done
+        ? '/api/hn/undo'
+        : '/api/hn/done';
 
       const res = await fetch(endpoint, {
         method: 'POST',
@@ -119,15 +120,19 @@ export default function HackerNewsPage() {
         setPosts(prevPosts =>
           prevPosts.map(p =>
             p.id === post.id
-              ? { ...p, already_replied: !p.already_replied }
+              ? { ...p, is_done: !p.is_done }
               : p
           )
         );
+      } else {
+        const errData = await res.json();
+        setError(errData.error || 'Failed to update done status');
       }
     } catch (err) {
-      console.error('Failed to toggle replied status:', err);
+      console.error('Failed to toggle done status:', err);
+      setError('Failed to update done status');
     } finally {
-      setTogglingReplied(prev => {
+      setTogglingDone(prev => {
         const next = new Set(prev);
         next.delete(post.id);
         return next;
@@ -214,7 +219,15 @@ export default function HackerNewsPage() {
     }
   };
 
-  const filteredPosts = posts.filter(post => !hideReplied || !post.already_replied);
+  const filteredPosts = posts.filter(post => {
+    if (showOnlyDone) {
+      return post.is_done === true;
+    }
+    if (hideDone) {
+      return post.is_done === false;
+    }
+    return true;
+  });
 
   const sortedPosts = [...filteredPosts].sort((a, b) => {
     switch (sortBy) {
@@ -228,7 +241,8 @@ export default function HackerNewsPage() {
     }
   });
 
-  const repliedCount = posts.filter(p => p.already_replied).length;
+  const doneCount = posts.filter(p => p.is_done).length;
+  const notDoneCount = posts.filter(p => !p.is_done).length;
 
   return (
     <div className="h-screen bg-background text-foreground flex flex-col overflow-hidden">
@@ -285,17 +299,6 @@ export default function HackerNewsPage() {
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="flex items-center gap-2 px-3 py-2 bg-background rounded-lg border">
-                  <Switch
-                    id="hide-replied"
-                    checked={hideReplied}
-                    onCheckedChange={setHideReplied}
-                  />
-                  <Label htmlFor="hide-replied" className="text-sm cursor-pointer flex items-center gap-1.5">
-                    {hideReplied ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                    Hide replied ({repliedCount})
-                  </Label>
-                </div>
                 <Button
                   onClick={fetchPosts}
                   disabled={loading}
@@ -309,8 +312,54 @@ export default function HackerNewsPage() {
                   Refresh Results
                 </Button>
               </div>
+              
+              <div className="flex items-center gap-6 pt-2 border-t">
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="hide-done"
+                    checked={hideDone}
+                    onCheckedChange={(checked) => {
+                      setHideDone(checked === true);
+                      if (checked) setShowOnlyDone(false);
+                    }}
+                    disabled={showOnlyDone}
+                  />
+                  <Label htmlFor="hide-done" className="text-sm cursor-pointer flex items-center gap-1.5">
+                    <EyeOff className="h-4 w-4" />
+                    Hide done ({doneCount})
+                  </Label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="show-only-done"
+                    checked={showOnlyDone}
+                    onCheckedChange={(checked) => {
+                      setShowOnlyDone(checked === true);
+                      if (checked) setHideDone(false);
+                    }}
+                  />
+                  <Label htmlFor="show-only-done" className="text-sm cursor-pointer flex items-center gap-1.5">
+                    <Eye className="h-4 w-4" />
+                    Show only done ({doneCount})
+                  </Label>
+                </div>
+              </div>
             </div>
           </div>
+
+          {error && (
+            <div className="p-4 mb-4 bg-destructive/10 border border-destructive/50 rounded-lg">
+              <p className="text-destructive">{error}</p>
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                onClick={() => setError(null)}
+                className="mt-2"
+              >
+                Dismiss
+              </Button>
+            </div>
+          )}
 
           {loading && !hasSearched && (
             <div className="text-center py-12">
@@ -321,17 +370,13 @@ export default function HackerNewsPage() {
             </div>
           )}
 
-          {error && (
-            <div className="p-4 bg-destructive/10 border border-destructive/50 rounded-lg">
-              <p className="text-destructive">{error}</p>
-            </div>
-          )}
-
           {!loading && !error && hasSearched && sortedPosts.length === 0 && (
             <div className="text-center py-12">
               <p className="text-muted-foreground">
-                {posts.length > 0 && hideReplied
-                  ? `All ${posts.length} posts have been replied to. Toggle "Hide replied" to see them.`
+                {showOnlyDone && doneCount === 0
+                  ? "No done posts yet. Mark some posts as done to see them here."
+                  : posts.length > 0 && hideDone
+                  ? `All ${posts.length} posts are marked done. Toggle "Hide done" off or use "Show only done" to see them.`
                   : "No matching posts found. Try different keywords."}
               </p>
             </div>
@@ -340,7 +385,11 @@ export default function HackerNewsPage() {
           {hasSearched && sortedPosts.length > 0 && (
             <div className="mb-4 text-sm text-muted-foreground">
               Showing {sortedPosts.length} of {posts.length} posts
-              {repliedCount > 0 && hideReplied && ` (${repliedCount} replied hidden)`}
+              {showOnlyDone 
+                ? ` (showing only ${doneCount} done)`
+                : hideDone && doneCount > 0 
+                ? ` (${doneCount} done hidden)`
+                : ''}
             </div>
           )}
 
@@ -349,7 +398,7 @@ export default function HackerNewsPage() {
               <div
                 key={post.id}
                 className={`bg-card rounded-lg border overflow-hidden transition-opacity ${
-                  post.already_replied ? 'opacity-60' : ''
+                  post.is_done ? 'opacity-60' : ''
                 }`}
               >
                 <div className="p-4">
@@ -370,10 +419,10 @@ export default function HackerNewsPage() {
                         >
                           {post.relevance_score} - {post.relevance_label}
                         </span>
-                        {post.already_replied && (
+                        {post.is_done && (
                           <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 flex items-center gap-1">
                             <CheckCircle className="h-3 w-3" />
-                            Replied
+                            Done
                           </span>
                         )}
                         <span>by {post.by}</span>
@@ -436,27 +485,27 @@ export default function HackerNewsPage() {
                     Draft Reply
                   </Button>
                   <Button
-                    variant={post.already_replied ? "ghost" : "secondary"}
-                    size="sm"
-                    onClick={() => toggleReplied(post)}
-                    disabled={togglingReplied.has(post.id)}
-                    className={`gap-1.5 ml-auto ${
-                      post.already_replied
+                    variant={post.is_done ? "ghost" : "default"}
+                    size="lg"
+                    onClick={() => toggleDone(post)}
+                    disabled={togglingDone.has(post.id)}
+                    className={`gap-2 ml-auto font-semibold ${
+                      post.is_done
                         ? 'text-muted-foreground hover:text-foreground'
-                        : ''
+                        : 'bg-primary hover:bg-primary/90'
                     }`}
                   >
-                    {togglingReplied.has(post.id) ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : post.already_replied ? (
+                    {togglingDone.has(post.id) ? (
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                    ) : post.is_done ? (
                       <>
-                        <Undo2 className="h-4 w-4" />
-                        Undo Replied
+                        <Undo2 className="h-5 w-5" />
+                        Undo
                       </>
                     ) : (
                       <>
-                        <CheckCircle className="h-4 w-4" />
-                        Mark as Replied
+                        <CheckCircle className="h-5 w-5" />
+                        Mark as Done
                       </>
                     )}
                   </Button>
