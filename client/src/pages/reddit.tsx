@@ -75,8 +75,9 @@ export default function RedditPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white p-6">
-      <div className="max-w-4xl mx-auto">
+    <div className="h-screen bg-gray-900 text-white flex flex-col overflow-hidden">
+      <div className="flex-1 overflow-y-auto p-6">
+        <div className="max-w-4xl mx-auto">
         <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="text-2xl font-bold">Reddit Lead Monitor</h1>
@@ -193,6 +194,7 @@ export default function RedditPage() {
               </div>
             </div>
           ))}
+        </div>
         </div>
       </div>
     </div>
