@@ -19,6 +19,7 @@ import CrmLayout from "@/pages/crm";
 import LeadsPage from "@/pages/leads";
 import NudgesPage from "@/pages/nudges";
 import RedditPage from "@/pages/reddit";
+import HackerNewsPage from "@/pages/hackernews";
 import NotFound from "@/pages/not-found";
 import { BreweryOnboardingWizard } from "@/features/onboarding";
 import { GeneralOnboardingWizard } from "@/features/onboarding/GeneralOnboardingWizard";
@@ -127,6 +128,7 @@ function AgentFirstRouter({
       <Route path="/nudges" component={NudgesPage} />
       <Route path="/events" component={EventsPage} />
       <Route path="/reddit" component={RedditPage} />
+      <Route path="/hackernews" component={HackerNewsPage} />
       <Route path="/entity-review" component={EntityReviewPage} />
       <Route path="/dev/sleeper-agent" component={SleeperAgentMonitor} />
       <Route path="/dev/progress" component={DevProgressPage} />
@@ -188,6 +190,7 @@ function Router({
       <Route path="/nudges" component={NudgesPage} />
       <Route path="/events" component={EventsPage} />
       <Route path="/reddit" component={RedditPage} />
+      <Route path="/hackernews" component={HackerNewsPage} />
       <Route path="/entity-review" component={EntityReviewPage} />
       <Route path="/dev/sleeper-agent" component={SleeperAgentMonitor} />
       <Route path="/dev/progress" component={DevProgressPage} />

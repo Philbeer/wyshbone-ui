@@ -1064,6 +1064,14 @@ export function AppSidebar({
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={location === "/hackernews"} data-testid="link-hackernews">
+                  <Link href="/hackernews">
+                    <Search className="h-4 w-4" />
+                    <span>📰 Hacker News</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>

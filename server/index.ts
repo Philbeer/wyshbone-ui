@@ -16,6 +16,7 @@ import { toolsExecuteRouter } from "./routes/tools-execute";
 import { createSuppliersRouter } from "./routes/suppliers";
 import { wabsScoresRouter } from "./routes/wabs-scores";
 import { redditRouter } from "./routes/reddit";
+import { hnRouter } from "./routes/hn";
 import { storage } from "./storage";
 import { logDemoConfig } from "./demo-config";
 import { runSchemaHealthCheck } from "./schema-check";
@@ -100,6 +101,10 @@ console.log('✅ WABS scores router mounted');
 // Mount Reddit router (Reddit opportunity finder)
 app.use(redditRouter);
 console.log('✅ Reddit router mounted');
+
+// Mount Hacker News router (HN discovery)
+app.use(hnRouter);
+console.log('✅ Hacker News router mounted');
 
 // Mount suppliers router (CRM suppliers management)
 const suppliersRouter = createSuppliersRouter(storage);
