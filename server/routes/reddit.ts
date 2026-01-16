@@ -1,15 +1,19 @@
 import { Router } from "express";
-import { isRedditConfigured, searchSubreddit } from "../lib/reddit-client";
+import { isRedditConfigured, isRedditMockMode, searchSubreddit, getMockPosts } from "../lib/reddit-client";
 
 export const redditRouter = Router();
 
 redditRouter.get("/api/reddit/status", (_req, res) => {
   const configured = isRedditConfigured();
+  const mockMode = isRedditMockMode();
+  
   res.json({
-    enabled: configured,
-    message: configured
-      ? "Reddit integration configured"
-      : "Reddit integration not configured. Set REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET, REDDIT_USERNAME, REDDIT_PASSWORD",
+    enabled: true, // Always enabled (either real or mock)
+    configured,
+    mockMode,
+    message: mockMode
+      ? "Running in mock mode (placeholder data)"
+      : "Reddit integration configured with live API",
   });
 });
 
@@ -19,20 +23,21 @@ redditRouter.get("/api/reddit/search", async (req, res) => {
     const query = (req.query.query as string) || "lead generation";
     const limit = Math.min(parseInt(req.query.limit as string) || 5, 25);
 
-    if (!isRedditConfigured()) {
-      return res.status(503).json({
-        error: "Reddit not configured",
-        message: "Set REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET, REDDIT_USERNAME, REDDIT_PASSWORD environment variables",
-      });
+    const mockMode = isRedditMockMode();
+    
+    if (mockMode) {
+      console.log(`🔍 Reddit search (MOCK MODE): r/${subreddit} query="${query}" limit=${limit}`);
+    } else {
+      console.log(`🔍 Reddit search (LIVE): r/${subreddit} query="${query}" limit=${limit}`);
     }
-
-    console.log(`🔍 Reddit search: r/${subreddit} query="${query}" limit=${limit}`);
+    
     const posts = await searchSubreddit(subreddit, query, limit);
 
     res.json({
       subreddit,
       query,
       count: posts.length,
+      mockMode,
       posts,
     });
   } catch (err) {
