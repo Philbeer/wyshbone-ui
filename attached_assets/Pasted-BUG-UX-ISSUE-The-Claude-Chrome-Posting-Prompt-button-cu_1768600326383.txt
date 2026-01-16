@@ -1,0 +1,59 @@
+BUG/UX ISSUE:
+The “Claude Chrome Posting Prompt” button currently fails unless 2 drafts already exist.
+We want this button to do the whole workflow automatically.
+
+GOAL:
+One click should:
+1) select the top 2 UNREPLIED HN threads by relevance_score
+2) generate drafts for those 2 threads automatically (calling the existing draft endpoint/logic)
+3) then open the modal with the Claude Chrome posting prompt containing:
+   - the 2 thread URLs
+   - the 2 draft replies (verbatim)
+   - strict instructions
+
+REQUIREMENTS (STRICT):
+- The selection must be:
+  - is_done = false
+  - sorted by relevance_score desc
+  - take first 2
+- If fewer than 2 threads exist, show:
+  “Not enough unreplied threads available.”
+- If draft generation fails for either thread, show:
+  “Failed to generate drafts for the top 2 threads. Please try again.”
+  and log the error.
+
+IMPLEMENTATION DETAILS:
+- Add a new backend endpoint OR reuse existing logic to support:
+  “generate drafts for multiple HN item_ids”
+  Example: POST /api/hn/draft-batch
+  Body: { itemIds: [123,456] }
+  Response: { drafts: [{itemId, draft_text, hn_url}] }
+
+- If you don’t want a new endpoint:
+  In the frontend, call the existing single-draft endpoint twice in sequence:
+   await generateDraft(item1)
+   await generateDraft(item2)
+  Then fetch updated list state and generate the prompt.
+
+- The button flow MUST:
+  a) set loading state (“Generating drafts…”)
+  b) generate the two drafts (and persist them)
+  c) generate the Claude prompt immediately after
+  d) open the modal with the prompt
+
+LINK HANDLING:
+- Apply the existing “include wyshbonesales.com only if relevant” rules in the draft generator.
+- Do NOT add links during the Claude prompt step; the draft text must be verbatim from the generator.
+
+UI CHANGES:
+- Change button label to:
+  “Generate & Post Prompt (Top 2)”
+- While running, disable the button and show spinner.
+
+DEFINITION OF SUCCESS:
+- User can click ONE button with no drafts present
+- The system auto-creates drafts for the top 2 unreplied threads
+- The modal opens with a complete Claude Chrome prompt including:
+  - thread URLs
+  - both draft replies
+- No “Not enough unreplied threads with drafts” message occurs in normal use.

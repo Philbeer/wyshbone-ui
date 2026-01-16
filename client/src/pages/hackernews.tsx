@@ -80,6 +80,7 @@ export default function HackerNewsPage() {
   const [claudePromptText, setClaudePromptText] = useState("");
   const [claudePromptError, setClaudePromptError] = useState<string | null>(null);
   const [copiedClaudePrompt, setCopiedClaudePrompt] = useState(false);
+  const [claudePromptLoading, setClaudePromptLoading] = useState(false);
 
   const fetchPosts = useCallback(async () => {
     try {
@@ -197,23 +198,77 @@ export default function HackerNewsPage() {
     }
   };
 
-  const generateClaudePrompt = () => {
-    const unrepliedWithDrafts = posts
-      .filter(p => !p.is_done && savedDrafts.has(p.id))
+  const generateClaudePrompt = async () => {
+    setClaudePromptLoading(true);
+    setClaudePromptError(null);
+
+    const unrepliedPosts = posts
+      .filter(p => !p.is_done)
       .sort((a, b) => b.relevance_score - a.relevance_score)
       .slice(0, 2);
 
-    if (unrepliedWithDrafts.length < 2) {
-      setClaudePromptError("Not enough unreplied threads with drafts available. Generate drafts for at least 2 unreplied posts first.");
+    if (unrepliedPosts.length < 2) {
+      setClaudePromptError("Not enough unreplied threads available.");
       setClaudePromptText("");
       setClaudePromptModalOpen(true);
+      setClaudePromptLoading(false);
       return;
     }
 
-    const thread1 = unrepliedWithDrafts[0];
-    const thread2 = unrepliedWithDrafts[1];
-    const draft1 = savedDrafts.get(thread1.id) || "";
-    const draft2 = savedDrafts.get(thread2.id) || "";
+    const thread1 = unrepliedPosts[0];
+    const thread2 = unrepliedPosts[1];
+
+    const generateDraftForPost = async (post: HNPost): Promise<string | null> => {
+      try {
+        const res = await fetch("/api/hn/draft", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            item: {
+              id: post.id,
+              title: post.title,
+              hn_link: post.hn_link,
+              url: post.url,
+              snippet: post.snippet,
+              matched_keywords: post.matched_keywords,
+              type: post.type,
+            },
+            keywords: post.matched_keywords,
+            relevance_score: post.relevance_score || 0,
+          }),
+        });
+
+        const data = await res.json();
+        if (!res.ok || !data.draft) {
+          console.error(`Draft generation failed for post ${post.id}:`, data);
+          return null;
+        }
+        return data.draft;
+      } catch (err) {
+        console.error(`Draft generation error for post ${post.id}:`, err);
+        return null;
+      }
+    };
+
+    const [draft1, draft2] = await Promise.all([
+      generateDraftForPost(thread1),
+      generateDraftForPost(thread2),
+    ]);
+
+    if (!draft1 || !draft2) {
+      setClaudePromptError("Failed to generate drafts for the top 2 threads. Please try again.");
+      setClaudePromptText("");
+      setClaudePromptModalOpen(true);
+      setClaudePromptLoading(false);
+      return;
+    }
+
+    setSavedDrafts(prev => {
+      const next = new Map(prev);
+      next.set(thread1.id, draft1);
+      next.set(thread2.id, draft2);
+      return next;
+    });
 
     const prompt = `You are Claude Chrome with full browser access.
 
@@ -280,6 +335,7 @@ After submitting the second reply:
     setClaudePromptError(null);
     setClaudePromptText(prompt);
     setClaudePromptModalOpen(true);
+    setClaudePromptLoading(false);
   };
 
   const copyClaudePrompt = async () => {
@@ -500,9 +556,19 @@ After submitting the second reply:
                 onClick={generateClaudePrompt}
                 variant="outline"
                 className="gap-2"
+                disabled={claudePromptLoading}
               >
-                <Sparkles className="h-4 w-4" />
-                Generate Claude Chrome Posting Prompt (Top 2)
+                {claudePromptLoading ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Generating drafts...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="h-4 w-4" />
+                    Generate & Post Prompt (Top 2)
+                  </>
+                )}
               </Button>
             </div>
           )}
@@ -693,9 +759,6 @@ After submitting the second reply:
           {claudePromptError ? (
             <div className="py-8 text-center">
               <p className="text-destructive">{claudePromptError}</p>
-              <p className="mt-4 text-sm text-muted-foreground">
-                Click "Draft Reply" on at least 2 unreplied posts to generate drafts first.
-              </p>
             </div>
           ) : (
             <div className="space-y-4">
