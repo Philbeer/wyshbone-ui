@@ -163,6 +163,7 @@ export default function HackerNewsPage() {
             type: post.type,
           },
           keywords: post.matched_keywords,
+          relevance_score: post.relevance_score || 0,
         }),
       });
 

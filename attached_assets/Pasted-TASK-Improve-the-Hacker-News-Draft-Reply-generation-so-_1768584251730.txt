@@ -1,0 +1,73 @@
+TASK:
+Improve the Hacker News “Draft Reply” generation so replies are:
+- Properly formatted for HN
+- Explicitly tailored
+- Contextually mention Wyshbone in a natural, non-salesy way
+
+────────────────────────────────
+DRAFT REPLY REQUIREMENTS
+────────────────────────────────
+
+1) Formatting:
+- Use short paragraphs.
+- Maximum 2 sentences per paragraph.
+- Insert a blank line between paragraphs.
+- Total length: 4–6 sentences max.
+- No bullet points.
+
+2) Tone:
+- Friendly, thoughtful, builder-to-builder.
+- No marketing language.
+- No calls to action.
+- No hype words (“powerful”, “revolutionary”, etc.).
+
+3) Structure (MANDATORY):
+
+Paragraph 1:
+- Directly answer the HN question or respond to the post.
+- No product mention.
+- Concrete, grounded insight.
+
+Paragraph 2:
+- Brief personal or builder experience.
+- “We ran into this ourselves…” style framing.
+
+Paragraph 3 (CONDITIONAL):
+- Only include if relevance_score >= 70.
+- One sentence maximum.
+- Mention Wyshbone as context, not a pitch.
+- Example framing:
+  “We ended up building Wyshbone to handle X / Y / Z.”
+
+4) Wyshbone description (when included):
+- Describe Wyshbone factually as:
+  “an AI-assisted sales lead generation and sales enablement platform”
+- Mention only the capabilities relevant to the post (e.g. discovery, outreach timing, CRM pain).
+- Do NOT include links.
+- Do NOT say “check out”, “try”, or “sign up”.
+
+────────────────────────────────
+IMPLEMENTATION
+────────────────────────────────
+
+- Update the LLM prompt used by /api/hn/draft.
+- Pass in:
+  - HN title
+  - HN post text (if any)
+  - relevance_score
+- The prompt must explicitly instruct paragraph breaks and conditional Wyshbone inclusion.
+
+────────────────────────────────
+DEFINITION OF SUCCESS
+────────────────────────────────
+
+- Draft replies read like genuine HN comments.
+- Clear paragraph spacing.
+- Wyshbone mentions feel natural and optional.
+- Replies are safe to post verbatim on HN.
+
+Do NOT change:
+- Done/undo logic
+- Scoring
+- Search
+- UI flow

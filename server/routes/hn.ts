@@ -310,29 +310,50 @@ hnRouter.post('/api/hn/draft', async (req, res) => {
       });
     }
 
-    const { item, keywords = [] } = body;
+    const { item, keywords = [], relevance_score = 0 } = body as HNDraftRequest & { relevance_score?: number };
 
-    console.log(`📝 Generating draft for HN post: "${item.title.substring(0, 50)}..."`);
+    console.log(`📝 Generating draft for HN post: "${item.title.substring(0, 50)}..." (relevance: ${relevance_score})`);
 
-    const prompt = `You are drafting a reply to a Hacker News discussion.
+    const shouldMentionWyshbone = relevance_score >= 70;
+
+    const prompt = `You are drafting a reply to a Hacker News discussion. Your reply must be formatted for HN and read like a genuine community comment.
 
 CONTEXT:
 Title: ${item.title}
 ${item.type ? `Type: ${item.type}` : ''}
-${item.snippet ? `Content snippet: ${item.snippet}` : ''}
-${keywords.length > 0 ? `Matched keywords: ${keywords.join(', ')}` : ''}
+${item.snippet ? `Post content: ${item.snippet}` : ''}
+${keywords.length > 0 ? `Topic keywords: ${keywords.join(', ')}` : ''}
+Relevance score: ${relevance_score}/100
 
-GUIDELINES:
-- Be concise and technical (2-4 sentences)
-- Maintain a neutral, professional tone that fits Hacker News
-- No hype, marketing language, or excessive enthusiasm
-- No explicit call-to-action or self-promotion
-- Only mention Wyshbone if directly relevant to the discussion topic (and if so, as a brief parenthetical)
-- Focus on adding genuine value to the discussion
-- Match the HN community's expectations for thoughtful, substantive discourse
-- Be authentic and contribute something meaningful
+FORMATTING RULES (MANDATORY):
+- Use short paragraphs (max 2 sentences each)
+- Insert a blank line between paragraphs
+- Total length: 4-6 sentences max
+- No bullet points or lists
 
-Write a thoughtful draft reply:`;
+TONE:
+- Friendly, thoughtful, builder-to-builder
+- No marketing language or hype words ("powerful", "revolutionary", "game-changing", etc.)
+- No calls to action
+- Be concrete and grounded
+
+STRUCTURE (FOLLOW EXACTLY):
+
+Paragraph 1:
+Directly answer the question or respond to the post. Provide concrete, grounded insight. Do NOT mention any product.
+
+Paragraph 2:
+Share a brief personal or builder experience. Use framing like "We ran into this ourselves..." or "In our experience..."
+
+${shouldMentionWyshbone ? `Paragraph 3 (INCLUDE):
+One sentence maximum. Mention Wyshbone naturally as context, not a pitch.
+Describe it factually as "an AI-assisted sales lead generation and sales enablement platform".
+Only reference capabilities relevant to the post (discovery, outreach timing, CRM integration, etc).
+Example framing: "We ended up building Wyshbone to handle X."
+Do NOT include links. Do NOT say "check out", "try", or "sign up".` : `Paragraph 3:
+Do NOT mention Wyshbone or any product. End with the builder experience.`}
+
+Write the draft reply now:`;
 
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
