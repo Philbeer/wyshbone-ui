@@ -1,78 +1,48 @@
 # Wyshbone Chat Agent
 
 ## Overview
-The Wyshbone Chat Agent is an AI-powered chat assistant designed to facilitate deep research, contact finding via Bubble workflows, and quick business listings using the Wyshbone Global Database. It intelligently offers these options when user intent is ambiguous, aiming to provide comprehensive analysis, lead generation, and business discovery capabilities.
+The Wyshbone Chat Agent is an AI-powered assistant designed to enhance business research, facilitate contact finding, and streamline business discovery using the Wyshbone Global Database. It intelligently offers these capabilities when user intent is ambiguous, aiming to provide comprehensive analysis, lead generation, and business discovery. The project aims to deliver a robust platform for sales and lead generation, capable of serving a broad market with its dual-mode AI architecture and integrated workflows.
 
 ## User Preferences
 I want the agent to focus on practical, UK-focused responses. I want to ensure that any contact information discovered is public and verifiable, with no guessing of private details. I prefer a workflow that prioritizes Wyshbone Global Database as the authoritative source for business discovery. The agent should be able to intelligently decide when to search for new venues versus using cached information and support conversational queries without triggering unnecessary searches. I want the agent to auto-detect and execute Bubble batch workflows based on natural language commands. CRITICAL: The AI must ALWAYS ask for confirmation when making assumptions or combining current input with historical facts/context - chat history and facts serve as background reference, not primary drivers.
 
 ## System Architecture
-The application is built with a Node.js/Express backend and a React frontend, utilizing TypeScript, Tailwind CSS, and shadcn/ui. TanStack Query manages API state. Core AI interactions leverage OpenAI's GPT-5. The system supports multi-tenant user isolation with session-based authentication and robust data security.
+The application features a Node.js/Express backend and a React frontend, built with TypeScript, Tailwind CSS, and shadcn/ui. TanStack Query manages API state. Core AI interactions utilize OpenAI's GPT models. The system supports multi-tenant user isolation with session-based authentication and robust data security.
 
-**Dual-Mode Architecture (MEGA + Standard):**
-- **Standard Mode:** Streaming GPT-5 chat with tool calling for fast, interactive responses
-- **MEGA Mode:** GPT-4o planner-executor pattern for complex multi-step tasks with intelligent delegation
-- **Shared Infrastructure:** Both modes use identical execution layer (`server/lib/actions.ts`) and PostgreSQL storage for conversation history
-- **Bidirectional Flow:** MEGA can delegate streaming tasks back to Standard mode, with automatic mode reversion after completion
-- **Session Management:** Kent contamination prevention via dual-eviction (age >1h OR turns >100) with immediate staleness checks
+**Dual-Mode AI Architecture:**
+- **Standard Mode:** Streaming GPT-5 chat with tool calling for fast, interactive responses.
+- **MEGA Mode:** GPT-4o planner-executor pattern for complex multi-step tasks with intelligent delegation.
+- **Shared Infrastructure:** Both modes use a unified execution layer and PostgreSQL for conversation history.
+- **Bidirectional Flow:** MEGA can delegate streaming tasks back to Standard mode, with automatic mode reversion.
 
 **UI/UX Decisions:**
-The user interface follows Material Design principles, inspired by ChatGPT, Linear, and Slack, featuring a dark mode, Inter font, consistent spacing, real-time chat, auto-expanding input, theme toggle, and a collapsible sidebar with a default UK country selector. Accessibility (WCAG AA) is a key consideration.
+The user interface adheres to Material Design principles, featuring a dark mode, Inter font, consistent spacing, real-time chat, auto-expanding input, theme toggle, and a collapsible sidebar with a default UK country selector. Accessibility (WCAG AA) is a key consideration.
 
-**Technical Implementations:**
-- **AI Chat Interface:** Provides real-time conversations with a GPT-5 assistant (Standard mode) or GPT-4o planner-executor (MEGA mode), enforcing a concise, practical, and UK-focused AI personality via the system prompt.
-- **Agentic V1 Workflow:** Goal-driven initialization where users set their sales/lead goal, click "Start working on this goal" to trigger plan generation via POST /api/plan/start, review and approve the generated plan in PlanApprovalPanel, and monitor execution progress in ProgressWidget. The chat initializes by prompting for a goal if none is set, replacing legacy welcome/marketing flows with a streamlined agentic experience.
-- **Unified Action Layer:** Four core functions execute identically in both MEGA and Standard modes via `server/lib/actions.ts`:
-    - **DEEP_RESEARCH:** Multi-source web research with intelligent analysis (uses `server/deepResearch.ts`)
-    - **SEARCH_PLACES:** Google Places API integration for business discovery (uses `server/googlePlaces.ts`, marketed as "Wyshbone Global Database")
-    - **CREATE_SCHEDULED_MONITOR:** Agentic recurring task scheduler with email notifications
-    - **BATCH_CONTACT_FINDER:** Cost-optimized contact discovery pipeline (uses `server/batchService.ts`)
-- **Tool Integration:**
-    - **Wyshbone Global Database:** Marketing terminology for Google Places API - verified business discovery returning Place IDs
-    - **OpenAI GPT-5 for Enrichment:** Enriches prospects with domain, contact email, social links, business classification, summary, and lead score, including public contact discovery with source verification
-    - **Bubble Workflow Integration:** Triggers Bubble backend workflows in batch based on natural language input, with multi-country support, automatic location detection, and a mandatory user confirmation for batch requests
-    - **Job Management & Worldwide Location Coverage:** A background job system for running searches globally, featuring intelligent location resolution (using city hints, local dictionaries, and GeoNames), 482+ static region datasets, and natural language job creation and control
-    - **Location Hints Database:** A PostgreSQL table with 29,483 worldwide location records for smart search, autocomplete, and disambiguation, handling UK synonyms
+**Technical Implementations & Features:**
+- **AI Chat Interface:** Provides real-time conversations with an AI assistant, enforcing a concise, practical, and UK-focused personality via the system prompt.
+- **Agentic V1 Workflow:** Goal-driven initialization where users define sales/lead goals, trigger plan generation, approve plans, and monitor execution progress.
+- **Unified Action Layer:** Four core functions execute identically across AI modes: DEEP_RESEARCH (multi-source web research), SEARCH_PLACES (Google Places API for business discovery), CREATE_SCHEDULED_MONITOR (agentic recurring task scheduler), and BATCH_CONTACT_FINDER (cost-optimized contact discovery).
+- **Tool Integration:** Includes Wyshbone Global Database (Google Places API), OpenAI GPT-5 for prospect enrichment and verifiable public contact discovery, and Bubble Workflow Integration for batch backend workflows with multi-country support.
+- **Job Management & Worldwide Location Coverage:** A background job system for global searches, intelligent location resolution, and natural language job creation.
 - **Streaming Responses:** Uses Server-Sent Events (SSE) for real-time AI responses.
-- **Error Handling:** Provides comprehensive error messages as system notifications.
-- **Conversational Planning:** A GPT-based planner decides whether to "search," "use_cache," or "respond" to prevent unnecessary searches and ensure venue deduplication.
-- **Deep Research Context Extraction:** A server-side prompt enhancement layer detects vague follow-up phrases, extracts the actual topic from recent conversation history using GPT-4o-mini, and validates the topic source, asking for confirmation when topics are inferred.
-- **Auto-Summarize Research Reports:** Automatically summarizes previously viewed deep research reports using GPT-4o based on natural language commands and session tracking.
-- **Persistent Memory System:** A database-backed system for conversation history and knowledge accumulation. It saves all chat messages, extracts and scores facts (user preferences, business requirements) for importance and recency, and categorizes them. It prioritizes current conversation history over durable memory.
-- **Data Models:** Standardized schemas for chat messages, requests, and database tables (`conversations`, `messages`, `facts`, `scheduled_monitors`).
-- **Backend Validation:** Zod schema validation on all endpoints, with CORS enabled.
-- **Scheduled Monitors:** An agentic monitoring system for recurring tasks (deep_research, business_search, wyshbone_database) created via chat or manual configuration. It offers full CRUD operations, flexible scheduling (once, hourly, daily, weekly, biweekly, monthly), and business-context-aware intelligence to analyze results, pull user facts from memory, prioritize customer opportunities, and provide personalized reasoning. Email notifications are sent via Resend API and default to enabled. Hourly scheduling enables rapid testing of agentic features within a single day. The UI includes a sidebar management interface with edit and delete actions. **Smart Summary Mode:** Monitor runs create concise, actionable summaries in chat (not overwhelming full reports), showing only new results, AI key findings, and significance level, while full reports are sent via email.
-- **Xero OAuth Integration:** Direct OAuth 2.0 integration for securely connecting Xero accounting accounts. Features HMAC-signed state tokens with user identity preservation, 10-minute expiry protection, replay attack prevention, and session-based authentication. Supports token exchange, refresh, and secure storage of access/refresh tokens with tenant information. Production deployment requires XERO_CLIENT_ID, XERO_CLIENT_SECRET, and OAUTH_STATE_SECRET environment variables. The integration replaces paid third-party services with a native OAuth implementation.
-- **Batch Contact Discovery Pipeline:** Cost-optimized contact finding system using Google Places API (text search only, no expensive Place Details), Hunter.io (domain + email discovery and verification), and SalesHandy (automated prospect campaign management). Features intelligent email ranking by position type, AI-generated personal lines, and asynchronous job processing. Accessible via REST API endpoints: `POST /api/batch/create`, `GET /api/batch/:id`, `GET /api/batch`. Requires GOOGLE_PLACES_API_KEY, HUNTER_API_KEY, SALES_HANDY_API_TOKEN, and SALES_HANDY_CAMPAIGN_ID.
-- **Stripe Subscription System:** Freemium model with demo access (no signup), free tier (2 monitors, 2 deep research), and paid tiers (Basic £35, Pro £70, Business £120, Enterprise £250). Session-based authentication with password hashing, usage tracking, and Stripe Checkout integration. Users signup → free tier → upgrade via Stripe → usage limits enforced. Backend maps tier names to Stripe price IDs from environment variables.
-- **Agent Flight Recorder (AFR):** Internal dev-only inspector at `/inspector` for visualizing agent decision loops. Shows Runs List (goal, vertical, status, verdict), Run Detail (goal & worth, decisions timeline, expected signals, stop conditions, outcomes + Tower verdict), and Judgment Ledger (rules with evidence linking back to runs). **AFR Run Bundles:** Structured agent truth storage via `afr_run_bundles` table captures decisions, expected signals, stop conditions, and verdicts per run. Bundles are created automatically for new deep research runs; old runs return `bundle_present: false`. API endpoints: `GET /api/afr/runs` (list), `GET /api/afr/runs/:id` (detail with bundle). Access via DEV banner link.
-- **Tower Analytics Integration:** Comprehensive logging system that tracks ALL chat interactions to Tower backend for monitoring and analytics. Logs completion status for every message type including: normal chat responses, deep research clarifications, lead search clarifications, workflow preview confirmations, summarize requests, and error responses. Uses EXPORT_KEY for authentication, supports optional TOWER_URL and TOWER_API_KEY environment variables. Non-blocking design ensures logging failures don't interrupt chat flow. **Unified runId System:** Each conversation receives a single persistent runId stored in memory (keyed by conversationId), ensuring all Tower logs for that conversation share the same runId. This enables conversation-level analytics and prevents cross-user collision by using conversation UUIDs instead of session/IP-based identifiers. The runId is created on first message and automatically refreshes when new conversations are created.
-- **Hacker News Discovery:** A discovery feature for finding relevant Hacker News discussions based on customizable keywords. Accessible via `/hackernews` route and sidebar navigation under "Discovery" section. Features include: keyword-based search of newest HN posts (50-500 configurable), 5-minute caching for API efficiency, concurrency-limited fetching (10 concurrent requests), post type badges (Story/Ask HN/Show HN), AI-powered draft reply generation using GPT-4o-mini, **relevance scoring (0-100 with High/Medium/Low labels)** based on Wyshbone fit (SaaS/CRM/sales keywords, question indicators, Ask HN boost), and **reply tracking** with persistent "Mark as Replied" state. UI includes relevance score badges sorted by default, "Hide replied" toggle (default ON), and sort options (Relevance/HN Score/Newest). API endpoints: `GET /api/hn/search` (search with keywords, returns relevance scores and replied status), `POST /api/hn/draft` (generate reply draft), `GET /api/hn/default-keywords`, `POST /api/hn/mark-replied`, `POST /api/hn/unmark-replied`, `GET /api/hn/replied-ids`. Database table: `hn_replies` tracks replied item IDs. Implementation files: `server/lib/hn-client.ts`, `server/routes/hn.ts`, `client/src/pages/hackernews.tsx`.
+- **Conversational Planning:** A GPT-based planner decides whether to search, use cache, or respond to prevent redundant searches.
+- **Deep Research Context Extraction:** A server-side prompt enhancement layer extracts and validates topics from conversation history for vague follow-up phrases.
+- **Auto-Summarize Research Reports:** Automatically summarizes previously viewed deep research reports using GPT-4o.
+- **Persistent Memory System:** A database-backed system for conversation history and knowledge accumulation, extracting and scoring facts for importance and recency.
+- **Scheduled Monitors:** An agentic monitoring system for recurring tasks with flexible scheduling, email notifications, and intelligent analysis. Features a "Smart Summary Mode" for concise, actionable chat reports.
+- **Xero OAuth Integration:** Direct OAuth 2.0 integration for connecting Xero accounting accounts securely.
+- **Batch Contact Discovery Pipeline:** Cost-optimized contact finding using Google Places API, Hunter.io (domain/email discovery/verification), and SalesHandy (prospect campaign management).
+- **Stripe Subscription System:** Implements a freemium model with various paid tiers, managing user subscriptions and usage limits.
+- **Agent Flight Recorder (AFR):** An internal development tool for visualizing agent decision loops, run details, and judgment ledgers.
+- **Tower Analytics Integration:** Comprehensive logging system for tracking all chat interactions for monitoring and analytics, utilizing a unified runId system for conversation-level insights.
+- **Hacker News Discovery:** A feature for finding relevant Hacker News discussions based on keywords, offering AI-powered draft reply generation and relevance scoring based on Wyshbone's fit.
 
 ## External Dependencies
 - **OpenAI GPT-5:** For AI chat responses, prospect enrichment, web search, and AI-generated personal lines.
-- **Wyshbone Global Database:** For business discovery and location-based searches.
+- **Wyshbone Global Database (Google Places API):** For business discovery and location-based searches.
 - **GeoNames API:** For worldwide administrative region discovery and geocoding.
 - **Bubble:** External platform for backend workflows.
 - **Resend API:** For sending transactional email notifications.
-- **Xero:** Accounting platform integration via OAuth 2.0 for secure account connections.
-- **Google Places API:** For business name discovery in batch contact finding pipeline (text search only).
+- **Xero:** Accounting platform integration via OAuth 2.0.
 - **Hunter.io:** For domain discovery, email finding, and email verification in batch processing.
 - **SalesHandy:** For automated prospect management and campaign integration.
-
-## Production Deployment Requirements
-- **Required Environment Variables:**
-  - `XERO_CLIENT_ID`: OAuth client ID from Xero Developer Portal
-  - `XERO_CLIENT_SECRET`: OAuth client secret from Xero Developer Portal
-  - `OAUTH_STATE_SECRET`: Strong random secret (32+ characters) for signing OAuth state tokens
-  - `STRIPE_SECRET_KEY`: Stripe secret key for payment processing
-  - `STRIPE_PRICE_BASIC`: Stripe price ID for £35/month Basic tier (price_1QqpqWLskJp7a0AbArn9hQGo6v4)
-  - `STRIPE_PRICE_PRO`: Stripe price ID for £70/month Pro tier (price_1Qqpq1skJp7a0AbAmSRn8iGaRu)
-  - `STRIPE_PRICE_BUSINESS`: Stripe price ID for £120/month Business tier (price_1Qqpq1skJp7a0AbAmyzaR8noO)
-  - `STRIPE_PRICE_ENTERPRISE`: Stripe price ID for £250/month Enterprise tier (price_1Qqpq1skJp7a0AbAAKFqxeE)
-  - `OAUTH_STATE_SECRET` must be rotated periodically for security hygiene
-- **Security Notes:**
-  - The application uses header-based authentication (x-session-id) for API calls
-  - OAuth flows preserve user identity through HMAC-signed state tokens
-  - State tokens expire after 10 minutes and include replay protection
-  - Development mode allows query parameter authentication with warnings (disabled in production)

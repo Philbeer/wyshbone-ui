@@ -312,9 +312,28 @@ hnRouter.post('/api/hn/draft', async (req, res) => {
 
     const { item, keywords = [], relevance_score = 0 } = body as HNDraftRequest & { relevance_score?: number };
 
-    console.log(`📝 Generating draft for HN post: "${item.title.substring(0, 50)}..." (relevance: ${relevance_score})`);
+    const titleLower = item.title.toLowerCase();
+    const snippetLower = (item.snippet || '').toLowerCase();
+    const combinedText = `${titleLower} ${snippetLower}`;
+
+    const TOOL_REQUEST_PATTERNS = [
+      /what\s+(do\s+you|should\s+i|tools?|software|crm|platform)/,
+      /recommend(ation)?s?\s*(for|on)?/,
+      /looking\s+for\s+(a\s+)?(tool|software|crm|platform|solution)/,
+      /best\s+(tool|software|crm|platform|solution)/,
+      /which\s+(tool|software|crm|platform)/,
+      /any\s+(good\s+)?(tool|software|crm|recommendation)/,
+      /suggest(ion)?s?\s*(for|on)?/,
+      /ask\s+hn.*\s+(tool|software|use|recommend)/,
+    ];
+
+    const isToolRequest = TOOL_REQUEST_PATTERNS.some(pattern => pattern.test(combinedText));
+    const detected_intent = isToolRequest ? 'tool_request' : 'general_discussion';
+
+    console.log(`📝 Generating draft for HN post: "${item.title.substring(0, 50)}..." (relevance: ${relevance_score}, intent: ${detected_intent})`);
 
     const shouldMentionWyshbone = relevance_score >= 70;
+    const mayIncludeLink = relevance_score >= 80 && isToolRequest;
 
     const prompt = `You are drafting a reply to a Hacker News discussion. Your reply must be formatted for HN and read like a genuine community comment.
 
@@ -324,6 +343,7 @@ ${item.type ? `Type: ${item.type}` : ''}
 ${item.snippet ? `Post content: ${item.snippet}` : ''}
 ${keywords.length > 0 ? `Topic keywords: ${keywords.join(', ')}` : ''}
 Relevance score: ${relevance_score}/100
+Detected intent: ${detected_intent}
 
 FORMATTING RULES (MANDATORY):
 - Use short paragraphs (max 2 sentences each)
@@ -334,7 +354,7 @@ FORMATTING RULES (MANDATORY):
 TONE:
 - Friendly, thoughtful, builder-to-builder
 - No marketing language or hype words ("powerful", "revolutionary", "game-changing", etc.)
-- No calls to action
+- No calls to action ("check out", "try", "sign up", "launching", etc.)
 - Be concrete and grounded
 
 STRUCTURE (FOLLOW EXACTLY):
@@ -345,13 +365,20 @@ Directly answer the question or respond to the post. Provide concrete, grounded 
 Paragraph 2:
 Share a brief personal or builder experience. Use framing like "We ran into this ourselves..." or "In our experience..."
 
-${shouldMentionWyshbone ? `Paragraph 3 (INCLUDE):
+${shouldMentionWyshbone ? `Paragraph 3 (INCLUDE - relevance >= 70):
 One sentence maximum. Mention Wyshbone naturally as context, not a pitch.
 Describe it factually as "an AI-assisted sales lead generation and sales enablement platform".
 Only reference capabilities relevant to the post (discovery, outreach timing, CRM integration, etc).
 Example framing: "We ended up building Wyshbone to handle X."
-Do NOT include links. Do NOT say "check out", "try", or "sign up".` : `Paragraph 3:
+Do NOT include any links in this paragraph.` : `Paragraph 3:
 Do NOT mention Wyshbone or any product. End with the builder experience.`}
+
+${mayIncludeLink ? `Paragraph 4 (INCLUDE - tool request detected):
+One sentence maximum.
+Embed the naked domain "wyshbonesales.com" naturally in the sentence.
+No http/https prefix.
+Never as a standalone line or footer.
+Example: "We built Wyshbone for this use case — details are at wyshbonesales.com."` : ''}
 
 Write the draft reply now:`;
 

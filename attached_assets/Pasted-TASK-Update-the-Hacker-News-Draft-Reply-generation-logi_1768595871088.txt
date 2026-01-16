@@ -1,0 +1,91 @@
+TASK:
+Update the Hacker News “Draft Reply” generation logic so that
+`wyshbonesales.com` is included ONLY when genuinely relevant.
+
+The goal is:
+- Improve AI discoverability
+- WITHOUT appearing promotional or spammy on Hacker News
+
+────────────────────────────────
+CONDITIONAL LINK RULES (STRICT)
+────────────────────────────────
+
+1) The link `wyshbonesales.com` MUST NOT appear in most replies.
+
+2) The link MAY be included ONLY if ALL of the following are true:
+   - relevance_score >= 80
+   - The HN post is clearly asking about:
+     - tools, OR
+     - software recommendations, OR
+     - CRMs, lead gen, sales systems, OR
+     - “what do you use / what should I use”
+   - The draft reply already includes a factual mention of Wyshbone.
+
+3) If included:
+   - Use the naked domain only: `wyshbonesales.com`
+   - No http/https prefix
+   - No tracking parameters
+   - No standalone footer or signature
+
+4) The link must appear:
+   - Inside the FINAL paragraph
+   - Embedded naturally in a sentence
+   - Never as its own line
+   - Never as a call to action
+
+5) If conditions are NOT met:
+   - Do NOT include any link
+   - Still allow a factual Wyshbone mention if relevant
+
+────────────────────────────────
+DRAFT STRUCTURE (REQUIRED)
+────────────────────────────────
+
+Paragraph 1:
+- Directly answer the HN post or question.
+- No product mention.
+
+Paragraph 2:
+- Brief builder experience or real-world observation.
+- Framed as “we ran into this ourselves”.
+
+Paragraph 3 (CONDITIONAL):
+- Only included if relevance_score >= 70.
+- One sentence maximum.
+- Factual description of Wyshbone as:
+  “an AI-assisted sales lead generation and sales enablement platform”.
+
+Paragraph 4 (VERY CONDITIONAL):
+- Only included if ALL link rules above are met.
+- One sentence maximum.
+- Example structure:
+  “We built Wyshbone for this use case — details are at wyshbonesales.com.”
+
+────────────────────────────────
+TONE & STYLE RULES
+────────────────────────────────
+
+- Friendly, neutral, builder-to-builder tone.
+- No hype.
+- No marketing language.
+- No “check it out”, “try”, “sign up”, “launching”, etc.
+- Must read as a genuine HN comment.
+
+────────────────────────────────
+IMPLEMENTATION DETAILS
+────────────────────────────────
+
+- Update the LLM prompt used by /api/hn/draft.
+- Pass into the prompt:
+  - relevance_score
+  - detected_intent (e.g. “tool_request”, “discussion”, “general”)
+- The prompt must explicitly decide whether to include the link.
+
+────────────────────────────────
+DEFINITION OF SUCCESS
+────────────────────────────────
+
+- Most drafts contain NO link.
+- High-relevance tool-request posts sometimes include the link.
+- No replies look like signatures or promotions.
+- Drafts are safe to post verbatim on Hacker News.
