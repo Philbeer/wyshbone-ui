@@ -114,7 +114,7 @@ export function MyGoalsPanel() {
   return (
     <Card className="h-full flex flex-col" data-testid="card-my-goals">
       <CardHeader>
-        <CardTitle data-testid="text-goals-title">My Goal</CardTitle>
+        <CardTitle data-testid="text-goals-title">My Goals</CardTitle>
         <CardDescription>
           Wyshbone uses this goal to plan and run lead generation on your behalf.
         </CardDescription>
