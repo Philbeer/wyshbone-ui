@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { ExternalLink, Copy, Check, RefreshCw, Loader2, Eye, EyeOff, CheckCircle, Undo2, Sparkles } from "lucide-react";
+import { ExternalLink, Copy, Check, RefreshCw, Loader2, Eye, EyeOff, CheckCircle, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -74,13 +74,6 @@ export default function HackerNewsPage() {
   const [draftError, setDraftError] = useState(false);
 
   const [togglingDone, setTogglingDone] = useState<Set<number>>(new Set());
-
-  const [savedDrafts, setSavedDrafts] = useState<Map<number, string>>(new Map());
-  const [claudePromptModalOpen, setClaudePromptModalOpen] = useState(false);
-  const [claudePromptText, setClaudePromptText] = useState("");
-  const [claudePromptError, setClaudePromptError] = useState<string | null>(null);
-  const [copiedClaudePrompt, setCopiedClaudePrompt] = useState(false);
-  const [claudePromptLoading, setClaudePromptLoading] = useState(false);
 
   const fetchPosts = useCallback(async () => {
     try {
@@ -185,10 +178,6 @@ export default function HackerNewsPage() {
 
       if (data.draft) {
         setDraftText(data.draft);
-        setSavedDrafts(prev => new Map(prev).set(post.id, data.draft));
-      } else if (data.reason) {
-        setDraftError(true);
-        setDraftText(data.reason);
       } else {
         setDraftError(true);
         setDraftText("Error: No draft content returned");
@@ -199,152 +188,6 @@ export default function HackerNewsPage() {
     } finally {
       setDraftLoading(false);
     }
-  };
-
-  const generateClaudePrompt = async () => {
-    setClaudePromptLoading(true);
-    setClaudePromptError(null);
-
-    const unrepliedPosts = posts
-      .filter(p => !p.is_done && p.relevance_score >= 60)
-      .sort((a, b) => b.relevance_score - a.relevance_score)
-      .slice(0, 2);
-
-    if (unrepliedPosts.length < 2) {
-      setClaudePromptError("Not enough suitable unreplied threads available (need 2 with relevance >= 60).");
-      setClaudePromptText("");
-      setClaudePromptModalOpen(true);
-      setClaudePromptLoading(false);
-      return;
-    }
-
-    const thread1 = unrepliedPosts[0];
-    const thread2 = unrepliedPosts[1];
-
-    const generateDraftForPost = async (post: HNPost): Promise<string | null> => {
-      try {
-        const res = await fetch("/api/hn/draft", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            item: {
-              id: post.id,
-              title: post.title,
-              hn_link: post.hn_link,
-              url: post.url,
-              snippet: post.snippet,
-              matched_keywords: post.matched_keywords,
-              type: post.type,
-            },
-            keywords: post.matched_keywords,
-            relevance_score: post.relevance_score || 0,
-          }),
-        });
-
-        const data = await res.json();
-        if (!res.ok || !data.draft) {
-          console.error(`Draft generation failed for post ${post.id}:`, data);
-          return null;
-        }
-        return data.draft;
-      } catch (err) {
-        console.error(`Draft generation error for post ${post.id}:`, err);
-        return null;
-      }
-    };
-
-    const [draft1, draft2] = await Promise.all([
-      generateDraftForPost(thread1),
-      generateDraftForPost(thread2),
-    ]);
-
-    if (!draft1 || !draft2) {
-      setClaudePromptError("Failed to generate drafts for the top 2 threads. Please try again.");
-      setClaudePromptText("");
-      setClaudePromptModalOpen(true);
-      setClaudePromptLoading(false);
-      return;
-    }
-
-    setSavedDrafts(prev => {
-      const next = new Map(prev);
-      next.set(thread1.id, draft1);
-      next.set(thread2.id, draft2);
-      return next;
-    });
-
-    const prompt = `You are Claude Chrome with full browser access.
-
-GOAL
-Post two Hacker News replies using my already logged-in HN account.
-
-You MUST follow the instructions exactly.
-Do NOT rewrite, improve, shorten, or expand the draft replies.
-Do NOT add links, signatures, or extra commentary.
-
-PRECONDITIONS
-- I am already logged into Hacker News in this browser.
-- Do NOT log out or switch accounts.
-- Do NOT open more than the two threads listed below.
-
-GENERAL RULES
-- Paste the draft replies EXACTLY as provided.
-- Submit one comment per thread.
-- After submitting the second comment, STOP.
-
-────────────────────────────────
-THREAD 1
-────────────────────────────────
-
-URL:
-${thread1.hn_link}
-
-INSTRUCTIONS:
-1) Open the URL.
-2) Scroll to the comment box.
-3) Paste the draft reply below verbatim.
-4) Submit the comment.
-5) Do NOT edit after submission.
-
-DRAFT REPLY:
-${draft1}
-
-────────────────────────────────
-THREAD 2
-────────────────────────────────
-
-URL:
-${thread2.hn_link}
-
-INSTRUCTIONS:
-1) Open the URL.
-2) Scroll to the comment box.
-3) Paste the draft reply below verbatim.
-4) Submit the comment.
-5) Do NOT edit after submission.
-
-DRAFT REPLY:
-${draft2}
-
-────────────────────────────────
-STOP CONDITION
-────────────────────────────────
-
-After submitting the second reply:
-- Do NOT open any additional pages
-- Do NOT post additional comments
-- Stop execution immediately`;
-
-    setClaudePromptError(null);
-    setClaudePromptText(prompt);
-    setClaudePromptModalOpen(true);
-    setClaudePromptLoading(false);
-  };
-
-  const copyClaudePrompt = async () => {
-    await navigator.clipboard.writeText(claudePromptText);
-    setCopiedClaudePrompt(true);
-    setTimeout(() => setCopiedClaudePrompt(false), 2000);
   };
 
   const copyDraft = async () => {
@@ -541,38 +384,13 @@ After submitting the second reply:
           )}
 
           {hasSearched && sortedPosts.length > 0 && (
-            <div className="mb-4 flex items-center justify-between">
-              <div className="text-sm text-muted-foreground">
-                Showing {sortedPosts.length} of {posts.length} posts
-                {showOnlyDone 
-                  ? ` (showing only ${doneCount} done)`
-                  : hideDone && doneCount > 0 
-                  ? ` (${doneCount} done hidden)`
-                  : ''}
-                {savedDrafts.size > 0 && (
-                  <span className="ml-2 text-primary">
-                    ({savedDrafts.size} draft{savedDrafts.size !== 1 ? 's' : ''} generated)
-                  </span>
-                )}
-              </div>
-              <Button
-                onClick={generateClaudePrompt}
-                variant="outline"
-                className="gap-2"
-                disabled={claudePromptLoading}
-              >
-                {claudePromptLoading ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Generating drafts...
-                  </>
-                ) : (
-                  <>
-                    <Sparkles className="h-4 w-4" />
-                    Generate & Post Prompt (Top 2)
-                  </>
-                )}
-              </Button>
+            <div className="mb-4 text-sm text-muted-foreground">
+              Showing {sortedPosts.length} of {posts.length} posts
+              {showOnlyDone 
+                ? ` (showing only ${doneCount} done)`
+                : hideDone && doneCount > 0 
+                ? ` (${doneCount} done hidden)`
+                : ''}
             </div>
           )}
 
@@ -734,57 +552,6 @@ After submitting the second reply:
                   className="gap-2"
                 >
                   {copiedDraft ? (
-                    <>
-                      <Check className="h-4 w-4" />
-                      Copied!
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="h-4 w-4" />
-                      Copy to Clipboard
-                    </>
-                  )}
-                </Button>
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={claudePromptModalOpen} onOpenChange={setClaudePromptModalOpen}>
-        <DialogContent className="max-w-2xl max-h-[80vh]">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Sparkles className="h-5 w-5" />
-              Claude Chrome Posting Prompt
-            </DialogTitle>
-          </DialogHeader>
-          {claudePromptError ? (
-            <div className="py-8 text-center">
-              <p className="text-destructive">{claudePromptError}</p>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              <p className="text-sm text-muted-foreground">
-                Copy this prompt and paste it into Claude Chrome to post the top 2 replies automatically.
-              </p>
-              <textarea
-                readOnly
-                value={claudePromptText}
-                className="w-full h-80 p-4 bg-muted rounded-lg text-sm font-mono resize-none border-0 focus:ring-0"
-              />
-              <div className="flex justify-end gap-2">
-                <Button
-                  variant="outline"
-                  onClick={() => setClaudePromptModalOpen(false)}
-                >
-                  Close
-                </Button>
-                <Button
-                  onClick={copyClaudePrompt}
-                  className="gap-2"
-                >
-                  {copiedClaudePrompt ? (
                     <>
                       <Check className="h-4 w-4" />
                       Copied!

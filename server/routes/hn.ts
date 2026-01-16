@@ -332,20 +332,10 @@ hnRouter.post('/api/hn/draft', async (req, res) => {
 
     console.log(`📝 Generating draft for HN post: "${item.title.substring(0, 50)}..." (relevance: ${relevance_score}, intent: ${detected_intent})`);
 
-    if (relevance_score < 60) {
-      console.log(`⏭️ Skipping draft - relevance score ${relevance_score} < 60`);
-      return res.json({
-        success: false,
-        draft: null,
-        item_id: item.id,
-        reason: 'Not suitable for authentic participation (relevance too low)',
-      });
-    }
-
-    const shouldMentionWyshbone = relevance_score >= 80 && isToolRequest;
+    const shouldMentionWyshbone = relevance_score >= 70;
     const mayIncludeLink = relevance_score >= 80 && isToolRequest;
 
-    const prompt = `You are drafting a reply to a Hacker News discussion. Your reply must be authentic, helpful, non-promotional, and safe to post under HN community norms.
+    const prompt = `You are drafting a reply to a Hacker News discussion. Your reply must be formatted for HN and read like a genuine community comment.
 
 CONTEXT:
 Title: ${item.title}
@@ -355,55 +345,40 @@ ${keywords.length > 0 ? `Topic keywords: ${keywords.join(', ')}` : ''}
 Relevance score: ${relevance_score}/100
 Detected intent: ${detected_intent}
 
-CORE RULES (NON-NEGOTIABLE):
-
-1. VALUE-FIRST, NOT SELF-REFERENTIAL
-   - Focus on answering the OP's question or engaging directly with the discussion
-   - Do NOT start with "We built...", "We ran into this...", or similar
-
-2. NO PRODUCT MENTION BY DEFAULT
-   - Wyshbone MUST NOT be mentioned unless explicitly allowed below
-
-3. NO CALL-TO-ACTION
-   - No "check out", "take a look", "we built X", "our tool", or similar language
-   - No links unless explicitly allowed
-
-4. HN TONE
-   - Neutral, thoughtful, specific
-   - One or two short paragraphs
-   - No marketing language, no emojis, no buzzwords
-
-FORMATTING RULES:
-- Maximum 120 words total
-- Short paragraphs (1-2 sentences each)
-- Blank line between paragraphs
+FORMATTING RULES (MANDATORY):
+- Use short paragraphs (max 2 sentences each)
+- Insert a blank line between paragraphs
+- Total length: 4-6 sentences max
 - No bullet points or lists
-- Plain text only, no markdown
 
-CONTENT REQUIREMENTS:
-- Must be thread-specific
-- Reference at least one concrete point from the OP
-- Provide genuine insight or experience
+TONE:
+- Friendly, thoughtful, builder-to-builder
+- No marketing language or hype words ("powerful", "revolutionary", "game-changing", etc.)
+- No calls to action ("check out", "try", "sign up", "launching", etc.)
+- Be concrete and grounded
 
-${shouldMentionWyshbone ? `WYSHBONE MENTION (ALLOWED - relevance >= 80 AND tool request detected):
-A Wyshbone mention is allowed because the OP explicitly asks for tools/software/products.
+STRUCTURE (FOLLOW EXACTLY):
 
-Rules:
-- Mention Wyshbone ONCE only
-- Mention it MID-PARAGRAPH, never at the start or end
-- Describe it factually in one clause
-- Frame as: "One approach we've seen work is [solution description] (we built Wyshbone for this use case), but the broader principle is..."
+Paragraph 1:
+Directly answer the question or respond to the post. Provide concrete, grounded insight. Do NOT mention any product.
 
-${mayIncludeLink ? `LINK (ALLOWED):
-- Include "wyshbonesales.com" naturally in the sentence
-- No http/https prefix
-- Never as a standalone line or footer` : ''}
+Paragraph 2:
+Share a brief personal or builder experience. Use framing like "We ran into this ourselves..." or "In our experience..."
 
-DISALLOWED:
-- "We built Wyshbone to solve this"
-- "Check out Wyshbone"
-- "Here's our tool"` : `NO PRODUCT MENTION:
-Do NOT mention Wyshbone or any product. Focus entirely on providing value to the discussion.`}
+${shouldMentionWyshbone ? `Paragraph 3 (INCLUDE - relevance >= 70):
+One sentence maximum. Mention Wyshbone naturally as context, not a pitch.
+Describe it factually as "an AI-assisted sales lead generation and sales enablement platform".
+Only reference capabilities relevant to the post (discovery, outreach timing, CRM integration, etc).
+Example framing: "We ended up building Wyshbone to handle X."
+Do NOT include any links in this paragraph.` : `Paragraph 3:
+Do NOT mention Wyshbone or any product. End with the builder experience.`}
+
+${mayIncludeLink ? `Paragraph 4 (INCLUDE - tool request detected):
+One sentence maximum.
+Embed the naked domain "wyshbonesales.com" naturally in the sentence.
+No http/https prefix.
+Never as a standalone line or footer.
+Example: "We built Wyshbone for this use case — details are at wyshbonesales.com."` : ''}
 
 Write the draft reply now:`;
 
