@@ -186,6 +186,9 @@ export default function HackerNewsPage() {
       if (data.draft) {
         setDraftText(data.draft);
         setSavedDrafts(prev => new Map(prev).set(post.id, data.draft));
+      } else if (data.reason) {
+        setDraftError(true);
+        setDraftText(data.reason);
       } else {
         setDraftError(true);
         setDraftText("Error: No draft content returned");
@@ -203,12 +206,12 @@ export default function HackerNewsPage() {
     setClaudePromptError(null);
 
     const unrepliedPosts = posts
-      .filter(p => !p.is_done)
+      .filter(p => !p.is_done && p.relevance_score >= 60)
       .sort((a, b) => b.relevance_score - a.relevance_score)
       .slice(0, 2);
 
     if (unrepliedPosts.length < 2) {
-      setClaudePromptError("Not enough unreplied threads available.");
+      setClaudePromptError("Not enough suitable unreplied threads available (need 2 with relevance >= 60).");
       setClaudePromptText("");
       setClaudePromptModalOpen(true);
       setClaudePromptLoading(false);
