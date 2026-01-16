@@ -102,51 +102,52 @@ export default function HackerNewsPage() {
     fetchPosts();
   }, []);
 
+  const [draftError, setDraftError] = useState(false);
+
   const handleDraftReply = async (post: HNPost) => {
     setDraftPost(post);
     setDraftModalOpen(true);
     setDraftLoading(true);
     setDraftText("");
+    setDraftError(false);
     setCopiedDraft(false);
 
     try {
-      const prompt = `You are drafting a reply to a Hacker News discussion.
-
-CONTEXT:
-Title: ${post.title}
-Type: ${post.type}
-${post.snippet ? `Content snippet: ${post.snippet}` : ""}
-
-GUIDELINES:
-- Be concise and technical
-- Maintain a neutral, professional tone
-- No hype or marketing language
-- No explicit call-to-action
-- Only mention Wyshbone if directly relevant (and if so, as a brief parenthetical)
-- Focus on adding value to the discussion
-- Match the HN community's expectations for thoughtful discourse
-
-Write a draft reply (2-4 sentences):`;
-
-      const res = await fetch("/api/chat", {
+      const res = await fetch("/api/hn/draft", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          messages: [{ role: "user", content: prompt }],
-          stream: false,
+          item: {
+            id: post.id,
+            title: post.title,
+            hn_link: post.hn_link,
+            url: post.url,
+            snippet: post.snippet,
+            matched_keywords: post.matched_keywords,
+            type: post.type,
+          },
+          keywords: post.matched_keywords,
         }),
       });
 
+      const data = await res.json();
+
       if (!res.ok) {
-        throw new Error("Failed to generate draft");
+        const errorMsg = data.details || data.error || `HTTP ${res.status}`;
+        setDraftError(true);
+        setDraftText(`Error: ${errorMsg}`);
+        return;
       }
 
-      const data = await res.json();
-      setDraftText(data.content || data.message || "Failed to generate draft");
+      if (data.draft) {
+        setDraftText(data.draft);
+      } else {
+        setDraftError(true);
+        setDraftText("Error: No draft content returned");
+      }
     } catch (err) {
-      setDraftText(
-        `Error generating draft: ${(err as Error).message}. Please try again.`
-      );
+      setDraftError(true);
+      setDraftText(`Error: ${(err as Error).message}`);
     } finally {
       setDraftLoading(false);
     }
@@ -366,7 +367,11 @@ Write a draft reply (2-4 sentences):`;
                 >
                   Close
                 </Button>
-                <Button onClick={copyDraft} className="gap-2">
+                <Button
+                  onClick={copyDraft}
+                  disabled={draftError || !draftText}
+                  className="gap-2"
+                >
                   {copiedDraft ? (
                     <>
                       <Check className="h-4 w-4" />

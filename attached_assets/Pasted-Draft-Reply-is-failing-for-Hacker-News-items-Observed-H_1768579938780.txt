@@ -1,0 +1,54 @@
+Draft Reply is failing for Hacker News items.
+
+Observed:
+- HN search works and returns results.
+- Clicking “Draft Reply” opens modal but shows:
+  “Error generating draft: Failed to generate draft. Please try again.”
+
+TASK:
+Fix the Draft Reply pipeline end-to-end for Hacker News.
+
+Definition of success:
+1) Clicking “Draft Reply” on any HN result produces a draft comment in the modal.
+2) “Copy to Clipboard” copies the draft text.
+3) If the LLM call fails, the UI shows the real error reason (status + message), not a generic failure.
+
+What to do (step-by-step):
+A) Identify the exact network request made when clicking “Draft Reply” (URL + method).
+   - Confirm whether it’s 404/500/etc.
+   - Log request + response details in backend logs.
+
+B) Ensure there is a dedicated backend endpoint for HN draft generation:
+   POST /api/hn/draft
+   body:
+   {
+     "item": {
+       "id": number,
+       "title": string,
+       "hn_link": string,
+       "url": string,
+       "snippet": string,
+       "matched_keywords": string[]
+     },
+     "keywords": string[]   // optional
+   }
+
+C) In that endpoint, call the SAME internal “draft reply” function/service used by the Reddit feature (reuse code, don’t duplicate).
+   - If Reddit drafting expects a “post” object, adapt/massage the HN item into the expected shape.
+   - Make sure we include: title, link, snippet, and a clear instruction: “Write a helpful Hacker News comment. No hype. No CTA. Mention Wyshbone only if directly relevant.”
+
+D) Fix environment/config issues:
+   - If the backend depends on OPENAI_API_KEY (or equivalent), ensure Replit has it set in Secrets AND the server reads it.
+   - If the server uses different env names across repos, standardize or add fallback mapping so it works in Replit.
+
+E) Improve error surfacing:
+   - Backend should return JSON error like { error: "...", details: "..."} with correct status code.
+   - Frontend should display that message in the modal.
+   - Disable “Copy to Clipboard” if draft is empty.
+
+Diagnostics to add:
+- Log when /api/hn/draft is hit, what provider/model it is using, and whether the key is present (don’t print the key, just boolean).
+- Log upstream LLM error message and propagate a safe version back to the UI.
+
+Deliverable:
+- Commit changes that make Draft Reply work for HN.
