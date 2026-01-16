@@ -4,27 +4,14 @@ const HN_API_BASE = 'https://hacker-news.firebaseio.com/v0';
 const CACHE_TTL_MS = 5 * 60 * 1000;
 
 export const DEFAULT_HN_KEYWORDS = [
-  'lead generation',
-  'sales automation',
-  'sales enablement',
+  'ai',
+  'agent',
   'crm',
-  'b2b sales',
+  'sales',
+  'saas',
+  'outreach',
   'prospecting',
-  'outbound sales',
-  'sales tooling',
-  'ai sales',
-  'agentic ai',
-  'sales ai',
-  'business discovery',
-  'account planning',
-  'territory planning',
-  'route planning',
-  'call tracking',
-  'order tracking',
-  'sales crm',
-  'vertical saas',
-  'sales workflow',
-  'pipeline management',
+  'lead',
 ];
 
 export interface HNItem {

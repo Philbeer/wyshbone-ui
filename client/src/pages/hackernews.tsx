@@ -17,27 +17,14 @@ import {
 } from "@/components/ui/dialog";
 
 const DEFAULT_HN_KEYWORDS = [
-  "lead generation",
-  "sales automation",
-  "sales enablement",
+  "ai",
+  "agent",
   "crm",
-  "b2b sales",
+  "sales",
+  "saas",
+  "outreach",
   "prospecting",
-  "outbound sales",
-  "sales tooling",
-  "ai sales",
-  "agentic ai",
-  "sales ai",
-  "business discovery",
-  "account planning",
-  "territory planning",
-  "route planning",
-  "call tracking",
-  "order tracking",
-  "sales crm",
-  "vertical saas",
-  "sales workflow",
-  "pipeline management",
+  "lead",
 ];
 
 interface HNPost {
