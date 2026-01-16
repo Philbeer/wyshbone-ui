@@ -1,0 +1,193 @@
+You are working inside the Wyshbone monorepo in Replit.
+
+CONTEXT:
+There is already a “Replit” section in the left-hand navigation. We are adding a new sub-feature under that section.
+
+TASK:
+Build “Hacker News Discovery” (Phase 1) as a read-only visibility feature that mirrors the existing Reddit discovery flow, but for Hacker News (HN).
+
+This feature helps surface relevant HN discussions and draft thoughtful replies manually (no auto-posting).
+
+────────────────────────────────
+DEFINITION OF SUCCESS
+────────────────────────────────
+
+1) In the left-hand nav, under the existing “Replit” section, a new item appears:
+   → “Hacker News”
+
+2) Clicking “Hacker News” opens a page that:
+   - Is pre-populated with a default keyword list relevant to Wyshbone
+   - Automatically runs a search on first load
+   - Shows a list of relevant HN posts
+   - Allows me to edit / add / remove keywords and re-run
+
+3) Each result shows:
+   - Title
+   - Author
+   - Score
+   - Time (human-readable + ISO)
+   - Type (Story / Ask HN / Show HN inferred from title)
+   - HN discussion link
+   - External URL (if present)
+   - Comment count
+   - Snippet (first ~240 chars, HTML stripped)
+   - “Matched keywords” (explicit list)
+
+4) Each result has:
+   - “Open on HN” link
+   - “Draft Reply” button
+     - Uses the existing LLM drafting pipeline
+     - Shows the draft in a modal
+     - Copy-to-clipboard only (manual posting)
+
+5) No authentication, no API keys, no auto-posting.
+
+────────────────────────────────
+DEFAULT KEYWORDS (AUTO-POPULATED)
+────────────────────────────────
+
+On page load, pre-populate the keyword input with this DEFAULT list
+(these must be editable by the user):
+
+lead generation
+sales automation
+sales enablement
+crm
+b2b sales
+prospecting
+outbound sales
+sales tooling
+ai sales
+agentic ai
+sales ai
+business discovery
+account planning
+territory planning
+route planning
+call tracking
+order tracking
+sales crm
+vertical saas
+sales workflow
+pipeline management
+
+Implementation note:
+- Store these as a constant DEFAULT_HN_KEYWORDS
+- Render them into the keyword input as a comma-separated string
+- Auto-trigger search on first render using these defaults
+
+────────────────────────────────
+DATA SOURCE (HN API)
+────────────────────────────────
+
+Base:
+https://hacker-news.firebaseio.com/v0
+
+Endpoints:
+- /newstories.json  → list of item IDs
+- /item/<id>.json   → item details
+
+Rules:
+- Pull the newest N IDs (default N = 300, configurable)
+- Fetch item details with a concurrency limit (max 10 at a time)
+- Cache results server-side for ~5 minutes to avoid hammering HN
+
+Filter logic (Phase 1 – simple + safe):
+- item.type === "story"
+- title OR text contains any keyword (case-insensitive)
+- Ask HN / Show HN are included automatically (title prefix)
+
+────────────────────────────────
+NORMALISED ITEM SHAPE
+────────────────────────────────
+
+Return items in this structure:
+
+{
+  id: number
+  title: string
+  by: string
+  score: number
+  time_iso: string
+  time_human: string
+  url: string
+  hn_link: string
+  descendants: number
+  snippet: string
+  matched_keywords: string[]
+  source: "hackernews"
+}
+
+If item.url is missing:
+- set url = hn_link
+
+────────────────────────────────
+BACKEND WORK (SERVER / SUPERVISOR)
+────────────────────────────────
+
+1) Add endpoint:
+   GET /api/hn/search
+   Query params:
+     - keywords (comma-separated)
+     - limit (default 300)
+
+2) Implement:
+   - Keyword parsing + trimming
+   - Cached fetch of /newstories
+   - Concurrency-limited fetch of items
+   - Keyword matching + annotation
+   - Sorting by time desc (newest first)
+
+3) HTML stripping:
+   - Use a small safe helper (no DOM, no heavy deps)
+
+────────────────────────────────
+UI WORK (WYSHBONE UI)
+────────────────────────────────
+
+1) Navigation:
+   - Add “Hacker News” under the existing “Replit” nav group
+
+2) Page layout:
+   - Header: “Hacker News Discovery”
+   - Keyword input (pre-filled from DEFAULT_HN_KEYWORDS)
+   - Limit selector (200 / 300 / 500)
+   - “Refresh Results” button
+   - Results list / table
+
+3) Draft Reply flow:
+   - Button → calls existing LLM draft endpoint
+   - Prompt tone:
+     - concise
+     - technical
+     - neutral
+     - no hype
+     - no CTA
+     - Wyshbone mentioned only if directly relevant (parenthetical max)
+
+4) Modal:
+   - Draft text
+   - Copy-to-clipboard
+   - Close
+
+────────────────────────────────
+IMPORTANT CONSTRAINTS
+────────────────────────────────
+
+- Do NOT add posting, voting, or HN login logic
+- Do NOT add heavy dependencies
+- Keep this as a read-only discovery + drafting tool
+- Code should be clear, minimal, and isolated
+- Do not break existing Reddit or Replit features
+
+────────────────────────────────
+DELIVERABLES
+────────────────────────────────
+
+- Backend endpoint implemented and tested
+- UI page wired into nav
+- Auto-search on load with default keywords
+- Draft reply working end-to-end
+- Basic loading + error states
+
+Start with backend endpoint first, then wire UI.
