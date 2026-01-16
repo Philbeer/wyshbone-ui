@@ -1,8 +1,98 @@
 import { Router } from 'express';
-import { searchHN, DEFAULT_HN_KEYWORDS } from '../lib/hn-client';
+import { searchHN, DEFAULT_HN_KEYWORDS, HNItem } from '../lib/hn-client';
 import { openai } from '../openai';
+import { hnReplies } from '../../shared/schema';
+import { eq, inArray } from 'drizzle-orm';
+import { drizzle } from 'drizzle-orm/postgres-js';
+import postgres from 'postgres';
+
+const queryClient = postgres(process.env.DATABASE_URL!);
+const db = drizzle(queryClient);
 
 export const hnRouter = Router();
+
+const STRONG_POSITIVE_KEYWORDS = [
+  'saas', 'crm', 'sales tool', 'sales software', 'lead generation', 'sales automation',
+  'prospecting', 'outbound', 'cold email', 'b2b sales', 'sales enablement',
+  'pipeline', 'outreach', 'sales ops', 'revenue operations'
+];
+
+const POSITIVE_KEYWORDS = [
+  'startup', 'growth', 'customer', 'marketing', 'business development',
+  'leads', 'conversion', 'acquisition', 'gtm', 'go-to-market', 'ai agent',
+  'automation', 'workflow', 'productivity'
+];
+
+const QUESTION_INDICATORS = [
+  'ask hn', 'how do', 'what tools', 'recommendations', 'looking for',
+  'best way to', 'how to', 'any suggestions', 'need help', 'advice'
+];
+
+const NEGATIVE_KEYWORDS = [
+  'security vulnerability', 'kernel', 'linux kernel', 'assembly',
+  'compiler', 'operating system', 'hardware', 'cpu architecture',
+  'cryptography', 'low-level', 'embedded systems'
+];
+
+function scoreRelevance(item: HNItem): { score: number; label: 'High' | 'Medium' | 'Low' } {
+  const titleLower = item.title.toLowerCase();
+  const snippetLower = (item.snippet || '').toLowerCase();
+  const combined = titleLower + ' ' + snippetLower;
+
+  let score = 50;
+
+  for (const kw of STRONG_POSITIVE_KEYWORDS) {
+    if (combined.includes(kw)) {
+      score += 15;
+    }
+  }
+
+  for (const kw of POSITIVE_KEYWORDS) {
+    if (combined.includes(kw)) {
+      score += 8;
+    }
+  }
+
+  for (const indicator of QUESTION_INDICATORS) {
+    if (combined.includes(indicator)) {
+      score += 12;
+    }
+  }
+
+  if (item.type === 'Ask HN') {
+    score += 10;
+  }
+
+  for (const kw of NEGATIVE_KEYWORDS) {
+    if (combined.includes(kw)) {
+      score -= 20;
+    }
+  }
+
+  score += Math.min(item.matched_keywords.length * 5, 20);
+
+  if (item.descendants > 50) score += 5;
+  if (item.score > 100) score += 5;
+
+  score = Math.max(0, Math.min(100, score));
+
+  let label: 'High' | 'Medium' | 'Low';
+  if (score >= 70) {
+    label = 'High';
+  } else if (score >= 45) {
+    label = 'Medium';
+  } else {
+    label = 'Low';
+  }
+
+  return { score, label };
+}
+
+export interface ScoredHNItem extends HNItem {
+  relevance_score: number;
+  relevance_label: 'High' | 'Medium' | 'Low';
+  already_replied: boolean;
+}
 
 hnRouter.get('/api/hn/search', async (req, res) => {
   try {
@@ -22,11 +112,34 @@ hnRouter.get('/api/hn/search', async (req, res) => {
 
     const posts = await searchHN(keywords, limit);
 
+    const postIds = posts.map(p => p.id);
+    let repliedIds: Set<number> = new Set();
+
+    if (postIds.length > 0) {
+      const repliedRows = await db
+        .select({ itemId: hnReplies.itemId })
+        .from(hnReplies)
+        .where(inArray(hnReplies.itemId, postIds));
+      repliedIds = new Set(repliedRows.map(r => r.itemId));
+    }
+
+    const scoredPosts: ScoredHNItem[] = posts.map(post => {
+      const { score, label } = scoreRelevance(post);
+      return {
+        ...post,
+        relevance_score: score,
+        relevance_label: label,
+        already_replied: repliedIds.has(post.id),
+      };
+    });
+
+    scoredPosts.sort((a, b) => b.relevance_score - a.relevance_score);
+
     res.json({
       keywords,
       limit,
-      count: posts.length,
-      posts,
+      count: scoredPosts.length,
+      posts: scoredPosts,
     });
   } catch (err) {
     console.error('❌ HN search error:', (err as Error).message);
@@ -39,6 +152,62 @@ hnRouter.get('/api/hn/search', async (req, res) => {
 
 hnRouter.get('/api/hn/default-keywords', (_req, res) => {
   res.json({ keywords: DEFAULT_HN_KEYWORDS });
+});
+
+hnRouter.get('/api/hn/replied-ids', async (_req, res) => {
+  try {
+    const rows = await db.select({ itemId: hnReplies.itemId }).from(hnReplies);
+    res.json({ ids: rows.map(r => r.itemId) });
+  } catch (err) {
+    console.error('❌ Failed to fetch replied IDs:', (err as Error).message);
+    res.status(500).json({ error: 'Failed to fetch replied IDs' });
+  }
+});
+
+hnRouter.post('/api/hn/mark-replied', async (req, res) => {
+  try {
+    const { item_id } = req.body as { item_id: number };
+
+    if (!item_id || typeof item_id !== 'number') {
+      return res.status(400).json({ error: 'item_id is required and must be a number' });
+    }
+
+    const existing = await db
+      .select()
+      .from(hnReplies)
+      .where(eq(hnReplies.itemId, item_id))
+      .limit(1);
+
+    if (existing.length > 0) {
+      return res.json({ success: true, already_existed: true });
+    }
+
+    await db.insert(hnReplies).values({ itemId: item_id });
+
+    console.log(`✅ Marked HN item ${item_id} as replied`);
+    res.json({ success: true, already_existed: false });
+  } catch (err) {
+    console.error('❌ Failed to mark as replied:', (err as Error).message);
+    res.status(500).json({ error: 'Failed to mark as replied' });
+  }
+});
+
+hnRouter.post('/api/hn/unmark-replied', async (req, res) => {
+  try {
+    const { item_id } = req.body as { item_id: number };
+
+    if (!item_id || typeof item_id !== 'number') {
+      return res.status(400).json({ error: 'item_id is required and must be a number' });
+    }
+
+    await db.delete(hnReplies).where(eq(hnReplies.itemId, item_id));
+
+    console.log(`✅ Unmarked HN item ${item_id} as replied`);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('❌ Failed to unmark replied:', (err as Error).message);
+    res.status(500).json({ error: 'Failed to unmark replied' });
+  }
 });
 
 interface HNDraftRequest {

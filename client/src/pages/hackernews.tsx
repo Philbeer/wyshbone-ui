@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
-import { ExternalLink, Copy, Check, RefreshCw, Loader2, X } from "lucide-react";
+import { ExternalLink, Copy, Check, RefreshCw, Loader2, Eye, EyeOff, CheckCircle, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -41,6 +43,9 @@ interface HNPost {
   matched_keywords: string[];
   source: "hackernews";
   type: "Story" | "Ask HN" | "Show HN";
+  relevance_score: number;
+  relevance_label: "High" | "Medium" | "Low";
+  already_replied: boolean;
 }
 
 interface SearchResponse {
@@ -57,12 +62,17 @@ export default function HackerNewsPage() {
   const [keywords, setKeywords] = useState(DEFAULT_HN_KEYWORDS.join(", "));
   const [limit, setLimit] = useState<string>("300");
   const [hasSearched, setHasSearched] = useState(false);
+  const [hideReplied, setHideReplied] = useState(true);
+  const [sortBy, setSortBy] = useState<"relevance" | "score" | "time">("relevance");
 
   const [draftModalOpen, setDraftModalOpen] = useState(false);
   const [draftLoading, setDraftLoading] = useState(false);
   const [draftText, setDraftText] = useState("");
   const [draftPost, setDraftPost] = useState<HNPost | null>(null);
   const [copiedDraft, setCopiedDraft] = useState(false);
+  const [draftError, setDraftError] = useState(false);
+
+  const [togglingReplied, setTogglingReplied] = useState<Set<number>>(new Set());
 
   const fetchPosts = useCallback(async () => {
     try {
@@ -89,7 +99,41 @@ export default function HackerNewsPage() {
     fetchPosts();
   }, []);
 
-  const [draftError, setDraftError] = useState(false);
+  const toggleReplied = async (post: HNPost) => {
+    if (togglingReplied.has(post.id)) return;
+
+    setTogglingReplied(prev => new Set(prev).add(post.id));
+
+    try {
+      const endpoint = post.already_replied
+        ? '/api/hn/unmark-replied'
+        : '/api/hn/mark-replied';
+
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ item_id: post.id }),
+      });
+
+      if (res.ok) {
+        setPosts(prevPosts =>
+          prevPosts.map(p =>
+            p.id === post.id
+              ? { ...p, already_replied: !p.already_replied }
+              : p
+          )
+        );
+      }
+    } catch (err) {
+      console.error('Failed to toggle replied status:', err);
+    } finally {
+      setTogglingReplied(prev => {
+        const next = new Set(prev);
+        next.delete(post.id);
+        return next;
+      });
+    }
+  };
 
   const handleDraftReply = async (post: HNPost) => {
     setDraftPost(post);
@@ -157,6 +201,35 @@ export default function HackerNewsPage() {
     }
   };
 
+  const getRelevanceBadgeColor = (label: string) => {
+    switch (label) {
+      case "High":
+        return "bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200";
+      case "Medium":
+        return "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200";
+      case "Low":
+        return "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400";
+      default:
+        return "bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200";
+    }
+  };
+
+  const filteredPosts = posts.filter(post => !hideReplied || !post.already_replied);
+
+  const sortedPosts = [...filteredPosts].sort((a, b) => {
+    switch (sortBy) {
+      case "score":
+        return b.score - a.score;
+      case "time":
+        return new Date(b.time_iso).getTime() - new Date(a.time_iso).getTime();
+      case "relevance":
+      default:
+        return b.relevance_score - a.relevance_score;
+    }
+  });
+
+  const repliedCount = posts.filter(p => p.already_replied).length;
+
   return (
     <div className="h-screen bg-background text-foreground flex flex-col overflow-hidden">
       <div className="flex-1 overflow-y-auto p-6">
@@ -181,7 +254,7 @@ export default function HackerNewsPage() {
                   className="w-full"
                 />
               </div>
-              <div className="flex items-end gap-4">
+              <div className="flex items-end gap-4 flex-wrap">
                 <div className="w-40">
                   <label className="block text-sm font-medium mb-2">
                     Posts to scan
@@ -196,6 +269,32 @@ export default function HackerNewsPage() {
                       <SelectItem value="500">500 posts</SelectItem>
                     </SelectContent>
                   </Select>
+                </div>
+                <div className="w-40">
+                  <label className="block text-sm font-medium mb-2">
+                    Sort by
+                  </label>
+                  <Select value={sortBy} onValueChange={(v) => setSortBy(v as typeof sortBy)}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="relevance">Relevance</SelectItem>
+                      <SelectItem value="score">HN Score</SelectItem>
+                      <SelectItem value="time">Newest</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex items-center gap-2 px-3 py-2 bg-background rounded-lg border">
+                  <Switch
+                    id="hide-replied"
+                    checked={hideReplied}
+                    onCheckedChange={setHideReplied}
+                  />
+                  <Label htmlFor="hide-replied" className="text-sm cursor-pointer flex items-center gap-1.5">
+                    {hideReplied ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    Hide replied ({repliedCount})
+                  </Label>
                 </div>
                 <Button
                   onClick={fetchPosts}
@@ -228,25 +327,30 @@ export default function HackerNewsPage() {
             </div>
           )}
 
-          {!loading && !error && hasSearched && posts.length === 0 && (
+          {!loading && !error && hasSearched && sortedPosts.length === 0 && (
             <div className="text-center py-12">
               <p className="text-muted-foreground">
-                No matching posts found. Try different keywords.
+                {posts.length > 0 && hideReplied
+                  ? `All ${posts.length} posts have been replied to. Toggle "Hide replied" to see them.`
+                  : "No matching posts found. Try different keywords."}
               </p>
             </div>
           )}
 
-          {hasSearched && posts.length > 0 && (
+          {hasSearched && sortedPosts.length > 0 && (
             <div className="mb-4 text-sm text-muted-foreground">
-              Found {posts.length} matching posts
+              Showing {sortedPosts.length} of {posts.length} posts
+              {repliedCount > 0 && hideReplied && ` (${repliedCount} replied hidden)`}
             </div>
           )}
 
           <div className="space-y-4">
-            {posts.map((post) => (
+            {sortedPosts.map((post) => (
               <div
                 key={post.id}
-                className="bg-card rounded-lg border overflow-hidden"
+                className={`bg-card rounded-lg border overflow-hidden transition-opacity ${
+                  post.already_replied ? 'opacity-60' : ''
+                }`}
               >
                 <div className="p-4">
                   <div className="flex items-start justify-between gap-4">
@@ -259,6 +363,19 @@ export default function HackerNewsPage() {
                         >
                           {post.type}
                         </span>
+                        <span
+                          className={`px-2 py-0.5 rounded-full text-xs font-bold ${getRelevanceBadgeColor(
+                            post.relevance_label
+                          )}`}
+                        >
+                          {post.relevance_score} - {post.relevance_label}
+                        </span>
+                        {post.already_replied && (
+                          <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 flex items-center gap-1">
+                            <CheckCircle className="h-3 w-3" />
+                            Replied
+                          </span>
+                        )}
                         <span>by {post.by}</span>
                         <span>•</span>
                         <span title={post.time_iso}>{post.time_human}</span>
@@ -317,6 +434,31 @@ export default function HackerNewsPage() {
                     className="gap-1"
                   >
                     Draft Reply
+                  </Button>
+                  <Button
+                    variant={post.already_replied ? "ghost" : "secondary"}
+                    size="sm"
+                    onClick={() => toggleReplied(post)}
+                    disabled={togglingReplied.has(post.id)}
+                    className={`gap-1.5 ml-auto ${
+                      post.already_replied
+                        ? 'text-muted-foreground hover:text-foreground'
+                        : ''
+                    }`}
+                  >
+                    {togglingReplied.has(post.id) ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : post.already_replied ? (
+                      <>
+                        <Undo2 className="h-4 w-4" />
+                        Undo Replied
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle className="h-4 w-4" />
+                        Mark as Replied
+                      </>
+                    )}
                   </Button>
                 </div>
               </div>
