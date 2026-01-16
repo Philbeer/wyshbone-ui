@@ -1,0 +1,101 @@
+You are working inside the Wyshbone repo in Replit.
+
+TASK:
+Enhance the existing “Hacker News Discovery” feature with:
+1) Relevance scoring
+2) “Already replied” tracking
+3) Visual filtering to prevent repeat work
+
+────────────────────────────────
+DEFINITION OF SUCCESS
+────────────────────────────────
+
+1) Each HN result shows a Relevance Score (0–100).
+2) Results are sorted by relevance (highest first).
+3) Each item has a large, clear toggle button:
+   - “Mark as replied”
+   - “Undo replied”
+4) Items marked as replied:
+   - Are persisted server-side
+   - Are visually muted
+   - Can be hidden via a global toggle
+5) Previously replied items remain marked across refreshes.
+
+────────────────────────────────
+RELEVANCE SCORING
+────────────────────────────────
+
+Implement lightweight relevance scoring focused on Wyshbone fit.
+
+Approach:
+- Add a backend function that scores an HN item for “Wyshbone reply-worthiness”.
+- Use either:
+  A) heuristic rules (keyword-based weighting), or
+  B) a single short LLM call with an explicit rubric (preferred if available).
+
+Scoring rubric (guideline):
+- Mentions SaaS / CRM / sales tools → strong positive
+- Asking for tools or recommendations → strong positive
+- Asking how to do sales / lead gen → positive
+- Pure dev/security/infra → negative
+- Totally unrelated → very negative
+
+Expose:
+- relevance_score: number (0–100)
+- relevance_label: "High" | "Medium" | "Low"
+
+────────────────────────────────
+ALREADY REPLIED SYSTEM
+────────────────────────────────
+
+Backend:
+- Create a small table or store:
+  hn_replies {
+    item_id: number,
+    source: "hackernews",
+    replied_at: timestamp
+  }
+
+Endpoints:
+- POST /api/hn/mark-replied
+- POST /api/hn/unmark-replied
+- GET /api/hn/replied-ids
+
+When fetching HN search results:
+- Join against replied items
+- Annotate each item with:
+  already_replied: boolean
+
+────────────────────────────────
+UI CHANGES
+────────────────────────────────
+
+Per item:
+- Show relevance score badge
+- Show “Mark as replied” / “Undo” button
+- If already replied:
+  - Grey the card
+  - Show “Already replied” label
+
+Global controls:
+- Toggle: “Hide replied posts” (default ON)
+- Sort dropdown (default: relevance desc)
+
+────────────────────────────────
+IMPORTANT CONSTRAINTS
+────────────────────────────────
+
+- Do NOT auto-post or automate replies
+- Keep relevance logic simple and transparent
+- No heavy ML infra
+- Persist replied state reliably
+- Maintain current Draft Reply functionality
+
+────────────────────────────────
+DELIVERABLE
+────────────────────────────────
+
+- Working relevance-ranked HN list
+- Persistent “already replied” tracking
+- Clean UI controls
+- No regression to existing behaviour

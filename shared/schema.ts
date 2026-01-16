@@ -2419,6 +2419,25 @@ export type SelectAfrRunBundle = typeof afrRunBundles.$inferSelect;
 export type AfrRunBundleData = z.infer<typeof afrRunBundleSchema>;
 
 // ============================================
+// HN REPLIES TRACKING
+// ============================================
+
+export const hnReplies = pgTable("hn_replies", {
+  id: serial("id").primaryKey(),
+  itemId: integer("item_id").notNull(),
+  source: text("source").notNull().default("hackernews"),
+  repliedAt: timestamp("replied_at").defaultNow().notNull(),
+  userId: text("user_id"),
+}, (table) => ({
+  itemIdIdx: index("hn_replies_item_id_idx").on(table.itemId),
+}));
+
+export const insertHnReplySchema = createInsertSchema(hnReplies);
+export const selectHnReplySchema = createSelectSchema(hnReplies);
+export type InsertHnReply = typeof hnReplies.$inferInsert;
+export type SelectHnReply = typeof hnReplies.$inferSelect;
+
+// ============================================
 // RELATIONS
 // ============================================
 import { relations } from "drizzle-orm";
