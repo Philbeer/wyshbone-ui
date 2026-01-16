@@ -1,0 +1,141 @@
+TASK:
+Add a UI button that generates a Claude Chrome instruction prompt
+to post replies on the top 2 unreplied Hacker News threads.
+
+This button does NOT automate posting.
+It ONLY generates a copyable prompt for Claude Chrome.
+
+────────────────────────────────
+WHERE THIS LIVES
+────────────────────────────────
+
+- Feature lives in the existing Hacker News Discovery UI.
+- Place a new button near the top of the results list:
+  Label: “Generate Claude Chrome Posting Prompt (Top 2)”
+
+────────────────────────────────
+BUTTON BEHAVIOUR
+────────────────────────────────
+
+When clicked:
+
+1) Select the top 2 Hacker News items where:
+   - is_done === false
+   - sorted by relevance_score DESC
+
+2) Each item MUST already have:
+   - hn_url
+   - draft_reply text
+
+3) If fewer than 2 valid items exist:
+   - Show a UI message:
+     “Not enough unreplied threads with drafts available.”
+
+────────────────────────────────
+PROMPT GENERATION
+────────────────────────────────
+
+Generate ONE text block formatted EXACTLY for Claude Chrome,
+using the following template.
+
+IMPORTANT:
+- The prompt must be plain text
+- No markdown rendering
+- No smart quotes
+- No additional commentary
+
+TEMPLATE TO GENERATE (fill variables):
+
+────────────────────────────────
+
+You are Claude Chrome with full browser access.
+
+GOAL
+Post two Hacker News replies using my already logged-in HN account.
+
+You MUST follow the instructions exactly.
+Do NOT rewrite, improve, shorten, or expand the draft replies.
+Do NOT add links, signatures, or extra commentary.
+
+PRECONDITIONS
+- I am already logged into Hacker News in this browser.
+- Do NOT log out or switch accounts.
+- Do NOT open more than the two threads listed below.
+
+GENERAL RULES
+- Paste the draft replies EXACTLY as provided.
+- Submit one comment per thread.
+- After submitting the second comment, STOP.
+
+────────────────────────────────
+THREAD 1
+────────────────────────────────
+
+URL:
+{{HN_THREAD_URL_1}}
+
+INSTRUCTIONS:
+1) Open the URL.
+2) Scroll to the comment box.
+3) Paste the draft reply below verbatim.
+4) Submit the comment.
+5) Do NOT edit after submission.
+
+DRAFT REPLY:
+{{DRAFT_REPLY_TEXT_1}}
+
+────────────────────────────────
+THREAD 2
+────────────────────────────────
+
+URL:
+{{HN_THREAD_URL_2}}
+
+INSTRUCTIONS:
+1) Open the URL.
+2) Scroll to the comment box.
+3) Paste the draft reply below verbatim.
+4) Submit the comment.
+5) Do NOT edit after submission.
+
+DRAFT REPLY:
+{{DRAFT_REPLY_TEXT_2}}
+
+────────────────────────────────
+STOP CONDITION
+────────────────────────────────
+
+After submitting the second reply:
+- Do NOT open any additional pages
+- Do NOT post additional comments
+- Stop execution immediately
+
+────────────────────────────────
+
+────────────────────────────────
+UI OUTPUT
+────────────────────────────────
+
+- Display the generated prompt in a large read-only textarea or modal.
+- Provide a “Copy to Clipboard” button.
+- Do NOT auto-copy.
+- Do NOT auto-send anywhere.
+
+────────────────────────────────
+CONSTRAINTS
+────────────────────────────────
+
+- Do NOT add browser automation
+- Do NOT add direct posting
+- Do NOT integrate with Claude APIs
+- This is prompt generation ONLY
+- Must work with existing HN data + draft logic
+
+────────────────────────────────
+DEFINITION OF SUCCESS
+────────────────────────────────
+
+- Button generates a valid Claude Chrome prompt
+- Prompt includes exactly 2 threads
+- Draft text is pasted verbatim
+- Prompt can be copy-pasted directly into Claude Chrome and executed
