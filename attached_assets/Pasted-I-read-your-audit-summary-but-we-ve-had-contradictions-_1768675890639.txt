@@ -1,0 +1,46 @@
+I read your audit summary, but we’ve had contradictions before (orders=0 in some runs, and “11 imported” in others). I need you to VERIFY the audit with hard evidence, not claims.
+
+Task: Produce a proof report that confirms each “Works Today” item is real in this environment.
+
+For each item below, provide:
+- The exact code path (file + function) responsible
+- One concrete example record (IDs) and the DB counts that prove it
+- The API endpoint/UI screen where I can see it
+
+Items to prove:
+1) OAuth works + token refresh
+- Show where refresh happens and the last refresh timestamp for an existing connection (mask secrets)
+
+2) Customer import works
+- DB count of imported contacts/customers
+- Example customer record with xero_contact_id and workspace_id
+
+3) Order/invoice import works WITH line items persisted
+- DB count: crm_orders and crm_order_lines
+- Example: one order row (id, xero_invoice_id/number, status, workspace_id)
+- Example: its line items count and at least one line item row (id, order_id, description, xero_line_item_id)
+- Show the join query output in the report
+
+4) Product import works
+- DB count of crm_products with xero_item_code or xero_item_id
+- Example product row
+
+5) Order export works
+- Show the API route/UI action that exports
+- Show what status it creates in Xero (DRAFT vs AUTHORISED)
+- Provide a log snippet or response that includes Xero invoice ID created
+
+6) Scheduled sync exists
+- Show the cron configuration: where it’s defined, frequency, and what functions it runs
+- Show last run evidence (log line or activity log entry)
+
+Also:
+7) Explain the earlier “orders found: 0” issue in the Orders API screenshot:
+- Is it workspace scoping?
+- Is it demo user/session ID mismatch?
+- Is it querying a different workspaceId/userId than the import used?
+Provide the exact reason and the fix recommendation (do not implement yet).
+
+Output required:
+- A “Proof Table” with each feature and the evidence (counts + example IDs)
+- A short list of remaining gaps you are confident about AFTER verification
