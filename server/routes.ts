@@ -8792,6 +8792,9 @@ ${run.outputText}`;
       const { workspaceId } = req.params;
       const { customerId, deliveryRunId } = req.query;
       
+      console.log(`📦 [ORDERS API] GET /api/crm/orders/${workspaceId}`);
+      console.log(`   Auth userId: ${auth.userId}`);
+      
       // SECURITY: Verify workspace belongs to authenticated user
       if (workspaceId !== auth.userId) {
         console.warn(`🚫 User ${auth.userEmail} attempted to access orders for workspace ${workspaceId}`);
@@ -8819,6 +8822,7 @@ ${run.outputText}`;
         orders = await storage.listCrmOrders(workspaceId);
       }
       
+      console.log(`   Orders found: ${orders.length}`);
       res.json(orders);
     } catch (error: any) {
       // Demo mode fallback: return empty array
