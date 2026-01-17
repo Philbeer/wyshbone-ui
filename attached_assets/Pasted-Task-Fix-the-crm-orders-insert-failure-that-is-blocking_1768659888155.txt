@@ -1,0 +1,48 @@
+Task: Fix the crm_orders insert failure that is blocking Xero invoice + line-item imports.
+
+Context:
+- Xero API returns invoices with LineItems (confirmed by logs).
+- We have code that creates crm_order_lines, and schema exists.
+- But crm_orders is empty (SELECT COUNT(*) FROM crm_orders = 0), so line items never run.
+- Previous logs show: “Failed query: insert into crm_orders...” and most imports abort.
+
+Definition of done:
+- Import run creates at least 1 row in crm_orders AND corresponding rows in crm_order_lines.
+- No more “Failed query: insert into crm_orders” during import.
+- Re-running import is idempotent (doesn’t create duplicates for the same Xero invoice).
+
+Do this in order:
+1) Surface the EXACT database error:
+   - Modify logging so when crm_orders insert fails, we log the full DB error message + constraint name + column name (but never log secrets).
+   - Log the invoice identifier being processed (InvoiceID and InvoiceNumber) and workspaceId.
+
+2) Identify the root cause:
+   - Check schema constraints on crm_orders (required columns, foreign keys, unique constraints, type mismatches).
+   - Compare the object passed to storage.createCrmOrder(...) vs the DB schema.
+   - Common causes to check explicitly:
+     a) missing required field (NOT NULL)
+     b) wrong type (integer vs text, pence conversion overflow, etc.)
+     c) unique constraint collision (xero_invoice_id or order_number)
+     d) foreign key missing (workspace_id/customer_id/user_id)
+     e) enum/status value not allowed
+
+3) Implement the smallest fix:
+   - If mapping bug: set the missing field(s) correctly.
+   - If FK missing: ensure referenced parent records exist or adjust mapping to use correct IDs.
+   - If uniqueness/idempotency: switch to upsert or “find by xero_invoice_id then update” before insert.
+   - Keep changes minimal and local.
+
+4) Prove it with a real run:
+   - Trigger a Xero import for a workspace that has at least one invoice.
+   - Show results:
+     - SELECT COUNT(*) from crm_orders
+     - SELECT COUNT(*) from crm_order_lines
+     - Example join showing an order with its line_count
+   - Confirm the API endpoints return data:
+     - GET /api/crm/orders (or whatever lists orders)
+     - GET /api/crm/orders/{orderId}/lines
+
+Output required:
+- Exact error message that was causing crm_orders insert to fail (before fix).
+- Files changed + summary of fix.
+- Proof queries + example data created.

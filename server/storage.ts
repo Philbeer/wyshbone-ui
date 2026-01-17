@@ -2110,8 +2110,21 @@ export class DbStorage implements IStorage {
   
   // ============= CRM CUSTOMERS CRUD METHODS =============
   async createCrmCustomer(customer: InsertCrmCustomer): Promise<SelectCrmCustomer> {
-    const [created] = await db.insert(crmCustomers).values(customer).returning();
-    return created;
+    try {
+      const [created] = await db.insert(crmCustomers).values(customer).returning();
+      return created;
+    } catch (error: any) {
+      console.error(`❌ [STORAGE] createCrmCustomer failed:`, {
+        customerId: customer.id,
+        workspaceId: customer.workspaceId,
+        name: customer.name,
+        pgCode: error?.code,
+        pgDetail: error?.detail,
+        pgConstraint: error?.constraint,
+        message: error?.message,
+      });
+      throw error;
+    }
   }
   
   async getCrmCustomer(id: string): Promise<SelectCrmCustomer | null> {
@@ -2214,8 +2227,25 @@ export class DbStorage implements IStorage {
   
   // ============= CRM ORDERS CRUD METHODS =============
   async createCrmOrder(order: InsertCrmOrder): Promise<SelectCrmOrder> {
-    const [created] = await db.insert(crmOrders).values(order).returning();
-    return created;
+    try {
+      const [created] = await db.insert(crmOrders).values(order).returning();
+      return created;
+    } catch (error: any) {
+      // Log detailed PostgreSQL error info before re-throwing
+      console.error(`❌ [STORAGE] createCrmOrder failed:`, {
+        orderId: order.id,
+        workspaceId: order.workspaceId,
+        customerId: order.customerId,
+        orderNumber: order.orderNumber,
+        pgCode: error?.code,
+        pgDetail: error?.detail,
+        pgConstraint: error?.constraint,
+        pgColumn: error?.column,
+        pgTable: error?.table,
+        message: error?.message,
+      });
+      throw error;
+    }
   }
   
   async getCrmOrder(id: string): Promise<SelectCrmOrder | null> {

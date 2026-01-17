@@ -1283,7 +1283,34 @@ export function createXeroOAuthRouter(storage: IStorage) {
         try {
           console.log(`🔄 [ORDER IMPORT] Processing invoice ${invoice.InvoiceNumber || invoice.InvoiceID}`);
           console.log(`   Status: ${invoice.Status}, Date: ${invoice.Date}, Contact: ${invoice.Contact?.Name}`);
-          console.log(`   Line Items: ${invoice.LineItems?.length || 0}`);
+          
+          // Fetch full invoice details including line items
+          // The list endpoint returns summaries without line items
+          let fullInvoice = invoice;
+          try {
+            const invoiceDetailResponse = await fetch(
+              `https://api.xero.com/api.xro/2.0/Invoices/${invoice.InvoiceID}`,
+              {
+                headers: {
+                  Authorization: `Bearer ${accessToken}`,
+                  "xero-tenant-id": tenantId,
+                  Accept: "application/json",
+                },
+              }
+            );
+            
+            if (invoiceDetailResponse.ok) {
+              const invoiceDetailData = await invoiceDetailResponse.json();
+              fullInvoice = invoiceDetailData.Invoices?.[0] || invoice;
+              console.log(`   Line Items: ${fullInvoice.LineItems?.length || 0} (fetched)`);
+            } else {
+              console.log(`   ⚠️ Failed to fetch full invoice details, using summary`);
+              console.log(`   Line Items: ${invoice.LineItems?.length || 0} (summary)`);
+            }
+          } catch (fetchError) {
+            console.log(`   ⚠️ Error fetching full invoice: ${fetchError}`);
+            console.log(`   Line Items: ${invoice.LineItems?.length || 0} (summary)`);
+          }
 
           // Skip if already imported
           const existing = await storage.getOrderByXeroInvoiceId(invoice.InvoiceID, workspaceId);
@@ -1369,30 +1396,30 @@ export function createXeroOAuthRouter(storage: IStorage) {
             'VOIDED': 'cancelled',
           };
 
-          // Parse invoice date
-          console.log(`   Raw Date value: ${invoice.Date}, type: ${typeof invoice.Date}`);
-          console.log(`   Raw DueDate value: ${invoice.DueDate}, type: ${typeof invoice.DueDate}`);
+          // Parse invoice date (use fullInvoice for complete data)
+          console.log(`   Raw Date value: ${fullInvoice.Date}, type: ${typeof fullInvoice.Date}`);
+          console.log(`   Raw DueDate value: ${fullInvoice.DueDate}, type: ${typeof fullInvoice.DueDate}`);
 
           let invoiceDate: number;
           let dueDate: number | undefined;
 
           try {
             // Handle both /Date(...)/ format and ISO string format
-            if (invoice.Date) {
-              if (typeof invoice.Date === 'string' && invoice.Date.includes('/Date(')) {
-                invoiceDate = new Date(parseInt(invoice.Date.replace('/Date(', '').replace(')/', ''))).getTime();
+            if (fullInvoice.Date) {
+              if (typeof fullInvoice.Date === 'string' && fullInvoice.Date.includes('/Date(')) {
+                invoiceDate = new Date(parseInt(fullInvoice.Date.replace('/Date(', '').replace(')/', ''))).getTime();
               } else {
-                invoiceDate = new Date(invoice.Date).getTime();
+                invoiceDate = new Date(fullInvoice.Date).getTime();
               }
             } else {
               invoiceDate = Date.now();
             }
 
-            if (invoice.DueDate) {
-              if (typeof invoice.DueDate === 'string' && invoice.DueDate.includes('/Date(')) {
-                dueDate = new Date(parseInt(invoice.DueDate.replace('/Date(', '').replace(')/', ''))).getTime();
+            if (fullInvoice.DueDate) {
+              if (typeof fullInvoice.DueDate === 'string' && fullInvoice.DueDate.includes('/Date(')) {
+                dueDate = new Date(parseInt(fullInvoice.DueDate.replace('/Date(', '').replace(')/', ''))).getTime();
               } else {
-                dueDate = new Date(invoice.DueDate).getTime();
+                dueDate = new Date(fullInvoice.DueDate).getTime();
               }
             }
           } catch (dateError) {
@@ -1402,12 +1429,12 @@ export function createXeroOAuthRouter(storage: IStorage) {
 
           // Generate order ID and order number
           const orderId = `ord_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
-          const orderNumber = invoice.InvoiceNumber || `XERO-${invoice.InvoiceID.slice(0, 8)}`;
+          const orderNumber = fullInvoice.InvoiceNumber || invoice.InvoiceNumber || `XERO-${invoice.InvoiceID.slice(0, 8)}`;
 
-          // Convert amounts from Xero (decimal) to pence
-          const subtotalExVat = invoice.SubTotal ? Math.round(parseFloat(invoice.SubTotal) * 100) : 0;
-          const vatTotal = invoice.TotalTax ? Math.round(parseFloat(invoice.TotalTax) * 100) : 0;
-          const totalIncVat = invoice.Total ? Math.round(parseFloat(invoice.Total) * 100) : 0;
+          // Convert amounts from Xero (decimal) to pence (use fullInvoice for accurate totals)
+          const subtotalExVat = fullInvoice.SubTotal ? Math.round(parseFloat(fullInvoice.SubTotal) * 100) : 0;
+          const vatTotal = fullInvoice.TotalTax ? Math.round(parseFloat(fullInvoice.TotalTax) * 100) : 0;
+          const totalIncVat = fullInvoice.Total ? Math.round(parseFloat(fullInvoice.Total) * 100) : 0;
 
           // Create order
           const order = await storage.createCrmOrder({
@@ -1417,19 +1444,19 @@ export function createXeroOAuthRouter(storage: IStorage) {
             orderNumber,
             orderDate: invoiceDate,
             deliveryDate: dueDate,
-            status: statusMap[invoice.Status] || 'pending',
+            status: statusMap[fullInvoice.Status || invoice.Status] || 'pending',
             subtotalExVat,
             vatTotal,
             totalIncVat,
             xeroInvoiceId: invoice.InvoiceID,
-            xeroInvoiceNumber: invoice.InvoiceNumber,
+            xeroInvoiceNumber: fullInvoice.InvoiceNumber || invoice.InvoiceNumber,
             lastXeroSyncAt: new Date(),
             createdAt: Date.now(),
             updatedAt: Date.now(),
           });
 
-          // Create order lines
-          for (const line of invoice.LineItems || []) {
+          // Create order lines from the full invoice (with line items)
+          for (const line of fullInvoice.LineItems || []) {
             // Try to find matching product by Xero item code
             let product = null;
 
@@ -1483,17 +1510,37 @@ export function createXeroOAuthRouter(storage: IStorage) {
             });
           }
 
-        } catch (error) {
+        } catch (error: any) {
           const errorMessage = error instanceof Error ? error.message : String(error);
           const errorStack = error instanceof Error ? error.stack : 'No stack';
+          
+          // Extract PostgreSQL-specific error details
+          const pgCode = error?.code || 'N/A';
+          const pgDetail = error?.detail || 'N/A';
+          const pgConstraint = error?.constraint || 'N/A';
+          const pgColumn = error?.column || 'N/A';
+          const pgTable = error?.table || 'N/A';
+          const pgCause = error?.cause ? JSON.stringify(error.cause) : 'N/A';
 
           log(`❌ FAILED to import invoice ${invoice.InvoiceNumber} (${invoice.InvoiceID})`);
+          log(`   Workspace: ${workspaceId}`);
+          log(`   Customer ID: ${customer?.id || 'undefined'}`);
           log(`   Error message: ${errorMessage}`);
+          log(`   PG Code: ${pgCode}`);
+          log(`   PG Detail: ${pgDetail}`);
+          log(`   PG Constraint: ${pgConstraint}`);
+          log(`   PG Column: ${pgColumn}`);
+          log(`   PG Table: ${pgTable}`);
+          log(`   PG Cause: ${pgCause}`);
           log(`   Stack: ${errorStack}`);
           log(`   Invoice data: ${JSON.stringify(invoice).substring(0, 500)}`);
 
           console.error(`❌ [ORDER IMPORT] Failed to import invoice ${invoice.InvoiceNumber} (${invoice.InvoiceID})`);
+          console.error(`   Workspace: ${workspaceId}`);
+          console.error(`   Customer ID: ${customer?.id || 'undefined'}`);
           console.error(`   Error message: ${errorMessage}`);
+          console.error(`   PG Code: ${pgCode}, Detail: ${pgDetail}, Constraint: ${pgConstraint}`);
+          console.error(`   PG Column: ${pgColumn}, Table: ${pgTable}`);
           console.error(`   Stack: ${errorStack}`);
           console.error(`   Invoice data:`, JSON.stringify(invoice).substring(0, 500));
 
