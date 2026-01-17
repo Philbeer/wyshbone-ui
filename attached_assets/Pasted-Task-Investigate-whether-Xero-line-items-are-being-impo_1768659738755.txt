@@ -1,0 +1,45 @@
+Task: Investigate whether Xero line items are being imported when orders/invoices are imported into Wyshbone. I suspect we only import the order header (invoice) and NOT the individual line items.
+
+Goal / definition of done:
+- Confirm definitively whether line items are imported today.
+- If NOT: implement importing + storing line items per invoice, and expose them in the UI/API so we can see them.
+- If YES: show me exactly where they are stored and how to view them.
+
+Investigation steps:
+1) Find the “import orders from Xero” flow end-to-end:
+   - Where the sync is triggered
+   - Which backend endpoint/job runs
+   - Which Xero API endpoints are called
+
+2) Confirm what data we request from Xero:
+   - Are we using Invoices, Sales, Purchases, or something else?
+   - Inspect the response object and check if it contains LineItems[].
+   - If we’re using a “summary” endpoint, it might not include line items — check if we need a “get invoice by id” call to fetch full details.
+
+3) Confirm what we persist:
+   - Which tables/collections store imported orders
+   - Whether there is a line-items table/child relationship
+   - If line items exist in code but are being dropped during mapping
+
+4) Run a real test:
+   - Pick a known Xero invoice with multiple line items
+   - Trigger import
+   - Print/log the count of LineItems from Xero vs the count stored in DB
+   - Verify in UI or DB viewer
+
+If line items are NOT imported:
+5) Implement minimal correct solution:
+   - Create/confirm a storage model for line items (e.g., xero_invoice_line_items table with invoice_id FK)
+   - Store: lineItemID (if available), description, quantity, unitAmount, lineAmount, accountCode, taxType, taxAmount, tracking (if any), itemCode, discountRate, currency info
+   - Ensure idempotency: re-importing the same invoice updates/replaces its line items without duplicates
+   - Add a small “line items count” field on invoice for quick UI display
+
+6) Expose & verify:
+   - Add API route or join query so the UI can fetch invoice + line items
+   - Add a simple UI view (even dev-only) showing the line items under an imported order
+   - Confirm the test invoice shows the correct number of line items and amounts match Xero totals
+
+Output required:
+- A clear yes/no: “Line items currently imported” + proof (where stored + how to view)
+- If changes were needed: files changed + migrations + new env vars (if any)
+- How to test it again with a known invoice
