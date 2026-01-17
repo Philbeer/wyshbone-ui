@@ -588,6 +588,94 @@ export function createDevToolsRouter(storage: IStorage): Router {
     }
   });
 
+  /**
+   * GET /api/dev/db-info
+   * 
+   * Debug endpoint to verify database connection info
+   * Only available in development mode with authenticated dev users
+   */
+  router.get("/db-info", async (req: Request, res: Response) => {
+    try {
+      // Require authenticated user with dev access
+      const auth = await getAuthenticatedUser(req, storage);
+      if (!auth || !hasDevAccess(auth.userEmail)) {
+        return res.status(403).json({ 
+          success: false, 
+          error: "Access denied - requires authenticated dev user" 
+        });
+      }
+
+      const { getDbConnectionInfo } = await import("../storage");
+      const db = getDrizzleDb();
+      
+      // Get connection info
+      const dbInfo = getDbConnectionInfo();
+      
+      // Run sanity query against actual database
+      let sanityCheck: { orderLinesCount: number; customersCount: number; ordersCount: number } | null = null;
+      let queryError: string | null = null;
+      let rawResult: any = null;
+      
+      try {
+        const result = await db.execute(sql`
+          SELECT 
+            (SELECT COUNT(*) FROM crm_order_lines) as order_lines_count,
+            (SELECT COUNT(*) FROM crm_customers) as customers_count,
+            (SELECT COUNT(*) FROM crm_orders) as orders_count
+        `);
+        
+        // Capture raw result for debugging
+        rawResult = result;
+        
+        // Drizzle postgres-js returns result directly as array
+        const row = Array.isArray(result) ? result[0] : (result.rows?.[0] || result[0]);
+        if (row) {
+          sanityCheck = {
+            orderLinesCount: parseInt(String(row.order_lines_count)) || 0,
+            customersCount: parseInt(String(row.customers_count)) || 0,
+            ordersCount: parseInt(String(row.orders_count)) || 0,
+          };
+        }
+      } catch (err: any) {
+        queryError = err.message;
+      }
+
+      res.json({
+        success: true,
+        database: {
+          source: dbInfo.source,
+          host: dbInfo.host,
+          database: dbInfo.database,
+          supabaseProjectRef: dbInfo.projectRef || null,
+          supabaseServiceRoleKeySet: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+        },
+        session: auth ? {
+          userId: auth.userId,
+          userEmail: auth.userEmail,
+          workspaceId: auth.userId,
+        } : null,
+        sanityCheck: sanityCheck,
+        queryError: queryError,
+        environment: {
+          nodeEnv: process.env.NODE_ENV,
+          hasSupabaseDatabaseUrl: !!process.env.SUPABASE_DATABASE_URL,
+          hasReplitDatabaseUrl: !!process.env.DATABASE_URL,
+        },
+        diagnosis: {
+          issue: "Replit execute_sql_tool uses DATABASE_URL (Replit Postgres) while app uses SUPABASE_DATABASE_URL (your Supabase)",
+          replitDbEmpty: "The Replit DATABASE_URL points to an empty Postgres instance, not your production data",
+          appDbHasData: sanityCheck && sanityCheck.orderLinesCount > 0,
+        },
+      });
+
+    } catch (error: any) {
+      res.status(500).json({
+        success: false,
+        error: error.message,
+      });
+    }
+  });
+
   return router;
 }
 

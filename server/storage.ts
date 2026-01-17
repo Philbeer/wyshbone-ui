@@ -1154,11 +1154,59 @@ export class MemStorage implements IStorage {
 // Prefer SUPABASE_DATABASE_URL to avoid conflict with Replit's built-in DATABASE_URL
 const DATABASE_CONNECTION_URL = process.env.SUPABASE_DATABASE_URL || process.env.DATABASE_URL;
 
+// Track which database source is being used
+const DATABASE_SOURCE = process.env.SUPABASE_DATABASE_URL ? 'SUPABASE_DATABASE_URL' : 'DATABASE_URL';
+
 if (!DATABASE_CONNECTION_URL) {
   console.error('❌ FATAL: Database URL environment variable is not set.');
   console.error('   Please set SUPABASE_DATABASE_URL or DATABASE_URL in your .env or .env.local file.');
   console.error('   Example: SUPABASE_DATABASE_URL=postgres://user:pass@host:5432/dbname');
   throw new Error('Database URL is required but not set. Check your environment configuration.');
+}
+
+// Extract and log connection info (masked for security)
+function getMaskedDbInfo(): { source: string; host: string; database: string; projectRef?: string } {
+  try {
+    const url = new URL(DATABASE_CONNECTION_URL!);
+    const hostParts = url.hostname.split('.');
+    let projectRef: string | undefined;
+    
+    // Check if it's a Supabase URL (format: db.<project-ref>.supabase.co)
+    if (url.hostname.includes('supabase.co') || url.hostname.includes('pooler.supabase.com')) {
+      // Extract project ref from various Supabase URL formats
+      const match = url.hostname.match(/(?:db\.)?([a-z]+)\.(?:supabase\.co|pooler\.supabase\.com)/);
+      if (match) {
+        projectRef = match[1];
+      }
+    }
+    
+    return {
+      source: DATABASE_SOURCE,
+      host: url.hostname,
+      database: url.pathname.replace('/', '') || 'postgres',
+      projectRef,
+    };
+  } catch {
+    return { source: DATABASE_SOURCE, host: 'unknown', database: 'unknown' };
+  }
+}
+
+// Log database connection info at startup
+const dbInfo = getMaskedDbInfo();
+console.log('='.repeat(60));
+console.log('🗄️  DATABASE CONNECTION INFO');
+console.log(`   Source: ${dbInfo.source}`);
+console.log(`   Host: ${dbInfo.host}`);
+console.log(`   Database: ${dbInfo.database}`);
+if (dbInfo.projectRef) {
+  console.log(`   Supabase Project: ${dbInfo.projectRef}`);
+}
+console.log(`   SUPABASE_SERVICE_ROLE_KEY: ${process.env.SUPABASE_SERVICE_ROLE_KEY ? 'SET' : 'NOT SET'}`);
+console.log('='.repeat(60));
+
+// Export for debug endpoint
+export function getDbConnectionInfo() {
+  return dbInfo;
 }
 
 // Set faster connection and query timeout for quicker fallback in demo mode
