@@ -1,0 +1,51 @@
+Implement Wyshbone↔Xero V1 contract:
+
+Rule: Wyshbone can only create/edit DRAFT invoices locally and push them to Xero as DRAFT.
+Rule: Approval and payment happen ONLY in Xero.
+Rule: Wyshbone reflects Xero status (DRAFT/AUTHORISED/PAID) via webhook + poller fallback.
+Rule: If Xero status != DRAFT, order becomes read-only in Wyshbone (API + UI).
+
+A) Force DRAFT on export (Wyshbone → Xero)
+- Find the export endpoint (e.g. /api/crm/orders/:orderId/export-xero or /api/xero/sync/order/:orderId).
+- Change it so it ALWAYS creates/updates Xero invoice with Status='DRAFT' regardless of Wyshbone order.status.
+- Ensure idempotency: if crm_orders.xero_invoice_id exists, update that invoice; else create and store ID.
+- Add an explicit attribution note/reference in Xero:
+  “Created in Wyshbone by {userName} at {timestamp}. Wyshbone Order ID {id}”
+  Use the best supported field (Reference / Description / Notes depending on Xero API).
+
+B) Persist Xero status fields locally + display them
+- Ensure crm_orders has fields for xero_status and xero_updated_at (add migration if missing).
+- Update import + export flows to save xero_status.
+- Add UI badge in Orders list/details: DRAFT / AUTHORISED / PAID (from xero_status, not Wyshbone status).
+
+C) Lock edits when not draft
+- Server-side: reject updates to crm_orders / crm_order_lines if xero_status != 'DRAFT' with clear error.
+- UI: disable editing controls and show “Locked (Approved in Xero)”.
+
+D) Webhook + poller alignment (Xero → Wyshbone)
+- Implement webhook receiver if not already registered:
+  - Verify per Xero webhook guidance (signature/requirements)
+  - On webhook event, fetch the latest invoice from Xero by invoice ID and update crm_orders.xero_status (+ paid fields if available).
+- Implement poller fallback (backupPollXero):
+  - Every 15 min: fetch invoices updated since last successful poll per tenant/workspace, update statuses.
+  - Store last_polled_at per tenant/workspace so it’s incremental.
+- Log every update source: xero_webhook or xero_poll.
+
+E) Audit trail in Wyshbone
+- Add/extend activity_log so we record:
+  created_draft_order, edited_draft_order, pushed_to_xero,
+  xero_status_changed, xero_marked_paid, etc.
+- Include: workspace_id, actor_user_id, actor_name, entity_type, entity_id, timestamp, source, summary.
+
+Testing (must provide evidence):
+1) Create draft with 2 lines in Wyshbone → export → confirm invoice in Xero is DRAFT.
+2) Approve in Xero → Wyshbone updates to AUTHORISED via webhook or poller.
+3) Mark paid in Xero → Wyshbone updates to PAID.
+4) Attempt edit in Wyshbone after approval → must be blocked (API + UI).
+5) Show DB evidence: one order row with xero_invoice_id + xero_status + lines; activity_log events present.
+
+Output:
+- Files changed + short summary
+- Any migrations + how to apply
+- Env vars needed for webhook/poller (if any)
+- How to test checklist

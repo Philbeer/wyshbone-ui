@@ -871,6 +871,9 @@ export const crmOrders = pgTable("crm_orders", {
   xeroInvoiceId: text("xero_invoice_id"), // Xero invoice reference if exported
   xeroInvoiceNumber: text("xero_invoice_number"), // Xero invoice number for display (e.g. INV-0001)
   xeroExportedAt: bigint("xero_exported_at", { mode: "number" }), // When exported to Xero
+  xeroStatus: varchar("xero_status", { length: 20 }), // Xero invoice status: DRAFT, SUBMITTED, AUTHORISED, PAID, VOIDED
+  xeroUpdatedAt: timestamp("xero_updated_at"), // Last time Xero status was updated (from webhook/poll)
+  xeroStatusSource: varchar("xero_status_source", { length: 20 }), // How status was updated: 'export', 'webhook', 'poll'
   lastXeroSyncAt: timestamp("last_xero_sync_at"), // Last sync timestamp
   syncStatus: varchar("sync_status", { length: 20 }).default("synced"), // 'synced', 'pending', 'failed'
   lastSyncError: text("last_sync_error"), // Error message from last failed sync

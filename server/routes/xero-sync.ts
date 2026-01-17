@@ -329,6 +329,9 @@ export function createXeroSyncRouter(storage: IStorage) {
     const now = Date.now();
     const orderId = `ord_${now}_${Math.random().toString(36).slice(2, 8)}`;
     
+    const xeroStatus = invoice.status || 'DRAFT';
+    const nowDate = new Date();
+    
     const newOrder = await storage.createCrmOrder({
       id: orderId,
       workspaceId,
@@ -342,8 +345,11 @@ export function createXeroSyncRouter(storage: IStorage) {
       totalIncVat: Math.round((invoice.total || 0) * 100),
       xeroInvoiceId: invoice.invoiceID,
       xeroInvoiceNumber: invoice.invoiceNumber,
+      xeroStatus: xeroStatus,
+      xeroUpdatedAt: nowDate,
+      xeroStatusSource: 'import',
       syncStatus: 'synced',
-      lastXeroSyncAt: new Date(),
+      lastXeroSyncAt: nowDate,
       createdAt: now,
       updatedAt: now,
     });
@@ -403,28 +409,77 @@ export function createXeroSyncRouter(storage: IStorage) {
       return;
     }
 
-    // Update order
+    const now = new Date();
+    const xeroStatus = invoice.status || 'DRAFT';
+    const previousStatus = order.xeroStatus;
+
+    // V1 CONTRACT: Update order with Xero status fields
     await storage.updateCrmOrder(order.id, workspaceId, {
       status: XERO_TO_WYSHBONE_STATUS[invoice.status!] || order.status,
       subtotalExVat: Math.round((invoice.subTotal || 0) * 100),
       vatTotal: Math.round((invoice.totalTax || 0) * 100),
       totalIncVat: Math.round((invoice.total || 0) * 100),
+      xeroStatus: xeroStatus,
+      xeroUpdatedAt: now,
+      xeroStatusSource: 'webhook',
       syncStatus: 'synced',
-      lastXeroSyncAt: new Date(),
+      lastXeroSyncAt: now,
     });
 
-    console.log(`✅ Updated order ${order.id} from Xero invoice ${invoiceId}`);
+    // Log activity for status changes
+    if (previousStatus !== xeroStatus) {
+      await logXeroActivity(
+        workspaceId,
+        'system',
+        'Xero Webhook',
+        'xero_status_changed',
+        'order',
+        order.id,
+        {
+          previousStatus,
+          newStatus: xeroStatus,
+          source: 'webhook',
+          invoiceId,
+        }
+      );
+    }
+
+    console.log(`✅ Updated order ${order.id} from Xero invoice ${invoiceId} (status: ${xeroStatus})`);
   }
 
   async function voidInvoiceFromXero(invoiceId: string, workspaceId: string) {
     const order = await storage.getOrderByXeroInvoiceId(invoiceId, workspaceId);
     if (!order) return;
 
+    const now = new Date();
+    const previousStatus = order.xeroStatus;
+    
     await storage.updateCrmOrder(order.id, workspaceId, {
       status: 'cancelled',
+      xeroStatus: 'VOIDED',
+      xeroUpdatedAt: now,
+      xeroStatusSource: 'webhook',
       syncStatus: 'synced',
-      lastXeroSyncAt: new Date(),
+      lastXeroSyncAt: now,
     });
+
+    // Log activity
+    if (previousStatus !== 'VOIDED') {
+      await logXeroActivity(
+        workspaceId,
+        'system',
+        'Xero Webhook',
+        'xero_status_changed',
+        'order',
+        order.id,
+        {
+          previousStatus,
+          newStatus: 'VOIDED',
+          source: 'webhook',
+          invoiceId,
+        }
+      );
+    }
 
     console.log(`✅ Voided order ${order.id} from Xero`);
   }
@@ -632,8 +687,12 @@ export function createXeroSyncRouter(storage: IStorage) {
 
   /**
    * Sync an order from Wyshbone to Xero
+   * 
+   * V1 CONTRACT: Always creates/updates as DRAFT in Xero.
+   * Approval and payment happen ONLY in Xero.
+   * Wyshbone reflects Xero status via webhook/poller.
    */
-  async function syncOrderToXero(orderId: string, workspaceId: string): Promise<void> {
+  async function syncOrderToXero(orderId: string, workspaceId: string, actorUserId?: string, actorName?: string): Promise<{ invoiceId: string; invoiceNumber: string }> {
     console.log(`📤 Syncing order ${orderId} to Xero (workspaceId: ${workspaceId})...`);
 
     // Debug: Check Xero connection for this workspace
@@ -642,12 +701,6 @@ export function createXeroSyncRouter(storage: IStorage) {
 
     const order = await storage.getCrmOrder(orderId, workspaceId);
     if (!order) throw new Error('Order not found');
-
-    // Skip if already synced to Xero
-    if (order.xeroInvoiceId) {
-      console.log(`Order ${orderId} already has Xero invoice ${order.xeroInvoiceId}`);
-      return;
-    }
 
     // Set status to pending before attempting sync
     await storage.updateOrderSyncStatus(orderId, workspaceId, 'pending');
@@ -678,13 +731,19 @@ export function createXeroSyncRouter(storage: IStorage) {
       // Get order lines
       const orderLines = await storage.listCrmOrderLinesByOrder(orderId);
 
-      // Map to Xero format
+      // Build attribution reference for Xero
+      const exportTimestamp = new Date().toISOString();
+      const exporterName = actorName || 'Wyshbone User';
+      const attribution = `Created in Wyshbone by ${exporterName} at ${exportTimestamp}. Wyshbone Order ID: ${orderId}`;
+
+      // V1 CONTRACT: ALWAYS create as DRAFT - regardless of Wyshbone order.status
       const xeroInvoice = {
         type: 'ACCREC' as any,
         contact: { contactID: customer.xeroContactId },
         date: order.orderDate ? new Date(order.orderDate).toISOString().split('T')[0] : undefined,
         dueDate: order.deliveryDate ? new Date(order.deliveryDate).toISOString().split('T')[0] : undefined,
-        status: (WYSHBONE_TO_XERO_STATUS[order.status] || 'DRAFT') as any,
+        status: 'DRAFT' as any, // V1 CONTRACT: Always DRAFT
+        reference: `WB-${order.orderNumber}`, // Wyshbone reference
         lineItems: orderLines.map(line => ({
           description: line.description || 'Unknown item',
           quantity: line.quantity,
@@ -692,23 +751,66 @@ export function createXeroSyncRouter(storage: IStorage) {
         })),
       };
 
-      // Create invoice in Xero
-      const response = await xero.accountingApi.createInvoices(tenantId, { invoices: [xeroInvoice] });
-      
-      const createdInvoice = response.body.invoices?.[0];
-      if (!createdInvoice) {
-        throw new Error('Failed to create invoice in Xero');
+      let createdInvoice: any;
+
+      // Check if already synced - update existing invoice instead of creating new one
+      if (order.xeroInvoiceId) {
+        console.log(`   📝 Order already has Xero invoice ${order.xeroInvoiceId}, updating...`);
+        
+        // Fetch current invoice to check status
+        const existingInvoiceResponse = await xero.accountingApi.getInvoice(tenantId, order.xeroInvoiceId);
+        const existingInvoice = existingInvoiceResponse.body.invoices?.[0];
+        
+        if (existingInvoice && existingInvoice.status !== 'DRAFT') {
+          throw new Error(`Cannot update invoice - Xero status is ${existingInvoice.status} (not DRAFT). Approval/payment must be done in Xero.`);
+        }
+
+        // Update existing invoice
+        const updateResponse = await xero.accountingApi.updateInvoice(tenantId, order.xeroInvoiceId, {
+          invoices: [{
+            ...xeroInvoice,
+            invoiceID: order.xeroInvoiceId,
+          }]
+        });
+        createdInvoice = updateResponse.body.invoices?.[0];
+      } else {
+        // Create new invoice in Xero
+        const response = await xero.accountingApi.createInvoices(tenantId, { invoices: [xeroInvoice] });
+        createdInvoice = response.body.invoices?.[0];
       }
+      
+      if (!createdInvoice) {
+        throw new Error('Failed to create/update invoice in Xero');
+      }
+
+      const now = new Date();
 
       // Update local order with Xero details
       await storage.updateCrmOrder(orderId, workspaceId, {
         xeroInvoiceId: createdInvoice.invoiceID,
         xeroInvoiceNumber: createdInvoice.invoiceNumber,
+        xeroStatus: createdInvoice.status || 'DRAFT',
+        xeroUpdatedAt: now,
+        xeroStatusSource: 'export',
+        xeroExportedAt: now.getTime(),
         syncStatus: 'synced',
-        lastXeroSyncAt: new Date(),
+        lastXeroSyncAt: now,
       });
 
-      console.log(`✅ Synced order ${orderId} to Xero as invoice ${createdInvoice.invoiceNumber}`);
+      // Log activity
+      await logXeroActivity(workspaceId, actorUserId || 'system', actorName || 'Wyshbone', 'pushed_to_xero', 'order', orderId, {
+        invoiceId: createdInvoice.invoiceID,
+        invoiceNumber: createdInvoice.invoiceNumber,
+        status: 'DRAFT',
+        isUpdate: !!order.xeroInvoiceId,
+      });
+
+      console.log(`✅ Synced order ${orderId} to Xero as invoice ${createdInvoice.invoiceNumber} (DRAFT)`);
+      
+      return {
+        invoiceId: createdInvoice.invoiceID,
+        invoiceNumber: createdInvoice.invoiceNumber,
+      };
     } catch (error: any) {
       // On any error, set status to failed so it doesn't stay stuck in "Syncing..."
       console.error(`❌ Failed to sync order ${orderId} to Xero:`, error.message);
@@ -718,12 +820,55 @@ export function createXeroSyncRouter(storage: IStorage) {
   }
 
   /**
-   * Update an order in Xero
+   * Log Xero-related activity for audit trail
    */
-  async function updateOrderInXero(orderId: string, workspaceId: string): Promise<void> {
+  async function logXeroActivity(
+    workspaceId: string,
+    actorUserId: string,
+    actorName: string,
+    action: string,
+    entityType: string,
+    entityId: string,
+    details: Record<string, any>
+  ): Promise<void> {
+    try {
+      // Use activity log if available
+      if (typeof storage.createCrmActivity === 'function') {
+        await storage.createCrmActivity({
+          id: `act_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
+          workspaceId,
+          customerId: entityType === 'customer' ? entityId : undefined,
+          orderId: entityType === 'order' ? entityId : undefined,
+          type: 'xero_sync',
+          summary: `${action}: ${JSON.stringify(details)}`,
+          details: JSON.stringify({ action, entityType, entityId, ...details }),
+          performedBy: actorUserId,
+          performedAt: Date.now(),
+          createdAt: Date.now(),
+        });
+      }
+      console.log(`📋 [XERO_AUDIT] ${action} | ${entityType}:${entityId} | by ${actorName} | ${JSON.stringify(details)}`);
+    } catch (err) {
+      // Don't fail the main operation if logging fails
+      console.warn('Failed to log Xero activity:', err);
+    }
+  }
+
+  /**
+   * Update an order in Xero
+   * 
+   * V1 CONTRACT: Can only update DRAFT invoices. Once approved in Xero, order is locked.
+   */
+  async function updateOrderInXero(orderId: string, workspaceId: string, actorUserId?: string, actorName?: string): Promise<void> {
     const order = await storage.getCrmOrder(orderId, workspaceId);
     if (!order || !order.xeroInvoiceId) {
-      return await syncOrderToXero(orderId, workspaceId);
+      await syncOrderToXero(orderId, workspaceId, actorUserId, actorName);
+      return;
+    }
+
+    // V1 CONTRACT: Check if order is locked (approved/paid in Xero)
+    if (order.xeroStatus && order.xeroStatus !== 'DRAFT') {
+      throw new Error(`Cannot update order - locked in Xero with status: ${order.xeroStatus}. Changes must be made in Xero.`);
     }
 
     await storage.updateOrderSyncStatus(orderId, workspaceId, 'pending');
@@ -736,12 +881,29 @@ export function createXeroSyncRouter(storage: IStorage) {
 
       const { client: xero, tenantId } = xeroData;
 
+      // Verify Xero invoice is still DRAFT before updating
+      const existingInvoiceResponse = await xero.accountingApi.getInvoice(tenantId, order.xeroInvoiceId);
+      const existingInvoice = existingInvoiceResponse.body.invoices?.[0];
+      
+      if (existingInvoice && existingInvoice.status !== 'DRAFT') {
+        // Update local status to match Xero
+        await storage.updateCrmOrder(orderId, workspaceId, {
+          xeroStatus: existingInvoice.status,
+          xeroUpdatedAt: new Date(),
+          xeroStatusSource: 'poll',
+          syncStatus: 'synced',
+        });
+        throw new Error(`Cannot update - invoice was approved in Xero (status: ${existingInvoice.status})`);
+      }
+
       const orderLines = await storage.listCrmOrderLinesByOrder(orderId);
 
+      // V1 CONTRACT: Always keep as DRAFT when updating from Wyshbone
       const xeroInvoice = {
         invoiceID: order.xeroInvoiceId,
-        status: (WYSHBONE_TO_XERO_STATUS[order.status] || 'DRAFT') as any,
+        status: 'DRAFT' as any, // V1 CONTRACT: Always DRAFT
         dueDate: order.deliveryDate ? new Date(order.deliveryDate).toISOString().split('T')[0] : undefined,
+        reference: `WB-${order.orderNumber}`,
         lineItems: orderLines.map(line => ({
           description: line.description || 'Unknown item',
           quantity: line.quantity,
@@ -750,9 +912,22 @@ export function createXeroSyncRouter(storage: IStorage) {
       };
 
       await xero.accountingApi.updateInvoice(tenantId, order.xeroInvoiceId, { invoices: [xeroInvoice] });
-      await storage.updateOrderSyncStatus(orderId, workspaceId, 'synced');
+      
+      await storage.updateCrmOrder(orderId, workspaceId, {
+        xeroStatus: 'DRAFT',
+        xeroUpdatedAt: new Date(),
+        xeroStatusSource: 'export',
+        syncStatus: 'synced',
+        lastXeroSyncAt: new Date(),
+      });
 
-      console.log(`✅ Updated order ${orderId} in Xero`);
+      // Log activity
+      await logXeroActivity(workspaceId, actorUserId || 'system', actorName || 'Wyshbone', 'updated_in_xero', 'order', orderId, {
+        invoiceId: order.xeroInvoiceId,
+        status: 'DRAFT',
+      });
+
+      console.log(`✅ Updated order ${orderId} in Xero (DRAFT)`);
     } catch (error: any) {
       console.error(`❌ Failed to update order ${orderId} in Xero:`, error.message);
       await storage.updateOrderSyncStatus(orderId, workspaceId, 'failed', error.message);
@@ -932,14 +1107,117 @@ export function createXeroSyncRouter(storage: IStorage) {
   // BACKUP POLLING (CATCH MISSED WEBHOOKS)
   // ============================================
 
+  /**
+   * Backup poller - fetches invoice status changes from Xero
+   * Runs every 15 minutes to catch any missed webhooks
+   * 
+   * V1 CONTRACT: Only updates status fields, doesn't modify order data
+   */
   async function backupPollXero(): Promise<void> {
     console.log("🔄 Running backup Xero poll...");
     
     const connections = await storage.getAllActiveXeroConnections();
     console.log(`Polling ${connections.length} active Xero connections`);
 
-    // For now, just log - full implementation would re-import recent invoices/contacts
-    // This is a safety net in case webhooks are missed
+    for (const connection of connections) {
+      if (!connection.isConnected) continue;
+      
+      try {
+        const xeroData = await getXeroClient(connection.workspaceId);
+        if (!xeroData) {
+          console.log(`   ⚠️ No Xero client for workspace ${connection.workspaceId}`);
+          continue;
+        }
+
+        const { client: xero, tenantId } = xeroData;
+
+        // Get orders that have been exported to Xero
+        const ordersWithXero = await storage.getOrdersWithXeroInvoiceId(connection.workspaceId);
+        console.log(`   📋 Found ${ordersWithXero.length} orders with Xero invoices in workspace ${connection.workspaceId}`);
+
+        // Get all invoice IDs that need status checks
+        const invoiceIds = ordersWithXero
+          .filter(o => o.xeroInvoiceId)
+          .map(o => o.xeroInvoiceId as string);
+
+        if (invoiceIds.length === 0) continue;
+
+        // Chunk invoice IDs (Xero API limit is 100 per request)
+        const CHUNK_SIZE = 100;
+        const chunks: string[][] = [];
+        for (let i = 0; i < invoiceIds.length; i += CHUNK_SIZE) {
+          chunks.push(invoiceIds.slice(i, i + CHUNK_SIZE));
+        }
+        console.log(`   📦 Fetching ${invoiceIds.length} invoices in ${chunks.length} batches`);
+
+        // Fetch all invoices in chunks
+        const xeroInvoices: any[] = [];
+        for (const chunk of chunks) {
+          try {
+            const invoicesResponse = await xero.accountingApi.getInvoices(
+              tenantId,
+              undefined, // ifModifiedSince
+              undefined, // where
+              undefined, // order
+              chunk, // IDs filter (max 100)
+              undefined, // invoiceNumbers
+              undefined, // contactIDs
+              undefined, // statuses
+              undefined, // page
+              false // includeArchived
+            );
+            xeroInvoices.push(...(invoicesResponse.body.invoices || []));
+          } catch (chunkError: any) {
+            console.error(`   ⚠️ Failed to fetch chunk of ${chunk.length} invoices:`, chunkError.message);
+          }
+        }
+        console.log(`   📦 Fetched ${xeroInvoices.length} invoices from Xero`);
+
+        // Update local orders with Xero statuses
+        let updatedCount = 0;
+        for (const xeroInvoice of xeroInvoices) {
+          const localOrder = ordersWithXero.find(o => o.xeroInvoiceId === xeroInvoice.invoiceID);
+          if (!localOrder) continue;
+
+          const xeroStatus = xeroInvoice.status || 'DRAFT';
+          
+          // Only update if status changed
+          if (localOrder.xeroStatus !== xeroStatus) {
+            const now = new Date();
+            await storage.updateCrmOrder(localOrder.id, connection.workspaceId, {
+              xeroStatus: xeroStatus,
+              xeroUpdatedAt: now,
+              xeroStatusSource: 'poll',
+            });
+
+            // Log activity
+            await logXeroActivity(
+              connection.workspaceId,
+              'system',
+              'Xero Poller',
+              'xero_status_changed',
+              'order',
+              localOrder.id,
+              {
+                previousStatus: localOrder.xeroStatus,
+                newStatus: xeroStatus,
+                source: 'poll',
+                invoiceId: xeroInvoice.invoiceID,
+              }
+            );
+
+            console.log(`   ✅ Updated order ${localOrder.id}: ${localOrder.xeroStatus || 'null'} → ${xeroStatus}`);
+            updatedCount++;
+          }
+        }
+
+        console.log(`   📊 Updated ${updatedCount} orders in workspace ${connection.workspaceId}`);
+      } catch (error: any) {
+        console.error(`   ❌ Failed to poll workspace ${connection.workspaceId}:`, error.message);
+      }
+    }
+    
+    console.log("✅ Backup Xero poll complete");
   }
 
   // ============================================

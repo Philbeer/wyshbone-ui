@@ -8982,6 +8982,16 @@ ${run.outputText}`;
         return res.status(403).json({ error: "Forbidden: Cannot modify other workspaces' data" });
       }
       
+      // V1 CONTRACT: Lock edits when order is approved/paid in Xero
+      if (existing.xeroStatus && existing.xeroStatus !== 'DRAFT') {
+        console.warn(`🔒 User ${auth.userEmail} attempted to edit locked order ${id} (Xero status: ${existing.xeroStatus})`);
+        return res.status(423).json({ 
+          error: "Order is locked",
+          message: `This order has been ${existing.xeroStatus.toLowerCase()} in Xero and cannot be edited in Wyshbone. Make changes directly in Xero.`,
+          xeroStatus: existing.xeroStatus
+        });
+      }
+      
       // VALIDATION: Validate partial update using Zod schema (omit immutable fields)
       console.log('[DEBUG] Order PATCH request body:', JSON.stringify(req.body, null, 2));
       const validationResult = insertCrmOrderSchema.partial().omit({ id: true, workspaceId: true, createdAt: true }).safeParse(req.body);
@@ -9055,6 +9065,16 @@ ${run.outputText}`;
       if (existing.workspaceId !== auth.userId) {
         console.warn(`🚫 User ${auth.userEmail} attempted to delete order ${id} owned by workspace ${existing.workspaceId}`);
         return res.status(403).json({ error: "Forbidden: Cannot delete other workspaces' data" });
+      }
+      
+      // V1 CONTRACT: Lock deletes when order is approved/paid in Xero
+      if (existing.xeroStatus && existing.xeroStatus !== 'DRAFT') {
+        console.warn(`🔒 User ${auth.userEmail} attempted to delete locked order ${id} (Xero status: ${existing.xeroStatus})`);
+        return res.status(423).json({ 
+          error: "Order is locked",
+          message: `This order has been ${existing.xeroStatus.toLowerCase()} in Xero and cannot be deleted in Wyshbone. Void it directly in Xero.`,
+          xeroStatus: existing.xeroStatus
+        });
       }
       
       // Void in Xero first (async, don't block response)
@@ -9200,6 +9220,16 @@ ${run.outputText}`;
         return res.status(403).json({ error: "Forbidden: Order does not belong to your workspace" });
       }
       
+      // V1 CONTRACT: Lock edits when order is approved/paid in Xero
+      if (order.xeroStatus && order.xeroStatus !== 'DRAFT') {
+        console.warn(`🔒 User ${auth.userEmail} attempted to add line to locked order ${order.id} (Xero status: ${order.xeroStatus})`);
+        return res.status(423).json({ 
+          error: "Order is locked",
+          message: `This order has been ${order.xeroStatus.toLowerCase()} in Xero and cannot be edited in Wyshbone. Make changes directly in Xero.`,
+          xeroStatus: order.xeroStatus
+        });
+      }
+      
       // SECURITY: If productId is provided, verify it belongs to the workspace
       // First check CRM products, then fall back to Brew products for brewery vertical
       if (data.productId) {
@@ -9281,6 +9311,16 @@ ${run.outputText}`;
       if (!order || order.workspaceId !== auth.userId) {
         console.warn(`🚫 User ${auth.userEmail} attempted to update order line ${id} belonging to order not in their workspace`);
         return res.status(403).json({ error: "Forbidden: Cannot modify other workspaces' data" });
+      }
+      
+      // V1 CONTRACT: Lock edits when order is approved/paid in Xero
+      if (order.xeroStatus && order.xeroStatus !== 'DRAFT') {
+        console.warn(`🔒 User ${auth.userEmail} attempted to edit line on locked order ${order.id} (Xero status: ${order.xeroStatus})`);
+        return res.status(423).json({ 
+          error: "Order is locked",
+          message: `This order has been ${order.xeroStatus.toLowerCase()} in Xero and cannot be edited in Wyshbone. Make changes directly in Xero.`,
+          xeroStatus: order.xeroStatus
+        });
       }
       
       // VALIDATION: Validate partial update using Zod schema (omit immutable fields)
@@ -9367,6 +9407,16 @@ ${run.outputText}`;
       if (!order || order.workspaceId !== auth.userId) {
         console.warn(`🚫 User ${auth.userEmail} attempted to delete order line ${id} belonging to order not in their workspace`);
         return res.status(403).json({ error: "Forbidden: Cannot modify other workspaces' data" });
+      }
+      
+      // V1 CONTRACT: Lock edits when order is approved/paid in Xero
+      if (order.xeroStatus && order.xeroStatus !== 'DRAFT') {
+        console.warn(`🔒 User ${auth.userEmail} attempted to delete line on locked order ${order.id} (Xero status: ${order.xeroStatus})`);
+        return res.status(423).json({ 
+          error: "Order is locked",
+          message: `This order has been ${order.xeroStatus.toLowerCase()} in Xero and cannot be edited in Wyshbone. Make changes directly in Xero.`,
+          xeroStatus: order.xeroStatus
+        });
       }
       
       const orderId = existing.orderId; // Save before deletion

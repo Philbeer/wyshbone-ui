@@ -157,7 +157,7 @@ import {
   afrRuleUpdates,
   afrRunBundles
 } from "@shared/schema";
-import { eq, or, and, desc, asc, lt, gt, lte, gte, isNull, sql } from "drizzle-orm";
+import { eq, or, and, desc, asc, lt, gt, lte, gte, isNull, isNotNull, sql } from "drizzle-orm";
 
 export interface PendingBatchConfirmation {
   business_types: string[];
@@ -355,6 +355,7 @@ export interface IStorage {
   deleteCrmOrder(id: string): Promise<boolean>;
   // Xero order lookups
   getOrderByXeroInvoiceId(xeroInvoiceId: string, workspaceId: string): Promise<SelectCrmOrder | null>;
+  getOrdersWithXeroInvoiceId(workspaceId: string): Promise<SelectCrmOrder[]>;
   
   // ============= SUPPLIERS CRUD METHODS =============
   getSupplierById(id: string, workspaceId: string): Promise<SelectSupplier | null>;
@@ -1112,6 +1113,7 @@ export class MemStorage implements IStorage {
   async getProductByXeroItemCode(xeroItemCode: string, workspaceId: string): Promise<SelectCrmProduct | null> { return null; }
   async getProductBySKU(sku: string, workspaceId: string): Promise<SelectCrmProduct | null> { return null; }
   async getOrderByXeroInvoiceId(xeroInvoiceId: string, workspaceId: string): Promise<SelectCrmOrder | null> { return null; }
+  async getOrdersWithXeroInvoiceId(workspaceId: string): Promise<SelectCrmOrder[]> { return []; }
   
   // Xero Connections - stub methods
   async getXeroConnection(workspaceId: string): Promise<SelectXeroConnection | null> { return null; }
@@ -2334,6 +2336,14 @@ export class DbStorage implements IStorage {
         eq(crmOrders.workspaceId, workspaceId)
       ));
     return order || null;
+  }
+
+  async getOrdersWithXeroInvoiceId(workspaceId: string): Promise<SelectCrmOrder[]> {
+    return await db.select().from(crmOrders)
+      .where(and(
+        eq(crmOrders.workspaceId, workspaceId),
+        isNotNull(crmOrders.xeroInvoiceId)
+      ));
   }
   
   // ============= SUPPLIERS CRUD METHODS =============
