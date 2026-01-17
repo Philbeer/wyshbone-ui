@@ -1,0 +1,48 @@
+Task: Investigate why Xero order imports are incomplete.
+
+Observed problem:
+- For Customer A: only 2 orders were imported.
+- For Customer B: 0 orders were imported.
+- This occurred in the most recent sync runs.
+- I suspect we are either filtering incorrectly, paging incorrectly, or silently failing.
+
+Important: DO NOT add new features yet. This is investigation + root-cause analysis only.
+
+Investigation steps:
+1) Identify the exact sync/import flow used in the last runs:
+   - Entry point (cron, manual trigger, background job, API route)
+   - Time range / since-date logic
+   - Any customer/contact filters applied
+
+2) Inspect the Xero API calls being made:
+   - Which endpoint(s) are used (Invoices, Sales, etc.)
+   - Query params: statuses, dateFrom, page, where, contactId, orderBy
+   - Whether pagination is implemented correctly
+   - Whether we stop early (e.g. page 1 only)
+
+3) Compare expected vs actual:
+   - For Customer A: how many invoices exist in Xero vs how many we fetched
+   - For Customer B: confirm invoices exist in Xero that match the filter criteria
+   - Log counts per page and total returned by Xero
+
+4) Check failure & skip paths:
+   - Are we skipping invoices due to validation, mapping, or missing fields?
+   - Are errors swallowed instead of logged?
+   - Are imports aborted after the first customer?
+
+5) Check data persistence logic:
+   - Are invoices being fetched but not saved?
+   - Are we de-duping incorrectly (e.g. contactId collision, invoiceNumber uniqueness)?
+   - Are we overwriting or deleting previous imports on each run?
+
+6) Produce a clear root-cause summary:
+   - Why only 2 orders for Customer A
+   - Why 0 orders for Customer B
+   - Whether this is caused by filtering, pagination, date windows, status logic, or a bug
+
+Output required:
+- A clear explanation of what is happening (not guesses)
+- Evidence: logs, counts, or code references
+- The exact file(s) and logic responsible
+- A recommended minimal fix (no implementation yet)
+- A quick test plan to verify the fix once applied
