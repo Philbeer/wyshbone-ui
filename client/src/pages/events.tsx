@@ -545,15 +545,12 @@ export default function EventsPage() {
   };
   
   return (
-    <div className="container mx-auto py-6 space-y-6">
+    <div className="p-6 space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold flex items-center gap-2">
-            <Calendar className="h-8 w-8" />
-            Events
-          </h1>
-          <p className="text-muted-foreground">
+          <h1 className="text-2xl font-semibold">Events</h1>
+          <p className="text-sm text-muted-foreground">
             Discover and track beer festivals, trade shows, and more
           </p>
         </div>

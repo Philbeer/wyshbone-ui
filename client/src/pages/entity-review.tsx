@@ -612,15 +612,12 @@ export default function EntityReviewPage() {
   const pendingCount = reviews?.length || 0;
   
   return (
-    <div className="container mx-auto py-6 space-y-6 h-[calc(100vh-100px)] flex flex-col">
+    <div className="p-6 space-y-6 h-[calc(100vh-100px)] flex flex-col">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold flex items-center gap-2">
-            <FileText className="h-8 w-8" />
-            Entity Review Queue
-          </h1>
-          <p className="text-muted-foreground">
+          <h1 className="text-2xl font-semibold">Entity Review Queue</h1>
+          <p className="text-sm text-muted-foreground">
             Review and verify potential duplicate businesses
           </p>
         </div>
