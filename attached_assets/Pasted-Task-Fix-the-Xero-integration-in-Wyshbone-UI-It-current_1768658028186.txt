@@ -1,0 +1,32 @@
+Task: Fix the Xero integration in Wyshbone UI. It currently fails with the popup:
+“Failed to connect: Xero OAuth not configured”.
+
+Goal / definition of done:
+- Clicking “Connect” on Xero should start the OAuth flow, redirect to Xero, return to the app, and show “Connected”.
+- No “OAuth not configured” errors in console/network.
+- Works in DEV on Replit and uses the correct callback URL for this environment.
+
+What to do:
+1) Find where the Xero “Connect” button triggers the flow (UI + API route). Trace the request end-to-end (frontend → backend endpoint).
+2) Locate the Xero OAuth config section and identify what it expects (client id, client secret, redirect/callback URL, scopes, tenant selection, token storage).
+3) Identify why the code thinks OAuth is “not configured”:
+   - missing env vars
+   - redirect URI not set/mismatch
+   - OAuth routes not wired
+   - wrong base URL in embedded replit.dev environment
+4) Implement the fix properly (not a hack):
+   - Add/validate required env vars (e.g., XERO_CLIENT_ID, XERO_CLIENT_SECRET, XERO_REDIRECT_URI, XERO_SCOPES, any encryption/session secret).
+   - Ensure redirect URI is computed correctly for Replit dev domain (and not hard-coded to production).
+   - Ensure the callback route exists and completes token exchange.
+   - Persist tokens/tenant in the existing storage approach used by other integrations (or add minimal storage if missing).
+5) Add clear logging + user-facing error messages:
+   - If env vars missing, show exactly which are missing (without printing secrets).
+   - If redirect mismatch, log the redirect URI being sent.
+6) Provide a short test plan and run it:
+   - Click Connect → authenticate → return → verify UI shows Connected.
+   - Confirm tokens stored and subsequent “status” check passes.
+
+Output I want from you:
+- The exact files you changed + what you changed (brief).
+- The final list of required env vars for Xero and the correct redirect/callback URL(s) for Replit dev + prod.
+- Confirmation that the Connect flow works end-to-end after your changes.

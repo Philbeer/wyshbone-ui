@@ -91,14 +91,42 @@ const XERO_CLIENT_ID = process.env.XERO_CLIENT_ID;
 const XERO_CLIENT_SECRET = process.env.XERO_CLIENT_SECRET;
 
 // Calculate base URL for OAuth redirects
-// BACKEND_URL should be the public URL of this backend (e.g., https://wyshbone-api.onrender.com)
-// In development, backend runs on port 5001
-const BASE_URL = process.env.BACKEND_URL || `http://localhost:${process.env.PORT || 5001}`;
+// Priority: BACKEND_URL env var > Replit domain > localhost fallback
+function getBaseUrl(): string {
+  if (process.env.BACKEND_URL) {
+    return process.env.BACKEND_URL;
+  }
+  
+  // On Replit, use the dev domain (frontend proxies /api to backend)
+  const replitDomain = process.env.REPLIT_DEV_DOMAIN || process.env.REPLIT_DOMAINS;
+  if (replitDomain) {
+    return `https://${replitDomain}`;
+  }
+  
+  // Local development fallback
+  return `http://localhost:${process.env.PORT || 5001}`;
+}
+
+const BASE_URL = getBaseUrl();
 
 // Frontend URL for redirecting after OAuth (where the React app runs)
-// In production, this might be the same as the backend if serving static files
-// In development, Vite runs on port 5173
-const FRONTEND_URL = process.env.FRONTEND_URL || (process.env.NODE_ENV === 'production' ? '' : 'http://localhost:5173');
+// On Replit, frontend and backend share the same domain (API is proxied)
+function getFrontendUrl(): string {
+  if (process.env.FRONTEND_URL) {
+    return process.env.FRONTEND_URL;
+  }
+  
+  // On Replit, frontend and API share the same domain
+  const replitDomain = process.env.REPLIT_DEV_DOMAIN || process.env.REPLIT_DOMAINS;
+  if (replitDomain) {
+    return `https://${replitDomain}`;
+  }
+  
+  // Local development: Vite on port 5173
+  return process.env.NODE_ENV === 'production' ? '' : 'http://localhost:5173';
+}
+
+const FRONTEND_URL = getFrontendUrl();
 
 const REDIRECT_URI = `${BASE_URL}/api/integrations/xero/callback`;
 
