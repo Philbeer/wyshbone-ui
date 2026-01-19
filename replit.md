@@ -32,7 +32,7 @@ The user interface adheres to Material Design principles, featuring a dark mode,
 - **Auto-Summarize Research Reports:** Automatically summarizes previously viewed deep research reports using GPT-4o.
 - **Persistent Memory System:** A database-backed system for conversation history and knowledge accumulation, extracting and scoring facts for importance and recency.
 - **Scheduled Monitors:** An agentic monitoring system for recurring tasks with flexible scheduling, email notifications, and intelligent analysis. Features a "Smart Summary Mode" for concise, actionable chat reports.
-- **Xero OAuth Integration:** Direct OAuth 2.0 integration for connecting Xero accounting accounts securely.
+- **Xero OAuth Integration:** Direct OAuth 2.0 integration for connecting Xero accounting accounts securely. Features server-side state binding using the `oauth_states` database table to prevent cross-user token binding attacks. States expire after 10 minutes and are atomically consumed to prevent replay attacks. See docs/xero-oauth-session-binding.md for details.
 - **Batch Contact Discovery Pipeline:** Cost-optimized contact finding using Google Places API, Hunter.io (domain/email discovery/verification), and SalesHandy (prospect campaign management).
 - **Stripe Subscription System:** Implements a freemium model with various paid tiers, managing user subscriptions and usage limits.
 - **Agent Flight Recorder (AFR):** An internal development tool for visualizing agent decision loops, run details, and judgment ledgers.
