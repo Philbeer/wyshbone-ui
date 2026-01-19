@@ -1481,7 +1481,30 @@ export async function runStartupMigrations(): Promise<void> {
       CREATE INDEX IF NOT EXISTS org_invites_token_idx ON public.org_invites(token);
     `;
     
-    console.log('✅ Startup migrations completed - org system tables and columns ensured');
+    // Create oauth_states table for secure OAuth session binding
+    await queryClient`
+      CREATE TABLE IF NOT EXISTS public.oauth_states (
+        id SERIAL PRIMARY KEY,
+        state_token VARCHAR(64) NOT NULL UNIQUE,
+        user_id TEXT NOT NULL,
+        user_email TEXT NOT NULL,
+        org_id TEXT,
+        integration VARCHAR(50) NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+        used_at TIMESTAMP WITH TIME ZONE
+      );
+    `;
+    
+    // Create index for oauth_states lookups
+    await queryClient`
+      CREATE INDEX IF NOT EXISTS oauth_states_state_token_idx ON public.oauth_states(state_token);
+    `;
+    await queryClient`
+      CREATE INDEX IF NOT EXISTS oauth_states_expires_at_idx ON public.oauth_states(expires_at);
+    `;
+    
+    console.log('✅ Startup migrations completed - org system and oauth_states tables ensured');
   } catch (error: any) {
     // Only log if it's not a "column already exists" error
     if (error?.code !== '42701') { // 42701 = duplicate_column

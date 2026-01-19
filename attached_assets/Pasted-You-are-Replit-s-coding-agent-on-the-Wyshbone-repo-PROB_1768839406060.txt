@@ -1,0 +1,73 @@
+You are Replit’s coding agent on the Wyshbone repo.
+
+PROBLEM:
+Clicking Integrations → Connect to Xero no longer opens Xero. Instead the UI shows:
+"Failed to connect: Failed to initiate OAuth flow"
+So the backend “start OAuth” step is failing before redirecting.
+
+GOAL:
+Make Connect to Xero reliably redirect the SAME tab to Xero OAuth consent screen, then return to the app and mark connected.
+
+WHAT TO DO (in order, no guessing):
+
+1) Identify the exact connect entrypoint
+- Find the UI handler for the Xero Connect button and the backend endpoint it calls (e.g. GET /api/integrations/xero/connect or /api/xero/connect).
+- Confirm the frontend expects either:
+  A) a 302 redirect response
+  B) or JSON { url } and then window.location = url
+- If the frontend expects URL JSON but backend returns 302 (or vice versa), fix to match one approach.
+
+2) Add hard error visibility (temporary)
+- In the backend “init OAuth” route, wrap the whole handler in try/catch and log:
+  - request id
+  - user id (or “unknown”)
+  - org id (or “unknown”)
+  - what config values are present (ONLY boolean flags, never secrets):
+    hasXeroClientId, hasXeroClientSecret, hasXeroRedirectUri
+  - the computed redirectUri and the computed “state id”
+  - and log the full error stack (server console)
+- In the client, if the endpoint returns non-200, show the server error message body in the toast (dev only).
+
+3) Verify config (most common failure)
+- Confirm the app is reading the correct env vars for Xero:
+  XERO_CLIENT_ID
+  XERO_CLIENT_SECRET
+  XERO_REDIRECT_URI (or whatever the repo uses)
+- Confirm these env vars exist in the running environment (Replit secrets).
+- Confirm redirect URI matches EXACTLY what Xero expects:
+  - must be https (no http)
+  - must be the correct domain (replit.dev vs your real domain)
+  - must match the callback route path implemented in code
+
+4) Verify callback route exists and matches redirect URI
+- Find the actual callback handler path (e.g. /api/integrations/xero/callback).
+- Ensure it is mounted and reachable.
+- Ensure the start route uses the same callback URL.
+
+5) Fix initiation to always return a usable redirect
+Implement one of these consistently (choose the simplest for same-tab):
+Option A (recommended):
+- Backend returns JSON: { url: "<xero auth url>" }
+- Frontend does: window.location.assign(url)
+Option B:
+- Backend sends 302 Location: <xero auth url>
+- Frontend triggers it by navigating the browser to /api/.../connect directly (not fetch).
+
+If you currently fetch() the connect endpoint, do NOT rely on 302 inside fetch — browsers won’t navigate the page. Either return JSON and set window.location, or set window.location to the connect endpoint directly.
+
+6) Acceptance test (must pass)
+- Click “Connect to Xero” → browser navigates to Xero consent screen.
+- No new tabs.
+- No demo/other user session is created.
+- After completing Xero, app returns to integrations page and shows “Connected”.
+
+DELIVERABLES:
+- A concrete fix for the initiation failure (not just logging).
+- A short doc: docs/xero-connect-initiation-fix.md with:
+  - root cause
+  - how it was verified
+  - the final flow
+- Remove any dev-only verbose logs once fixed (keep minimal logging).
+
+START NOW:
+First, reproduce the error and capture the backend stack trace. Then fix.
