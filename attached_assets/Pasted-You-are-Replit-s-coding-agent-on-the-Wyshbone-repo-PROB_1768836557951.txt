@@ -1,0 +1,70 @@
+You are Replit’s coding agent on the Wyshbone repo.
+
+PROBLEM:
+When a logged-in user (e.g. Taylor Davies) clicks Integrations → Connect to Xero, the flow opens a new tab/window. After completing Xero OAuth, the app ends up opening/reloading in a different session/user (e.g. Phil Coole / Demo User). This is unacceptable: OAuth must complete and bind to the SAME logged-in user who initiated it.
+
+GOAL:
+Fix the Xero connect/disconnect UX + session binding so that:
+1) The user stays in the same account/session throughout.
+2) No “mystery new tab” ends up as a different user.
+3) The integration page updates to show “Connected” without requiring a full app reload in a new tab.
+
+REQUIREMENTS (must do):
+A) Session binding (server-side)
+- When the user initiates Xero connect, create a server-side “oauth_state” record bound to:
+  - current user_id
+  - current org_id (if multi-tenant)
+  - integration = 'xero'
+  - created_at + short expiry (e.g. 10–15 minutes)
+  - nonce/state string (cryptographically random)
+- Store state in DB (NOT in client memory).
+- The Xero OAuth redirect must include this state.
+- On callback, validate:
+  - state exists, not expired, matches integration
+  - it is bound to the SAME user/org who initiated it
+- Only then store Xero tokens for that user/org.
+- If state invalid → show an error and do not connect anything.
+
+B) Front-end flow (no new-tab user switching)
+- Do NOT open Xero connect in a new tab.
+- Use same-tab navigation to the server “start OAuth” endpoint, OR open a modal/redirect in the same tab.
+- After OAuth completes, redirect back to a stable URL inside the app, e.g. /settings/integrations?xero=connected
+- The app should remain logged in as the same user.
+
+C) Update UI state without re-opening the app
+- On the integrations page:
+  - Show “Connect to Xero” if not connected.
+  - Show “Connected” + “Disconnect” if connected.
+- Implement a robust refresh after callback:
+  Option 1: After returning to /settings/integrations, call GET /api/integrations/xero/status and render result.
+  Option 2: Poll status for up to 10–20 seconds after callback (e.g. every 1s) until connected, then stop.
+  (Choose best based on existing patterns.)
+
+D) Cookie/session correctness
+- Ensure the OAuth callback does NOT create a new anonymous/demo session.
+- The callback route should NOT depend on the browser retaining the app session cookie, because the user might be redirected through Xero.
+  Instead, the state record is the authority for which user/org to connect.
+- Do not ever “fall back” to demo user on callback. If no matching state → error page.
+
+E) Clean URLs and security
+- Use proper CSRF-safe OAuth state.
+- Do not put user_id/org_id in query strings.
+- Log enough to debug (user_id/org_id/state id) but never log tokens.
+
+DELIVERABLES:
+1) Fix the connect button to use same-tab flow (no target=_blank).
+2) Implement oauth_state DB table (or reuse existing integration_state table if present).
+3) Update Xero callback handler to validate state and bind tokens to the initiating user/org.
+4) Add GET /api/integrations/xero/status for the current user/org.
+5) Integrations UI updates to show connected/disconnect without opening a new tab.
+6) docs/xero-oauth-session-binding.md explaining the final flow.
+
+TESTS / ACCEPTANCE:
+- Log in as User A. Click connect. Complete Xero. You return still as User A and Xero shows connected for User A.
+- Log in as User B. User B must not see User A’s connection.
+- If callback hit without valid state, show a clear error and do not connect.
+
+START by:
+- locating the current Xero connect button and removing new-tab behavior
+- then implementing state binding end-to-end
+- then updating integrations UI to poll status and show disconnect
