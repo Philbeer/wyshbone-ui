@@ -36,6 +36,8 @@ The user interface adheres to Material Design principles, featuring a dark mode,
 - **Agent Flight Recorder (AFR):** An internal development tool for visualizing agent decision loops, run details, and judgment ledgers.
 - **Tower Analytics Integration:** Comprehensive logging system for tracking all chat interactions for monitoring and analytics, utilizing a unified runId system for conversation-level insights.
 - **Hacker News Discovery:** A feature for finding relevant Hacker News discussions based on keywords, offering AI-powered draft reply generation and relevance scoring based on Wyshbone's fit.
+- **Delivery Management System:** Mobile-first Driver UI with role-based access control supporting three user roles (admin, sales, driver). Drivers access delivery routes at /driver/today with stop details. Admins manage users at /admin/users.
+- **User Role System:** Formal role-based access control with admin, sales, and driver roles. Admins have full access including user management. Drivers access delivery UI only. Sales users access CRM features. See docs/user-roles.md for full documentation.
 
 ## External Dependencies
 - **OpenAI GPT-5:** For AI chat responses, prospect enrichment, web search, and AI-generated personal lines.
