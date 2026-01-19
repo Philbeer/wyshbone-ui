@@ -1,0 +1,66 @@
+You are Replit’s coding agent working on the Wyshbone repo.
+
+TASK: Investigate what we ALREADY have for “orders / order lines / customers / addresses / delivery status / assignments” and compare it to the proposed Driver UI data model + screens. Do NOT build anything yet. This is an audit + gap report only.
+
+CONTEXT (what we are planning):
+We want a separate mobile-first UI surface inside the same app/repo under /driver/*, for DRIVER role only, showing assigned stops, stop detail, and outcome capture (Delivered/Partial/Failed + photo POD).
+
+WHAT TO DO (INVESTIGATION STEPS):
+1) Repo scan (code)
+   - Find the current “Order / OrderLine / Customer / Outlet / Delivery / Route / Dispatch” concepts in code.
+   - List the key files that define these (models/schema, API routes, services, UI pages).
+   - Find any existing role system and auth gates (ADMIN/SALES/DRIVER or similar). Note how roles are stored and checked.
+
+2) Database scan (schema)
+   - Identify the actual database being used in this environment (Supabase vs Replit Postgres). Confirm which connection string the app uses.
+   - List tables related to:
+     orders, order_lines, customers/accounts, addresses/locations, users/roles,
+     deliveries/routes/stops (if any), activity logs, attachments/uploads (if any).
+   - For each relevant table, output the important columns (especially anything like:
+     delivery_date, status, address fields, driver_id/assigned_to, notes, POD/photo, timestamps).
+
+3) Data flow scan (what happens today)
+   - Describe (briefly) how an order is created today, stored, and displayed.
+   - Describe whether “delivery” is already a concept (even informally), e.g.:
+     any “fulfilled/shipped/delivered” status, any “drop list”, any “assigned to user”, etc.
+   - If there’s any Xero integration: confirm whether it’s order→invoice only, or whether it stores delivery state anywhere.
+
+4) Compare to proposed Driver V1
+   Using the plan below as the target, create a GAP ANALYSIS:
+   Target minimum objects:
+     - DeliveryStop: route_id (optional), sequence_number, venue/customer/outlet, address, phone, instructions, items_summary, status, arrived_at/completed_at, driver_notes
+     - ProofOfDelivery: stop_id, photo_urls (1–3), received_by_name (optional), signature (optional), created_at
+     - Optional DeliveryRoute: date, driver_user_id, status, ordered stops
+   Target screens:
+     - /driver/today (today’s stops for that driver, progress count, navigate button)
+     - /driver/stop/:id (stop detail + action buttons)
+     - outcome modal flows (Delivered/Partial/Failed w notes + optional photo)
+   Now answer:
+     A) What existing tables/fields map directly to these targets?
+     B) What is missing completely?
+     C) What is partially present but needs reshaping?
+     D) What assumptions are unsafe (e.g. “orders don’t store addresses”, “customers don’t have phone numbers”, etc.)
+
+5) Output format (IMPORTANT)
+   Produce a single report called:
+     docs/driver-app-audit-report.md
+   with these sections:
+   - Executive summary (10 lines max)
+   - Current reality: what orders/customers contain today (bullet points)
+   - Existing schema (tables + key columns)
+   - Existing endpoints/services relevant to orders
+   - Role/auth findings (how to gate DRIVER and redirect)
+   - Gap analysis vs Driver V1 (table or bullets)
+   - Recommended “minimum viable approach” (NOT building yet) — e.g.:
+     Option 1: derive DeliveryStops from Orders
+     Option 2: create DeliveryStop tables + link to orders
+     (Pick the best option based on what already exists, and explain in plain English.)
+   - Risks / unknowns to verify next
+
+RULES:
+- Do not implement the driver UI yet.
+- Do not create migrations yet (unless absolutely required to inspect schema—prefer read-only inspection).
+- Be concrete: reference actual file paths, table names, and columns you find.
+- If you can’t find something, say so explicitly.
+
+START NOW: perform the audit and write docs/driver-app-audit-report.md.
