@@ -8,7 +8,26 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
-import { Building2 } from "lucide-react";
+import { Building2, Eye, EyeOff } from "lucide-react";
+
+const TEST_FIRST_NAMES = ["Alex", "Jordan", "Sam", "Taylor", "Morgan", "Casey", "Riley", "Quinn", "Avery", "Blake"];
+const TEST_LAST_NAMES = ["Smith", "Jones", "Williams", "Brown", "Taylor", "Davies", "Wilson", "Evans", "Thomas", "Johnson"];
+const TEST_COMPANIES = ["Acme Corp", "TechStart Ltd", "Blue Ocean Co", "Green Valley Inc", "Swift Solutions", "Peak Digital", "Nova Labs", "Bright Ideas Ltd", "Core Systems", "Apex Ventures"];
+
+function generateTestData() {
+  const firstName = TEST_FIRST_NAMES[Math.floor(Math.random() * TEST_FIRST_NAMES.length)];
+  const lastName = TEST_LAST_NAMES[Math.floor(Math.random() * TEST_LAST_NAMES.length)];
+  const randomNum = Math.floor(Math.random() * 9999);
+  const password = `Test${randomNum}Pass!`;
+  
+  return {
+    name: `${firstName} ${lastName}`,
+    email: `${firstName.toLowerCase()}.${lastName.toLowerCase()}${randomNum}@testmail.dev`,
+    password,
+    confirmPassword: password,
+    organisationName: TEST_COMPANIES[Math.floor(Math.random() * TEST_COMPANIES.length)],
+  };
+}
 
 export default function AuthPage() {
   const [, setLocation] = useLocation();
@@ -19,30 +38,16 @@ export default function AuthPage() {
   const urlParams = new URLSearchParams(searchString);
   const inviteToken = urlParams.get("token");
 
-  const [signupData, setSignupData] = useState({
-    email: "",
-    password: "",
-    confirmPassword: "",
-    name: "",
-    organisationName: "",
-  });
+  const [signupData, setSignupData] = useState(generateTestData);
 
   const [loginData, setLoginData] = useState({
     email: "",
     password: "",
   });
 
-  // Clear signup fields when component mounts (but allow login to remember)
-  useEffect(() => {
-    setSignupData({
-      email: "",
-      password: "",
-      confirmPassword: "",
-      name: "",
-      organisationName: "",
-    });
-    // Don't clear loginData - let browser autofill work naturally
-  }, []);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
 
   const signupMutation = useMutation({
     mutationFn: async (data: { email: string; password: string; name: string; organisationName?: string; inviteToken?: string }) => {
@@ -194,16 +199,26 @@ export default function AuthPage() {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="login-password">Password</Label>
-                  <Input
-                    id="login-password"
-                    name="password"
-                    type="password"
-                    value={loginData.password}
-                    onChange={(e) => setLoginData({ ...loginData, password: e.target.value })}
-                    required
-                    autoComplete="current-password"
-                    data-testid="input-login-password"
-                  />
+                  <div className="relative">
+                    <Input
+                      id="login-password"
+                      name="password"
+                      type={showLoginPassword ? "text" : "password"}
+                      value={loginData.password}
+                      onChange={(e) => setLoginData({ ...loginData, password: e.target.value })}
+                      required
+                      autoComplete="current-password"
+                      data-testid="input-login-password"
+                      className="pr-10"
+                    />
+                    <button
+                      type="button"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      onClick={() => setShowLoginPassword(!showLoginPassword)}
+                    >
+                      {showLoginPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
                 </div>
                 <Button
                   type="submit"
@@ -245,29 +260,49 @@ export default function AuthPage() {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="signup-password">Password (min 8 characters)</Label>
-                  <Input
-                    id="signup-password"
-                    type="password"
-                    value={signupData.password}
-                    onChange={(e) => setSignupData({ ...signupData, password: e.target.value })}
-                    required
-                    minLength={8}
-                    autoComplete="new-password"
-                    data-testid="input-signup-password"
-                  />
+                  <div className="relative">
+                    <Input
+                      id="signup-password"
+                      type={showPassword ? "text" : "password"}
+                      value={signupData.password}
+                      onChange={(e) => setSignupData({ ...signupData, password: e.target.value })}
+                      required
+                      minLength={8}
+                      autoComplete="new-password"
+                      data-testid="input-signup-password"
+                      className="pr-10"
+                    />
+                    <button
+                      type="button"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      onClick={() => setShowPassword(!showPassword)}
+                    >
+                      {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="signup-confirm-password">Confirm Password</Label>
-                  <Input
-                    id="signup-confirm-password"
-                    type="password"
-                    value={signupData.confirmPassword}
-                    onChange={(e) => setSignupData({ ...signupData, confirmPassword: e.target.value })}
-                    required
-                    minLength={8}
-                    autoComplete="new-password"
-                    data-testid="input-signup-confirm-password"
-                  />
+                  <div className="relative">
+                    <Input
+                      id="signup-confirm-password"
+                      type={showConfirmPassword ? "text" : "password"}
+                      value={signupData.confirmPassword}
+                      onChange={(e) => setSignupData({ ...signupData, confirmPassword: e.target.value })}
+                      required
+                      minLength={8}
+                      autoComplete="new-password"
+                      data-testid="input-signup-confirm-password"
+                      className="pr-10"
+                    />
+                    <button
+                      type="button"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                    >
+                      {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
                 </div>
                 
                 {!inviteToken && (
