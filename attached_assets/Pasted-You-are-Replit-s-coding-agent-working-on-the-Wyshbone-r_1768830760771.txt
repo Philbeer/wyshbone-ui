@@ -1,0 +1,41 @@
+You are Replit’s coding agent working on the Wyshbone repo.
+
+GOAL: Add a real user role system and a simple UI so Admin can change user roles (including switching self to Driver for testing). Keep it simple and consistent with existing patterns.
+
+CURRENT STATE:
+- public.users table has role_hint (text) but it is mostly NULL and not used for access control.
+- Driver UI MVP currently gates using role_hint contains "driver".
+
+WHAT TO BUILD:
+
+1) Database / schema
+- Add a new column to public.users called role (text or enum).
+- Allowed values: 'admin', 'sales', 'driver' (optional: 'viewer').
+- Default for new users: 'sales' (or 'admin' only for the first seed user if you already do that).
+- Backfill rule: if role_hint contains "driver" set role='driver' else leave default.
+- Update server-side auth helpers to expose currentUser.role.
+
+2) Access control rules
+- /driver/* and /api/driver/* should require role='driver' (or admin allowed too if you want admin to impersonate driver).
+- CRM/admin surfaces should be blocked for role='driver' (driver should be forced to /driver/today).
+- Admin-only: role management UI + endpoints.
+
+3) Admin UI for role management
+- Add a page in Settings: "User Management" (Admin only)
+- Show a simple table: user email + current role + dropdown to change role + Save.
+- Add a “Quick Switch (dev/demo only)” control that allows an Admin to change their own role quickly for testing.
+  IMPORTANT: This quick switch must be hidden/disabled in production mode.
+
+4) API endpoints
+- GET /api/admin/users  (admin-only) list users
+- PUT /api/admin/users/:id/role (admin-only) update role
+
+DELIVERABLES:
+- Roles enforced across driver and CRM areas (server-side).
+- UI page to change roles.
+- docs/user-roles.md describing roles + who can access what.
+
+DO NOT:
+- build a complex permissions matrix
+- refactor unrelated auth
+- rely on role_hint for security after role is added (role_hint can stay as a legacy field but not used for gating)

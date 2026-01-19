@@ -306,7 +306,9 @@ export interface IStorage {
   createUser(user: InsertUser): Promise<SelectUser>;
   getUserByEmail(email: string): Promise<SelectUser | null>;
   getUserById(id: string): Promise<SelectUser | null>;
+  listAllUsers(): Promise<SelectUser[]>;
   updateUser(id: string, updates: Partial<InsertUser>): Promise<SelectUser | null>;
+  updateUserRole(id: string, role: string): Promise<SelectUser | null>;
   incrementMonitorCount(userId: string): Promise<void>;
   decrementMonitorCount(userId: string): Promise<void>;
   incrementDeepResearchCount(userId: string): Promise<void>;
@@ -590,6 +592,7 @@ export class MemStorage implements IStorage {
   private scheduledMonitors: Map<string, SelectScheduledMonitor> = new Map();
   private integrations: Map<string, SelectIntegration> = new Map();
   private batchJobs: Map<string, SelectBatchJob> = new Map();
+  private users: Map<string, SelectUser> = new Map();
 
   async createJob(job: Job): Promise<Job> {
     this.jobs.set(job.id, job);
@@ -1013,8 +1016,24 @@ export class MemStorage implements IStorage {
     return null;
   }
 
+  async listAllUsers(): Promise<SelectUser[]> {
+    return Array.from(this.users.values());
+  }
+
   async updateUser(id: string, updates: Partial<InsertUser>): Promise<SelectUser | null> {
-    return null;
+    const user = this.users.get(id);
+    if (!user) return null;
+    const updated = { ...user, ...updates, updatedAt: Date.now() } as SelectUser;
+    this.users.set(id, updated);
+    return updated;
+  }
+
+  async updateUserRole(id: string, role: string): Promise<SelectUser | null> {
+    const user = this.users.get(id);
+    if (!user) return null;
+    const updated = { ...user, role, updatedAt: Date.now() } as SelectUser;
+    this.users.set(id, updated);
+    return updated;
   }
 
   async incrementMonitorCount(userId: string): Promise<void> {}
@@ -1747,9 +1766,24 @@ export class DbStorage implements IStorage {
     return user || null;
   }
 
+  async listAllUsers(): Promise<SelectUser[]> {
+    const allUsers = await db.select()
+      .from(users)
+      .orderBy(users.createdAt);
+    return allUsers;
+  }
+
   async updateUser(id: string, updates: Partial<InsertUser>): Promise<SelectUser | null> {
     const [updated] = await db.update(users)
       .set({ ...updates, updatedAt: Date.now() })
+      .where(eq(users.id, id))
+      .returning();
+    return updated || null;
+  }
+
+  async updateUserRole(id: string, role: string): Promise<SelectUser | null> {
+    const [updated] = await db.update(users)
+      .set({ role, updatedAt: Date.now() })
       .where(eq(users.id, id))
       .returning();
     return updated || null;

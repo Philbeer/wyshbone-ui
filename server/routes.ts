@@ -53,6 +53,7 @@ import { createSuppliersRouter } from "./routes/suppliers";
 import { createActivityLogRouter } from "./routes/activity-log";
 import { routePlannerRoutes } from "./routes/route-planner";
 import { driverRoutes } from "./routes/driver";
+import { adminRoutes } from "./routes/admin";
 import { agentActivitiesRouter } from "./routes/agent-activities";
 import { createAfrRouter } from "./routes/afr";
 import { hashPassword, verifyPassword, generateId, canCreateMonitor, canCreateDeepResearch, TIER_LIMITS } from "./auth";
@@ -6789,6 +6790,10 @@ ${run.outputText}`;
   // Register Driver routes (mobile driver interface)
   app.use("/api/driver", driverRoutes);
   console.log('✅ Driver routes mounted at /api/driver');
+
+  // Register Admin routes (user management, role admin)
+  app.use("/api/admin", adminRoutes);
+  console.log('✅ Admin routes mounted at /api/admin');
 
   // ===========================
   // INTEGRATIONS (NANGO.DEV CRM/ACCOUNTING CONNECTIONS)

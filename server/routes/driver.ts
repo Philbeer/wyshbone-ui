@@ -22,11 +22,10 @@ async function getAuthenticatedUserId(req: any): Promise<{ userId: string } | nu
   return null;
 }
 
-async function isDriver(userId: string): Promise<boolean> {
+async function isDriverOrAdmin(userId: string): Promise<boolean> {
   const user = await storage.getUserById(userId);
   if (!user) return false;
-  const roleHint = user.roleHint || "";
-  return roleHint.toLowerCase().includes("driver");
+  return user.role === "driver" || user.role === "admin";
 }
 
 function getTodayBoundaries(): { start: number; end: number } {
@@ -36,6 +35,30 @@ function getTodayBoundaries(): { start: number; end: number } {
   return { start: startOfDay.getTime(), end: endOfDay.getTime() };
 }
 
+driverRoutes.get("/check-role", async (req, res) => {
+  try {
+    const auth = await getAuthenticatedUserId(req);
+    if (!auth) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const user = await storage.getUserById(auth.userId);
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    const isDriver = user.role === "driver" || user.role === "admin";
+    res.json({ 
+      isDriver, 
+      role: user.role,
+      canAccessDriverUI: isDriver 
+    });
+  } catch (error: any) {
+    console.error("Error checking driver role:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 driverRoutes.get("/today", async (req, res) => {
   try {
     const auth = await getAuthenticatedUserId(req);
@@ -43,7 +66,7 @@ driverRoutes.get("/today", async (req, res) => {
       return res.status(401).json({ error: "Unauthorized" });
     }
 
-    const driverCheck = await isDriver(auth.userId);
+    const driverCheck = await isDriverOrAdmin(auth.userId);
     if (!driverCheck) {
       return res.status(403).json({ error: "Not authorized as driver" });
     }
@@ -80,7 +103,7 @@ driverRoutes.get("/stop/:id", async (req, res) => {
       return res.status(401).json({ error: "Unauthorized" });
     }
 
-    const driverCheck = await isDriver(auth.userId);
+    const driverCheck = await isDriverOrAdmin(auth.userId);
     if (!driverCheck) {
       return res.status(403).json({ error: "Not authorized as driver" });
     }
@@ -128,7 +151,7 @@ driverRoutes.put("/stop/:id/arrive", async (req, res) => {
       return res.status(401).json({ error: "Unauthorized" });
     }
 
-    const driverCheck = await isDriver(auth.userId);
+    const driverCheck = await isDriverOrAdmin(auth.userId);
     if (!driverCheck) {
       return res.status(403).json({ error: "Not authorized as driver" });
     }
@@ -163,7 +186,7 @@ driverRoutes.put("/stop/:id/deliver", async (req, res) => {
       return res.status(401).json({ error: "Unauthorized" });
     }
 
-    const driverCheck = await isDriver(auth.userId);
+    const driverCheck = await isDriverOrAdmin(auth.userId);
     if (!driverCheck) {
       return res.status(403).json({ error: "Not authorized as driver" });
     }
@@ -219,7 +242,7 @@ driverRoutes.put("/stop/:id/fail", async (req, res) => {
       return res.status(401).json({ error: "Unauthorized" });
     }
 
-    const driverCheck = await isDriver(auth.userId);
+    const driverCheck = await isDriverOrAdmin(auth.userId);
     if (!driverCheck) {
       return res.status(403).json({ error: "Not authorized as driver" });
     }
@@ -265,7 +288,7 @@ driverRoutes.put("/stop/:id/skip", async (req, res) => {
       return res.status(401).json({ error: "Unauthorized" });
     }
 
-    const driverCheck = await isDriver(auth.userId);
+    const driverCheck = await isDriverOrAdmin(auth.userId);
     if (!driverCheck) {
       return res.status(403).json({ error: "Not authorized as driver" });
     }
@@ -299,7 +322,7 @@ driverRoutes.get("/check-role", async (req, res) => {
       return res.status(401).json({ error: "Unauthorized" });
     }
 
-    const driverCheck = await isDriver(auth.userId);
+    const driverCheck = await isDriverOrAdmin(auth.userId);
     res.json({ isDriver: driverCheck });
   } catch (error: any) {
     console.error("Error checking driver role:", error);
