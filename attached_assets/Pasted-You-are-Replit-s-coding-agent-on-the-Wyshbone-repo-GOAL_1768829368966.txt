@@ -1,0 +1,89 @@
+You are Replit’s coding agent on the Wyshbone repo.
+
+GOAL: Build a mobile-first DRIVER UI surface under /driver/* inside the existing app, using the EXISTING delivery_routes and route_stops tables. Do not create new delivery tables or refactor route planner.
+
+MVP PAGES (React):
+1) /driver/today
+   - Shows TODAY’s assigned route(s) + stops for the logged-in driver.
+   - Data source: delivery_routes where driver_id = current_user_id AND delivery_date is today (UTC date boundaries).
+   - Show progress: completed_stops/total_stops (or derive from stops statuses).
+   - Each stop card: sequence_number, customer_name, short address, status badge.
+   - Buttons: Open (go to stop detail), Navigate (opens external maps).
+   - Sort by sequence_number.
+
+2) /driver/stop/:id
+   - Shows stop detail from route_stops by id (server must verify driver owns it).
+   - Display: venue/customer name, full address (tap to copy), call button if contact_phone exists,
+     contact name, instructions (delivery_instructions + access_notes), status, timing fields.
+   - Items: show a simple “Items” section derived by joining crm_order_lines on stop.order_id.
+     If join is slow/complex, show fallback item_count + total_value already on route_stops.
+   - Actions (big buttons):
+     - Arrived: sets status=arrived (or nearest allowed value) + actual_arrival_time=now
+     - Delivered: sets status=delivered + delivered_at=now + recipient_name optional + delivery_notes optional
+       + OPTIONAL single photo upload to storage, saved to delivery_photo_url
+       + OPTIONAL signature upload, saved to signature_url
+     - Failed: sets status=failed + failure_reason (required dropdown) + failure_notes (required) + optional photo
+     - Skipped: sets status=skipped (confirm dialog)
+   - After a successful action, return to /driver/today and highlight next pending stop.
+
+API ROUTES (new, driver-filtered wrappers):
+Create server/routes/driver.ts and mount it under /api/driver.
+
+Endpoints:
+- GET /api/driver/today
+  Returns { routes: [...], stops: [...] } (or routes with embedded stops).
+  Must server-filter by current_user_id (delivery_routes.driver_id).
+  Must only include today’s routes (UTC date boundaries from delivery_date bigint).
+
+- GET /api/driver/stop/:id
+  Returns stop detail + derived items.
+  MUST enforce ownership: stop.route_id belongs to a delivery_route where driver_id = current_user_id.
+  If not, return 403.
+
+- PUT /api/driver/stop/:id/arrive
+- PUT /api/driver/stop/:id/deliver
+- PUT /api/driver/stop/:id/fail
+- PUT /api/driver/stop/:id/skip
+All PUT endpoints MUST enforce the same ownership check.
+
+AUTH + ROLE GATING (MVP):
+- There is NO RBAC middleware today.
+Implement minimal gating:
+  - If user.role_hint contains "driver" (case-insensitive) treat as driver.
+  - Otherwise: deny /driver/* pages (redirect to normal home) and deny /api/driver/* (403).
+- IMPORTANT: Still enforce ownership by driver_id on every driver endpoint (role_hint alone is NOT enough).
+
+PHOTO/SIGNATURE UPLOAD:
+- Use the repo’s existing upload/storage patterns if they exist.
+- If none exist, implement minimal Supabase Storage upload:
+  - Store under bucket like "pod" with path: `${route_id}/${stop_id}/${timestamp}.jpg`
+  - Save public URL to delivery_photo_url (single photo only for MVP).
+- Signature: allow a simple drawn signature canvas OR accept a file upload; keep it optional.
+- Do NOT implement multi-photo. One photo max.
+
+UI PRINCIPLES:
+- Mobile-first: big tap targets, sticky bottom action bar on stop page.
+- 2–3 taps to complete a stop.
+- Confirm dialogs on Delivered/Failed/Skipped to prevent mis-taps.
+- Keep driver layout completely separate: no CRM nav.
+
+ROUTING:
+- Add /driver routes into the existing router.
+- If driver logs in, redirect landing to /driver/today.
+- If a non-driver hits /driver/*, redirect away.
+
+DELIVERABLES:
+1) Working /driver/today and /driver/stop/:id
+2) Working /api/driver/* endpoints with server-side ownership checks
+3) Driver gating using role_hint (temporary)
+4) docs/driver-app-mvp-acceptance.md with step-by-step acceptance tests
+5) Keep changes small and aligned with existing patterns. No big refactors.
+
+START WORK:
+- First, locate existing routing setup (client router, server router mount points).
+- Create driver layout + pages.
+- Create driver API routes with strict filtering + ownership checks.
+- Wire UI to API with loading + error states.
+- Add acceptance doc.
+
+Do NOT stop until the acceptance tests can be executed.
