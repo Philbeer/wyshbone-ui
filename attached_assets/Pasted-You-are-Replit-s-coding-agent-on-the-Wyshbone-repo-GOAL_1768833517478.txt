@@ -1,0 +1,83 @@
+You are Replit’s coding agent on the Wyshbone repo.
+
+GOAL: Implement a production-grade multi-user system with Organisations + Membership roles, and a simple “Team / Users” UI where the org owner/admin can invite users and change their roles. This is the priority. Do not expand the Settings feature-set beyond this.
+
+REQUIREMENTS (must be true):
+1) Every user belongs to an Organisation (org).
+2) Roles are per-organisation (membership role), not global.
+3) An org admin can:
+   - see all members in their org
+   - invite a user by email
+   - change a member’s role (admin/sales/driver)
+4) All admin/settings functionality must be reachable via main navigation (no typing URLs).
+   - Add: Settings → Team/Users
+5) Security: users can only see/manage users in their own org (server-side enforced).
+
+DATA MODEL (create properly):
+- organisations
+  - id (uuid)
+  - name (text)
+  - created_by_user_id
+  - created_at
+- org_members
+  - id (uuid)
+  - org_id (fk)
+  - user_id (fk)
+  - role (enum/text: 'admin' | 'sales' | 'driver')
+  - created_at
+  - unique (org_id, user_id)
+- org_invites
+  - id (uuid)
+  - org_id (fk)
+  - email (text)
+  - role (admin/sales/driver)
+  - token (secure random)
+  - status ('pending'|'accepted'|'revoked'|'expired')
+  - invited_by_user_id
+  - created_at, expires_at, accepted_at
+
+ACCOUNT FLOW:
+- On first login (or signup), if user has no org membership:
+  - prompt “Create organisation” (name)
+  - create organisation + org_member with role='admin'
+- Subsequent logins:
+  - load current org + membership role into UserContext/session response
+
+INVITE FLOW:
+- Admin enters email + role on Settings → Team/Users
+- Create org_invite with token + expiry
+- For MVP, show the invite link in UI (and/or log it) rather than emailing, if email infra isn’t ready.
+- When invited user signs up/logs in, they can “Accept invite” using token, creating org_member row.
+
+API (server-side enforcement):
+- GET /api/org/me  -> org + my role
+- GET /api/org/members -> list members in my org (admin-only)
+- POST /api/org/invites -> create invite (admin-only)
+- POST /api/org/invites/accept -> accept token, create membership
+- PUT /api/org/members/:userId/role -> update role (admin-only, same org)
+- (Optional) DELETE /api/org/members/:userId -> remove member (admin-only)
+
+DRIVER/SALES ACCESS:
+- Driver app access should be based on membership role == 'driver' (or admin allowed).
+- Sales access based on membership role == 'sales' or 'admin'.
+- Remove dependency on role_hint or global users.role for gating once membership roles exist.
+
+UI:
+- Add Settings entry in main nav (if not already).
+- Under Settings add “Team / Users”.
+- Team/Users page:
+  - list members: email, role dropdown, save button
+  - invite form: email + role, create invite, display invite link
+  - clear “You are Admin/Sales/Driver in <OrgName>” badge at top
+
+DELIVERABLES:
+- Org creation works for first user
+- Invite + accept works
+- Admin can change roles from Settings → Team/Users
+- Driver route gating uses membership role
+- docs/org-and-roles.md explaining the model and UI path
+
+DO NOT:
+- add new “agent settings” features
+- add dev-only hacks unless explicitly asked
+- hide the feature behind /admin URLs without navigation

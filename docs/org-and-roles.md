@@ -167,6 +167,19 @@ Revokes a pending invite.
 - Invites expire after 7 days
 - Email matching is case-insensitive
 
+## Driver/Sales Access Control
+
+The driver and sales routes now use org membership roles as the primary source for access control:
+
+1. **Driver routes** (`/api/driver/*`) check `org_members.role` first
+2. If user has `currentOrgId`, membership role is used
+3. Falls back to legacy `users.role` for backwards compatibility
+
+This means:
+- Changing a user's role in Settings → Team immediately affects their access
+- Driver UI access requires membership role of 'driver' or 'admin'
+- Sales features require membership role of 'sales' or 'admin'
+
 ## Migration Notes
 
 ### Legacy `users.role` Field
@@ -175,10 +188,11 @@ The global `users.role` field is now deprecated in favor of `org_members.role`. 
 
 1. Existing users without orgs will see "Create Organisation" prompt
 2. New org members get their role from the org_members table
-3. Legacy admin checks (`user.role === 'admin'`) still work but should migrate to org membership checks
+3. Driver/sales routes check org membership first, then fall back to legacy role
+4. Legacy admin checks (`user.role === 'admin'`) still work but should migrate to org membership checks
 
 ### Recommended Migration Path
 
 1. Prompt existing users to create orgs
-2. Update access control to check org membership
+2. Update access control to check org membership (driver routes already done)
 3. Eventually remove dependency on `users.role`

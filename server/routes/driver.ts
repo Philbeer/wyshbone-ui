@@ -25,6 +25,16 @@ async function getAuthenticatedUserId(req: any): Promise<{ userId: string } | nu
 async function isDriverOrAdmin(userId: string): Promise<boolean> {
   const user = await storage.getUserById(userId);
   if (!user) return false;
+  
+  // Check org membership role first (preferred)
+  if (user.currentOrgId) {
+    const membership = await storage.getOrgMember(user.currentOrgId, userId);
+    if (membership) {
+      return membership.role === "driver" || membership.role === "admin";
+    }
+  }
+  
+  // Fallback to legacy user.role for backwards compatibility
   return user.role === "driver" || user.role === "admin";
 }
 
@@ -47,10 +57,23 @@ driverRoutes.get("/check-role", async (req, res) => {
       return res.status(404).json({ error: "User not found" });
     }
 
-    const isDriver = user.role === "driver" || user.role === "admin";
+    // Check org membership role first (preferred)
+    let membershipRole: string | null = null;
+    if (user.currentOrgId) {
+      const membership = await storage.getOrgMember(user.currentOrgId, user.id);
+      if (membership) {
+        membershipRole = membership.role;
+      }
+    }
+    
+    const effectiveRole = membershipRole || user.role;
+    const isDriver = effectiveRole === "driver" || effectiveRole === "admin";
+    
     res.json({ 
       isDriver, 
-      role: user.role,
+      role: effectiveRole,
+      membershipRole,
+      legacyRole: user.role,
       canAccessDriverUI: isDriver 
     });
   } catch (error: any) {
