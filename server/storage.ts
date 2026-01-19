@@ -1366,6 +1366,7 @@ const queryClient = postgres(DATABASE_CONNECTION_URL, {
   connect_timeout: 5, // 5 second connection timeout (default is much longer)
   idle_timeout: 10,
   max_lifetime: 60 * 30,
+  prepare: false, // Disable prepared statements for Supabase pooler (pgbouncer) compatibility
 });
 const db = drizzle(queryClient);
 
@@ -1384,17 +1385,94 @@ export async function runStartupMigrations(): Promise<void> {
   console.log('🔧 Running startup schema migrations...');
   
   try {
-    // Try to add role column - if it already exists, the error will be caught
+    // Add all required columns for organisation system
+    // Using IF NOT EXISTS so these are idempotent
     await queryClient`
       ALTER TABLE public.users ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'sales';
     `;
-    console.log('✅ Startup migrations completed - role column ensured');
+    await queryClient`
+      ALTER TABLE public.users ADD COLUMN IF NOT EXISTS current_org_id TEXT;
+    `;
+    
+    // Check if organisations table exists with wrong structure (INTEGER id instead of TEXT)
+    // If so, drop and recreate with correct structure
+    const orgTableCheck = await queryClient`
+      SELECT data_type FROM information_schema.columns 
+      WHERE table_name = 'organisations' AND column_name = 'id' AND table_schema = 'public';
+    `;
+    
+    if (orgTableCheck.length > 0 && orgTableCheck[0].data_type === 'integer') {
+      console.log('⚠️ Dropping org tables with incorrect structure...');
+      await queryClient`DROP TABLE IF EXISTS public.org_invites CASCADE;`;
+      await queryClient`DROP TABLE IF EXISTS public.org_members CASCADE;`;
+      await queryClient`DROP TABLE IF EXISTS public.organisations CASCADE;`;
+    }
+    
+    // Create organisations table if it doesn't exist (with TEXT id for UUID)
+    await queryClient`
+      CREATE TABLE IF NOT EXISTS public.organisations (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        created_by_user_id TEXT NOT NULL,
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL
+      );
+    `;
+    
+    // Create org_members table if it doesn't exist
+    await queryClient`
+      CREATE TABLE IF NOT EXISTS public.org_members (
+        id TEXT PRIMARY KEY,
+        org_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT 'sales',
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL
+      );
+    `;
+    
+    // Create indexes for org_members
+    await queryClient`
+      CREATE INDEX IF NOT EXISTS org_members_org_id_idx ON public.org_members(org_id);
+    `;
+    await queryClient`
+      CREATE INDEX IF NOT EXISTS org_members_user_id_idx ON public.org_members(user_id);
+    `;
+    
+    // Create org_invites table if it doesn't exist
+    await queryClient`
+      CREATE TABLE IF NOT EXISTS public.org_invites (
+        id TEXT PRIMARY KEY,
+        org_id TEXT NOT NULL,
+        email TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT 'sales',
+        token TEXT NOT NULL UNIQUE,
+        status TEXT NOT NULL DEFAULT 'pending',
+        invited_by_user_id TEXT NOT NULL,
+        created_at BIGINT NOT NULL,
+        expires_at BIGINT NOT NULL,
+        accepted_at BIGINT
+      );
+    `;
+    
+    // Create indexes for org_invites
+    await queryClient`
+      CREATE INDEX IF NOT EXISTS org_invites_org_id_idx ON public.org_invites(org_id);
+    `;
+    await queryClient`
+      CREATE INDEX IF NOT EXISTS org_invites_email_idx ON public.org_invites(email);
+    `;
+    await queryClient`
+      CREATE INDEX IF NOT EXISTS org_invites_token_idx ON public.org_invites(token);
+    `;
+    
+    console.log('✅ Startup migrations completed - org system tables and columns ensured');
   } catch (error: any) {
     // Only log if it's not a "column already exists" error
     if (error?.code !== '42701') { // 42701 = duplicate_column
       console.error('⚠️ Startup migration error (non-fatal):', error?.message || error);
     } else {
-      console.log('✅ Startup migrations completed - role column already exists');
+      console.log('✅ Startup migrations completed - columns already exist');
     }
   }
 }

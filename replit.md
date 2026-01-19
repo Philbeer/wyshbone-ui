@@ -46,8 +46,10 @@ The user interface adheres to Material Design principles, featuring a dark mode,
 - **Primary Database:** Supabase PostgreSQL (production data, accessed via `SUPABASE_DATABASE_URL`)
 - **Fallback:** Replit's built-in PostgreSQL (accessed via `DATABASE_URL`)
 - **Connection Priority:** App prefers `SUPABASE_DATABASE_URL` over `DATABASE_URL` to ensure consistent database usage
+- **Supabase Pooler:** Uses `prepare: false` in postgres connection config to disable prepared statements for pgbouncer compatibility
 - **Startup Migrations:** `runStartupMigrations()` in `server/storage.ts` handles schema drift by adding missing columns using PostgreSQL's `IF NOT EXISTS` syntax
 - **Drizzle Config:** Updated in `drizzle.config.ts` to prefer `SUPABASE_DATABASE_URL` for schema operations
+- **Schema Types:** All org-related tables use TEXT ids (UUIDs) and BIGINT timestamps - `organisations`, `org_members`, `org_invites` tables and `users.current_org_id` column must all be TEXT type
 
 ## External Dependencies
 - **OpenAI GPT-5:** For AI chat responses, prospect enrichment, web search, and AI-generated personal lines.
