@@ -66,6 +66,8 @@ import DatabaseMaintenance from "@/pages/admin/database-maintenance";
 import InspectorPage from "@/pages/dev/inspector";
 import WorkflowPage from "@/pages/workflow";
 import { LayoutToggle } from "@/components/LayoutToggle";
+import DriverTodayPage from "@/pages/driver/today";
+import DriverStopPage from "@/pages/driver/stop";
 
 // No demo runs - users only see their own data
 const DEMO_RUNS: RunItem[] = [];
@@ -135,6 +137,10 @@ function AgentFirstRouter({
       <Route path="/dev/inspector" component={InspectorPage} />
       <Route path="/admin/database-maintenance" component={DatabaseMaintenance} />
 
+      {/* Driver routes */}
+      <Route path="/driver/today" component={DriverTodayPage} />
+      <Route path="/driver/stop/:id" component={DriverStopPage} />
+
       {/* Other routes */}
       <Route path="/auth" component={AuthPage} />
       <Route path="/pricing" component={PricingPage} />
@@ -196,6 +202,8 @@ function Router({
       <Route path="/dev/progress" component={DevProgressPage} />
       <Route path="/dev/inspector" component={InspectorPage} />
       <Route path="/admin/database-maintenance" component={DatabaseMaintenance} />
+      <Route path="/driver/today" component={DriverTodayPage} />
+      <Route path="/driver/stop/:id" component={DriverStopPage} />
       <Route path="/onboarding/brewery" component={BreweryOnboardingWizard} />
       <Route component={NotFound} />
     </Switch>

@@ -4239,6 +4239,16 @@ export class DbStorage implements IStorage {
       .orderBy(desc(deliveryRoutes.deliveryDate));
   }
 
+  async listDeliveryRoutesForDriver(
+    driverId: string
+  ): Promise<SelectDeliveryRoute[]> {
+    return await db
+      .select()
+      .from(deliveryRoutes)
+      .where(eq(deliveryRoutes.driverId, driverId))
+      .orderBy(desc(deliveryRoutes.deliveryDate));
+  }
+
   // ============================================
   // ROUTE PLANNER - Route Stops
   // ============================================
