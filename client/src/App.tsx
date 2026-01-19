@@ -190,6 +190,7 @@ function Router({
       <Route path="/auth" component={AuthPage} />
       <Route path="/pricing" component={PricingPage} />
       <Route path="/account" component={AccountPage} />
+      <Route path="/settings" component={SettingsPage} />
       <Route path="/workflow" component={WorkflowPage} />
       <Route path="/debug" component={DebugPage} />
       <Route path="/batch-history" component={BatchHistoryPage} />
