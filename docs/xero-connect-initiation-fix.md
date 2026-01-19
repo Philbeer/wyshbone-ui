@@ -1,6 +1,14 @@
 # Xero Connect Initiation Fix
 
-## Root Cause
+## Issues Fixed
+
+### Issue 1: Missing Database Table
+The "Failed to initiate OAuth flow" error occurred because the `oauth_states` database table did not exist in the Supabase database.
+
+### Issue 2: New Tab Navigation
+The sidebar integration panel was using `window.open(url, '_blank')` which opened Xero OAuth in a new tab. This caused session/state issues and was replaced with same-tab navigation.
+
+## Root Cause (Issue 1)
 
 The "Failed to initiate OAuth flow" error occurred because the `oauth_states` database table did not exist in the Supabase database. 
 

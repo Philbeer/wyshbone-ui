@@ -1675,9 +1675,8 @@ function IntegrationsSection({ userId }: { userId: string }) {
           throw new Error(data.error || 'Failed to get authorization URL');
         }
         
-        // Open Xero's authorization page in a new tab (fixes Replit webview blocking)
-        window.open(data.authorizationUrl, '_blank');
-        setIsConnecting(null);
+        // Same-tab navigation for OAuth - maintains user session and binds by stored state
+        window.location.href = data.authorizationUrl;
         return;
       } else {
         // Other providers not yet implemented
