@@ -76,8 +76,25 @@ Valid values: `'admin'`, `'sales'`, `'driver'`
 
 ## UI Pages
 
+### How Admins Manage Roles (UI Path)
+
+Admins can discover and access user role management through the normal app navigation:
+
+1. **Open the sidebar** (click the menu icon or use the sidebar toggle)
+2. **Look for the "Settings" section** in the sidebar navigation
+3. **Click "Users"** - this option is only visible to admin users
+4. **Manage roles** on the User Management page:
+   - View all users with their current roles
+   - Change any user's role using the dropdown selector
+   - Use Quick Role Switch for testing (dev mode only)
+
+**Navigation Path:** Sidebar → Settings → Users → `/settings/users`
+
+**Note:** Non-admin users will not see the "Users" option in the Settings menu.
+
 ### Admin User Management
-- **Path:** `/admin/users`
+- **Primary Path:** `/settings/users` (via Settings → Users in sidebar)
+- **Legacy Path:** `/admin/users` (direct URL still works)
 - **Access:** Admin only
 - **Features:**
   - View all users with their current roles
@@ -139,7 +156,7 @@ The previous system used `role_hint` (a free-form text field) for personalizatio
 
 For testing purposes, admins can temporarily switch their own role:
 
-1. Navigate to `/admin/users`
+1. Navigate to **Settings → Users** in the sidebar (or directly to `/settings/users`)
 2. Use the "Quick Role Switch" panel (only visible in dev mode)
 3. Click a role button to switch
 4. Page will reload with the new role in effect

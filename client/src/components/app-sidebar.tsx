@@ -1,4 +1,4 @@
-import { Globe, MessageSquare, Bug, FilePlus, MessagesSquare, ChevronDown, ChevronRight, Clock, Edit2, Trash2, Mail, Link2, User, CreditCard, History, Users, Sparkles, Factory, HelpCircle, FlaskConical, Bot, Database, Calendar, ClipboardCheck, Search } from "lucide-react";
+import { Globe, MessageSquare, Bug, FilePlus, MessagesSquare, ChevronDown, ChevronRight, Clock, Edit2, Trash2, Mail, Link2, User, CreditCard, History, Users, Sparkles, Factory, HelpCircle, FlaskConical, Bot, Database, Calendar, ClipboardCheck, Search, Settings } from "lucide-react";
 import { Badge as UIBadge } from "@/components/ui/badge";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "wouter";
@@ -1072,6 +1072,34 @@ export function AppSidebar({
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        {/* Settings - accessible to all users, with admin-only items */}
+        <SidebarGroup>
+          <SidebarGroupLabel>Settings</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={location === "/settings"} data-testid="link-settings">
+                  <Link href="/settings">
+                    <Settings className="h-4 w-4" />
+                    <span>General</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              {/* Users management - admin only */}
+              {user?.role === 'admin' && (
+                <SidebarMenuItem>
+                  <SidebarMenuButton asChild isActive={location === "/settings/users"} data-testid="link-settings-users">
+                    <Link href="/settings/users">
+                      <Users className="h-4 w-4" />
+                      <span>Users</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              )}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>

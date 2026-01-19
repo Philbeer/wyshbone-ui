@@ -105,6 +105,7 @@ function AgentFirstRouter({
       
       {/* Settings page */}
       <Route path="/settings" component={SettingsPage} />
+      <Route path="/settings/users" component={UserManagementPage} />
 
       {/* Workflow dashboard */}
       <Route path="/workflow" component={WorkflowPage} />
@@ -205,6 +206,7 @@ function Router({
       <Route path="/dev/inspector" component={InspectorPage} />
       <Route path="/admin/database-maintenance" component={DatabaseMaintenance} />
       <Route path="/admin/users" component={UserManagementPage} />
+      <Route path="/settings/users" component={UserManagementPage} />
       <Route path="/driver/today" component={DriverTodayPage} />
       <Route path="/driver/stop/:id" component={DriverStopPage} />
       <Route path="/onboarding/brewery" component={BreweryOnboardingWizard} />
