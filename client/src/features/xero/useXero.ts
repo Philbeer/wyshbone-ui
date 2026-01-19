@@ -6,7 +6,7 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { apiRequest } from '@/lib/queryClient';
+import { apiRequest, addDevAuthParams } from '@/lib/queryClient';
 import { useToast } from '@/hooks/use-toast';
 import { useUser } from '@/contexts/UserContext';
 
@@ -55,10 +55,10 @@ export function useXeroStatus() {
 export function useXeroConnect() {
   return useMutation({
     mutationFn: async () => {
-      const response = await apiRequest('GET', '/api/integrations/xero/authorize');
-      const data = await response.json();
-      // Redirect to Xero OAuth
-      window.location.href = data.authorizationUrl;
+      // Direct navigation to the authorize endpoint - server returns 302 redirect to Xero
+      // This works better than fetch + client redirect because the 302 happens at HTTP level
+      const authUrl = addDevAuthParams('/api/integrations/xero/authorize');
+      window.location.href = authUrl;
     },
   });
 }

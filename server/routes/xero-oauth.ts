@@ -162,8 +162,9 @@ export function createXeroOAuthRouter(storage: IStorage) {
 
     const authUrl = `${XERO_AUTH_URL}?${params.toString()}`;
     
-    // Return the URL as JSON instead of redirecting (fixes Replit webview blocking)
-    res.json({ authorizationUrl: authUrl });
+    // Direct 302 redirect to Xero OAuth - browser handles this natively
+    // This works better than returning JSON because the redirect happens at HTTP level
+    res.redirect(authUrl);
   });
 
   // Handle OAuth callback from Xero

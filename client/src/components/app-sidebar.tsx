@@ -1666,17 +1666,10 @@ function IntegrationsSection({ userId }: { userId: string }) {
       console.log(`🔗 Starting OAuth for ${provider}`);
       
       if (provider === 'xero') {
-        // Direct Xero OAuth integration - fetch the authorization URL
+        // Direct navigation to the authorize endpoint - server returns 302 redirect to Xero
+        // This works better than fetch + client redirect because the 302 happens at HTTP level
         const authEndpoint = addDevAuthParams(`/api/integrations/xero/authorize`);
-        const response = await fetch(authEndpoint);
-        const data = await response.json();
-        
-        if (!response.ok || !data.authorizationUrl) {
-          throw new Error(data.error || 'Failed to get authorization URL');
-        }
-        
-        // Same-tab navigation for OAuth - maintains user session and binds by stored state
-        window.location.href = data.authorizationUrl;
+        window.location.href = authEndpoint;
         return;
       } else {
         // Other providers not yet implemented
