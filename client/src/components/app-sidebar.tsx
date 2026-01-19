@@ -1667,9 +1667,20 @@ function IntegrationsSection({ userId }: { userId: string }) {
       
       if (provider === 'xero') {
         // Direct navigation to the authorize endpoint - server returns 302 redirect to Xero
-        // This works better than fetch + client redirect because the 302 happens at HTTP level
         const authEndpoint = addDevAuthParams(`/api/integrations/xero/authorize`);
-        window.location.href = authEndpoint;
+        
+        // Detect if we're in an iframe (Replit preview pane)
+        // Xero blocks being loaded in iframes via X-Frame-Options, so we must open a new tab
+        const inIframe = window.self !== window.top;
+        
+        if (inIframe) {
+          // In iframe: must open new tab because Xero blocks iframes
+          window.open(authEndpoint, '_blank');
+        } else {
+          // Direct browser tab: same-tab navigation works
+          window.location.href = authEndpoint;
+        }
+        setIsConnecting(null);
         return;
       } else {
         // Other providers not yet implemented

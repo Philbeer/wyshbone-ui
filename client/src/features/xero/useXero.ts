@@ -56,9 +56,19 @@ export function useXeroConnect() {
   return useMutation({
     mutationFn: async () => {
       // Direct navigation to the authorize endpoint - server returns 302 redirect to Xero
-      // This works better than fetch + client redirect because the 302 happens at HTTP level
       const authUrl = addDevAuthParams('/api/integrations/xero/authorize');
-      window.location.href = authUrl;
+      
+      // Detect if we're in an iframe (Replit preview pane)
+      // Xero blocks being loaded in iframes via X-Frame-Options, so we must open a new tab
+      const inIframe = window.self !== window.top;
+      
+      if (inIframe) {
+        // In iframe: must open new tab because Xero blocks iframes
+        window.open(authUrl, '_blank');
+      } else {
+        // Direct browser tab: same-tab navigation works
+        window.location.href = authUrl;
+      }
     },
   });
 }
