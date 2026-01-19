@@ -713,3 +713,6 @@ params: ord_mkie1bhx_k01u6,f0232887b2dce2ea95155c6b7222c5e1,cust_mkie0ba2_efj3m,
 [2026-01-17T14:56:59.398Z] ✅ COMPLETED: 11 orders imported, 0 failed
 [2026-01-17T14:56:59.398Z] ========== ORDER IMPORT FINISHED (Job 101) ==========
 
+[2026-01-19T13:19:07.882Z] ========== ORDER IMPORT STARTED (Job 108) ==========
+[2026-01-19T13:19:08.941Z] ❌ FAILED to import invoice INV-0008 (c111b12f-82fc-4bf0-9bc5-46305e9d9a8c)
+[2026-01-19T13:19:08.942Z]    Workspace: 92f2c8fa84df96c99c5320b6f0be0fed
