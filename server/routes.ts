@@ -286,7 +286,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Invalid request", details: validation.error });
       }
 
-      const { email, password, name, demoSessionId } = validation.data;
+      const { email, password, name, demoSessionId, organisationName, inviteToken } = validation.data;
 
       // Check if user already exists
       const existing = await storage.getUserByEmail(email);
@@ -294,9 +294,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(409).json({ error: "Email already registered" });
       }
 
+      // If invite token provided, validate it first
+      let invite: any = null;
+      if (inviteToken) {
+        invite = await storage.getOrgInviteByToken(inviteToken);
+        if (!invite) {
+          return res.status(400).json({ error: "Invalid invite token" });
+        }
+        if (invite.status !== "pending") {
+          return res.status(400).json({ error: `Invite has already been ${invite.status}` });
+        }
+        if (invite.expiresAt < Date.now()) {
+          await storage.updateOrgInvite(invite.id, { status: "expired" });
+          return res.status(400).json({ error: "Invite has expired" });
+        }
+        if (invite.email.toLowerCase() !== email.toLowerCase()) {
+          return res.status(400).json({ error: "This invite was sent to a different email address" });
+        }
+      } else if (!organisationName || organisationName.trim().length < 2) {
+        return res.status(400).json({ error: "Organisation name is required (min 2 characters)" });
+      }
+
       // Hash password and create user
       const passwordHash = await hashPassword(password);
       const userId = generateId();
+      const now = Date.now();
       
       const user = await storage.createUser({
         id: userId,
@@ -307,9 +329,106 @@ export async function registerRoutes(app: Express): Promise<Server> {
         subscriptionStatus: "inactive",
         monitorCount: 0,
         deepResearchCount: 0,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
+        createdAt: now,
+        updatedAt: now,
       });
+
+      // Handle org membership creation with compensating cleanup on failure
+      let orgId: string;
+      let orgName: string;
+      let membershipRole: string;
+      let createdOrgId: string | null = null; // Track for cleanup
+      
+      try {
+        if (invite) {
+          // Accept invite - join existing org
+          orgId = invite.orgId;
+          membershipRole = invite.role;
+          
+          // Verify org still exists
+          const org = await storage.getOrganisation(invite.orgId);
+          if (!org) {
+            throw new Error("Organisation no longer exists");
+          }
+          orgName = org.name;
+          
+          // Create org member
+          await storage.createOrgMember({
+            id: generateId(),
+            orgId: invite.orgId,
+            userId: user.id,
+            role: invite.role,
+            createdAt: now,
+            updatedAt: now,
+          });
+          
+          // Update user's current org BEFORE marking invite as accepted
+          // This ensures invite stays pending if this step fails
+          await storage.updateUserCurrentOrg(user.id, orgId);
+          
+          // Mark invite as accepted LAST - only after all other steps succeed
+          await storage.updateOrgInvite(invite.id, { 
+            status: "accepted",
+            acceptedAt: now,
+          });
+          
+          console.log(`✅ User ${email} accepted invite and joined org ${orgName} as ${membershipRole}`);
+        } else {
+          // Create new organisation + admin membership
+          orgId = generateId();
+          orgName = organisationName!.trim();
+          membershipRole = "admin";
+          createdOrgId = orgId; // Track for potential cleanup
+          
+          await storage.createOrganisation({
+            id: orgId,
+            name: orgName,
+            createdByUserId: user.id,
+            createdAt: now,
+            updatedAt: now,
+          });
+          
+          await storage.createOrgMember({
+            id: generateId(),
+            orgId,
+            userId: user.id,
+            role: "admin",
+            createdAt: now,
+            updatedAt: now,
+          });
+          
+          // Update user's current org (for create-org path)
+          await storage.updateUserCurrentOrg(user.id, orgId);
+          
+          console.log(`✅ User ${email} created org "${orgName}" and is admin`);
+        }
+      } catch (orgError: any) {
+        // Compensating cleanup: delete the user and any partial org data we created
+        console.error(`❌ Failed to create org/membership for ${email}:`, orgError.message);
+        console.log(`🔄 Rolling back signup for ${email}`);
+        try {
+          // First try to remove any org_member we might have created
+          if (invite) {
+            await storage.removeOrgMember(invite.orgId, user.id);
+          } else if (createdOrgId) {
+            await storage.removeOrgMember(createdOrgId, user.id);
+          }
+          
+          // Delete the org if we created one (this happens before org_member in create flow)
+          if (createdOrgId) {
+            await storage.deleteOrganisation(createdOrgId);
+          }
+          
+          // Delete the user
+          await storage.deleteUser(user.id);
+          
+          console.log(`✅ Cleanup complete for ${email}`);
+        } catch (cleanupError: any) {
+          console.error(`❌ Cleanup failed:`, cleanupError.message);
+          // Even if cleanup fails, we must return an error to the client
+        }
+        return res.status(500).json({ error: "Failed to complete signup. Please try again." });
+      }
 
       // If demo session provided, transfer demo data to new account
       let transferredData = false;
@@ -355,6 +474,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           name: user.name,
           subscriptionTier: user.subscriptionTier,
           subscriptionStatus: user.subscriptionStatus,
+          orgId,
+          orgName,
+          membershipRole,
         },
         dataTransferred: transferredData
       });
@@ -392,6 +514,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       await storage.createSession(sessionId, user.id, user.email, expiresAt);
 
+      // Get org info if user has a current org
+      let orgId: string | null = null;
+      let orgName: string | null = null;
+      let membershipRole: string | null = null;
+      
+      if (user.currentOrgId) {
+        const org = await storage.getOrganisation(user.currentOrgId);
+        const membership = await storage.getOrgMember(user.currentOrgId, user.id);
+        if (org && membership) {
+          orgId = org.id;
+          orgName = org.name;
+          membershipRole = membership.role;
+        }
+      }
+
       res.json({
         sessionId,
         user: {
@@ -402,6 +539,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           subscriptionStatus: user.subscriptionStatus,
           monitorCount: user.monitorCount,
           deepResearchCount: user.deepResearchCount,
+          orgId,
+          orgName,
+          membershipRole,
         }
       });
     } catch (error: any) {

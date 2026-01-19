@@ -1220,6 +1220,9 @@ export class MemStorage implements IStorage {
     this.orgsMap.set(id, updated);
     return updated;
   }
+  async deleteOrganisation(id: string): Promise<boolean> {
+    return this.orgsMap.delete(id);
+  }
   
   async createOrgMember(member: InsertOrgMember): Promise<SelectOrgMember> {
     const now = Date.now();
@@ -4650,6 +4653,11 @@ export class DbStorage implements IStorage {
       .where(eq(organisations.id, id))
       .returning();
     return result || null;
+  }
+
+  async deleteOrganisation(id: string): Promise<boolean> {
+    await db.delete(organisations).where(eq(organisations.id, id));
+    return true;
   }
 
   async createOrgMember(member: InsertOrgMember): Promise<SelectOrgMember> {

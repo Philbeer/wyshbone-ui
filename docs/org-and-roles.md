@@ -65,37 +65,80 @@ New field added to users table to track the user's currently active organisation
 
 ## User Flows
 
-### First-Time User (No Organisation)
+### Signup Flow (New in v2)
 
-1. User logs in or signs up
-2. System detects user has no `current_org_id`
-3. User is prompted to create an organisation at **Settings → Team**
-4. Upon creation:
-   - New org created
-   - User added as org_member with role='admin'
+Organisation creation is now integrated into the signup flow:
+
+1. User navigates to `/auth` (signup page)
+2. Fills in name, email, password, and **Organisation Name** (required)
+3. On successful signup:
+   - User account created
+   - Organisation created with provided name
+   - org_member created with role='admin'
    - `users.current_org_id` set to new org
+   - Session includes orgId, orgName, membershipRole
 
-### Invite Flow
+The organisation name field is **required** during signup unless the user is accepting an invite.
+
+### Signup via Invite Link
+
+1. User receives invite link with token (e.g., `/auth?token=abc123`)
+2. User navigates to the link
+3. Signup form shows "Joining via invite" instead of org name field
+4. On successful signup:
+   - User account created
+   - org_member created with invite's role
+   - `users.current_org_id` set to invite's org
+   - Invite marked as 'accepted' LAST (only after all steps succeed)
+
+### Atomicity & Error Handling
+
+The signup flow uses compensating cleanup to ensure atomicity:
+
+**Order of operations (invite path):**
+1. Create user account
+2. Create org_member
+3. Update user's current_org_id
+4. Mark invite as accepted (final step)
+
+**Order of operations (create-org path):**
+1. Create user account
+2. Create organisation
+3. Create org_member
+4. Update user's current_org_id
+
+**On failure at any step:**
+- org_member is removed (if created)
+- Organisation is deleted (if created in create-org path)
+- User is deleted
+- Invite stays in 'pending' status (can be retried)
+
+This ensures no orphaned records are left in the database if signup fails partway through.
+
+### Invite Flow (for Admins)
 
 1. Admin goes to **Settings → Team**
 2. Enters email and selects role
 3. System creates org_invite with secure token
 4. Invite link is displayed (copied to clipboard)
 5. Admin shares link with invitee
-6. Invitee clicks link → logs in/signs up
-7. System matches email, creates org_member
-8. Invite marked as 'accepted'
+6. Invitee clicks link → redirected to signup
+7. Invitee signs up with matching email
+8. System accepts invite automatically
 
-### Accepting an Invite
+### Existing User Accepting an Invite
 
-Invitees can accept invites via:
-- Direct link with token
-- The "Pending Invitations" section on the Team page
+For users who already have an account and receive an invite:
+- Navigate to the "Pending Invitations" section on the Team page
+- Click "Accept" to join the organisation
+- User's `current_org_id` updated to new org
 
-Upon acceptance:
-- New org_member row created
-- User's `current_org_id` updated
-- Invite status set to 'accepted'
+### Fallback: First-Time User (Legacy)
+
+If an existing user somehow has no organisation (legacy accounts):
+1. User sees "Create Organisation" prompt at **Settings → Team**
+2. Creates organisation manually
+3. This path should rarely trigger for new signups
 
 ## API Endpoints
 

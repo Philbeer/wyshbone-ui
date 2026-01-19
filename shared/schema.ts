@@ -541,6 +541,8 @@ export const signupRequestSchema = z.object({
   password: z.string().min(8, "Password must be at least 8 characters"),
   name: z.string().optional(),
   demoSessionId: z.string().optional(), // For transferring demo data
+  organisationName: z.string().min(2, "Organisation name must be at least 2 characters").max(80, "Organisation name must be 80 characters or less").optional(),
+  inviteToken: z.string().optional(), // For accepting an invite during signup
 });
 
 export const loginRequestSchema = z.object({

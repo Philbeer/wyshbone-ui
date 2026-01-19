@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useLocation } from "wouter";
+import { useLocation, useSearch } from "wouter";
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
@@ -8,16 +8,23 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
+import { Building2 } from "lucide-react";
 
 export default function AuthPage() {
   const [, setLocation] = useLocation();
+  const searchString = useSearch();
   const { toast } = useToast();
+  
+  // Check for invite token in URL
+  const urlParams = new URLSearchParams(searchString);
+  const inviteToken = urlParams.get("token");
 
   const [signupData, setSignupData] = useState({
     email: "",
     password: "",
     confirmPassword: "",
     name: "",
+    organisationName: "",
   });
 
   const [loginData, setLoginData] = useState({
@@ -32,15 +39,16 @@ export default function AuthPage() {
       password: "",
       confirmPassword: "",
       name: "",
+      organisationName: "",
     });
     // Don't clear loginData - let browser autofill work naturally
   }, []);
 
   const signupMutation = useMutation({
-    mutationFn: async (data: { email: string; password: string; name: string }) => {
+    mutationFn: async (data: { email: string; password: string; name: string; organisationName?: string; inviteToken?: string }) => {
       // Include demo session ID if available (for data transfer)
       const demoSessionId = localStorage.getItem("wyshbone_sid");
-      const payload = demoSessionId ? { ...data, demoSessionId } : data;
+      const payload = { ...data, demoSessionId: demoSessionId || undefined };
       
       const res = await apiRequest("POST", "/api/auth/signup", payload);
       return await res.json();
@@ -119,9 +127,34 @@ export default function AuthPage() {
       return;
     }
     
+    // Require organisation name if not accepting an invite
+    if (!inviteToken && !signupData.organisationName.trim()) {
+      toast({
+        title: "Organisation name required",
+        description: "Please enter your company or workspace name",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    // Validate organisation name length
+    const orgName = signupData.organisationName.trim();
+    if (!inviteToken && (orgName.length < 2 || orgName.length > 80)) {
+      toast({
+        title: "Invalid organisation name",
+        description: "Organisation name must be between 2 and 80 characters",
+        variant: "destructive",
+      });
+      return;
+    }
+    
     // Don't send confirmPassword to backend
     const { confirmPassword, ...dataToSend } = signupData;
-    signupMutation.mutate(dataToSend);
+    signupMutation.mutate({
+      ...dataToSend,
+      organisationName: inviteToken ? undefined : orgName,
+      inviteToken: inviteToken || undefined,
+    });
   };
 
   const handleLogin = (e: React.FormEvent) => {
@@ -236,6 +269,38 @@ export default function AuthPage() {
                     data-testid="input-signup-confirm-password"
                   />
                 </div>
+                
+                {!inviteToken && (
+                  <div className="space-y-2">
+                    <Label htmlFor="signup-org-name" className="flex items-center gap-2">
+                      <Building2 className="h-4 w-4" />
+                      Organisation Name
+                    </Label>
+                    <Input
+                      id="signup-org-name"
+                      type="text"
+                      placeholder="Your company or workspace name"
+                      value={signupData.organisationName}
+                      onChange={(e) => setSignupData({ ...signupData, organisationName: e.target.value })}
+                      required
+                      minLength={2}
+                      maxLength={80}
+                      autoComplete="organization"
+                      data-testid="input-signup-org-name"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      This is your company or workspace name. You'll be the admin.
+                    </p>
+                  </div>
+                )}
+                
+                {inviteToken && (
+                  <div className="p-3 bg-muted rounded-lg text-sm">
+                    <p className="font-medium">Joining via invite</p>
+                    <p className="text-muted-foreground">You'll be added to an existing organisation after signup.</p>
+                  </div>
+                )}
+                
                 <Button
                   type="submit"
                   className="w-full"

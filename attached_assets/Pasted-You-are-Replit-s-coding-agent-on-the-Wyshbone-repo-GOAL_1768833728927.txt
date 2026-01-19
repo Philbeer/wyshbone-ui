@@ -1,0 +1,50 @@
+You are Replit’s coding agent on the Wyshbone repo.
+
+GOAL: Make Organisation creation a required part of the SIGNUP flow (not a separate “create org” screen after login). When a new user signs up, they must enter an Organisation Name in the same signup modal/form. On successful signup, the backend must create:
+- organisation
+- org_members row with role='admin' for that new user
+This should happen atomically (or with clean rollback handling).
+
+REQUIREMENTS:
+1) UI (Signup)
+- In the existing signup modal/form (the one that currently asks for name/email/password/confirm):
+  - Add a required field: "Organisation name"
+  - Validate: non-empty, reasonable length (e.g. 2–80 chars), trim whitespace
+  - Optional: show helper text: “This is your company/workspace name.”
+
+2) Backend (Signup endpoint / handler)
+- Extend the signup request payload to include organisationName.
+- After creating the user account successfully, create:
+  - organisations { name, created_by_user_id }
+  - org_members { org_id, user_id, role='admin' }
+- Enforce: a new user must end up with exactly one org membership created during signup.
+- If org creation fails, do NOT leave the user in a broken “no org” state:
+  - Prefer a transaction if possible
+  - If transactions across auth + DB aren’t possible, implement compensating cleanup or a guaranteed “finish signup” step that runs immediately and retries safely.
+
+3) Invite acceptance / joining existing org (IMPORTANT)
+- If the user is signing up via an invite token:
+  - Do NOT ask for organisation name (or hide/disable it)
+  - Accept the invite and create org_members with the invite’s org + role
+- If no invite token:
+  - Organisation name is required and creates a new org.
+
+4) Routing / UX
+- After signup, user should land in the normal app (or driver area depending on role),
+  and UserContext/session payload should include:
+  - orgId, orgName, membershipRole
+
+5) Clean up old flow
+- If there is currently a “create organisation” page shown after first login,
+  keep it only as a fallback (should rarely trigger) OR remove it if signup now guarantees org membership.
+  But do not break existing users.
+
+DELIVERABLES:
+- Signup modal updated (org name required unless invite token present)
+- Signup backend updated
+- Invite signup path still works
+- docs/org-and-roles.md updated with the new signup flow
+
+DO NOT:
+- add dev-only toggles
+- allow users to skip org creation on signup (unless they are accepting an invite)
