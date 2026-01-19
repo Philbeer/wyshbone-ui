@@ -40,6 +40,13 @@ The user interface adheres to Material Design principles, featuring a dark mode,
 - **Multi-Tenant Organisation System:** Production-grade organisation-based roles system with invite flow. Each user belongs to an organisation with membership roles (admin/sales/driver). Features include: org creation for first-time users, email-based invites with secure tokens, role management by admins, and server-side org isolation. Access via Settings → Team. See docs/org-and-roles.md for full documentation.
 - **User Role System:** Formal role-based access control now uses org membership roles. Admins have full access including team management. Drivers access delivery UI only. Sales users access CRM features. Legacy user.role field kept for backwards compatibility.
 
+## Database Configuration
+- **Primary Database:** Supabase PostgreSQL (production data, accessed via `SUPABASE_DATABASE_URL`)
+- **Fallback:** Replit's built-in PostgreSQL (accessed via `DATABASE_URL`)
+- **Connection Priority:** App prefers `SUPABASE_DATABASE_URL` over `DATABASE_URL` to ensure consistent database usage
+- **Startup Migrations:** `runStartupMigrations()` in `server/storage.ts` handles schema drift by adding missing columns using PostgreSQL's `IF NOT EXISTS` syntax
+- **Drizzle Config:** Updated in `drizzle.config.ts` to prefer `SUPABASE_DATABASE_URL` for schema operations
+
 ## External Dependencies
 - **OpenAI GPT-5:** For AI chat responses, prospect enrichment, web search, and AI-generated personal lines.
 - **Wyshbone Global Database (Google Places API):** For business discovery and location-based searches.

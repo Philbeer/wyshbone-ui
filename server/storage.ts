@@ -1376,6 +1376,29 @@ export function getDrizzleDb() {
   return db;
 }
 
+/**
+ * Run startup migrations to add missing columns that drizzle-kit can't push to Supabase
+ * This handles schema drift when drizzle-kit times out connecting to Supabase
+ */
+export async function runStartupMigrations(): Promise<void> {
+  console.log('🔧 Running startup schema migrations...');
+  
+  try {
+    // Try to add role column - if it already exists, the error will be caught
+    await queryClient`
+      ALTER TABLE public.users ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'sales';
+    `;
+    console.log('✅ Startup migrations completed - role column ensured');
+  } catch (error: any) {
+    // Only log if it's not a "column already exists" error
+    if (error?.code !== '42701') { // 42701 = duplicate_column
+      console.error('⚠️ Startup migration error (non-fatal):', error?.message || error);
+    } else {
+      console.log('✅ Startup migrations completed - role column already exists');
+    }
+  }
+}
+
 export class DbStorage implements IStorage {
   // Job methods - keeping in-memory for now
   private jobs: Map<string, Job> = new Map();

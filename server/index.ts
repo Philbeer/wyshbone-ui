@@ -17,7 +17,7 @@ import { createSuppliersRouter } from "./routes/suppliers";
 import { wabsScoresRouter } from "./routes/wabs-scores";
 import { redditRouter } from "./routes/reddit";
 import { hnRouter } from "./routes/hn";
-import { storage } from "./storage";
+import { storage, runStartupMigrations } from "./storage";
 import { logDemoConfig } from "./demo-config";
 import { runSchemaHealthCheck } from "./schema-check";
 
@@ -226,6 +226,9 @@ app.use((req, res, next) => {
 (async () => {
   // Log demo mode configuration
   logDemoConfig();
+  
+  // Run startup migrations to add missing columns (handles Supabase schema drift)
+  await runStartupMigrations();
   
   // Run non-fatal schema health check (logs warnings if CRM tables missing)
   await runSchemaHealthCheck();
