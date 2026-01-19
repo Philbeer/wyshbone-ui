@@ -56,10 +56,12 @@ let drizzleDb: ReturnType<typeof drizzle> | null = null;
 
 function getDrizzleDb() {
   if (!drizzleDb) {
-    if (!process.env.DATABASE_URL) {
-      throw new Error("DATABASE_URL environment variable is not set");
+    // CRITICAL: Always prefer SUPABASE_DATABASE_URL over DATABASE_URL
+    const connectionUrl = process.env.SUPABASE_DATABASE_URL || process.env.DATABASE_URL;
+    if (!connectionUrl) {
+      throw new Error("SUPABASE_DATABASE_URL or DATABASE_URL environment variable is not set");
     }
-    const queryClient = postgres(process.env.DATABASE_URL, {
+    const queryClient = postgres(connectionUrl, {
       connect_timeout: 5,
       idle_timeout: 10,
       max_lifetime: 60 * 30,
@@ -161,10 +163,12 @@ export interface EventCandidate {
 // ============================================
 
 function getDb() {
-  if (!process.env.DATABASE_URL) {
-    throw new Error("DATABASE_URL environment variable is not set");
+  // CRITICAL: Always prefer SUPABASE_DATABASE_URL over DATABASE_URL
+  const connectionUrl = process.env.SUPABASE_DATABASE_URL || process.env.DATABASE_URL;
+  if (!connectionUrl) {
+    throw new Error("SUPABASE_DATABASE_URL or DATABASE_URL environment variable is not set");
   }
-  return neon(process.env.DATABASE_URL);
+  return neon(connectionUrl);
 }
 
 // ============================================

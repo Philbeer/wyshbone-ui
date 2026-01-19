@@ -6,6 +6,8 @@ The Wyshbone Chat Agent is an AI-powered assistant designed to enhance business 
 ## User Preferences
 I want the agent to focus on practical, UK-focused responses. I want to ensure that any contact information discovered is public and verifiable, with no guessing of private details. I prefer a workflow that prioritizes Wyshbone Global Database as the authoritative source for business discovery. The agent should be able to intelligently decide when to search for new venues versus using cached information and support conversational queries without triggering unnecessary searches. I want the agent to auto-detect and execute Bubble batch workflows based on natural language commands. CRITICAL: The AI must ALWAYS ask for confirmation when making assumptions or combining current input with historical facts/context - chat history and facts serve as background reference, not primary drivers.
 
+**CRITICAL DATABASE RULE:** ALWAYS use `SUPABASE_DATABASE_URL` for all database connections, NEVER use `DATABASE_URL` directly. The pattern should be: `process.env.SUPABASE_DATABASE_URL || process.env.DATABASE_URL` to ensure Supabase is always preferred. This applies to all files: routes, cron jobs, lib utilities, and any new code. The Replit DATABASE_URL is only a fallback if Supabase is unavailable.
+
 ## System Architecture
 The application features a Node.js/Express backend and a React frontend, built with TypeScript, Tailwind CSS, and shadcn/ui. TanStack Query manages API state. Core AI interactions utilize OpenAI's GPT models. The system supports multi-tenant user isolation with session-based authentication and robust data security.
 

@@ -231,10 +231,12 @@ export async function runSchemaHealthCheck(): Promise<SchemaCheckResult> {
  * Quick check for a specific table (for use in route handlers)
  */
 export async function quickTableCheck(tableName: string): Promise<boolean> {
-  if (!process.env.DATABASE_URL) return false;
+  // CRITICAL: Always prefer SUPABASE_DATABASE_URL over DATABASE_URL
+  const connectionUrl = process.env.SUPABASE_DATABASE_URL || process.env.DATABASE_URL;
+  if (!connectionUrl) return false;
   
   try {
-    const queryClient = postgres(process.env.DATABASE_URL, {
+    const queryClient = postgres(connectionUrl, {
       connect_timeout: 3,
       idle_timeout: 3,
       max: 1,
