@@ -79,6 +79,8 @@ import type {
   SelectXeroConnection,
   InsertXeroImportJob,
   SelectXeroImportJob,
+  InsertOAuthState,
+  SelectOAuthState,
   InsertXeroWebhookEvent,
   SelectXeroWebhookEvent,
   InsertXeroSyncQueue,
@@ -150,6 +152,7 @@ import {
   crmActivities,
   crmTasks,
   brewContainerMovements,
+  oauthStates,
   xeroConnections,
   xeroImportJobs,
   xeroWebhookEvents,
@@ -546,6 +549,12 @@ export interface IStorage {
   getRevenueByMonth(workspaceId: string, months?: number): Promise<any[]>;
   getTopCustomersByRevenue(workspaceId: string, limit?: number): Promise<any[]>;
   getTopProductsBySales(workspaceId: string, limit?: number): Promise<any[]>;
+  
+  // ============= OAUTH STATES METHODS =============
+  createOAuthState(data: InsertOAuthState): Promise<SelectOAuthState>;
+  getOAuthState(stateToken: string): Promise<SelectOAuthState | null>;
+  consumeOAuthState(stateToken: string, integration?: string): Promise<SelectOAuthState | null>;
+  deleteExpiredOAuthStates(): Promise<number>;
   
   // ============= XERO CONNECTIONS METHODS =============
   getXeroConnection(workspaceId: string): Promise<SelectXeroConnection | null>;
@@ -1155,6 +1164,12 @@ export class MemStorage implements IStorage {
   async getRevenueByMonth(workspaceId: string, months?: number): Promise<any[]> { return []; }
   async getTopCustomersByRevenue(workspaceId: string, limit?: number): Promise<any[]> { return []; }
   async getTopProductsBySales(workspaceId: string, limit?: number): Promise<any[]> { return []; }
+  
+  // OAuth States - stub methods
+  async createOAuthState(data: InsertOAuthState): Promise<SelectOAuthState> { throw new Error("MemStorage: OAuth state operations not supported"); }
+  async getOAuthState(stateToken: string): Promise<SelectOAuthState | null> { return null; }
+  async consumeOAuthState(stateToken: string, integration?: string): Promise<SelectOAuthState | null> { return null; }
+  async deleteExpiredOAuthStates(): Promise<number> { return 0; }
   
   // Xero product/order lookups - stub methods
   async getProductByXeroItemId(xeroItemId: string, workspaceId: string): Promise<SelectCrmProduct | null> { return null; }
@@ -4003,6 +4018,59 @@ export class DbStorage implements IStorage {
     return Array.from(byProduct.values())
       .sort((a, b) => b.totalRevenue - a.totalRevenue)
       .slice(0, limit);
+  }
+
+  // ============================================
+  // OAUTH STATES METHODS
+  // ============================================
+
+  async createOAuthState(data: InsertOAuthState): Promise<SelectOAuthState> {
+    const [state] = await db
+      .insert(oauthStates)
+      .values(data)
+      .returning();
+    return state;
+  }
+
+  async getOAuthState(stateToken: string): Promise<SelectOAuthState | null> {
+    const [state] = await db
+      .select()
+      .from(oauthStates)
+      .where(
+        and(
+          eq(oauthStates.stateToken, stateToken),
+          isNull(oauthStates.usedAt),
+          gt(oauthStates.expiresAt, new Date())
+        )
+      );
+    return state || null;
+  }
+
+  async consumeOAuthState(stateToken: string, integration?: string): Promise<SelectOAuthState | null> {
+    const conditions = [
+      eq(oauthStates.stateToken, stateToken),
+      isNull(oauthStates.usedAt),
+      gt(oauthStates.expiresAt, new Date())
+    ];
+    
+    if (integration) {
+      conditions.push(eq(oauthStates.integration, integration));
+    }
+    
+    const [state] = await db
+      .update(oauthStates)
+      .set({ usedAt: new Date() })
+      .where(and(...conditions))
+      .returning();
+    return state || null;
+  }
+
+  async deleteExpiredOAuthStates(): Promise<number> {
+    const result = await db
+      .delete(oauthStates)
+      .where(lt(oauthStates.expiresAt, new Date()))
+      .returning();
+    return result.length;
   }
 
   // ============================================

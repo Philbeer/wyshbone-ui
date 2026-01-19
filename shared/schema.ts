@@ -1987,6 +1987,32 @@ export type InsertBrewContainerMovement = typeof brewContainerMovements.$inferIn
 export type SelectBrewContainerMovement = typeof brewContainerMovements.$inferSelect;
 
 // ============================================
+// OAUTH STATES TABLE
+// ============================================
+// Server-side OAuth state records for secure session binding
+// Ensures OAuth callbacks are bound to the initiating user/org
+export const oauthStates = pgTable("oauth_states", {
+  id: serial("id").primaryKey(),
+  stateToken: varchar("state_token", { length: 64 }).notNull().unique(), // Cryptographically random token
+  userId: text("user_id").notNull(),
+  userEmail: text("user_email").notNull(),
+  orgId: text("org_id"), // Optional org_id for multi-tenant scenarios
+  integration: varchar("integration", { length: 50 }).notNull(), // e.g., 'xero', 'stripe'
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  expiresAt: timestamp("expires_at").notNull(), // Short expiry (10-15 minutes)
+  usedAt: timestamp("used_at"), // Set when the state is consumed
+}, (table) => ({
+  stateTokenIdx: index("oauth_states_token_idx").on(table.stateToken),
+  userIdIdx: index("oauth_states_user_idx").on(table.userId),
+  expiresAtIdx: index("oauth_states_expires_idx").on(table.expiresAt),
+}));
+
+export const insertOAuthStateSchema = createInsertSchema(oauthStates);
+export const selectOAuthStateSchema = createSelectSchema(oauthStates);
+export type InsertOAuthState = typeof oauthStates.$inferInsert;
+export type SelectOAuthState = typeof oauthStates.$inferSelect;
+
+// ============================================
 // XERO CONNECTIONS TABLE
 // ============================================
 // Store Xero connection details per workspace (OAuth tokens)

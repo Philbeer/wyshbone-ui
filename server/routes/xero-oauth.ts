@@ -3,51 +3,8 @@ import { randomBytes, createHmac } from "crypto";
 import type { IStorage } from "../storage";
 import { XeroClient } from "xero-node";
 
-// Secret for signing OAuth state tokens (REQUIRED in production)
-const STATE_SECRET = process.env.OAUTH_STATE_SECRET || (() => {
-  if (process.env.NODE_ENV === 'production') {
-    throw new Error("OAUTH_STATE_SECRET environment variable is required in production");
-  }
-  console.warn("⚠️ WARNING: Using default OAuth state secret in development mode - DO NOT USE IN PRODUCTION");
-  return "default-dev-secret-for-testing-only";
-})();
-
-// Sign OAuth state payload
-function signState(payload: string): string {
-  const hmac = createHmac("sha256", STATE_SECRET);
-  hmac.update(payload);
-  return hmac.digest("hex");
-}
-
-// Verify and decode OAuth state
-function verifyState(signedState: string): { userId: string; userEmail: string; timestamp: number } | null {
-  try {
-    const [payload, signature] = signedState.split(".");
-    if (!payload || !signature) return null;
-    
-    // Verify signature
-    const expectedSignature = signState(payload);
-    if (signature !== expectedSignature) {
-      console.error("Invalid OAuth state signature");
-      return null;
-    }
-    
-    // Decode payload
-    const decoded = JSON.parse(Buffer.from(payload, "base64").toString("utf-8"));
-    
-    // Check expiry (10 minutes)
-    const tenMinutesAgo = Date.now() - 10 * 60 * 1000;
-    if (decoded.timestamp < tenMinutesAgo) {
-      console.error("OAuth state expired");
-      return null;
-    }
-    
-    return decoded;
-  } catch (error) {
-    console.error("Error verifying OAuth state:", error);
-    return null;
-  }
-}
+// OAuth state expiry time in minutes
+const OAUTH_STATE_EXPIRY_MINUTES = 10;
 
 // SECURITY: Authentication middleware to validate session and extract userId
 async function getAuthenticatedUserId(req: Request, storage: IStorage): Promise<{ userId: string; userEmail: string } | null> {
@@ -143,15 +100,24 @@ const XERO_AUTH_URL = "https://login.xero.com/identity/connect/authorize";
 const XERO_TOKEN_URL = "https://identity.xero.com/connect/token";
 const XERO_CONNECTIONS_URL = "https://api.xero.com/connections";
 
-// Replay protection: track used state tokens
-const usedStates = new Set<string>();
-
-// Clean up used states every 15 minutes
-setInterval(() => {
-  usedStates.clear();
-}, 15 * 60 * 1000);
+// Clean up expired OAuth states every 15 minutes
+let cleanupInterval: ReturnType<typeof setInterval> | null = null;
 
 export function createXeroOAuthRouter(storage: IStorage) {
+  // Start cleanup interval for expired OAuth states
+  if (!cleanupInterval) {
+    cleanupInterval = setInterval(async () => {
+      try {
+        const deleted = await storage.deleteExpiredOAuthStates();
+        if (deleted > 0) {
+          console.log(`🧹 Cleaned up ${deleted} expired OAuth state(s)`);
+        }
+      } catch (error) {
+        console.error("Error cleaning up OAuth states:", error);
+      }
+    }, 15 * 60 * 1000);
+  }
+
   // Initiate Xero OAuth flow
   router.get("/authorize", async (req, res) => {
     // Authenticate user from session
@@ -164,16 +130,26 @@ export function createXeroOAuthRouter(storage: IStorage) {
       return res.status(500).json({ error: "Xero OAuth not configured" });
     }
 
-    // Generate signed state token with user identity
-    const statePayload = {
-      userId: auth.userId,
-      userEmail: auth.userEmail,
-      timestamp: Date.now(),
-      nonce: randomBytes(16).toString("hex")
-    };
-    const payload = Buffer.from(JSON.stringify(statePayload)).toString("base64");
-    const signature = signState(payload);
-    const state = `${payload}.${signature}`;
+    // Generate cryptographically secure state token
+    const stateToken = randomBytes(32).toString("hex");
+    
+    // Calculate expiry time
+    const expiresAt = new Date(Date.now() + OAUTH_STATE_EXPIRY_MINUTES * 60 * 1000);
+    
+    // Store state in database (server-side binding)
+    try {
+      await storage.createOAuthState({
+        stateToken,
+        userId: auth.userId,
+        userEmail: auth.userEmail,
+        integration: "xero",
+        expiresAt,
+      });
+      console.log(`🔐 [XERO] Created OAuth state for user ${auth.userEmail} (state: ${stateToken.substring(0, 8)}...)`);
+    } catch (error) {
+      console.error("Failed to create OAuth state:", error);
+      return res.status(500).json({ error: "Failed to initiate OAuth flow" });
+    }
 
     // Build authorization URL
     const params = new URLSearchParams({
@@ -181,7 +157,7 @@ export function createXeroOAuthRouter(storage: IStorage) {
       client_id: XERO_CLIENT_ID,
       redirect_uri: REDIRECT_URI,
       scope: "openid profile email accounting.transactions accounting.contacts offline_access",
-      state,
+      state: stateToken,
     });
 
     const authUrl = `${XERO_AUTH_URL}?${params.toString()}`;
@@ -196,7 +172,7 @@ export function createXeroOAuthRouter(storage: IStorage) {
     console.log("🔔 [XERO] Query params:", JSON.stringify(req.query));
     
     const code = req.query.code as string;
-    const state = req.query.state as string;
+    const stateToken = req.query.state as string;
     const error = req.query.error as string;
 
     if (error) {
@@ -204,30 +180,25 @@ export function createXeroOAuthRouter(storage: IStorage) {
       return res.redirect(`${FRONTEND_URL}/auth/crm/settings?xero=error&message=${encodeURIComponent(error)}`);
     }
 
-    if (!code || !state) {
+    if (!code || !stateToken) {
+      console.error("❌ [XERO] Missing code or state in callback");
       return res.redirect(`${FRONTEND_URL}/auth/crm/settings?xero=error&message=missing_code_or_state`);
     }
 
-    // Verify and decode signed state
-    const stateData = verifyState(state);
+    // Consume the OAuth state from database (atomic operation - also marks as used)
+    // This validates: state exists, not expired, not already used, correct integration
+    const stateData = await storage.consumeOAuthState(stateToken, "xero");
     if (!stateData) {
-      return res.redirect(`${FRONTEND_URL}/auth/crm/settings?xero=error&message=invalid_state`);
+      console.error(`❌ [XERO] Invalid or expired OAuth state: ${stateToken.substring(0, 8)}...`);
+      return res.redirect(`${FRONTEND_URL}/auth/crm/settings?xero=error&message=invalid_or_expired_state`);
     }
 
-    // Check for replay attacks
-    if (usedStates.has(state)) {
-      console.error("OAuth state replay detected!");
-      return res.redirect(`${FRONTEND_URL}/auth/crm/settings?xero=error&message=state_replay`);
-    }
-
-    // Mark state as used
-    usedStates.add(state);
+    console.log(`✅ [XERO] Valid OAuth state for user ${stateData.userEmail} (userId: ${stateData.userId})`);
 
     try {
       console.log("🔄 [XERO] Exchanging authorization code for tokens...");
       console.log(`🔄 [XERO] Using redirect URI: ${REDIRECT_URI}`);
-      console.log(`🔄 [XERO] Client ID present: ${!!XERO_CLIENT_ID}`);
-      console.log(`🔄 [XERO] Client Secret present: ${!!XERO_CLIENT_SECRET}`);
+      console.log(`🔄 [XERO] Binding tokens to userId: ${stateData.userId}`);
       
       // Exchange code for tokens
       const tokenResponse = await fetch(XERO_TOKEN_URL, {

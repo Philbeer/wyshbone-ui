@@ -105,12 +105,15 @@ export default function CrmSettings() {
     
     if (xeroParam === 'connected') {
       setShowXeroSuccessDialog(true);
+      // Invalidate xero-status to refresh connection state
+      queryClient.invalidateQueries({ queryKey: ['xero-status'] });
       // Remove the query parameter from URL without reload
       window.history.replaceState({}, '', window.location.pathname);
     } else if (xeroParam === 'error') {
       const errorDescriptions: Record<string, string> = {
         'missing_code_or_state': 'The OAuth process was interrupted. Please try again.',
         'invalid_state': 'Security validation failed. Please try connecting again.',
+        'invalid_or_expired_state': 'The authorization link expired or was already used. Please try connecting again.',
         'state_replay': 'This authorization link has already been used. Please start a new connection.',
         'token_exchange_failed': 'Failed to exchange authorization code. Please try again.',
         'connections_fetch_failed': 'Connected to Xero but failed to fetch organization details.',
