@@ -443,7 +443,8 @@ export const users = pgTable("users", {
   name: text("name"),
   isDemo: integer("is_demo").notNull().default(0), // 1 = demo user, 0 = regular user
   demoCreatedAt: bigint("demo_created_at", { mode: "number" }), // When demo account was created (for cleanup)
-  role: text("role").notNull().default("sales"), // 'admin', 'sales', 'driver' - controls access to app areas
+  role: text("role").notNull().default("sales"), // 'admin', 'sales', 'driver' - LEGACY: use org_members.role for new code
+  currentOrgId: text("current_org_id"), // Active organisation - FK to organisations.id
   stripeCustomerId: text("stripe_customer_id"),
   stripeSubscriptionId: text("stripe_subscription_id"),
   subscriptionTier: text("subscription_tier").default("free"), // 'free', 'basic', 'pro', 'business', 'enterprise'
@@ -506,6 +507,7 @@ export const userSchema = z.object({
   isDemo: z.number().int(),
   demoCreatedAt: z.number().optional().nullable(),
   role: userRoleSchema.default("sales"),
+  currentOrgId: z.string().optional().nullable(),
   stripeCustomerId: z.string().optional().nullable(),
   stripeSubscriptionId: z.string().optional().nullable(),
   subscriptionTier: subscriptionTierSchema,
@@ -566,6 +568,137 @@ export const insertUserSchema = createInsertSchema(users);
 export const selectUserSchema = createSelectSchema(users);
 export type InsertUser = typeof users.$inferInsert;
 export type SelectUser = typeof users.$inferSelect;
+
+// ============================================================================
+// MULTI-TENANT ORGANISATION SYSTEM
+// ============================================================================
+
+// Organisations table - each org is an isolated tenant
+export const organisations = pgTable("organisations", {
+  id: text("id").primaryKey(), // UUID
+  name: text("name").notNull(),
+  createdByUserId: text("created_by_user_id").notNull(),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+}, (table) => ({
+  createdByIdx: index("orgs_created_by_idx").on(table.createdByUserId),
+}));
+
+// Org membership roles - same values as legacy user roles
+export const orgMemberRoleSchema = z.enum(["admin", "sales", "driver"]);
+export type OrgMemberRole = z.infer<typeof orgMemberRoleSchema>;
+
+// Org Members table - links users to orgs with role
+export const orgMembers = pgTable("org_members", {
+  id: text("id").primaryKey(), // UUID
+  orgId: text("org_id").notNull(),
+  userId: text("user_id").notNull(),
+  role: text("role").notNull().default("sales"), // 'admin', 'sales', 'driver'
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+}, (table) => ({
+  orgIdIdx: index("org_members_org_id_idx").on(table.orgId),
+  userIdIdx: index("org_members_user_id_idx").on(table.userId),
+  uniqueOrgUser: index("org_members_unique_idx").on(table.orgId, table.userId),
+}));
+
+// Org invite status
+export const orgInviteStatusSchema = z.enum(["pending", "accepted", "revoked", "expired"]);
+export type OrgInviteStatus = z.infer<typeof orgInviteStatusSchema>;
+
+// Org Invites table - pending invitations
+export const orgInvites = pgTable("org_invites", {
+  id: text("id").primaryKey(), // UUID
+  orgId: text("org_id").notNull(),
+  email: text("email").notNull(),
+  role: text("role").notNull().default("sales"), // 'admin', 'sales', 'driver'
+  token: text("token").notNull().unique(), // secure random token
+  status: text("status").notNull().default("pending"), // 'pending', 'accepted', 'revoked', 'expired'
+  invitedByUserId: text("invited_by_user_id").notNull(),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  expiresAt: bigint("expires_at", { mode: "number" }).notNull(),
+  acceptedAt: bigint("accepted_at", { mode: "number" }),
+}, (table) => ({
+  orgIdIdx: index("org_invites_org_id_idx").on(table.orgId),
+  emailIdx: index("org_invites_email_idx").on(table.email),
+  tokenIdx: index("org_invites_token_idx").on(table.token),
+}));
+
+// Organisation Zod schemas
+export const organisationSchema = z.object({
+  id: z.string(),
+  name: z.string().min(1),
+  createdByUserId: z.string(),
+  createdAt: z.number(),
+  updatedAt: z.number(),
+});
+
+export const orgMemberSchema = z.object({
+  id: z.string(),
+  orgId: z.string(),
+  userId: z.string(),
+  role: orgMemberRoleSchema,
+  createdAt: z.number(),
+  updatedAt: z.number(),
+});
+
+export const orgInviteSchema = z.object({
+  id: z.string(),
+  orgId: z.string(),
+  email: z.string().email(),
+  role: orgMemberRoleSchema,
+  token: z.string(),
+  status: orgInviteStatusSchema,
+  invitedByUserId: z.string(),
+  createdAt: z.number(),
+  expiresAt: z.number(),
+  acceptedAt: z.number().optional().nullable(),
+});
+
+export type Organisation = z.infer<typeof organisationSchema>;
+export type OrgMember = z.infer<typeof orgMemberSchema>;
+export type OrgInvite = z.infer<typeof orgInviteSchema>;
+
+// Request schemas for org APIs
+export const createOrgRequestSchema = z.object({
+  name: z.string().min(1, "Organisation name is required"),
+});
+
+export const createInviteRequestSchema = z.object({
+  email: z.string().email("Valid email is required"),
+  role: orgMemberRoleSchema.default("sales"),
+});
+
+export const acceptInviteRequestSchema = z.object({
+  token: z.string().min(1, "Invite token is required"),
+});
+
+export const updateMemberRoleRequestSchema = z.object({
+  role: orgMemberRoleSchema,
+});
+
+export type CreateOrgRequest = z.infer<typeof createOrgRequestSchema>;
+export type CreateInviteRequest = z.infer<typeof createInviteRequestSchema>;
+export type AcceptInviteRequest = z.infer<typeof acceptInviteRequestSchema>;
+export type UpdateMemberRoleRequest = z.infer<typeof updateMemberRoleRequestSchema>;
+
+// Drizzle insert/select schemas for organisations
+export const insertOrganisationSchema = createInsertSchema(organisations);
+export const selectOrganisationSchema = createSelectSchema(organisations);
+export type InsertOrganisation = typeof organisations.$inferInsert;
+export type SelectOrganisation = typeof organisations.$inferSelect;
+
+export const insertOrgMemberSchema = createInsertSchema(orgMembers);
+export const selectOrgMemberSchema = createSelectSchema(orgMembers);
+export type InsertOrgMember = typeof orgMembers.$inferInsert;
+export type SelectOrgMember = typeof orgMembers.$inferSelect;
+
+export const insertOrgInviteSchema = createInsertSchema(orgInvites);
+export const selectOrgInviteSchema = createSelectSchema(orgInvites);
+export type InsertOrgInvite = typeof orgInvites.$inferInsert;
+export type SelectOrgInvite = typeof orgInvites.$inferSelect;
+
+// ============================================================================
 
 // User Sessions table for secure multi-tenant authentication
 export const userSessions = pgTable("user_sessions", {

@@ -69,6 +69,7 @@ import { LayoutToggle } from "@/components/LayoutToggle";
 import DriverTodayPage from "@/pages/driver/today";
 import DriverStopPage from "@/pages/driver/stop";
 import UserManagementPage from "@/pages/admin/user-management";
+import TeamPage from "@/pages/settings/team";
 
 // No demo runs - users only see their own data
 const DEMO_RUNS: RunItem[] = [];
@@ -105,6 +106,7 @@ function AgentFirstRouter({
       
       {/* Settings page */}
       <Route path="/settings" component={SettingsPage} />
+      <Route path="/settings/team" component={TeamPage} />
       <Route path="/settings/users" component={UserManagementPage} />
 
       {/* Workflow dashboard */}
@@ -208,6 +210,7 @@ function Router({
       <Route path="/admin/database-maintenance" component={DatabaseMaintenance} />
       <Route path="/admin/users" component={UserManagementPage} />
       <Route path="/settings/users" component={UserManagementPage} />
+      <Route path="/settings/team" component={TeamPage} />
       <Route path="/driver/today" component={DriverTodayPage} />
       <Route path="/driver/stop/:id" component={DriverStopPage} />
       <Route path="/onboarding/brewery" component={BreweryOnboardingWizard} />

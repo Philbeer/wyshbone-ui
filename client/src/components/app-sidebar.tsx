@@ -1089,9 +1089,18 @@ export function AppSidebar({
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
-              {/* Users management - admin only */}
+              {/* Team management - visible to all, but admin features gated in the page */}
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={location === "/settings/team"} data-testid="link-settings-team">
+                  <Link href="/settings/team">
+                    <Users className="h-4 w-4" />
+                    <span>Team</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              {/* Legacy Users link - admin only, for backwards compatibility */}
               {user?.role === 'admin' && (
-                <SidebarMenuItem>
+                <SidebarMenuItem className="hidden">
                   <SidebarMenuButton asChild isActive={location === "/settings/users"} data-testid="link-settings-users">
                     <Link href="/settings/users">
                       <Users className="h-4 w-4" />

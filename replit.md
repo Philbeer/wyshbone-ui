@@ -36,8 +36,9 @@ The user interface adheres to Material Design principles, featuring a dark mode,
 - **Agent Flight Recorder (AFR):** An internal development tool for visualizing agent decision loops, run details, and judgment ledgers.
 - **Tower Analytics Integration:** Comprehensive logging system for tracking all chat interactions for monitoring and analytics, utilizing a unified runId system for conversation-level insights.
 - **Hacker News Discovery:** A feature for finding relevant Hacker News discussions based on keywords, offering AI-powered draft reply generation and relevance scoring based on Wyshbone's fit.
-- **Delivery Management System:** Mobile-first Driver UI with role-based access control supporting three user roles (admin, sales, driver). Drivers access delivery routes at /driver/today with stop details. Admins manage users at /admin/users.
-- **User Role System:** Formal role-based access control with admin, sales, and driver roles. Admins have full access including user management. Drivers access delivery UI only. Sales users access CRM features. See docs/user-roles.md for full documentation.
+- **Delivery Management System:** Mobile-first Driver UI with role-based access control supporting three user roles (admin, sales, driver). Drivers access delivery routes at /driver/today with stop details.
+- **Multi-Tenant Organisation System:** Production-grade organisation-based roles system with invite flow. Each user belongs to an organisation with membership roles (admin/sales/driver). Features include: org creation for first-time users, email-based invites with secure tokens, role management by admins, and server-side org isolation. Access via Settings → Team. See docs/org-and-roles.md for full documentation.
+- **User Role System:** Formal role-based access control now uses org membership roles. Admins have full access including team management. Drivers access delivery UI only. Sales users access CRM features. Legacy user.role field kept for backwards compatibility.
 
 ## External Dependencies
 - **OpenAI GPT-5:** For AI chat responses, prospect enrichment, web search, and AI-generated personal lines.

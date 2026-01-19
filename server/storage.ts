@@ -101,7 +101,13 @@ import type {
   SelectAfrRuleUpdate,
   InsertAfrRunBundle,
   SelectAfrRunBundle,
-  AfrRunBundleData
+  AfrRunBundleData,
+  InsertOrganisation,
+  SelectOrganisation,
+  InsertOrgMember,
+  SelectOrgMember,
+  InsertOrgInvite,
+  SelectOrgInvite
 } from "@shared/schema";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
@@ -155,7 +161,10 @@ import {
   routeStops,
   routeOptimizationResults,
   afrRuleUpdates,
-  afrRunBundles
+  afrRunBundles,
+  organisations,
+  orgMembers,
+  orgInvites
 } from "@shared/schema";
 import { eq, or, and, desc, asc, lt, gt, lte, gte, isNull, isNotNull, sql } from "drizzle-orm";
 
@@ -573,6 +582,26 @@ export interface IStorage {
   updateOrderSyncStatus(orderId: string, workspaceId: string, status: 'synced' | 'pending' | 'failed', error?: string): Promise<void>;
   updateCustomerSyncStatus(customerId: string, workspaceId: string, status: 'synced' | 'pending' | 'failed', error?: string): Promise<void>;
   updateProductSyncStatus(productId: string, workspaceId: string, status: 'synced' | 'pending' | 'failed', error?: string): Promise<void>;
+  
+  // ============= ORGANISATION SYSTEM METHODS =============
+  createOrganisation(org: InsertOrganisation): Promise<SelectOrganisation>;
+  getOrganisation(id: string): Promise<SelectOrganisation | null>;
+  updateOrganisation(id: string, updates: Partial<InsertOrganisation>): Promise<SelectOrganisation | null>;
+  
+  createOrgMember(member: InsertOrgMember): Promise<SelectOrgMember>;
+  getOrgMember(orgId: string, userId: string): Promise<SelectOrgMember | null>;
+  listOrgMembers(orgId: string): Promise<SelectOrgMember[]>;
+  updateOrgMemberRole(orgId: string, userId: string, role: string): Promise<SelectOrgMember | null>;
+  removeOrgMember(orgId: string, userId: string): Promise<boolean>;
+  getUserMemberships(userId: string): Promise<Array<SelectOrgMember & { org: SelectOrganisation }>>;
+  
+  createOrgInvite(invite: InsertOrgInvite): Promise<SelectOrgInvite>;
+  getOrgInviteByToken(token: string): Promise<SelectOrgInvite | null>;
+  listOrgInvites(orgId: string): Promise<SelectOrgInvite[]>;
+  getPendingInvitesForEmail(email: string): Promise<SelectOrgInvite[]>;
+  updateOrgInvite(id: string, updates: Partial<InsertOrgInvite>): Promise<SelectOrgInvite | null>;
+  
+  updateUserCurrentOrg(userId: string, orgId: string): Promise<SelectUser | null>;
 }
 
 export class MemStorage implements IStorage {
@@ -1169,6 +1198,105 @@ export class MemStorage implements IStorage {
   async updateOrderSyncStatus(orderId: string, workspaceId: string, status: 'synced' | 'pending' | 'failed', error?: string): Promise<void> {}
   async updateCustomerSyncStatus(customerId: string, workspaceId: string, status: 'synced' | 'pending' | 'failed', error?: string): Promise<void> {}
   async updateProductSyncStatus(productId: string, workspaceId: string, status: 'synced' | 'pending' | 'failed', error?: string): Promise<void> {}
+  
+  // Organisation System - stub methods (MemStorage doesn't persist org data)
+  private orgsMap: Map<string, SelectOrganisation> = new Map();
+  private orgMembersMap: Map<string, SelectOrgMember> = new Map();
+  private orgInvitesMap: Map<string, SelectOrgInvite> = new Map();
+  
+  async createOrganisation(org: InsertOrganisation): Promise<SelectOrganisation> {
+    const now = Date.now();
+    const fullOrg: SelectOrganisation = { ...org, createdAt: now, updatedAt: now };
+    this.orgsMap.set(org.id, fullOrg);
+    return fullOrg;
+  }
+  async getOrganisation(id: string): Promise<SelectOrganisation | null> {
+    return this.orgsMap.get(id) || null;
+  }
+  async updateOrganisation(id: string, updates: Partial<InsertOrganisation>): Promise<SelectOrganisation | null> {
+    const org = this.orgsMap.get(id);
+    if (!org) return null;
+    const updated = { ...org, ...updates, updatedAt: Date.now() };
+    this.orgsMap.set(id, updated);
+    return updated;
+  }
+  
+  async createOrgMember(member: InsertOrgMember): Promise<SelectOrgMember> {
+    const now = Date.now();
+    const fullMember: SelectOrgMember = { ...member, createdAt: now, updatedAt: now };
+    this.orgMembersMap.set(member.id, fullMember);
+    return fullMember;
+  }
+  async getOrgMember(orgId: string, userId: string): Promise<SelectOrgMember | null> {
+    for (const m of this.orgMembersMap.values()) {
+      if (m.orgId === orgId && m.userId === userId) return m;
+    }
+    return null;
+  }
+  async listOrgMembers(orgId: string): Promise<SelectOrgMember[]> {
+    return Array.from(this.orgMembersMap.values()).filter(m => m.orgId === orgId);
+  }
+  async updateOrgMemberRole(orgId: string, userId: string, role: string): Promise<SelectOrgMember | null> {
+    for (const [id, m] of this.orgMembersMap.entries()) {
+      if (m.orgId === orgId && m.userId === userId) {
+        const updated = { ...m, role, updatedAt: Date.now() };
+        this.orgMembersMap.set(id, updated);
+        return updated;
+      }
+    }
+    return null;
+  }
+  async removeOrgMember(orgId: string, userId: string): Promise<boolean> {
+    for (const [id, m] of this.orgMembersMap.entries()) {
+      if (m.orgId === orgId && m.userId === userId) {
+        return this.orgMembersMap.delete(id);
+      }
+    }
+    return false;
+  }
+  async getUserMemberships(userId: string): Promise<Array<SelectOrgMember & { org: SelectOrganisation }>> {
+    const memberships = Array.from(this.orgMembersMap.values()).filter(m => m.userId === userId);
+    return memberships.map(m => {
+      const org = this.orgsMap.get(m.orgId);
+      return { ...m, org: org! };
+    }).filter(m => m.org);
+  }
+  
+  async createOrgInvite(invite: InsertOrgInvite): Promise<SelectOrgInvite> {
+    const now = Date.now();
+    const fullInvite: SelectOrgInvite = { ...invite, createdAt: now };
+    this.orgInvitesMap.set(invite.id, fullInvite);
+    return fullInvite;
+  }
+  async getOrgInviteByToken(token: string): Promise<SelectOrgInvite | null> {
+    for (const inv of this.orgInvitesMap.values()) {
+      if (inv.token === token) return inv;
+    }
+    return null;
+  }
+  async listOrgInvites(orgId: string): Promise<SelectOrgInvite[]> {
+    return Array.from(this.orgInvitesMap.values()).filter(inv => inv.orgId === orgId);
+  }
+  async getPendingInvitesForEmail(email: string): Promise<SelectOrgInvite[]> {
+    return Array.from(this.orgInvitesMap.values()).filter(
+      inv => inv.email.toLowerCase() === email.toLowerCase() && inv.status === 'pending'
+    );
+  }
+  async updateOrgInvite(id: string, updates: Partial<InsertOrgInvite>): Promise<SelectOrgInvite | null> {
+    const inv = this.orgInvitesMap.get(id);
+    if (!inv) return null;
+    const updated = { ...inv, ...updates };
+    this.orgInvitesMap.set(id, updated);
+    return updated;
+  }
+  
+  async updateUserCurrentOrg(userId: string, orgId: string): Promise<SelectUser | null> {
+    const user = this.users.get(userId);
+    if (!user) return null;
+    const updated = { ...user, currentOrgId: orgId, updatedAt: Date.now() };
+    this.users.set(userId, updated);
+    return updated;
+  }
 }
 
 // Database connection validation and setup
@@ -4501,6 +4629,116 @@ export class DbStorage implements IStorage {
       }
       throw error;
     }
+  }
+
+  // ============= ORGANISATION SYSTEM METHODS =============
+  
+  async createOrganisation(org: InsertOrganisation): Promise<SelectOrganisation> {
+    const [result] = await db.insert(organisations).values(org).returning();
+    return result;
+  }
+
+  async getOrganisation(id: string): Promise<SelectOrganisation | null> {
+    const results = await db.select().from(organisations).where(eq(organisations.id, id)).limit(1);
+    return results[0] || null;
+  }
+
+  async updateOrganisation(id: string, updates: Partial<InsertOrganisation>): Promise<SelectOrganisation | null> {
+    const [result] = await db
+      .update(organisations)
+      .set({ ...updates, updatedAt: Date.now() })
+      .where(eq(organisations.id, id))
+      .returning();
+    return result || null;
+  }
+
+  async createOrgMember(member: InsertOrgMember): Promise<SelectOrgMember> {
+    const [result] = await db.insert(orgMembers).values(member).returning();
+    return result;
+  }
+
+  async getOrgMember(orgId: string, userId: string): Promise<SelectOrgMember | null> {
+    const results = await db
+      .select()
+      .from(orgMembers)
+      .where(and(eq(orgMembers.orgId, orgId), eq(orgMembers.userId, userId)))
+      .limit(1);
+    return results[0] || null;
+  }
+
+  async listOrgMembers(orgId: string): Promise<SelectOrgMember[]> {
+    return await db.select().from(orgMembers).where(eq(orgMembers.orgId, orgId));
+  }
+
+  async updateOrgMemberRole(orgId: string, userId: string, role: string): Promise<SelectOrgMember | null> {
+    const [result] = await db
+      .update(orgMembers)
+      .set({ role, updatedAt: Date.now() })
+      .where(and(eq(orgMembers.orgId, orgId), eq(orgMembers.userId, userId)))
+      .returning();
+    return result || null;
+  }
+
+  async removeOrgMember(orgId: string, userId: string): Promise<boolean> {
+    const result = await db
+      .delete(orgMembers)
+      .where(and(eq(orgMembers.orgId, orgId), eq(orgMembers.userId, userId)));
+    return true;
+  }
+
+  async getUserMemberships(userId: string): Promise<Array<SelectOrgMember & { org: SelectOrganisation }>> {
+    const memberRows = await db.select().from(orgMembers).where(eq(orgMembers.userId, userId));
+    const result: Array<SelectOrgMember & { org: SelectOrganisation }> = [];
+    
+    for (const m of memberRows) {
+      const org = await this.getOrganisation(m.orgId);
+      if (org) {
+        result.push({ ...m, org });
+      }
+    }
+    return result;
+  }
+
+  async createOrgInvite(invite: InsertOrgInvite): Promise<SelectOrgInvite> {
+    const [result] = await db.insert(orgInvites).values(invite).returning();
+    return result;
+  }
+
+  async getOrgInviteByToken(token: string): Promise<SelectOrgInvite | null> {
+    const results = await db.select().from(orgInvites).where(eq(orgInvites.token, token)).limit(1);
+    return results[0] || null;
+  }
+
+  async listOrgInvites(orgId: string): Promise<SelectOrgInvite[]> {
+    return await db.select().from(orgInvites).where(eq(orgInvites.orgId, orgId)).orderBy(desc(orgInvites.createdAt));
+  }
+
+  async getPendingInvitesForEmail(email: string): Promise<SelectOrgInvite[]> {
+    return await db
+      .select()
+      .from(orgInvites)
+      .where(and(
+        sql`LOWER(${orgInvites.email}) = LOWER(${email})`,
+        eq(orgInvites.status, 'pending')
+      ));
+  }
+
+  async updateOrgInvite(id: string, updates: Partial<InsertOrgInvite>): Promise<SelectOrgInvite | null> {
+    const [result] = await db
+      .update(orgInvites)
+      .set(updates)
+      .where(eq(orgInvites.id, id))
+      .returning();
+    return result || null;
+  }
+
+  async updateUserCurrentOrg(userId: string, orgId: string): Promise<SelectUser | null> {
+    const [result] = await db
+      .update(users)
+      .set({ currentOrgId: orgId, updatedAt: Date.now() })
+      .where(eq(users.id, userId))
+      .returning();
+    return result || null;
   }
 }
 
