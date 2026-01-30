@@ -2217,51 +2217,50 @@ CRITICAL RULES:
           // We have a valid topic - start the research
           const researchTopic = validation.research_topic || latestUserText;
           
-          // Add auth params for development mode
-          const authParams = new URLSearchParams({
-            user_id: user.id,
-            user_email: user.email
-          });
-
-          const response = await fetch(`http://localhost:5001/api/deep-research?${authParams}`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              prompt: researchTopic,
-              conversationId,
-              userId: user.id
-            }),
-          });
-
-          const data = await response.json();
+          // DIRECT CALL: Import and call startBackgroundResponsesJob directly
+          // This avoids internal HTTP fetch which drops auth headers
+          const { startBackgroundResponsesJob } = await import("./deepResearch");
           
-          if (response.ok) {
-            const confirmMsg = `🔬 Deep research started!\n\nI'm investigating: "${researchTopic}"\n\nYou can view the progress in the sidebar. I'll notify you when it's complete.`;
-            appendMessage(sessionId, { role: "assistant", content: confirmMsg });
-            await saveMessage(conversationId, "assistant", confirmMsg);
-            console.log("💾 Saved research start message to database");
-            
-            // 🏢 TOWER: Log research start confirmation
-            await completeRunLog(
-              runId,
-              conversationId,
-              user.id,
-              user.email,
-              latestUserText,
-              confirmMsg,
-              'success',
-              runStartTime,
-              undefined,
-              undefined,
-              'standard'
-            );
-            
-            res.write(`data: ${JSON.stringify({ content: confirmMsg })}\n\n`);
-            res.write(`data: [DONE]\n\n`);
-            return res.end();
-          } else {
-            throw new Error(data.error || "Failed to start deep research");
-          }
+          // HARD ASSERTION: user.id is already authenticated at chat entry point (line 1255-1264)
+          // We pass it explicitly - no guessing, no fallback
+          console.log(`🔬 [DIRECT_RESEARCH] Starting run for authenticated user: ${user.id}`);
+          
+          const run = await startBackgroundResponsesJob(
+            {
+              prompt: researchTopic,
+              label: researchTopic.slice(0, 50),
+              mode: "report",
+              intensity: "standard",
+            },
+            sessionId,
+            user.id  // Explicit userId from authenticated user
+          );
+          
+          console.log(`✅ [DIRECT_RESEARCH] Run created: ${run.id} for userId: ${user.id}`);
+          
+          const confirmMsg = `🔬 Deep research started!\n\nI'm investigating: "${researchTopic}"\n\nYou can view the progress in the sidebar. I'll notify you when it's complete.`;
+          appendMessage(sessionId, { role: "assistant", content: confirmMsg });
+          await saveMessage(conversationId, "assistant", confirmMsg);
+          console.log("💾 Saved research start message to database");
+          
+          // 🏢 TOWER: Log research start confirmation
+          await completeRunLog(
+            runId,
+            conversationId,
+            user.id,
+            user.email,
+            latestUserText,
+            confirmMsg,
+            'success',
+            runStartTime,
+            undefined,
+            undefined,
+            'standard'
+          );
+          
+          res.write(`data: ${JSON.stringify({ content: confirmMsg })}\n\n`);
+          res.write(`data: [DONE]\n\n`);
+          return res.end();
         } catch (err: any) {
           console.error("❌ Deep research error:", err.message);
           const errorMsg = `Sorry, I couldn't start the deep research: ${err.message}`;
@@ -6257,20 +6256,39 @@ Return structured data with the EXACT placeId provided above: "${placeId}"`;
         });
       }
 
-      // DIAGNOSTIC: Log all auth sources for run creation debugging
-      console.log(`🔬 [RUN_CREATE_DEBUG] POST /api/deep-research auth sources:`);
-      console.log(`   query.user_id: ${req.query.user_id}`);
-      console.log(`   query.userId: ${req.query.userId}`);
-      console.log(`   body.userId: ${validation.data.userId}`);
-      console.log(`   x-session-id header: ${req.headers['x-session-id']}`);
-
-      // DEV MODE: Auth is optional for Deep Research during development
+      // HARD ASSERTION: Authenticated users must have runs created under their exact userId
+      // No silent fallback to prevent cross-user data leakage
       const auth = await getAuthenticatedUserId(req);
-      console.log(`   getAuthenticatedUserId result: ${JSON.stringify(auth)}`);
+      const { isDemoMode, DEMO_USER_ID } = await import("./demo-config");
+      const demoEnabled = isDemoMode();
       
-      // Use authenticated userId if available, otherwise fall back to request body or demo-user
-      const userId = auth?.userId || validation.data.userId || "demo-user";
-      console.log(`   FINAL userId for run: ${userId}`);
+      // SECURITY: Determine userId with strict rules to prevent privilege escalation
+      let userId: string;
+      
+      if (auth?.userId) {
+        // Session-based auth - ALWAYS trust this first
+        userId = auth.userId;
+        console.log(`🔐 [RUN_CREATE] Using session-authenticated userId: ${userId}`);
+      } else if (demoEnabled) {
+        // DEMO MODE ONLY: Accept body.userId for testing, or fall back to demo user
+        // This is acceptable because demo mode is only enabled in development
+        if (validation.data.userId) {
+          userId = validation.data.userId;
+          console.log(`🎭 [RUN_CREATE] Demo mode - using body-provided userId: ${userId}`);
+        } else {
+          userId = DEMO_USER_ID;
+          console.log(`🎭 [RUN_CREATE] Demo mode - using demo userId: ${userId}`);
+        }
+      } else {
+        // PRODUCTION: No auth = FAIL LOUDLY
+        // SECURITY: Never accept body.userId without session auth in production
+        // This prevents privilege escalation via forged userId
+        console.error(`❌ [RUN_CREATE] REJECTED: Unauthenticated request with body.userId=${validation.data.userId}`);
+        return res.status(401).json({
+          error: "Authentication required",
+          message: "Please sign in to create research runs. Anonymous requests are not allowed."
+        });
+      }
 
       // Extract sessionId so we can send notifications when research completes
       const sessionId = getSessionId(req);

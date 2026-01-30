@@ -585,6 +585,24 @@ export async function startBackgroundResponsesJob(
   sessionId?: string,
   userId?: string
 ): Promise<DeepResearchRun> {
+  // HARD ASSERTION: userId is REQUIRED for run creation
+  // No silent fallback - callers must provide authenticated userId
+  const { isDemoMode, DEMO_USER_ID } = await import("./demo-config");
+  
+  let resolvedUserId: string;
+  if (userId) {
+    resolvedUserId = userId;
+    console.log(`🔐 [BGRS] Creating run for userId: ${resolvedUserId}`);
+  } else if (isDemoMode()) {
+    resolvedUserId = DEMO_USER_ID;
+    console.log(`🎭 [BGRS] Demo mode enabled, using demo userId: ${resolvedUserId}`);
+  } else {
+    // FAIL LOUDLY: No silent fallback in production
+    const errMsg = "userId is required for run creation. No anonymous runs allowed in production.";
+    console.error(`❌ [BGRS] REJECTED: ${errMsg}`);
+    throw new Error(errMsg);
+  }
+  
   const {
     prompt,
     label,
@@ -604,7 +622,7 @@ export async function startBackgroundResponsesJob(
   
   const runData = {
     id,
-    userId: userId || "demo-user",
+    userId: resolvedUserId,
     sessionId,
     label: finalLabel,
     prompt,
