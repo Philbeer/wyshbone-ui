@@ -25,6 +25,7 @@
 
 import type { LeadGenPlan, LeadGenStep } from './leadgen-plan.js';
 import { logRunToTower, startRunLog, completeRunLog, logPlanExecutionToTower } from './lib/towerClient.js';
+import { logPlanEvent } from './lib/activity-logger.js';
 import { persistLeadsToSupabase, type LeadToUpsert } from './supabase-client.js';
 import { updateStepProgress, updatePlanStatus as persistPlanStatus, getPlanExecutionStatus } from './leadgen-plan.js';
 import { isDemoMode } from './demo-config.js';
@@ -97,6 +98,15 @@ export async function startPlanExecution(plan: LeadGenPlan): Promise<PlanExecuti
   
   // Update debug state
   debugOnExecutionStart(plan.id);
+  
+  // Log to AFR (non-blocking)
+  logPlanEvent({
+    userId: plan.userId,
+    planId: plan.id,
+    status: 'started',
+    label: `Plan execution started: ${plan.goal.substring(0, 80)}`,
+    metadata: { stepCount: plan.steps.length }
+  }).catch(err => console.warn('[AFR] Plan execution log failed:', err.message));
   
   // Log plan start to Tower (non-blocking)
   logPlanExecutionToTower({
@@ -228,6 +238,16 @@ async function executeStepsInBackground(execution: PlanExecution, startTime: num
           completedAt: Date.now(),
           error: execution.error,
         }).catch(err => console.warn('Tower plan error log failed:', err.message));
+        
+        // Log failure to AFR
+        logPlanEvent({
+          userId: plan.userId,
+          planId: execution.planId,
+          status: 'failed',
+          label: `Plan execution failed: ${execution.error?.substring(0, 80)}`,
+          error: execution.error,
+          metadata: { stepsFailed: i + 1, totalSteps: execution.steps.length }
+        }).catch(err => console.warn('[AFR] Plan failure log failed:', err.message));
       }
       
       console.log(`💾 [PLAN_EXEC] Persisted failed status to plan ${execution.planId}`);
@@ -262,6 +282,15 @@ async function executeStepsInBackground(execution: PlanExecution, startTime: num
       startedAt: startTime,
       completedAt: Date.now(),
     }).catch(err => console.warn('Tower plan success log failed:', err.message));
+    
+    // Log success to AFR
+    logPlanEvent({
+      userId: plan.userId,
+      planId: execution.planId,
+      status: 'completed',
+      label: `Plan execution completed: ${execution.goal.substring(0, 80)}`,
+      metadata: { totalSteps: execution.steps.length, durationMs: Date.now() - startTime }
+    }).catch(err => console.warn('[AFR] Plan success log failed:', err.message));
   }
   
   console.log(`\n${'='.repeat(60)}`);

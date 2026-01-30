@@ -1,0 +1,123 @@
+Replit Prompt: Make AFR a real flight recorder using agent_activities (minimal, production-grade)
+
+We confirmed AFR only shows deep research because it reads deep_research_runs. Supervisor plans and tool executions are invisible. We need a unified local flight recorder.
+
+Objective
+
+Implement agent_activities as the unified timeline of agent activity, and update AFR to show it. This must cover:
+
+Supervisor plan creation and execution
+
+Tool calls (search, batch jobs, monitors, internal DB lookup attempts)
+
+Standard chat agent runs (at least start/finish)
+
+Keep deep_research_runs for deep research details, but all flows must write to agent_activities.
+
+Scope
+
+Minimal implementation. No redesign. No Tower changes. No new features.
+
+Step 1: Implement write support
+
+Add storage method(s) in server/storage.ts:
+
+createAgentActivity(activity)
+
+optional: createAgentActivities(batch)
+
+Ensure it writes to the existing agent_activities table in schema.
+
+Define a minimal activity shape:
+
+id
+
+userId
+
+createdAt
+
+conversationId (if available)
+
+runType: 'deep_research' | 'plan' | 'tool' | 'chat'
+
+status: 'started' | 'progress' | 'completed' | 'failed'
+
+label (short human readable)
+
+parentActivityId (nullable, for nesting later)
+
+linkedEntityType + linkedEntityId (nullable)
+
+payload json (details: decisions, tool params, error)
+
+Step 2: Wire logging into execution paths (minimum events)
+
+For each path, write at least:
+
+A) Supervisor plan creation
+
+On createLeadGenPlan(): write agent_activity started + completed/failed
+
+linkedEntityType='lead_gen_plan', linkedEntityId=plan.id
+
+B) Supervisor plan execution
+
+On startPlanExecution(): write started
+
+For each step execution: write progress (tool name + step summary)
+
+On completion/failure: write completed/failed
+
+C) Tool calls (executeAction)
+
+For each tool invocation: write progress entry with tool name and params (safe)
+
+On tool result: write completed or failed with error message
+
+D) Deep research
+
+When deep_research_runs row created: also create agent_activity started linked to run id
+
+When finished: completed/failed
+
+Important: No silent failures. If an exception occurs, write a failed activity entry.
+
+Step 3: Update AFR API + UI
+
+Add new AFR endpoint: GET /api/afr/activities?limit=200 (or similar)
+
+AFR UI should show a timeline list from agent_activities, newest first.
+
+For each entry show: createdAt, label, runType, status
+
+Clicking shows JSON payload + linked entity reference (minimal detail view is fine)
+
+Do not remove deep research views, but make the default AFR list come from agent_activities so we finally see everything.
+
+Step 4: Proof and verification
+
+After changes:
+
+Run a Supervisor plan path and confirm AFR shows:
+
+plan started
+
+step/tool progress
+
+completed
+
+Run a deep research and confirm AFR shows:
+
+deep research started/completed
+
+Trigger a tool call failure and confirm AFR shows failed with error.
+
+Before implementing, reply with:
+
+files you’ll change
+
+which functions you’ll instrument
+
+exact fields you’ll write into agent_activities
+
+Then implement.

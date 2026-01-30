@@ -169,6 +169,37 @@ export function createAfrRouter(_storage: typeof storage) {
     }
   });
 
+  // Agent Activities endpoint - unified log of all agent executions
+  router.get("/activities", async (req, res) => {
+    try {
+      const limit = Math.min(parseInt(req.query.limit as string) || 200, 500);
+      const userId = req.query.userId as string | undefined;
+      
+      const activities = await storage.listAgentActivities(limit, userId);
+      
+      res.json({
+        activities: activities.map(a => ({
+          id: a.id,
+          userId: a.userId,
+          timestamp: new Date(a.timestamp).toISOString(),
+          runType: (a.metadata as any)?.runType || 'unknown',
+          label: a.taskGenerated,
+          action: a.actionTaken,
+          status: a.status,
+          runId: a.runId,
+          conversationId: a.conversationId,
+          durationMs: a.durationMs,
+          error: a.errorMessage,
+          interestingFlag: a.interestingFlag,
+        })),
+        count: activities.length
+      });
+    } catch (error: any) {
+      console.error("AFR /activities error:", error);
+      res.status(500).json({ error: "Failed to fetch activities" });
+    }
+  });
+
   return router;
 }
 

@@ -4,6 +4,7 @@
 
 import { storage } from './storage';
 import type { InsertLeadGenPlan, SelectLeadGenPlan } from '../shared/schema';
+import { logPlanEvent } from './lib/activity-logger';
 
 export interface LeadGenStep {
   id: string;
@@ -118,11 +119,32 @@ export async function createLeadGenPlan(
   };
 
   // Persist to database
+  const planStartTime = Date.now();
   try {
     await storage.createLeadGenPlan(planToDbRow(plan));
     console.log(`✅ Created LeadGenPlan: ${planId} for user ${userId}, session ${sessionId}`);
+    
+    // Log plan creation completed to AFR
+    logPlanEvent({
+      userId,
+      planId,
+      status: 'completed',
+      label: `Plan created: ${goal.substring(0, 100)}`,
+      metadata: { stepCount: steps.length, goal, durationMs: Date.now() - planStartTime }
+    }).catch(err => console.warn('[AFR] Plan creation log failed:', err.message));
   } catch (error) {
     console.error(`❌ Failed to create LeadGenPlan in database: ${error}`);
+    
+    // Log plan creation failed to AFR
+    logPlanEvent({
+      userId,
+      planId,
+      status: 'failed',
+      label: `Plan creation failed: ${goal.substring(0, 80)}`,
+      error: (error as Error).message,
+      metadata: { goal, durationMs: Date.now() - planStartTime }
+    }).catch(err => console.warn('[AFR] Plan creation failure log failed:', err.message));
+    
     throw error;
   }
   

@@ -7,6 +7,7 @@ import { searchPlaces } from "../googlePlaces";
 import { startBackgroundResponsesJob } from "../deepResearch";
 import { executeBatchJob } from "../batchService";
 import type { IStorage } from "../storage";
+import { logToolCall, logToolResult } from "./activity-logger";
 
 export type ActionResult = {
   ok: boolean;
@@ -27,7 +28,34 @@ export async function executeAction(params: {
   conversationId?: string;
   storage?: IStorage;
 }): Promise<ActionResult> {
-  const { action, params: actionParams, userId, sessionId, storage } = params;
+  const { action, params: actionParams, userId, sessionId, conversationId, storage } = params;
+  const startTime = Date.now();
+
+  // Log tool call start to AFR (non-blocking)
+  if (userId) {
+    logToolCall({
+      userId,
+      toolName: action,
+      toolParams: actionParams || {},
+      conversationId,
+    }).catch(err => console.warn('[AFR] Tool call log failed:', err.message));
+  }
+
+  // Helper to log result and return
+  const logAndReturn = (result: ActionResult): ActionResult => {
+    if (userId) {
+      logToolResult({
+        userId, 
+        toolName: action, 
+        success: result.ok,
+        results: result.ok ? { note: result.note } : undefined,
+        error: result.ok ? undefined : result.error,
+        durationMs: Date.now() - startTime, 
+        conversationId
+      }).catch(() => {});
+    }
+    return result;
+  };
 
   try {
     switch (action) {
@@ -36,7 +64,7 @@ export async function executeAction(params: {
         const { query, locationText, location, maxResults = 30, country = "GB" } = actionParams || {};
         
         if (!query) {
-          return { ok: false, error: "Missing query parameter" };
+          return logAndReturn({ ok: false, error: "Missing query parameter" });
         }
 
         console.log(`🔍 Executing Wyshbone search: "${query}" in ${locationText || location || "unspecified"}`);
@@ -51,7 +79,7 @@ export async function executeAction(params: {
         console.log(`✅ Found ${results.length} places`);
 
         // Frontend expects "places" array
-        return {
+        return logAndReturn({
           ok: true,
           data: {
             places: results,
@@ -61,7 +89,7 @@ export async function executeAction(params: {
             country
           },
           note: `Found ${results.length} businesses`
-        };
+        });
       }
 
       case "DEEP_RESEARCH":
@@ -70,11 +98,11 @@ export async function executeAction(params: {
         const researchTopic = prompt || topic;
 
         if (!researchTopic) {
-          return { ok: false, error: "Missing research topic" };
+          return logAndReturn({ ok: false, error: "Missing research topic" });
         }
 
         if (!userId) {
-          return { ok: false, error: "User authentication required for deep research" };
+          return logAndReturn({ ok: false, error: "User authentication required for deep research" });
         }
 
         console.log(`🔬 Starting deep research: "${researchTopic}"`);
@@ -90,7 +118,7 @@ export async function executeAction(params: {
         console.log(`✅ Deep research started: ${run.id}`);
 
         // Frontend expects "run" object with id property
-        return {
+        return logAndReturn({
           ok: true,
           data: {
             run: {
@@ -101,7 +129,7 @@ export async function executeAction(params: {
             topic: researchTopic
           },
           note: `Research started: ${run.id}`
-        };
+        });
       }
 
       case "BATCH_CONTACT_FINDER":
@@ -109,15 +137,15 @@ export async function executeAction(params: {
         const { query, location, country = "GB", targetRole = "General Manager", limit = 30 } = actionParams || {};
 
         if (!query || !location) {
-          return { ok: false, error: "Missing query or location parameter" };
+          return logAndReturn({ ok: false, error: "Missing query or location parameter" });
         }
 
         if (!userId) {
-          return { ok: false, error: "User authentication required for batch contact finder" };
+          return logAndReturn({ ok: false, error: "User authentication required for batch contact finder" });
         }
 
         if (!storage) {
-          return { ok: false, error: "Storage not available for batch contact finder" };
+          return logAndReturn({ ok: false, error: "Storage not available for batch contact finder" });
         }
 
         console.log(`📧 Starting batch contact finder: "${query}" in ${location}`);
@@ -130,10 +158,10 @@ export async function executeAction(params: {
         const openaiKey = process.env.OPENAI_API_KEY;
 
         if (!googleApiKey || !hunterApiKey || !salesHandyToken || !salesHandyCampaignId) {
-          return {
+          return logAndReturn({
             ok: false,
             error: "Batch contact finder requires API keys (Google Places, Hunter.io, SalesHandy)"
-          };
+          });
         }
 
         // Create batch job record in database
@@ -207,7 +235,7 @@ export async function executeAction(params: {
           `6. 📤 Adding prospects to SalesHandy campaign\n\n` +
           `Click the link above to watch the pipeline in real-time!`;
 
-        return {
+        return logAndReturn({
           ok: true,
           data: {
             batchId,
@@ -215,7 +243,7 @@ export async function executeAction(params: {
             viewUrl: `/batch/${batchId}`
           },
           note: detailedMessage
-        };
+        });
       }
 
       case "DRAFT_EMAIL":
@@ -234,21 +262,21 @@ Would you be open to a quick look?
 Best,
 Wyshbone`;
 
-        return {
+        return logAndReturn({
           ok: true,
           data: { draft: body },
           note: "Email draft created"
-        };
+        });
       }
 
       case "GET_NUDGES":
       case "get_nudges": {
         if (!storage) {
-          return { ok: false, error: "Storage not available for nudges" };
+          return logAndReturn({ ok: false, error: "Storage not available for nudges" });
         }
 
         if (!userId) {
-          return { ok: false, error: "User authentication required for nudges" };
+          return logAndReturn({ ok: false, error: "User authentication required for nudges" });
         }
 
         const { limit = 10 } = actionParams || {};
@@ -261,7 +289,7 @@ Wyshbone`;
 
         console.log(`✅ Found ${nudges.length} nudges`);
 
-        return {
+        return logAndReturn({
           ok: true,
           data: {
             nudges,
@@ -269,17 +297,17 @@ Wyshbone`;
             message: nudges.length === 0 ? "No pending nudges at the moment" : undefined
           },
           note: nudges.length === 0 ? "No nudges available" : `Found ${nudges.length} nudges`
-        };
+        });
       }
 
       case "CREATE_SCHEDULED_MONITOR":
       case "create_scheduled_monitor": {
         if (!storage) {
-          return { ok: false, error: "Storage not available for scheduled monitoring" };
+          return logAndReturn({ ok: false, error: "Storage not available for scheduled monitoring" });
         }
 
         if (!userId) {
-          return { ok: false, error: "User authentication required for scheduled monitoring" };
+          return logAndReturn({ ok: false, error: "User authentication required for scheduled monitoring" });
         }
 
         const {
@@ -294,7 +322,7 @@ Wyshbone`;
         } = actionParams || {};
 
         if (!label) {
-          return { ok: false, error: "Missing label parameter" };
+          return logAndReturn({ ok: false, error: "Missing label parameter" });
         }
 
         console.log(`⏰ Creating scheduled monitor: "${label}" (${schedule})`);
@@ -352,7 +380,7 @@ Wyshbone`;
 
         console.log(`✅ Scheduled monitor created: ${monitor.id}`);
 
-        return {
+        return logAndReturn({
           ok: true,
           data: {
             monitor: {
@@ -363,20 +391,17 @@ Wyshbone`;
             }
           },
           note: `Monitor created: runs ${schedule} starting ${nextRunAt.toLocaleDateString()}`
-        };
+        });
       }
 
       default:
-        return {
-          ok: false,
-          error: `Unknown action: ${action}`
-        };
+        return logAndReturn({ ok: false, error: `Unknown action: ${action}` });
     }
   } catch (error: any) {
     console.error(`❌ Action execution error (${action}):`, error);
-    return {
+    return logAndReturn({
       ok: false,
       error: error.message || "Action execution failed"
-    };
+    });
   }
 }

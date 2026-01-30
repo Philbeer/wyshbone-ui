@@ -167,7 +167,10 @@ import {
   afrRunBundles,
   organisations,
   orgMembers,
-  orgInvites
+  orgInvites,
+  agentActivities,
+  type InsertAgentActivity,
+  type SelectAgentActivity
 } from "@shared/schema";
 import { eq, or, and, desc, asc, lt, gt, lte, gte, isNull, isNotNull, sql } from "drizzle-orm";
 
@@ -611,6 +614,12 @@ export interface IStorage {
   updateOrgInvite(id: string, updates: Partial<InsertOrgInvite>): Promise<SelectOrgInvite | null>;
   
   updateUserCurrentOrg(userId: string, orgId: string): Promise<SelectUser | null>;
+  
+  // ============= AGENT ACTIVITIES (AFR) METHODS =============
+  createAgentActivity(activity: InsertAgentActivity): Promise<SelectAgentActivity>;
+  createAgentActivities(activities: InsertAgentActivity[]): Promise<SelectAgentActivity[]>;
+  listAgentActivities(limit?: number, userId?: string): Promise<SelectAgentActivity[]>;
+  getAgentActivity(id: string): Promise<SelectAgentActivity | null>;
 }
 
 export class MemStorage implements IStorage {
@@ -1314,6 +1323,28 @@ export class MemStorage implements IStorage {
     const updated = { ...user, currentOrgId: orgId, updatedAt: Date.now() };
     this.users.set(userId, updated);
     return updated;
+  }
+
+  // MemStorage stubs for agent activities
+  private agentActivitiesMap: Map<string, SelectAgentActivity> = new Map();
+  
+  async createAgentActivity(activity: InsertAgentActivity): Promise<SelectAgentActivity> {
+    const result = activity as SelectAgentActivity;
+    this.agentActivitiesMap.set(activity.id, result);
+    return result;
+  }
+  async createAgentActivities(activities: InsertAgentActivity[]): Promise<SelectAgentActivity[]> {
+    return activities.map(a => {
+      const result = a as SelectAgentActivity;
+      this.agentActivitiesMap.set(a.id, result);
+      return result;
+    });
+  }
+  async listAgentActivities(limit: number = 200, _userId?: string): Promise<SelectAgentActivity[]> {
+    return Array.from(this.agentActivitiesMap.values()).slice(0, limit);
+  }
+  async getAgentActivity(id: string): Promise<SelectAgentActivity | null> {
+    return this.agentActivitiesMap.get(id) || null;
   }
 }
 
@@ -4937,6 +4968,43 @@ export class DbStorage implements IStorage {
       .set({ currentOrgId: orgId, updatedAt: Date.now() })
       .where(eq(users.id, userId))
       .returning();
+    return result || null;
+  }
+
+  // ============= AGENT ACTIVITIES (AFR) METHODS =============
+  
+  async createAgentActivity(activity: InsertAgentActivity): Promise<SelectAgentActivity> {
+    const [result] = await db.insert(agentActivities).values(activity).returning();
+    return result;
+  }
+
+  async createAgentActivities(activities: InsertAgentActivity[]): Promise<SelectAgentActivity[]> {
+    if (activities.length === 0) return [];
+    const results = await db.insert(agentActivities).values(activities).returning();
+    return results;
+  }
+
+  async listAgentActivities(limit: number = 200, userId?: string): Promise<SelectAgentActivity[]> {
+    if (userId) {
+      return await db
+        .select()
+        .from(agentActivities)
+        .where(eq(agentActivities.userId, userId))
+        .orderBy(desc(agentActivities.timestamp))
+        .limit(limit);
+    }
+    return await db
+      .select()
+      .from(agentActivities)
+      .orderBy(desc(agentActivities.timestamp))
+      .limit(limit);
+  }
+
+  async getAgentActivity(id: string): Promise<SelectAgentActivity | null> {
+    const [result] = await db
+      .select()
+      .from(agentActivities)
+      .where(eq(agentActivities.id, id));
     return result || null;
   }
 }

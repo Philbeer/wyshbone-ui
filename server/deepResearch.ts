@@ -3,6 +3,7 @@ import { storage } from "./storage";
 import { appendMessage, loadConversationHistory } from "./memory";
 import { openai } from "./openai";
 import Anthropic from "@anthropic-ai/sdk";
+import { logDeepResearchEvent } from "./lib/activity-logger";
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
 const OPENAI_BASE = "https://api.openai.com/v1";
@@ -653,6 +654,14 @@ export async function startBackgroundResponsesJob(
     console.log(`[AFR] Could not create starter bundle for run ${id}:`, (err as Error).message);
   }
 
+  // Log deep research start to AFR
+  logDeepResearchEvent({
+    userId: resolvedUserId,
+    runId: id,
+    status: 'started',
+    label: `Deep research: ${finalLabel}`
+  }).catch(err => console.warn('[AFR] Deep research log failed:', err.message));
+
   const scopeHints: string[] = [];
   if (Array.isArray(counties) && counties.length) {
     scopeHints.push(`Restrict focus to these regions: ${counties.join(", ")}.`);
@@ -937,6 +946,14 @@ export async function pollOneRun(run: DeepResearchRun): Promise<void> {
       
       console.log(`✅ Research job ${run.id} completed, output length: ${outputText?.length || 0}`);
       
+      // Log completion to AFR
+      logDeepResearchEvent({
+        userId: run.userId,
+        runId: run.id,
+        status: 'completed',
+        label: `Deep research completed: ${run.label || run.prompt?.substring(0, 60)}`
+      }).catch(err => console.warn('[AFR] Deep research completion log failed:', err.message));
+      
       // Send chat notification if status changed to completed and we have a sessionId
       if (previousStatus !== "completed" && run.sessionId) {
         await sendCompletionNotification(run.sessionId, run);
@@ -948,6 +965,15 @@ export async function pollOneRun(run: DeepResearchRun): Promise<void> {
         error,
       });
       console.log(`❌ Research job ${run.id} failed: ${error}`);
+      
+      // Log failure to AFR
+      logDeepResearchEvent({
+        userId: run.userId,
+        runId: run.id,
+        status: 'failed',
+        label: `Deep research failed: ${run.label || run.prompt?.substring(0, 60)}`,
+        error: error
+      }).catch(err => console.warn('[AFR] Deep research failure log failed:', err.message));
     } else {
       await storage.updateDeepResearchRun(run.id, { status });
     }
