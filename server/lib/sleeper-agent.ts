@@ -142,10 +142,10 @@ let drizzleDb: ReturnType<typeof drizzle> | null = null;
 
 function getDrizzleDb() {
   if (!drizzleDb) {
-    // CRITICAL: Always prefer SUPABASE_DATABASE_URL over DATABASE_URL
-    const connectionUrl = process.env.SUPABASE_DATABASE_URL || process.env.DATABASE_URL;
+    // SINGLE SOURCE OF TRUTH: DATABASE_URL must point to Supabase Postgres
+    const connectionUrl = process.env.DATABASE_URL;
     if (!connectionUrl) {
-      throw new Error("SUPABASE_DATABASE_URL or DATABASE_URL environment variable is not set");
+      throw new Error("DATABASE_URL not configured - must point to Supabase Postgres");
     }
     const queryClient = postgres(connectionUrl, {
       connect_timeout: 5,

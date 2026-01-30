@@ -69,8 +69,8 @@ import { randomBytes } from 'crypto';
 import { startRunLog, completeRunLog, logToolCall, isTowerLoggingEnabled } from './lib/towerClient';
 import { getUserGoal, setUserGoal, hasUserGoal } from './userGoalHelper';
 
-// CRITICAL: Always prefer SUPABASE_DATABASE_URL over DATABASE_URL
-const sql = neon(process.env.SUPABASE_DATABASE_URL || process.env.DATABASE_URL!);
+// SINGLE SOURCE OF TRUTH: DATABASE_URL must point to Supabase Postgres
+const sql = neon(process.env.DATABASE_URL!);
 
 // ============================================
 // STRIPE CONFIGURATION (optional for dev)

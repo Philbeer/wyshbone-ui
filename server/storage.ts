@@ -1318,58 +1318,55 @@ export class MemStorage implements IStorage {
 }
 
 // Database connection validation and setup
-// Prefer SUPABASE_DATABASE_URL to avoid conflict with Replit's built-in DATABASE_URL
-const DATABASE_CONNECTION_URL = process.env.SUPABASE_DATABASE_URL || process.env.DATABASE_URL;
+// SINGLE SOURCE OF TRUTH: DATABASE_URL must point to Supabase Postgres
+// No fallback logic - crash loudly if not configured
+const DATABASE_CONNECTION_URL = process.env.DATABASE_URL;
 
-// Track which database source is being used
-const DATABASE_SOURCE = process.env.SUPABASE_DATABASE_URL ? 'SUPABASE_DATABASE_URL' : 'DATABASE_URL';
-
-if (!DATABASE_CONNECTION_URL) {
-  console.error('❌ FATAL: Database URL environment variable is not set.');
-  console.error('   Please set SUPABASE_DATABASE_URL or DATABASE_URL in your .env or .env.local file.');
-  console.error('   Example: SUPABASE_DATABASE_URL=postgres://user:pass@host:5432/dbname');
-  throw new Error('Database URL is required but not set. Check your environment configuration.');
+if (!DATABASE_CONNECTION_URL || DATABASE_CONNECTION_URL.trim() === '') {
+  console.error('');
+  console.error('='.repeat(60));
+  console.error('❌ FATAL: DATABASE_URL environment variable is not set or empty.');
+  console.error('');
+  console.error('   DATABASE_URL must be set to your Supabase Postgres connection string.');
+  console.error('   Example: postgres://postgres.xxxx:password@aws-0-region.pooler.supabase.com:6543/postgres');
+  console.error('');
+  console.error('   Go to Replit Secrets and set DATABASE_URL to your Supabase URL.');
+  console.error('   Do NOT use Replit\'s built-in Development Database.');
+  console.error('='.repeat(60));
+  console.error('');
+  throw new Error('DATABASE_URL is required but not set. Server cannot start.');
 }
 
 // Extract and log connection info (masked for security)
-function getMaskedDbInfo(): { source: string; host: string; database: string; projectRef?: string } {
+function getMaskedDbInfo(): { host: string; database: string; isSupabase: boolean } {
   try {
     const url = new URL(DATABASE_CONNECTION_URL!);
-    const hostParts = url.hostname.split('.');
-    let projectRef: string | undefined;
-    
-    // Check if it's a Supabase URL (format: db.<project-ref>.supabase.co)
-    if (url.hostname.includes('supabase.co') || url.hostname.includes('pooler.supabase.com')) {
-      // Extract project ref from various Supabase URL formats
-      const match = url.hostname.match(/(?:db\.)?([a-z]+)\.(?:supabase\.co|pooler\.supabase\.com)/);
-      if (match) {
-        projectRef = match[1];
-      }
-    }
+    const isSupabase = url.hostname.includes('supabase.co') || url.hostname.includes('pooler.supabase.com');
     
     return {
-      source: DATABASE_SOURCE,
       host: url.hostname,
       database: url.pathname.replace('/', '') || 'postgres',
-      projectRef,
+      isSupabase,
     };
   } catch {
-    return { source: DATABASE_SOURCE, host: 'unknown', database: 'unknown' };
+    return { host: 'unknown', database: 'unknown', isSupabase: false };
   }
 }
 
 // Log database connection info at startup
 const dbInfo = getMaskedDbInfo();
+console.log('');
 console.log('='.repeat(60));
-console.log('🗄️  DATABASE CONNECTION INFO');
-console.log(`   Source: ${dbInfo.source}`);
+console.log('🗄️  DATABASE CONNECTION INFO (Supabase Only)');
 console.log(`   Host: ${dbInfo.host}`);
 console.log(`   Database: ${dbInfo.database}`);
-if (dbInfo.projectRef) {
-  console.log(`   Supabase Project: ${dbInfo.projectRef}`);
+console.log(`   Is Supabase: ${dbInfo.isSupabase ? '✅ YES' : '⚠️ NO (verify your DATABASE_URL)'}`);
+if (!dbInfo.isSupabase) {
+  console.log('   ⚠️  WARNING: DATABASE_URL does not appear to be a Supabase URL!');
+  console.log('   ⚠️  Make sure DATABASE_URL points to your Supabase Postgres instance.');
 }
-console.log(`   SUPABASE_SERVICE_ROLE_KEY: ${process.env.SUPABASE_SERVICE_ROLE_KEY ? 'SET' : 'NOT SET'}`);
 console.log('='.repeat(60));
+console.log('');
 
 // Export for debug endpoint
 export function getDbConnectionInfo() {

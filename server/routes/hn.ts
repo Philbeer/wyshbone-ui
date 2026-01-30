@@ -6,8 +6,8 @@ import { eq, inArray, and } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 
-// CRITICAL: Always prefer SUPABASE_DATABASE_URL over DATABASE_URL
-const queryClient = postgres(process.env.SUPABASE_DATABASE_URL || process.env.DATABASE_URL!);
+// SINGLE SOURCE OF TRUTH: DATABASE_URL must point to Supabase Postgres
+const queryClient = postgres(process.env.DATABASE_URL!);
 const db = drizzle(queryClient);
 
 export const hnRouter = Router();

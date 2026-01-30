@@ -130,10 +130,10 @@ export async function runSchemaHealthCheck(): Promise<SchemaCheckResult> {
     warnings: [],
   };
 
-  // Skip check if database URL not configured
-  const dbUrl = process.env.SUPABASE_DATABASE_URL || process.env.DATABASE_URL;
+  // DATABASE_URL is required - if not set, startup would have already failed
+  const dbUrl = process.env.DATABASE_URL;
   if (!dbUrl) {
-    console.warn('⚠️ [Schema Check] Database URL not set, skipping schema check');
+    console.warn('⚠️ [Schema Check] DATABASE_URL not set, skipping schema check');
     return result;
   }
 
@@ -231,8 +231,8 @@ export async function runSchemaHealthCheck(): Promise<SchemaCheckResult> {
  * Quick check for a specific table (for use in route handlers)
  */
 export async function quickTableCheck(tableName: string): Promise<boolean> {
-  // CRITICAL: Always prefer SUPABASE_DATABASE_URL over DATABASE_URL
-  const connectionUrl = process.env.SUPABASE_DATABASE_URL || process.env.DATABASE_URL;
+  // SINGLE SOURCE OF TRUTH: DATABASE_URL must point to Supabase Postgres
+  const connectionUrl = process.env.DATABASE_URL;
   if (!connectionUrl) return false;
   
   try {

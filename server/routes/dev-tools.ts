@@ -658,12 +658,10 @@ export function createDevToolsRouter(storage: IStorage): Router {
         queryError: queryError,
         environment: {
           nodeEnv: process.env.NODE_ENV,
-          hasSupabaseDatabaseUrl: !!process.env.SUPABASE_DATABASE_URL,
-          hasReplitDatabaseUrl: !!process.env.DATABASE_URL,
+          hasDatabaseUrl: !!process.env.DATABASE_URL,
         },
         diagnosis: {
-          issue: "Replit execute_sql_tool uses DATABASE_URL (Replit Postgres) while app uses SUPABASE_DATABASE_URL (your Supabase)",
-          replitDbEmpty: "The Replit DATABASE_URL points to an empty Postgres instance, not your production data",
+          note: "DATABASE_URL now points directly to Supabase. No fallback to Replit DB.",
           appDbHasData: sanityCheck && sanityCheck.orderLinesCount > 0,
         },
       });
