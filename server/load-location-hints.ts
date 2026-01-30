@@ -2,8 +2,8 @@ import fs from 'fs';
 import { parse } from 'csv-parse/sync';
 import { neon } from '@neondatabase/serverless';
 
-// SINGLE SOURCE OF TRUTH: DATABASE_URL must point to Supabase Postgres
-const sql = neon(process.env.DATABASE_URL!);
+// SINGLE SOURCE OF TRUTH: SUPABASE_DATABASE_URL (Replit auto-provides DATABASE_URL for its built-in Postgres)
+const sql = neon(process.env.SUPABASE_DATABASE_URL!);
 
 async function loadLocationHints() {
   console.log('🚀 Starting location hints import...');

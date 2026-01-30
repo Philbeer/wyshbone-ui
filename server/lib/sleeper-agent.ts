@@ -142,10 +142,10 @@ let drizzleDb: ReturnType<typeof drizzle> | null = null;
 
 function getDrizzleDb() {
   if (!drizzleDb) {
-    // SINGLE SOURCE OF TRUTH: DATABASE_URL must point to Supabase Postgres
-    const connectionUrl = process.env.DATABASE_URL;
+    // SINGLE SOURCE OF TRUTH: SUPABASE_DATABASE_URL (Replit auto-provides DATABASE_URL for its built-in Postgres)
+    const connectionUrl = process.env.SUPABASE_DATABASE_URL;
     if (!connectionUrl) {
-      throw new Error("DATABASE_URL not configured - must point to Supabase Postgres");
+      throw new Error("SUPABASE_DATABASE_URL not configured");
     }
     const queryClient = postgres(connectionUrl, {
       connect_timeout: 5,

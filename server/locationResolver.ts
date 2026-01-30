@@ -103,7 +103,7 @@ async function getCountriesForLocation(locationQuery: string): Promise<string[]>
   if (!cityKey) return [];
 
   try {
-    const dbUrl = process.env.DATABASE_URL!;
+    const dbUrl = process.env.SUPABASE_DATABASE_URL!;
     const sql = neon(dbUrl);
     
     // Query the location_hints table for matching cities (exact match on town_city)

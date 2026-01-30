@@ -1318,23 +1318,25 @@ export class MemStorage implements IStorage {
 }
 
 // Database connection validation and setup
-// SINGLE SOURCE OF TRUTH: DATABASE_URL must point to Supabase Postgres
-// No fallback logic - crash loudly if not configured
-const DATABASE_CONNECTION_URL = process.env.DATABASE_URL;
+// SINGLE SOURCE OF TRUTH: SUPABASE_DATABASE_URL is the authoritative connection
+// Replit's runtime auto-provides DATABASE_URL for its built-in Postgres, which we must NOT use
+// No fallback logic - crash loudly if SUPABASE_DATABASE_URL is not configured
+const DATABASE_CONNECTION_URL = process.env.SUPABASE_DATABASE_URL;
 
 if (!DATABASE_CONNECTION_URL || DATABASE_CONNECTION_URL.trim() === '') {
   console.error('');
   console.error('='.repeat(60));
-  console.error('❌ FATAL: DATABASE_URL environment variable is not set or empty.');
+  console.error('❌ FATAL: SUPABASE_DATABASE_URL environment variable is not set or empty.');
   console.error('');
-  console.error('   DATABASE_URL must be set to your Supabase Postgres connection string.');
+  console.error('   SUPABASE_DATABASE_URL must be set to your Supabase Postgres connection string.');
   console.error('   Example: postgres://postgres.xxxx:password@aws-0-region.pooler.supabase.com:6543/postgres');
   console.error('');
-  console.error('   Go to Replit Secrets and set DATABASE_URL to your Supabase URL.');
-  console.error('   Do NOT use Replit\'s built-in Development Database.');
+  console.error('   Go to Replit Secrets and set SUPABASE_DATABASE_URL.');
+  console.error('   NOTE: Replit auto-provides DATABASE_URL for its built-in Postgres.');
+  console.error('   We use SUPABASE_DATABASE_URL to avoid conflicts with Replit\'s runtime.');
   console.error('='.repeat(60));
   console.error('');
-  throw new Error('DATABASE_URL is required but not set. Server cannot start.');
+  throw new Error('SUPABASE_DATABASE_URL is required but not set. Server cannot start.');
 }
 
 // Extract and log connection info (masked for security)
