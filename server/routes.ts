@@ -2884,32 +2884,17 @@ CRITICAL RULES:
             }
           }
         } else if (isToolCall && toolCallBuffer.name === "bubble_run_batch") {
-          console.log("🔧 Tool call detected:", toolCallBuffer.name);
+          // NOTE: This block is a fallback - bubble_run_batch is normally handled by heavyTools above
+          console.log("🔧 Tool call detected (fallback):", toolCallBuffer.name);
           console.log("📦 Arguments:", toolCallBuffer.arguments);
           
           try {
-            // Handle cases where AI sends multiple JSON objects concatenated
-            // Extract only the first valid JSON object
-            let jsonToParse = toolCallBuffer.arguments.trim();
-            
-            // Find the first complete JSON object
-            let braceCount = 0;
-            let firstJsonEnd = -1;
-            for (let i = 0; i < jsonToParse.length; i++) {
-              if (jsonToParse[i] === '{') braceCount++;
-              if (jsonToParse[i] === '}') braceCount--;
-              if (braceCount === 0 && jsonToParse[i] === '}') {
-                firstJsonEnd = i + 1;
-                break;
-              }
+            // Use robust JSON extractor
+            const extractResult = extractJson(toolCallBuffer.arguments || '{}');
+            if (!extractResult.success) {
+              throw new Error(extractResult.error || 'Failed to parse JSON');
             }
-            
-            if (firstJsonEnd > 0 && firstJsonEnd < jsonToParse.length) {
-              console.log("⚠️  Multiple JSON objects detected, using only the first one");
-              jsonToParse = jsonToParse.substring(0, firstJsonEnd);
-            }
-            
-            const params = JSON.parse(jsonToParse);
+            const params = extractResult.data;
             
             // TODO: Spell check feature temporarily disabled - will re-implement after fixing try-catch structure
             
@@ -3353,11 +3338,17 @@ CRITICAL RULES:
             console.log("💾 Saved error message to database");
           }
         } else if (isToolCall && toolCallBuffer.name === "create_scheduled_monitor") {
-          console.log("⏰ Scheduled monitor tool call detected");
+          // NOTE: This block is a fallback - create_scheduled_monitor is normally handled by heavyTools above
+          console.log("⏰ Scheduled monitor tool call detected (fallback)");
           console.log("📦 Arguments:", toolCallBuffer.arguments);
           
           try {
-            const params = JSON.parse(toolCallBuffer.arguments);
+            // Use robust JSON extractor
+            const extractResult = extractJson(toolCallBuffer.arguments || '{}');
+            if (!extractResult.success) {
+              throw new Error(extractResult.error || 'Failed to parse JSON');
+            }
+            const params = extractResult.data;
             
             if (!params.label || !params.description || !params.schedule || !params.monitorType) {
               throw new Error("Missing required parameters for scheduled monitor");
@@ -3440,11 +3431,17 @@ CRITICAL RULES:
             console.log("💾 Saved error message to database");
           }
         } else if (isToolCall && toolCallBuffer.name === "saleshandy_batch_call") {
-          console.log("📧 SalesHandy batch contact finder tool call detected");
+          // NOTE: This block is a fallback - saleshandy_batch_call is normally handled by heavyTools above
+          console.log("📧 SalesHandy batch contact finder tool call detected (fallback)");
           console.log("📦 Arguments:", toolCallBuffer.arguments);
           
           try {
-            const params = JSON.parse(toolCallBuffer.arguments);
+            // Use robust JSON extractor
+            const extractResult = extractJson(toolCallBuffer.arguments || '{}');
+            if (!extractResult.success) {
+              throw new Error(extractResult.error || 'Failed to parse JSON');
+            }
+            const params = extractResult.data;
             
             // Validate required parameters
             if (!params.query) {

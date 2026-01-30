@@ -15,9 +15,9 @@ export interface JsonExtractResult {
  * 
  * Handles:
  * - Raw JSON
- * - JSON inside ```json or ``` fences
+ * - JSON inside ```json or ``` fences (iterates through ALL fences)
  * - Prose before/after JSON
- * - Multiple JSON blocks (returns first valid one)
+ * - Multiple JSON blocks (iterates through ALL and returns first valid one)
  * - Leading/trailing whitespace and BOM
  * - Both objects {} and arrays []
  * 
@@ -36,6 +36,7 @@ export function extractJson(input: string): JsonExtractResult {
   // Remove BOM and trim whitespace
   let cleaned = input.replace(/^\uFEFF/, '').trim();
   const originalInput = cleaned;
+  const errors: string[] = [];
 
   // Strategy 1: Try direct parse first (fastest path for clean JSON)
   try {
@@ -47,166 +48,183 @@ export function extractJson(input: string): JsonExtractResult {
     // Continue to other strategies
   }
 
-  // Strategy 2: Extract from code fences (```json ... ``` or ``` ... ```)
+  // Strategy 2: Extract from ALL code fences and try each (using global regex)
   const fencePatterns = [
-    /```json\s*([\s\S]*?)```/i,
-    /```\s*([\s\S]*?)```/
+    /```json\s*([\s\S]*?)```/gi,
+    /```\s*([\s\S]*?)```/g
   ];
 
   for (const pattern of fencePatterns) {
-    const match = cleaned.match(pattern);
-    if (match && match[1]) {
-      const fenceContent = match[1].trim();
-      try {
-        const parsed = JSON.parse(fenceContent);
-        if (typeof parsed === 'object' && parsed !== null) {
-          return { success: true, data: parsed };
+    // Reset lastIndex for global regex
+    pattern.lastIndex = 0;
+    let match;
+    while ((match = pattern.exec(cleaned)) !== null) {
+      if (match[1]) {
+        const fenceContent = match[1].trim();
+        try {
+          const parsed = JSON.parse(fenceContent);
+          if (typeof parsed === 'object' && parsed !== null) {
+            return { success: true, data: parsed };
+          }
+        } catch (e: any) {
+          // Log error but continue to next fence
+          errors.push(`Code fence at position ${match.index}: ${e.message}`);
         }
-      } catch (e: any) {
-        // Found code fence but invalid JSON inside
-        return {
-          success: false,
-          data: null,
-          error: `Found code fence but invalid JSON inside: ${e.message}`,
-          rawInput: originalInput.slice(0, 500)
-        };
       }
     }
   }
 
-  // Strategy 3: Find first balanced JSON object or array
-  const result = extractFirstBalancedJson(cleaned);
-  if (result.success) {
-    return result;
+  // Strategy 3: Find ALL balanced JSON objects/arrays and try each
+  const candidates = extractAllBalancedJsonCandidates(cleaned);
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate.text);
+      if (typeof parsed === 'object' && parsed !== null) {
+        return { success: true, data: parsed };
+      }
+    } catch (e: any) {
+      errors.push(`Balanced block at position ${candidate.start}: ${e.message}`);
+    }
   }
 
   // Strategy 4: Try to find JSON after common prefixes like "Here is the JSON:"
   const prefixPatterns = [
-    /(?:here(?:'s| is)(?: the)? (?:json|response|output|data)[:\s]*)/i,
-    /(?:the (?:json|response|output|data) is[:\s]*)/i,
-    /(?:json[:\s]*)/i
+    /(?:here(?:'s| is)(?: the)? (?:json|response|output|data)[:\s]*)/gi,
+    /(?:the (?:json|response|output|data) is[:\s]*)/gi,
+    /(?:json[:\s]*)/gi
   ];
 
   for (const pattern of prefixPatterns) {
-    const match = cleaned.match(pattern);
-    if (match && match.index !== undefined) {
-      const afterPrefix = cleaned.slice(match.index + match[0].length).trim();
-      const prefixResult = extractFirstBalancedJson(afterPrefix);
-      if (prefixResult.success) {
-        return prefixResult;
+    pattern.lastIndex = 0;
+    let match;
+    while ((match = pattern.exec(cleaned)) !== null) {
+      if (match.index !== undefined) {
+        const afterPrefix = cleaned.slice(match.index + match[0].length).trim();
+        const prefixCandidates = extractAllBalancedJsonCandidates(afterPrefix);
+        for (const candidate of prefixCandidates) {
+          try {
+            const parsed = JSON.parse(candidate.text);
+            if (typeof parsed === 'object' && parsed !== null) {
+              return { success: true, data: parsed };
+            }
+          } catch {
+            // Continue to next candidate
+          }
+        }
       }
     }
   }
 
-  // No valid JSON found
+  // No valid JSON found - build error message
+  let errorMessage = describeFailure(originalInput);
+  if (errors.length > 0) {
+    errorMessage += `. Attempted: ${errors.slice(0, 3).join('; ')}`;
+    if (errors.length > 3) {
+      errorMessage += ` (and ${errors.length - 3} more)`;
+    }
+  }
+
   return {
     success: false,
     data: null,
-    error: describeFailure(originalInput),
+    error: errorMessage,
     rawInput: originalInput.slice(0, 500)
   };
 }
 
+interface JsonCandidate {
+  text: string;
+  start: number;
+  end: number;
+}
+
 /**
- * Extract the first balanced JSON object {} or array [] from a string
+ * Extract ALL balanced JSON objects {} and arrays [] from a string
+ * Returns them in order of appearance
  */
-function extractFirstBalancedJson(input: string): JsonExtractResult {
-  // Find the first { or [
-  let startIndex = -1;
-  let startChar = '';
-  let endChar = '';
+function extractAllBalancedJsonCandidates(input: string): JsonCandidate[] {
+  const candidates: JsonCandidate[] = [];
+  let searchStart = 0;
 
-  for (let i = 0; i < input.length; i++) {
-    if (input[i] === '{') {
-      startIndex = i;
-      startChar = '{';
-      endChar = '}';
-      break;
-    }
-    if (input[i] === '[') {
-      startIndex = i;
-      startChar = '[';
-      endChar = ']';
-      break;
-    }
-  }
+  while (searchStart < input.length) {
+    // Find the next { or [
+    let startIndex = -1;
+    let startChar = '';
+    let endChar = '';
 
-  if (startIndex === -1) {
-    return {
-      success: false,
-      data: null,
-      error: 'No JSON object or array found (no { or [ character)',
-      rawInput: input.slice(0, 500)
-    };
-  }
-
-  // Count brackets to find the matching end
-  let depth = 0;
-  let inString = false;
-  let escapeNext = false;
-  let endIndex = -1;
-
-  for (let i = startIndex; i < input.length; i++) {
-    const char = input[i];
-
-    if (escapeNext) {
-      escapeNext = false;
-      continue;
-    }
-
-    if (char === '\\' && inString) {
-      escapeNext = true;
-      continue;
-    }
-
-    if (char === '"') {
-      inString = !inString;
-      continue;
-    }
-
-    if (inString) continue;
-
-    if (char === startChar) {
-      depth++;
-    } else if (char === endChar) {
-      depth--;
-      if (depth === 0) {
-        endIndex = i;
+    for (let i = searchStart; i < input.length; i++) {
+      if (input[i] === '{') {
+        startIndex = i;
+        startChar = '{';
+        endChar = '}';
+        break;
+      }
+      if (input[i] === '[') {
+        startIndex = i;
+        startChar = '[';
+        endChar = ']';
         break;
       }
     }
-  }
 
-  if (endIndex === -1) {
-    return {
-      success: false,
-      data: null,
-      error: `Found ${startChar} at position ${startIndex} but brackets are unbalanced (unclosed)`,
-      rawInput: input.slice(0, 500)
-    };
-  }
-
-  const jsonCandidate = input.slice(startIndex, endIndex + 1);
-
-  try {
-    const parsed = JSON.parse(jsonCandidate);
-    if (typeof parsed === 'object' && parsed !== null) {
-      return { success: true, data: parsed };
+    if (startIndex === -1) {
+      // No more { or [ found
+      break;
     }
-    return {
-      success: false,
-      data: null,
-      error: 'Parsed value is not an object or array',
-      rawInput: input.slice(0, 500)
-    };
-  } catch (e: any) {
-    return {
-      success: false,
-      data: null,
-      error: `Found balanced braces but JSON parse failed: ${e.message}`,
-      rawInput: input.slice(0, 500)
-    };
+
+    // Count brackets to find the matching end
+    let depth = 0;
+    let inString = false;
+    let escapeNext = false;
+    let endIndex = -1;
+
+    for (let i = startIndex; i < input.length; i++) {
+      const char = input[i];
+
+      if (escapeNext) {
+        escapeNext = false;
+        continue;
+      }
+
+      if (char === '\\' && inString) {
+        escapeNext = true;
+        continue;
+      }
+
+      if (char === '"') {
+        inString = !inString;
+        continue;
+      }
+
+      if (inString) continue;
+
+      if (char === startChar) {
+        depth++;
+      } else if (char === endChar) {
+        depth--;
+        if (depth === 0) {
+          endIndex = i;
+          break;
+        }
+      }
+    }
+
+    if (endIndex !== -1) {
+      // Found a balanced block
+      candidates.push({
+        text: input.slice(startIndex, endIndex + 1),
+        start: startIndex,
+        end: endIndex
+      });
+      // Continue searching after this block
+      searchStart = endIndex + 1;
+    } else {
+      // Unbalanced - skip this opening bracket and continue
+      searchStart = startIndex + 1;
+    }
   }
+
+  return candidates;
 }
 
 /**
@@ -220,7 +238,7 @@ function describeFailure(input: string): string {
   const hasCloseBracket = input.includes(']');
 
   if (hasCodeFence) {
-    return 'Found code fence markers but could not extract valid JSON from inside';
+    return 'Found code fence markers but could not extract valid JSON from any of them';
   }
 
   if (hasOpenBrace && !hasCloseBrace) {
@@ -232,7 +250,7 @@ function describeFailure(input: string): string {
   }
 
   if (hasOpenBrace || hasOpenBracket) {
-    return 'Found JSON-like structure but could not parse - possibly malformed';
+    return 'Found JSON-like structures but none parsed successfully';
   }
 
   if (input.length === 0) {
