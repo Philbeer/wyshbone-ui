@@ -1,0 +1,78 @@
+Replit Investigation: AFR and Recent Runs not updating, confirm DB writes and reads
+
+AFR and Recent Runs are not showing any new runs. The latest run visible is still 15/01/2026 even after I trigger new runs. We need to investigate with concrete evidence before making changes.
+
+1) Confirm whether new runs are being written at all
+
+When I trigger a run, do we execute an INSERT into the runs table (or whatever stores deep research runs)?
+
+Provide evidence:
+
+The code path that performs the INSERT (file and function)
+
+The actual row created (run id, createdAt, userId, goal summary)
+
+Or the exact error/exception if the insert fails
+
+2) Confirm AFR is reading from the same source the run writer uses
+
+AFR loads runs via an API call. Identify:
+
+The exact endpoint AFR calls
+
+The query it runs (table, filters, orderBy)
+
+The database connection used by that endpoint (Supabase project URL, environment variables)
+
+Then compare to:
+
+The database connection used by the run creation endpoint
+
+If they differ (different Supabase project, local mock DB, different schema), that is the root cause.
+
+3) Confirm the environment is consistent
+
+Check whether the app is writing to one environment and AFR is reading from another:
+
+Print the Supabase URL in server logs for both write and read paths (safe to log the host only, not keys)
+
+Confirm the same project and schema is used for both
+
+4) Confirm AFR refresh mechanics
+
+Even if the DB has new rows, AFR might not refresh.
+Prove:
+
+Does AFR re-fetch on interval or only on page load
+
+Does it use caching (SWR/react-query) with stale settings
+
+Is the request failing silently (401, 500) in the browser network tab
+
+Provide evidence:
+
+The last AFR fetch response payload
+
+Any errors from the AFR fetch request
+
+5) Quick direct validation query
+
+Run a direct DB query for the last 24 hours:
+
+“select latest 10 runs order by createdAt desc”
+If there are no new rows, the write path is broken.
+If there are new rows but AFR does not show them, the read/refresh path is broken.
+
+Output format
+
+Give me a short report with:
+
+Writes: working or failing (with proof)
+
+Reads: working or failing (with proof)
+
+Same database or mismatch (with proof)
+
+Next fix you propose, but do not implement until I confirm.
+
+Do not propose “show global runs” as a workaround. Fix persistence and visibility properly.
