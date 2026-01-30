@@ -1,0 +1,117 @@
+Replit Investigation Prompt: AFR Coverage Gap
+
+Do not implement fixes yet.
+First, investigate and report back with evidence.
+
+Problem Statement
+
+AFR (Agent Flight Recorder) currently logs deep research runs correctly.
+
+However, other agent execution paths (Supervisor plans, non–deep-research actions such as internal search attempts, plan execution, etc.) are not appearing in AFR, even though they are executing.
+
+This makes the agent feel opaque and breaks the “visible reasoning” goal.
+
+Investigation Goals
+
+Determine which execution paths are not being logged, where they should be logged, and why they are missing from AFR.
+
+Step 1: Enumerate execution paths
+
+List all major agent execution paths triggered from chat, including but not limited to:
+
+Deep research runs
+
+Supervisor plan creation
+
+Supervisor plan execution steps
+
+Tool usage (search, internal DB lookup, etc.)
+
+Any “quick execution” paths that bypass deep research
+
+For each path, identify:
+
+Entry file/function
+
+Whether it currently creates:
+
+a deep_research_run
+
+an AFR run bundle
+
+an AFR activity / event
+
+nothing at all
+
+Step 2: AFR write points
+
+Identify every place in the codebase where AFR data is written, including:
+
+Tables involved (eg afr_run_bundles, agent_activities, etc.)
+
+Functions responsible for writing AFR entries
+
+Which execution paths call them
+
+Produce a simple mapping table:
+
+Execution Path → AFR table written → yes/no
+
+Step 3: Supabase tables check
+
+For Supabase specifically:
+
+List all AFR-related tables that exist
+
+For each table, explain:
+
+What it is supposed to represent
+
+Which code path should write to it
+
+Whether it is currently receiving rows
+
+Confirm with actual row counts from Supabase.
+
+Step 4: Identify the gap
+
+Answer explicitly:
+
+Are Supervisor-based executions never calling AFR logging at all?
+
+Or are they writing to a different table not shown in the AFR UI?
+
+Or is AFR UI only reading from deep_research_runs and ignoring other run types?
+
+There should be a single clear reason, not guesses.
+
+Step 5: Design recommendation (no code yet)
+
+Propose (but do not implement yet):
+
+What the canonical “run” abstraction should be
+
+Whether:
+
+Deep research runs
+
+Supervisor runs
+
+Tool executions
+should all map into one unified AFR run model or linked sub-events
+
+Do not add demo data.
+Do not change behavior yet.
+This is an investigation and design report only.
+
+Deliverable
+
+Reply with:
+
+A clear explanation (plain English) of why Supervisor / non-deep-research activity is invisible in AFR
+
+A table mapping execution paths → logging status
+
+A recommendation for how AFR should be extended so all agent work becomes visible
+
+Only after this report is approved should implementation begin.
