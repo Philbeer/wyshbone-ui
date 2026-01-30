@@ -719,3 +719,6 @@ params: ord_mkie1bhx_k01u6,f0232887b2dce2ea95155c6b7222c5e1,cust_mkie0ba2_efj3m,
 [2026-01-19T13:27:09.718Z] ========== ORDER IMPORT STARTED (Job 111) ==========
 [2026-01-19T13:27:10.778Z] ❌ FAILED to import invoice INV-0008 (c111b12f-82fc-4bf0-9bc5-46305e9d9a8c)
 [2026-01-19T13:27:10.778Z]    Workspace: b35caeede4d04591fce29e9b50ef581a
+[2026-01-22T15:23:27.129Z] ========== ORDER IMPORT STARTED (Job 114) ==========
+[2026-01-22T15:23:28.315Z] ❌ FAILED to import invoice INV-0008 (c111b12f-82fc-4bf0-9bc5-46305e9d9a8c)
+[2026-01-22T15:23:28.315Z]    Workspace: b35caeede4d04591fce29e9b50ef581a
