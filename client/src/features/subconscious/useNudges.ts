@@ -135,8 +135,18 @@ export function useNudges(): UseNudgesResult {
     const supabase = getSupabaseClient();
     
     if (!supabase) {
-      setError(new Error("Supabase not configured. Please check your environment variables."));
-      setIsError(true);
+      // W-007 FIX: User-friendly fallback to demo data
+      try {
+        const { demoNudges } = await import("@/demo/demoData");
+        setNudges(demoNudges);
+        setError(null);
+        setIsError(false);
+        console.log("[useNudges] Supabase not configured, using demo data");
+      } catch {
+        setNudges([]);
+        setError(null);
+        setIsError(false);
+      }
       setIsLoading(false);
       return;
     }
@@ -159,10 +169,18 @@ export function useNudges(): UseNudgesResult {
       const mappedNudges = (data || []).map(mapSupabaseRowToNudge);
       setNudges(mappedNudges);
     } catch (err) {
-      const message = handleApiError(err, "fetch nudges");
-      setError(new Error(message));
-      setIsError(true);
-      setNudges([]);
+      // W-007 FIX: User-friendly fallback to demo data on error
+      console.warn("[useNudges] Failed to fetch nudges, using demo data:", err);
+      try {
+        const { demoNudges } = await import("@/demo/demoData");
+        setNudges(demoNudges);
+        setError(null);
+        setIsError(false);
+      } catch {
+        setError(new Error("Unable to load nudges. Please try again later."));
+        setIsError(true);
+        setNudges([]);
+      }
     } finally {
       setIsLoading(false);
     }

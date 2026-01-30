@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,9 @@ export function MyGoalsPanel() {
   const [isDirty, setIsDirty] = useState(false);
   const [showSaved, setShowSaved] = useState(false);
   const { toast } = useToast();
+  
+  // W-003 FIX: Idempotency guard to prevent duplicate plan creation from double-clicks
+  const planCreationInProgress = useRef(false);
 
   // Initialize local goal when data loads
   useEffect(() => {
@@ -84,6 +87,13 @@ export function MyGoalsPanel() {
       return;
     }
 
+    // W-003 FIX: Idempotency guard - prevent double-clicks from creating duplicate plans
+    if (planCreationInProgress.current) {
+      console.log("⚠️ MyGoalsPanel: Plan creation already in progress, ignoring duplicate click");
+      return;
+    }
+    
+    planCreationInProgress.current = true;
     console.log("🚀 MyGoalsPanel: Starting plan for goal:", trimmedGoal.substring(0, 50) + "...");
     
     try {
@@ -102,6 +112,9 @@ export function MyGoalsPanel() {
         title: "Failed to create plan",
         description: error.message || "An error occurred while creating the plan.",
       });
+    } finally {
+      // W-003 FIX: Reset guard after promise resolves, not on a timer
+      planCreationInProgress.current = false;
     }
   };
 

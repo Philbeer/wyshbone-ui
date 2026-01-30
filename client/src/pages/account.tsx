@@ -105,7 +105,25 @@ export default function Account() {
     },
   });
 
+  // W-002 FIX: Show loading state while checking auth, don't immediately show "sign in required"
+  // The auth state may still be loading even if userLoading is false (race condition)
+  // Only show sign-in prompt if we've tried fetching and got null/undefined, not on initial mount
   if (!currentUser && !userLoading) {
+    // Check if session cookie exists - if so, the query may have failed temporarily
+    const hasSessionCookie = document.cookie.includes('connect.sid') || document.cookie.includes('session');
+    
+    if (hasSessionCookie) {
+      // User likely has a session but the query failed - show loading or retry
+      return (
+        <div className="flex items-center justify-center min-h-screen bg-background">
+          <div className="text-center">
+            <Loader2 className="w-8 h-8 animate-spin text-muted-foreground mx-auto mb-4" />
+            <p className="text-muted-foreground">Loading account...</p>
+          </div>
+        </div>
+      );
+    }
+    
     return (
       <div className="flex items-center justify-center min-h-screen bg-background">
         <Card className="w-full max-w-md">

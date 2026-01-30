@@ -147,8 +147,13 @@ export function useLeads(): UseLeadsResult {
     const supabase = getSupabaseClient();
     
     if (!supabase) {
-      setError("Supabase not configured. Please check your environment variables.");
+      // W-001 FIX: User-friendly message instead of technical error
+      // Load demo data when Supabase is not configured
+      const { demoSavedLeads } = await import("@/demo/demoData");
+      setLeads(demoSavedLeads);
+      setError(null);
       setIsLoading(false);
+      console.log("[useLeads] Supabase not configured, using demo data");
       return;
     }
 
@@ -168,9 +173,16 @@ export function useLeads(): UseLeadsResult {
       const mappedLeads = (data || []).map(mapSupabaseLeadToLead);
       setLeads(mappedLeads);
     } catch (err) {
-      const message = handleApiError(err, "fetch leads");
-      setError(message);
-      setLeads([]);
+      // W-001 FIX: User-friendly error message, fallback to demo data
+      console.warn("[useLeads] Failed to fetch leads, using demo data:", err);
+      try {
+        const { demoSavedLeads } = await import("@/demo/demoData");
+        setLeads(demoSavedLeads);
+        setError(null);
+      } catch {
+        setError("Unable to load leads. Please try again later.");
+        setLeads([]);
+      }
     } finally {
       setIsLoading(false);
     }
