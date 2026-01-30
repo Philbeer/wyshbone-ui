@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { RefreshCw, Clock, CheckCircle2, XCircle, Loader2, AlertTriangle } from "lucide-react";
+import { RefreshCw, Clock, CheckCircle2, XCircle, Loader2, AlertTriangle, FileSearch, Wrench, ListChecks } from "lucide-react";
 import type { Run, RunBundle } from "@/types/afr";
 import { cn } from "@/lib/utils";
+import { useUser } from "@/contexts/UserContext";
 
 function formatRelativeTime(dateString: string): string {
   const date = new Date(dateString);
@@ -39,7 +40,26 @@ function StatusBadge({ status }: { status: Run["status"] }) {
   );
 }
 
+function RunTypeBadge({ runType }: { runType?: Run["run_type"] }) {
+  const config: Record<string, { icon: typeof FileSearch; label: string; className: string }> = {
+    deep_research: { icon: FileSearch, label: "Research", className: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-200" },
+    plan: { icon: ListChecks, label: "Plan", className: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-200" },
+    tool: { icon: Wrench, label: "Tool", className: "bg-slate-100 text-slate-800 dark:bg-slate-900/30 dark:text-slate-200" },
+    chat: { icon: Clock, label: "Chat", className: "bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-200" },
+  };
+
+  const { icon: Icon, label, className } = config[runType || 'deep_research'] || config.deep_research;
+  
+  return (
+    <span className={cn("inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium", className)}>
+      <Icon className="h-3 w-3" />
+      {label}
+    </span>
+  );
+}
+
 export function MostRecentRunPanel() {
+  const { user } = useUser();
   const [latestRun, setLatestRun] = useState<Run | null>(null);
   const [bundle, setBundle] = useState<RunBundle | null>(null);
   const [loading, setLoading] = useState(true);
@@ -48,7 +68,11 @@ export function MostRecentRunPanel() {
 
   const fetchLatestRun = useCallback(async () => {
     try {
-      const runsResponse = await fetch("/api/afr/runs?limit=1");
+      const params = new URLSearchParams({ limit: '1' });
+      if (user?.id) {
+        params.set('userId', user.id);
+      }
+      const runsResponse = await fetch(`/api/afr/runs?${params.toString()}`);
       if (!runsResponse.ok) {
         throw new Error("Failed to fetch runs");
       }
@@ -83,7 +107,7 @@ export function MostRecentRunPanel() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [user?.id]);
 
   useEffect(() => {
     fetchLatestRun();
@@ -180,7 +204,10 @@ export function MostRecentRunPanel() {
             <p className="text-sm font-medium leading-tight flex-1">
               {latestRun.goal_summary}
             </p>
-            <StatusBadge status={latestRun.status} />
+            <div className="flex items-center gap-1">
+              <RunTypeBadge runType={latestRun.run_type} />
+              <StatusBadge status={latestRun.status} />
+            </div>
           </div>
           <p className="text-xs text-muted-foreground">
             {formatRelativeTime(latestRun.created_at)}

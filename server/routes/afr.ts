@@ -8,21 +8,78 @@ export function createAfrRouter(_storage: typeof storage) {
   router.get("/runs", async (req, res) => {
     try {
       const limit = Math.min(parseInt(req.query.limit as string) || 200, 500);
-      const dbRuns = await storage.listDeepResearchRunsForAfr(limit);
+      const userId = (req.query.userId || req.query.user_id) as string | undefined;
+      const showAllUsers = req.query.all === 'true';
+      
+      const [dbRuns, activities] = await Promise.all([
+        storage.listDeepResearchRunsForAfr(limit),
+        storage.listAgentActivities(limit, showAllUsers ? undefined : userId)
+      ]);
 
-      const runs: Run[] = dbRuns.map((r) => ({
-        id: r.id,
-        created_at: new Date(r.createdAt).toISOString(),
-        goal_summary: r.label || r.prompt?.slice(0, 100) || "Untitled Run",
-        vertical: "hospitality",
-        status: mapDbStatus(r.status),
-        goal_worth: null,
-        stop_triggered: false,
-        score: null,
-        verdict: null,
-      }));
+      const deepResearchRuns: Run[] = dbRuns
+        .filter(r => showAllUsers || !userId || r.userId === userId)
+        .map((r) => ({
+          id: r.id,
+          created_at: new Date(r.createdAt).toISOString(),
+          goal_summary: r.label || r.prompt?.slice(0, 100) || "Untitled Run",
+          vertical: "hospitality",
+          status: mapDbStatus(r.status),
+          goal_worth: null,
+          stop_triggered: false,
+          score: null,
+          verdict: null,
+          run_type: "deep_research" as const,
+        }));
 
-      res.json(runs);
+      const planRuns: Run[] = activities
+        .filter(a => {
+          const metadata = a.metadata as Record<string, any> | null;
+          const runType = metadata?.runType;
+          return runType === 'plan';
+        })
+        .map((a) => {
+          const metadata = a.metadata as Record<string, any> | null;
+          return {
+            id: `activity_${a.id}`,
+            created_at: new Date(a.timestamp).toISOString(),
+            goal_summary: a.taskGenerated || "Plan Execution",
+            vertical: "hospitality",
+            status: mapActivityStatus(a.status),
+            goal_worth: null,
+            stop_triggered: false,
+            score: null,
+            verdict: null,
+            run_type: "plan" as const,
+            activity_id: a.id,
+            plan_id: metadata?.planId || a.runId,
+          };
+        });
+
+      const toolRuns: Run[] = activities
+        .filter(a => {
+          const metadata = a.metadata as Record<string, any> | null;
+          const runType = metadata?.runType;
+          return runType === 'tool';
+        })
+        .map((a) => ({
+          id: `activity_${a.id}`,
+          created_at: new Date(a.timestamp).toISOString(),
+          goal_summary: a.taskGenerated || `Tool: ${a.actionTaken}`,
+          vertical: "hospitality",
+          status: mapActivityStatus(a.status),
+          goal_worth: null,
+          stop_triggered: false,
+          score: null,
+          verdict: null,
+          run_type: "tool" as const,
+          activity_id: a.id,
+        }));
+
+      const allRuns = [...deepResearchRuns, ...planRuns, ...toolRuns]
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+        .slice(0, limit);
+
+      res.json(allRuns);
     } catch (error: any) {
       console.error("AFR /runs error:", error);
       res.status(500).json({ error: "Failed to fetch runs" });
@@ -32,6 +89,66 @@ export function createAfrRouter(_storage: typeof storage) {
   router.get("/runs/:id", async (req, res) => {
     try {
       const runId = req.params.id;
+      
+      if (runId.startsWith('activity_')) {
+        const activityId = runId.replace('activity_', '');
+        const activity = await storage.getAgentActivity(activityId);
+        
+        if (!activity) {
+          return res.status(404).json({ error: "Activity not found" });
+        }
+        
+        const metadata = activity.metadata as Record<string, any> | null;
+        const runType = metadata?.runType || 'unknown';
+        const results = activity.results as Record<string, any> | null;
+        
+        const run: Run = {
+          id: runId,
+          created_at: new Date(activity.timestamp).toISOString(),
+          goal_summary: activity.taskGenerated || `${runType}: ${activity.actionTaken}`,
+          vertical: "hospitality",
+          status: mapActivityStatus(activity.status),
+          goal_worth: null,
+          stop_triggered: false,
+          score: null,
+          verdict: null,
+          run_type: runType as any,
+        };
+
+        const bundle: RunBundle = {
+          run,
+          decisions: [{
+            id: `decision_${activityId}`,
+            run_id: runId,
+            index: 1,
+            title: activity.actionTaken || 'Execute Action',
+            choice: runType,
+            why: `Executed ${runType}: ${activity.actionTaken}`,
+            options_considered: [],
+          }],
+          expected_signals: [],
+          stop_conditions: [],
+          outcome: {
+            id: `outcome_${activityId}`,
+            run_id: runId,
+            outcome_summary: results?.note || 
+              (activity.errorMessage ? `Failed: ${activity.errorMessage}` : 
+               `Completed in ${activity.durationMs || 0}ms`),
+            full_output: results ? JSON.stringify(results, null, 2) : 
+              (activity.errorMessage || 'No output'),
+            metrics_json: results?.count !== undefined ? { count: results.count } : undefined,
+          },
+          tower_verdict: null,
+          related_rule_updates: [],
+          goal_worth: null,
+          verdict: activity.status === 'success' ? 'continue' as const : 
+                   activity.status === 'failed' ? 'abandon' as const : null,
+          score: activity.durationMs ? Math.max(0, 100 - Math.floor(activity.durationMs / 100)) : null,
+          bundle_present: true,
+        };
+
+        return res.json(bundle);
+      }
       
       const [dbRun, afrBundle, relatedRuleUpdates] = await Promise.all([
         storage.getDeepResearchRun(runId),
@@ -63,6 +180,7 @@ export function createAfrRouter(_storage: typeof storage) {
         stop_triggered: false,
         score: bundleData?.score || null,
         verdict: bundleData?.verdict || null,
+        run_type: "deep_research",
       };
 
       const bundle: RunBundle = {
@@ -169,7 +287,6 @@ export function createAfrRouter(_storage: typeof storage) {
     }
   });
 
-  // Agent Activities endpoint - unified log of all agent executions
   router.get("/activities", async (req, res) => {
     try {
       const limit = Math.min(parseInt(req.query.limit as string) || 200, 500);
@@ -218,6 +335,25 @@ function mapDbStatus(
       return "failed";
     case "stopped":
       return "stopped";
+    default:
+      return "pending";
+  }
+}
+
+function mapActivityStatus(
+  status: string | null
+): "pending" | "running" | "completed" | "failed" | "stopped" {
+  switch (status) {
+    case "success":
+    case "completed":
+      return "completed";
+    case "failed":
+    case "error":
+      return "failed";
+    case "pending":
+    case "running":
+    case "in_progress":
+      return "running";
     default:
       return "pending";
   }

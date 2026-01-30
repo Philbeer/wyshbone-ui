@@ -1,0 +1,104 @@
+Replit prompt: Fix missing AFR logging for Supervisor and show latest run in right panel
+
+You are working on Wyshbone UI + server.
+
+Goal: Make every agent action visible. If the user types “find dentists somerset” and Supervisor generates a plan (even if the plan would search an empty internal DB), the system must still create a run record and show it in AFR and in the right panel.
+
+Do NOT add demo data. Do NOT hide the problem with mock leads. I want real logging, even for no-op runs.
+
+1) First, prove the current behavior with concrete evidence (no changes yet)
+
+Create a short investigation report with:
+
+A. List exactly which tables AFR currently reads from (and which API endpoints it calls).
+B. List exactly which tables Supervisor plan creation and plan execution currently write to.
+C. For a brand new chat message that triggers Supervisor plan creation, show whether ANY rows are inserted anywhere (table names + row counts before/after).
+D. Identify the precise “gap” where Supervisor decides something but no run/activity record is created.
+
+This report must include:
+
+The exact endpoint(s) that AFR uses
+
+The exact storage methods used (or not used)
+
+A direct DB query showing the most recent 10 rows for the relevant tables
+
+Stop after the report. Then proceed to implementation.
+
+2) Define the correct behavior
+
+When any of these happens:
+
+Supervisor creates a plan
+
+Supervisor starts executing a plan
+
+A tool is called (internal DB search, places search, batch job, etc.)
+
+The plan completes or fails
+
+Then:
+
+A run/activity record is created immediately (started state)
+
+Progress events are appended (progress state)
+
+Completion or failure is recorded (completed/failed state)
+
+This happens even if results are empty or the DB has zero leads
+
+3) Implement a unified “Agent Activity” log that AFR can display
+
+We already have AFR for deep research. Extend AFR so it can show ALL agent actions, not just deep research.
+
+Implementation requirements:
+
+Introduce a single canonical table or reuse the existing one if it already exists (for example agent_activities). If it exists but is unused, wire it up properly.
+
+Ensure writes happen for Supervisor plan creation and Supervisor plan execution.
+
+Ensure a “run id” exists that links events together for the same user request (parent run with child events is fine).
+
+Ensure userId attribution is correct for the logged-in user. No writing runs under demo-user unless demo mode is explicitly enabled.
+
+4) Update AFR UI and right panel
+
+A. AFR should have a view that shows the unified activity timeline for the most recent actions (not just deep research).
+B. Replace the “My Goals” panel on the right with “Most Recent Run” driven from the unified activity log, not deep research only.
+C. The panel must show, at minimum:
+
+Goal summary (what the user asked)
+
+Status (started/progress/completed/failed)
+
+Decision trail (what tools or strategy it chose)
+
+Outcome (even if “No results found”, still show it)
+
+Last updated time
+
+5) Fix the duplicate “plan created” chat messages properly
+
+I can still see duplicate “Got it, I created a structured plan…” messages.
+
+Implement a real idempotency fix:
+
+Prevent double-submit from UI and from server race conditions.
+
+Deduplicate by a deterministic key (conversationId + user message id + plan type) so the same plan cannot generate two identical completion messages.
+
+6) Verification checklist (must be demonstrated)
+
+After changes, demonstrate:
+
+Trigger Supervisor plan creation with: “find dentists somerset”
+
+Confirm a new activity/run appears immediately in AFR and in the right panel.
+
+If internal DB search returns zero, the run still completes with “0 results” and is visible.
+
+No duplicate “plan created” message appears.
+
+Run attribution: the run is visible under the logged-in user in the left Recent Runs panel.
+
+If anything fails, include the reason and the exact file/line causing it.

@@ -10,11 +10,14 @@ export interface Run {
   created_at: string;
   vertical: string;
   goal_summary: string;
-  goal_worth: GoalWorth | null;
+  goal_worth: GoalWorth | string | null;
   status: 'pending' | 'running' | 'completed' | 'failed' | 'stopped';
   score?: number | null;
   stop_triggered: boolean;
   verdict?: 'continue' | 'revise' | 'abandon' | null;
+  run_type?: 'deep_research' | 'plan' | 'tool' | 'chat';
+  activity_id?: string;
+  plan_id?: string;
 }
 
 export interface Decision {

@@ -1,0 +1,128 @@
+Prompt for Replit: Fix AFR so it logs Supervisor plans and tool runs (even when results are empty)
+
+You are working on Wyshbone UI + server.
+
+Goal:
+AFR and the “Most Recent Run” panel must show the latest execution, including Supervisor plan runs and internal database searches, even when the output is empty.
+
+Current bug (observed):
+Deep research runs appear in AFR.
+Supervisor plans (example: “Find 60 dentists Somerset UK businesses in Somerset, UK” and “search Wyshbone Global Database”) execute and show progress in the plan UI, but do not appear in AFR or update “Most Recent Run”. This makes the app feel non agentic because the agent is acting but leaving no trace.
+
+Non negotiable requirement:
+A run must be created and visible the moment execution starts, before any tool call completes. Even if the tool returns 0 results or the internal database is empty, the run must still exist and show what was attempted.
+
+What to investigate first (before coding):
+
+Identify exactly which code paths write to:
+
+deep_research_runs
+
+afr_run_bundles
+
+any existing generic activity tables (agent_activities, agent_activities, activity_log, etc.)
+
+Identify the code paths used by Supervisor plans:
+
+plan creation
+
+plan execution
+
+tool execution for “Wyshbone Global Database” search
+
+Confirm why those paths do not write anything AFR can read.
+
+Then implement the correct solution:
+A. Create a single unified “agent activity log” that AFR reads from
+
+Use the existing agent_activities table if it exists. If it exists but is unused, wire it up.
+
+If it does not exist, add the minimum table needed in Supabase, but prefer using what already exists.
+
+Every run type must create an entry:
+
+deep_research
+
+supervisor_plan
+
+tool_call (for each step)
+B. Instrument these execution paths to write lifecycle events:
+
+started
+
+progress (optional but recommended)
+
+completed
+
+failed
+Include fields like:
+
+userId
+
+conversationId (if available)
+
+runType
+
+status
+
+label (for example “find dentists in Sussex”)
+
+actionTaken (for example “search_global_database”)
+
+actionParams (sanitised, no secrets)
+
+results summary (counts like found=0, saved=0)
+
+errorMessage if failed
+C. Update AFR UI:
+
+Runs list should show the unified activity stream, not only deep_research_runs.
+
+Most Recent Run panel must use the same unified activity source, so it updates when a Supervisor plan runs.
+
+It must display something meaningful even when results are empty, for example:
+
+“Searched internal database (0 rows available)”
+
+“No leads found, database currently empty”
+D. Do not add demo data.
+Do not fake results. If database is empty, log the attempt and show “0 results” with the reason.
+
+Acceptance tests (must pass):
+
+Trigger a Supervisor plan that includes “Search Wyshbone Global Database”.
+Result:
+
+A new entry appears immediately in AFR runs list, with status “started”.
+
+On completion it becomes “completed” with found=0, saved=0 (or real counts if data exists).
+
+Most Recent Run panel updates to this run.
+
+Trigger a deep research run.
+Result:
+
+It also appears in the same AFR list.
+
+Trigger a failure (tool error or empty DB).
+Result:
+
+It still appears in AFR with status “failed” and a readable error message.
+
+No cross user leakage. Runs must be scoped to the current authenticated user in the main UI. AFR dev inspector can optionally show “all users” but must have a clear toggle.
+
+Implementation style:
+
+Make the smallest change that produces a correct production grade logging pipeline.
+
+No temporary hacks, no “mock mode”, no demo inserts.
+
+Prefer event logging that is easy to extend later.
+
+Deliverables:
+
+Brief explanation of root cause
+
+List of changed files
+
+Confirmation of acceptance tests with evidence (what you clicked, what appeared)
