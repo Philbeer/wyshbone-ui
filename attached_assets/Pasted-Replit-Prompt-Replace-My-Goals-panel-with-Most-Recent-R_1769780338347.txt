@@ -1,0 +1,90 @@
+Replit Prompt: Replace “My Goals” panel with “Most Recent Run” AFR summary (dev-only)
+
+Goal
+The right-hand panel currently titled “My Goals” is confusing and interferes with the short-term micro goal flow. For dev/testing, replace that panel with a read-only “Most Recent Run” panel that mirrors the latest AFR run summary so I can instantly see what the agent decided and what it is doing.
+
+Scope
+This is a UI wiring change only. Do not add new features. Do not change run logic. Do not change Tower.
+
+Requirements
+
+Replace the panel
+
+In the main app UI (chat page), replace the “My Goals” panel with a new panel titled:
+“Most Recent Run”
+
+It must be read-only and not clickable.
+
+Data source
+
+The panel must load the most recent run that AFR sees.
+
+Prefer to use existing endpoint(s) used by AFR to fetch runs.
+
+If AFR has an endpoint that returns a list, fetch the newest one (limit 1).
+
+If there is no “latest run” endpoint, create one only if needed. Keep it minimal.
+
+What to display (minimum)
+Show these fields if available:
+
+Top line:
+
+Run label / goal summary
+
+Status (Running / Completed / Failed)
+
+Created time (relative eg “2 min ago”)
+
+Section: “Worth / constraints”
+
+Golden worth (or equivalent)
+
+Stop conditions (1-3 bullet points)
+
+Section: “Decision trail”
+
+3-6 bullet list of the most recent decision timeline entries
+
+If decision timeline not available, show “No decisions logged for this run yet.”
+
+Section: “Outcome”
+
+Verdict / score if available
+
+Short outcome summary if available
+
+If failed, show the failure reason
+
+Live updating
+
+The panel should refresh automatically every 3-5 seconds while a run is Running.
+
+When Idle, refresh less often or only on page focus.
+
+Empty state and error state
+
+If no runs exist: show “No runs yet. Start by typing a request in chat.”
+
+If fetch fails: show “Could not load latest run.” plus a small “Retry” button.
+
+Do not show raw technical errors to the user. Log details in console for dev.
+
+Dev-only toggle (optional)
+If easy, allow this panel to be a dev-only view behind a flag, but do not block implementation on that.
+
+Deliverable
+
+Provide the file(s) changed
+
+Provide the exact endpoint used
+
+Confirm with a screenshot or description that after starting a run, the panel updates and shows the newest run.
+
+Do not
+
+Do not keep the “My Goals” gating prompt
+
+Do not invent demo data
+
+Do not move anything into Tower in this change

@@ -41,7 +41,7 @@ import { OnboardingWizardProvider, useOnboardingWizard } from "@/contexts/Onboar
 import { DemoModeBanner } from "@/components/DemoModeBanner";
 import { DevBanner } from "@/components/DevBanner";
 import { AgentChatPanel } from "@/components/agent/AgentChatPanel";
-import { MyGoalsPanel } from "@/components/my-goals-panel";
+import { MostRecentRunPanel } from "@/components/most-recent-run-panel";
 import { PlanApprovalPanel } from "@/components/plan-approval-panel";
 import { ProgressWidget } from "@/components/progress-widget";
 import { AgentStatusBadge } from "@/components/AgentStatusBadge";
@@ -728,7 +728,7 @@ function DevInfoBadge() {
 }
 
 /**
- * Right Panel Content - Shows ResultsPanel when active, otherwise MyGoalsPanel
+ * Right Panel Content - Shows ResultsPanel when active, otherwise MostRecentRunPanel
  * Conditionally renders based on results context
  */
 function RightPanelContent() {
@@ -743,10 +743,10 @@ function RightPanelContent() {
     );
   }
   
-  // Otherwise show the default goal/progress panels
+  // Otherwise show the default run/progress panels
   return (
     <div className="p-4 flex flex-col gap-4 overflow-y-auto h-full">
-      <MyGoalsPanel />
+      <MostRecentRunPanel />
       <PlanApprovalPanel />
       <ProgressWidget />
     </div>
