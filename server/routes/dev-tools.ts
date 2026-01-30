@@ -658,10 +658,10 @@ export function createDevToolsRouter(storage: IStorage): Router {
         queryError: queryError,
         environment: {
           nodeEnv: process.env.NODE_ENV,
-          hasDatabaseUrl: !!process.env.DATABASE_URL,
+          hasSupabaseDatabaseUrl: !!process.env.SUPABASE_DATABASE_URL,
         },
         diagnosis: {
-          note: "DATABASE_URL now points directly to Supabase. No fallback to Replit DB.",
+          note: "SUPABASE_DATABASE_URL is the exclusive connection. Replit DATABASE_URL is not used.",
           appDbHasData: sanityCheck && sanityCheck.orderLinesCount > 0,
         },
       });

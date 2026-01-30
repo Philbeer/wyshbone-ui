@@ -1,6 +1,6 @@
 import postgres from 'postgres';
 
-const sql = postgres(process.env.DATABASE_URL!);
+const sql = postgres(process.env.SUPABASE_DATABASE_URL!);
 
 async function checkImports() {
   console.log('🔍 Checking recent import jobs...\n');

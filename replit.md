@@ -6,7 +6,7 @@ The Wyshbone Chat Agent is an AI-powered assistant designed to enhance business 
 ## User Preferences
 I want the agent to focus on practical, UK-focused responses. I want to ensure that any contact information discovered is public and verifiable, with no guessing of private details. I prefer a workflow that prioritizes Wyshbone Global Database as the authoritative source for business discovery. The agent should be able to intelligently decide when to search for new venues versus using cached information and support conversational queries without triggering unnecessary searches. I want the agent to auto-detect and execute Bubble batch workflows based on natural language commands. CRITICAL: The AI must ALWAYS ask for confirmation when making assumptions or combining current input with historical facts/context - chat history and facts serve as background reference, not primary drivers.
 
-**CRITICAL DATABASE RULE:** ALWAYS use `SUPABASE_DATABASE_URL` for all database connections, NEVER use `DATABASE_URL` directly. The pattern should be: `process.env.SUPABASE_DATABASE_URL || process.env.DATABASE_URL` to ensure Supabase is always preferred. This applies to all files: routes, cron jobs, lib utilities, and any new code. The Replit DATABASE_URL is only a fallback if Supabase is unavailable.
+**CRITICAL DATABASE RULE:** ALL database connections MUST use `SUPABASE_DATABASE_URL` directly. NO fallback patterns—Replit's runtime auto-provides `DATABASE_URL` for its built-in Postgres, which conflicts with Supabase. Using `SUPABASE_DATABASE_URL` exclusively avoids this runtime conflict. The app crashes on startup if `SUPABASE_DATABASE_URL` is not set or empty.
 
 ## System Architecture
 The application features a Node.js/Express backend and a React frontend, built with TypeScript, Tailwind CSS, and shadcn/ui. TanStack Query manages API state. Core AI interactions utilize OpenAI's GPT models. The system supports multi-tenant user isolation with session-based authentication and robust data security.
@@ -44,12 +44,13 @@ The user interface adheres to Material Design principles, featuring a dark mode,
 - **User Role System:** Formal role-based access control now uses org membership roles. Admins have full access including team management. Drivers access delivery UI only. Sales users access CRM features. Legacy user.role field kept for backwards compatibility.
 
 ## Database Configuration
-- **Primary Database:** Supabase PostgreSQL (production data, accessed via `SUPABASE_DATABASE_URL`)
-- **Fallback:** Replit's built-in PostgreSQL (accessed via `DATABASE_URL`)
-- **Connection Priority:** App prefers `SUPABASE_DATABASE_URL` over `DATABASE_URL` to ensure consistent database usage
+- **Primary & Only Database:** Supabase PostgreSQL accessed exclusively via `SUPABASE_DATABASE_URL`
+- **NO Fallback:** Replit's built-in Postgres is NOT used—`DATABASE_URL` is managed by Replit's runtime and conflicts
+- **Startup Validation:** Server crashes with clear error if `SUPABASE_DATABASE_URL` is missing or empty
+- **Startup Logging:** Logs database host (masked) on startup to verify Supabase connection (e.g., "Host: aws-1-eu-west-2.pooler.supabase.com")
 - **Supabase Pooler:** Uses `prepare: false` in postgres connection config to disable prepared statements for pgbouncer compatibility
 - **Startup Migrations:** `runStartupMigrations()` in `server/storage.ts` handles schema drift by adding missing columns using PostgreSQL's `IF NOT EXISTS` syntax
-- **Drizzle Config:** Updated in `drizzle.config.ts` to prefer `SUPABASE_DATABASE_URL` for schema operations
+- **Drizzle Config:** Uses `SUPABASE_DATABASE_URL` exclusively for schema operations
 - **Schema Types:** All org-related tables use TEXT ids (UUIDs) and BIGINT timestamps - `organisations`, `org_members`, `org_invites` tables and `users.current_org_id` column must all be TEXT type
 
 ## External Dependencies
