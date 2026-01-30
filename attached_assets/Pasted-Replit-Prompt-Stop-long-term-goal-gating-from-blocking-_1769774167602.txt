@@ -1,0 +1,76 @@
+Replit Prompt: Stop long term goal gating from blocking micro runs
+
+You are working on Wyshbone.
+
+Problem:
+The app currently interrupts micro goals like “find pubs in Devon” by forcing a high-level goal question first (“Before we get started, what’s your high-level sales or lead goal for this session?”). This breaks the agent feel, blocks execution, and confuses users.
+
+Definitions:
+
+Micro goal (run goal): the immediate task the user typed, eg “find pubs in Devon”
+
+Long term goal (strategic): general user objective, eg “increase revenue”, “find more customers”
+
+Requirement:
+Micro goals must execute immediately. Long term goal capture must be optional and must not interfere with execution.
+
+Changes required
+
+Remove hard gating
+
+Do not block chat execution if no long-term goal exists.
+
+The agent must proceed with the user’s request even when long-term goal is blank.
+
+Change the long-term goal prompt into a non-blocking nudge
+
+If no long-term goal is set, show a small optional suggestion after the run starts or after results are shown:
+“Optional: set your long-term goal to help prioritise future nudges.”
+
+Provide a “Set later” option and do nothing if ignored.
+
+Ensure goal types are not mixed
+
+Micro goals like “find pubs in Devon” must never be written into the long-term goal store.
+
+Long-term goal store should only accept broad goals (revenue, customers, distribution, retention, etc).
+
+If the user types a micro goal into the long-term goal field, either warn or re-label it as a “current task” not a “goal”.
+
+UI change (minimal)
+
+The right sidebar “My Goals” panel currently behaves like a blocker.
+
+Change it so it does not intercept chat.
+
+If needed, rename it temporarily to “Long-term goal (optional)” and remove any logic that forces it before chat runs.
+
+Execution priority
+
+When user enters a micro goal, the app should:
+a) confirm what it’s about to do (one line)
+b) start the run and show progress
+c) show results
+d) only then optionally ask for long-term goal (not required)
+
+Success criteria (must pass)
+
+I can type “find pubs in Devon” and the app immediately starts the run.
+
+It does not ask for high-level goal first.
+
+Runs appear in recent runs and AFR for the logged in user.
+
+No micro goals are saved into the long-term goal system.
+
+Process requirement:
+Before changing code, summarise:
+
+where the gating logic lives (component / hook / server)
+
+what you will remove or change
+
+what you will NOT touch
+Then implement.
+
+Do not add new features. This is a behaviour correction only.

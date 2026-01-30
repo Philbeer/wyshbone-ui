@@ -312,30 +312,9 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     }
   }, [conversationId]);
 
-  // Show goal prompt when user has no goal and no messages
-  useEffect(() => {
-    const showGoalPrompt = () => {
-      // Only show once when we have no messages, not loading history or goal, and no goal is set
-      if (hasShownGreetingRef.current || messages.length > 0 || isLoadingHistory || isLoadingGoal) {
-        return;
-      }
-
-      if (!hasGoal) {
-        hasShownGreetingRef.current = true;
-        
-        const goalPromptMessage: SystemMessage = {
-          id: crypto.randomUUID(),
-          type: "system",
-          content: "Before we begin, what is your main sales/lead goal? Use the \"My Goal\" panel on the right to set your goal.",
-          timestamp: new Date(),
-        };
-
-        setMessages([goalPromptMessage]);
-      }
-    };
-
-    showGoalPrompt();
-  }, [messages.length, hasGoal, isLoadingHistory, isLoadingGoal]);
+  // REMOVED: Goal prompt blocking logic
+  // Micro goals like "find pubs in Devon" must execute immediately
+  // Long-term goal capture is optional and accessed via the "My Goal" panel in sidebar
 
   // Poll batch job statuses and update messages when complete
   useEffect(() => {

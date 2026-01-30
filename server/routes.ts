@@ -1423,42 +1423,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return;
       }
 
-      if (!hasGoal && !isNewSearch && !isCommand && conversationHistory.length <= 1) {
-        // No goal set yet and this is early in the conversation - ask for it once
-        console.log("❓ No goal set for session - asking user (first interaction)");
-        await storage.setAwaitingGoal(sessionId, true);
-        
-        const goalRequestMsg = `Before we get started, what's your high-level sales or lead goal for this session?\n\nFor example:\n• "Find 50 new pubs in Yorkshire that might stock craft IPA"\n• "Identify dental practices in Manchester for our equipment"\n• "Discover coffee shops in London that opened in 2024"`;
-        appendMessage(sessionId, { role: "assistant", content: goalRequestMsg });
-        await saveMessage(conversationId, "assistant", goalRequestMsg);
-        console.log("💾 Saved goal request message to database");
-        
-        // 🏢 TOWER: Log goal request
-        await completeRunLog(
-          runId,
-          conversationId,
-          user.id,
-          user.email,
-          latestUserText,
-          goalRequestMsg,
-          'success',
-          runStartTime,
-          undefined,
-          undefined,
-          'standard'
-        );
-        
-        res.write(`data: ${JSON.stringify({ content: goalRequestMsg })}\n\n`);
-        res.write(`data: [DONE]\n\n`);
-        res.end();
-        return;
-      }
-
-      // If user declined to provide goal or we're past the first interaction, auto-infer from context
-      if (!hasGoal && !isCommand) {
-        const inferredGoal = latestUserText.length > 10 ? latestUserText : "General business lead generation";
-        console.log("🔍 Auto-inferring user goal from message:", inferredGoal.substring(0, 100));
-        await storage.setUserGoal(sessionId, inferredGoal);
+      // REMOVED: Goal gating logic that blocked execution
+      // Micro goals like "find pubs in Devon" must execute immediately
+      // Long-term goal capture is now optional and non-blocking
+      
+      // Log for debugging - goal is optional, execution proceeds regardless
+      if (!hasGoal) {
+        console.log("ℹ️ No long-term goal set - proceeding with execution (goal is optional)");
       }
 
       // Check if the latest message contains URLs
