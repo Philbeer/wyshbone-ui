@@ -77,10 +77,11 @@ export default function InspectorPage() {
       fontFamily: 'monospace', 
       background: '#1a1a1a', 
       color: '#e0e0e0', 
-      height: '100vh',
+      height: 'calc(100vh - 40px)',
       display: 'flex',
       flexDirection: 'column',
       overflow: 'hidden',
+      boxSizing: 'border-box',
     }}>
       <h1 style={{ marginBottom: '10px', color: '#ff6b6b', flexShrink: 0 }}>Agent Flight Recorder (AFR)</h1>
       <p style={{ color: '#888', marginBottom: '10px', flexShrink: 0 }}>Internal dev inspector - read only</p>
@@ -112,7 +113,7 @@ export default function InspectorPage() {
         </div>
       )}
 
-      <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
+      <div style={{ flex: 1, overflowY: 'auto', minHeight: 0, maxHeight: 'calc(100vh - 280px)' }}>
         {view === 'runs' && <RunsList onRunClick={handleRunClick} />}
         {view === 'run-detail' && selectedRunId && (
           <RunDetail 
@@ -260,8 +261,9 @@ function RunsList({ onRunClick }: { onRunClick: (runId: string) => void }) {
   if (runs.length === 0) return <div style={{ color: '#888' }}>No runs found. Create some runs to see them here.</div>;
 
   return (
-    <div>
-      <h2 style={{ color: '#4a9eff', marginBottom: '15px' }}>Runs List (newest first) - {runs.length} runs</h2>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      <h2 style={{ color: '#4a9eff', marginBottom: '15px', flexShrink: 0 }}>Runs List (newest first) - {runs.length} runs</h2>
+      <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
         <thead>
           <tr style={{ background: '#2a2a2a', textAlign: 'left' }}>
@@ -294,6 +296,7 @@ function RunsList({ onRunClick }: { onRunClick: (runId: string) => void }) {
           ))}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }
