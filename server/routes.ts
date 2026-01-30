@@ -15,6 +15,7 @@ import {
   getOrCreateRunId,
   resetRunId,
 } from "./memory";
+import { extractJson } from "./lib/json-extract";
 import { getDemoConfig, isDemoMode, DEMO_USER_ID, DEMO_USER_EMAIL, logDemoConfig } from "./demo-config";
 import { analyzeDatabaseError, createAuthError, createApiError, type ApiError } from "./error-helpers";
 import {
@@ -2745,56 +2746,142 @@ CRITICAL RULES:
         if (isToolCall && heavyTools.has(toolCallBuffer.name)) {
           console.log(`🔄 Routing heavy tool ${toolCallBuffer.name} through plan system`);
           
-          let toolArgs: any = {};
+          // STEP 1: Create a run record IMMEDIATELY before parsing (so it appears in AFR even if parsing fails)
+          const runId = `run_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+          const runLabel = `${toolCallBuffer.name} - Pending`;
+          let afrRunCreated = false;
+          
           try {
-            toolArgs = JSON.parse(toolCallBuffer.arguments);
-            
-            // Import the plan-from-chat helper
-            const { createPlanFromToolCall } = await import('./plan-from-chat.js');
-            
-            // Create plan and auto-approve it
-            const result = await createPlanFromToolCall({
-              toolName: toolCallBuffer.name,
-              toolArgs,
+            // Create deep research run record immediately for AFR visibility
+            await storage.createDeepResearchRun({
+              id: runId,
               userId: user.id,
-              sessionId,
-              conversationId,
-              storage
+              prompt: `Tool: ${toolCallBuffer.name}\nRaw args: ${toolCallBuffer.arguments?.slice(0, 500) || 'none'}`,
+              label: runLabel,
+              status: 'in_progress',
+              createdAt: Date.now(),
             });
+            afrRunCreated = true;
+            console.log(`📋 Created AFR run ${runId} for ${toolCallBuffer.name}`);
+          } catch (runErr: any) {
+            console.error(`⚠️ Failed to create AFR run record:`, runErr.message);
+            // Continue anyway - AFR logging is secondary to actual execution
+          }
+          
+          // STEP 2: Parse tool arguments using robust JSON extractor
+          let toolArgs: any = {};
+          const extractResult = extractJson(toolCallBuffer.arguments || '{}');
+          
+          if (!extractResult.success) {
+            // Parsing failed - update AFR run to FAILED with error details
+            const parseError = extractResult.error || 'Unknown JSON parse error';
+            console.error(`❌ JSON extraction failed for ${toolCallBuffer.name}:`, parseError);
             
-            console.log(`✅ Plan ${result.planId} created and executing for ${toolCallBuffer.name}`);
+            if (afrRunCreated) {
+              try {
+                await storage.updateDeepResearchRun(runId, {
+                  status: 'failed',
+                  outputText: `JSON Parse Error: ${parseError}\n\nRaw model output (truncated):\n${extractResult.rawInput || toolCallBuffer.arguments?.slice(0, 1000) || 'none'}`,
+                  label: `${toolCallBuffer.name} - FAILED (parse error)`,
+                });
+                console.log(`📋 Updated AFR run ${runId} to FAILED`);
+              } catch (updateErr: any) {
+                console.error(`⚠️ Failed to update AFR run to failed:`, updateErr.message);
+              }
+            }
             
-            // Stream the acknowledgment message back to chat
-            aiBuffer = result.message;
-            res.write(`data: ${JSON.stringify({ content: result.message })}\n\n`);
-            
-            // Save to conversation
-            appendMessage(sessionId, { role: "assistant", content: result.message });
-            await saveMessage(conversationId, "assistant", result.message);
-            console.log("💾 Saved plan acknowledgment to database");
-            
-            // Log tool call for Tower
-            toolCallsLog.push({
-              name: toolCallBuffer.name,
-              args: toolArgs,
-              result: { planId: result.planId }
-            });
-            
-          } catch (err: any) {
-            console.error(`❌ Error routing ${toolCallBuffer.name} through plan system:`, err.message);
-            aiBuffer = `Sorry, I couldn't start that task: ${err.message}`;
+            aiBuffer = `Sorry, I couldn't understand the model's response. There was a parsing error: ${parseError}`;
             res.write(`data: ${JSON.stringify({ content: aiBuffer })}\n\n`);
             
             appendMessage(sessionId, { role: "assistant", content: aiBuffer });
             await saveMessage(conversationId, "assistant", aiBuffer);
-            console.log("💾 Saved error message to database");
+            console.log("💾 Saved parse error message to database");
             
             // Log failed tool call for Tower
             toolCallsLog.push({
               name: toolCallBuffer.name,
-              args: toolArgs,
-              error: err.message
+              args: {},
+              error: parseError
             });
+          } else {
+            // Parsing succeeded - proceed with plan creation
+            toolArgs = extractResult.data;
+            
+            try {
+              // Import the plan-from-chat helper
+              const { createPlanFromToolCall } = await import('./plan-from-chat.js');
+              
+              // Create plan and auto-approve it
+              const result = await createPlanFromToolCall({
+                toolName: toolCallBuffer.name,
+                toolArgs,
+                userId: user.id,
+                sessionId,
+                conversationId,
+                storage
+              });
+              
+              console.log(`✅ Plan ${result.planId} created and executing for ${toolCallBuffer.name}`);
+              
+              // Update AFR run with success info
+              if (afrRunCreated) {
+                try {
+                  await storage.updateDeepResearchRun(runId, {
+                    status: 'completed',
+                    outputText: `Plan created: ${result.planId}`,
+                    label: `${toolCallBuffer.name} - Plan Created`,
+                  });
+                } catch (updateErr: any) {
+                  console.error(`⚠️ Failed to update AFR run to completed:`, updateErr.message);
+                }
+              }
+              
+              // Stream the acknowledgment message back to chat
+              aiBuffer = result.message;
+              res.write(`data: ${JSON.stringify({ content: result.message })}\n\n`);
+              
+              // Save to conversation
+              appendMessage(sessionId, { role: "assistant", content: result.message });
+              await saveMessage(conversationId, "assistant", result.message);
+              console.log("💾 Saved plan acknowledgment to database");
+              
+              // Log tool call for Tower
+              toolCallsLog.push({
+                name: toolCallBuffer.name,
+                args: toolArgs,
+                result: { planId: result.planId }
+              });
+              
+            } catch (err: any) {
+              console.error(`❌ Error routing ${toolCallBuffer.name} through plan system:`, err.message);
+              
+              // Update AFR run to FAILED
+              if (afrRunCreated) {
+                try {
+                  await storage.updateDeepResearchRun(runId, {
+                    status: 'failed',
+                    outputText: `Plan creation error: ${err.message}\n\nTool args: ${JSON.stringify(toolArgs, null, 2).slice(0, 1000)}`,
+                    label: `${toolCallBuffer.name} - FAILED`,
+                  });
+                } catch (updateErr: any) {
+                  console.error(`⚠️ Failed to update AFR run to failed:`, updateErr.message);
+                }
+              }
+              
+              aiBuffer = `Sorry, I couldn't start that task: ${err.message}`;
+              res.write(`data: ${JSON.stringify({ content: aiBuffer })}\n\n`);
+              
+              appendMessage(sessionId, { role: "assistant", content: aiBuffer });
+              await saveMessage(conversationId, "assistant", aiBuffer);
+              console.log("💾 Saved error message to database");
+              
+              // Log failed tool call for Tower
+              toolCallsLog.push({
+                name: toolCallBuffer.name,
+                args: toolArgs,
+                error: err.message
+              });
+            }
           }
         } else if (isToolCall && toolCallBuffer.name === "bubble_run_batch") {
           console.log("🔧 Tool call detected:", toolCallBuffer.name);
