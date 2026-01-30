@@ -9,7 +9,6 @@
 
 import type { Lead } from '@/features/leads/types';
 import type { TowerRunSummary } from '@/api/towerClient';
-import type { SubconNudge } from '@/features/subconscious/types';
 
 // ==========================================
 // Demo User
@@ -384,53 +383,4 @@ export const demoGoal = {
   createdAt: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString(), // 7 days ago
   progress: 35, // 35% progress
 };
-
-// ==========================================
-// Demo Nudges (for Subconscious Engine)
-// ==========================================
-
-export const demoNudges: SubconNudge[] = [
-  {
-    id: 'demo-nudge-1',
-    title: 'Follow up with The Dog & Duck',
-    summary: 'Initial contact was made 5 days ago. The landlord expressed interest in your IPA range. Time for a follow-up call.',
-    createdAt: new Date(now.getTime() - 2 * 60 * 60 * 1000).toISOString(), // 2 hours ago
-    status: 'new',
-    type: 'follow_up',
-    importanceScore: 85,
-    leadId: 'demo-lead-1',
-    leadName: 'The Dog & Duck',
-  },
-  {
-    id: 'demo-nudge-2',
-    title: 'Stale lead: The Malt House',
-    summary: 'No activity on this lead for 14 days. Consider sending a check-in email or removing from active pipeline.',
-    createdAt: new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString(), // 1 day ago
-    status: 'new',
-    type: 'stale_lead',
-    importanceScore: 65,
-    leadId: 'demo-lead-2',
-    leadName: 'The Malt House',
-  },
-  {
-    id: 'demo-nudge-3',
-    title: 'Opportunity: Yorkshire Beer Festival next month',
-    summary: 'Several of your qualified leads are attending. Good chance to schedule face-to-face meetings.',
-    createdAt: new Date(now.getTime() - 5 * 60 * 60 * 1000).toISOString(), // 5 hours ago
-    status: 'new',
-    type: 'engagement',
-    importanceScore: 75,
-  },
-  {
-    id: 'demo-nudge-4',
-    title: 'Send samples to The Fox & Hounds',
-    summary: 'This qualified lead requested samples 3 days ago. Sending samples increases conversion rate by 40%.',
-    createdAt: new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000).toISOString(), // 3 days ago
-    status: 'seen',
-    type: 'reminder',
-    importanceScore: 90,
-    leadId: 'demo-lead-3',
-    leadName: 'The Fox & Hounds',
-  },
-];
 
