@@ -6257,10 +6257,20 @@ Return structured data with the EXACT placeId provided above: "${placeId}"`;
         });
       }
 
+      // DIAGNOSTIC: Log all auth sources for run creation debugging
+      console.log(`🔬 [RUN_CREATE_DEBUG] POST /api/deep-research auth sources:`);
+      console.log(`   query.user_id: ${req.query.user_id}`);
+      console.log(`   query.userId: ${req.query.userId}`);
+      console.log(`   body.userId: ${validation.data.userId}`);
+      console.log(`   x-session-id header: ${req.headers['x-session-id']}`);
+
       // DEV MODE: Auth is optional for Deep Research during development
       const auth = await getAuthenticatedUserId(req);
+      console.log(`   getAuthenticatedUserId result: ${JSON.stringify(auth)}`);
+      
       // Use authenticated userId if available, otherwise fall back to request body or demo-user
       const userId = auth?.userId || validation.data.userId || "demo-user";
+      console.log(`   FINAL userId for run: ${userId}`);
 
       // Extract sessionId so we can send notifications when research completes
       const sessionId = getSessionId(req);
