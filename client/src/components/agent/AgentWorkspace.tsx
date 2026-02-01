@@ -1,30 +1,27 @@
 /**
  * AgentWorkspace - The default right panel view showing agent activity
  * 
- * Displays:
- * - Activity summary (today's agent work)
- * - Recent discoveries (leads found, opportunities)
- * - Upcoming tasks
- * - Quick access to CRM tools
+ * Layout: Vertical stack with Live Activity anchored at bottom (chat-style)
+ * - Header (fixed)
+ * - Metrics cards (compact, collapsible)
+ * - Live Activity Panel (flex-grow, takes remaining height like a chat)
  */
 
+import { useState } from "react";
 import { Link } from "wouter";
 import { 
   TrendingUp, 
-  Users, 
-  FileText, 
-  Package, 
-  ChevronRight,
-  Zap,
   Target,
   Mail,
   Calendar,
+  Zap,
+  ChevronDown,
+  ChevronUp,
+  ChevronRight,
   Search,
-  ExternalLink
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { LiveActivityPanel } from "@/components/live-activity-panel";
@@ -34,6 +31,8 @@ interface AgentWorkspaceProps {
 }
 
 export function AgentWorkspace({ className }: AgentWorkspaceProps) {
+  const [showMetrics, setShowMetrics] = useState(true);
+  
   // Mock data - these would come from real API calls
   const activitySummary = {
     leadsFound: 0,
@@ -50,17 +49,10 @@ export function AgentWorkspace({ className }: AgentWorkspaceProps) {
     foundAt: string;
   }> = [];
 
-  const upcomingTasks: Array<{
-    id: string;
-    title: string;
-    dueAt: string;
-    priority: "high" | "medium" | "low";
-  }> = [];
-
   return (
-    <div className={cn("flex flex-col h-full", className)}>
-      {/* Header */}
-      <div className="flex-shrink-0 p-6 border-b border-border">
+    <div className={cn("flex flex-col h-full overflow-hidden", className)}>
+      {/* Header - Fixed at top */}
+      <div className="flex-shrink-0 p-6 pb-4 border-b border-border">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-semibold text-foreground">
@@ -77,249 +69,107 @@ export function AgentWorkspace({ className }: AgentWorkspaceProps) {
         </div>
       </div>
 
-      <ScrollArea className="flex-1">
-        <div className="p-6 space-y-6">
-          {/* Live Activity Panel - Real-time decision and progress tracking */}
-          <div className="h-[400px]">
-            <LiveActivityPanel />
-          </div>
-          
-          {/* Activity Metrics */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <Card className="bg-gradient-to-br from-primary/10 to-primary/5 border-primary/20">
-              <CardContent className="p-4">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 rounded-lg bg-primary/20">
-                    <Target className="w-5 h-5 text-primary" />
-                  </div>
-                  <div>
-                    <div className="text-2xl font-bold text-foreground">
-                      {activitySummary.leadsFound}
+      {/* Collapsible Metrics Section */}
+      <div className="flex-shrink-0 border-b border-border/50">
+        <button
+          onClick={() => setShowMetrics(!showMetrics)}
+          className="w-full flex items-center justify-between px-4 py-2 text-xs text-muted-foreground hover:bg-muted/50 transition-colors"
+        >
+          <span>Dashboard Metrics</span>
+          {showMetrics ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+        </button>
+        
+        {showMetrics && (
+          <div className="px-4 pb-3">
+            <div className="grid grid-cols-4 gap-2">
+              <Card className="bg-gradient-to-br from-primary/10 to-primary/5 border-primary/20">
+                <CardContent className="p-2">
+                  <div className="flex items-center gap-2">
+                    <div className="p-1 rounded-md bg-primary/20">
+                      <Target className="w-3 h-3 text-primary" />
                     </div>
-                    <div className="text-xs text-muted-foreground">Leads Found</div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card className="bg-gradient-to-br from-chart-2/10 to-chart-2/5 border-chart-2/20">
-              <CardContent className="p-4">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 rounded-lg bg-chart-2/20">
-                    <Mail className="w-5 h-5 text-chart-2" />
-                  </div>
-                  <div>
-                    <div className="text-2xl font-bold text-foreground">
-                      {activitySummary.emailsSent}
+                    <div>
+                      <div className="text-sm font-bold text-foreground">
+                        {activitySummary.leadsFound}
+                      </div>
+                      <div className="text-[9px] text-muted-foreground">Leads Found</div>
                     </div>
-                    <div className="text-xs text-muted-foreground">Emails Sent</div>
                   </div>
-                </div>
-              </CardContent>
-            </Card>
+                </CardContent>
+              </Card>
 
-            <Card className="bg-gradient-to-br from-chart-3/10 to-chart-3/5 border-chart-3/20">
-              <CardContent className="p-4">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 rounded-lg bg-chart-3/20">
-                    <Calendar className="w-5 h-5 text-chart-3" />
-                  </div>
-                  <div>
-                    <div className="text-2xl font-bold text-foreground">
-                      {activitySummary.meetingsBooked}
+              <Card className="bg-gradient-to-br from-chart-2/10 to-chart-2/5 border-chart-2/20">
+                <CardContent className="p-2">
+                  <div className="flex items-center gap-2">
+                    <div className="p-1 rounded-md bg-chart-2/20">
+                      <Mail className="w-3 h-3 text-chart-2" />
                     </div>
-                    <div className="text-xs text-muted-foreground">Meetings Booked</div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card className="bg-gradient-to-br from-chart-4/10 to-chart-4/5 border-chart-4/20">
-              <CardContent className="p-4">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 rounded-lg bg-chart-4/20">
-                    <TrendingUp className="w-5 h-5 text-chart-4" />
-                  </div>
-                  <div>
-                    <div className="text-2xl font-bold text-foreground">
-                      {activitySummary.successRate}%
+                    <div>
+                      <div className="text-sm font-bold text-foreground">
+                        {activitySummary.emailsSent}
+                      </div>
+                      <div className="text-[9px] text-muted-foreground">Emails Sent</div>
                     </div>
-                    <div className="text-xs text-muted-foreground">Success Rate</div>
                   </div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
+                </CardContent>
+              </Card>
 
-          {/* Recent Discoveries */}
-          <Card>
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="text-lg">Recent Discoveries</CardTitle>
-                  <CardDescription>New leads found by your agent</CardDescription>
-                </div>
-                <Button variant="ghost" size="sm" asChild>
+              <Card className="bg-gradient-to-br from-chart-3/10 to-chart-3/5 border-chart-3/20">
+                <CardContent className="p-2">
+                  <div className="flex items-center gap-2">
+                    <div className="p-1 rounded-md bg-chart-3/20">
+                      <Calendar className="w-3 h-3 text-chart-3" />
+                    </div>
+                    <div>
+                      <div className="text-sm font-bold text-foreground">
+                        {activitySummary.meetingsBooked}
+                      </div>
+                      <div className="text-[9px] text-muted-foreground">Meetings</div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="bg-gradient-to-br from-chart-4/10 to-chart-4/5 border-chart-4/20">
+                <CardContent className="p-2">
+                  <div className="flex items-center gap-2">
+                    <div className="p-1 rounded-md bg-chart-4/20">
+                      <TrendingUp className="w-3 h-3 text-chart-4" />
+                    </div>
+                    <div>
+                      <div className="text-sm font-bold text-foreground">
+                        {activitySummary.successRate}%
+                      </div>
+                      <div className="text-[9px] text-muted-foreground">Success</div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Recent Discoveries - compact inline */}
+            {recentDiscoveries.length > 0 && (
+              <div className="mt-2 flex items-center justify-between">
+                <span className="text-xs text-muted-foreground">
+                  {recentDiscoveries.length} recent discoveries
+                </span>
+                <Button variant="ghost" size="sm" className="h-6 text-xs" asChild>
                   <Link href="/leads">
-                    View All <ChevronRight className="w-4 h-4 ml-1" />
+                    View All <ChevronRight className="w-3 h-3 ml-1" />
                   </Link>
                 </Button>
               </div>
-            </CardHeader>
-            <CardContent>
-              {recentDiscoveries.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-8 text-center">
-                  <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
-                    <Search className="w-8 h-8 text-muted-foreground" />
-                  </div>
-                  <h3 className="font-medium text-foreground mb-1">
-                    Your agent is searching...
-                  </h3>
-                  <p className="text-sm text-muted-foreground max-w-sm">
-                    Tell your agent what kind of customers you're looking for, 
-                    and they'll find them for you.
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {recentDiscoveries.map((discovery) => (
-                    <div
-                      key={discovery.id}
-                      className="flex items-center justify-between p-3 rounded-lg bg-muted/50 hover:bg-muted transition-colors cursor-pointer"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-                          <Target className="w-5 h-5 text-primary" />
-                        </div>
-                        <div>
-                          <div className="font-medium text-foreground">{discovery.name}</div>
-                          <div className="text-xs text-muted-foreground">{discovery.type}</div>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Badge variant="secondary" className="text-xs">
-                          Score: {discovery.score}
-                        </Badge>
-                        <ChevronRight className="w-4 h-4 text-muted-foreground" />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+            )}
+          </div>
+        )}
+      </div>
 
-          {/* Upcoming Agent Tasks */}
-          <Card>
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="text-lg">Agent's Work Queue</CardTitle>
-                  <CardDescription>What your agent is planning to do</CardDescription>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {upcomingTasks.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-8 text-center">
-                  <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
-                    <Zap className="w-8 h-8 text-muted-foreground" />
-                  </div>
-                  <h3 className="font-medium text-foreground mb-1">
-                    Ready for instructions
-                  </h3>
-                  <p className="text-sm text-muted-foreground max-w-sm">
-                    Your agent is waiting for your next instruction. 
-                    Tell them what you need!
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {upcomingTasks.map((task) => (
-                    <div
-                      key={task.id}
-                      className="flex items-center justify-between p-3 rounded-lg border border-border hover:bg-muted/50 transition-colors"
-                    >
-                      <div className="flex items-center gap-3">
-                        <Badge
-                          variant={
-                            task.priority === "high"
-                              ? "destructive"
-                              : task.priority === "medium"
-                              ? "default"
-                              : "secondary"
-                          }
-                          className="text-xs"
-                        >
-                          {task.priority}
-                        </Badge>
-                        <span className="text-sm text-foreground">{task.title}</span>
-                      </div>
-                      <span className="text-xs text-muted-foreground">{task.dueAt}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Quick Access CRM */}
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-lg">Agent's Workspace Tools</CardTitle>
-              <CardDescription>Access the CRM where your agent tracks everything</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                <Button
-                  variant="outline"
-                  className="h-auto py-4 flex-col gap-2"
-                  asChild
-                >
-                  <Link href="/auth/crm/customers">
-                    <Users className="w-5 h-5 text-primary" />
-                    <span className="text-sm">Customers</span>
-                  </Link>
-                </Button>
-                <Button
-                  variant="outline"
-                  className="h-auto py-4 flex-col gap-2"
-                  asChild
-                >
-                  <Link href="/auth/crm/orders">
-                    <FileText className="w-5 h-5 text-primary" />
-                    <span className="text-sm">Orders</span>
-                  </Link>
-                </Button>
-                <Button
-                  variant="outline"
-                  className="h-auto py-4 flex-col gap-2"
-                  asChild
-                >
-                  <Link href="/auth/crm/products">
-                    <Package className="w-5 h-5 text-primary" />
-                    <span className="text-sm">Products</span>
-                  </Link>
-                </Button>
-                <Button
-                  variant="outline"
-                  className="h-auto py-4 flex-col gap-2"
-                  asChild
-                >
-                  <Link href="/leads">
-                    <Target className="w-5 h-5 text-primary" />
-                    <span className="text-sm">Leads</span>
-                  </Link>
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      </ScrollArea>
+      {/* Live Activity Panel - Takes remaining height (flex-grow), chat-style at bottom */}
+      <div className="flex-1 min-h-0 p-4">
+        <LiveActivityPanel />
+      </div>
     </div>
   );
 }
 
 export default AgentWorkspace;
-
-
