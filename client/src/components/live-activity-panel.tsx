@@ -828,37 +828,41 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
           <div 
             ref={scrollRef}
             className={cn(
-              "h-full overflow-y-auto px-4 py-2 transition-opacity duration-200 flex flex-col",
+              "h-full overflow-y-auto px-4 py-2 transition-opacity duration-200",
               showOverlay && "opacity-0"
             )}
             onScroll={handleScroll}
           >
-            {/* Spacer to push events to bottom (chat-style) */}
-            <div className="flex-1 min-h-0" />
+            {events.map((event, index) => (
+              <TimelineEvent 
+                key={event.id} 
+                event={event} 
+                isLast={index === events.length - 1 && confirmedTerminal}
+              />
+            ))}
             
-            {/* Events container - grows from bottom */}
-            <div className="flex-shrink-0">
-              {events.map((event, index) => (
-                <TimelineEvent 
-                  key={event.id} 
-                  event={event} 
-                  isLast={index === events.length - 1 && confirmedTerminal}
-                />
-              ))}
-              
-              {/* Inline thinking indicator after last event - shows during gaps when working */}
-              {showThinking && isWorking && (
-                <ThinkingIndicator variant="inline" />
-              )}
-              
-              {/* Terminal status indicator - only shows when terminal is confirmed */}
-              {confirmedTerminal && (mappedStatus === 'completed' || mappedStatus === 'failed' || mappedStatus === 'stopped') && (
-                <SequenceStatusRow status={mappedStatus} />
-              )}
-              
-              {/* Bottom sentinel for chat-style auto-scroll */}
-              <div ref={bottomSentinelRef} className="h-1" />
-            </div>
+            {/* Inline thinking indicator after last event - shows during gaps when working */}
+            {showThinking && isWorking && (
+              <ThinkingIndicator variant="inline" />
+            )}
+            
+            {/* Working indicator - inline at bottom of event stream */}
+            {isWorking && !showThinking && (
+              <div className="flex items-center gap-2 py-2 px-1 text-muted-foreground">
+                <div className="flex items-center gap-0.5">
+                  <Brain className="h-3 w-3 animate-pulse" />
+                </div>
+                <span className="text-xs">Working...</span>
+              </div>
+            )}
+            
+            {/* Terminal status indicator - only shows when terminal is confirmed */}
+            {confirmedTerminal && (mappedStatus === 'completed' || mappedStatus === 'failed' || mappedStatus === 'stopped') && (
+              <SequenceStatusRow status={mappedStatus} />
+            )}
+            
+            {/* Bottom sentinel for chat-style auto-scroll */}
+            <div ref={bottomSentinelRef} className="h-1" />
           </div>
         )}
       </CardContent>
@@ -879,13 +883,6 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
             <ChevronDown className="h-3 w-3 mr-1" />
             Jump to latest
           </Button>
-        </div>
-      )}
-      
-      {/* Pinned footer - Working indicator stays visible at bottom */}
-      {isWorking && (
-        <div className="shrink-0 border-t bg-background px-4 py-2">
-          <ThinkingIndicator variant="footer" />
         </div>
       )}
     </Card>
