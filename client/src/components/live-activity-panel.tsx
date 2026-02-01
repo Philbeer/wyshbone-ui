@@ -70,6 +70,42 @@ function ThinkingIndicator({ variant = "inline" }: { variant?: "inline" | "foote
   );
 }
 
+// Starting overlay component - shows for 2 seconds when new request starts
+function StartingOverlay() {
+  const [phase, setPhase] = useState(0);
+  
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setPhase(p => (p + 1) % 3);
+    }, 400);
+    return () => clearInterval(interval);
+  }, []);
+  
+  const brainCount = phase + 1;
+  
+  return (
+    <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-card/95 backdrop-blur-sm animate-in fade-in duration-200">
+      <div className="flex flex-col items-center gap-3">
+        <div className="flex items-center gap-1">
+          {[0, 1, 2].map(i => (
+            <Brain 
+              key={i}
+              className={cn(
+                "h-5 w-5 text-muted-foreground transition-all duration-300",
+                i < brainCount ? "opacity-80 scale-110" : "opacity-25 scale-100"
+              )} 
+            />
+          ))}
+        </div>
+        <div className="text-center">
+          <p className="text-sm font-medium text-foreground">Starting request...</p>
+          <p className="text-xs text-muted-foreground mt-0.5">Routing and planning</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // Terminal status row
 function SequenceStatusRow({ status }: { status: "completed" | "failed" | "stopped" }) {
   const config = {
@@ -302,6 +338,7 @@ interface LiveActivityPanelProps {
 }
 
 const THINKING_THRESHOLD_MS = 800;
+const OVERLAY_DURATION_MS = 2000;
 
 export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: LiveActivityPanelProps) {
   const { user } = useUser();
@@ -311,9 +348,12 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
   const [lastFetch, setLastFetch] = useState<Date | null>(null);
   const [autoScroll, setAutoScroll] = useState(true);
   const [showThinking, setShowThinking] = useState(false);
+  const [showOverlay, setShowOverlay] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const prevEventCount = useRef(0);
+  const prevRequestIdRef = useRef<string | null | undefined>(undefined);
   const thinkingTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const overlayTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const fetchStream = useCallback(async () => {
     try {
@@ -370,6 +410,43 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
   useEffect(() => {
     fetchStream();
   }, [fetchStream]);
+
+  // Detect new request and show overlay for 2 seconds
+  useEffect(() => {
+    // Trigger on any request ID change (including initial undefined -> value)
+    if (activeClientRequestId && activeClientRequestId !== prevRequestIdRef.current) {
+      // Clear any existing timer FIRST (before setting new one)
+      if (overlayTimerRef.current) {
+        clearTimeout(overlayTimerRef.current);
+        overlayTimerRef.current = null;
+      }
+      
+      // New request started - show overlay, reset event count, and clear previous stream
+      setShowOverlay(true);
+      prevEventCount.current = 0;
+      setStream(null); // Clear previous events for visual reset
+      
+      // Hide overlay after duration
+      overlayTimerRef.current = setTimeout(() => {
+        setShowOverlay(false);
+        overlayTimerRef.current = null;
+      }, OVERLAY_DURATION_MS);
+    }
+    
+    prevRequestIdRef.current = activeClientRequestId;
+    
+    // Only clear timer on component unmount, not on every dep change
+  }, [activeClientRequestId]);
+  
+  // Cleanup on unmount only
+  useEffect(() => {
+    return () => {
+      if (overlayTimerRef.current) {
+        clearTimeout(overlayTimerRef.current);
+        overlayTimerRef.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     const isActive = stream?.status && !['idle', 'completed', 'failed'].includes(stream.status) && (stream?.status as string) !== 'stopped';
@@ -496,7 +573,10 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
         )}
       </CardHeader>
 
-      <CardContent className="flex-1 overflow-hidden p-0">
+      <CardContent className="flex-1 overflow-hidden p-0 relative">
+        {/* Starting overlay - shows for 2 seconds when new request begins */}
+        {showOverlay && <StartingOverlay />}
+        
         {!hasEvents ? (
           <div className="h-full flex items-center justify-center p-6">
             <div className="text-center">
@@ -512,7 +592,10 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
         ) : (
           <div 
             ref={scrollRef}
-            className="h-full overflow-y-auto px-4 py-2"
+            className={cn(
+              "h-full overflow-y-auto px-4 py-2 transition-opacity duration-200",
+              showOverlay && "opacity-0"
+            )}
             onScroll={handleScroll}
           >
             {events.map((event, index) => (
@@ -524,7 +607,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
             ))}
             
             {/* Inline thinking indicator after last event */}
-            {showThinking && mappedStatus !== 'completed' && mappedStatus !== 'failed' && mappedStatus !== 'stopped' && (
+            {showThinking && !showOverlay && mappedStatus !== 'completed' && mappedStatus !== 'failed' && mappedStatus !== 'stopped' && (
               <ThinkingIndicator variant="inline" />
             )}
             
@@ -534,7 +617,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
             )}
             
             {/* Footer working indicator when active but not showing inline thinking */}
-            {mappedStatus !== 'idle' && mappedStatus !== 'completed' && mappedStatus !== 'failed' && mappedStatus !== 'stopped' && !showThinking && (
+            {!showOverlay && mappedStatus !== 'idle' && mappedStatus !== 'completed' && mappedStatus !== 'failed' && mappedStatus !== 'stopped' && !showThinking && (
               <ThinkingIndicator variant="footer" />
             )}
           </div>

@@ -1,0 +1,81 @@
+UI-only request (no backend changes): Make the “thinking” state visibly obvious, even when routing happens too fast to notice.
+
+Problem:
+- The thinking indicator is probably working, but events arrive so quickly that the brains never show long enough to be noticed.
+- Also, the Live Activity panel can change to a new request but look almost identical except for the search term, so the user does not notice it updated.
+
+What I want:
+1) Add a forced 2 second “thinking display” at the start of every new request
+- As soon as a new client_request_id becomes active (user submits a message), the Live Activity panel should:
+  A) briefly clear / blank the timeline area
+  B) show a full-panel overlay state for 2 seconds that says something like:
+     - Title: “Starting…”
+     - Subtitle: “Firing up the brain” (or similar, keep it neutral, not cringe)
+     - Animated brains / dots
+  C) After 2 seconds, fade out the overlay and reveal the normal timeline, which then continues updating as events arrive.
+- This must happen even if the router decision and tool_call events arrive instantly.
+- The overlay is purely a presentation delay, not delaying the actual agent work.
+
+2) Keep the existing inline “thinking row” between events
+- After the overlay disappears, if we are still waiting for more events, show the inline brains row as we already planned.
+- If events are streaming, the inline row might not show, and that is fine because the overlay already signaled liveness.
+
+3) Make request changes visually obvious
+- When a new request starts, the whole Live Activity panel should visually reset:
+  - Clear previous events (or collapse them behind a “Previous request” separator)
+  - Show the overlay for 2 seconds
+  - Then show the new request’s events
+This makes it impossible to miss that we switched context.
+
+Implementation constraints:
+- UI only. Do NOT add server sleeps or artificial backend delays.
+- Do NOT delay actual processing. The system continues working while the overlay is shown.
+- Keep it tasteful: subtle animation, short copy.
+
+Suggested implementation approach:
+A) Detect “new request started”
+- In the panel, when the active client_request_id changes (or when the user submits a message and we set activeClientRequestId):
+  - set overlayVisible = true
+  - set overlayStartAt = Date.now()
+  - start a timer that sets overlayVisible = false after 2000ms
+  - also set a “minimum show time” so it does not flicker if requests come in quick succession
+
+B) While overlayVisible:
+- Render an overlay that covers the timeline list area (not the whole app, just the Live Activity card)
+- The overlay should hide the timeline beneath it (so it “goes blank”)
+- Optional: blur the timeline behind for a nicer feel, but blank is fine.
+
+C) After overlayVisible becomes false:
+- Render the normal timeline
+- Continue polling as normal
+- If we are still waiting for next events, show the inline brains row.
+
+D) Edge cases:
+- If a second request starts while overlay for the first is visible:
+  - reset the timer and restart the 2 second overlay for the new request.
+- If the run is already terminal by the time the overlay ends:
+  - show the timeline immediately after overlay with “Sequence complete” row (still fine).
+
+Copy text (keep boring, not AI hype):
+- Heading options:
+  - “Starting request…”
+  - “Working…”
+- Subheading options:
+  - “Preparing tools and routing”
+  - “Routing and planning”
+Avoid “firing up the brain” if it feels too gimmicky, but if we want that vibe keep it short:
+  - “Starting up”
+  - “Thinking…”
+
+Acceptance criteria:
+- Every time I hit Enter to submit a prompt, I see a clear 2 second “working” overlay in the Live Activity panel, regardless of how fast events arrive.
+- After the overlay, I see the correct events for that request.
+- The panel reset makes it obvious when the request/search term changes.
+
+Deliverable:
+- Implement the overlay and forced 2 second display in the Live Activity panel component.
+- No changes anywhere else.
+
+Files likely:
+- client/src/components/LiveActivityPanel.tsx
+- Any ActivityTimeline component CSS / tailwind
