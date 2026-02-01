@@ -42,8 +42,6 @@ import { DemoModeBanner } from "@/components/DemoModeBanner";
 import { DevBanner } from "@/components/DevBanner";
 import { AgentChatPanel } from "@/components/agent/AgentChatPanel";
 import { LiveActivityPanel } from "@/components/live-activity-panel";
-import { PlanApprovalPanel } from "@/components/plan-approval-panel";
-import { ProgressWidget } from "@/components/progress-widget";
 import { AgentStatusBadge } from "@/components/AgentStatusBadge";
 import { XeroStatusBadge } from "@/components/XeroStatusBadge";
 // Results Panel imports
@@ -743,14 +741,10 @@ function RightPanelContent() {
     );
   }
   
-  // Otherwise show the default run/progress panels
+  // Otherwise show Live Activity as the main panel (no plan/progress panels)
   return (
-    <div className="p-4 flex flex-col gap-4 overflow-y-auto h-full">
-      <div className="h-[300px]">
-        <LiveActivityPanel />
-      </div>
-      <PlanApprovalPanel />
-      <ProgressWidget />
+    <div className="p-4 flex flex-col h-full">
+      <LiveActivityPanel />
     </div>
   );
 }

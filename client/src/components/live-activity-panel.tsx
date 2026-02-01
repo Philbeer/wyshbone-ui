@@ -5,7 +5,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { 
   RefreshCw, Clock, CheckCircle2, XCircle, Loader2, AlertTriangle, 
   MessageSquare, Route, FileSearch, Wrench, ListChecks, Play, ChevronDown, ChevronUp,
-  Zap, Brain, Send, Sparkles
+  Zap, Brain, Send, Sparkles, StopCircle
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUser } from "@/contexts/UserContext";
@@ -357,8 +357,8 @@ interface LiveActivityPanelProps {
 
 const THINKING_THRESHOLD_MS = 200; // Show inline thinking after 200ms gap
 const OVERLAY_DURATION_MS = 2000;
-const TERMINAL_CONFIRM_CYCLES = 2; // Wait 2 poll cycles after terminal status to confirm
-const TERMINAL_TIMEOUT_MS = 5000; // Fallback: confirm terminal after 5 seconds with no new events
+const TERMINAL_CONFIRM_CYCLES = 1; // Wait 1 poll cycle after terminal status to confirm
+const TERMINAL_TIMEOUT_MS = 2000; // Fallback: confirm terminal after 2 seconds with no new events
 const DEBUG_TERMINAL = true; // TEMPORARY: Enable debug logs to diagnose status issues
 
 // Active statuses where we show working indicators
@@ -377,6 +377,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
   const [showThinking, setShowThinking] = useState(false);
   const [showOverlay, setShowOverlay] = useState(false);
   const [confirmedTerminal, setConfirmedTerminal] = useState(false); // True only after terminal is confirmed
+  const [stopping, setStopping] = useState(false);
   
   // Check if there's an active plan (for mode display)
   const hasActivePlan = plan && ['approved', 'executing', 'pending_approval'].includes(plan.status);
@@ -650,6 +651,32 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
     const isAtBottom = target.scrollHeight - target.scrollTop <= target.clientHeight + 50;
     setAutoScroll(isAtBottom);
   };
+  
+  // Stop handler - stops the current active run/plan
+  const handleStop = async () => {
+    if (stopping) return;
+    setStopping(true);
+    try {
+      // Try to stop by plan first
+      if (plan?.id) {
+        const response = await fetch(`/api/plan/stop`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ planId: plan.id }),
+        });
+        if (response.ok) {
+          console.log('🛑 Plan stopped');
+          return;
+        }
+      }
+      // Fallback: could also try to cancel current request
+      console.log('🛑 Stop requested (no active plan to stop)');
+    } catch (error) {
+      console.error('Failed to stop:', error);
+    } finally {
+      setStopping(false);
+    }
+  };
 
   // Compute display status - uses confirmedTerminal to prevent showing terminal too early
   const mappedStatus: OverallStatus = (() => {
@@ -704,7 +731,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
 
   if (loading) {
     return (
-      <Card className="flex flex-col" style={{ height: '66vh', minHeight: '400px' }}>
+      <Card className="flex flex-col flex-1">
         <CardHeader className="pb-2 shrink-0">
           <CardTitle className="text-sm font-medium flex items-center gap-2">
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -720,7 +747,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
 
   if (error) {
     return (
-      <Card className="flex flex-col" style={{ height: '66vh', minHeight: '400px' }}>
+      <Card className="flex flex-col flex-1">
         <CardHeader className="pb-2 shrink-0">
           <CardTitle className="text-sm font-medium">Live Activity</CardTitle>
         </CardHeader>
@@ -739,21 +766,29 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
   const hasEvents = events.length > 0;
 
   return (
-    <Card className="flex flex-col" style={{ height: '66vh', minHeight: '400px' }}>
+    <Card className="flex flex-col flex-1">
       <CardHeader className="pb-2 shrink-0">
         <div className="flex items-center justify-between">
           <CardTitle className="text-sm font-medium">Live Activity</CardTitle>
           <div className="flex items-center gap-2">
-            {/* Mode indicator - shows when there's an active plan */}
-            {hasActivePlan && isWorking && (
-              <span className={cn(
-                "px-1.5 py-0.5 rounded text-[10px] font-medium",
-                isMultiStepPlan 
-                  ? "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-200"
-                  : "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-200"
-              )}>
-                {isMultiStepPlan ? 'Multi-step' : 'Single action'}
-              </span>
+            {/* Stop button - only visible when working */}
+            {isWorking && (
+              <Button 
+                variant="destructive" 
+                size="sm" 
+                onClick={handleStop}
+                disabled={stopping}
+                className="h-6 px-2 text-xs"
+              >
+                {stopping ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <>
+                    <StopCircle className="h-3 w-3 mr-1" />
+                    Stop
+                  </>
+                )}
+              </Button>
             )}
             <StatusBadge status={mappedStatus} />
             {lastFetch && (
