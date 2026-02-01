@@ -308,12 +308,144 @@ export function createAfrRouter(_storage: typeof storage) {
           durationMs: a.durationMs,
           error: a.errorMessage,
           interestingFlag: a.interestingFlag,
+          clientRequestId: a.clientRequestId,
+          routerDecision: a.routerDecision,
+          routerReason: a.routerReason,
+          parentActivityId: a.parentActivityId,
         })),
         count: activities.length
       });
     } catch (error: any) {
       console.error("AFR /activities error:", error);
       res.status(500).json({ error: "Failed to fetch activities" });
+    }
+  });
+
+  router.get("/timeline", async (req, res) => {
+    try {
+      const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
+      const userId = req.query.userId as string | undefined;
+      
+      const activities = await storage.listAgentActivities(limit * 5, userId);
+      
+      const grouped = new Map<string, {
+        clientRequestId: string;
+        firstTimestamp: number;
+        lastTimestamp: number;
+        conversationId: string | null;
+        userMessage: string | null;
+        routerDecision: string | null;
+        events: Array<{
+          id: string;
+          timestamp: string;
+          runType: string;
+          label: string;
+          action: string;
+          status: string;
+          runId: string | null;
+          durationMs: number | null;
+          error: string | null;
+        }>;
+      }>();
+
+      for (const a of activities) {
+        const crid = a.clientRequestId;
+        if (!crid) continue;
+
+        const metadata = a.metadata as Record<string, any> | null;
+        const runType = metadata?.runType || 'unknown';
+
+        const event = {
+          id: a.id,
+          timestamp: new Date(a.timestamp).toISOString(),
+          runType,
+          label: a.taskGenerated,
+          action: a.actionTaken,
+          status: a.status,
+          runId: a.runId,
+          durationMs: a.durationMs,
+          error: a.errorMessage,
+        };
+
+        if (!grouped.has(crid)) {
+          grouped.set(crid, {
+            clientRequestId: crid,
+            firstTimestamp: a.timestamp,
+            lastTimestamp: a.timestamp,
+            conversationId: a.conversationId,
+            userMessage: runType === 'user_message' ? a.taskGenerated : null,
+            routerDecision: a.routerDecision || null,
+            events: [event],
+          });
+        } else {
+          const group = grouped.get(crid)!;
+          group.events.push(event);
+          group.firstTimestamp = Math.min(group.firstTimestamp, a.timestamp);
+          group.lastTimestamp = Math.max(group.lastTimestamp, a.timestamp);
+          if (runType === 'user_message' && !group.userMessage) {
+            group.userMessage = a.taskGenerated;
+          }
+          if (a.routerDecision && !group.routerDecision) {
+            group.routerDecision = a.routerDecision;
+          }
+        }
+      }
+
+      const timeline = Array.from(grouped.values())
+        .sort((a, b) => b.lastTimestamp - a.lastTimestamp)
+        .slice(0, limit)
+        .map(g => ({
+          ...g,
+          firstTimestamp: new Date(g.firstTimestamp).toISOString(),
+          lastTimestamp: new Date(g.lastTimestamp).toISOString(),
+          eventCount: g.events.length,
+          events: g.events.sort((a, b) => 
+            new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+          ),
+        }));
+
+      res.json({
+        timeline,
+        count: timeline.length,
+        message: 'Activities grouped by client_request_id (correlation ID)'
+      });
+    } catch (error: any) {
+      console.error("AFR /timeline error:", error);
+      res.status(500).json({ error: "Failed to fetch timeline" });
+    }
+  });
+
+  router.post("/cleanup-stale", async (req, res) => {
+    try {
+      const staleThresholdMs = parseInt(req.body?.staleThresholdMs as string) || 30 * 60 * 1000;
+      const cutoffTime = Date.now() - staleThresholdMs;
+
+      const staleRuns = await storage.listDeepResearchRunsForAfr(500);
+      const runningRuns = staleRuns.filter(r => 
+        (r.status === 'in_progress' || r.status === 'running') && 
+        r.createdAt < cutoffTime
+      );
+
+      const cleaned: string[] = [];
+      for (const run of runningRuns) {
+        await storage.updateDeepResearchRun(run.id, {
+          status: 'failed',
+          error: `Marked as failed: No heartbeat for ${Math.round(staleThresholdMs / 60000)} minutes`,
+        });
+        cleaned.push(run.id);
+      }
+
+      console.log(`🧹 AFR cleanup: Marked ${cleaned.length} stale runs as failed`);
+      
+      res.json({
+        cleaned: cleaned.length,
+        runIds: cleaned,
+        staleThresholdMs,
+        message: `Marked ${cleaned.length} stale "running" entries as failed`
+      });
+    } catch (error: any) {
+      console.error("AFR /cleanup-stale error:", error);
+      res.status(500).json({ error: "Failed to cleanup stale runs" });
     }
   });
 
