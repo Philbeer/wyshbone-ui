@@ -2214,6 +2214,18 @@ CRITICAL RULES:
           // We have a valid topic - start the research
           const researchTopic = validation.research_topic || latestUserText;
           
+          // AFR: Log router decision for deep research
+          if (clientRequestId) {
+            await logRouterDecision({
+              userId: user.id,
+              conversationId,
+              clientRequestId,
+              decision: 'deep_research',
+              reason: `Research topic validated: ${researchTopic.slice(0, 50)}`,
+              signals: { researchTopic, topicSource: validation.topic_source },
+            }).catch(err => console.error('AFR router log error:', err.message));
+          }
+          
           // DIRECT CALL: Import and call startBackgroundResponsesJob directly
           // This avoids internal HTTP fetch which drops auth headers
           const { startBackgroundResponsesJob } = await import("./deepResearch");
@@ -3573,6 +3585,18 @@ CRITICAL RULES:
       extractAndSaveFacts(user.id, conversationId, latestUserText, aiBuffer, openai)
         .then(() => console.log("✅ Facts extracted and saved"))
         .catch((err) => console.error("❌ Fact extraction failed:", err.message));
+
+      // AFR: Log router decision for direct response (no tool calls)
+      if (clientRequestId && toolCallsLog.length === 0) {
+        await logRouterDecision({
+          userId: user.id,
+          conversationId,
+          clientRequestId,
+          decision: 'direct_response',
+          reason: 'Standard chat response without tool calls',
+          signals: { responseLength: aiBuffer.length },
+        }).catch(err => console.error('AFR router log error:', err.message));
+      }
 
       // 🏢 TOWER: Log successful completion
       await completeRunLog(

@@ -41,7 +41,7 @@ import { OnboardingWizardProvider, useOnboardingWizard } from "@/contexts/Onboar
 import { DemoModeBanner } from "@/components/DemoModeBanner";
 import { DevBanner } from "@/components/DevBanner";
 import { AgentChatPanel } from "@/components/agent/AgentChatPanel";
-import { MostRecentRunPanel } from "@/components/most-recent-run-panel";
+import { LiveActivityPanel } from "@/components/live-activity-panel";
 import { PlanApprovalPanel } from "@/components/plan-approval-panel";
 import { ProgressWidget } from "@/components/progress-widget";
 import { AgentStatusBadge } from "@/components/AgentStatusBadge";
@@ -746,7 +746,9 @@ function RightPanelContent() {
   // Otherwise show the default run/progress panels
   return (
     <div className="p-4 flex flex-col gap-4 overflow-y-auto h-full">
-      <MostRecentRunPanel />
+      <div className="h-[300px]">
+        <LiveActivityPanel />
+      </div>
       <PlanApprovalPanel />
       <ProgressWidget />
     </div>
