@@ -5,10 +5,100 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { 
   RefreshCw, Clock, CheckCircle2, XCircle, Loader2, AlertTriangle, 
   MessageSquare, Route, FileSearch, Wrench, ListChecks, Play, ChevronDown, ChevronUp,
-  Zap, Brain, Send
+  Zap, Brain, Send, Sparkles
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUser } from "@/contexts/UserContext";
+
+// Animated brain icons for thinking indicator
+function ThinkingIndicator({ variant = "inline" }: { variant?: "inline" | "footer" }) {
+  const [phase, setPhase] = useState(0);
+  
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setPhase(p => (p + 1) % 3);
+    }, 400);
+    return () => clearInterval(interval);
+  }, []);
+  
+  const brainCount = phase + 1;
+  
+  if (variant === "footer") {
+    return (
+      <div className="flex items-center gap-2 py-2 px-1 text-muted-foreground">
+        <div className="flex items-center gap-0.5">
+          {[0, 1, 2].map(i => (
+            <Brain 
+              key={i}
+              className={cn(
+                "h-3 w-3 transition-opacity duration-200",
+                i < brainCount ? "opacity-70" : "opacity-20"
+              )} 
+            />
+          ))}
+        </div>
+        <span className="text-xs">Working...</span>
+      </div>
+    );
+  }
+  
+  return (
+    <div className="relative pb-4">
+      <span className="absolute left-[7px] top-0 -ml-px h-full w-0.5 bg-border" aria-hidden="true" />
+      <div className="relative flex items-start gap-3">
+        <div className="flex h-4 items-center">
+          <Sparkles className="h-4 w-4 text-muted-foreground/50 animate-pulse" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-0.5">
+              {[0, 1, 2].map(i => (
+                <Brain 
+                  key={i}
+                  className={cn(
+                    "h-3 w-3 text-muted-foreground transition-opacity duration-200",
+                    i < brainCount ? "opacity-60" : "opacity-20"
+                  )} 
+                />
+              ))}
+            </div>
+            <span className="text-xs text-muted-foreground/70">Thinking...</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Terminal status row
+function SequenceStatusRow({ status }: { status: "completed" | "failed" | "stopped" }) {
+  const config = {
+    completed: { 
+      icon: CheckCircle2, 
+      label: "Sequence complete", 
+      className: "text-green-500/70" 
+    },
+    failed: { 
+      icon: XCircle, 
+      label: "Sequence failed", 
+      className: "text-red-500/70" 
+    },
+    stopped: { 
+      icon: AlertTriangle, 
+      label: "Sequence stopped", 
+      className: "text-orange-500/70" 
+    },
+  };
+  
+  const { icon: Icon, label, className } = config[status];
+  
+  return (
+    <div className="flex items-center gap-2 py-2 px-1 border-t border-border/50 mt-2">
+      <Icon className={cn("h-4 w-4", className)} />
+      <span className={cn("text-xs font-medium", className)}>{label}</span>
+    </div>
+  );
+}
 
 interface StreamEvent {
   id: string;
@@ -211,6 +301,8 @@ interface LiveActivityPanelProps {
   onRequestIdChange?: (id: string | null) => void;
 }
 
+const THINKING_THRESHOLD_MS = 800;
+
 export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: LiveActivityPanelProps) {
   const { user } = useUser();
   const [stream, setStream] = useState<StreamResponse | null>(null);
@@ -218,8 +310,10 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
   const [error, setError] = useState<string | null>(null);
   const [lastFetch, setLastFetch] = useState<Date | null>(null);
   const [autoScroll, setAutoScroll] = useState(true);
+  const [showThinking, setShowThinking] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const prevEventCount = useRef(0);
+  const thinkingTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const fetchStream = useCallback(async () => {
     try {
@@ -253,6 +347,16 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
           });
         }, 100);
       }
+      
+      // Reset thinking indicator when new events arrive
+      if (data.event_count > prevEventCount.current) {
+        setShowThinking(false);
+        if (thinkingTimerRef.current) {
+          clearTimeout(thinkingTimerRef.current);
+          thinkingTimerRef.current = null;
+        }
+      }
+      
       prevEventCount.current = data.event_count;
 
     } catch (err: any) {
@@ -268,7 +372,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
   }, [fetchStream]);
 
   useEffect(() => {
-    const isActive = stream?.status && !['idle', 'completed', 'failed'].includes(stream.status);
+    const isActive = stream?.status && !['idle', 'completed', 'failed'].includes(stream.status) && (stream?.status as string) !== 'stopped';
     const intervalMs = isActive ? 1500 : 10000;
 
     const interval = setInterval(fetchStream, intervalMs);
@@ -280,6 +384,36 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
     window.addEventListener("focus", handleFocus);
     return () => window.removeEventListener("focus", handleFocus);
   }, [fetchStream]);
+
+  // Manage thinking indicator timer
+  useEffect(() => {
+    const isTerminal = stream?.status && ['completed', 'failed'].includes(stream.status) || (stream?.status as string) === 'stopped';
+    const isActive = stream?.status && !['idle', 'completed', 'failed'].includes(stream.status) && (stream?.status as string) !== 'stopped';
+    
+    if (isTerminal || !isActive) {
+      setShowThinking(false);
+      if (thinkingTimerRef.current) {
+        clearTimeout(thinkingTimerRef.current);
+        thinkingTimerRef.current = null;
+      }
+      return;
+    }
+    
+    // Start timer to show thinking indicator after threshold
+    if (!thinkingTimerRef.current && isActive) {
+      thinkingTimerRef.current = setTimeout(() => {
+        setShowThinking(true);
+        thinkingTimerRef.current = null;
+      }, THINKING_THRESHOLD_MS);
+    }
+    
+    return () => {
+      if (thinkingTimerRef.current) {
+        clearTimeout(thinkingTimerRef.current);
+        thinkingTimerRef.current = null;
+      }
+    };
+  }, [stream?.status, stream?.event_count]);
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const target = e.currentTarget;
@@ -301,6 +435,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
     }
     if (s === 'completed') return 'completed';
     if (s === 'failed') return 'failed';
+    if ((s as string) === 'stopped') return 'stopped';
     return 'idle';
   })();
 
@@ -384,15 +519,23 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
               <TimelineEvent 
                 key={event.id} 
                 event={event} 
-                isLast={index === events.length - 1}
+                isLast={index === events.length - 1 && !showThinking && (mappedStatus === 'completed' || mappedStatus === 'failed' || mappedStatus === 'stopped')}
               />
             ))}
             
-            {mappedStatus !== 'idle' && mappedStatus !== 'completed' && mappedStatus !== 'failed' && (
-              <div className="flex items-center gap-2 py-2 text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                <span className="text-xs">Still working...</span>
-              </div>
+            {/* Inline thinking indicator after last event */}
+            {showThinking && mappedStatus !== 'completed' && mappedStatus !== 'failed' && mappedStatus !== 'stopped' && (
+              <ThinkingIndicator variant="inline" />
+            )}
+            
+            {/* Terminal status indicator */}
+            {(mappedStatus === 'completed' || mappedStatus === 'failed' || mappedStatus === 'stopped') && (
+              <SequenceStatusRow status={mappedStatus} />
+            )}
+            
+            {/* Footer working indicator when active but not showing inline thinking */}
+            {mappedStatus !== 'idle' && mappedStatus !== 'completed' && mappedStatus !== 'failed' && mappedStatus !== 'stopped' && !showThinking && (
+              <ThinkingIndicator variant="footer" />
             )}
           </div>
         )}
