@@ -1,0 +1,73 @@
+Task: Investigate why AFR shows duplicate runs and “still running” entries that do not match the user’s actions. Then make AFR log the full decision path for each user interaction so we can see exactly what the system thought it was doing at every step.
+
+Context:
+- In AFR Runs List, I see “Find 60 chemists in Kent, UK” as completed, but also additional entries that look like the same thing still running (and tool SEARCH_PLACES rows that appear twice / out of order).
+- After that, I asked for a draft email for pubs, but instead of a clean email related run, other unrelated run rows appear.
+- Goal: one user action should map to one traceable run, with a full “why and what happened” timeline.
+
+What to do (investigation first):
+1) Reproduce
+- Use the same environment (Supabase REAL database mode).
+- Perform exactly these two actions in the UI:
+  a) Ask: “Find 60 chemists in Kent, UK”
+  b) Then ask: “Draft an email for pubs”
+- Capture server logs for the whole window.
+
+2) Identify the root cause of duplicates
+Check for the usual suspects:
+- Frontend double submit: Enter key + button click, or form submit firing twice.
+- React StrictMode causing effects to run twice (dev mode) if any “auto start” logic is in useEffect.
+- Retry logic (fetch retry, websocket reconnect, tool call retry) creating a second run without idempotency.
+- Backend queue or background worker processing the same message twice (at least once delivery).
+- Any “auto deep research” or “auto plan” triggers that are running in addition to the explicit user request.
+
+3) Add correlation IDs so we can prove causality
+- Generate a client_request_id for every user message submission (UUID).
+- Send it with every request that can create a run (plan creation, deep research creation, tool execution).
+- Persist it on all run records (deep_research_runs, agent_activities, plan executions, whatever is used).
+- Add server side logging: “received user message” with client_request_id, user_id, timestamp.
+
+4) Make run creation idempotent
+- If the same client_request_id arrives twice, do not create a second run.
+- Implement this either via:
+  - Unique constraint on (user_id, client_request_id, run_kind) plus upsert, or
+  - A transaction that checks then inserts, or
+  - A dedicated idempotency table.
+- Apply to all run types (plan execution, deep research, tool run, email draft run if it exists).
+
+Now the main product requirement (make AFR show the full decision path):
+For every user interaction, AFR must show a single unified timeline with these steps, in order:
+1) user_message_received
+- raw user text (or a safe truncated version), client_request_id, timestamp
+
+2) router_decision (this is the missing bit)
+- Did it go to: “simple direct response” vs “deep research” vs “supervisor plan”?
+- Why: include the decision signals (classification output, policy thresholds, any gating rules)
+- If you have a “supervisor needed?” decision, log that explicitly.
+
+3) supervisor_plan_created (only if applicable)
+- plan goal, steps list, and the reason it decided a plan was needed
+
+4) plan_approved or plan_rejected (if approval exists)
+- include who approved (user, auto), and the approval reason
+
+5) tool_call_started / tool_call_completed for each action
+- tool name, inputs summary, outputs summary, success/fail
+
+6) run_completed / run_failed
+- final status, duration, stop reason
+
+Key: I want to see not just “plan approved” but also the earlier step that decided whether it needed a supervisor, whether it should deep research, or whether it should just respond directly. That decision is currently opaque.
+
+Acceptance criteria:
+- Doing “Find 60 chemists in Kent, UK” produces exactly one user_message_received and one coherent run timeline, no duplicate “running” rows.
+- Doing “Draft an email for pubs” produces exactly one coherent run timeline that clearly shows whether it was handled directly or routed via deep research or supervisor planning, and why.
+- AFR Runs List groups by client_request_id (or similar) so I can click a single run and see the full timeline.
+- No stale “RUNNING” entries unless there is an actual live process. If a background job crashes or is cancelled, it should flip to FAILED or STOPPED with a reason.
+
+Deliverables:
+- A short written root cause explanation (with evidence from logs and correlation IDs).
+- The implemented fixes (idempotency + correlation IDs).
+- AFR UI updated so the decision path steps are visible for every run.
+
+Start by locating where run records are created and where AFR /runs is assembled, then trace how many times those create functions are called per user message.
