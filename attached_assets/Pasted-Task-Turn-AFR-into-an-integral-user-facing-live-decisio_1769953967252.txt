@@ -1,0 +1,105 @@
+Task: Turn AFR into an integral, user facing, live “decision + progress” panel on the right hand side of the app (replacing / upgrading the current “Most Recent Run” card). It should update as the current request runs, so the user can see what the system is doing and why, step by step, while longer processes (supervisor, planning, tools, deep research) are happening.
+
+Why:
+- Right now, runs feel confusing and sometimes look duplicated or out of order.
+- Users need trust and clarity, especially when the agent takes time to create a plan or run tools.
+- I want a live, scrolling activity feed for the current request, similar to Reflect’s “now I will…” progress updates, but grounded in real logged events (not made up text).
+
+High level UX requirement (what the user sees):
+1) Replace the right hand “Most Recent Run” with a panel that has:
+- Current request title (what the user asked)
+- Status badge (Routing, Planning, Awaiting approval, Executing, Deep research, Completed, Failed, Stopped)
+- A live scrolling timeline of events with timestamps (newest at bottom)
+- Each event has a short human readable line, plus an optional “details” expand
+- If the run takes time, show “still working” and what step it is on
+
+2) It must show the decision path explicitly:
+- “Message received”
+- “Router decision: direct response vs deep research vs supervisor plan”
+- “Supervisor created a plan” (if applicable)
+- “Plan approved” or “Plan rejected” (if applicable)
+- Each tool call start and finish (Search Places, Enrich, Draft email, etc)
+- “Run completed” with summary
+This is the missing transparency layer.
+
+3) It should work for both:
+- Quick actions (draft email only)
+- Longer actions (plan creation and execution)
+
+4) It needs to be accurate:
+- The panel text must be derived from real stored activity events (AFR / agent_activities / deep_research_runs), not LLM generated “progress narration”.
+
+Data model and logging assumptions:
+- We already have (or are adding) client_request_id / correlation id.
+- Every user submission creates or attaches to exactly one client_request_id.
+- All logged events for that request share the same client_request_id and run_id (or equivalent).
+If any of that is missing, implement it first.
+
+Implementation (backend):
+A) Create a unified “activity stream” endpoint for the current request
+- Example: GET /api/afr/stream?client_request_id=...
+- Returns ordered list of events: {ts, type, summary, details, status, run_id, client_request_id}
+- Types: user_message_received, router_decision, deep_research_started, deep_research_completed, plan_created, plan_approved, tool_call_started, tool_call_completed, run_completed, run_failed, etc.
+- IMPORTANT: It should never throw 500 for a missing plan. If no plan exists, return empty plan info.
+
+B) Make router decisions first class logged events
+- Wherever the system decides “direct vs deep research vs supervisor plan”, log router_decision with:
+  - chosen path
+  - reason codes / signals (complexity score, tool need, threshold, etc)
+  - whether it escalated to supervisor
+This is critical.
+
+C) Ensure the stream is consistent and idempotent
+- Multiple run rows for the same request is what we are trying to eliminate.
+- The stream should group all events under one request.
+- If a background job retries, it must append events correctly rather than create parallel phantom runs.
+
+Implementation (frontend):
+D) Replace the current right side “Most Recent Run” card with “Live Activity”
+- When the user submits a message, generate client_request_id and store it as the “active request”.
+- Show the panel immediately with “Message received” and “Routing decision pending”.
+- Poll the stream endpoint every 1 to 2 seconds while status is not terminal.
+- Auto scroll to latest event, but allow the user to scroll up without snapping.
+
+E) Decision tree view (optional but recommended)
+- Provide a toggle: Timeline (default) vs Tree
+- Tree groups events into:
+  - Routing
+  - Planning
+  - Execution (tools)
+  - Completion
+Tree does not need to be fancy, just nested groups that make the path obvious.
+
+F) Match the existing theme
+- Keep it visually consistent with our dark UI.
+- Do not clutter, concise event labels.
+- Provide expandable details for debugging (inputs/outputs summaries).
+
+Acceptance criteria:
+1) When I ask “Find 60 chemists in Kent, UK”:
+- The right panel immediately shows the request.
+- I see router_decision.
+- If it plans, I see plan_created then tool calls.
+- No duplicate “still running” entries, and the panel ends in Completed or Failed.
+
+2) When I ask “Draft an email for pubs”:
+- I see whether it was direct or routed to deep research or supervisor plan.
+- The reason is visible.
+- The panel ends in Completed with a clear “email drafted” summary.
+
+3) No 500 errors:
+- The right panel currently shows “Error Loading Plan 500”.
+- Fix the underlying API so missing plan data is handled gracefully.
+
+Deliverables:
+- Updated backend endpoint for unified activity stream.
+- Router decision logging implemented.
+- Updated UI right panel to show live timeline and optional tree.
+- Short note describing where routing decisions are made in code and how they are logged.
+
+Start by:
+1) Fix the 500 on “load plan” (it should not crash if there is no plan).
+2) Confirm we have client_request_id end to end and can fetch events by it.
+3) Build the activity stream endpoint.
+4) Build the UI live timeline panel.
+5) Add router decision logging so the timeline explains the “why”, not just the “what”.

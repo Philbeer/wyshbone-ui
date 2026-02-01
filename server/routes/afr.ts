@@ -2,6 +2,31 @@ import { Router } from "express";
 import { storage } from "../storage";
 import type { Run, RuleUpdate, RunBundle } from "../../client/src/types/afr";
 
+// Stream event type for the Live Activity Panel
+interface StreamEvent {
+  id: string;
+  ts: string;
+  type: string;
+  summary: string;
+  details: {
+    runType?: string;
+    action?: string | null;
+    task?: string | null;
+    error?: string | null;
+    durationMs?: number | null;
+    results?: string | null;
+    label?: string | null;
+    prompt?: string | null;
+    mode?: string | null;
+    outputPreview?: string | null;
+  };
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  run_id: string | null;
+  client_request_id: string | null;
+  router_decision?: string | null;
+  router_reason?: string | null;
+}
+
 export function createAfrRouter(_storage: typeof storage) {
   const router = Router();
 
@@ -179,7 +204,7 @@ export function createAfrRouter(_storage: typeof storage) {
         goal_worth: bundleData?.goal_worth || null,
         stop_triggered: false,
         score: bundleData?.score || null,
-        verdict: bundleData?.verdict || null,
+        verdict: (bundleData?.verdict as "continue" | "revise" | "abandon" | null) || null,
         run_type: "deep_research",
       };
 
@@ -415,6 +440,161 @@ export function createAfrRouter(_storage: typeof storage) {
     }
   });
 
+  // GET /stream - Unified activity stream for a specific client_request_id (Live Activity Panel)
+  router.get("/stream", async (req, res) => {
+    try {
+      const clientRequestId = req.query.client_request_id as string | undefined;
+      const userId = (req.query.userId || req.query.user_id) as string | undefined;
+      
+      if (!clientRequestId && !userId) {
+        return res.json({ 
+          events: [], 
+          status: 'idle',
+          message: 'No active request. Provide client_request_id or userId.'
+        });
+      }
+
+      // Fetch activities for this request or user's most recent request
+      const activities = await storage.listAgentActivities(100, userId);
+      
+      // Filter by client_request_id if provided
+      let relevantActivities = clientRequestId 
+        ? activities.filter(a => a.clientRequestId === clientRequestId)
+        : activities;
+
+      // If no specific client_request_id, get the most recent one
+      if (!clientRequestId && relevantActivities.length > 0) {
+        // Find the most recent activity with a client_request_id
+        const mostRecentWithCrid = relevantActivities.find(a => a.clientRequestId);
+        if (mostRecentWithCrid?.clientRequestId) {
+          relevantActivities = activities.filter(a => 
+            a.clientRequestId === mostRecentWithCrid.clientRequestId
+          );
+        }
+      }
+
+      // Also fetch any deep research runs for this client_request_id
+      let deepResearchRuns: any[] = [];
+      if (clientRequestId) {
+        const allRuns = await storage.listDeepResearchRunsForAfr(50);
+        deepResearchRuns = allRuns.filter(r => r.clientRequestId === clientRequestId);
+      }
+
+      // Build the unified event stream
+      const events: StreamEvent[] = [];
+
+      // Add activity events
+      for (const a of relevantActivities) {
+        const metadata = a.metadata as Record<string, any> | null;
+        const runType = metadata?.runType || 'unknown';
+        const results = a.results as Record<string, any> | null;
+
+        events.push({
+          id: a.id,
+          ts: new Date(a.timestamp).toISOString(),
+          type: mapRunTypeToEventType(runType, a.actionTaken),
+          summary: buildEventSummary(runType, a.actionTaken, a.taskGenerated, results),
+          details: {
+            runType,
+            action: a.actionTaken,
+            task: a.taskGenerated,
+            error: a.errorMessage,
+            durationMs: a.durationMs,
+            results: results ? JSON.stringify(results).slice(0, 500) : null,
+          },
+          status: mapActivityStatusToEventStatus(a.status),
+          run_id: a.runId,
+          client_request_id: a.clientRequestId,
+          router_decision: a.routerDecision,
+          router_reason: a.routerReason,
+        });
+      }
+
+      // Add deep research run events
+      for (const r of deepResearchRuns) {
+        events.push({
+          id: `dr_${r.id}`,
+          ts: new Date(r.createdAt).toISOString(),
+          type: r.status === 'completed' ? 'deep_research_completed' : 
+                r.status === 'failed' ? 'run_failed' : 
+                r.status === 'running' || r.status === 'in_progress' ? 'deep_research_started' : 
+                'deep_research_started',
+          summary: r.status === 'completed' 
+            ? `Deep research completed: ${r.label || r.prompt?.slice(0, 50) || 'Research'}`
+            : r.status === 'failed'
+            ? `Deep research failed: ${r.error?.slice(0, 100) || 'Unknown error'}`
+            : `Deep research started: ${r.label || r.prompt?.slice(0, 50) || 'Research'}`,
+          details: {
+            label: r.label,
+            prompt: r.prompt?.slice(0, 200),
+            mode: r.mode,
+            error: r.error,
+            outputPreview: r.outputText?.slice(0, 300),
+          },
+          status: mapDbStatusToEventStatus(r.status),
+          run_id: r.id,
+          client_request_id: r.clientRequestId,
+          router_decision: r.routerDecision,
+          router_reason: r.routerReason,
+        });
+      }
+
+      // Sort events chronologically (oldest first for timeline display)
+      events.sort((a, b) => new Date(a.ts).getTime() - new Date(b.ts).getTime());
+
+      // Determine overall status
+      const hasRunning = events.some(e => e.status === 'running');
+      const hasFailed = events.some(e => e.status === 'failed');
+      const hasCompleted = events.some(e => e.status === 'completed');
+      
+      let overallStatus: 'idle' | 'routing' | 'planning' | 'executing' | 'completed' | 'failed' = 'idle';
+      if (events.length === 0) {
+        overallStatus = 'idle';
+      } else if (hasRunning) {
+        // Determine which phase we're in
+        const runningEvents = events.filter(e => e.status === 'running');
+        const lastRunning = runningEvents[runningEvents.length - 1];
+        if (lastRunning?.type.includes('router')) {
+          overallStatus = 'routing';
+        } else if (lastRunning?.type.includes('plan')) {
+          overallStatus = 'planning';
+        } else {
+          overallStatus = 'executing';
+        }
+      } else if (hasFailed) {
+        overallStatus = 'failed';
+      } else if (hasCompleted) {
+        overallStatus = 'completed';
+      }
+
+      // Get the user's message (title)
+      const userMessageEvent = events.find(e => e.type === 'user_message_received');
+      const requestTitle = userMessageEvent?.details?.task || 
+        events[0]?.summary || 
+        'Processing request...';
+
+      res.json({
+        client_request_id: clientRequestId || relevantActivities[0]?.clientRequestId || null,
+        title: requestTitle,
+        status: overallStatus,
+        events,
+        event_count: events.length,
+        last_updated: events.length > 0 
+          ? events[events.length - 1].ts 
+          : new Date().toISOString(),
+      });
+    } catch (error: any) {
+      console.error("AFR /stream error:", error);
+      // Graceful degradation - return empty stream instead of 500
+      res.json({ 
+        events: [], 
+        status: 'idle',
+        error: error.message,
+        message: 'Failed to fetch activity stream'
+      });
+    }
+  });
+
   router.post("/cleanup-stale", async (req, res) => {
     try {
       const staleThresholdMs = parseInt(req.body?.staleThresholdMs as string) || 30 * 60 * 1000;
@@ -488,5 +668,114 @@ function mapActivityStatus(
       return "running";
     default:
       return "pending";
+  }
+}
+
+// Helper functions for the activity stream
+
+function mapRunTypeToEventType(runType: string, action: string | null): string {
+  switch (runType) {
+    case 'user_message':
+      return 'user_message_received';
+    case 'router':
+    case 'routing':
+      return 'router_decision';
+    case 'plan':
+    case 'planning':
+      return action?.includes('create') ? 'plan_created' : 
+             action?.includes('approve') ? 'plan_approved' :
+             action?.includes('reject') ? 'plan_rejected' : 'plan_updated';
+    case 'tool':
+    case 'tool_call':
+      return action?.includes('complete') || action?.includes('finish') ? 
+             'tool_call_completed' : 'tool_call_started';
+    case 'deep_research':
+      return 'deep_research_started';
+    case 'supervisor':
+      return 'supervisor_plan';
+    case 'direct_response':
+      return 'direct_response';
+    case 'stream':
+      return 'streaming_response';
+    default:
+      return action || 'unknown_event';
+  }
+}
+
+function buildEventSummary(
+  runType: string, 
+  action: string | null, 
+  task: string | null,
+  results: Record<string, any> | null
+): string {
+  switch (runType) {
+    case 'user_message':
+      return `Message received: "${task?.slice(0, 60) || 'User message'}${task && task.length > 60 ? '...' : ''}"`;
+    case 'router':
+    case 'routing':
+      return `Router decision: ${action || 'processing'}`;
+    case 'plan':
+    case 'planning':
+      if (action?.includes('create')) return 'Created execution plan';
+      if (action?.includes('approve')) return 'Plan approved by user';
+      if (action?.includes('reject')) return 'Plan rejected by user';
+      return `Plan: ${action || 'updating'}`;
+    case 'tool':
+    case 'tool_call':
+      const toolName = action?.replace(/_/g, ' ') || 'Tool';
+      const resultNote = results?.note || results?.count !== undefined ? 
+        ` (${results.count || 0} results)` : '';
+      return action?.includes('complete') || action?.includes('finish') ?
+        `Completed: ${toolName}${resultNote}` :
+        `Started: ${toolName}`;
+    case 'deep_research':
+      return `Deep research: ${task?.slice(0, 50) || 'analyzing'}`;
+    case 'supervisor':
+      return 'Supervisor creating plan';
+    case 'direct_response':
+      return 'Direct response (no tools needed)';
+    case 'stream':
+      return 'Streaming AI response';
+    default:
+      return task?.slice(0, 60) || action || 'Processing';
+  }
+}
+
+function mapActivityStatusToEventStatus(
+  status: string | null
+): 'pending' | 'running' | 'completed' | 'failed' {
+  switch (status) {
+    case 'success':
+    case 'completed':
+      return 'completed';
+    case 'failed':
+    case 'error':
+      return 'failed';
+    case 'pending':
+      return 'pending';
+    case 'running':
+    case 'in_progress':
+      return 'running';
+    default:
+      return 'pending';
+  }
+}
+
+function mapDbStatusToEventStatus(
+  dbStatus: string
+): 'pending' | 'running' | 'completed' | 'failed' {
+  switch (dbStatus) {
+    case 'queued':
+      return 'pending';
+    case 'in_progress':
+    case 'running':
+      return 'running';
+    case 'completed':
+      return 'completed';
+    case 'failed':
+    case 'stopped':
+      return 'failed';
+    default:
+      return 'pending';
   }
 }

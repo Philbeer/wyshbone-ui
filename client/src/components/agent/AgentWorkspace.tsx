@@ -27,7 +27,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { MostRecentRunPanel } from "@/components/most-recent-run-panel";
+import { LiveActivityPanel } from "@/components/live-activity-panel";
 
 interface AgentWorkspaceProps {
   className?: string;
@@ -79,8 +79,10 @@ export function AgentWorkspace({ className }: AgentWorkspaceProps) {
 
       <ScrollArea className="flex-1">
         <div className="p-6 space-y-6">
-          {/* Most Recent Run - AFR Summary (dev-only) */}
-          <MostRecentRunPanel />
+          {/* Live Activity Panel - Real-time decision and progress tracking */}
+          <div className="h-[400px]">
+            <LiveActivityPanel />
+          </div>
           
           {/* Activity Metrics */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
