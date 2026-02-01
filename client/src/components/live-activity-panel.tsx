@@ -175,7 +175,7 @@ interface StreamResponse {
   message?: string;
 }
 
-type OverallStatus = 'idle' | 'routing' | 'planning' | 'awaiting_approval' | 'executing' | 'deep_research' | 'completed' | 'failed' | 'stopped';
+type OverallStatus = 'idle' | 'routing' | 'planning' | 'executing' | 'deep_research' | 'completed' | 'failed' | 'stopped';
 
 function formatRelativeTime(dateString: string): string {
   const date = new Date(dateString);
@@ -207,7 +207,6 @@ function StatusBadge({ status }: { status: OverallStatus }) {
     idle: { icon: Clock, label: "Idle", className: "bg-gray-100 text-gray-800 dark:bg-gray-800/50 dark:text-gray-300" },
     routing: { icon: Route, label: "Routing", className: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-200" },
     planning: { icon: Brain, label: "Planning", className: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-200" },
-    awaiting_approval: { icon: AlertTriangle, label: "Awaiting Approval", className: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-200" },
     executing: { icon: Zap, label: "Executing", className: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-200" },
     deep_research: { icon: FileSearch, label: "Researching", className: "bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-200" },
     completed: { icon: CheckCircle2, label: "Completed", className: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200" },
@@ -297,14 +296,14 @@ function TimelineEvent({ event, isLast }: { event: StreamEvent; isLast: boolean 
             <p className="text-xs text-muted-foreground mt-0.5">
               {event.router_decision === 'tool_call' ? (
                 <>
-                  <span className="font-medium text-amber-600 dark:text-amber-400">Supervisor engaged</span>
-                  {' - Auto-executing tool'}
+                  <span className="font-medium text-blue-600 dark:text-blue-400">Mode: Single action</span>
+                  {' - Auto-executing'}
                   {event.router_reason && ` (${event.router_reason})`}
                 </>
-              ) : event.router_decision === 'plan' ? (
+              ) : event.router_decision === 'supervisor_plan' || event.router_decision === 'plan' ? (
                 <>
-                  <span className="font-medium text-purple-600 dark:text-purple-400">Supervisor created plan</span>
-                  {' - Awaiting your approval'}
+                  <span className="font-medium text-purple-600 dark:text-purple-400">Mode: Multi-step plan</span>
+                  {' - Supervisor engaged, running now'}
                 </>
               ) : (
                 <>
@@ -379,8 +378,9 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
   const [showOverlay, setShowOverlay] = useState(false);
   const [confirmedTerminal, setConfirmedTerminal] = useState(false); // True only after terminal is confirmed
   
-  // Check if there's a plan awaiting approval
-  const hasPendingApprovalPlan = plan?.status === 'pending_approval';
+  // Check if there's an active plan (for mode display)
+  const hasActivePlan = plan && ['approved', 'executing', 'pending_approval'].includes(plan.status);
+  const isMultiStepPlan = hasActivePlan && plan.steps && plan.steps.length >= 2;
   const scrollRef = useRef<HTMLDivElement>(null);
   const prevEventCount = useRef(0);
   const prevRequestIdRef = useRef<string | null | undefined>(undefined);
@@ -569,7 +569,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
       
       // Already tracking terminal status
       // If new events arrived after terminal status, update count and reset cycles
-      if (currentEventCount > terminalEventCountRef.current) {
+      if (terminalEventCountRef.current !== null && currentEventCount > terminalEventCountRef.current) {
         if (DEBUG_TERMINAL) console.log('[TERMINAL_DEBUG] New events after terminal! Resetting cycles. Old:', terminalEventCountRef.current, 'New:', currentEventCount);
         terminalEventCountRef.current = currentEventCount;
         terminalConfirmCyclesRef.current = 0;
@@ -633,11 +633,6 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
 
   // Compute display status - uses confirmedTerminal to prevent showing terminal too early
   const mappedStatus: OverallStatus = (() => {
-    // If there's a pending approval plan, show awaiting_approval status
-    if (hasPendingApprovalPlan) {
-      return 'awaiting_approval';
-    }
-    
     if (!stream) return 'idle';
     const s = stream.status;
     
@@ -710,6 +705,17 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
         <div className="flex items-center justify-between">
           <CardTitle className="text-sm font-medium">Live Activity</CardTitle>
           <div className="flex items-center gap-2">
+            {/* Mode indicator - shows when there's an active plan */}
+            {hasActivePlan && isWorking && (
+              <span className={cn(
+                "px-1.5 py-0.5 rounded text-[10px] font-medium",
+                isMultiStepPlan 
+                  ? "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-200"
+                  : "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-200"
+              )}>
+                {isMultiStepPlan ? 'Multi-step' : 'Single action'}
+              </span>
+            )}
             <StatusBadge status={mappedStatus} />
             {lastFetch && (
               <span className="text-[10px] text-muted-foreground">

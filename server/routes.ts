@@ -4438,6 +4438,50 @@ CRITICAL RULES:
     }
   });
   
+  // POST /api/plan/stop - Stop an executing plan
+  app.post("/api/plan/stop", async (req, res) => {
+    console.log(`📥 [STOP_API] POST /api/plan/stop received`);
+    
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const { planId } = req.body;
+      
+      if (!planId) {
+        return res.status(400).json({ error: "Plan ID is required" });
+      }
+      
+      const { getPlanById, updatePlanStatus } = await import('./leadgen-plan.js');
+      
+      const plan = await getPlanById(planId);
+      if (!plan) {
+        return res.status(404).json({ error: "Plan not found" });
+      }
+      
+      // Only allow stopping if currently executing
+      if (plan.status !== 'executing' && plan.status !== 'approved') {
+        return res.status(400).json({ error: `Cannot stop plan in ${plan.status} state` });
+      }
+      
+      // Update status to failed (acts as stopped)
+      await updatePlanStatus(planId, 'failed');
+      
+      console.log(`🛑 Plan stopped: ${planId}`);
+      
+      res.json({
+        success: true,
+        planId,
+        status: 'failed'
+      });
+    } catch (error: any) {
+      console.error("Error stopping plan:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+  
   // GET /api/debug/last-plan - DEV ONLY: Get debug info about the last plan execution
   app.get("/api/debug/last-plan", async (req, res) => {
     // DEV ONLY - only allow in development

@@ -1,12 +1,13 @@
+import { useState } from "react";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePlanForApproval } from "@/hooks/use-plan-for-approval";
-import { CheckCircle2, Clock, Zap, Users, Mail, AlertCircle, RefreshCw } from "lucide-react";
+import { CheckCircle2, Clock, Zap, Users, Mail, AlertCircle, RefreshCw, StopCircle, Loader2, Play } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
-import { usePlanExecution } from "@/contexts/PlanExecutionController";
+import { apiRequest } from "@/lib/queryClient";
 
 const stepIcons: Record<string, typeof CheckCircle2> = {
   search: Zap,
@@ -23,22 +24,23 @@ const stepVariants: Record<string, "default" | "secondary" | "outline"> = {
 };
 
 export function PlanApprovalPanel() {
-  const { loading, plan, approvePlan, regeneratePlan, approving, regenerating, error } = usePlanForApproval();
+  const { loading, plan, regeneratePlan, regenerating, error } = usePlanForApproval();
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const { startExecution } = usePlanExecution();
+  const [stopping, setStopping] = useState(false);
 
-  console.log("📋 PlanApprovalPanel mounted, plan:", plan, "error:", error);
+  console.log("📋 PlanPanel mounted, plan:", plan, "error:", error);
 
-  // Don't show if plan is not pending approval
-  if (!loading && !error && (!plan || plan.status !== 'pending_approval')) {
+  // Show panel for active plans (approved, executing) - auto-execute is always on
+  const activeStatuses = ['approved', 'executing'];
+  if (!loading && !error && (!plan || !activeStatuses.includes(plan.status))) {
     return null;
   }
 
   // Loading state
   if (loading) {
     return (
-      <Card data-testid="card-plan-approval-loading">
+      <Card data-testid="card-plan-loading">
         <CardHeader>
           <Skeleton className="h-6 w-3/4" />
           <Skeleton className="h-4 w-full" />
@@ -55,7 +57,7 @@ export function PlanApprovalPanel() {
   // Error state
   if (error) {
     return (
-      <Card data-testid="card-plan-approval-error" className="border-destructive">
+      <Card data-testid="card-plan-error" className="border-destructive">
         <CardHeader>
           <CardTitle className="text-lg flex items-center gap-2 text-destructive">
             <AlertCircle className="h-5 w-5" />
@@ -86,98 +88,42 @@ export function PlanApprovalPanel() {
     return null;
   }
 
-  const handleApprove = async () => {
+  const handleStop = async () => {
     console.log(`\n========================================`);
-    console.log(`🚀 [APPROVE] Approve Plan clicked for plan ${plan.id}`);
-    console.log(`   Goal: ${plan.goal}`);
-    console.log(`   Steps: ${plan.steps.map(s => s.type).join(' → ')}`);
+    console.log(`🛑 [STOP] Stop Plan clicked for plan ${plan.id}`);
     console.log(`========================================\n`);
     
+    setStopping(true);
     try {
-      console.log(`[APPROVE] Calling POST /api/plan/approve...`);
-      const result = await approvePlan(plan.id);
-      console.log(`[APPROVE] Backend response:`, result);
-      
-      // Check if result indicates success (ok OR success field)
-      const isSuccess = result?.success || result?.data?.ok || result?.data?.success;
-      console.log(`[APPROVE] isSuccess=${isSuccess}, result.success=${result?.success}`);
-      
-      if (isSuccess) {
-        console.log(`✅ [APPROVE] Plan ${plan.id} approved - execution started on backend`);
-        
-        // Notify ExecutionController to start polling for status
-        console.log(`[APPROVE] Starting status polling for plan ${plan.id}...`);
-        startExecution(plan.id);
-        
-        toast({
-          title: "Plan Approved",
-          description: "Wyshbone is now executing your plan. Check progress below.",
-        });
-      } else {
-        // Response came back but wasn't successful - still don't show "Approval Failed"
-        // because execution failures should be handled via status polling
-        console.warn(`[APPROVE] Response received but success flag not found. Starting polling anyway.`);
-        startExecution(plan.id);
-        
-        toast({
-          title: "Plan Submitted",
-          description: "Checking execution status...",
-        });
-      }
+      await apiRequest("POST", "/api/plan/stop", { planId: plan.id });
+      toast({
+        title: "Plan Stopped",
+        description: "The plan execution has been cancelled.",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/plan"] });
     } catch (error: any) {
-      console.error(`❌ [APPROVE] Failed to approve plan ${plan.id}:`, error);
-      console.error(`   Error message: ${error?.message}`);
-      console.error(`   Error stack:`, error?.stack);
-      
-      // Only show failure toast for actual network/auth errors
-      // NOT for execution errors (those are handled via status polling)
-      const errorMessage = error?.message || String(error);
-      const isNetworkError = errorMessage.includes('fetch') || errorMessage.includes('network');
-      const isAuthError = errorMessage.includes('401') || errorMessage.includes('Unauthorized');
-      const is404Error = errorMessage.includes('404') || errorMessage.includes('not found');
-      
-      if (isAuthError) {
-        toast({
-          title: "Authentication Required",
-          description: "Please log in to approve plans.",
-          variant: "destructive",
-        });
-      } else if (is404Error) {
-        toast({
-          title: "Plan Not Found",
-          description: "This plan may have been deleted or already processed.",
-          variant: "destructive",
-        });
-      } else if (isNetworkError) {
-        toast({
-          title: "Connection Error",
-          description: "Could not connect to the server. Please try again.",
-          variant: "destructive",
-        });
-      } else {
-        // For any other error, still try to start polling in case execution already started
-        console.warn(`[APPROVE] Error occurred but starting polling anyway in case execution started`);
-        startExecution(plan.id);
-        
-        toast({
-          title: "Approval Submitted",
-          description: "Checking execution status...",
-        });
-      }
+      console.error(`❌ [STOP] Failed to stop plan ${plan.id}:`, error);
+      toast({
+        title: "Stop Failed",
+        description: "Could not stop the plan. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setStopping(false);
     }
   };
 
   const handleRegenerate = async () => {
-    console.log(`🔄 PlanApprovalPanel: regenerating plan ${plan.id}`);
+    console.log(`🔄 PlanPanel: regenerating plan ${plan.id}`);
     try {
       await regeneratePlan(plan.id);
       toast({
         title: "Plan Regenerated",
         description: "A new plan has been created for your goal.",
       });
-      console.log(`🔄 PlanApprovalPanel: plan ${plan.id} regenerated successfully`);
+      console.log(`🔄 PlanPanel: plan ${plan.id} regenerated successfully`);
     } catch (error) {
-      console.error(`❌ PlanApprovalPanel: failed to regenerate plan ${plan.id}:`, error);
+      console.error(`❌ PlanPanel: failed to regenerate plan ${plan.id}:`, error);
       toast({
         title: "Regeneration Failed",
         description: "Failed to regenerate plan. Please try again.",
@@ -186,16 +132,41 @@ export function PlanApprovalPanel() {
     }
   };
 
+  // Determine status display
+  const isExecuting = plan.status === 'executing';
+  const isApproved = plan.status === 'approved';
+  const isMultiStep = plan.steps.length >= 2;
+  
+  // Status label and styling
+  let statusLabel = 'Processing';
+  let statusColor = 'text-blue-500';
+  if (isExecuting) {
+    statusLabel = 'Running';
+    statusColor = 'text-green-500';
+  } else if (isApproved) {
+    statusLabel = 'Starting';
+    statusColor = 'text-yellow-500';
+  }
+
   return (
-    <Card data-testid="card-plan-approval" className="hover-elevate">
+    <Card data-testid="card-plan-executing" className="hover-elevate">
       <CardHeader className="space-y-1">
         <CardTitle className="text-lg flex items-center gap-2">
-          <Clock className="h-5 w-5" />
+          {isExecuting ? (
+            <Loader2 className="h-5 w-5 animate-spin text-green-500" />
+          ) : (
+            <Play className="h-5 w-5 text-yellow-500" />
+          )}
           Supervisor Created a Plan
+          <Badge variant="outline" className={`ml-auto ${statusColor}`}>
+            {statusLabel}
+          </Badge>
         </CardTitle>
         <CardDescription>
-          This multi-step plan requires your approval before execution begins.
-          Once approved, Wyshbone will execute each step automatically.
+          {isMultiStep 
+            ? `Multi-step plan with ${plan.steps.length} steps. Running automatically.`
+            : 'Single action plan. Running automatically.'
+          }
         </CardDescription>
       </CardHeader>
 
@@ -248,20 +219,40 @@ export function PlanApprovalPanel() {
 
       <CardFooter className="flex gap-2">
         <Button 
-          variant="default" 
-          onClick={handleApprove} 
-          disabled={approving || regenerating}
-          data-testid="button-approve-plan"
+          variant="destructive" 
+          onClick={handleStop} 
+          disabled={stopping || regenerating}
+          data-testid="button-stop-plan"
         >
-          {approving ? "Approving..." : "Approve Plan"}
+          {stopping ? (
+            <>
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              Stopping...
+            </>
+          ) : (
+            <>
+              <StopCircle className="h-4 w-4 mr-2" />
+              Stop
+            </>
+          )}
         </Button>
         <Button 
           variant="outline" 
           onClick={handleRegenerate} 
-          disabled={approving || regenerating}
+          disabled={stopping || regenerating}
           data-testid="button-regenerate-plan"
         >
-          {regenerating ? "Regenerating..." : "Regenerate"}
+          {regenerating ? (
+            <>
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              Regenerating...
+            </>
+          ) : (
+            <>
+              <RefreshCw className="h-4 w-4 mr-2" />
+              Regenerate
+            </>
+          )}
         </Button>
       </CardFooter>
     </Card>

@@ -1,0 +1,58 @@
+Decision: Remove plan approval gating entirely. Auto-run everything by default.
+
+Goal:
+- Whether it is single tool_call or multi-step supervisor plan, it should run automatically without waiting for user approval.
+- The UI must clearly show which mode it is using (single-step vs multi-step) in Live Activity.
+
+Changes required:
+
+1) Remove the Approve Plan button and pending_approval state from the UX
+- No “Approve” button in the Plan panel.
+- No “Awaiting approval” status.
+- No copy that says “Please review and approve”.
+Replace with:
+- “Supervisor created a plan” (read-only)
+- “Running now” / “Executing plan”
+- Add “Stop” (or “Cancel”) and “Regenerate plan” buttons if not already.
+
+2) Make the Live Activity panel explicitly label the mode
+Add a clear label near the top of Live Activity (or as the first timeline line):
+- “Mode: Single action” when router chooses tool_call direct path
+- “Mode: Multi-step plan” when supervisor creates a plan with multiple steps
+
+Definition rules (use real data, not guesses):
+- Single action = router path tool_call AND no plan_steps list (or plan has 1 step)
+- Multi-step plan = plan exists with steps length >= 2 OR supervisor_plan path
+
+3) Show “Supervisor engaged” only when it actually happens
+- If tool_call is routed “through plan system” but no supervisor plan is created, do not claim supervisor is involved.
+- If supervisor is involved, Live Activity should show:
+  - “Supervisor engaged”
+  - “Plan created (N steps)”
+  - “Executing step 1/N”
+This should be based on actual events / plan data.
+
+4) Execution behaviour must match the UI
+- If there is a plan, it auto-starts execution immediately after creation.
+- There must be no state where the UI says it is waiting for approval.
+
+5) Keep safety without approval
+- Add “Stop/Cancel run” button (even if it just sets run to stopped and halts any background loop).
+- This is the user safety control instead of approval.
+
+Acceptance tests:
+A) Single action request (fast):
+- Live Activity shows “Mode: Single action”
+- Shows working indicator while active
+- Completes correctly.
+
+B) Multi-step request:
+- Live Activity shows “Mode: Multi-step plan”
+- Shows “Supervisor engaged” + “Plan created (N steps)”
+- Shows execution progressing (at least step start / step completed events)
+- No approval UI anywhere.
+
+Deliverable:
+- Remove approval UX and any pending_approval messaging.
+- Ensure Live Activity accurately labels single vs multi-step and supervisor involvement.
+- Screen recording showing both A and B.

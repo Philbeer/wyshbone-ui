@@ -1,7 +1,7 @@
 // Helper to create plans from chat tool calls
-// Plans are created with pending_approval status and require user approval in the Plan panel
+// Plans are created and AUTO-EXECUTED immediately - no approval required
 
-import { createLeadGenPlan, updatePlanMetadata } from './leadgen-plan.js';
+import { createLeadGenPlan, updatePlanMetadata, updatePlanStatus } from './leadgen-plan.js';
 import type { IStorage } from './storage';
 import type { LeadGenStep } from './leadgen-plan.js';
 import { storage } from './storage';
@@ -150,7 +150,7 @@ export async function createPlanFromToolCall(
       throw new Error(`Unknown tool: ${toolName}`);
   }
   
-  // Create the plan (pending_approval status)
+  // Create the plan (starts as pending_approval from createLeadGenPlan)
   const plan = await createLeadGenPlan(userId, sessionId, goal, conversationId);
   
   // Update the plan with custom steps and tool metadata in database
@@ -169,13 +169,30 @@ export async function createPlanFromToolCall(
   plan.steps = steps;
   plan.toolMetadata = toolMetadata;
   
+  // AUTO-EXECUTE: Immediately approve and start execution (no user approval needed)
+  console.log(`🚀 Auto-approving and executing plan ${plan.id}...`);
+  await updatePlanStatus(plan.id, 'approved');
+  plan.status = 'approved'; // Update local copy for execution
+  
+  // Start execution in background
+  try {
+    const { startPlanExecution } = await import('./leadgen-executor.js');
+    await startPlanExecution(plan); // Pass the full plan object
+    console.log(`✅ Plan ${plan.id} auto-started execution`);
+  } catch (execError) {
+    console.error(`❌ Auto-execution failed for plan ${plan.id}:`, execError);
+    // Plan stays in approved state - can be retried
+  }
+  
   console.log(`✅ Created plan ${plan.id} for tool ${toolName}`);
   console.log(`   📋 Plan details: userId=${userId}, sessionId=${sessionId}, conversationId=${conversationId}`);
   console.log(`   📝 Goal: "${goal}"`);
-  console.log(`   🚦 Status: pending_approval - waiting for user approval in Plan panel`);
+  console.log(`   🚦 Status: approved → executing (auto-started)`);
   
   // Return a message for the chat stream
-  const message = `Got it — I've created a structured plan for this. Please review and approve it in the Plan panel to get started.`;
+  const stepCount = steps.length;
+  const modeLabel = stepCount >= 2 ? 'multi-step plan' : 'single action';
+  const message = `Got it — I've created a ${modeLabel} and started execution. Check the Live Activity panel for progress.`;
   
   return {
     planId: plan.id,
