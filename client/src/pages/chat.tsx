@@ -491,6 +491,9 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
   const streamChatResponse = async (conversationMessages: ChatMessage[]) => {
     setIsStreaming(true);
     
+    // Generate unique client request ID for idempotency and AFR correlation
+    const clientRequestId = crypto.randomUUID();
+    
     // Create assistant message with empty content
     const assistantMessageId = crypto.randomUUID();
     const assistantMessage: Message = {
@@ -518,6 +521,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
           user: { id: user.id, email: user.email },
           defaultCountry: defaultCountry,
           conversationId: conversationId,
+          clientRequestId: clientRequestId, // AFR idempotency key
         }),
         signal: abortControllerRef.current.signal,
         credentials: "include",
