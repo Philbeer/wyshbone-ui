@@ -1,0 +1,54 @@
+Two fixes needed:
+
+Issue 1: Status is inverted / wrong
+Right now Live Activity behaviour is backwards:
+- When a run starts, it sometimes shows “Completed”.
+- When the run is actually done, it keeps showing “Working…” / “Executing” and doesn’t complete.
+
+Please fix status mapping so it is correct and consistent.
+
+Rules (UI must follow these exactly):
+
+A) When stream/run is ACTIVE:
+- Show badge: “Executing” (or “Working”)
+- Show animated Working indicator
+- Do NOT show “Sequence complete”
+
+B) Only when stream/run is TERMINAL:
+- Show badge: “Completed” (or “Failed/Stopped”)
+- Hide animated Working indicator
+- Show “Sequence complete” row
+
+C) Terminal detection must be based on the current active request only:
+- Do not show terminal state from a previous request.
+- When activeClientRequestId changes, immediately reset to a neutral state (“Starting…” overlay -> then “Executing”).
+- If events arrive after terminal, revert to executing (this prevents premature completion).
+
+D) Debug:
+Temporarily log these to console for each poll so we can see what’s happening:
+- activeClientRequestId
+- streamStatus returned from /api/afr/stream
+- mappedStatus you display (executing/completed/etc)
+- confirmedTerminal boolean
+- lastEvent.type and lastEventArrivedAt
+Then remove the logs once fixed.
+
+This looks like either:
+- mappedStatus is reading stale status from previous run, OR
+- confirmedTerminal is not being reset on new request, OR
+- status mapping is inverted (completed treated as active and vice versa).
+
+Issue 2: Make Live Activity panel taller + scroll
+Please make the Live Activity panel about 2/3 of the page height and scroll internally.
+- Increase the Live Activity card height to ~66vh (or flex-grow within the right sidebar).
+- The timeline list inside should scroll (overflow-y-auto).
+- Keep the header (title + badges) pinned at the top of the card.
+- Keep the footer working indicator pinned at the bottom if possible.
+
+Acceptance test:
+- Start a run: shows Starting overlay -> Executing + animated working indicator.
+- As events come in, list scrolls.
+- When truly finished: flips to Completed + shows Sequence complete and stops animation.
+- Panel is visibly taller and scrollable.
+
+Please implement these changes and share a screenshot showing the taller panel and correct Completed vs Executing state.

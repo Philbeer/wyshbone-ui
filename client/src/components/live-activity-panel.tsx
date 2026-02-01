@@ -359,7 +359,7 @@ const THINKING_THRESHOLD_MS = 200; // Show inline thinking after 200ms gap
 const OVERLAY_DURATION_MS = 2000;
 const TERMINAL_CONFIRM_CYCLES = 2; // Wait 2 poll cycles after terminal status to confirm
 const TERMINAL_TIMEOUT_MS = 5000; // Fallback: confirm terminal after 5 seconds with no new events
-const DEBUG_TERMINAL = false; // Set to true to enable terminal detection debug logs
+const DEBUG_TERMINAL = true; // TEMPORARY: Enable debug logs to diagnose status issues
 
 // Active statuses where we show working indicators
 const ACTIVE_STATUSES = ['routing', 'planning', 'executing', 'deep_research', 'running', 'in_progress'];
@@ -456,6 +456,25 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
   // Trigger when: (1) ID changes to a DIFFERENT ID, or (2) status transitions from terminal to active
   const effectiveRequestId = activeClientRequestId || streamRequestId;
   
+  // CRITICAL: Reset terminal state immediately when activeClientRequestId changes
+  // This prevents showing stale terminal state from previous request
+  useEffect(() => {
+    if (activeClientRequestId && activeClientRequestId !== prevRequestIdRef.current) {
+      if (DEBUG_TERMINAL) {
+        console.log('[STATUS_DEBUG] activeClientRequestId changed, resetting terminal state:', {
+          from: prevRequestIdRef.current,
+          to: activeClientRequestId
+        });
+      }
+      // Immediate reset - don't wait for stream to catch up
+      setConfirmedTerminal(false);
+      terminalEventCountRef.current = null;
+      terminalConfirmCyclesRef.current = 0;
+      terminalTimestampRef.current = null;
+      prevEventCount.current = 0;
+    }
+  }, [activeClientRequestId]);
+  
   useEffect(() => {
     const prevWasTerminal = prevStatusRef.current && TERMINAL_STATUSES.includes(prevStatusRef.current);
     const nowActive = streamStatus && ACTIVE_STATUSES.includes(streamStatus);
@@ -479,6 +498,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
       setConfirmedTerminal(false); // Reset terminal confirmation for new request
       terminalEventCountRef.current = null;
       terminalConfirmCyclesRef.current = 0;
+      terminalTimestampRef.current = null;
       
       // Hide overlay after duration
       overlayTimerRef.current = setTimeout(() => {
@@ -662,10 +682,29 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
   // Compute if we're in a working state (should show animated indicators)
   const isWorking = !showOverlay && mappedStatus !== 'idle' && 
     mappedStatus !== 'completed' && mappedStatus !== 'failed' && mappedStatus !== 'stopped';
+    
+  // DEBUG LOGGING - Temporary to diagnose status issues (must be before early returns)
+  const streamEvents = stream?.events || [];
+  const lastEventForDebug = streamEvents[streamEvents.length - 1];
+  useEffect(() => {
+    if (DEBUG_TERMINAL) {
+      console.log('[STATUS_DEBUG] Poll state:', {
+        activeClientRequestId,
+        streamStatus: stream?.status,
+        streamClientRequestId: stream?.client_request_id,
+        mappedStatus,
+        confirmedTerminal,
+        eventCount: stream?.event_count || 0,
+        lastEventType: lastEventForDebug?.type || 'none',
+        lastEventTs: lastEventForDebug?.ts || 'none',
+        terminalConfirmCycles: terminalConfirmCyclesRef.current,
+      });
+    }
+  }, [stream?.status, stream?.event_count, confirmedTerminal, mappedStatus, activeClientRequestId, lastEventForDebug?.type, lastEventForDebug?.ts]);
 
   if (loading) {
     return (
-      <Card className="h-full flex flex-col">
+      <Card className="flex flex-col" style={{ height: '66vh', minHeight: '400px' }}>
         <CardHeader className="pb-2 shrink-0">
           <CardTitle className="text-sm font-medium flex items-center gap-2">
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -681,7 +720,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
 
   if (error) {
     return (
-      <Card className="h-full flex flex-col">
+      <Card className="flex flex-col" style={{ height: '66vh', minHeight: '400px' }}>
         <CardHeader className="pb-2 shrink-0">
           <CardTitle className="text-sm font-medium">Live Activity</CardTitle>
         </CardHeader>
@@ -700,7 +739,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
   const hasEvents = events.length > 0;
 
   return (
-    <Card className="h-full flex flex-col">
+    <Card className="flex flex-col" style={{ height: '66vh', minHeight: '400px' }}>
       <CardHeader className="pb-2 shrink-0">
         <div className="flex items-center justify-between">
           <CardTitle className="text-sm font-medium">Live Activity</CardTitle>
