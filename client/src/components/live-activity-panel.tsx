@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUser } from "@/contexts/UserContext";
+import { usePlan } from "@/contexts/PlanContext";
 
 // Animated brain icons for thinking indicator
 function ThinkingIndicator({ variant = "inline" }: { variant?: "inline" | "footer" }) {
@@ -294,8 +295,23 @@ function TimelineEvent({ event, isLast }: { event: StreamEvent; isLast: boolean 
           
           {event.router_decision && (
             <p className="text-xs text-muted-foreground mt-0.5">
-              Path: <span className="font-medium text-foreground">{event.router_decision}</span>
-              {event.router_reason && ` - ${event.router_reason}`}
+              {event.router_decision === 'tool_call' ? (
+                <>
+                  <span className="font-medium text-amber-600 dark:text-amber-400">Supervisor engaged</span>
+                  {' - Auto-executing tool'}
+                  {event.router_reason && ` (${event.router_reason})`}
+                </>
+              ) : event.router_decision === 'plan' ? (
+                <>
+                  <span className="font-medium text-purple-600 dark:text-purple-400">Supervisor created plan</span>
+                  {' - Awaiting your approval'}
+                </>
+              ) : (
+                <>
+                  Path: <span className="font-medium text-foreground">{event.router_decision}</span>
+                  {event.router_reason && ` - ${event.router_reason}`}
+                </>
+              )}
             </p>
           )}
 
@@ -342,7 +358,9 @@ interface LiveActivityPanelProps {
 
 const THINKING_THRESHOLD_MS = 200; // Show inline thinking after 200ms gap
 const OVERLAY_DURATION_MS = 2000;
-const TERMINAL_CONFIRM_CYCLES = 1; // Wait 1 poll cycle after terminal status to confirm
+const TERMINAL_CONFIRM_CYCLES = 2; // Wait 2 poll cycles after terminal status to confirm
+const TERMINAL_TIMEOUT_MS = 5000; // Fallback: confirm terminal after 5 seconds with no new events
+const DEBUG_TERMINAL = false; // Set to true to enable terminal detection debug logs
 
 // Active statuses where we show working indicators
 const ACTIVE_STATUSES = ['routing', 'planning', 'executing', 'deep_research', 'running', 'in_progress'];
@@ -351,6 +369,7 @@ const TERMINAL_STATUSES = ['completed', 'failed', 'stopped'];
 
 export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: LiveActivityPanelProps) {
   const { user } = useUser();
+  const { plan } = usePlan();
   const [stream, setStream] = useState<StreamResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -359,6 +378,9 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
   const [showThinking, setShowThinking] = useState(false);
   const [showOverlay, setShowOverlay] = useState(false);
   const [confirmedTerminal, setConfirmedTerminal] = useState(false); // True only after terminal is confirmed
+  
+  // Check if there's a plan awaiting approval
+  const hasPendingApprovalPlan = plan?.status === 'pending_approval';
   const scrollRef = useRef<HTMLDivElement>(null);
   const prevEventCount = useRef(0);
   const prevRequestIdRef = useRef<string | null | undefined>(undefined);
@@ -367,6 +389,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
   const overlayTimerRef = useRef<NodeJS.Timeout | null>(null);
   const terminalEventCountRef = useRef<number | null>(null); // Event count when terminal status first seen
   const terminalConfirmCyclesRef = useRef(0); // Cycles since terminal status
+  const terminalTimestampRef = useRef<number | null>(null); // Time when terminal status first seen
   
   // Track stream state for overlay trigger
   const streamRequestId = stream?.client_request_id;
@@ -495,46 +518,83 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
   }, [fetchStream]);
 
   // Manage terminal confirmation logic
-  // Only confirm terminal after status is terminal AND no new events arrive
+  // Only confirm terminal after status is terminal AND no new events arrive for N cycles OR timeout
   useEffect(() => {
     const currentEventCount = stream?.event_count || 0;
-    const statusIsTerminal = stream?.status && TERMINAL_STATUSES.includes(stream.status);
-    const statusIsActive = stream?.status && ACTIVE_STATUSES.includes(stream.status);
+    const currentStatus = stream?.status;
+    const statusIsTerminal = currentStatus && TERMINAL_STATUSES.includes(currentStatus);
+    const statusIsActive = currentStatus && ACTIVE_STATUSES.includes(currentStatus);
+    const now = Date.now();
+    
+    // Get last event timestamp from stream
+    const lastEventTs = stream?.last_updated ? new Date(stream.last_updated).getTime() : null;
+    
+    // DEBUG: Log terminal detection state (gated by DEBUG_TERMINAL flag)
+    if (DEBUG_TERMINAL) {
+      console.log('[TERMINAL_DEBUG] Check:', {
+        status: currentStatus,
+        eventCount: currentEventCount,
+        isTerminal: statusIsTerminal,
+        isActive: statusIsActive,
+        prevEventCount: terminalEventCountRef.current,
+        confirmCycles: terminalConfirmCyclesRef.current,
+        terminalSeenAt: terminalTimestampRef.current ? `${((now - terminalTimestampRef.current) / 1000).toFixed(1)}s ago` : null,
+        lastEventTs: lastEventTs ? new Date(lastEventTs).toISOString() : null,
+        confirmedTerminal
+      });
+    }
     
     // If status is active, reset terminal confirmation
     if (statusIsActive) {
+      if (DEBUG_TERMINAL && (confirmedTerminal || terminalEventCountRef.current !== null)) {
+        console.log('[TERMINAL_DEBUG] Active status detected - resetting terminal state');
+      }
       setConfirmedTerminal(false);
       terminalEventCountRef.current = null;
       terminalConfirmCyclesRef.current = 0;
+      terminalTimestampRef.current = null;
       return;
     }
     
-    // If status just became terminal, record the event count
-    if (statusIsTerminal && terminalEventCountRef.current === null) {
-      terminalEventCountRef.current = currentEventCount;
-      terminalConfirmCyclesRef.current = 0;
-      return;
-    }
-    
-    // If status is terminal and we have a recorded count
-    if (statusIsTerminal && terminalEventCountRef.current !== null) {
-      // If new events arrived after terminal status, revert to active (keep showing working)
+    // If status is terminal
+    if (statusIsTerminal) {
+      // First time seeing terminal status
+      if (terminalTimestampRef.current === null) {
+        if (DEBUG_TERMINAL) console.log('[TERMINAL_DEBUG] First terminal status seen, recording event count:', currentEventCount);
+        terminalEventCountRef.current = currentEventCount;
+        terminalConfirmCyclesRef.current = 1; // Start at 1
+        terminalTimestampRef.current = now;
+        return; // Wait for next cycle
+      }
+      
+      // Already tracking terminal status
+      // If new events arrived after terminal status, update count and reset cycles
       if (currentEventCount > terminalEventCountRef.current) {
+        if (DEBUG_TERMINAL) console.log('[TERMINAL_DEBUG] New events after terminal! Resetting cycles. Old:', terminalEventCountRef.current, 'New:', currentEventCount);
         terminalEventCountRef.current = currentEventCount;
         terminalConfirmCyclesRef.current = 0;
+        terminalTimestampRef.current = now; // Reset timestamp too
         setConfirmedTerminal(false);
         return;
       }
       
-      // Count poll cycles with no new events
+      // No new events - increment poll cycles
       terminalConfirmCyclesRef.current += 1;
       
-      // Confirm terminal after required cycles with no new events
-      if (terminalConfirmCyclesRef.current >= TERMINAL_CONFIRM_CYCLES) {
+      const timeSinceTerminal = now - terminalTimestampRef.current;
+      if (DEBUG_TERMINAL) console.log('[TERMINAL_DEBUG] Terminal + no new events. Cycles:', terminalConfirmCyclesRef.current, 'Time:', `${(timeSinceTerminal / 1000).toFixed(1)}s`);
+      
+      // Confirm terminal after required cycles OR after timeout
+      const shouldConfirmByCycles = terminalConfirmCyclesRef.current >= TERMINAL_CONFIRM_CYCLES;
+      const shouldConfirmByTimeout = timeSinceTerminal >= TERMINAL_TIMEOUT_MS;
+      
+      if ((shouldConfirmByCycles || shouldConfirmByTimeout) && !confirmedTerminal) {
+        if (DEBUG_TERMINAL) console.log('[TERMINAL_DEBUG] *** CONFIRMING TERMINAL ***', 
+          shouldConfirmByCycles ? '(by cycles)' : '(by timeout)');
         setConfirmedTerminal(true);
       }
     }
-  }, [stream?.status, stream?.event_count]);
+  }, [stream?.status, stream?.event_count, stream?.last_updated]);
   
   // Manage thinking indicator timer (for inline indicator during gaps)
   useEffect(() => {
@@ -573,6 +633,11 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
 
   // Compute display status - uses confirmedTerminal to prevent showing terminal too early
   const mappedStatus: OverallStatus = (() => {
+    // If there's a pending approval plan, show awaiting_approval status
+    if (hasPendingApprovalPlan) {
+      return 'awaiting_approval';
+    }
+    
     if (!stream) return 'idle';
     const s = stream.status;
     

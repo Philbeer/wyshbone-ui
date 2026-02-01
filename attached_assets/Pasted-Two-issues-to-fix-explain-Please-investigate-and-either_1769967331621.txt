@@ -1,0 +1,64 @@
+Two issues to fix + explain. Please investigate and either fix or clearly explain with evidence. This is a trust-critical part of the UX.
+
+Issue 1: Live Activity keeps “Working…” even when the run is complete
+- In the UI, Live Activity shows “Executing” and keeps the working indicator spinning.
+- But I can see in AFR that the run is actually finished / terminal.
+So the Live Activity panel is not reliably detecting terminal completion.
+
+Please fix:
+A) Confirmed terminal detection must work reliably
+- When /api/afr/stream reports terminal, the UI should stop the working indicator and show “Sequence complete”.
+- You already added “confirmTerminal after 1 poll cycle”. That’s good, but it still appears to get stuck.
+- Add a hard fallback: if the latest event in the stream is terminal OR the stream status is terminal for N consecutive polls (eg 2 polls), mark terminal.
+- If the stream returns no new events for X seconds AND status is terminal, mark terminal.
+- Ensure we never stay “Executing” forever after the run is done.
+
+Also add TEMP debug output (console only) to prove why it stays working:
+- streamStatus each poll
+- confirmedTerminal value
+- lastEvent.type and lastEvent.ts
+- “no new events since” duration
+Then remove the logs once fixed.
+
+Acceptance:
+- I run “find pubs london”
+- Live Activity transitions to “Sequence complete” within a few seconds of AFR showing completion
+- No endless spinner if it’s done.
+
+Issue 2: Plan approval confusion (supervisor vs auto execution)
+Right now the UI says “Review and approve the plan” and shows an Approve button, but the AFR / run timeline suggests execution happens anyway (or at least tool calls happen) without me approving.
+
+I need you to answer (clearly) what is actually happening in our code:
+1) When does the system create a plan that requires approval?
+2) What exactly does the Approve button gate?
+   - Does it gate tool execution?
+   - Or does it gate only a subset of steps?
+   - Or is approval currently bypassed / auto-approved?
+3) Is the “Router: tool_call routed through plan system” actually executing anything, or just preparing a plan?
+
+Then fix the UX so it is coherent:
+B) If approval is required:
+- No tool execution should happen until approved.
+- Live Activity must show a distinct step: “Waiting for approval” (not “Executing”).
+- Show “Supervisor created plan, awaiting your approval” and keep working indicator but labelled as waiting, not executing.
+
+C) If approval is NOT required (auto execution is correct):
+- Remove the Approve UI for that path, or show it as “Plan generated (auto-running)” without asking me to approve.
+- Live Activity must state: “Supervisor stepped in and auto-started execution” (or “Auto-approved” with reason).
+
+D) Live Activity must show when supervisor steps in and triggers anything
+Add explicit events (or map existing ones) so the panel shows these moments clearly:
+- “Supervisor engaged”
+- “Plan created”
+- “Awaiting approval” OR “Auto-approved”
+- “Execution started”
+Even if you don’t add new backend events, at minimum map what we already have into these labels so it is obvious.
+
+Acceptance:
+- For a request that needs a plan, Live Activity must make it obvious whether it is awaiting approval or auto-running.
+- The current situation (asks for approval but appears to run anyway) must not happen.
+
+Deliverables:
+- Fix the stuck “Working…” terminal detection.
+- Written explanation (plain English) of how plan approval currently works in our code.
+- UI updated so Live Activity and Plan panel reflect reality (waiting vs executing, supervisor engaged, auto-approved if applicable).

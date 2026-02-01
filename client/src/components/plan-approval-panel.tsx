@@ -191,10 +191,11 @@ export function PlanApprovalPanel() {
       <CardHeader className="space-y-1">
         <CardTitle className="text-lg flex items-center gap-2">
           <Clock className="h-5 w-5" />
-          Plan for Your Goal
+          Supervisor Created a Plan
         </CardTitle>
         <CardDescription>
-          Review and approve the plan Wyshbone generated
+          This multi-step plan requires your approval before execution begins.
+          Once approved, Wyshbone will execute each step automatically.
         </CardDescription>
       </CardHeader>
 
