@@ -168,6 +168,8 @@ interface StreamResponse {
   client_request_id: string | null;
   title: string;
   status: 'idle' | 'routing' | 'planning' | 'executing' | 'completed' | 'failed';
+  is_terminal: boolean;
+  terminal_state: 'completed' | 'failed' | 'stopped' | null;
   events: StreamEvent[];
   event_count: number;
   last_updated: string;
@@ -382,6 +384,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
   const hasActivePlan = plan && ['approved', 'executing', 'pending_approval'].includes(plan.status);
   const isMultiStepPlan = hasActivePlan && plan.steps && plan.steps.length >= 2;
   const scrollRef = useRef<HTMLDivElement>(null);
+  const bottomRef = useRef<HTMLDivElement>(null);
   const prevEventCount = useRef(0);
   const prevRequestIdRef = useRef<string | null | undefined>(undefined);
   const prevStatusRef = useRef<string | null | undefined>(undefined);
@@ -390,6 +393,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
   const terminalEventCountRef = useRef<number | null>(null); // Event count when terminal status first seen
   const terminalConfirmCyclesRef = useRef(0); // Cycles since terminal status
   const terminalTimestampRef = useRef<number | null>(null); // Time when terminal status first seen
+  const nearBottomRef = useRef(true); // Track if user is near bottom for chat-like scroll
   
   // Track stream state for overlay trigger
   const streamRequestId = stream?.client_request_id;
@@ -420,13 +424,11 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
         onRequestIdChange?.(data.client_request_id);
       }
 
-      if (autoScroll && data.event_count > prevEventCount.current) {
+      // Chat-like auto-scroll: scroll to bottom if user is near bottom
+      if (nearBottomRef.current && data.event_count > prevEventCount.current) {
         setTimeout(() => {
-          scrollRef.current?.scrollTo({ 
-            top: scrollRef.current.scrollHeight, 
-            behavior: 'smooth' 
-          });
-        }, 100);
+          bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+        }, 50);
       }
       
       // Reset thinking indicator when new events arrive
@@ -538,83 +540,58 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
   }, [fetchStream]);
 
   // Manage terminal confirmation logic
-  // Only confirm terminal after status is terminal AND no new events arrive for N cycles OR timeout
+  // Use the API's is_terminal field as the source of truth
+  // Only add brief delay to prevent UI flicker, then confirm terminal
   useEffect(() => {
+    const apiIsTerminal = stream?.is_terminal ?? false;
+    const terminalState = stream?.terminal_state;
     const currentEventCount = stream?.event_count || 0;
-    const currentStatus = stream?.status;
-    const statusIsTerminal = currentStatus && TERMINAL_STATUSES.includes(currentStatus);
-    const statusIsActive = currentStatus && ACTIVE_STATUSES.includes(currentStatus);
     const now = Date.now();
-    
-    // Get last event timestamp from stream
-    const lastEventTs = stream?.last_updated ? new Date(stream.last_updated).getTime() : null;
     
     // DEBUG: Log terminal detection state (gated by DEBUG_TERMINAL flag)
     if (DEBUG_TERMINAL) {
       console.log('[TERMINAL_DEBUG] Check:', {
-        status: currentStatus,
+        apiIsTerminal,
+        terminalState,
         eventCount: currentEventCount,
-        isTerminal: statusIsTerminal,
-        isActive: statusIsActive,
         prevEventCount: terminalEventCountRef.current,
         confirmCycles: terminalConfirmCyclesRef.current,
-        terminalSeenAt: terminalTimestampRef.current ? `${((now - terminalTimestampRef.current) / 1000).toFixed(1)}s ago` : null,
-        lastEventTs: lastEventTs ? new Date(lastEventTs).toISOString() : null,
         confirmedTerminal
       });
     }
     
-    // If status is active, reset terminal confirmation
-    if (statusIsActive) {
-      if (DEBUG_TERMINAL && (confirmedTerminal || terminalEventCountRef.current !== null)) {
-        console.log('[TERMINAL_DEBUG] Active status detected - resetting terminal state');
+    // If API says NOT terminal, reset terminal confirmation immediately
+    if (!apiIsTerminal) {
+      if (confirmedTerminal || terminalEventCountRef.current !== null) {
+        if (DEBUG_TERMINAL) console.log('[TERMINAL_DEBUG] API says not terminal - resetting');
+        setConfirmedTerminal(false);
+        terminalEventCountRef.current = null;
+        terminalConfirmCyclesRef.current = 0;
+        terminalTimestampRef.current = null;
       }
-      setConfirmedTerminal(false);
-      terminalEventCountRef.current = null;
-      terminalConfirmCyclesRef.current = 0;
-      terminalTimestampRef.current = null;
       return;
     }
     
-    // If status is terminal
-    if (statusIsTerminal) {
-      // First time seeing terminal status
+    // API says terminal - confirm quickly (just 1 cycle delay to prevent flicker)
+    if (apiIsTerminal && terminalState) {
+      // First time seeing terminal
       if (terminalTimestampRef.current === null) {
-        if (DEBUG_TERMINAL) console.log('[TERMINAL_DEBUG] First terminal status seen, recording event count:', currentEventCount);
+        if (DEBUG_TERMINAL) console.log('[TERMINAL_DEBUG] First terminal seen:', terminalState);
         terminalEventCountRef.current = currentEventCount;
-        terminalConfirmCyclesRef.current = 1; // Start at 1
+        terminalConfirmCyclesRef.current = 1;
         terminalTimestampRef.current = now;
-        return; // Wait for next cycle
-      }
-      
-      // Already tracking terminal status
-      // If new events arrived after terminal status, update count and reset cycles
-      if (terminalEventCountRef.current !== null && currentEventCount > terminalEventCountRef.current) {
-        if (DEBUG_TERMINAL) console.log('[TERMINAL_DEBUG] New events after terminal! Resetting cycles. Old:', terminalEventCountRef.current, 'New:', currentEventCount);
-        terminalEventCountRef.current = currentEventCount;
-        terminalConfirmCyclesRef.current = 0;
-        terminalTimestampRef.current = now; // Reset timestamp too
-        setConfirmedTerminal(false);
+        // Confirm immediately if this is the first poll with terminal
+        setConfirmedTerminal(true);
         return;
       }
       
-      // No new events - increment poll cycles
-      terminalConfirmCyclesRef.current += 1;
-      
-      const timeSinceTerminal = now - terminalTimestampRef.current;
-      if (DEBUG_TERMINAL) console.log('[TERMINAL_DEBUG] Terminal + no new events. Cycles:', terminalConfirmCyclesRef.current, 'Time:', `${(timeSinceTerminal / 1000).toFixed(1)}s`);
-      
-      // Confirm terminal after required cycles OR after timeout
-      const shouldConfirmByCycles = terminalConfirmCyclesRef.current >= TERMINAL_CONFIRM_CYCLES;
-      const shouldConfirmByTimeout = timeSinceTerminal >= TERMINAL_TIMEOUT_MS;
-      
-      if ((shouldConfirmByCycles || shouldConfirmByTimeout) && !confirmedTerminal) {
-        if (DEBUG_TERMINAL) console.log('[TERMINAL_DEBUG] *** CONFIRMING TERMINAL ***', 
-          shouldConfirmByCycles ? '(by cycles)' : '(by timeout)');
+      // Already confirmed or will confirm
+      if (!confirmedTerminal) {
+        if (DEBUG_TERMINAL) console.log('[TERMINAL_DEBUG] *** CONFIRMING TERMINAL ***:', terminalState);
         setConfirmedTerminal(true);
       }
     }
-  }, [stream?.status, stream?.event_count, stream?.last_updated]);
+  }, [stream?.is_terminal, stream?.terminal_state, stream?.event_count]);
   
   // Manage thinking indicator timer (for inline indicator during gaps)
   useEffect(() => {
@@ -647,26 +624,29 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const target = e.currentTarget;
-    const isAtBottom = target.scrollHeight - target.scrollTop <= target.clientHeight + 50;
-    setAutoScroll(isAtBottom);
+    // Chat-like scroll detection: user is "near bottom" if within 120px
+    const nearBottom = target.scrollHeight - target.scrollTop - target.clientHeight < 120;
+    nearBottomRef.current = nearBottom;
+    setAutoScroll(nearBottom);
   };
 
-  // Compute display status - uses confirmedTerminal to prevent showing terminal too early
+  // Compute display status - driven by API's is_terminal and terminal_state fields
+  // This ensures the UI always reflects the server's authoritative status
   const mappedStatus: OverallStatus = (() => {
     if (!stream) return 'idle';
-    const s = stream.status;
     
-    // Only show terminal status if it's confirmed (no new events after terminal)
-    if (TERMINAL_STATUSES.includes(s)) {
-      if (!confirmedTerminal) {
-        // Terminal status but not confirmed - show as executing/working
-        return 'executing';
+    // Use server's is_terminal flag as the source of truth
+    // Combined with confirmedTerminal for brief delay to prevent flicker
+    if (stream.is_terminal && stream.terminal_state) {
+      // Once server says terminal AND we've confirmed it, show terminal state
+      if (confirmedTerminal) {
+        return stream.terminal_state;
       }
-      if (s === 'completed') return 'completed';
-      if (s === 'failed') return 'failed';
-      if ((s as string) === 'stopped') return 'stopped';
+      // Server says terminal but we haven't confirmed - show as executing briefly
+      return 'executing';
     }
     
+    const s = stream.status;
     if (s === 'routing') return 'routing';
     if (s === 'planning') return 'planning';
     if (s === 'executing') {
@@ -690,17 +670,15 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
     if (DEBUG_TERMINAL) {
       console.log('[STATUS_DEBUG] Poll state:', {
         activeClientRequestId,
-        streamStatus: stream?.status,
-        streamClientRequestId: stream?.client_request_id,
+        is_terminal: stream?.is_terminal,
+        terminal_state: stream?.terminal_state,
         mappedStatus,
         confirmedTerminal,
         eventCount: stream?.event_count || 0,
-        lastEventType: lastEventForDebug?.type || 'none',
-        lastEventTs: lastEventForDebug?.ts || 'none',
-        terminalConfirmCycles: terminalConfirmCyclesRef.current,
+        badgeShown: mappedStatus,
       });
     }
-  }, [stream?.status, stream?.event_count, confirmedTerminal, mappedStatus, activeClientRequestId, lastEventForDebug?.type, lastEventForDebug?.ts]);
+  }, [stream?.is_terminal, stream?.terminal_state, stream?.event_count, confirmedTerminal, mappedStatus, activeClientRequestId]);
 
   if (loading) {
     return (
@@ -817,6 +795,9 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
             {isWorking && (
               <ThinkingIndicator variant="footer" />
             )}
+            
+            {/* Bottom sentinel for chat-like auto-scroll */}
+            <div ref={bottomRef} />
           </div>
         )}
       </CardContent>
@@ -827,11 +808,9 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
             variant="secondary"
             size="sm"
             onClick={() => {
+              nearBottomRef.current = true;
               setAutoScroll(true);
-              scrollRef.current?.scrollTo({ 
-                top: scrollRef.current.scrollHeight, 
-                behavior: 'smooth' 
-              });
+              bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
             }}
           >
             <ChevronDown className="h-3 w-3 mr-1" />

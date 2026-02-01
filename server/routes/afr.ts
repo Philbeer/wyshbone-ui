@@ -573,10 +573,17 @@ export function createAfrRouter(_storage: typeof storage) {
         events[0]?.summary || 
         'Processing request...';
 
+      // Compute terminal state for client-side consumption
+      const terminalStatuses = ['completed', 'failed', 'stopped'];
+      const isTerminal = terminalStatuses.includes(overallStatus);
+      const terminalState = isTerminal ? overallStatus as 'completed' | 'failed' | 'stopped' : null;
+
       res.json({
         client_request_id: clientRequestId || relevantActivities[0]?.clientRequestId || null,
         title: requestTitle,
         status: overallStatus,
+        is_terminal: isTerminal,
+        terminal_state: terminalState,
         events,
         event_count: events.length,
         last_updated: events.length > 0 

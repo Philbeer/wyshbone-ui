@@ -1,0 +1,91 @@
+Three fixes needed. Please implement all of them.
+
+========================================
+FIX 1: Live Activity must behave like a chat (new items appear at the bottom)
+========================================
+
+Right now Live Activity reads like a top-down log. I want it to behave like Replit chat.
+
+Requirements:
+- Events render in chronological order (oldest → newest), so newest is at the bottom.
+- The scroll position should “stick” to the bottom while new events arrive (chat behaviour).
+- If the user scrolls up to read older entries, do NOT auto-scroll them back down until they return near the bottom.
+- Use a bottom sentinel div and scrollIntoView({ block: "end" }) when new events arrive IF the user is near bottom.
+
+Implementation details:
+- Use a scroll container ref.
+- Track nearBottom:
+  nearBottom = (scrollHeight - scrollTop - clientHeight) < 120
+- On new events:
+  if (nearBottom) bottomRef.scrollIntoView({ behavior: "smooth" })
+
+UI layout:
+- Header (Live Activity title, badges, Stop button) stays pinned at top of the card.
+- Footer (Working indicator) stays pinned at bottom.
+- Only the event list scrolls between them.
+
+Acceptance:
+- New events visually appear at the bottom.
+- Panel auto-scrolls like a chat.
+- Scrolling up pauses auto-scroll until user returns to bottom.
+
+
+========================================
+FIX 2: Completed state not showing even when AFR says completed
+========================================
+
+The run is completing in AFR, but Live Activity stays in Executing / Working.
+
+Live Activity must use the SAME source of truth as AFR.
+
+Rules:
+- If the AFR stream for activeClientRequestId is terminal, UI MUST show:
+  - Status badge: Completed (or Failed / Stopped)
+  - Working animation stops
+  - “Sequence complete” row appears
+- Executing / Working must only show while the stream is actually active.
+
+Implement this properly:
+
+A) In /api/afr/stream include explicit fields:
+- is_terminal: true / false
+- terminal_state: "completed" | "failed" | "stopped" | null
+
+These must be computed server-side using the same logic AFR uses.
+
+B) Client-side:
+- Drive the badge and sequence row purely from is_terminal + terminal_state.
+- Do NOT let UI confirmation timers prevent Completed from ever showing.
+
+C) Temporary debug (remove after):
+Log per poll:
+- activeClientRequestId
+- is_terminal
+- terminal_state
+- badge being shown
+
+Acceptance:
+- When AFR shows completed, Live Activity flips to Completed within one poll cycle.
+- Working animation stops and “Sequence complete” appears.
+
+
+========================================
+FIX 3: Bottom-right “Classic” button cleanup
+========================================
+
+The bottom-right control that says:
+“Classic” with an icon
+
+Needs to be cleaned up:
+
+- Remove the word “Classic”
+- Keep the icon only
+- Make the icon much smaller (subtle UI, not a big button)
+- It should feel like a compact mode toggle, not a primary control
+
+========================================
+
+Please implement and provide:
+- Screenshot showing Live Activity adding new events at the bottom
+- Screenshot showing Completed + Sequence complete
+- Screenshot showing the new small Classic icon without the word
