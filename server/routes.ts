@@ -68,6 +68,7 @@ import { getSummary, getFileContent } from './lib/exporter';
 import { randomBytes } from 'crypto';
 import { startRunLog, completeRunLog, logToolCall, isTowerLoggingEnabled } from './lib/towerClient';
 import { getUserGoal, setUserGoal, hasUserGoal } from './userGoalHelper';
+import { logUserMessageReceived, logRouterDecision, type RouterDecision } from './lib/activity-logger';
 
 // SINGLE SOURCE OF TRUTH: SUPABASE_DATABASE_URL (Replit auto-provides DATABASE_URL for its built-in Postgres)
 const sql = neon(process.env.SUPABASE_DATABASE_URL!);
@@ -1248,8 +1249,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const validatedData = validation.data;
       user = validatedData.user;
-      const { messages, defaultCountry, conversationId: requestedConversationId } = validatedData;
-      console.log('📝 Chat request from user:', user.id, user.email);
+      const { messages, defaultCountry, conversationId: requestedConversationId, clientRequestId } = validatedData;
+      console.log('📝 Chat request from user:', user.id, user.email, clientRequestId ? `(crid:${clientRequestId.slice(0,8)})` : '');
       
       // SECURITY: Validate authenticated user matches the user in request
       const auth = await getAuthenticatedUserId(req);
@@ -1263,6 +1264,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ error: "Forbidden: Cannot chat as another user" });
       }
       console.log('✅ Authentication passed for:', auth.userEmail);
+      
+      // Store clientRequestId on request for use in downstream handlers
+      (req as any).clientRequestId = clientRequestId;
       
       const sessionId = getSessionId(req);
 
@@ -1308,6 +1312,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await saveMessage(conversationId, "user", latestUserText);
       console.log("💾 Saved user message to database");
 
+      // AFR: Log user message received with correlation ID
+      if (clientRequestId) {
+        await logUserMessageReceived({
+          userId: user.id,
+          conversationId,
+          clientRequestId,
+          rawUserText: latestUserText,
+        }).catch(err => console.error('AFR log error:', err.message));
+      }
+
       // Update conversation label if this is the first user message
       await updateConversationLabel(conversationId, latestUserText);
 
@@ -1318,6 +1332,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
           
           if (intentResult.requiresSupervisor && intentResult.taskType && intentResult.requestData) {
             console.log(`🤖 Supervisor intent detected: ${intentResult.taskType}`);
+            
+            // AFR: Log router decision for supervisor plan
+            if (clientRequestId) {
+              await logRouterDecision({
+                userId: user.id,
+                conversationId,
+                clientRequestId,
+                decision: 'supervisor_plan',
+                reason: `Detected ${intentResult.taskType} intent`,
+                signals: { taskType: intentResult.taskType, requestData: intentResult.requestData },
+              }).catch(err => console.error('AFR router log error:', err.message));
+            }
             
             // Create Supervisor task in Supabase
             const supervisorTask = await createSupervisorTask(
@@ -2716,6 +2742,36 @@ CRITICAL RULES:
         if (isToolCall && heavyTools.has(toolCallBuffer.name)) {
           console.log(`🔄 Routing heavy tool ${toolCallBuffer.name} through plan system`);
           
+          // Get clientRequestId from request context
+          const clientRequestId = (req as any).clientRequestId as string | undefined;
+          
+          // AFR: Log router decision for tool call
+          if (clientRequestId) {
+            await logRouterDecision({
+              userId: user.id,
+              conversationId,
+              clientRequestId,
+              decision: 'tool_call',
+              reason: `Heavy tool ${toolCallBuffer.name} routed through plan system`,
+              signals: { toolName: toolCallBuffer.name },
+            }).catch(err => console.error('AFR router log error:', err.message));
+          }
+          
+          // IDEMPOTENCY CHECK: Skip if we already have a run for this client_request_id
+          if (clientRequestId) {
+            const existingRun = await storage.getDeepResearchRunByClientRequestId(user.id, clientRequestId);
+            if (existingRun) {
+              console.log(`⏭️ Skipping duplicate run - already exists for crid:${clientRequestId.slice(0,8)}`);
+              aiBuffer = `I'm already processing that request. Check the sidebar for progress.`;
+              res.write(`data: ${JSON.stringify({ content: aiBuffer })}\n\n`);
+              appendMessage(sessionId, { role: "assistant", content: aiBuffer });
+              await saveMessage(conversationId, "assistant", aiBuffer);
+              res.write(`data: [DONE]\n\n`);
+              res.end();
+              return;
+            }
+          }
+          
           // STEP 1: Create a run record IMMEDIATELY before parsing (so it appears in AFR even if parsing fails)
           const runId = `run_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
           const runLabel = `${toolCallBuffer.name} - Pending`;
@@ -2730,9 +2786,13 @@ CRITICAL RULES:
               label: runLabel,
               status: 'in_progress',
               createdAt: Date.now(),
+              clientRequestId: clientRequestId || null, // AFR correlation
+              routerDecision: 'tool_call',
+              routerReason: `Heavy tool routed through plan system`,
+              conversationId: conversationId,
             });
             afrRunCreated = true;
-            console.log(`📋 Created AFR run ${runId} for ${toolCallBuffer.name}`);
+            console.log(`📋 Created AFR run ${runId} for ${toolCallBuffer.name}${clientRequestId ? ` (crid:${clientRequestId.slice(0,8)})` : ''}`);
           } catch (runErr: any) {
             console.error(`⚠️ Failed to create AFR run record:`, runErr.message);
             // Continue anyway - AFR logging is secondary to actual execution

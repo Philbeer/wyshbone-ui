@@ -225,6 +225,7 @@ export interface IStorage {
   // Deep Research CRUD methods
   createDeepResearchRun(run: InsertDeepResearchRun): Promise<SelectDeepResearchRun>;
   getDeepResearchRun(id: string): Promise<SelectDeepResearchRun | null>;
+  getDeepResearchRunByClientRequestId(userId: string, clientRequestId: string): Promise<SelectDeepResearchRun | null>;
   listDeepResearchRuns(userId?: string): Promise<SelectDeepResearchRun[]>;
   updateDeepResearchRun(id: string, updates: Partial<InsertDeepResearchRun>): Promise<SelectDeepResearchRun | null>;
   deleteDeepResearchRun(id: string): Promise<boolean>;
@@ -703,6 +704,11 @@ export class MemStorage implements IStorage {
 
   async getDeepResearchRun(id: string): Promise<SelectDeepResearchRun | null> {
     return this.deepResearchRuns.get(id) || null;
+  }
+
+  async getDeepResearchRunByClientRequestId(userId: string, clientRequestId: string): Promise<SelectDeepResearchRun | null> {
+    const allRuns = Array.from(this.deepResearchRuns.values());
+    return allRuns.find(run => run.userId === userId && run.clientRequestId === clientRequestId) || null;
   }
 
   async listDeepResearchRuns(userId?: string): Promise<SelectDeepResearchRun[]> {
@@ -1619,6 +1625,14 @@ export class DbStorage implements IStorage {
 
   async getDeepResearchRun(id: string): Promise<SelectDeepResearchRun | null> {
     const [run] = await db.select().from(deepResearchRuns).where(eq(deepResearchRuns.id, id));
+    return run || null;
+  }
+
+  async getDeepResearchRunByClientRequestId(userId: string, clientRequestId: string): Promise<SelectDeepResearchRun | null> {
+    const [run] = await db
+      .select()
+      .from(deepResearchRuns)
+      .where(and(eq(deepResearchRuns.userId, userId), eq(deepResearchRuns.clientRequestId, clientRequestId)));
     return run || null;
   }
 
