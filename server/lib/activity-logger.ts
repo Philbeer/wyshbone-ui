@@ -1,8 +1,9 @@
 import { storage } from '../storage';
 import { randomUUID } from 'crypto';
 
-export type ActivityRunType = 'deep_research' | 'plan' | 'tool' | 'chat';
+export type ActivityRunType = 'deep_research' | 'plan' | 'tool' | 'chat' | 'user_message' | 'router_decision';
 export type ActivityStatus = 'started' | 'progress' | 'completed' | 'failed';
+export type RouterDecision = 'direct_response' | 'deep_research' | 'supervisor_plan' | 'tool_call';
 
 export interface LogActivityParams {
   userId: string;
@@ -18,6 +19,10 @@ export interface LogActivityParams {
   durationMs?: number;
   metadata?: Record<string, any>;
   interestingFlag?: 0 | 1;
+  clientRequestId?: string;
+  routerDecision?: RouterDecision;
+  routerReason?: string;
+  parentActivityId?: string;
 }
 
 export async function logActivity(params: LogActivityParams): Promise<string> {
@@ -44,9 +49,13 @@ export async function logActivity(params: LogActivityParams): Promise<string> {
         ...params.metadata
       },
       interestingFlag: params.interestingFlag ?? (params.status === 'failed' ? 1 : 0),
+      clientRequestId: params.clientRequestId || null,
+      routerDecision: params.routerDecision || null,
+      routerReason: params.routerReason || null,
+      parentActivityId: params.parentActivityId || null,
     });
     
-    console.log(`📝 [AFR] Logged activity: ${params.runType}/${params.status} - ${params.label}`);
+    console.log(`📝 [AFR] Logged activity: ${params.runType}/${params.status} - ${params.label}${params.clientRequestId ? ` (crid:${params.clientRequestId.slice(0,8)})` : ''}`);
     return id;
   } catch (err) {
     console.error(`❌ [AFR] Failed to log activity:`, (err as Error).message);
@@ -70,6 +79,8 @@ export async function logToolCall(params: {
   toolParams: Record<string, any>;
   conversationId?: string;
   runId?: string;
+  clientRequestId?: string;
+  parentActivityId?: string;
 }): Promise<string> {
   return logActivity({
     userId: params.userId,
@@ -80,6 +91,9 @@ export async function logToolCall(params: {
     conversationId: params.conversationId,
     runId: params.runId,
     actionParams: sanitizeParams(params.toolParams),
+    clientRequestId: params.clientRequestId,
+    routerDecision: 'tool_call',
+    parentActivityId: params.parentActivityId,
   });
 }
 
@@ -92,6 +106,8 @@ export async function logToolResult(params: {
   durationMs?: number;
   conversationId?: string;
   runId?: string;
+  clientRequestId?: string;
+  parentActivityId?: string;
 }): Promise<string> {
   return logActivity({
     userId: params.userId,
@@ -105,6 +121,8 @@ export async function logToolResult(params: {
     errorMessage: params.error,
     durationMs: params.durationMs,
     interestingFlag: params.success ? 0 : 1,
+    clientRequestId: params.clientRequestId,
+    parentActivityId: params.parentActivityId,
   });
 }
 
@@ -116,6 +134,8 @@ export async function logPlanEvent(params: {
   stepInfo?: { stepId: string; stepLabel: string };
   error?: string;
   metadata?: Record<string, any>;
+  clientRequestId?: string;
+  conversationId?: string;
 }): Promise<string> {
   return logActivity({
     userId: params.userId,
@@ -131,6 +151,9 @@ export async function logPlanEvent(params: {
       ...params.metadata,
     },
     interestingFlag: params.status === 'failed' ? 1 : 0,
+    clientRequestId: params.clientRequestId,
+    conversationId: params.conversationId,
+    routerDecision: 'supervisor_plan',
   });
 }
 
@@ -140,6 +163,8 @@ export async function logDeepResearchEvent(params: {
   status: ActivityStatus;
   label: string;
   error?: string;
+  clientRequestId?: string;
+  conversationId?: string;
 }): Promise<string> {
   return logActivity({
     userId: params.userId,
@@ -151,6 +176,58 @@ export async function logDeepResearchEvent(params: {
     errorMessage: params.error,
     metadata: { deepResearchRunId: params.runId },
     interestingFlag: params.status === 'failed' ? 1 : 0,
+    clientRequestId: params.clientRequestId,
+    conversationId: params.conversationId,
+    routerDecision: 'deep_research',
+  });
+}
+
+export async function logUserMessageReceived(params: {
+  userId: string;
+  conversationId: string;
+  clientRequestId: string;
+  rawUserText: string;
+}): Promise<string> {
+  return logActivity({
+    userId: params.userId,
+    runType: 'user_message',
+    status: 'completed',
+    label: `User: ${params.rawUserText.slice(0, 80)}${params.rawUserText.length > 80 ? '...' : ''}`,
+    actionTaken: 'user_message_received',
+    conversationId: params.conversationId,
+    clientRequestId: params.clientRequestId,
+    actionParams: { rawUserText: params.rawUserText.slice(0, 500) },
+    metadata: {
+      messageLength: params.rawUserText.length,
+      timestamp: new Date().toISOString(),
+    },
+  });
+}
+
+export async function logRouterDecision(params: {
+  userId: string;
+  conversationId: string;
+  clientRequestId: string;
+  decision: RouterDecision;
+  reason: string;
+  signals?: Record<string, any>;
+}): Promise<string> {
+  return logActivity({
+    userId: params.userId,
+    runType: 'router_decision',
+    status: 'completed',
+    label: `Router: ${params.decision}`,
+    actionTaken: 'router_decision',
+    conversationId: params.conversationId,
+    clientRequestId: params.clientRequestId,
+    routerDecision: params.decision,
+    routerReason: params.reason,
+    actionParams: params.signals,
+    metadata: {
+      decision: params.decision,
+      reason: params.reason,
+      signals: params.signals,
+    },
   });
 }
 

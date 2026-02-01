@@ -20,6 +20,7 @@ export const chatRequestSchema = z.object({
   }),
   defaultCountry: z.string().optional(),
   conversationId: z.string().optional(),
+  clientRequestId: z.string().optional(), // Idempotency key - prevents duplicate run creation
 });
 
 export type ChatRequest = z.infer<typeof chatRequestSchema>;
@@ -196,11 +197,18 @@ export const deepResearchRuns = pgTable("deep_research_runs", {
   error: text("error"),
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
   updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+  // AFR Correlation & Decision Tracking
+  clientRequestId: text("client_request_id"), // Idempotency key from frontend
+  routerDecision: text("router_decision"), // 'direct_response' | 'deep_research' | 'supervisor_plan'
+  routerReason: text("router_reason"), // Why this routing decision was made
+  conversationId: text("conversation_id"), // Link to conversation
 }, (table) => ({
   userIdIdx: index("deep_research_runs_user_id_idx").on(table.userId),
   statusIdx: index("status_idx").on(table.status),
   updatedAtIdx: index("updated_at_idx").on(table.updatedAt),
   responseIdIdx: index("response_id_idx").on(table.responseId),
+  clientRequestIdIdx: index("deep_research_runs_client_request_id_idx").on(table.clientRequestId),
+  conversationIdIdx: index("deep_research_runs_conversation_id_idx").on(table.conversationId),
 }));
 
 // Deep Research Zod schemas for validation
@@ -421,12 +429,19 @@ export const agentActivities = pgTable("agent_activities", {
   runId: text("run_id"), // Group related activities into a single run
   metadata: jsonb("metadata"), // Additional context (source, triggers, etc.)
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  // AFR Correlation & Decision Tracking
+  clientRequestId: text("client_request_id"), // Idempotency key from frontend - all activities from same user message share this
+  routerDecision: text("router_decision"), // 'direct_response' | 'deep_research' | 'supervisor_plan' | 'tool_call'
+  routerReason: text("router_reason"), // Why this routing decision was made
+  parentActivityId: text("parent_activity_id"), // For hierarchical grouping (e.g., tool call within plan)
 }, (table) => ({
   userIdTimestampIdx: index("agent_activities_user_id_timestamp_idx").on(table.userId, table.timestamp),
   interestingFlagIdx: index("agent_activities_interesting_flag_idx").on(table.interestingFlag, table.timestamp),
   statusIdx: index("agent_activities_status_idx").on(table.status, table.timestamp),
   runIdIdx: index("agent_activities_run_id_idx").on(table.runId, table.timestamp),
   conversationIdIdx: index("agent_activities_conversation_id_idx").on(table.conversationId),
+  clientRequestIdIdx: index("agent_activities_client_request_id_idx").on(table.clientRequestId),
+  parentActivityIdIdx: index("agent_activities_parent_id_idx").on(table.parentActivityId),
 }));
 
 // Agent Activities insert/select schemas
