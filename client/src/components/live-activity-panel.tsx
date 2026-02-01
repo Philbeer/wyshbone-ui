@@ -770,10 +770,10 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
 
   return (
     <Card className="flex flex-col flex-1">
-      <CardHeader className="pb-2 shrink-0">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-sm font-medium">Live Activity</CardTitle>
-          <div className="flex items-center gap-2">
+      <CardHeader className="pb-2 shrink-0 border-b">
+        <div className="flex items-center justify-between gap-2">
+          <CardTitle className="text-sm font-medium shrink-0">Live Activity</CardTitle>
+          <div className="flex items-center gap-1.5 flex-wrap justify-end">
             {/* Stop button - only visible when working */}
             {isWorking && (
               <Button 
@@ -781,13 +781,13 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
                 size="sm" 
                 onClick={handleStop}
                 disabled={stopping}
-                className="h-6 px-2 text-xs"
+                className="h-5 px-1.5 text-[10px]"
               >
                 {stopping ? (
                   <Loader2 className="h-3 w-3 animate-spin" />
                 ) : (
                   <>
-                    <StopCircle className="h-3 w-3 mr-1" />
+                    <StopCircle className="h-3 w-3 mr-0.5" />
                     Stop
                   </>
                 )}
@@ -795,14 +795,14 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
             )}
             <StatusBadge status={mappedStatus} />
             {lastFetch && (
-              <span className="text-[10px] text-muted-foreground">
+              <span className="text-[10px] text-muted-foreground whitespace-nowrap">
                 {formatRelativeTime(lastFetch.toISOString())}
               </span>
             )}
           </div>
         </div>
         {hasEvents && stream?.title && (
-          <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
+          <p className="text-xs text-muted-foreground mt-1 line-clamp-1">
             {stream.title}
           </p>
         )}
@@ -828,31 +828,37 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
           <div 
             ref={scrollRef}
             className={cn(
-              "h-full overflow-y-auto px-4 py-2 transition-opacity duration-200",
+              "h-full overflow-y-auto px-4 py-2 transition-opacity duration-200 flex flex-col",
               showOverlay && "opacity-0"
             )}
             onScroll={handleScroll}
           >
-            {events.map((event, index) => (
-              <TimelineEvent 
-                key={event.id} 
-                event={event} 
-                isLast={index === events.length - 1 && confirmedTerminal}
-              />
-            ))}
+            {/* Spacer to push events to bottom (chat-style) */}
+            <div className="flex-1 min-h-0" />
             
-            {/* Inline thinking indicator after last event - shows during gaps when working */}
-            {showThinking && isWorking && (
-              <ThinkingIndicator variant="inline" />
-            )}
-            
-            {/* Terminal status indicator - only shows when terminal is confirmed */}
-            {confirmedTerminal && (mappedStatus === 'completed' || mappedStatus === 'failed' || mappedStatus === 'stopped') && (
-              <SequenceStatusRow status={mappedStatus} />
-            )}
-            
-            {/* Bottom sentinel for chat-style auto-scroll */}
-            <div ref={bottomSentinelRef} className="h-1" />
+            {/* Events container - grows from bottom */}
+            <div className="flex-shrink-0">
+              {events.map((event, index) => (
+                <TimelineEvent 
+                  key={event.id} 
+                  event={event} 
+                  isLast={index === events.length - 1 && confirmedTerminal}
+                />
+              ))}
+              
+              {/* Inline thinking indicator after last event - shows during gaps when working */}
+              {showThinking && isWorking && (
+                <ThinkingIndicator variant="inline" />
+              )}
+              
+              {/* Terminal status indicator - only shows when terminal is confirmed */}
+              {confirmedTerminal && (mappedStatus === 'completed' || mappedStatus === 'failed' || mappedStatus === 'stopped') && (
+                <SequenceStatusRow status={mappedStatus} />
+              )}
+              
+              {/* Bottom sentinel for chat-style auto-scroll */}
+              <div ref={bottomSentinelRef} className="h-1" />
+            </div>
           </div>
         )}
       </CardContent>
