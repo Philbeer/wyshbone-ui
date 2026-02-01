@@ -1,0 +1,40 @@
+Thanks. Your summary sounds correct, but in the actual UI it is NOT visible.
+
+What I’m seeing (screenshot):
+- Live Activity shows “Completed” and “Sequence complete”.
+- It jumps from “Message received” to the next event with no visible “Starting request…” overlay and no visible thinking/brain icons in the gap.
+- I can see Replit’s own “Thinking…” brains in your chat UI, but not in our Live Activity panel.
+
+So either:
+1) the overlay/indicator isn’t actually being triggered, or
+2) it’s rendering behind the panel (z-index / positioning), or
+3) it’s appearing and disappearing without being visible (threshold/min duration), or
+4) activeClientRequestId isn’t changing the way you think (so your useEffect never fires), or
+5) setStream(null) is wiping the events and the overlay, then we immediately render terminal state and it looks like nothing happened.
+
+Please do this as a proper repro + proof, not just “it’s working”:
+
+A) Add TEMP debug logs (console) inside the LiveActivityPanel:
+- log when activeClientRequestId changes
+- log when overlayVisible becomes true/false
+- log overlay timer start/clear
+- log streamStatus and lastEventArrivedAt updates
+
+B) Confirm the overlay is actually in the DOM and visible:
+- Inspect element: StartingOverlay div exists
+- Confirm it has position absolute, inset 0, and z-index above timeline
+- Confirm it has a visible background (not transparent)
+- If it exists but cannot be seen: fix CSS.
+
+C) Fix the timing so humans can see it:
+- The overlay must be visible for a full 2 seconds even if the run completes instantly. Non-negotiable.
+- The inline thinking row should appear after 200ms gap and stay visible for at least 400ms once shown (otherwise it will never be noticed).
+
+D) Record proof:
+- Please send a short screen recording showing:
+  1) I press Enter on a new prompt
+  2) Live Activity instantly shows the 2-second “Starting request…” overlay
+  3) overlay fades out and timeline appears
+  4) if there’s a pause between events, the inline “Thinking…” brains appear
+
+Right now, from the UI, it looks like none of this is visible, so it is not done yet.

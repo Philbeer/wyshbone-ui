@@ -75,24 +75,31 @@ function StartingOverlay() {
   const [phase, setPhase] = useState(0);
   
   useEffect(() => {
+    console.log('[OVERLAY_DEBUG] StartingOverlay MOUNTED');
     const interval = setInterval(() => {
       setPhase(p => (p + 1) % 3);
     }, 400);
-    return () => clearInterval(interval);
+    return () => {
+      console.log('[OVERLAY_DEBUG] StartingOverlay UNMOUNTED');
+      clearInterval(interval);
+    };
   }, []);
   
   const brainCount = phase + 1;
   
   return (
-    <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-card/95 backdrop-blur-sm animate-in fade-in duration-200">
+    <div 
+      className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-card animate-in fade-in duration-200"
+      style={{ backgroundColor: 'hsl(var(--card))' }}
+    >
       <div className="flex flex-col items-center gap-3">
         <div className="flex items-center gap-1">
           {[0, 1, 2].map(i => (
             <Brain 
               key={i}
               className={cn(
-                "h-5 w-5 text-muted-foreground transition-all duration-300",
-                i < brainCount ? "opacity-80 scale-110" : "opacity-25 scale-100"
+                "h-6 w-6 text-primary transition-all duration-300",
+                i < brainCount ? "opacity-100 scale-110" : "opacity-30 scale-100"
               )} 
             />
           ))}
@@ -337,8 +344,9 @@ interface LiveActivityPanelProps {
   onRequestIdChange?: (id: string | null) => void;
 }
 
-const THINKING_THRESHOLD_MS = 800;
+const THINKING_THRESHOLD_MS = 200; // Reduced from 800ms to be more visible
 const OVERLAY_DURATION_MS = 2000;
+const THINKING_MIN_VISIBLE_MS = 400; // Minimum time thinking indicator stays visible
 
 export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: LiveActivityPanelProps) {
   const { user } = useUser();
@@ -352,8 +360,25 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
   const scrollRef = useRef<HTMLDivElement>(null);
   const prevEventCount = useRef(0);
   const prevRequestIdRef = useRef<string | null | undefined>(undefined);
+  const prevStatusRef = useRef<string | null | undefined>(undefined);
   const thinkingTimerRef = useRef<NodeJS.Timeout | null>(null);
   const overlayTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const thinkingVisibleSinceRef = useRef<number | null>(null);
+  
+  // Track stream state for overlay trigger
+  const streamRequestId = stream?.client_request_id;
+  const streamStatus = stream?.status;
+  
+  // DEBUG: Log request state changes
+  useEffect(() => {
+    console.log('[OVERLAY_DEBUG] Stream state:', {
+      streamId: streamRequestId,
+      streamStatus: streamStatus,
+      prevRef: prevRequestIdRef.current,
+      showOverlay,
+      timestamp: Date.now()
+    });
+  }, [streamRequestId, streamStatus, showOverlay]);
 
   const fetchStream = useCallback(async () => {
     try {
@@ -412,31 +437,64 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
   }, [fetchStream]);
 
   // Detect new request and show overlay for 2 seconds
+  // Trigger when: (1) ID changes to a DIFFERENT ID, or (2) status transitions from terminal to active
+  const effectiveRequestId = activeClientRequestId || streamRequestId;
+  const TERMINAL_STATUSES = ['completed', 'failed', 'stopped', 'idle'];
+  const ACTIVE_STATUSES = ['routing', 'planning', 'executing'];
+  
   useEffect(() => {
-    // Trigger on any request ID change (including initial undefined -> value)
-    if (activeClientRequestId && activeClientRequestId !== prevRequestIdRef.current) {
+    const prevWasTerminal = prevStatusRef.current && TERMINAL_STATUSES.includes(prevStatusRef.current);
+    const nowActive = streamStatus && ACTIVE_STATUSES.includes(streamStatus);
+    const statusTransitionToActive = prevWasTerminal && nowActive;
+    const idChangedToDifferent = effectiveRequestId && 
+      prevRequestIdRef.current && 
+      effectiveRequestId !== prevRequestIdRef.current;
+    
+    console.log('[OVERLAY_DEBUG] Effect triggered:', {
+      effectiveRequestId,
+      streamStatus,
+      prevId: prevRequestIdRef.current,
+      prevStatus: prevStatusRef.current,
+      statusTransitionToActive,
+      idChangedToDifferent
+    });
+    
+    // Trigger overlay when status transitions from terminal to active
+    // OR when ID changes to a genuinely different ID
+    if (statusTransitionToActive || idChangedToDifferent) {
+      console.log('[OVERLAY_DEBUG] *** OVERLAY ACTIVATING ***', {
+        reason: statusTransitionToActive ? 'status_transition' : 'id_change',
+        from: prevRequestIdRef.current,
+        to: effectiveRequestId,
+        fromStatus: prevStatusRef.current,
+        toStatus: streamStatus,
+        duration: OVERLAY_DURATION_MS
+      });
+      
       // Clear any existing timer FIRST (before setting new one)
       if (overlayTimerRef.current) {
+        console.log('[OVERLAY_DEBUG] Clearing existing timer');
         clearTimeout(overlayTimerRef.current);
         overlayTimerRef.current = null;
       }
       
-      // New request started - show overlay, reset event count, and clear previous stream
+      // New request started - show overlay and reset event count
       setShowOverlay(true);
       prevEventCount.current = 0;
-      setStream(null); // Clear previous events for visual reset
       
       // Hide overlay after duration
       overlayTimerRef.current = setTimeout(() => {
+        console.log('[OVERLAY_DEBUG] Timer expired - hiding overlay');
         setShowOverlay(false);
         overlayTimerRef.current = null;
       }, OVERLAY_DURATION_MS);
     }
     
-    prevRequestIdRef.current = activeClientRequestId;
+    prevRequestIdRef.current = effectiveRequestId;
+    prevStatusRef.current = streamStatus;
     
     // Only clear timer on component unmount, not on every dep change
-  }, [activeClientRequestId]);
+  }, [effectiveRequestId, streamStatus]);
   
   // Cleanup on unmount only
   useEffect(() => {
