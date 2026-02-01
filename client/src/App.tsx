@@ -726,9 +726,8 @@ function DevInfoBadge() {
 }
 
 /**
- * Right Panel Content - Shows ResultsPanel when active, otherwise LiveActivityPanel
+ * Right Panel Content - Shows ResultsPanel when active, otherwise MostRecentRunPanel
  * Conditionally renders based on results context
- * Layout: Live Activity at bottom, chat-style with flex-grow
  */
 function RightPanelContent() {
   const { isOpen, currentResult } = useResultsPanel();
@@ -742,9 +741,9 @@ function RightPanelContent() {
     );
   }
   
-  // Otherwise show Live Activity taking full height (chat-style, anchored at bottom)
+  // Otherwise show Live Activity as the main panel (no plan/progress panels)
   return (
-    <div className="flex flex-col h-full overflow-hidden">
+    <div className="p-4 flex flex-col h-full">
       <LiveActivityPanel />
     </div>
   );

@@ -770,10 +770,10 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
 
   return (
     <Card className="flex flex-col flex-1">
-      <CardHeader className="pb-2 shrink-0 border-b">
-        <div className="flex items-center justify-between gap-2">
-          <CardTitle className="text-sm font-medium shrink-0">Live Activity</CardTitle>
-          <div className="flex items-center gap-1.5 flex-wrap justify-end">
+      <CardHeader className="pb-2 shrink-0">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-sm font-medium">Live Activity</CardTitle>
+          <div className="flex items-center gap-2">
             {/* Stop button - only visible when working */}
             {isWorking && (
               <Button 
@@ -781,13 +781,13 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
                 size="sm" 
                 onClick={handleStop}
                 disabled={stopping}
-                className="h-5 px-1.5 text-[10px]"
+                className="h-6 px-2 text-xs"
               >
                 {stopping ? (
                   <Loader2 className="h-3 w-3 animate-spin" />
                 ) : (
                   <>
-                    <StopCircle className="h-3 w-3 mr-0.5" />
+                    <StopCircle className="h-3 w-3 mr-1" />
                     Stop
                   </>
                 )}
@@ -795,14 +795,14 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
             )}
             <StatusBadge status={mappedStatus} />
             {lastFetch && (
-              <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+              <span className="text-[10px] text-muted-foreground">
                 {formatRelativeTime(lastFetch.toISOString())}
               </span>
             )}
           </div>
         </div>
         {hasEvents && stream?.title && (
-          <p className="text-xs text-muted-foreground mt-1 line-clamp-1">
+          <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
             {stream.title}
           </p>
         )}
@@ -846,16 +846,6 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
               <ThinkingIndicator variant="inline" />
             )}
             
-            {/* Working indicator - inline at bottom of event stream */}
-            {isWorking && !showThinking && (
-              <div className="flex items-center gap-2 py-2 px-1 text-muted-foreground">
-                <div className="flex items-center gap-0.5">
-                  <Brain className="h-3 w-3 animate-pulse" />
-                </div>
-                <span className="text-xs">Working...</span>
-              </div>
-            )}
-            
             {/* Terminal status indicator - only shows when terminal is confirmed */}
             {confirmedTerminal && (mappedStatus === 'completed' || mappedStatus === 'failed' || mappedStatus === 'stopped') && (
               <SequenceStatusRow status={mappedStatus} />
@@ -883,6 +873,13 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
             <ChevronDown className="h-3 w-3 mr-1" />
             Jump to latest
           </Button>
+        </div>
+      )}
+      
+      {/* Pinned footer - Working indicator stays visible at bottom */}
+      {isWorking && (
+        <div className="shrink-0 border-t bg-background px-4 py-2">
+          <ThinkingIndicator variant="footer" />
         </div>
       )}
     </Card>
