@@ -25,7 +25,7 @@
 
 import type { LeadGenPlan, LeadGenStep } from './leadgen-plan.js';
 import { logRunToTower, startRunLog, completeRunLog, logPlanExecutionToTower } from './lib/towerClient.js';
-import { logPlanEvent, logToolCall, logToolResult } from './lib/activity-logger.js';
+import { logPlanEvent } from './lib/activity-logger.js';
 import { persistLeadsToSupabase, type LeadToUpsert } from './supabase-client.js';
 import { updateStepProgress, updatePlanStatus as persistPlanStatus, getPlanExecutionStatus } from './leadgen-plan.js';
 import { isDemoMode } from './demo-config.js';
@@ -99,15 +99,13 @@ export async function startPlanExecution(plan: LeadGenPlan): Promise<PlanExecuti
   // Update debug state
   debugOnExecutionStart(plan.id);
   
-  // Log to AFR (non-blocking) - include clientRequestId for correlation
+  // Log to AFR (non-blocking)
   logPlanEvent({
     userId: plan.userId,
     planId: plan.id,
     status: 'started',
     label: `Plan execution started: ${plan.goal.substring(0, 80)}`,
-    metadata: { stepCount: plan.steps.length },
-    clientRequestId: plan.clientRequestId,
-    conversationId: plan.conversationId,
+    metadata: { stepCount: plan.steps.length }
   }).catch(err => console.warn('[AFR] Plan execution log failed:', err.message));
   
   // Log plan start to Tower (non-blocking)
@@ -241,16 +239,14 @@ async function executeStepsInBackground(execution: PlanExecution, startTime: num
           error: execution.error,
         }).catch(err => console.warn('Tower plan error log failed:', err.message));
         
-        // Log failure to AFR - include clientRequestId for correlation
+        // Log failure to AFR
         logPlanEvent({
           userId: plan.userId,
           planId: execution.planId,
           status: 'failed',
           label: `Plan execution failed: ${execution.error?.substring(0, 80)}`,
           error: execution.error,
-          metadata: { stepsFailed: i + 1, totalSteps: execution.steps.length },
-          clientRequestId: plan.clientRequestId,
-          conversationId: plan.conversationId,
+          metadata: { stepsFailed: i + 1, totalSteps: execution.steps.length }
         }).catch(err => console.warn('[AFR] Plan failure log failed:', err.message));
       }
       
@@ -287,15 +283,13 @@ async function executeStepsInBackground(execution: PlanExecution, startTime: num
       completedAt: Date.now(),
     }).catch(err => console.warn('Tower plan success log failed:', err.message));
     
-    // Log success to AFR - include clientRequestId for correlation
+    // Log success to AFR
     logPlanEvent({
       userId: plan.userId,
       planId: execution.planId,
       status: 'completed',
       label: `Plan execution completed: ${execution.goal.substring(0, 80)}`,
-      metadata: { totalSteps: execution.steps.length, durationMs: Date.now() - startTime },
-      clientRequestId: plan.clientRequestId,
-      conversationId: plan.conversationId,
+      metadata: { totalSteps: execution.steps.length, durationMs: Date.now() - startTime }
     }).catch(err => console.warn('[AFR] Plan success log failed:', err.message));
   }
   
@@ -435,8 +429,6 @@ async function executeStep(step: LeadGenStep, execution: PlanExecution): Promise
               maxResults: 30
             },
             userId,
-            conversationId: plan.conversationId,
-            clientRequestId: plan.clientRequestId,
           });
           
           console.log(`  📍 Action result: ok=${result.ok}, places=${result.data?.places?.length || 0}, error=${result.error || 'none'}`);
@@ -507,8 +499,6 @@ async function executeStep(step: LeadGenStep, execution: PlanExecution): Promise
               sourceConversationId: execution.conversationId
             },
             userId,
-            conversationId: plan.conversationId,
-            clientRequestId: plan.clientRequestId,
           });
           console.log(`  📍 Deep research result: ok=${researchResult.ok}, error=${researchResult.error || 'none'}`);
           execution.stepProgress[execution.currentStepIndex].resultSummary = researchResult.ok ? 'Deep research completed' : `Failed: ${researchResult.error}`;
@@ -534,8 +524,6 @@ async function executeStep(step: LeadGenStep, execution: PlanExecution): Promise
               location: toolArgs.location
             },
             userId,
-            conversationId: plan.conversationId,
-            clientRequestId: plan.clientRequestId,
           });
           console.log(`  📍 Email finder result: ok=${emailResult.ok}, error=${emailResult.error || 'none'}`);
           execution.stepProgress[execution.currentStepIndex].resultSummary = emailResult.ok ? 'Email contacts discovered' : `Failed: ${emailResult.error}`;
@@ -559,8 +547,6 @@ async function executeStep(step: LeadGenStep, execution: PlanExecution): Promise
               queryParams: toolArgs
             },
             userId,
-            conversationId: plan.conversationId,
-            clientRequestId: plan.clientRequestId,
           });
           console.log(`  📍 Monitor creation result: ok=${monitorResult.ok}, error=${monitorResult.error || 'none'}`);
           execution.stepProgress[execution.currentStepIndex].resultSummary = monitorResult.ok ? 'Monitor created' : `Failed: ${monitorResult.error}`;
@@ -607,39 +593,12 @@ async function executeStep(step: LeadGenStep, execution: PlanExecution): Promise
       // Use location or default
       const searchLocation = location || DEFAULT_LOCATION;
       
-      // Log tool call start to AFR (non-blocking) - include clientRequestId for correlation
-      if (plan?.userId) {
-        logToolCall({
-          userId: plan.userId,
-          toolName: 'SEARCH_PLACES',
-          toolParams: { query, location: searchLocation, maxResults: 30 },
-          conversationId: plan.conversationId,
-          runId: execution.planId,
-          clientRequestId: plan.clientRequestId,
-        }).catch(err => console.warn('[AFR] Tool call log failed:', err.message));
-      }
-      
-      const toolStartTime = Date.now();
       const places = await searchPlaces({
         query,
         locationText: searchLocation,
         maxResults: 30,
         region: DEFAULT_COUNTRY,
       });
-      
-      // Log tool result to AFR (non-blocking) - include clientRequestId for correlation
-      if (plan?.userId) {
-        logToolResult({
-          userId: plan.userId,
-          toolName: 'SEARCH_PLACES',
-          success: true,
-          results: { count: places.length, location: searchLocation },
-          durationMs: Date.now() - toolStartTime,
-          conversationId: plan.conversationId,
-          runId: execution.planId,
-          clientRequestId: plan.clientRequestId,
-        }).catch(err => console.warn('[AFR] Tool result log failed:', err.message));
-      }
       
       console.log(`  📍 Found ${places.length} businesses via Google Places API`);
       

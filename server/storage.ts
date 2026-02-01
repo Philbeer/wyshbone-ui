@@ -1558,17 +1558,6 @@ export async function runStartupMigrations(): Promise<void> {
       ADD COLUMN IF NOT EXISTS parent_activity_id TEXT;
     `;
     
-    // AFR Correlation column for lead_gen_plans (links plan to originating user message)
-    await queryClient`
-      ALTER TABLE public.lead_gen_plans 
-      ADD COLUMN IF NOT EXISTS client_request_id TEXT;
-    `;
-    
-    // Create index for efficient AFR queries by client_request_id
-    await queryClient`
-      CREATE INDEX IF NOT EXISTS lead_gen_plans_client_request_id_idx ON public.lead_gen_plans(client_request_id);
-    `;
-    
     console.log('✅ Startup migrations completed - org system, oauth_states, and AFR correlation columns ensured');
   } catch (error: any) {
     // Only log if it's not a "column already exists" error

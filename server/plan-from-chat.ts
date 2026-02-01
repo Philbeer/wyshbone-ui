@@ -13,7 +13,6 @@ interface CreatePlanFromToolCallParams {
   sessionId: string;
   conversationId: string;
   storage: IStorage;
-  clientRequestId?: string;  // AFR correlation: links plan to originating user message
 }
 
 export interface PlanCreationResult {
@@ -152,9 +151,7 @@ export async function createPlanFromToolCall(
   }
   
   // Create the plan (starts as pending_approval from createLeadGenPlan)
-  // Pass clientRequestId for AFR correlation
-  const { clientRequestId } = params;
-  const plan = await createLeadGenPlan(userId, sessionId, goal, conversationId, clientRequestId);
+  const plan = await createLeadGenPlan(userId, sessionId, goal, conversationId);
   
   // Update the plan with custom steps and tool metadata in database
   const toolMetadata = {

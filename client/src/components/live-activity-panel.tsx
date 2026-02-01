@@ -5,7 +5,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { 
   RefreshCw, Clock, CheckCircle2, XCircle, Loader2, AlertTriangle, 
   MessageSquare, Route, FileSearch, Wrench, ListChecks, Play, ChevronDown, ChevronUp,
-  Zap, Brain, Send, Sparkles, StopCircle
+  Zap, Brain, Send, Sparkles
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUser } from "@/contexts/UserContext";
@@ -357,8 +357,8 @@ interface LiveActivityPanelProps {
 
 const THINKING_THRESHOLD_MS = 200; // Show inline thinking after 200ms gap
 const OVERLAY_DURATION_MS = 2000;
-const TERMINAL_CONFIRM_CYCLES = 1; // Wait 1 poll cycle after terminal status to confirm
-const TERMINAL_TIMEOUT_MS = 2000; // Fallback: confirm terminal after 2 seconds with no new events
+const TERMINAL_CONFIRM_CYCLES = 2; // Wait 2 poll cycles after terminal status to confirm
+const TERMINAL_TIMEOUT_MS = 5000; // Fallback: confirm terminal after 5 seconds with no new events
 const DEBUG_TERMINAL = true; // TEMPORARY: Enable debug logs to diagnose status issues
 
 // Active statuses where we show working indicators
@@ -377,13 +377,11 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
   const [showThinking, setShowThinking] = useState(false);
   const [showOverlay, setShowOverlay] = useState(false);
   const [confirmedTerminal, setConfirmedTerminal] = useState(false); // True only after terminal is confirmed
-  const [stopping, setStopping] = useState(false);
   
   // Check if there's an active plan (for mode display)
   const hasActivePlan = plan && ['approved', 'executing', 'pending_approval'].includes(plan.status);
   const isMultiStepPlan = hasActivePlan && plan.steps && plan.steps.length >= 2;
   const scrollRef = useRef<HTMLDivElement>(null);
-  const bottomSentinelRef = useRef<HTMLDivElement>(null);
   const prevEventCount = useRef(0);
   const prevRequestIdRef = useRef<string | null | undefined>(undefined);
   const prevStatusRef = useRef<string | null | undefined>(undefined);
@@ -424,9 +422,8 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
 
       if (autoScroll && data.event_count > prevEventCount.current) {
         setTimeout(() => {
-          // Use bottom sentinel for chat-style scrolling (scrollIntoView)
-          bottomSentinelRef.current?.scrollIntoView({ 
-            block: 'end', 
+          scrollRef.current?.scrollTo({ 
+            top: scrollRef.current.scrollHeight, 
             behavior: 'smooth' 
           });
         }, 100);
@@ -650,35 +647,8 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const target = e.currentTarget;
-    // Use 120px threshold for "near bottom" detection (chat-style behavior)
-    const isNearBottom = target.scrollHeight - target.scrollTop - target.clientHeight < 120;
-    setAutoScroll(isNearBottom);
-  };
-  
-  // Stop handler - stops the current active run/plan
-  const handleStop = async () => {
-    if (stopping) return;
-    setStopping(true);
-    try {
-      // Try to stop by plan first
-      if (plan?.id) {
-        const response = await fetch(`/api/plan/stop`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ planId: plan.id }),
-        });
-        if (response.ok) {
-          console.log('🛑 Plan stopped');
-          return;
-        }
-      }
-      // Fallback: could also try to cancel current request
-      console.log('🛑 Stop requested (no active plan to stop)');
-    } catch (error) {
-      console.error('Failed to stop:', error);
-    } finally {
-      setStopping(false);
-    }
+    const isAtBottom = target.scrollHeight - target.scrollTop <= target.clientHeight + 50;
+    setAutoScroll(isAtBottom);
   };
 
   // Compute display status - uses confirmedTerminal to prevent showing terminal too early
@@ -734,7 +704,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
 
   if (loading) {
     return (
-      <Card className="flex flex-col flex-1">
+      <Card className="flex flex-col" style={{ height: '66vh', minHeight: '400px' }}>
         <CardHeader className="pb-2 shrink-0">
           <CardTitle className="text-sm font-medium flex items-center gap-2">
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -750,7 +720,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
 
   if (error) {
     return (
-      <Card className="flex flex-col flex-1">
+      <Card className="flex flex-col" style={{ height: '66vh', minHeight: '400px' }}>
         <CardHeader className="pb-2 shrink-0">
           <CardTitle className="text-sm font-medium">Live Activity</CardTitle>
         </CardHeader>
@@ -769,29 +739,21 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
   const hasEvents = events.length > 0;
 
   return (
-    <Card className="flex flex-col flex-1">
+    <Card className="flex flex-col" style={{ height: '66vh', minHeight: '400px' }}>
       <CardHeader className="pb-2 shrink-0">
         <div className="flex items-center justify-between">
           <CardTitle className="text-sm font-medium">Live Activity</CardTitle>
           <div className="flex items-center gap-2">
-            {/* Stop button - only visible when working */}
-            {isWorking && (
-              <Button 
-                variant="destructive" 
-                size="sm" 
-                onClick={handleStop}
-                disabled={stopping}
-                className="h-6 px-2 text-xs"
-              >
-                {stopping ? (
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                ) : (
-                  <>
-                    <StopCircle className="h-3 w-3 mr-1" />
-                    Stop
-                  </>
-                )}
-              </Button>
+            {/* Mode indicator - shows when there's an active plan */}
+            {hasActivePlan && isWorking && (
+              <span className={cn(
+                "px-1.5 py-0.5 rounded text-[10px] font-medium",
+                isMultiStepPlan 
+                  ? "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-200"
+                  : "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-200"
+              )}>
+                {isMultiStepPlan ? 'Multi-step' : 'Single action'}
+              </span>
             )}
             <StatusBadge status={mappedStatus} />
             {lastFetch && (
@@ -851,21 +813,23 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
               <SequenceStatusRow status={mappedStatus} />
             )}
             
-            {/* Bottom sentinel for chat-style auto-scroll */}
-            <div ref={bottomSentinelRef} className="h-1" />
+            {/* PERSISTENT animated footer - ALWAYS shows when working (status-driven, not timer-driven) */}
+            {isWorking && (
+              <ThinkingIndicator variant="footer" />
+            )}
           </div>
         )}
       </CardContent>
 
       {!autoScroll && hasEvents && (
-        <div className="absolute bottom-4 right-4 z-10">
+        <div className="absolute bottom-4 right-4">
           <Button
             variant="secondary"
             size="sm"
             onClick={() => {
               setAutoScroll(true);
-              bottomSentinelRef.current?.scrollIntoView({ 
-                block: 'end', 
+              scrollRef.current?.scrollTo({ 
+                top: scrollRef.current.scrollHeight, 
                 behavior: 'smooth' 
               });
             }}
@@ -873,13 +837,6 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
             <ChevronDown className="h-3 w-3 mr-1" />
             Jump to latest
           </Button>
-        </div>
-      )}
-      
-      {/* Pinned footer - Working indicator stays visible at bottom */}
-      {isWorking && (
-        <div className="shrink-0 border-t bg-background px-4 py-2">
-          <ThinkingIndicator variant="footer" />
         </div>
       )}
     </Card>

@@ -2854,15 +2854,13 @@ CRITICAL RULES:
               const { createPlanFromToolCall } = await import('./plan-from-chat.js');
               
               // Create plan and auto-approve it
-              // Pass clientRequestId for AFR correlation
               const result = await createPlanFromToolCall({
                 toolName: toolCallBuffer.name,
                 toolArgs,
                 userId: user.id,
                 sessionId,
                 conversationId,
-                storage,
-                clientRequestId,
+                storage
               });
               
               console.log(`✅ Plan ${result.planId} created and executing for ${toolCallBuffer.name}`);
