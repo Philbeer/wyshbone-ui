@@ -1,0 +1,67 @@
+Update request (UI only): The 2-second starting overlay now appears (good). But two issues remain. Please fix both. Do NOT change backend or logging. This is presentation and UI state logic only.
+
+What works now:
+- When a new run starts, I see the 2-second overlay with the 3 animated brain icons. Good.
+
+Issue A: No “working” indicator between events
+After that initial overlay, the Live Activity panel goes static between events. There are real gaps while routing/planning/tool work is happening, but nothing animates, so it looks frozen.
+
+Non-negotiable RULE:
+Whenever anything is happening in the background, there must be something moving in the UI.
+- either an animated “Thinking…” row (dots/brains pulsing)
+- or an animated row of brains that keeps cycling
+- or a persistent animated “Working…” indicator
+But there must always be motion while the request is active.
+
+Fix A (UI):
+1) Add a persistent animated footer indicator that shows whenever the request is ACTIVE (non-terminal).
+- It should always animate while ACTIVE, even if no new events are arriving.
+- This must be status-driven, not just timeSinceLastEvent.
+- Use the same style as Replit: “Thinking…” with dots/brains flashing in a row, or your brain icons cycling.
+
+2) Keep the inline “Thinking…” row too, but make it secondary:
+- Inline row can appear after the last event during gaps.
+- Footer is the non-negotiable one that ensures there is always motion while active.
+
+Issue B: “Completed / Sequence complete” is shown too early
+The Live Activity panel sometimes shows Completed and “Sequence complete” before the last event appears (eg the database search tool_call shows up AFTER it already said complete). That is lying, and it breaks trust.
+
+Fix B (UI logic):
+3) Only show Completed / Sequence complete when you have hard evidence the run is terminal.
+Do NOT infer completion from:
+- overlay ending
+- router decision
+- absence of new events
+- timers
+- a single event that is not terminal
+
+Terminal must be true ONLY if:
+- streamStatus from /api/afr/stream is explicitly one of: completed, failed, stopped
+OR
+- lastEvent.type is one of: run_completed / run_failed / run_stopped (if those exist)
+
+4) Guard against “terminal too early”:
+If the UI ever shows terminal and then receives a new event for the same activeClientRequestId, it must immediately revert back to ACTIVE and show the working indicator again.
+- No situation where the badge says Completed and then more events arrive.
+
+5) Make the status badge match the same logic:
+- The top badge (“Completed”) must use the same isTerminal gating as the “Sequence complete” row.
+- If it is not truly terminal, badge should be “Working” (or “In progress”).
+
+Acceptance criteria (please test and provide a short screen recording):
+- Submit a request (eg “find pubs in chichester”)
+- See the 2-second starting overlay
+- After overlay disappears, while the request is active, Live Activity ALWAYS shows an animated working indicator (footer) so it never looks frozen
+- Between events, inline “Thinking…” can appear too
+- Completed / Sequence complete only appears after the final tool/database search event has appeared and the run is actually finished
+- If any new event arrives after terminal was shown, terminal UI disappears and it returns to Working
+
+Implementation hint (if helpful):
+- Define isActive = streamStatus in ["routing","planning","executing","deep_research","running","in_progress"] (whatever the API uses)
+- Show animated footer whenever isActive
+- Define isTerminal = streamStatus in ["completed","failed","stopped"] AND (lastEvent is terminal OR no new events arrive for 1 additional poll cycle after terminal)
+- If new events arrive after isTerminal, revert to isActive
+
+Deliverable:
+- Update the Live Activity panel UI logic to satisfy the rule: always show motion while active, never show completion early.
+- UI only. Do not change backend.

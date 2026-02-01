@@ -75,14 +75,10 @@ function StartingOverlay() {
   const [phase, setPhase] = useState(0);
   
   useEffect(() => {
-    console.log('[OVERLAY_DEBUG] StartingOverlay MOUNTED');
     const interval = setInterval(() => {
       setPhase(p => (p + 1) % 3);
     }, 400);
-    return () => {
-      console.log('[OVERLAY_DEBUG] StartingOverlay UNMOUNTED');
-      clearInterval(interval);
-    };
+    return () => clearInterval(interval);
   }, []);
   
   const brainCount = phase + 1;
@@ -344,9 +340,14 @@ interface LiveActivityPanelProps {
   onRequestIdChange?: (id: string | null) => void;
 }
 
-const THINKING_THRESHOLD_MS = 200; // Reduced from 800ms to be more visible
+const THINKING_THRESHOLD_MS = 200; // Show inline thinking after 200ms gap
 const OVERLAY_DURATION_MS = 2000;
-const THINKING_MIN_VISIBLE_MS = 400; // Minimum time thinking indicator stays visible
+const TERMINAL_CONFIRM_CYCLES = 1; // Wait 1 poll cycle after terminal status to confirm
+
+// Active statuses where we show working indicators
+const ACTIVE_STATUSES = ['routing', 'planning', 'executing', 'deep_research', 'running', 'in_progress'];
+// Terminal statuses
+const TERMINAL_STATUSES = ['completed', 'failed', 'stopped'];
 
 export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: LiveActivityPanelProps) {
   const { user } = useUser();
@@ -357,28 +358,20 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
   const [autoScroll, setAutoScroll] = useState(true);
   const [showThinking, setShowThinking] = useState(false);
   const [showOverlay, setShowOverlay] = useState(false);
+  const [confirmedTerminal, setConfirmedTerminal] = useState(false); // True only after terminal is confirmed
   const scrollRef = useRef<HTMLDivElement>(null);
   const prevEventCount = useRef(0);
   const prevRequestIdRef = useRef<string | null | undefined>(undefined);
   const prevStatusRef = useRef<string | null | undefined>(undefined);
   const thinkingTimerRef = useRef<NodeJS.Timeout | null>(null);
   const overlayTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const thinkingVisibleSinceRef = useRef<number | null>(null);
+  const terminalEventCountRef = useRef<number | null>(null); // Event count when terminal status first seen
+  const terminalConfirmCyclesRef = useRef(0); // Cycles since terminal status
   
   // Track stream state for overlay trigger
   const streamRequestId = stream?.client_request_id;
   const streamStatus = stream?.status;
   
-  // DEBUG: Log request state changes
-  useEffect(() => {
-    console.log('[OVERLAY_DEBUG] Stream state:', {
-      streamId: streamRequestId,
-      streamStatus: streamStatus,
-      prevRef: prevRequestIdRef.current,
-      showOverlay,
-      timestamp: Date.now()
-    });
-  }, [streamRequestId, streamStatus, showOverlay]);
 
   const fetchStream = useCallback(async () => {
     try {
@@ -439,8 +432,6 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
   // Detect new request and show overlay for 2 seconds
   // Trigger when: (1) ID changes to a DIFFERENT ID, or (2) status transitions from terminal to active
   const effectiveRequestId = activeClientRequestId || streamRequestId;
-  const TERMINAL_STATUSES = ['completed', 'failed', 'stopped', 'idle'];
-  const ACTIVE_STATUSES = ['routing', 'planning', 'executing'];
   
   useEffect(() => {
     const prevWasTerminal = prevStatusRef.current && TERMINAL_STATUSES.includes(prevStatusRef.current);
@@ -450,30 +441,11 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
       prevRequestIdRef.current && 
       effectiveRequestId !== prevRequestIdRef.current;
     
-    console.log('[OVERLAY_DEBUG] Effect triggered:', {
-      effectiveRequestId,
-      streamStatus,
-      prevId: prevRequestIdRef.current,
-      prevStatus: prevStatusRef.current,
-      statusTransitionToActive,
-      idChangedToDifferent
-    });
-    
     // Trigger overlay when status transitions from terminal to active
     // OR when ID changes to a genuinely different ID
     if (statusTransitionToActive || idChangedToDifferent) {
-      console.log('[OVERLAY_DEBUG] *** OVERLAY ACTIVATING ***', {
-        reason: statusTransitionToActive ? 'status_transition' : 'id_change',
-        from: prevRequestIdRef.current,
-        to: effectiveRequestId,
-        fromStatus: prevStatusRef.current,
-        toStatus: streamStatus,
-        duration: OVERLAY_DURATION_MS
-      });
-      
       // Clear any existing timer FIRST (before setting new one)
       if (overlayTimerRef.current) {
-        console.log('[OVERLAY_DEBUG] Clearing existing timer');
         clearTimeout(overlayTimerRef.current);
         overlayTimerRef.current = null;
       }
@@ -481,10 +453,12 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
       // New request started - show overlay and reset event count
       setShowOverlay(true);
       prevEventCount.current = 0;
+      setConfirmedTerminal(false); // Reset terminal confirmation for new request
+      terminalEventCountRef.current = null;
+      terminalConfirmCyclesRef.current = 0;
       
       // Hide overlay after duration
       overlayTimerRef.current = setTimeout(() => {
-        console.log('[OVERLAY_DEBUG] Timer expired - hiding overlay');
         setShowOverlay(false);
         overlayTimerRef.current = null;
       }, OVERLAY_DURATION_MS);
@@ -520,12 +494,53 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
     return () => window.removeEventListener("focus", handleFocus);
   }, [fetchStream]);
 
-  // Manage thinking indicator timer
+  // Manage terminal confirmation logic
+  // Only confirm terminal after status is terminal AND no new events arrive
   useEffect(() => {
-    const isTerminal = stream?.status && ['completed', 'failed'].includes(stream.status) || (stream?.status as string) === 'stopped';
-    const isActive = stream?.status && !['idle', 'completed', 'failed'].includes(stream.status) && (stream?.status as string) !== 'stopped';
+    const currentEventCount = stream?.event_count || 0;
+    const statusIsTerminal = stream?.status && TERMINAL_STATUSES.includes(stream.status);
+    const statusIsActive = stream?.status && ACTIVE_STATUSES.includes(stream.status);
     
-    if (isTerminal || !isActive) {
+    // If status is active, reset terminal confirmation
+    if (statusIsActive) {
+      setConfirmedTerminal(false);
+      terminalEventCountRef.current = null;
+      terminalConfirmCyclesRef.current = 0;
+      return;
+    }
+    
+    // If status just became terminal, record the event count
+    if (statusIsTerminal && terminalEventCountRef.current === null) {
+      terminalEventCountRef.current = currentEventCount;
+      terminalConfirmCyclesRef.current = 0;
+      return;
+    }
+    
+    // If status is terminal and we have a recorded count
+    if (statusIsTerminal && terminalEventCountRef.current !== null) {
+      // If new events arrived after terminal status, revert to active (keep showing working)
+      if (currentEventCount > terminalEventCountRef.current) {
+        terminalEventCountRef.current = currentEventCount;
+        terminalConfirmCyclesRef.current = 0;
+        setConfirmedTerminal(false);
+        return;
+      }
+      
+      // Count poll cycles with no new events
+      terminalConfirmCyclesRef.current += 1;
+      
+      // Confirm terminal after required cycles with no new events
+      if (terminalConfirmCyclesRef.current >= TERMINAL_CONFIRM_CYCLES) {
+        setConfirmedTerminal(true);
+      }
+    }
+  }, [stream?.status, stream?.event_count]);
+  
+  // Manage thinking indicator timer (for inline indicator during gaps)
+  useEffect(() => {
+    const statusIsActive = stream?.status && ACTIVE_STATUSES.includes(stream.status);
+    
+    if (!statusIsActive || confirmedTerminal) {
       setShowThinking(false);
       if (thinkingTimerRef.current) {
         clearTimeout(thinkingTimerRef.current);
@@ -535,7 +550,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
     }
     
     // Start timer to show thinking indicator after threshold
-    if (!thinkingTimerRef.current && isActive) {
+    if (!thinkingTimerRef.current && statusIsActive) {
       thinkingTimerRef.current = setTimeout(() => {
         setShowThinking(true);
         thinkingTimerRef.current = null;
@@ -548,7 +563,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
         thinkingTimerRef.current = null;
       }
     };
-  }, [stream?.status, stream?.event_count]);
+  }, [stream?.status, stream?.event_count, confirmedTerminal]);
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const target = e.currentTarget;
@@ -556,9 +571,22 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
     setAutoScroll(isAtBottom);
   };
 
+  // Compute display status - uses confirmedTerminal to prevent showing terminal too early
   const mappedStatus: OverallStatus = (() => {
     if (!stream) return 'idle';
     const s = stream.status;
+    
+    // Only show terminal status if it's confirmed (no new events after terminal)
+    if (TERMINAL_STATUSES.includes(s)) {
+      if (!confirmedTerminal) {
+        // Terminal status but not confirmed - show as executing/working
+        return 'executing';
+      }
+      if (s === 'completed') return 'completed';
+      if (s === 'failed') return 'failed';
+      if ((s as string) === 'stopped') return 'stopped';
+    }
+    
     if (s === 'routing') return 'routing';
     if (s === 'planning') return 'planning';
     if (s === 'executing') {
@@ -568,11 +596,12 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
       if (hasDeepResearch) return 'deep_research';
       return 'executing';
     }
-    if (s === 'completed') return 'completed';
-    if (s === 'failed') return 'failed';
-    if ((s as string) === 'stopped') return 'stopped';
     return 'idle';
   })();
+  
+  // Compute if we're in a working state (should show animated indicators)
+  const isWorking = !showOverlay && mappedStatus !== 'idle' && 
+    mappedStatus !== 'completed' && mappedStatus !== 'failed' && mappedStatus !== 'stopped';
 
   if (loading) {
     return (
@@ -660,22 +689,22 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
               <TimelineEvent 
                 key={event.id} 
                 event={event} 
-                isLast={index === events.length - 1 && !showThinking && (mappedStatus === 'completed' || mappedStatus === 'failed' || mappedStatus === 'stopped')}
+                isLast={index === events.length - 1 && confirmedTerminal}
               />
             ))}
             
-            {/* Inline thinking indicator after last event */}
-            {showThinking && !showOverlay && mappedStatus !== 'completed' && mappedStatus !== 'failed' && mappedStatus !== 'stopped' && (
+            {/* Inline thinking indicator after last event - shows during gaps when working */}
+            {showThinking && isWorking && (
               <ThinkingIndicator variant="inline" />
             )}
             
-            {/* Terminal status indicator */}
-            {(mappedStatus === 'completed' || mappedStatus === 'failed' || mappedStatus === 'stopped') && (
+            {/* Terminal status indicator - only shows when terminal is confirmed */}
+            {confirmedTerminal && (mappedStatus === 'completed' || mappedStatus === 'failed' || mappedStatus === 'stopped') && (
               <SequenceStatusRow status={mappedStatus} />
             )}
             
-            {/* Footer working indicator when active but not showing inline thinking */}
-            {!showOverlay && mappedStatus !== 'idle' && mappedStatus !== 'completed' && mappedStatus !== 'failed' && mappedStatus !== 'stopped' && !showThinking && (
+            {/* PERSISTENT animated footer - ALWAYS shows when working (status-driven, not timer-driven) */}
+            {isWorking && (
               <ThinkingIndicator variant="footer" />
             )}
           </div>
