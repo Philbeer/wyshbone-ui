@@ -1,0 +1,74 @@
+UI-only change request: add “thinking / working” micro-indicators to the Live Activity panel, similar to Replit’s little brain icons, so users can see the system is alive during gaps between logged events. Do NOT change any backend logic, routing, or logging. This is purely presentation.
+
+Current behaviour:
+- Live Activity shows events like:
+  - Message received
+  - Router decision (deep_research / supervisor_plan / tool_call / direct_response)
+  - Then later tool events / completion
+- There are natural pauses between events (especially while router decides or deep research runs). During those pauses, the panel looks “stuck”.
+
+Desired behaviour:
+A) Between the most recent logged event and the next event, show a subtle animated “thinking” row under the latest event.
+- Example: after “Message received: …” show 1-3 small brain icons (or dots if you prefer) that animate in and out.
+- When the next real event arrives (e.g. “Router: deep_research”), the thinking row disappears and the new event renders normally.
+
+B) Show “Sequence complete” when the request is terminal.
+- When the stream status becomes Completed / Failed / Stopped, append a final non-clickable row:
+  - “Sequence complete” (or “Sequence failed” if failed)
+- Once terminal, remove any thinking icons.
+
+C) While not terminal, keep a bottom “working” indicator:
+- At the bottom of the timeline, show an animated row:
+  - “Working…” + small brain icons
+- This row should only display if:
+  - the current request is active AND
+  - status is not terminal AND
+  - last event is older than a small threshold (eg 700ms to 1200ms) to avoid flicker.
+- If events are streaming quickly, don’t show it (or show it very briefly).
+
+Design constraints:
+- Must match the current dark UI.
+- Must be subtle (small icons, low emphasis).
+- Must not imply fake steps or content.
+- Must never replace real events: it is only a “liveness” indicator.
+
+Implementation notes (frontend):
+1) Determine “active request” state:
+- The panel already knows the active client_request_id.
+- It already polls and gets {events, status, updatedAt}.
+
+2) Add derived state:
+- isTerminal = status in [completed, failed, stopped]
+- timeSinceLastEvent = now - lastEvent.ts
+- showThinking = !isTerminal && timeSinceLastEvent > thresholdMs
+
+3) Render:
+- Timeline list:
+  - Render all real events
+  - If showThinking, render a “thinkingRow” directly after the last real event:
+    - brain icons animate: 1 -> 2 -> 3 -> 1 (or similar)
+- Footer:
+  - If isTerminal: render “Sequence complete” row (once, not duplicated)
+  - Else if showThinking: render “Working…” footer row (optional if you want just the inline row)
+
+4) Icons:
+- Use existing icon set (whatever we are using for other activity icons).
+- If no brain icon exists, use:
+  - Sparkles / Loader / Dots
+- But the visual should be “agent thinking” rather than a generic spinner if possible.
+
+Acceptance criteria:
+- When I submit a request, I see “Message received” immediately.
+- If routing takes time, I see the animated thinking indicator in the gap.
+- When the router decision event arrives, the thinking row disappears.
+- While deep research is running with longer gaps between progress events, I continue seeing a working indicator so it never looks frozen.
+- When the run completes, the thinking indicator disappears and “Sequence complete” appears.
+- No backend changes, no new event types, no extra logs. Purely UI.
+
+Files likely involved:
+- client/src/components/LiveActivityPanel.tsx (or wherever the right panel is)
+- any shared “ActivityTimeline” component
+- CSS / tailwind classes for the animation
+
+Deliverable:
+- A single PR implementing the above, with before/after screenshots or a short screen recording.
