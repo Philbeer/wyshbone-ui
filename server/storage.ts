@@ -1540,7 +1540,25 @@ export async function runStartupMigrations(): Promise<void> {
       CREATE INDEX IF NOT EXISTS oauth_states_expires_at_idx ON public.oauth_states(expires_at);
     `;
     
-    console.log('✅ Startup migrations completed - org system and oauth_states tables ensured');
+    // AFR Correlation & Decision Tracking columns for deep_research_runs
+    await queryClient`
+      ALTER TABLE public.deep_research_runs 
+      ADD COLUMN IF NOT EXISTS client_request_id TEXT,
+      ADD COLUMN IF NOT EXISTS router_decision TEXT,
+      ADD COLUMN IF NOT EXISTS router_reason TEXT,
+      ADD COLUMN IF NOT EXISTS conversation_id TEXT;
+    `;
+    
+    // AFR Correlation & Decision Tracking columns for agent_activities
+    await queryClient`
+      ALTER TABLE public.agent_activities 
+      ADD COLUMN IF NOT EXISTS client_request_id TEXT,
+      ADD COLUMN IF NOT EXISTS router_decision TEXT,
+      ADD COLUMN IF NOT EXISTS router_reason TEXT,
+      ADD COLUMN IF NOT EXISTS parent_activity_id TEXT;
+    `;
+    
+    console.log('✅ Startup migrations completed - org system, oauth_states, and AFR correlation columns ensured');
   } catch (error: any) {
     // Only log if it's not a "column already exists" error
     if (error?.code !== '42701') { // 42701 = duplicate_column
