@@ -911,12 +911,14 @@ export const leadGenPlans = pgTable("lead_gen_plans", {
   status: text("status").notNull(), // 'pending_approval', 'approved', 'rejected', 'executing', 'completed', 'failed'
   supervisorTaskId: text("supervisor_task_id"),
   toolMetadata: jsonb("tool_metadata"), // { toolName, toolArgs, userId }
+  clientRequestId: text("client_request_id"), // AFR correlation: links plan to originating user message
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
   updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
 }, (table) => ({
   userIdIdx: index("lead_gen_plans_user_id_idx").on(table.userId),
   sessionIdIdx: index("lead_gen_plans_session_id_idx").on(table.sessionId),
   statusIdx: index("lead_gen_plans_status_idx").on(table.status),
+  clientRequestIdIdx: index("lead_gen_plans_client_request_id_idx").on(table.clientRequestId),
 }));
 
 export const insertLeadGenPlanSchema = createInsertSchema(leadGenPlans);

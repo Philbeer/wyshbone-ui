@@ -1,0 +1,89 @@
+We have a serious AFR integrity issue.
+
+For a single user message (“find pubs horsham”) the AFR shows 3 separate runs:
+- Plan created
+- Plan execution started
+- Tool: SEARCH_PLACES
+But these appear as separate AFR entries instead of one unified run.
+
+That means AFR is lying about causality: one user action is being fragmented into multiple runs.
+
+I need you to investigate and fix this.
+
+Specifically:
+
+1) We need to identify ALL places where a new "run" is created.
+Search for:
+- createDeepResearchRun
+- createAgentRun
+- createRun
+- insert into deep_research_runs
+- insert into agent_activities
+- anything that generates a run_id or request_id
+
+List every callsite and when it is triggered in the flow:
+- on message received
+- on router decision
+- on supervisor plan creation
+- on tool execution
+- on deep research start
+
+2) We must define a SINGLE source of truth for "one user request".
+That should be something like:
+- client_request_id
+or
+- root_run_id
+
+Everything spawned by that user message MUST share the same root id:
+- router
+- supervisor
+- plan
+- tools
+- deep research
+- retries
+
+Right now it looks like:
+Router creates one run  
+Supervisor creates another  
+Tool creates another  
+
+That is wrong.
+
+3) Implement this rule:
+
+When a user submits a message:
+- generate ONE root_request_id
+- pass it through router → supervisor → executor → tools
+- every DB insert MUST include root_request_id
+- AFR groups by root_request_id, not by local run id
+
+There should be:
+1 user message → 1 root_request_id → many events
+
+NOT
+1 user message → 3 runs.
+
+4) Update the AFR query:
+Instead of:
+- SELECT * FROM runs ORDER BY created_at
+
+It should be:
+- SELECT * FROM events WHERE root_request_id = latest_request_id ORDER BY created_at
+
+So AFR shows a single timeline.
+
+5) After fix, validate with:
+Send "find pubs in horsham"
+AFR must show:
+- Message received
+- Router decision
+- Supervisor (if any)
+- Tool call(s)
+- Completion
+
+All under ONE run, not three.
+
+Please explain:
+- Where the extra runs were being created
+- Which ones were removed or merged
+- Show me before/after AFR screenshots

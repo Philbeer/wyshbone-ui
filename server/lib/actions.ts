@@ -26,18 +26,20 @@ export async function executeAction(params: {
   userId?: string;
   sessionId?: string;
   conversationId?: string;
+  clientRequestId?: string;
   storage?: IStorage;
 }): Promise<ActionResult> {
-  const { action, params: actionParams, userId, sessionId, conversationId, storage } = params;
+  const { action, params: actionParams, userId, sessionId, conversationId, clientRequestId, storage } = params;
   const startTime = Date.now();
 
-  // Log tool call start to AFR (non-blocking)
+  // Log tool call start to AFR (non-blocking) - include clientRequestId for correlation
   if (userId) {
     logToolCall({
       userId,
       toolName: action,
       toolParams: actionParams || {},
       conversationId,
+      clientRequestId,
     }).catch(err => console.warn('[AFR] Tool call log failed:', err.message));
   }
 
@@ -51,7 +53,8 @@ export async function executeAction(params: {
         results: result.ok ? { note: result.note } : undefined,
         error: result.ok ? undefined : result.error,
         durationMs: Date.now() - startTime, 
-        conversationId
+        conversationId,
+        clientRequestId,
       }).catch(() => {});
     }
     return result;

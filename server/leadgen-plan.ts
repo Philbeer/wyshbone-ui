@@ -26,6 +26,7 @@ export interface LeadGenPlan {
   userId: string;  // Plans are keyed by userId for cross-session visibility
   sessionId: string;  // Still track sessionId for reference
   conversationId?: string;
+  clientRequestId?: string;  // AFR correlation: links plan to originating user message
   goal: string;
   steps: LeadGenStep[];
   createdAt: string;
@@ -46,6 +47,7 @@ function dbRowToPlan(row: SelectLeadGenPlan): LeadGenPlan {
     userId: row.userId,
     sessionId: row.sessionId,
     conversationId: row.conversationId || undefined,
+    clientRequestId: row.clientRequestId || undefined,
     goal: row.goal,
     steps: row.steps as LeadGenStep[],
     createdAt: new Date(row.createdAt).toISOString(),
@@ -63,6 +65,7 @@ function planToDbRow(plan: LeadGenPlan): InsertLeadGenPlan {
     userId: plan.userId,
     sessionId: plan.sessionId,
     conversationId: plan.conversationId || null,
+    clientRequestId: plan.clientRequestId || null,
     goal: plan.goal,
     steps: plan.steps,
     status: plan.status,
@@ -77,7 +80,8 @@ export async function createLeadGenPlan(
   userId: string,
   sessionId: string,
   goal: string,
-  conversationId?: string
+  conversationId?: string,
+  clientRequestId?: string  // AFR correlation: links plan to originating user message
 ): Promise<LeadGenPlan> {
   const planId = `plan_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
   
@@ -112,6 +116,7 @@ export async function createLeadGenPlan(
     userId,
     sessionId,
     conversationId,
+    clientRequestId,
     goal,
     steps,
     createdAt: new Date().toISOString(),
@@ -122,27 +127,31 @@ export async function createLeadGenPlan(
   const planStartTime = Date.now();
   try {
     await storage.createLeadGenPlan(planToDbRow(plan));
-    console.log(`✅ Created LeadGenPlan: ${planId} for user ${userId}, session ${sessionId}`);
+    console.log(`✅ Created LeadGenPlan: ${planId} for user ${userId}, session ${sessionId}${clientRequestId ? ` (crid:${clientRequestId.slice(0,8)})` : ''}`);
     
-    // Log plan creation completed to AFR
+    // Log plan creation completed to AFR with clientRequestId for correlation
     logPlanEvent({
       userId,
       planId,
       status: 'completed',
       label: `Plan created: ${goal.substring(0, 100)}`,
-      metadata: { stepCount: steps.length, goal, durationMs: Date.now() - planStartTime }
+      metadata: { stepCount: steps.length, goal, durationMs: Date.now() - planStartTime },
+      clientRequestId,
+      conversationId,
     }).catch(err => console.warn('[AFR] Plan creation log failed:', err.message));
   } catch (error) {
     console.error(`❌ Failed to create LeadGenPlan in database: ${error}`);
     
-    // Log plan creation failed to AFR
+    // Log plan creation failed to AFR with clientRequestId for correlation
     logPlanEvent({
       userId,
       planId,
       status: 'failed',
       label: `Plan creation failed: ${goal.substring(0, 80)}`,
       error: (error as Error).message,
-      metadata: { goal, durationMs: Date.now() - planStartTime }
+      metadata: { goal, durationMs: Date.now() - planStartTime },
+      clientRequestId,
+      conversationId,
     }).catch(err => console.warn('[AFR] Plan creation failure log failed:', err.message));
     
     throw error;

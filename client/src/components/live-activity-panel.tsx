@@ -383,6 +383,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
   const hasActivePlan = plan && ['approved', 'executing', 'pending_approval'].includes(plan.status);
   const isMultiStepPlan = hasActivePlan && plan.steps && plan.steps.length >= 2;
   const scrollRef = useRef<HTMLDivElement>(null);
+  const bottomSentinelRef = useRef<HTMLDivElement>(null);
   const prevEventCount = useRef(0);
   const prevRequestIdRef = useRef<string | null | undefined>(undefined);
   const prevStatusRef = useRef<string | null | undefined>(undefined);
@@ -423,8 +424,9 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
 
       if (autoScroll && data.event_count > prevEventCount.current) {
         setTimeout(() => {
-          scrollRef.current?.scrollTo({ 
-            top: scrollRef.current.scrollHeight, 
+          // Use bottom sentinel for chat-style scrolling (scrollIntoView)
+          bottomSentinelRef.current?.scrollIntoView({ 
+            block: 'end', 
             behavior: 'smooth' 
           });
         }, 100);
@@ -648,8 +650,9 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const target = e.currentTarget;
-    const isAtBottom = target.scrollHeight - target.scrollTop <= target.clientHeight + 50;
-    setAutoScroll(isAtBottom);
+    // Use 120px threshold for "near bottom" detection (chat-style behavior)
+    const isNearBottom = target.scrollHeight - target.scrollTop - target.clientHeight < 120;
+    setAutoScroll(isNearBottom);
   };
   
   // Stop handler - stops the current active run/plan
@@ -848,23 +851,21 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
               <SequenceStatusRow status={mappedStatus} />
             )}
             
-            {/* PERSISTENT animated footer - ALWAYS shows when working (status-driven, not timer-driven) */}
-            {isWorking && (
-              <ThinkingIndicator variant="footer" />
-            )}
+            {/* Bottom sentinel for chat-style auto-scroll */}
+            <div ref={bottomSentinelRef} className="h-1" />
           </div>
         )}
       </CardContent>
 
       {!autoScroll && hasEvents && (
-        <div className="absolute bottom-4 right-4">
+        <div className="absolute bottom-4 right-4 z-10">
           <Button
             variant="secondary"
             size="sm"
             onClick={() => {
               setAutoScroll(true);
-              scrollRef.current?.scrollTo({ 
-                top: scrollRef.current.scrollHeight, 
+              bottomSentinelRef.current?.scrollIntoView({ 
+                block: 'end', 
                 behavior: 'smooth' 
               });
             }}
@@ -872,6 +873,13 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
             <ChevronDown className="h-3 w-3 mr-1" />
             Jump to latest
           </Button>
+        </div>
+      )}
+      
+      {/* Pinned footer - Working indicator stays visible at bottom */}
+      {isWorking && (
+        <div className="shrink-0 border-t bg-background px-4 py-2">
+          <ThinkingIndicator variant="footer" />
         </div>
       )}
     </Card>
