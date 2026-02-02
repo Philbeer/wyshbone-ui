@@ -1,0 +1,129 @@
+Now I have all the information needed to provide the investigation report. Let me compile the findings:
+
+Live Activity Panel Investigation Report
+A) How It Works Now (Plain English)
+The Live Activity panel polls /api/afr/stream every 1.5s (active) or 10s (idle). It receives a StreamResponse containing events, an overall status, and is_terminal/terminal_state fields computed server-side.
+
+Current run detection: The panel uses either activeClientRequestId (passed as prop) or falls back to stream.client_request_id from the API response. However, activeClientRequestId is currently NOT passed to the panel - both usages in App.tsx and AgentWorkspace.tsx call <LiveActivityPanel /> with no props.
+
+Status display: The panel computes mappedStatus based on the server's is_terminal flag combined with a local confirmedTerminal state that's supposed to provide a brief delay to prevent flicker.
+
+B) State Flow Diagram
+[User sends message]
+     ↓
+[chat.tsx generates clientRequestId = crypto.randomUUID()]
+     ↓
+[POST /api/chat with clientRequestId]
+     ↓
+[Server creates agent_activities with clientRequestId]
+     ↓
+[LiveActivityPanel polls GET /api/afr/stream?userId=...]
+     ↓
+[Server returns most recent request's events + is_terminal + terminal_state]
+     ↓
+[Client computes mappedStatus based on is_terminal && confirmedTerminal]
+     ↓
+[UI shows StatusBadge(mappedStatus) + SequenceStatusRow if confirmedTerminal]
+C) List of IDs Involved
+ID	Where Set	What Triggers It
+activeClientRequestId	Passed as prop to LiveActivityPanel	NEVER SET - panel always receives undefined (App.tsx:748, AgentWorkspace.tsx:84)
+streamRequestId	stream?.client_request_id (line 399)	Returned by /api/afr/stream response
+effectiveRequestId	activeClientRequestId || streamRequestId (line 459)	Used for overlay/reset logic
+event.client_request_id	Each event in stream.events	Set by server from activity.clientRequestId (afr.ts:507)
+event.run_id	Each event	Set from activity.runId or deep research r.id
+stream.is_terminal	Server (afr.ts:578-585)	Computed from overallStatus in ['completed','failed','stopped']
+stream.terminal_state	Server (afr.ts:579)	Same as overallStatus when terminal
+D) Exact Boolean Conditions
+isWorking (line 663-664)
+const isWorking = !showOverlay && mappedStatus !== 'idle' && 
+    mappedStatus !== 'completed' && mappedStatus !== 'failed' && mappedStatus !== 'stopped';
+isTerminal / Completed Badge (lines 640-647, 790-792)
+Badge display logic:
+
+// mappedStatus computed at lines 635-660
+if (stream.is_terminal && stream.terminal_state) {
+  if (confirmedTerminal) {
+    return stream.terminal_state; // shows 'completed', 'failed', or 'stopped'
+  }
+  return 'executing'; // briefly show executing before confirming
+}
+SequenceStatusRow shows when:
+
+confirmedTerminal && (mappedStatus === 'completed' || mappedStatus === 'failed' || mappedStatus === 'stopped')
+"Sequence complete" (line 118, 790-792)
+Shown when: confirmedTerminal === true AND mappedStatus is terminal
+
+2-Second Starting Overlay (lines 457-516)
+Triggered when:
+
+const statusTransitionToActive = prevWasTerminal && nowActive; 
+// prevWasTerminal = prevStatusRef.current && TERMINAL_STATUSES.includes(prevStatusRef.current)
+// nowActive = streamStatus && ACTIVE_STATUSES.includes(streamStatus)
+const idChangedToDifferent = effectiveRequestId && prevRequestIdRef.current && 
+    effectiveRequestId !== prevRequestIdRef.current;
+if (statusTransitionToActive || idChangedToDifferent) {
+  setShowOverlay(true);
+  // Timer clears after OVERLAY_DURATION_MS (2000ms)
+}
+Thinking Indicator Between Events (lines 596-623, 784-787)
+Shown when:
+
+// After THINKING_THRESHOLD_MS (200ms) delay when status is active
+const statusIsActive = stream?.status && ACTIVE_STATUSES.includes(stream.status);
+// Timer sets showThinking = true after 200ms
+// Displayed: showThinking && isWorking
+E) Top 3 Root Causes
+1. "Completed shows immediately"
+Root Cause: activeClientRequestId is NEVER passed to the component.
+
+File: client/src/App.tsx line 748, client/src/components/agent/AgentWorkspace.tsx line 84
+Both call <LiveActivityPanel /> with no props
+Since activeClientRequestId is always undefined, the panel relies on streamRequestId from the API
+But the API (/api/afr/stream) returns the most recent request's data for the user, which may be the previous completed request
+When user sends a new message, the panel immediately sees the old completed request's is_terminal: true before the new request's activities are created
+Code path:
+
+// afr.ts line 466-474 - gets most recent activity's clientRequestId
+if (!clientRequestId && relevantActivities.length > 0) {
+  const mostRecentWithCrid = relevantActivities.find(a => a.clientRequestId);
+  // This picks up OLD completed request until new events are inserted
+}
+2. Events still arrive after "Sequence complete"
+Root Cause: confirmedTerminal is set too early, before all events are polled.
+
+File: client/src/components/live-activity-panel.tsx lines 576-592
+The code sets confirmedTerminal = true immediately when is_terminal is first seen (line 584)
+But server may still have pending events being written by async background jobs
+The terminalConfirmCycles logic was intended to wait, but is now bypassed (set to 1 and immediately confirms)
+Code path:
+
+// line 578-584 - First time seeing terminal, confirms immediately
+if (terminalTimestampRef.current === null) {
+  // ...
+  setConfirmedTerminal(true); // IMMEDIATE - no waiting for events to settle
+  return;
+}
+3. Missing "3 brains / Thinking..." while running
+Root Cause: showOverlay check prevents thinking indicator, but overlay may not trigger.
+
+File: client/src/components/live-activity-panel.tsx lines 480-516
+The overlay only triggers when effectiveRequestId changes OR status transitions from terminal to active
+But since activeClientRequestId is never passed, effectiveRequestId only changes when the stream response changes
+If the stream still shows old request data when user starts typing, overlay never triggers
+Then isWorking may be false because mappedStatus shows the old 'completed' state
+Code path:
+
+// line 459 - effectiveRequestId relies on stream response
+const effectiveRequestId = activeClientRequestId || streamRequestId;
+// Since activeClientRequestId is undefined, effectiveRequestId = old request ID
+// Overlay condition at 484-490 fails because IDs haven't changed yet
+Recommended Fix (5 Steps - NOT IMPLEMENTED)
+Pass clientRequestId to LiveActivityPanel: In chat.tsx, after generating clientRequestId, store it in state and pass it to LiveActivityPanel via a shared context or prop drilling through App.tsx.
+
+Immediately reset UI on prop change: When activeClientRequestId changes (in useEffect at line 461-478), reset stream state to null, not just terminal flags. This ensures old data isn't displayed.
+
+Wait for matching events before confirming terminal: Don't set confirmedTerminal = true until stream.client_request_id === activeClientRequestId AND is_terminal === true.
+
+Add event count stability check: Before confirming terminal, verify event count hasn't changed for 2 consecutive polls (re-enable the terminalConfirmCycles logic that was bypassed).
+
+Force overlay on new activeClientRequestId: Always show overlay when activeClientRequestId changes, regardless of stream response state.
