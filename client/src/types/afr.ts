@@ -15,9 +15,10 @@ export interface Run {
   score?: number | null;
   stop_triggered: boolean;
   verdict?: 'continue' | 'revise' | 'abandon' | null;
-  run_type?: 'deep_research' | 'plan' | 'tool' | 'chat';
+  run_type?: 'deep_research' | 'plan' | 'tool' | 'chat' | 'agent';
   activity_id?: string;
   plan_id?: string;
+  client_request_id?: string;
 }
 
 export interface Decision {
@@ -78,6 +79,17 @@ export interface RuleUpdate {
   supersedes_rule_id?: string | null;
 }
 
+export interface ActivitySummary {
+  id: string;
+  timestamp: string;
+  runType: string;
+  label: string;
+  action: string;
+  status: string;
+  durationMs?: number | null;
+  error?: string | null;
+}
+
 export interface RunBundle {
   run: Run;
   decisions: Decision[];
@@ -90,4 +102,5 @@ export interface RunBundle {
   verdict?: string | null;
   score?: number | null;
   bundle_present?: boolean;
+  activities?: ActivitySummary[];
 }

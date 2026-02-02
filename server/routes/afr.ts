@@ -39,75 +39,35 @@ export function createAfrRouter(_storage: typeof storage) {
       const userId = (req.query.userId || req.query.user_id) as string | undefined;
       const showAllUsers = req.query.all === 'true';
       
-      const [dbRuns, activities] = await Promise.all([
-        storage.listDeepResearchRunsForAfr(limit),
-        storage.listAgentActivities(limit, showAllUsers ? undefined : userId)
-      ]);
+      // AUTHORITATIVE SOURCE: agent_runs table
+      // Each row = ONE user request, activities are child events viewed in detail
+      const agentRuns = await storage.listAgentRuns(limit, showAllUsers ? undefined : userId);
 
-      const deepResearchRuns: Run[] = dbRuns
-        .filter(r => showAllUsers || !userId || r.userId === userId)
-        .map((r) => ({
+      const runs: Run[] = agentRuns.map((r) => {
+        // Map agent run status to display status
+        const status = mapAgentRunStatus(r.status, r.terminalState);
+        
+        // Extract label from metadata if available
+        const metadata = r.metadata as Record<string, any> | null;
+        const label = metadata?.label || metadata?.userMessagePreview || metadata?.userMessage?.slice(0, 100) || 'Request';
+        
+        return {
           id: r.id,
           created_at: new Date(r.createdAt).toISOString(),
-          goal_summary: r.label || r.prompt?.slice(0, 100) || "Untitled Run",
+          goal_summary: label,
           vertical: "hospitality",
-          status: mapDbStatus(r.status),
+          status,
           goal_worth: null,
           stop_triggered: false,
           score: null,
-          verdict: null,
-          run_type: "deep_research" as const,
-        }));
+          verdict: r.terminalState === 'completed' ? 'continue' as const :
+                   r.terminalState === 'failed' ? 'abandon' as const : null,
+          run_type: "agent" as const, // New unified run type
+          client_request_id: r.clientRequestId,
+        };
+      });
 
-      const planRuns: Run[] = activities
-        .filter(a => {
-          const metadata = a.metadata as Record<string, any> | null;
-          const runType = metadata?.runType;
-          return runType === 'plan';
-        })
-        .map((a) => {
-          const metadata = a.metadata as Record<string, any> | null;
-          return {
-            id: `activity_${a.id}`,
-            created_at: new Date(a.timestamp).toISOString(),
-            goal_summary: a.taskGenerated || "Plan Execution",
-            vertical: "hospitality",
-            status: mapActivityStatus(a.status),
-            goal_worth: null,
-            stop_triggered: false,
-            score: null,
-            verdict: null,
-            run_type: "plan" as const,
-            activity_id: a.id,
-            plan_id: metadata?.planId || a.runId,
-          };
-        });
-
-      const toolRuns: Run[] = activities
-        .filter(a => {
-          const metadata = a.metadata as Record<string, any> | null;
-          const runType = metadata?.runType;
-          return runType === 'tool';
-        })
-        .map((a) => ({
-          id: `activity_${a.id}`,
-          created_at: new Date(a.timestamp).toISOString(),
-          goal_summary: a.taskGenerated || `Tool: ${a.actionTaken}`,
-          vertical: "hospitality",
-          status: mapActivityStatus(a.status),
-          goal_worth: null,
-          stop_triggered: false,
-          score: null,
-          verdict: null,
-          run_type: "tool" as const,
-          activity_id: a.id,
-        }));
-
-      const allRuns = [...deepResearchRuns, ...planRuns, ...toolRuns]
-        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-        .slice(0, limit);
-
-      res.json(allRuns);
+      res.json(runs);
     } catch (error: any) {
       console.error("AFR /runs error:", error);
       res.status(500).json({ error: "Failed to fetch runs" });
@@ -118,6 +78,93 @@ export function createAfrRouter(_storage: typeof storage) {
     try {
       const runId = req.params.id;
       
+      // NEW: Query agent_runs table first (authoritative source)
+      const agentRun = await storage.getAgentRun(runId);
+      
+      if (agentRun) {
+        // Found in agent_runs - this is a unified run with child activities
+        const metadata = agentRun.metadata as Record<string, any> | null;
+        const label = metadata?.label || metadata?.userMessagePreview || metadata?.userMessage?.slice(0, 100) || 'Request';
+        
+        // Fetch child activities for this run's client_request_id
+        const activities = await storage.getActivitiesByClientRequestId(agentRun.clientRequestId);
+        
+        const run: Run = {
+          id: agentRun.id,
+          created_at: new Date(agentRun.createdAt).toISOString(),
+          goal_summary: label,
+          vertical: "hospitality",
+          status: mapAgentRunStatus(agentRun.status, agentRun.terminalState),
+          goal_worth: null,
+          stop_triggered: false,
+          score: null,
+          verdict: agentRun.terminalState === 'completed' ? 'continue' as const :
+                   agentRun.terminalState === 'failed' ? 'abandon' as const : null,
+          run_type: "agent" as const,
+          client_request_id: agentRun.clientRequestId,
+        };
+        
+        // Convert activities to decisions (child events)
+        const decisions = activities.map((a, idx) => {
+          const actMetadata = a.metadata as Record<string, any> | null;
+          const runType = actMetadata?.runType || 'unknown';
+          return {
+            id: `decision_${a.id}`,
+            run_id: runId,
+            index: idx + 1,
+            title: a.taskGenerated || a.actionTaken || 'Activity',
+            choice: runType,
+            why: a.routerReason || `Executed ${runType}: ${a.actionTaken}`,
+            options_considered: [],
+            timestamp: new Date(a.timestamp).toISOString(),
+            status: a.status,
+            durationMs: a.durationMs,
+            error: a.errorMessage,
+          };
+        });
+        
+        // Build outcome from the last activity or error
+        const lastActivity = activities[activities.length - 1];
+        const lastResults = lastActivity?.results as Record<string, any> | null;
+        
+        const bundle: RunBundle = {
+          run,
+          decisions,
+          expected_signals: [],
+          stop_conditions: [],
+          outcome: {
+            id: `outcome_${runId}`,
+            run_id: runId,
+            outcome_summary: agentRun.error 
+              ? `Failed: ${agentRun.error}`
+              : agentRun.terminalState === 'completed'
+              ? `Completed with ${activities.length} activities`
+              : `In progress...`,
+            full_output: lastResults ? JSON.stringify(lastResults, null, 2) : agentRun.error || '',
+            metrics_json: { activity_count: activities.length },
+          },
+          tower_verdict: null,
+          related_rule_updates: [],
+          goal_worth: null,
+          verdict: run.verdict,
+          score: null,
+          bundle_present: true,
+          activities: activities.map(a => ({
+            id: a.id,
+            timestamp: new Date(a.timestamp).toISOString(),
+            runType: (a.metadata as any)?.runType || 'unknown',
+            label: a.taskGenerated,
+            action: a.actionTaken,
+            status: a.status,
+            durationMs: a.durationMs,
+            error: a.errorMessage,
+          })),
+        };
+        
+        return res.json(bundle);
+      }
+      
+      // FALLBACK: Legacy activity_* IDs (backwards compatibility)
       if (runId.startsWith('activity_')) {
         const activityId = runId.replace('activity_', '');
         const activity = await storage.getAgentActivity(activityId);
@@ -178,6 +225,7 @@ export function createAfrRouter(_storage: typeof storage) {
         return res.json(bundle);
       }
       
+      // FALLBACK: Deep research runs (legacy)
       const [dbRun, afrBundle, relatedRuleUpdates] = await Promise.all([
         storage.getDeepResearchRun(runId),
         storage.getAfrRunBundle(runId),
@@ -845,6 +893,42 @@ function mapDbStatusToEventStatus(
     case 'failed':
     case 'stopped':
       return 'failed';
+    default:
+      return 'pending';
+  }
+}
+
+// Map agent_runs status to UI display status
+function mapAgentRunStatus(
+  status: string,
+  terminalState: string | null
+): 'pending' | 'running' | 'completed' | 'failed' | 'stopped' {
+  // Terminal state takes precedence when set
+  if (terminalState) {
+    switch (terminalState) {
+      case 'completed':
+        return 'completed';
+      case 'failed':
+        return 'failed';
+      case 'stopped':
+        return 'stopped';
+    }
+  }
+  
+  // Map non-terminal statuses
+  switch (status) {
+    case 'starting':
+    case 'planning':
+      return 'pending';
+    case 'executing':
+    case 'finalizing':
+      return 'running';
+    case 'completed':
+      return 'completed';
+    case 'failed':
+      return 'failed';
+    case 'stopped':
+      return 'stopped';
     default:
       return 'pending';
   }

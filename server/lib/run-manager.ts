@@ -5,7 +5,7 @@ import type { InsertAgentRun, SelectAgentRun } from '@shared/schema';
 export type RunStatus = 'starting' | 'planning' | 'executing' | 'finalizing' | 'completed' | 'failed' | 'stopped';
 export type TerminalState = 'completed' | 'failed' | 'stopped';
 
-const TERMINAL_STATUSES: Set<RunStatus> = new Set(['completed', 'failed', 'stopped']);
+const TERMINAL_STATUSES = new Set<RunStatus>(['completed', 'failed', 'stopped']);
 
 const ALLOWED_TRANSITIONS: Record<RunStatus, RunStatus[]> = {
   starting: ['planning', 'executing', 'failed', 'stopped'],
