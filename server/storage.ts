@@ -632,6 +632,8 @@ export interface IStorage {
   getAgentRun(id: string): Promise<SelectAgentRun | null>;
   getAgentRunByClientRequestId(clientRequestId: string): Promise<SelectAgentRun | null>;
   getMostRecentAgentRun(userId: string): Promise<SelectAgentRun | null>;
+  listAgentRuns(limit: number, userId?: string): Promise<SelectAgentRun[]>;
+  getActivitiesByClientRequestId(clientRequestId: string): Promise<SelectAgentActivity[]>;
   updateAgentRun(id: string, updates: Partial<InsertAgentRun>): Promise<SelectAgentRun | null>;
   updateAgentRunStatus(id: string, status: string, terminalState?: string | null, error?: string | null): Promise<SelectAgentRun | null>;
   setAgentRunUiReady(id: string, ready: boolean): Promise<SelectAgentRun | null>;
@@ -1396,6 +1398,20 @@ export class MemStorage implements IStorage {
       .filter(r => r.userId === userId)
       .sort((a, b) => b.createdAt - a.createdAt);
     return runs[0] || null;
+  }
+  
+  async listAgentRuns(limit: number = 200, userId?: string): Promise<SelectAgentRun[]> {
+    let runs = Array.from(this.agentRunsMap.values());
+    if (userId) {
+      runs = runs.filter(r => r.userId === userId);
+    }
+    return runs.sort((a, b) => b.createdAt - a.createdAt).slice(0, limit);
+  }
+  
+  async getActivitiesByClientRequestId(clientRequestId: string): Promise<SelectAgentActivity[]> {
+    return Array.from(this.agentActivitiesMap.values())
+      .filter(a => a.clientRequestId === clientRequestId)
+      .sort((a, b) => a.timestamp - b.timestamp);
   }
   
   async updateAgentRun(id: string, updates: Partial<InsertAgentRun>): Promise<SelectAgentRun | null> {
@@ -5144,6 +5160,30 @@ export class DbStorage implements IStorage {
       .orderBy(desc(agentRuns.createdAt))
       .limit(1);
     return result || null;
+  }
+  
+  async listAgentRuns(limit: number = 200, userId?: string): Promise<SelectAgentRun[]> {
+    if (userId) {
+      return db
+        .select()
+        .from(agentRuns)
+        .where(eq(agentRuns.userId, userId))
+        .orderBy(desc(agentRuns.createdAt))
+        .limit(limit);
+    }
+    return db
+      .select()
+      .from(agentRuns)
+      .orderBy(desc(agentRuns.createdAt))
+      .limit(limit);
+  }
+  
+  async getActivitiesByClientRequestId(clientRequestId: string): Promise<SelectAgentActivity[]> {
+    return db
+      .select()
+      .from(agentActivities)
+      .where(eq(agentActivities.clientRequestId, clientRequestId))
+      .orderBy(agentActivities.timestamp);
   }
   
   async updateAgentRun(id: string, updates: Partial<InsertAgentRun>): Promise<SelectAgentRun | null> {
