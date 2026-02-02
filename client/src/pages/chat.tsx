@@ -98,6 +98,57 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
   const [isWaitingForSupervisor, setIsWaitingForSupervisor] = useState(false);
   const supervisorTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Progress stack for chat status events (Part 2 implementation)
+  type ProgressStage = 'ack' | 'classifying' | 'planning' | 'executing' | 'finalising' | 'completed' | 'failed';
+  interface ProgressEvent {
+    stage: ProgressStage;
+    message: string;
+    ts: number;
+    toolName?: string;
+  }
+  const [progressStack, setProgressStack] = useState<ProgressEvent[]>([]);
+  const [activeClientRequestId, setActiveClientRequestId] = useState<string | null>(null);
+  
+  // Queued message for soft lock (Part 3 implementation)
+  const [queuedMessage, setQueuedMessage] = useState<string | null>(null);
+  const queuedMessageRef = useRef<string | null>(null);
+  
+  // Keep ref in sync with state
+  useEffect(() => {
+    queuedMessageRef.current = queuedMessage;
+  }, [queuedMessage]);
+
+  // Helper to get stage icon and label
+  const getStageDisplay = (stage: ProgressStage, toolName?: string): { icon: string; label: string } => {
+    switch (stage) {
+      case 'ack':
+        return { icon: '\u2714', label: 'OK, working' };
+      case 'classifying':
+        return { icon: '\u{1F50D}', label: 'Classifying intent' };
+      case 'planning':
+        return { icon: '\u{1F50D}', label: 'Planning' };
+      case 'executing':
+        if (toolName) {
+          if (toolName.toLowerCase().includes('search') || toolName.toLowerCase().includes('wyshbone')) {
+            return { icon: '\u{1F50E}', label: 'Searching Wyshbone database' };
+          }
+          if (toolName.toLowerCase().includes('google') || toolName.toLowerCase().includes('places')) {
+            return { icon: '\u{1F5FA}', label: 'Running Google Places' };
+          }
+          return { icon: '\u{1F527}', label: `Executing ${toolName.replace(/_/g, ' ')}` };
+        }
+        return { icon: '\u{1F527}', label: 'Executing tools' };
+      case 'finalising':
+        return { icon: '\u270D', label: 'Finalising response' };
+      case 'completed':
+        return { icon: '\u2705', label: 'Done' };
+      case 'failed':
+        return { icon: '\u274C', label: 'Failed' };
+      default:
+        return { icon: '\u2022', label: stage };
+    }
+  };
+
   // Persist chat mode to localStorage
   useEffect(() => {
     localStorage.setItem('chatMode', chatMode);
@@ -496,6 +547,10 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     // Generate unique client request ID for idempotency and AFR correlation
     const clientRequestId = crypto.randomUUID();
     
+    // Clear progress stack and set active request for new run
+    setProgressStack([]);
+    setActiveClientRequestId(clientRequestId);
+    
     // Immediately notify LiveActivityPanel of new request (before any server events)
     setCurrentClientRequestId(clientRequestId);
     
@@ -570,6 +625,51 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
               if (parsed.conversationId) {
                 console.log('💬 Received conversationId:', parsed.conversationId);
                 setConversationId(parsed.conversationId);
+              }
+              
+              // Handle ACK event (immediate acknowledgment)
+              if (parsed.type === 'ack') {
+                console.log('✓ ACK received:', parsed.message);
+                setActiveClientRequestId(parsed.clientRequestId || clientRequestId);
+                setProgressStack([{
+                  stage: 'ack',
+                  message: parsed.message || 'OK, working',
+                  ts: parsed.ts || Date.now(),
+                }]);
+              }
+              
+              // Handle STATUS events (progress updates)
+              if (parsed.type === 'status' && parsed.stage) {
+                console.log(`📊 Status: ${parsed.stage} - ${parsed.message}`);
+                setProgressStack((prev) => {
+                  const existingIndex = prev.findIndex(p => p.stage === parsed.stage);
+                  const newEvent: ProgressEvent = {
+                    stage: parsed.stage,
+                    message: parsed.message || parsed.stage,
+                    ts: parsed.ts || Date.now(),
+                    toolName: parsed.toolName,
+                  };
+                  if (existingIndex >= 0) {
+                    const updated = [...prev];
+                    updated[existingIndex] = newEvent;
+                    return updated;
+                  }
+                  return [...prev, newEvent];
+                });
+                
+                // If completed or failed, clear active request after a delay
+                if (parsed.stage === 'completed' || parsed.stage === 'failed') {
+                  setTimeout(() => {
+                    setActiveClientRequestId(null);
+                    // Check for queued message and auto-submit
+                    if (queuedMessageRef.current) {
+                      const messageToSend = queuedMessageRef.current;
+                      setQueuedMessage(null);
+                      console.log('📤 Auto-submitting queued message:', messageToSend.slice(0, 50));
+                      handleSendRef.current?.(messageToSend);
+                    }
+                  }, 500);
+                }
               }
               
               // Handle Supervisor task creation
@@ -725,8 +825,47 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
       }
       
       setIsStreaming(false);
+      
+      // ROBUST CLEANUP: Clear soft lock and trigger queued message if no terminal status was received
+      // This is a fallback in case the server didn't emit completed/failed status events
+      setTimeout(() => {
+        setActiveClientRequestId((current) => {
+          // Only clear if still the same request (prevents race conditions)
+          if (current === clientRequestId) {
+            console.log('🧹 Stream completed, clearing active request (fallback cleanup)');
+            // Check for queued message and auto-submit
+            if (queuedMessageRef.current) {
+              const messageToSend = queuedMessageRef.current;
+              setQueuedMessage(null);
+              console.log('📤 Auto-submitting queued message (fallback):', messageToSend.slice(0, 50));
+              setTimeout(() => handleSendRef.current?.(messageToSend), 100);
+            }
+            return null;
+          }
+          return current;
+        });
+      }, 500);
+      
     } catch (error: any) {
       setIsStreaming(false);
+      
+      // ROBUST CLEANUP: Clear soft lock state on error
+      setActiveClientRequestId(null);
+      setProgressStack((prev) => {
+        const last = prev[prev.length - 1];
+        if (last && last.stage !== 'completed' && last.stage !== 'failed') {
+          return [...prev, { stage: 'failed' as ProgressStage, message: error.message || 'Request failed', ts: Date.now() }];
+        }
+        return prev;
+      });
+      
+      // Check for queued message and auto-submit even on error
+      if (queuedMessageRef.current) {
+        const messageToSend = queuedMessageRef.current;
+        setQueuedMessage(null);
+        console.log('📤 Auto-submitting queued message after error:', messageToSend.slice(0, 50));
+        setTimeout(() => handleSendRef.current?.(messageToSend), 500);
+      }
       
       // Remove the empty assistant message
       setMessages((prev) => prev.filter((msg) => msg.id !== assistantMessageId));
@@ -1056,9 +1195,19 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     return 'CONTINUE';
   };
 
+  // Check if a run is currently active (soft lock check)
+  const isRunActive = !!activeClientRequestId;
+
   const handleSend = async (promptOverride?: string) => {
     const messageContent = promptOverride || input.trim();
-    if (!messageContent || isStreaming) return;
+    if (!messageContent) return;
+    
+    // SOFT LOCK: If a run is active, don't submit - this is handled by handleKeyDown
+    // This check is here as a safety net for direct calls
+    if (isStreaming || isRunActive) {
+      console.log('⏸️ Run active, cannot submit new message');
+      return;
+    }
 
     // Hide location suggestions
     setShowLocationSuggestions(false);
@@ -1170,10 +1319,64 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      handleSend();
       setShowLocationSuggestions(false);
+      
+      // SOFT LOCK: If run is active, show toast and don't submit
+      if (isRunActive || isStreaming) {
+        toast({
+          title: "Wyshbone is working",
+          description: "Press Queue to run this next, or wait for the current request to finish.",
+        });
+        return;
+      }
+      
+      handleSend();
     } else if (e.key === "Escape") {
       setShowLocationSuggestions(false);
+    }
+  };
+  
+  // Queue handler: Save message for later execution
+  const handleQueue = () => {
+    const messageContent = input.trim();
+    if (!messageContent) return;
+    
+    setQueuedMessage(messageContent);
+    setInput("");
+    toast({
+      title: "Message queued",
+      description: "Your message will run automatically when the current request finishes.",
+    });
+  };
+  
+  // Cancel handler: Abort current request and optionally run queued message
+  const handleCancel = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    setIsStreaming(false);
+    setActiveClientRequestId(null);
+    setProgressStack((prev) => {
+      const last = prev[prev.length - 1];
+      if (last && last.stage !== 'completed' && last.stage !== 'failed') {
+        return [...prev.slice(0, -1), { ...last, stage: 'failed' as ProgressStage, message: 'Cancelled' }];
+      }
+      return prev;
+    });
+    
+    toast({
+      title: "Request cancelled",
+      description: queuedMessage ? "Running queued message..." : "Request has been stopped.",
+    });
+    
+    // If there's a queued message, submit it after a brief delay
+    if (queuedMessageRef.current) {
+      const messageToSend = queuedMessageRef.current;
+      setQueuedMessage(null);
+      setTimeout(() => {
+        handleSendRef.current?.(messageToSend);
+      }, 300);
     }
   };
 
@@ -1634,6 +1837,35 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
             })
           )}
 
+          {/* Progress Stack - shows status updates during request */}
+          {progressStack.length > 0 && (
+            <div className="flex gap-3 flex-row mb-2" data-testid="progress-stack">
+              <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0">
+                <img src={wyshboneLogo} alt="Wyshbone" className="w-full h-full object-cover" />
+              </div>
+              <div className="flex flex-col items-start max-w-3xl lg:max-w-none">
+                <div className="rounded-lg px-4 py-3 bg-card border border-card-border">
+                  <div className="space-y-1">
+                    {progressStack.map((event, idx) => {
+                      const display = getStageDisplay(event.stage, event.toolName);
+                      const isLast = idx === progressStack.length - 1;
+                      const isTerminal = event.stage === 'completed' || event.stage === 'failed';
+                      return (
+                        <div 
+                          key={`${event.stage}-${idx}`} 
+                          className={`flex items-center gap-2 text-sm ${isLast && !isTerminal ? 'text-foreground' : 'text-muted-foreground'}`}
+                        >
+                          <span>{display.icon}</span>
+                          <span>{display.label}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Supervisor thinking indicator */}
           {isWaitingForSupervisor && (
             <div className="flex gap-3 flex-row" data-testid="supervisor-loading">
@@ -1773,6 +2005,23 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
             />
           )}
           
+          {/* Queued Message Indicator */}
+          {queuedMessage && (
+            <div className="mb-2 px-3 py-2 bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-lg flex items-center justify-between">
+              <span className="text-sm text-blue-700 dark:text-blue-300">
+                📋 Queued: "{queuedMessage.slice(0, 40)}{queuedMessage.length > 40 ? '...' : ''}"
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setQueuedMessage(null)}
+                className="text-blue-600 hover:text-blue-800 dark:text-blue-400"
+              >
+                Clear
+              </Button>
+            </div>
+          )}
+          
           <div className="bg-card border border-card-border rounded-xl p-2 flex items-end gap-2">
             <Textarea
               ref={textareaRef}
@@ -1784,15 +2033,45 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
               rows={1}
               data-testid="input-message"
             />
-            <Button
-              onClick={() => handleSend()}
-              disabled={!input.trim() || isStreaming}
-              size="icon"
-              className="flex-shrink-0 p-0 overflow-hidden"
-              data-testid="button-send"
-            >
-              <img src={wyshboneLogo} alt="Send" className="w-full h-full object-cover" />
-            </Button>
+            
+            {/* Show Queue/Cancel buttons when run is active */}
+            {isRunActive && (
+              <>
+                {input.trim() && !queuedMessage && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleQueue}
+                    className="flex-shrink-0"
+                    data-testid="button-queue"
+                  >
+                    Queue
+                  </Button>
+                )}
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={handleCancel}
+                  className="flex-shrink-0"
+                  data-testid="button-cancel"
+                >
+                  Cancel
+                </Button>
+              </>
+            )}
+            
+            {/* Show Send button when no run is active */}
+            {!isRunActive && (
+              <Button
+                onClick={() => handleSend()}
+                disabled={!input.trim() || isStreaming}
+                size="icon"
+                className="flex-shrink-0 p-0 overflow-hidden"
+                data-testid="button-send"
+              >
+                <img src={wyshboneLogo} alt="Send" className="w-full h-full object-cover" />
+              </Button>
+            )}
           </div>
         </div>
       </div>

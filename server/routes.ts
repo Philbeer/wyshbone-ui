@@ -68,7 +68,37 @@ import { getSummary, getFileContent } from './lib/exporter';
 import { randomBytes } from 'crypto';
 import { startRunLog, completeRunLog, logToolCall, isTowerLoggingEnabled } from './lib/towerClient';
 import { getUserGoal, setUserGoal, hasUserGoal } from './userGoalHelper';
-import { logUserMessageReceived, logRouterDecision, logRunCompleted, logRunFailed, type RouterDecision } from './lib/activity-logger';
+import { logUserMessageReceived, logRouterDecision, logRunCompleted, logRunFailed, transitionRunToExecuting, transitionRunToFinalizing, type RouterDecision } from './lib/activity-logger';
+
+// ============================================
+// SSE HELPER FOR CHAT PROGRESS EVENTS
+// ============================================
+interface SseEvent {
+  type: 'ack' | 'status' | 'content' | 'error';
+  stage?: 'classifying' | 'planning' | 'executing' | 'finalising' | 'completed' | 'failed';
+  message?: string;
+  ts?: number;
+  elapsedMs?: number;
+  clientRequestId?: string;
+  conversationId?: string;
+  toolName?: string;
+}
+
+function createSseEmitter(res: import("express").Response, startTime: number) {
+  return function emitSse(event: SseEvent) {
+    const ts = Date.now();
+    const elapsedMs = ts - startTime;
+    const payload = {
+      ...event,
+      ts,
+      elapsedMs,
+    };
+    res.write(`data: ${JSON.stringify(payload)}\n\n`);
+    // @ts-ignore
+    if (res.flush) res.flush();
+    console.log(`📡 SSE [${event.type}${event.stage ? ':' + event.stage : ''}] ${event.message || ''} (+${elapsedMs}ms)`);
+  };
+}
 
 // SINGLE SOURCE OF TRUTH: SUPABASE_DATABASE_URL (Replit auto-provides DATABASE_URL for its built-in Postgres)
 const sql = neon(process.env.SUPABASE_DATABASE_URL!);
@@ -1294,6 +1324,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.setHeader("X-Accel-Buffering", "no");
       res.flushHeaders();
 
+      // Create SSE emitter for this request
+      const emitSse = createSseEmitter(res, runStartTime);
+
+      // IMMEDIATELY emit ACK event (before any processing)
+      emitSse({
+        type: 'ack',
+        message: 'OK, working',
+        clientRequestId: clientRequestId || undefined,
+        conversationId,
+      });
+
       // Send conversationId to frontend as first event
       res.write(`data: ${JSON.stringify({ conversationId })}\n\n`);
 
@@ -1325,6 +1366,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Update conversation label if this is the first user message
       await updateConversationLabel(conversationId, latestUserText);
 
+      // Emit classifying status
+      emitSse({
+        type: 'status',
+        stage: 'classifying',
+        message: 'Classifying intent',
+        clientRequestId: clientRequestId || undefined,
+        conversationId,
+      });
+
       // SUPERVISOR INTEGRATION: Detect if this message requires Supervisor assistance
       if (isSupabaseConfigured()) {
         try {
@@ -1332,6 +1382,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
           
           if (intentResult.requiresSupervisor && intentResult.taskType && intentResult.requestData) {
             console.log(`🤖 Supervisor intent detected: ${intentResult.taskType}`);
+            
+            // Emit planning status for supervisor
+            emitSse({
+              type: 'status',
+              stage: 'planning',
+              message: 'Creating supervisor plan',
+              clientRequestId: clientRequestId || undefined,
+              conversationId,
+            });
             
             // AFR: Log router decision for supervisor plan
             if (clientRequestId) {
@@ -2754,8 +2813,15 @@ CRITICAL RULES:
         if (isToolCall && heavyTools.has(toolCallBuffer.name)) {
           console.log(`🔄 Routing heavy tool ${toolCallBuffer.name} through plan system`);
           
-          // Get clientRequestId from request context
-          const clientRequestId = (req as any).clientRequestId as string | undefined;
+          // Emit executing status with tool name (uses clientRequestId from outer scope)
+          emitSse({
+            type: 'status',
+            stage: 'executing',
+            message: `Running ${toolCallBuffer.name.replace(/_/g, ' ')}`,
+            toolName: toolCallBuffer.name,
+            clientRequestId: clientRequestId || undefined,
+            conversationId,
+          });
           
           // AFR: Log router decision for tool call
           if (clientRequestId) {
@@ -3586,6 +3652,15 @@ CRITICAL RULES:
         .then(() => console.log("✅ Facts extracted and saved"))
         .catch((err) => console.error("❌ Fact extraction failed:", err.message));
 
+      // Emit finalising status
+      emitSse({
+        type: 'status',
+        stage: 'finalising',
+        message: 'Finalising response',
+        clientRequestId: clientRequestId || undefined,
+        conversationId,
+      });
+
       // AFR: Log router decision for direct response (no tool calls)
       if (clientRequestId && toolCallsLog.length === 0) {
         await logRouterDecision({
@@ -3622,11 +3697,34 @@ CRITICAL RULES:
         }).catch(err => console.error('AFR run complete error:', err.message));
       }
 
+      // Emit completed status
+      emitSse({
+        type: 'status',
+        stage: 'completed',
+        message: 'Done',
+        clientRequestId: clientRequestId || undefined,
+        conversationId,
+      });
+
       // End stream
       res.write(`data: [DONE]\n\n`);
       res.end();
     } catch (error: any) {
       console.error("Chat error:", error);
+      
+      // Emit failed status
+      try {
+        const failedEvent = {
+          type: 'status' as const,
+          stage: 'failed' as const,
+          message: error.message || 'Request failed',
+          clientRequestId: clientRequestId || undefined,
+          conversationId,
+        };
+        res.write(`data: ${JSON.stringify({ ...failedEvent, ts: Date.now(), elapsedMs: Date.now() - runStartTime })}\n\n`);
+      } catch (e) {
+        // Response might already be closed
+      }
       
       // 🏢 TOWER: Log error completion
       try {
