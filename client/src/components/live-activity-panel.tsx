@@ -560,12 +560,27 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
 
   // Manage terminal confirmation logic
   // Use the API's is_terminal field as the source of truth
-  // Only add brief delay to prevent UI flicker, then confirm terminal
+  // HARD RULES: Only confirm terminal if:
+  // 1. stream.client_request_id === activeClientRequestId (or no active request)
+  // 2. eventCount > 0
+  // 3. stream.is_terminal === true
   useEffect(() => {
     const apiIsTerminal = stream?.is_terminal ?? false;
     const terminalState = stream?.terminal_state;
     const currentEventCount = stream?.event_count || 0;
     const now = Date.now();
+    
+    // CRITICAL GUARDS per user specification:
+    // 1. isCurrentStream: stream must be for the active request
+    const isCurrentStream = activeClientRequestId 
+      ? stream?.client_request_id === activeClientRequestId
+      : true;
+    
+    // 2. hasEvents: must have events for this request
+    const hasEvents = currentEventCount > 0;
+    
+    // Combined guard: only allow terminal confirmation if all conditions met
+    const canConfirmTerminal = isCurrentStream && hasEvents && apiIsTerminal && terminalState;
     
     // DEBUG: Log terminal detection state (gated by DEBUG_TERMINAL flag)
     if (DEBUG_TERMINAL) {
@@ -573,16 +588,23 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
         apiIsTerminal,
         terminalState,
         eventCount: currentEventCount,
+        isCurrentStream,
+        hasEvents,
+        canConfirmTerminal,
         prevEventCount: terminalEventCountRef.current,
         confirmCycles: terminalConfirmCyclesRef.current,
         confirmedTerminal
       });
     }
     
-    // If API says NOT terminal, reset terminal confirmation immediately
-    if (!apiIsTerminal) {
+    // If guards fail OR API says NOT terminal, reset terminal confirmation immediately
+    if (!canConfirmTerminal) {
       if (confirmedTerminal || terminalEventCountRef.current !== null) {
-        if (DEBUG_TERMINAL) console.log('[TERMINAL_DEBUG] API says not terminal - resetting');
+        if (DEBUG_TERMINAL) console.log('[TERMINAL_DEBUG] Guards failed or not terminal - resetting:', {
+          isCurrentStream,
+          hasEvents,
+          apiIsTerminal
+        });
         setConfirmedTerminal(false);
         terminalEventCountRef.current = null;
         terminalConfirmCyclesRef.current = 0;
@@ -591,26 +613,24 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
       return;
     }
     
-    // API says terminal - confirm quickly (just 1 cycle delay to prevent flicker)
-    if (apiIsTerminal && terminalState) {
-      // First time seeing terminal
-      if (terminalTimestampRef.current === null) {
-        if (DEBUG_TERMINAL) console.log('[TERMINAL_DEBUG] First terminal seen:', terminalState);
-        terminalEventCountRef.current = currentEventCount;
-        terminalConfirmCyclesRef.current = 1;
-        terminalTimestampRef.current = now;
-        // Confirm immediately if this is the first poll with terminal
-        setConfirmedTerminal(true);
-        return;
-      }
-      
-      // Already confirmed or will confirm
-      if (!confirmedTerminal) {
-        if (DEBUG_TERMINAL) console.log('[TERMINAL_DEBUG] *** CONFIRMING TERMINAL ***:', terminalState);
-        setConfirmedTerminal(true);
-      }
+    // All guards passed - confirm terminal
+    // First time seeing terminal
+    if (terminalTimestampRef.current === null) {
+      if (DEBUG_TERMINAL) console.log('[TERMINAL_DEBUG] First terminal seen (all guards passed):', terminalState);
+      terminalEventCountRef.current = currentEventCount;
+      terminalConfirmCyclesRef.current = 1;
+      terminalTimestampRef.current = now;
+      // Confirm immediately if this is the first poll with terminal
+      setConfirmedTerminal(true);
+      return;
     }
-  }, [stream?.is_terminal, stream?.terminal_state, stream?.event_count]);
+    
+    // Already confirmed or will confirm
+    if (!confirmedTerminal) {
+      if (DEBUG_TERMINAL) console.log('[TERMINAL_DEBUG] *** CONFIRMING TERMINAL ***:', terminalState);
+      setConfirmedTerminal(true);
+    }
+  }, [stream?.is_terminal, stream?.terminal_state, stream?.event_count, stream?.client_request_id, activeClientRequestId]);
   
   // Manage thinking indicator timer (for inline indicator during gaps)
   // - Shows after THINKING_THRESHOLD_MS of no new events
