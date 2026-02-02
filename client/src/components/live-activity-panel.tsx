@@ -357,7 +357,8 @@ interface LiveActivityPanelProps {
   onRequestIdChange?: (id: string | null) => void;
 }
 
-const THINKING_THRESHOLD_MS = 200; // Show inline thinking after 200ms gap
+const THINKING_THRESHOLD_MS = 150; // Show inline thinking after 150ms gap
+const THINKING_MIN_DISPLAY_MS = 600; // Minimum time to show thinking indicator (prevent flicker)
 const OVERLAY_DURATION_MS = 2000;
 const TERMINAL_CONFIRM_CYCLES = 2; // Wait 2 poll cycles after terminal status to confirm
 const TERMINAL_TIMEOUT_MS = 5000; // Fallback: confirm terminal after 5 seconds with no new events
@@ -389,6 +390,8 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
   const prevRequestIdRef = useRef<string | null | undefined>(undefined);
   const prevStatusRef = useRef<string | null | undefined>(undefined);
   const thinkingTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const thinkingMinDisplayTimerRef = useRef<NodeJS.Timeout | null>(null); // For minimum display time
+  const thinkingStartedAtRef = useRef<number | null>(null); // When thinking started showing
   const overlayTimerRef = useRef<NodeJS.Timeout | null>(null);
   const terminalEventCountRef = useRef<number | null>(null); // Event count when terminal status first seen
   const terminalConfirmCyclesRef = useRef(0); // Cycles since terminal status
@@ -420,7 +423,10 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
       setError(null);
       setLastFetch(new Date());
 
-      if (data.client_request_id && data.client_request_id !== activeClientRequestId) {
+      // Update activeClientRequestId only if we don't have one yet
+      // Once we have an activeClientRequestId, the parent component controls it
+      // This prevents server cache from flipping us back to an old request ID
+      if (data.client_request_id && !activeClientRequestId) {
         onRequestIdChange?.(data.client_request_id);
       }
 
@@ -434,9 +440,15 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
       // Reset thinking indicator when new events arrive
       if (data.event_count > prevEventCount.current) {
         setShowThinking(false);
+        thinkingStartedAtRef.current = null;
         if (thinkingTimerRef.current) {
           clearTimeout(thinkingTimerRef.current);
           thinkingTimerRef.current = null;
+        }
+        // Also clear min display timer to prevent delayed callback from re-triggering
+        if (thinkingMinDisplayTimerRef.current) {
+          clearTimeout(thinkingMinDisplayTimerRef.current);
+          thinkingMinDisplayTimerRef.current = null;
         }
       }
       
@@ -474,6 +486,9 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
       terminalConfirmCyclesRef.current = 0;
       terminalTimestampRef.current = null;
       prevEventCount.current = 0;
+      
+      // Clear stream state to prevent stale data display
+      setStream(null);
     }
   }, [activeClientRequestId]);
   
@@ -521,6 +536,10 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
       if (overlayTimerRef.current) {
         clearTimeout(overlayTimerRef.current);
         overlayTimerRef.current = null;
+      }
+      if (thinkingMinDisplayTimerRef.current) {
+        clearTimeout(thinkingMinDisplayTimerRef.current);
+        thinkingMinDisplayTimerRef.current = null;
       }
     };
   }, []);
@@ -594,22 +613,76 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
   }, [stream?.is_terminal, stream?.terminal_state, stream?.event_count]);
   
   // Manage thinking indicator timer (for inline indicator during gaps)
+  // - Shows after THINKING_THRESHOLD_MS of no new events
+  // - Stays visible for minimum THINKING_MIN_DISPLAY_MS to prevent flicker
   useEffect(() => {
     const statusIsActive = stream?.status && ACTIVE_STATUSES.includes(stream.status);
+    const isActiveAndNotTerminal = statusIsActive && !confirmedTerminal;
     
-    if (!statusIsActive || confirmedTerminal) {
+    // Also show thinking if we have no stream yet but have an activeClientRequestId (new request starting)
+    const isNewRequestStarting = !!activeClientRequestId && !stream;
+    
+    if (confirmedTerminal) {
+      // Terminal - hide thinking immediately
       setShowThinking(false);
+      thinkingStartedAtRef.current = null;
       if (thinkingTimerRef.current) {
         clearTimeout(thinkingTimerRef.current);
         thinkingTimerRef.current = null;
       }
+      if (thinkingMinDisplayTimerRef.current) {
+        clearTimeout(thinkingMinDisplayTimerRef.current);
+        thinkingMinDisplayTimerRef.current = null;
+      }
       return;
     }
     
-    // Start timer to show thinking indicator after threshold
-    if (!thinkingTimerRef.current && statusIsActive) {
+    // New events arrived - check if we need to hide thinking (respecting min display time)
+    if (isActiveAndNotTerminal && showThinking) {
+      const thinkingStarted = thinkingStartedAtRef.current || 0;
+      const elapsed = Date.now() - thinkingStarted;
+      
+      if (elapsed < THINKING_MIN_DISPLAY_MS) {
+        // Haven't shown for minimum time yet - set timer to hide after remaining time
+        if (!thinkingMinDisplayTimerRef.current) {
+          thinkingMinDisplayTimerRef.current = setTimeout(() => {
+            // After min display, check if we should restart thinking timer
+            setShowThinking(false);
+            thinkingStartedAtRef.current = null;
+            thinkingMinDisplayTimerRef.current = null;
+            
+            // Restart the threshold timer for next gap
+            if (!thinkingTimerRef.current) {
+              thinkingTimerRef.current = setTimeout(() => {
+                setShowThinking(true);
+                thinkingStartedAtRef.current = Date.now();
+                thinkingTimerRef.current = null;
+              }, THINKING_THRESHOLD_MS);
+            }
+          }, THINKING_MIN_DISPLAY_MS - elapsed);
+        }
+        return; // Don't hide yet
+      }
+      
+      // Shown long enough - hide and restart timer
+      setShowThinking(false);
+      thinkingStartedAtRef.current = null;
+    }
+    
+    // Show thinking for new requests that haven't received any events yet
+    if (isNewRequestStarting && !showThinking && !thinkingTimerRef.current) {
       thinkingTimerRef.current = setTimeout(() => {
         setShowThinking(true);
+        thinkingStartedAtRef.current = Date.now();
+        thinkingTimerRef.current = null;
+      }, THINKING_THRESHOLD_MS);
+    }
+    
+    // Start timer to show thinking indicator after threshold
+    if (!thinkingTimerRef.current && isActiveAndNotTerminal && !showThinking) {
+      thinkingTimerRef.current = setTimeout(() => {
+        setShowThinking(true);
+        thinkingStartedAtRef.current = Date.now();
         thinkingTimerRef.current = null;
       }, THINKING_THRESHOLD_MS);
     }
@@ -619,8 +692,14 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
         clearTimeout(thinkingTimerRef.current);
         thinkingTimerRef.current = null;
       }
+      // Also clear min display timer on dep change to prevent delayed callbacks
+      if (thinkingMinDisplayTimerRef.current) {
+        clearTimeout(thinkingMinDisplayTimerRef.current);
+        thinkingMinDisplayTimerRef.current = null;
+      }
     };
-  }, [stream?.status, stream?.event_count, confirmedTerminal]);
+  // Depend on primitives to avoid timer churn from stream object reference changes
+  }, [stream?.status, stream?.event_count, confirmedTerminal, showThinking, activeClientRequestId]);
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const target = e.currentTarget;
@@ -633,11 +712,45 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
   // Compute display status - driven by API's is_terminal and terminal_state fields
   // This ensures the UI always reflects the server's authoritative status
   const mappedStatus: OverallStatus = (() => {
-    if (!stream) return 'idle';
+    // If no stream and no active request, show idle (not executing)
+    if (!stream) {
+      return activeClientRequestId ? 'executing' : 'idle';
+    }
+    
+    // SIMPLE GUARD: Use client_request_id matching as the primary guard
+    // Timestamp-based guards are unreliable due to clock skew
+    const streamMatchesActiveRequest = !activeClientRequestId || 
+      stream.client_request_id === activeClientRequestId;
+    const hasEvents = stream.events.length > 0;
+    
+    if (DEBUG_TERMINAL) {
+      console.log('[STATUS_DEBUG] mappedStatus guards:', {
+        streamMatchesActiveRequest,
+        hasEvents,
+        activeClientRequestId,
+        streamClientRequestId: stream.client_request_id,
+        eventCount: stream.events.length
+      });
+    }
+    
+    // If stream data doesn't match active request, show executing (waiting for correct data)
+    if (!streamMatchesActiveRequest) {
+      return 'executing';
+    }
     
     // Use server's is_terminal flag as the source of truth
     // Combined with confirmedTerminal for brief delay to prevent flicker
     if (stream.is_terminal && stream.terminal_state) {
+      // Block terminal only if active request doesn't match stream
+      if (activeClientRequestId && stream.client_request_id !== activeClientRequestId) {
+        if (DEBUG_TERMINAL) {
+          console.log('[STATUS_DEBUG] Terminal state blocked - ID mismatch:', {
+            activeClientRequestId,
+            streamClientRequestId: stream.client_request_id
+          });
+        }
+        return 'executing';
+      }
       // Once server says terminal AND we've confirmed it, show terminal state
       if (confirmedTerminal) {
         return stream.terminal_state;
