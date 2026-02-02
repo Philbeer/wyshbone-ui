@@ -1,0 +1,83 @@
+IMPLEMENTATION TASK. MINIMAL CHANGES ONLY. DO NOT REDESIGN THE LIVE ACTIVITY UI.
+
+Goal:
+Fix Live Activity so it never shows "Completed" or "Sequence complete" for the previous request. It must show:
+- Starting overlay (3 brains) for every new user prompt
+- Thinking indicator during gaps while the CURRENT request is running
+- Completed / Sequence complete ONLY when the CURRENT request is truly terminal and stable
+
+Absolute constraints:
+- Do NOT change the visual layout of LiveActivityPanel (keep the panel as-is)
+- Do NOT add new panels like SupervisorCreatedPlan / PlanApprovalPanel / Progress panel
+- Only touch the wiring + status logic needed for correctness
+- Keep changes small and local
+
+Part 1: Pass activeClientRequestId properly
+1) Find where clientRequestId is created on the client (chat.tsx: crypto.randomUUID()).
+2) Store it in a shared state that the right-hand panel can access (simplest is App-level state or a tiny context).
+3) Pass it into LiveActivityPanel as prop: <LiveActivityPanel activeClientRequestId={currentClientRequestId} />
+
+Acceptance for Part 1:
+- When I send a new message, LiveActivityPanel immediately knows the new clientRequestId BEFORE any server events exist.
+
+Part 2: Never show terminal for a non-matching request
+In live-activity-panel.tsx:
+1) Compute:
+   const effectiveActiveId = props.activeClientRequestId (must exist after Part 1)
+   const streamId = stream?.client_request_id
+   const idsMatch = !!effectiveActiveId && !!streamId && (effectiveActiveId === streamId)
+
+2) HARD RULES:
+- If idsMatch is false, mappedStatus must NOT be completed/failed/stopped.
+- If idsMatch is false, hide "Sequence complete".
+- If idsMatch is false and there is an activeClientRequestId, treat status as executing/working (not idle, not completed).
+This stops the old completed run from bleeding into the new request.
+
+Acceptance for Part 2:
+- When I submit a new prompt, I never see "Completed" until the streamId matches the new activeClientRequestId.
+
+Part 3: Overlay must trigger on new request id, not on stream changes
+Right now overlay triggers based on status transitions or effectiveRequestId changes, but effectiveRequestId depends on the stream.
+Change it so:
+- Overlay triggers whenever activeClientRequestId prop changes to a new value.
+- On overlay trigger, clear old stream display ONLY visually (keep polling). Specifically setStream(null) and reset local flags, but do not stop the underlying run.
+
+Acceptance for Part 3:
+- Every new prompt shows the 2s 3-brain overlay even if the server is slow to emit events.
+
+Part 4: Terminal confirmation must be stable and matching
+Rework terminal confirm logic to:
+- Only start terminal confirmation if idsMatch is true AND stream.is_terminal === true.
+- Confirm terminal only after stability, using a simple event count check:
+   - Save eventCount at time T
+   - Wait 800ms (or 2 polls)
+   - If idsMatch still true AND is_terminal still true AND eventCount unchanged, then confirmedTerminal = true
+   - If any new events arrive, reset the timer and keep working state.
+
+Acceptance for Part 4:
+- "Sequence complete" appears only after the last event has arrived for that same request id.
+- No more “events still arrive after Sequence complete”.
+
+Part 5: Thinking indicator should show while current run is active
+Thinking indicator should show if:
+- activeClientRequestId exists AND confirmedTerminal is false
+- and either (a) no events yet for this request, OR (b) there has been a gap of >200ms since last event
+Also, do not block it just because showOverlay was recently true. After overlay finishes, thinking should appear until events arrive.
+
+Acceptance for Part 5:
+- After overlay ends, I see the 3-brain / thinking behaviour during gaps until events stream in.
+- It never disappears while the run is active unless events are actively arriving.
+
+Important: Remove the extra plan/supervisor info if it is still in the UI
+- If SupervisorCreatedPlan or any plan card shows below the Live Activity tree, remove it completely.
+- Keep only: header + status badge + Stop button + the event timeline + thinking/working indicator.
+
+Testing checklist you must run:
+1) Start a new prompt while previous run is completed: UI must show overlay then Executing/Working (not Completed).
+2) Wait for events: they must append and thinking must appear during gaps.
+3) Completion: Completed badge + Sequence complete only after stable terminal, and no further events appear after.
+
+Deliver back to me:
+- File list changed
+- Exact places where activeClientRequestId is stored and passed
+- Screenshot showing: just started run (overlay/working) and a completed run (completed + sequence complete)

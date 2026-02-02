@@ -21,6 +21,7 @@ import { publishEvent } from "@/lib/events";
 import { getCurrentVerticalId } from "@/contexts/VerticalContext";
 import { WhatJustHappenedPanel } from "@/components/tower/WhatJustHappenedPanel";
 import { useResultsPanel } from "@/contexts/ResultsPanelContext";
+import { useCurrentRequest } from "@/contexts/CurrentRequestContext";
 
 type Message = ChatMessage & {
   id: string;
@@ -60,6 +61,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
   const { trigger: triggerSidebarFlash } = useSidebarFlash();
   const { goal, hasGoal, isLoading: isLoadingGoal } = useUserGoal();
   const { openResults } = useResultsPanel();
+  const { setCurrentClientRequestId } = useCurrentRequest();
   const queryClient = useQueryClient();
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
   const [input, setInput] = useState("");
@@ -493,6 +495,9 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     
     // Generate unique client request ID for idempotency and AFR correlation
     const clientRequestId = crypto.randomUUID();
+    
+    // Immediately notify LiveActivityPanel of new request (before any server events)
+    setCurrentClientRequestId(clientRequestId);
     
     // Create assistant message with empty content
     const assistantMessageId = crypto.randomUUID();

@@ -28,12 +28,14 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { LiveActivityPanel } from "@/components/live-activity-panel";
+import { useCurrentRequest } from "@/contexts/CurrentRequestContext";
 
 interface AgentWorkspaceProps {
   className?: string;
 }
 
 export function AgentWorkspace({ className }: AgentWorkspaceProps) {
+  const { currentClientRequestId } = useCurrentRequest();
   // Mock data - these would come from real API calls
   const activitySummary = {
     leadsFound: 0,
@@ -81,7 +83,7 @@ export function AgentWorkspace({ className }: AgentWorkspaceProps) {
         <div className="p-6 space-y-6">
           {/* Live Activity Panel - Real-time decision and progress tracking */}
           <div className="h-[400px]">
-            <LiveActivityPanel />
+            <LiveActivityPanel activeClientRequestId={currentClientRequestId} />
           </div>
           
           {/* Activity Metrics */}

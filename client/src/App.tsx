@@ -42,12 +42,12 @@ import { DemoModeBanner } from "@/components/DemoModeBanner";
 import { DevBanner } from "@/components/DevBanner";
 import { AgentChatPanel } from "@/components/agent/AgentChatPanel";
 import { LiveActivityPanel } from "@/components/live-activity-panel";
-import { PlanApprovalPanel } from "@/components/plan-approval-panel";
 import { AgentStatusBadge } from "@/components/AgentStatusBadge";
 import { XeroStatusBadge } from "@/components/XeroStatusBadge";
 // Results Panel imports
 import { ResultsPanelProvider, useResultsPanel } from "@/contexts/ResultsPanelContext";
 import { ResultsPanel } from "@/components/results/ResultsPanel";
+import { CurrentRequestProvider, useCurrentRequest } from "@/contexts/CurrentRequestContext";
 // Agent-First UI imports
 import { AgentFirstProvider, useAgentFirst } from "@/contexts/AgentFirstContext";
 import { DesktopSplitLayout } from "@/layouts/DesktopSplitLayout";
@@ -732,6 +732,7 @@ function DevInfoBadge() {
  */
 function RightPanelContent() {
   const { isOpen, currentResult } = useResultsPanel();
+  const { currentClientRequestId } = useCurrentRequest();
   
   // If results panel is open, show it
   if (isOpen && currentResult) {
@@ -745,8 +746,7 @@ function RightPanelContent() {
   // Otherwise show the default run/progress panels
   return (
     <div className="p-4 flex flex-col gap-4 overflow-y-auto h-full">
-      <LiveActivityPanel />
-      <PlanApprovalPanel />
+      <LiveActivityPanel activeClientRequestId={currentClientRequestId} />
     </div>
   );
 }
@@ -995,12 +995,14 @@ function App() {
             <OnboardingTourProvider>
               <SidebarFlashProvider>
                 <AgentStatusProvider>
-                  <ResultsPanelProvider>
-                    <AgentFirstProvider>
-                      <AppContent />
-                      <OnboardingTour />
-                    </AgentFirstProvider>
-                  </ResultsPanelProvider>
+                  <CurrentRequestProvider>
+                    <ResultsPanelProvider>
+                      <AgentFirstProvider>
+                        <AppContent />
+                        <OnboardingTour />
+                      </AgentFirstProvider>
+                    </ResultsPanelProvider>
+                  </CurrentRequestProvider>
                 </AgentStatusProvider>
               </SidebarFlashProvider>
             </OnboardingTourProvider>
