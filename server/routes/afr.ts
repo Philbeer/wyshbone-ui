@@ -2,6 +2,9 @@ import { Router } from "express";
 import { storage } from "../storage";
 import type { Run, RuleUpdate, RunBundle } from "../../client/src/types/afr";
 
+// Debug flag for AFR run lifecycle logging
+const DEBUG_AFR = process.env.DEBUG_AFR === 'true' || process.env.DEBUG === 'true';
+
 // Stream event type for the Live Activity Panel
 interface StreamEvent {
   id: string;
@@ -614,6 +617,19 @@ export function createAfrRouter(_storage: typeof storage) {
       const requestTitle = userMessageEvent?.details?.task || 
         events[0]?.summary || 
         'Processing request...';
+
+      // Debug logging for run lifecycle (behind DEBUG_AFR flag)
+      if (DEBUG_AFR) {
+        console.log(`[AFR_DEBUG] /stream request:`, {
+          client_request_id: effectiveClientRequestId || '(none)',
+          run_status: agentRun?.status || '(no run)',
+          ui_ready: uiReady,
+          terminal_state: terminalState,
+          event_count: events.length,
+          has_run_record: !!agentRun,
+          run_updated_at: agentRun?.updatedAt ? new Date(agentRun.updatedAt).toISOString() : null,
+        });
+      }
 
       res.json({
         client_request_id: effectiveClientRequestId || null,

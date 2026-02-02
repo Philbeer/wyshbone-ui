@@ -46,3 +46,6 @@ expertMode = true
 
 [userenv.shared]
 VITE_USE_MOCK_AFR = "false"
+
+[userenv.development]
+DEBUG_AFR = "true"
