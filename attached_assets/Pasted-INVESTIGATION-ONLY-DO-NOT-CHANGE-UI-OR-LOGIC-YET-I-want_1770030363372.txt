@@ -1,0 +1,44 @@
+INVESTIGATION ONLY. DO NOT CHANGE UI OR LOGIC YET.
+
+I want you to explain, with code references, exactly how the Live Activity panel decides:
+1) what the “current run” is
+2) when it is “working / thinking”
+3) when it is “completed”
+4) when to show “Sequence complete”
+5) when to show the 3-brain “Starting” overlay and the “Thinking…” indicator between events
+
+You keep breaking the panel by guessing. Stop guessing. Investigate and report first.
+
+Deliverable format:
+A) “How it works now” in plain English (short, precise).
+B) A diagram or bullet flow of IDs and state transitions.
+C) A list of every ID involved and where each comes from:
+   - activeClientRequestId (where set, what triggers it)
+   - streamId (what field from /api/afr/stream or equivalent)
+   - event request id (what field on each event)
+   - plan id (if present)
+   - run id (if present)
+D) The exact conditions (boolean expressions) currently used for:
+   - isWorking
+   - isTerminal / completed badge
+   - showing “Sequence complete”
+   - showing the 2-second starting overlay
+   - showing the thinking indicator between events
+E) Identify the top 3 most likely root causes for the bug:
+   - “Completed shows immediately”
+   - Events still arrive after “Sequence complete”
+   - Missing “3 brains / Thinking…” while running
+   Each root cause must reference the exact code lines / functions.
+
+Rules:
+- No refactors. No new components. No UI changes. No “quick fix”.
+- Do not remove or redesign the Live Activity layout.
+- If you want to add debugging, ONLY add a temporary DEBUG flag and console logs that can be removed later. Do not add new UI panels.
+
+Where to look (start here):
+- The Live Activity panel component file(s) (client)
+- The stream endpoint / events endpoint (server)
+- Wherever the polling or SSE subscription happens
+- Wherever “terminal” is decided or returned from the server
+
+At the end, recommend ONE minimal fix approach (max 5 bullet steps) but do not implement it yet.
