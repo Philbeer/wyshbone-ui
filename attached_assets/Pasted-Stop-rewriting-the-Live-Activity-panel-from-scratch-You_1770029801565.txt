@@ -1,0 +1,67 @@
+Stop rewriting the Live Activity panel from scratch. You keep making it worse.
+
+We need to FIX ONE CORE BUG: Live Activity shows "Completed" + "Sequence complete" when the run has NOT finished. This is happening because your terminal/completed logic is using the wrong id or treating empty stream as terminal.
+
+Non-negotiable requirements:
+1) Do NOT change the Live Activity UI layout or visual appearance.
+2) Restore the 2-second Starting overlay with the 3-brain animation when a NEW request starts. (This existed before you rewrote state.)
+3) Restore the “Thinking/Working…” indicator during execution. It must be visible whenever the current run is active, not only during gaps.
+4) "Completed" badge and "Sequence complete" row must ONLY appear when the CURRENT request is truly terminal.
+
+Root cause to investigate (do this first):
+- Identify what id Live Activity is using as the “current run id” (activeClientRequestId).
+- Identify what id the stream endpoint returns (stream.request_id or equivalent).
+- Identify what id each event is tagged with (event.request_id / event.client_request_id).
+Right now, these do NOT match reliably, so the UI is reading terminal from the wrong run.
+
+Hard rule for completion:
+- You may ONLY set terminalSeen / terminalConfirmed if ALL are true:
+  a) stream.is_terminal === true (or terminal_state is present)
+  b) stream.request_id (or equivalent) EXACTLY matches activeClientRequestId (or the id the events are filtered by)
+  c) we have at least 1 event for that same id
+- If stream is null/empty or missing request_id, it is NOT terminal. Treat it as “unknown / still working”.
+- On activeClientRequestId change, you MUST clear any previous terminal state immediately.
+
+Minimal implementation steps (do not redesign):
+Step 1: Revert ONLY the Live Activity logic to the last commit where:
+- the 3-brain Starting overlay worked
+- the “Working…” indicator existed
+Do not lose those visuals again.
+
+Step 2: Add a single helper function and use it everywhere:
+  function isTerminalForActiveRequest(stream, activeId) {
+    if (!stream) return false;
+    if (!activeId) return false;
+    const streamId = stream.request_id ?? stream.client_request_id ?? stream.run_id;
+    if (!streamId) return false;
+    if (streamId !== activeId) return false;
+    return stream.is_terminal === true || !!stream.terminal_state;
+  }
+Then:
+- Completed badge = terminalConfirmed && isTerminalForActiveRequest(...)
+- Sequence complete row = terminalConfirmed && isTerminalForActiveRequest(...)
+- isWorking = !!activeClientRequestId && !isTerminalForActiveRequest(...)
+
+Step 3: Terminal confirmation:
+- Keep your 800ms “no new events since terminal seen” confirmation if you want,
+  BUT it must only start once isTerminalForActiveRequest(stream, activeId) becomes true.
+- If any new event arrives for the active id after terminalSeenAt, cancel confirmation and keep working.
+
+Step 4: Add a small DEV ONLY on-screen debug line under the Live Activity header (not console logs) behind DEBUG_LIVE_ACTIVITY:
+It should show:
+activeId=..., streamId=..., stream.is_terminal=..., terminal_state=..., eventCountForActive=...
+This will make it obvious if ids don’t match.
+
+Step 5: Remove the extra “Supervisor created a plan / plan panel” area again. Live Activity only. Keep the Stop button in Live Activity header.
+
+Testing:
+- Send “find pubs sussex”, then immediately “find pubs london”.
+Expected:
+- Starting overlay shows for 2 seconds on each new request.
+- Badge should show Executing while events are arriving.
+- Completed should NEVER appear until AFTER the last event for the active request.
+- If ids mismatch, debug line will reveal it.
+
+Deliverable:
+- Tell me EXACTLY which fields you used as streamId and eventId, and where activeClientRequestId is set.
+- Show the final code changes only, minimal diff, no refactor.

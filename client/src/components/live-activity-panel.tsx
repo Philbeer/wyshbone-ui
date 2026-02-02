@@ -361,10 +361,29 @@ interface LiveActivityPanelProps {
 const TERMINAL_DELAY_MS = 800; // Wait 800ms after terminal seen with no new events before confirming
 const WORKING_MIN_DISPLAY_MS = 600; // Minimum time to show working indicator (prevent flicker)
 const OVERLAY_DURATION_MS = 2000;
-const DEBUG_LIVE_ACTIVITY = false; // TEMPORARY: Enable debug logs (user can turn on if needed)
+const DEBUG_LIVE_ACTIVITY = true; // DEV ONLY: Show on-screen debug info
 
 // Terminal statuses
 const TERMINAL_STATUSES = ['completed', 'failed', 'stopped'];
+
+// HELPER: Check if stream is terminal FOR THE ACTIVE REQUEST (per user spec)
+// ALL THREE conditions must be true:
+// a) stream.is_terminal === true (or terminal_state is present)
+// b) stream.client_request_id EXACTLY matches activeId
+// c) we have at least 1 event for that same id
+function isTerminalForActiveRequest(
+  stream: StreamResponse | null,
+  activeId: string | null | undefined,
+  eventCount: number
+): boolean {
+  if (!stream) return false;
+  if (!activeId) return false;
+  const streamId = stream.client_request_id;
+  if (!streamId) return false;
+  if (streamId !== activeId) return false;
+  if (eventCount < 1) return false;
+  return stream.is_terminal === true || !!stream.terminal_state;
+}
 
 export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: LiveActivityPanelProps) {
   const { user } = useUser();
@@ -376,15 +395,25 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
   const [autoScroll, setAutoScroll] = useState(true);
   const [showOverlay, setShowOverlay] = useState(false);
   
+  // Internal active ID - either from prop or from stream
+  const [internalActiveId, setInternalActiveId] = useState<string | null>(null);
+  // The effective active ID is prop if provided, else internal
+  const effectiveActiveId = activeClientRequestId ?? internalActiveId;
+  
   // === STATE PER USER SPECIFICATION ===
-  // These are the ONLY state variables that control terminal/working display
-  const [lastSeenEventAt, setLastSeenEventAt] = useState<number | null>(null); // Timestamp of last event for activeClientRequestId
+  const [lastSeenEventAt, setLastSeenEventAt] = useState<number | null>(null);
   const [hasAnyEventsForActiveRequest, setHasAnyEventsForActiveRequest] = useState(false);
-  const [terminalSeenAt, setTerminalSeenAt] = useState<number | null>(null); // When terminal first seen for THIS request
+  const [terminalSeenAt, setTerminalSeenAt] = useState<number | null>(null);
   const [terminalConfirmed, setTerminalConfirmed] = useState(false);
   
-  // isWorking = activeClientRequestId exists AND NOT terminalConfirmed
-  const isWorking = !!activeClientRequestId && !terminalConfirmed;
+  // Event count for the active request
+  const eventCountForActive = stream?.client_request_id === effectiveActiveId ? (stream?.event_count ?? 0) : 0;
+  
+  // Use the helper to determine if terminal for the active request
+  const isTerminal = isTerminalForActiveRequest(stream, effectiveActiveId, eventCountForActive);
+  
+  // isWorking = we have an active ID AND terminal is NOT confirmed
+  const isWorking = !!effectiveActiveId && !terminalConfirmed;
   
   // For minimum display time of working indicator
   const [workingIndicatorVisible, setWorkingIndicatorVisible] = useState(false);
@@ -410,8 +439,9 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
   const fetchStream = useCallback(async () => {
     try {
       const params = new URLSearchParams();
-      if (activeClientRequestId) {
-        params.set('client_request_id', activeClientRequestId);
+      // Use effectiveActiveId (prop or internal) for filtering
+      if (effectiveActiveId) {
+        params.set('client_request_id', effectiveActiveId);
       }
       if (user?.id) {
         params.set('userId', user.id);
@@ -425,16 +455,23 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
       const data: StreamResponse = await response.json();
       const now = Date.now();
       
-      // Only update state if stream is for the current active request
-      const isForActiveRequest = !activeClientRequestId || data.client_request_id === activeClientRequestId;
+      // Only update state if stream matches effectiveActiveId (or no active ID yet)
+      const streamId = data.client_request_id;
+      const isForActiveRequest = !effectiveActiveId || streamId === effectiveActiveId;
       
       if (isForActiveRequest) {
         setStream(data);
         setError(null);
         setLastFetch(new Date());
         
+        // Update internal ID if we got one from stream and no prop
+        if (streamId && !activeClientRequestId && streamId !== internalActiveId) {
+          setInternalActiveId(streamId);
+          onRequestIdChange?.(streamId);
+        }
+        
         // Track events for the active request
-        if (data.event_count > 0) {
+        if (data.event_count > 0 && streamId === effectiveActiveId) {
           setHasAnyEventsForActiveRequest(true);
           
           // Update lastSeenEventAt if we have new events
@@ -443,9 +480,6 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
             
             // If new events arrive AFTER terminalSeenAt, clear terminal state
             if (terminalSeenAt !== null) {
-              if (DEBUG_LIVE_ACTIVITY) {
-                console.log('[LIVE_ACTIVITY] New events after terminal seen - clearing terminal state');
-              }
               setTerminalSeenAt(null);
               setTerminalConfirmed(false);
               if (terminalConfirmTimerRef.current) {
@@ -477,23 +511,16 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
     } finally {
       setLoading(false);
     }
-  }, [user?.id, activeClientRequestId, onRequestIdChange, terminalSeenAt]);
+  }, [user?.id, effectiveActiveId, activeClientRequestId, internalActiveId, onRequestIdChange, terminalSeenAt]);
 
   useEffect(() => {
     fetchStream();
   }, [fetchStream]);
 
-  // CRITICAL: Reset ALL state when activeClientRequestId changes
-  // This is "Rule 3": On new request start, immediately clear previous terminal/completed UI
+  // CRITICAL: Reset ALL state when effectiveActiveId changes
+  // On new request start, immediately clear previous terminal/completed UI and show overlay
   useEffect(() => {
-    if (activeClientRequestId && activeClientRequestId !== prevRequestIdRef.current) {
-      if (DEBUG_LIVE_ACTIVITY) {
-        console.log('[LIVE_ACTIVITY] activeClientRequestId changed:', {
-          from: prevRequestIdRef.current,
-          to: activeClientRequestId
-        });
-      }
-      
+    if (effectiveActiveId && effectiveActiveId !== prevRequestIdRef.current) {
       // Immediate reset - clear ALL terminal/event state for new request
       setTerminalConfirmed(false);
       setTerminalSeenAt(null);
@@ -509,7 +536,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
         terminalConfirmTimerRef.current = null;
       }
       
-      // Show overlay for new request
+      // Show 2-second Starting overlay with 3-brain animation
       if (overlayTimerRef.current) {
         clearTimeout(overlayTimerRef.current);
       }
@@ -523,8 +550,8 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
       setWorkingIndicatorVisible(true);
       workingVisibleSinceRef.current = Date.now();
     }
-    prevRequestIdRef.current = activeClientRequestId;
-  }, [activeClientRequestId]);
+    prevRequestIdRef.current = effectiveActiveId;
+  }, [effectiveActiveId]);
   
   // Cleanup on unmount
   useEffect(() => {
@@ -551,50 +578,15 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
     return () => window.removeEventListener("focus", handleFocus);
   }, [fetchStream]);
 
-  // TERMINAL CONFIRMATION LOGIC (per user specification):
-  // - Only start confirmation AFTER hasAnyEventsForActiveRequest is true
-  // - When terminal first seen, set terminalSeenAt but do NOT immediately show completed
-  // - Confirm only when: (a) no new events for 800ms after terminalSeenAt OR (b) server says terminal AND ID matches
-  // - If new event arrives after terminalSeenAt, clear terminalSeenAt and terminalConfirmed (handled in fetchStream)
+  // TERMINAL CONFIRMATION LOGIC (using isTerminalForActiveRequest helper):
+  // - Only start confirmation when isTerminal (helper) returns true
+  // - Wait 800ms with no new events before confirming
   useEffect(() => {
-    const apiIsTerminal = stream?.is_terminal ?? false;
-    const terminalState = stream?.terminal_state;
     const now = Date.now();
     
-    // HARD RULES:
-    // 1. Never confirm terminal for different request ID
-    const isCurrentStream = activeClientRequestId 
-      ? stream?.client_request_id === activeClientRequestId
-      : true;
-    
-    // 2. Never confirm terminal if no events for this request
-    if (!isCurrentStream || !hasAnyEventsForActiveRequest) {
+    // Use the helper - if not terminal, reset
+    if (!isTerminal) {
       if (terminalSeenAt !== null || terminalConfirmed) {
-        if (DEBUG_LIVE_ACTIVITY) console.log('[LIVE_ACTIVITY] Guards failed - resetting terminal');
-        setTerminalSeenAt(null);
-        setTerminalConfirmed(false);
-      }
-      return;
-    }
-    
-    // DEBUG logging
-    if (DEBUG_LIVE_ACTIVITY) {
-      console.log('[LIVE_ACTIVITY] Terminal check:', {
-        activeClientRequestId: activeClientRequestId?.slice(-8),
-        streamRequestId: stream?.client_request_id?.slice(-8),
-        apiIsTerminal,
-        terminalState,
-        hasAnyEventsForActiveRequest,
-        terminalSeenAt,
-        terminalConfirmed,
-        lastSeenEventAt
-      });
-    }
-    
-    // If server says NOT terminal, reset
-    if (!apiIsTerminal || !terminalState) {
-      if (terminalSeenAt !== null || terminalConfirmed) {
-        if (DEBUG_LIVE_ACTIVITY) console.log('[LIVE_ACTIVITY] Server says not terminal - resetting');
         setTerminalSeenAt(null);
         setTerminalConfirmed(false);
         if (terminalConfirmTimerRef.current) {
@@ -605,10 +597,9 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
       return;
     }
     
-    // Server says terminal AND all guards pass
+    // isTerminal is true - start or continue confirmation
     // First time seeing terminal for this request?
     if (terminalSeenAt === null) {
-      if (DEBUG_LIVE_ACTIVITY) console.log('[LIVE_ACTIVITY] First terminal seen - starting 800ms timer');
       setTerminalSeenAt(now);
       
       // Store the current event count to detect if new events arrive during the timer
@@ -621,20 +612,12 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
       }
       terminalConfirmTimerRef.current = setTimeout(() => {
         // RACE CONDITION FIX: Check if new events arrived during the timer
-        // If event count changed, do NOT confirm - new events arrived
         if (terminalSeenEventCountRef.current !== null && 
             prevEventCountRef.current > terminalSeenEventCountRef.current) {
-          if (DEBUG_LIVE_ACTIVITY) {
-            console.log('[LIVE_ACTIVITY] 800ms elapsed but new events arrived - NOT confirming', {
-              eventCountAtTimerStart: terminalSeenEventCountRef.current,
-              currentEventCount: prevEventCountRef.current
-            });
-          }
           terminalConfirmTimerRef.current = null;
           return;
         }
         
-        if (DEBUG_LIVE_ACTIVITY) console.log('[LIVE_ACTIVITY] 800ms elapsed - confirming terminal');
         setTerminalConfirmed(true);
         terminalConfirmTimerRef.current = null;
         terminalSeenEventCountRef.current = null;
@@ -642,9 +625,8 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
       return;
     }
     
-    // Terminal was already seen - check if timer already confirmed it
-    // (Timer will set terminalConfirmed when it fires)
-  }, [stream?.is_terminal, stream?.terminal_state, stream?.client_request_id, activeClientRequestId, hasAnyEventsForActiveRequest, terminalSeenAt, terminalConfirmed, lastSeenEventAt]);
+    // Terminal was already seen - timer will confirm when it fires
+  }, [isTerminal, terminalSeenAt, terminalConfirmed, stream?.event_count]);
   
   // WORKING INDICATOR MANAGEMENT
   // Per user spec: Always show when isWorking is true, with 600ms minimum display time
@@ -695,54 +677,31 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
   const mappedStatus: OverallStatus = (() => {
     // If no stream and no active request, show idle
     if (!stream) {
-      return activeClientRequestId ? 'executing' : 'idle';
+      return effectiveActiveId ? 'executing' : 'idle';
     }
     
     // STEP C.2: Determine if stream matches active request
-    // isCurrentStream = true only if IDs match exactly
-    const isCurrentStream = activeClientRequestId 
-      ? stream.client_request_id === activeClientRequestId
+    // isCurrentStream = true only if IDs match exactly (using effectiveActiveId)
+    const isCurrentStream = effectiveActiveId 
+      ? stream.client_request_id === effectiveActiveId
       : true; // If no active request, accept any stream
     
-    // Count events for the current request (server already filters by ID)
+    // Count events for the current request
     const eventCount = stream.events.length;
     
-    // STEP C.3: Determine if we can show terminal state
-    // canShowTerminal requires ALL THREE conditions:
-    // 1. isCurrentStream (IDs match)
-    // 2. events.length > 0 (we have events for this request)  
-    // 3. stream.is_terminal === true (server says terminal)
-    const canShowTerminal = isCurrentStream && 
-      eventCount > 0 && 
-      stream.is_terminal === true &&
-      stream.terminal_state !== null;
-    
-    if (DEBUG_LIVE_ACTIVITY) {
-      console.log('[STATUS_DEBUG] mappedStatus evaluation:', {
-        isCurrentStream,
-        eventCount,
-        serverIsTerminal: stream.is_terminal,
-        serverTerminalState: stream.terminal_state,
-        canShowTerminal,
-        terminalConfirmed,
-        activeClientRequestId: activeClientRequestId?.slice(-8),
-        streamClientRequestId: stream.client_request_id?.slice(-8)
-      });
-    }
-    
     // If stream doesn't match active request, always show executing (waiting for data)
-    if (activeClientRequestId && !isCurrentStream) {
+    if (effectiveActiveId && !isCurrentStream) {
       return 'executing';
     }
     
-    // Terminal state handling
-    if (canShowTerminal && terminalConfirmed) {
+    // Terminal state handling - use isTerminal + terminalConfirmed
+    if (isTerminal && terminalConfirmed) {
       // All conditions met - show terminal state
       return stream.terminal_state!;
     }
     
-    // If server says terminal but we haven't confirmed, show executing briefly
-    if (canShowTerminal && !terminalConfirmed) {
+    // If isTerminal but we haven't confirmed, show executing briefly
+    if (isTerminal && !terminalConfirmed) {
       return 'executing';
     }
     
@@ -759,7 +718,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
     }
     
     // No events yet for this request - show executing if we have an active request
-    if (activeClientRequestId && eventCount === 0) {
+    if (effectiveActiveId && eventCount === 0) {
       return 'executing';
     }
     
@@ -771,17 +730,16 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
   useEffect(() => {
     if (DEBUG_LIVE_ACTIVITY) {
       console.log('[STATUS_DEBUG] Poll state:', {
-        activeClientRequestId,
-        is_terminal: stream?.is_terminal,
-        terminal_state: stream?.terminal_state,
-        mappedStatus,
+        effectiveActiveId: effectiveActiveId?.slice(-8),
+        streamId: stream?.client_request_id?.slice(-8),
+        isTerminal,
         terminalConfirmed,
-        hasAnyEventsForActiveRequest,
-        eventCount: stream?.event_count || 0,
+        mappedStatus,
+        eventCountForActive,
         isWorking,
       });
     }
-  }, [stream?.is_terminal, stream?.terminal_state, stream?.event_count, terminalConfirmed, mappedStatus, activeClientRequestId, hasAnyEventsForActiveRequest, isWorking]);
+  }, [stream?.is_terminal, stream?.client_request_id, terminalConfirmed, mappedStatus, effectiveActiveId, isTerminal, eventCountForActive, isWorking]);
 
   if (loading) {
     return (
@@ -849,11 +807,12 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
             {stream.title}
           </p>
         )}
-        {/* TEMPORARY DEBUG STRIP - remove after fix confirmed */}
+        {/* DEV ONLY: On-screen debug line per user spec */}
         {DEBUG_LIVE_ACTIVITY && (
-          <div className="mt-1 px-1 py-0.5 bg-muted/50 rounded text-[9px] font-mono text-muted-foreground/70 leading-tight">
-            <div>active: {activeClientRequestId?.slice(-8) || 'null'} | stream: {stream?.client_request_id?.slice(-8) || 'null'} | working: {String(isWorking)}</div>
-            <div>is_terminal: {String(stream?.is_terminal)} | terminalConfirmed: {String(terminalConfirmed)} | events: {stream?.events?.length ?? 0}</div>
+          <div className="mt-1 px-1 py-0.5 bg-yellow-100 dark:bg-yellow-900/30 border border-yellow-300 dark:border-yellow-700 rounded text-[9px] font-mono text-yellow-800 dark:text-yellow-200 leading-tight">
+            <div>activeId={effectiveActiveId?.slice(-8) || 'null'} | streamId={stream?.client_request_id?.slice(-8) || 'null'} | MATCH={String(stream?.client_request_id === effectiveActiveId)}</div>
+            <div>is_terminal={String(stream?.is_terminal)} | terminal_state={stream?.terminal_state || 'null'} | eventCountForActive={eventCountForActive}</div>
+            <div>isTerminal={String(isTerminal)} | terminalConfirmed={String(terminalConfirmed)} | isWorking={String(isWorking)}</div>
           </div>
         )}
       </CardHeader>
