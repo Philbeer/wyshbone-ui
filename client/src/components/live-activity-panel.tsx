@@ -710,55 +710,66 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
   };
 
   // Compute display status - driven by API's is_terminal and terminal_state fields
-  // This ensures the UI always reflects the server's authoritative status
+  // HARD RULES (per user spec):
+  // 1. Never show Completed if 0 events for activeClientRequestId
+  // 2. Never show Completed for a different request id than activeClientRequestId
+  // 3. If server claims terminal but ID doesn't match, ignore it
+  // 4. If new request starts, immediately clear terminal UI state
   const mappedStatus: OverallStatus = (() => {
-    // If no stream and no active request, show idle (not executing)
+    // If no stream and no active request, show idle
     if (!stream) {
       return activeClientRequestId ? 'executing' : 'idle';
     }
     
-    // SIMPLE GUARD: Use client_request_id matching as the primary guard
-    // Timestamp-based guards are unreliable due to clock skew
-    const streamMatchesActiveRequest = !activeClientRequestId || 
-      stream.client_request_id === activeClientRequestId;
-    const hasEvents = stream.events.length > 0;
+    // STEP C.2: Determine if stream matches active request
+    // isCurrentStream = true only if IDs match exactly
+    const isCurrentStream = activeClientRequestId 
+      ? stream.client_request_id === activeClientRequestId
+      : true; // If no active request, accept any stream
+    
+    // Count events for the current request (server already filters by ID)
+    const eventCount = stream.events.length;
+    
+    // STEP C.3: Determine if we can show terminal state
+    // canShowTerminal requires ALL THREE conditions:
+    // 1. isCurrentStream (IDs match)
+    // 2. events.length > 0 (we have events for this request)  
+    // 3. stream.is_terminal === true (server says terminal)
+    const canShowTerminal = isCurrentStream && 
+      eventCount > 0 && 
+      stream.is_terminal === true &&
+      stream.terminal_state !== null;
     
     if (DEBUG_TERMINAL) {
-      console.log('[STATUS_DEBUG] mappedStatus guards:', {
-        streamMatchesActiveRequest,
-        hasEvents,
-        activeClientRequestId,
-        streamClientRequestId: stream.client_request_id,
-        eventCount: stream.events.length
+      console.log('[STATUS_DEBUG] mappedStatus evaluation:', {
+        isCurrentStream,
+        eventCount,
+        serverIsTerminal: stream.is_terminal,
+        serverTerminalState: stream.terminal_state,
+        canShowTerminal,
+        confirmedTerminal,
+        activeClientRequestId: activeClientRequestId?.slice(-8),
+        streamClientRequestId: stream.client_request_id?.slice(-8)
       });
     }
     
-    // If stream data doesn't match active request, show executing (waiting for correct data)
-    if (!streamMatchesActiveRequest) {
+    // If stream doesn't match active request, always show executing (waiting for data)
+    if (activeClientRequestId && !isCurrentStream) {
       return 'executing';
     }
     
-    // Use server's is_terminal flag as the source of truth
-    // Combined with confirmedTerminal for brief delay to prevent flicker
-    if (stream.is_terminal && stream.terminal_state) {
-      // Block terminal only if active request doesn't match stream
-      if (activeClientRequestId && stream.client_request_id !== activeClientRequestId) {
-        if (DEBUG_TERMINAL) {
-          console.log('[STATUS_DEBUG] Terminal state blocked - ID mismatch:', {
-            activeClientRequestId,
-            streamClientRequestId: stream.client_request_id
-          });
-        }
-        return 'executing';
-      }
-      // Once server says terminal AND we've confirmed it, show terminal state
-      if (confirmedTerminal) {
-        return stream.terminal_state;
-      }
-      // Server says terminal but we haven't confirmed - show as executing briefly
+    // Terminal state handling
+    if (canShowTerminal && confirmedTerminal) {
+      // All conditions met - show terminal state
+      return stream.terminal_state!;
+    }
+    
+    // If server says terminal but we haven't confirmed, show executing briefly
+    if (canShowTerminal && !confirmedTerminal) {
       return 'executing';
     }
     
+    // Non-terminal states
     const s = stream.status;
     if (s === 'routing') return 'routing';
     if (s === 'planning') return 'planning';
@@ -769,6 +780,12 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
       if (hasDeepResearch) return 'deep_research';
       return 'executing';
     }
+    
+    // No events yet for this request - show executing if we have an active request
+    if (activeClientRequestId && eventCount === 0) {
+      return 'executing';
+    }
+    
     return 'idle';
   })();
   
@@ -858,6 +875,13 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
           <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
             {stream.title}
           </p>
+        )}
+        {/* TEMPORARY DEBUG STRIP - remove after fix confirmed */}
+        {DEBUG_TERMINAL && (
+          <div className="mt-1 px-1 py-0.5 bg-muted/50 rounded text-[9px] font-mono text-muted-foreground/70 leading-tight">
+            <div>active: {activeClientRequestId?.slice(-8) || 'null'} | stream: {stream?.client_request_id?.slice(-8) || 'null'}</div>
+            <div>is_terminal: {String(stream?.is_terminal)} | terminal_state: {stream?.terminal_state || 'null'} | events: {stream?.events?.length ?? 0}</div>
+          </div>
         )}
       </CardHeader>
 

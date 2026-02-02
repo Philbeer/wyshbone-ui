@@ -1,0 +1,110 @@
+Do NOT refactor the Live Activity UI. Do NOT change layout, spacing, colors, ordering, or component structure. This is a logic-only fix. Any UI changes beyond adding the existing thinking indicator row are unacceptable.
+
+Current bug:
+Live Activity shows “Sequence complete” and status “Completed” even when the current request has not finished. This is happening repeatedly and I have had to roll back because previous attempts broke the UI.
+
+What I need:
+1) Show the animated “3 brains / Thinking…” indicator DURING gaps between events for the CURRENT request.
+2) Only show “Sequence complete” AND the “Completed” badge when the CURRENT request is truly finished (the final event has arrived and the server says terminal for THIS request).
+
+Hard rules (must be enforced):
+- Never show Completed / Sequence complete if there are 0 events for the activeClientRequestId.
+- Never show Completed / Sequence complete for a different request id than the activeClientRequestId.
+- If the server claims terminal but the request id does not match activeClientRequestId, ignore it.
+- If a new request starts, immediately clear any previous terminal UI state.
+
+Key constraint:
+The fix must not rely on “it happens fast” or timers. Use server truth AND correct request id matching.
+
+========================================
+Step A: Add a tiny debug strip (temporary, minimal)
+========================================
+Without changing layout, add a single small, muted debug line under the Live Activity header (or console logs if you insist) showing:
+
+- activeClientRequestId
+- stream.client_request_id (whatever the stream endpoint returns)
+- stream.is_terminal
+- stream.terminal_state
+- events.length
+
+This is to PROVE why “Completed” is showing early.
+
+========================================
+Step B: Fix the source of truth for terminal state
+========================================
+Right now, terminal state is clearly coming from the wrong place (likely the previous run).
+
+Make terminal state depend ONLY on the currently streamed request:
+
+- The /api/afr/stream response must include the client_request_id it is returning events for.
+- It must return events filtered by that client_request_id only.
+- is_terminal + terminal_state must be computed only from that same filtered set.
+
+Critical guard (server-side preferred):
+If events.length === 0 for the streamed client_request_id:
+  is_terminal = false
+  terminal_state = null
+
+If the client passes an unknown client_request_id:
+  return 404/400 (do NOT fall back to “latest run”)
+
+========================================
+Step C: Client gating (belt + braces)
+========================================
+In the Live Activity component:
+
+1) On activeClientRequestId change:
+- reset UI state immediately:
+  - set confirmedTerminal = false
+  - set showSequenceComplete = false
+  - set status badge = Executing/Starting
+- clear the local events list for display ONLY if it currently shows the old request’s events (keep the visual reset behaviour you already implemented, but do not change the layout)
+
+2) Determine “isCurrentStream”:
+isCurrentStream = (stream.client_request_id === activeClientRequestId)
+
+3) Determine “canShowTerminal”:
+canShowTerminal =
+  isCurrentStream
+  AND events.length > 0
+  AND stream.is_terminal === true
+
+Only if canShowTerminal is true:
+- show “Completed” badge
+- show “Sequence complete” row
+Otherwise:
+- show “Executing” badge
+- show the footer “Working…” indicator
+- show the inline “Thinking…” indicator whenever there is a gap since last event (existing logic)
+
+========================================
+Step D: The “Thinking…” indicator requirement
+========================================
+I want the “3 brains / Thinking…” indicator to always appear between “Message received” and the next event when there is a gap.
+
+But because polling can skip over short gaps, enforce a minimum visible time:
+- When the panel enters “working” state (new request started), show the footer Working indicator immediately.
+- For the inline Thinking indicator, keep your threshold, but also add a minimum display duration once it appears (e.g. 600ms) so it is visible and doesn’t flicker.
+
+This is UI-only; do NOT delay actual work. Just keep the animation visible once triggered.
+
+========================================
+Acceptance tests
+========================================
+Test 1: Send “find pubs sussex”
+Expected:
+- Immediately after send: Executing badge, no Sequence complete
+- Footer Working visible during processing
+- If there is any gap between events, inline Thinking appears briefly
+- Only after the final event arrives and stream.is_terminal=true for THIS request id:
+  - badge flips to Completed
+  - Sequence complete row appears
+
+Test 2: Send two prompts quickly, one after the other
+Expected:
+- Never see Completed for the second prompt until it actually finishes
+- No terminal carry-over from the first prompt
+
+After you implement, show ONE screenshot that includes the debug strip values while a request is in progress (so we can confirm request id matching and terminal gating).
+
+Again: do not change the UI layout. Logic-only changes.
