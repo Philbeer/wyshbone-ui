@@ -1,0 +1,89 @@
+This is still broken. Live Activity shows “Completed” immediately for a brand new request, before any real events for that request exist.
+
+This is not a UI timing issue anymore. It means one of these is true:
+1) activeClientRequestId is not actually changing per user request (stale request id reused)
+2) /api/afr/stream is returning is_terminal=true by default or returning terminal state from the previous run
+3) Client is caching terminal state and not resetting it on new request
+4) The stream query is not properly filtered by client_request_id (it is returning the most recent terminal run, not the current run)
+
+We need a hard rule:
+A run can NEVER be “Completed” if it has 0 events for the current activeClientRequestId.
+
+========================================
+Step 1: Prove where the wrong terminal comes from (server vs client)
+========================================
+
+Add TEMP debug to the UI (visible in the Live Activity panel header for now, or console if you prefer):
+
+Show:
+- activeClientRequestId
+- stream.request_id (whatever id the stream endpoint is using internally)
+- stream.is_terminal
+- stream.terminal_state
+- events.length
+- firstEventAt
+- lastEventAt
+
+I want to see on-screen (or console) what values the UI is basing “Completed” on.
+
+========================================
+Step 2: Fix server logic in /api/afr/stream (source of truth)
+========================================
+
+Server must return:
+- request_id (the client_request_id it is streaming)
+- events[] filtered ONLY for that request_id
+- is_terminal and terminal_state computed ONLY from rows belonging to that request_id
+
+Critical guard:
+- If events.length === 0 for this request_id, force:
+  is_terminal = false
+  terminal_state = null
+
+Also ensure:
+- The server is NOT falling back to “most recent run” when request_id is missing or unknown.
+- If request_id is missing/invalid, return 400 or an explicit error; do NOT silently return the last run.
+
+========================================
+Step 3: Fix client state reset
+========================================
+
+On any new request start (activeClientRequestId change):
+- Immediately reset local terminal UI state:
+  - displayedTerminal = null
+  - displayedIsTerminal = false
+  - hide “Sequence complete”
+  - badge = “Executing” (or “Starting” during overlay)
+- Do NOT allow terminal values from previous stream poll to be displayed while waiting for the first poll for the new request.
+
+========================================
+Step 4: Add a “terminal gating” rule in the UI (belt + braces)
+========================================
+
+Even if the API claims terminal, the UI should refuse to show Completed unless:
+- events.length > 0
+AND
+- lastEventAt >= requestStartedAt (or >= first time we saw this activeClientRequestId)
+AND
+- is_terminal === true
+
+If these conditions are not met, show “Executing” + working indicator.
+
+========================================
+Acceptance test (must pass)
+========================================
+
+Send: “find pubs sussex”
+
+Expected:
+- Immediately after sending: badge shows Starting/Executing, NOT Completed
+- events.length initially 0, terminal false
+- “Completed” only appears AFTER at least one event exists and stream says terminal for this request id.
+
+Once fixed, remove the temp debug fields.
+
+Implement this now and show a screenshot with the debug fields visible so we can verify:
+- activeClientRequestId changes
+- events.length starts at 0
+- terminal is false at start
+- then terminal becomes true only at end

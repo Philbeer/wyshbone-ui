@@ -1,0 +1,82 @@
+Bug + UX fix needed in Live Activity.
+
+Right now Live Activity is showing “Completed / Sequence complete” immediately when a new request starts.
+That is wrong. It should show “Executing/Working” at the start, then only show Completed once the run is actually terminal.
+
+Also: we’ve lost the “thinking/working” animation between events. I need it back.
+
+Please investigate and fix both issues.
+
+========================================
+1) BUG: Premature “Completed” at start
+========================================
+
+Observed:
+- I submit a new request
+- Live Activity instantly shows “Completed” + “Sequence complete”
+- But the run has just started (it should be executing)
+- This is happening even though the request is new.
+
+Likely causes:
+- You are reading is_terminal/terminal_state from the previous run and not resetting it when activeClientRequestId changes
+- Or activeClientRequestId is not changing (stale id reused)
+- Or the stream endpoint returns terminal=true with no events yet because of a bad default
+- Or the UI caches terminal_state and displays it before first poll for the new request
+
+Fix requirements:
+- On new request (activeClientRequestId changes), immediately reset UI state:
+  - status = “Executing” (or “Starting” for 1-2s overlay)
+  - is_terminal = false
+  - terminal_state = null
+  - clear any “Sequence complete” row
+- Only show Completed when:
+  is_terminal === true AND terminal_state === “completed”
+  (same for failed/stopped)
+
+Add a guard:
+- If there are 0 events for current request OR latest event timestamp < request start timestamp, do NOT allow terminal display.
+
+Please add temporary debug logs (remove after):
+- current activeClientRequestId
+- firstEventAt
+- is_terminal, terminal_state
+- computed badge state
+
+========================================
+2) UX: Working animation must show whenever background work is happening
+========================================
+
+Requirement:
+Whenever there is background activity (router/supervisor/tool/deep research), something must move in the UI.
+
+Specifically:
+- After “Message received”, until the next real event arrives (router/tool/etc), show the 3-brain / Thinking… indicator.
+- Between any two events where there is a gap > ~150ms, show the Thinking… indicator (don’t wait 800ms).
+- While executing, keep a subtle “Working…” animation in the footer.
+- When terminal, remove animations and show “Sequence complete”.
+
+Important:
+Do NOT block real event rendering. This is purely a UI affordance.
+If events arrive quickly, show the Thinking indicator for a minimum visible time (eg 600ms) so the user can actually perceive it.
+
+Implementation notes:
+- When new request starts: show “Starting” overlay for 1.5–2.0s (visual only)
+- Then switch to Executing and show “Thinking…” whenever there is no fresh event in the last X ms (eg X=250ms)
+- Add a minimum display time for the indicator (eg 600ms) to avoid flicker
+
+========================================
+Acceptance test
+========================================
+
+Send: “find pubs hampshire”
+
+Expected:
+- Starting overlay shows (brains) for ~2s
+- Badge shows Executing, not Completed
+- After “Message received”, Thinking… appears until router event
+- Between router and tool call, Thinking… shows briefly if there’s a gap
+- Only at the end, Live Activity flips to Completed and shows Sequence complete
+
+Please implement and send a screenshot of:
+- the start state showing Executing + Thinking…
+- the end state showing Completed + Sequence complete
