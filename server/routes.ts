@@ -68,7 +68,7 @@ import { getSummary, getFileContent } from './lib/exporter';
 import { randomBytes } from 'crypto';
 import { startRunLog, completeRunLog, logToolCall, isTowerLoggingEnabled } from './lib/towerClient';
 import { getUserGoal, setUserGoal, hasUserGoal } from './userGoalHelper';
-import { logUserMessageReceived, logRouterDecision, type RouterDecision } from './lib/activity-logger';
+import { logUserMessageReceived, logRouterDecision, logRunCompleted, logRunFailed, type RouterDecision } from './lib/activity-logger';
 
 // SINGLE SOURCE OF TRUTH: SUPABASE_DATABASE_URL (Replit auto-provides DATABASE_URL for its built-in Postgres)
 const sql = neon(process.env.SUPABASE_DATABASE_URL!);
@@ -3613,6 +3613,15 @@ CRITICAL RULES:
         'standard'
       );
 
+      // AFR: Mark run as completed (sets terminal_state)
+      if (clientRequestId) {
+        await logRunCompleted({
+          userId: user.id,
+          conversationId,
+          clientRequestId,
+        }).catch(err => console.error('AFR run complete error:', err.message));
+      }
+
       // End stream
       res.write(`data: [DONE]\n\n`);
       res.end();
@@ -3636,6 +3645,16 @@ CRITICAL RULES:
         );
       } catch (logError: any) {
         console.error("❌ Tower logging error:", logError.message);
+      }
+
+      // AFR: Mark run as failed (sets terminal_state='failed')
+      if (clientRequestId) {
+        await logRunFailed({
+          userId: user.id,
+          conversationId,
+          clientRequestId,
+          error: error.message,
+        }).catch(err => console.error('AFR run failed error:', err.message));
       }
       
       res.write(`data: ${JSON.stringify({ error: error.message })}\n\n`);
