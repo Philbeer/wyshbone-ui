@@ -1,0 +1,64 @@
+INVESTIGATION ONLY. DO NOT CHANGE UI, DO NOT REFACTOR, DO NOT “FIX” ANYTHING YET.
+
+Goal:
+Explain, precisely, why Live Activity sometimes shows “Completed / Sequence complete” before the run is actually finished, and why the event order in the panel does not match the real lifecycle (chat response -> router tool -> finish).
+
+What I observed (from screenshots, in order):
+1) Panel shows the 3-brains “Starting request... Routing and planning” placeholder too early (before the chat response has returned).
+2) It then flips to “No activity yet” (likely because the placeholder times out), still before the chat has replied.
+3) Then it shows “Message received” with “Thinking...” AND also a second “Working...” indicator (two parallel indicators).
+4) Then it shows “Completed” and “Sequence complete” even though only “Message received” has happened and the router tool event arrives AFTER that.
+5) Router tool call event appears later, but UI still says completed.
+
+What the panel SHOULD do (desired timeline):
+A) Do nothing in Live Activity until the chat has returned its initial decision (the 3 dots in chat stops and we get the “Got it, I will…” response).
+B) Only then show a single 3-brains “Thinking...” indicator and status “Executing”.
+C) Show “Message received”.
+D) Show “Router tool call” event(s) as they happen.
+E) Only show “Sequence complete” when the run is truly finished for the CURRENT request, after the last event is received and the server confirms terminal.
+
+Tasks:
+1) Trace the full flow of IDs and statuses:
+   - Where clientRequestId is generated and stored
+   - How it is passed to LiveActivityPanel (or not)
+   - What /api/afr/stream returns and how it selects “current” run
+   - How the UI decides current run vs previous run
+
+2) Produce a step-by-step state timeline for ONE request:
+   - At t0 user hits enter
+   - When chat UI shows 3 dots
+   - When server creates activities
+   - Each poll response from /api/afr/stream (include: client_request_id, status, is_terminal, terminal_state, events length, newest event timestamp)
+   - When UI flips to “executing”, “thinking”, “completed”
+
+3) Identify which boolean(s) are causing the premature “Completed”:
+   - Exact condition that sets mappedStatus to “completed”
+   - Exact condition that renders “Sequence complete”
+   - Explain how those conditions can become true before router tool call arrives
+
+4) Explain the double indicators:
+   - Where “Thinking...” row is rendered
+   - Where “Working...” row is rendered
+   - Under what conditions both render at once
+   - Which one we should keep (recommendation only, no change)
+
+5) Add temporary logging (console only) to prove the diagnosis:
+   - Add logs in LiveActivityPanel for:
+     activeClientRequestId, stream.client_request_id, idsMatch, mappedStatus, confirmedTerminal,
+     is_terminal, terminal_state, events.length, last event timestamp.
+   - Add logs in /api/afr/stream server route for:
+     which run it chose, why it chose it, and the status/is_terminal fields being returned.
+
+Deliverable:
+Write an “Investigation Report” with:
+- Current code paths and file/line references
+- A timeline that matches what I observed
+- Root cause(s) ranked by likelihood
+- A minimal fix plan (no code changes yet), including the exact single source of truth for “run is complete”
+- A clear recommendation for gating the initial 3-brains placeholder so it only appears AFTER chat has responded
+
+Hard constraints:
+- No UI/layout changes in this pass.
+- No new features.
+- Only logs and explanation.
+- If you need to inspect files, list the exact files and the relevant functions.
