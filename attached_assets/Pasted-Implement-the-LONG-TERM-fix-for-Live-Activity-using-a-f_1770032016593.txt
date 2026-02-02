@@ -1,0 +1,64 @@
+Implement the LONG TERM fix for Live Activity using a first class Run lifecycle record. No hacks.
+
+Non negotiable requirements:
+1) "Completed" and "Sequence complete" must be derived ONLY from a Run record (not inferred from events).
+2) Events must never be used to decide if a run is terminal.
+3) The Live Activity panel must show NOTHING (stay idle / no activity) until chat has produced its initial decision/ack back to the UI.
+4) Keep UI layout and styling unchanged. Only fix data flow and status logic.
+5) Implement production grade schema and server logic. No temporary hacks.
+
+Work to do:
+
+A) Add new DB table (or equivalent) agent_runs:
+- id (uuid pk)
+- client_request_id (uuid unique)
+- user_id
+- created_at, updated_at
+- status enum: starting, planning, executing, finalizing, completed, failed, stopped
+- terminal_state nullable: completed, failed, stopped
+- ui_ready boolean default false
+- last_event_at nullable
+- error nullable text/json
+
+B) Update activity logger:
+- On user submit: create agent_runs row with status='starting' and ui_ready=false
+- All agent_activities written for this request must include run_id and client_request_id
+- When chat has produced the initial assistant ack/decision that appears in the chat UI, set:
+  agent_runs.ui_ready=true and status='planning' (or 'executing', whichever matches your lifecycle)
+- When router/tool execution begins, set status='executing'
+- When the execution loop finishes, set status='finalizing'
+- When EVERYTHING is finished (including final assistant response completion), set:
+  status='completed', terminal_state='completed'
+- On errors, set status='failed', terminal_state='failed', error=...
+- On user stop/cancel, set status='stopped', terminal_state='stopped'
+
+Important: ensure terminal update happens in a try/finally so a run cannot get stuck.
+
+C) Update /api/afr/stream:
+- Accept client_request_id and use it to fetch the run record directly
+- Return run.status, run.terminal_state, run.ui_ready, run.last_event_at
+- Return events for that run_id, ordered oldest -> newest
+- is_terminal = run.terminal_state != null
+- Remove the existing logic that sets completed just because some event.status == completed
+
+D) Update LiveActivityPanel:
+- Use run.ui_ready to gate display:
+  If ui_ready=false: show idle/no activity yet, no brains, no executing, nothing.
+  If ui_ready=true: show events and show status from run.status/terminal_state only.
+- Remove any terminal confirmation heuristics that are trying to guess completion from event count.
+  Completion is authoritative from run.terminal_state.
+
+E) Backwards compatibility:
+- If no run exists for an older request, fall back to current behavior for historical data only.
+- For new requests, run record must exist and be used.
+
+Validation:
+1) New request: panel stays quiet until chat ack appears.
+2) Then panel shows message_received, router/tool events, executing.
+3) Only shows Completed and Sequence complete when run.terminal_state='completed'.
+4) Confirm no scenario where message_received alone causes Completed.
+
+Deliverables:
+- List files changed
+- Explain lifecycle transitions
+- Show one example stream payload proving it works
