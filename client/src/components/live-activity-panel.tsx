@@ -729,7 +729,9 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
         hasEvents,
         activeClientRequestId,
         streamClientRequestId: stream.client_request_id,
-        eventCount: stream.events.length
+        eventCount: stream.events.length,
+        is_terminal: stream.is_terminal,
+        terminal_state: stream.terminal_state
       });
     }
     
@@ -738,9 +740,24 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
       return 'executing';
     }
     
-    // Use server's is_terminal flag as the source of truth
-    // Combined with confirmedTerminal for brief delay to prevent flicker
+    // TERMINAL GATING RULE (belt + braces):
+    // Even if API claims terminal, refuse to show Completed unless:
+    // 1. events.length > 0
+    // 2. is_terminal === true
+    // A run can NEVER be "Completed" if it has 0 events.
     if (stream.is_terminal && stream.terminal_state) {
+      // CRITICAL: Block terminal state if we have 0 events
+      if (!hasEvents) {
+        if (DEBUG_TERMINAL) {
+          console.log('[STATUS_DEBUG] Terminal state blocked - NO EVENTS:', {
+            eventCount: stream.events.length,
+            is_terminal: stream.is_terminal,
+            terminal_state: stream.terminal_state
+          });
+        }
+        return 'executing';
+      }
+      
       // Block terminal only if active request doesn't match stream
       if (activeClientRequestId && stream.client_request_id !== activeClientRequestId) {
         if (DEBUG_TERMINAL) {
@@ -829,9 +846,32 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
   const events = stream?.events || [];
   const hasEvents = events.length > 0;
 
+  // DEBUG: Visible debug info for diagnosing terminal state issues
+  const debugInfo = DEBUG_TERMINAL ? {
+    activeClientRequestId: activeClientRequestId || 'null',
+    streamClientRequestId: stream?.client_request_id || 'null',
+    is_terminal: stream?.is_terminal ?? 'undefined',
+    terminal_state: stream?.terminal_state ?? 'null',
+    eventCount: stream?.events?.length ?? 0,
+    firstEventAt: stream?.events?.[0]?.ts || 'none',
+    lastEventAt: stream?.events?.[stream?.events?.length - 1]?.ts || 'none',
+    confirmedTerminal,
+    mappedStatus,
+  } : null;
+
   return (
     <Card className="flex flex-col" style={{ height: '66vh', minHeight: '400px' }}>
       <CardHeader className="pb-2 shrink-0">
+        {/* TEMP DEBUG PANEL - Remove after fixing */}
+        {DEBUG_TERMINAL && debugInfo && (
+          <div className="mb-2 p-2 bg-yellow-100 dark:bg-yellow-900/30 rounded text-[9px] font-mono overflow-x-auto">
+            <div><strong>activeReqId:</strong> {debugInfo.activeClientRequestId}</div>
+            <div><strong>streamReqId:</strong> {debugInfo.streamClientRequestId}</div>
+            <div><strong>is_terminal:</strong> {String(debugInfo.is_terminal)} | <strong>terminal_state:</strong> {String(debugInfo.terminal_state)}</div>
+            <div><strong>events:</strong> {debugInfo.eventCount} | <strong>first:</strong> {debugInfo.firstEventAt?.slice(11, 19) || 'none'} | <strong>last:</strong> {debugInfo.lastEventAt?.slice(11, 19) || 'none'}</div>
+            <div><strong>confirmedTerminal:</strong> {String(debugInfo.confirmedTerminal)} | <strong>mappedStatus:</strong> {debugInfo.mappedStatus}</div>
+          </div>
+        )}
         <div className="flex items-center justify-between">
           <CardTitle className="text-sm font-medium">Live Activity</CardTitle>
           <div className="flex items-center gap-2">
