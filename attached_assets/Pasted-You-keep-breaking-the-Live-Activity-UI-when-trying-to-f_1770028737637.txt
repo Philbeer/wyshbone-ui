@@ -1,0 +1,59 @@
+You keep breaking the Live Activity UI when trying to fix logic. Do NOT redesign the UI or change the layout/appearance (spacing, fonts, colors, card structure). Make the smallest possible code changes focused only on state logic + the existing working indicator.
+
+Current bugs:
+A) Live Activity shows "Completed" and "Sequence complete" almost immediately after a new request starts, even though more events arrive later (I can see the run is still active in AFR).
+B) While work is happening, there is often no obvious "working on it" animation in the Live Activity timeline between events. I want the 3 brain animation + "Thinking..." (or "Working...") to be visible whenever the run is active.
+C) An extra "Supervisor Created a Plan" panel/card appears under Live Activity. Remove it completely. I only want Live Activity + a Stop button. No other plan/progress panel UI.
+
+Hard rules (must enforce):
+1) Never show "Completed" badge or "Sequence complete" row unless the run is truly finished for the CURRENT request.
+2) "Truly finished" means: the stream says terminal for the CURRENT request AND we have at least one event for the CURRENT request AND we have not received any newer event after the terminal flag was first observed.
+3) On new request start: immediately clear any previous terminal/completed UI and immediately show an active working indicator.
+4) Ignore any terminal flags from the stream if they do not match the activeClientRequestId currently being shown.
+5) Do not rely on old run state leaking into the new request. This is what is happening now.
+
+Implementation approach (do it exactly like this):
+- Treat activeClientRequestId as the source of truth for what the Live Activity panel is showing.
+- Maintain these pieces of state in Live Activity:
+  - lastSeenEventAt (timestamp) for events that belong to activeClientRequestId
+  - hasAnyEventsForActiveRequest (boolean)
+  - isWorking (boolean) = activeClientRequestId exists AND NOT terminalConfirmed
+  - terminalSeenAt (timestamp) when the stream first reports terminal for THIS active request
+  - terminalConfirmed (boolean)
+- Terminal confirmation logic:
+  - Only start terminal confirmation AFTER hasAnyEventsForActiveRequest is true.
+  - When terminal is first seen for the active request, set terminalSeenAt = now and do NOT immediately show completed.
+  - Confirm terminal only when EITHER:
+      (a) we have had no new events for the active request for at least 800ms after terminalSeenAt
+      OR
+      (b) the server explicitly provides an "is_terminal" + "terminal_state" field tied to activeClientRequestId AND we confirm the requestId match AND events belong to it.
+  - If any new event arrives for the active request after terminalSeenAt, clear terminalSeenAt and terminalConfirmed and keep showing Working.
+
+Working indicator requirements:
+- Always show an animated indicator whenever isWorking is true.
+- Do not depend on gaps between events to show it.
+- Use the existing 3-brain animation component you already created (do not create a new visual).
+- Add a minimum display time so it is actually visible: once shown, keep it visible for at least 600ms even if events arrive quickly (UI-only, not slowing the backend).
+- Put it at the bottom of the event list like a chat "typing" indicator, so it is obvious.
+
+Stop button:
+- Keep a single Stop button in the Live Activity header.
+- No plan/progress/supervisor extra card below. Remove the "Supervisor Created a Plan" panel entirely.
+
+Debugging requirement (temporary):
+- Add lightweight console logs behind a single constant flag DEBUG_LIVE_ACTIVITY = false by default.
+- Logs should print: activeClientRequestId, stream.requestId (if present), is_terminal, terminal_state, hasAnyEventsForActiveRequest, terminalSeenAt, terminalConfirmed, lastSeenEventAt.
+- I want to be able to turn it on if needed without changing UI.
+
+Files:
+- Make changes only where needed (likely the Live Activity component and its stream hook).
+- Do NOT touch unrelated UI pages or global layout.
+
+After implementing:
+- Test manually by sending 3 quick prompts in a row ("find pubs sussex", "find pubs london", "find pubs kent").
+- Expected behavior:
+  - Immediately shows Working indicator for each new request.
+  - Never shows Completed/Sequence complete until the last event has arrived and the run is genuinely finished.
+  - Working indicator remains visible throughout execution.
+  - No extra supervisor/plan panel appears.
+Return a short summary of exactly what you changed and why.

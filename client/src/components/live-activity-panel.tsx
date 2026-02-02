@@ -357,15 +357,12 @@ interface LiveActivityPanelProps {
   onRequestIdChange?: (id: string | null) => void;
 }
 
-const THINKING_THRESHOLD_MS = 150; // Show inline thinking after 150ms gap
-const THINKING_MIN_DISPLAY_MS = 600; // Minimum time to show thinking indicator (prevent flicker)
+// Constants
+const TERMINAL_DELAY_MS = 800; // Wait 800ms after terminal seen with no new events before confirming
+const WORKING_MIN_DISPLAY_MS = 600; // Minimum time to show working indicator (prevent flicker)
 const OVERLAY_DURATION_MS = 2000;
-const TERMINAL_CONFIRM_CYCLES = 2; // Wait 2 poll cycles after terminal status to confirm
-const TERMINAL_TIMEOUT_MS = 5000; // Fallback: confirm terminal after 5 seconds with no new events
-const DEBUG_TERMINAL = true; // TEMPORARY: Enable debug logs to diagnose status issues
+const DEBUG_LIVE_ACTIVITY = false; // TEMPORARY: Enable debug logs (user can turn on if needed)
 
-// Active statuses where we show working indicators
-const ACTIVE_STATUSES = ['routing', 'planning', 'executing', 'deep_research', 'running', 'in_progress'];
 // Terminal statuses
 const TERMINAL_STATUSES = ['completed', 'failed', 'stopped'];
 
@@ -377,25 +374,32 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
   const [error, setError] = useState<string | null>(null);
   const [lastFetch, setLastFetch] = useState<Date | null>(null);
   const [autoScroll, setAutoScroll] = useState(true);
-  const [showThinking, setShowThinking] = useState(false);
   const [showOverlay, setShowOverlay] = useState(false);
-  const [confirmedTerminal, setConfirmedTerminal] = useState(false); // True only after terminal is confirmed
+  
+  // === STATE PER USER SPECIFICATION ===
+  // These are the ONLY state variables that control terminal/working display
+  const [lastSeenEventAt, setLastSeenEventAt] = useState<number | null>(null); // Timestamp of last event for activeClientRequestId
+  const [hasAnyEventsForActiveRequest, setHasAnyEventsForActiveRequest] = useState(false);
+  const [terminalSeenAt, setTerminalSeenAt] = useState<number | null>(null); // When terminal first seen for THIS request
+  const [terminalConfirmed, setTerminalConfirmed] = useState(false);
+  
+  // isWorking = activeClientRequestId exists AND NOT terminalConfirmed
+  const isWorking = !!activeClientRequestId && !terminalConfirmed;
+  
+  // For minimum display time of working indicator
+  const [workingIndicatorVisible, setWorkingIndicatorVisible] = useState(false);
+  const workingVisibleSinceRef = useRef<number | null>(null);
   
   // Check if there's an active plan (for mode display)
   const hasActivePlan = plan && ['approved', 'executing', 'pending_approval'].includes(plan.status);
   const isMultiStepPlan = hasActivePlan && plan.steps && plan.steps.length >= 2;
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
-  const prevEventCount = useRef(0);
+  const prevEventCountRef = useRef(0);
   const prevRequestIdRef = useRef<string | null | undefined>(undefined);
-  const prevStatusRef = useRef<string | null | undefined>(undefined);
-  const thinkingTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const thinkingMinDisplayTimerRef = useRef<NodeJS.Timeout | null>(null); // For minimum display time
-  const thinkingStartedAtRef = useRef<number | null>(null); // When thinking started showing
   const overlayTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const terminalEventCountRef = useRef<number | null>(null); // Event count when terminal status first seen
-  const terminalConfirmCyclesRef = useRef(0); // Cycles since terminal status
-  const terminalTimestampRef = useRef<number | null>(null); // Time when terminal status first seen
+  const terminalConfirmTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const terminalSeenEventCountRef = useRef<number | null>(null); // Event count when terminal timer started
   const nearBottomRef = useRef(true); // Track if user is near bottom for chat-like scroll
   
   // Track stream state for overlay trigger
@@ -419,40 +423,53 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
       }
       
       const data: StreamResponse = await response.json();
-      setStream(data);
-      setError(null);
-      setLastFetch(new Date());
+      const now = Date.now();
+      
+      // Only update state if stream is for the current active request
+      const isForActiveRequest = !activeClientRequestId || data.client_request_id === activeClientRequestId;
+      
+      if (isForActiveRequest) {
+        setStream(data);
+        setError(null);
+        setLastFetch(new Date());
+        
+        // Track events for the active request
+        if (data.event_count > 0) {
+          setHasAnyEventsForActiveRequest(true);
+          
+          // Update lastSeenEventAt if we have new events
+          if (data.event_count > prevEventCountRef.current) {
+            setLastSeenEventAt(now);
+            
+            // If new events arrive AFTER terminalSeenAt, clear terminal state
+            if (terminalSeenAt !== null) {
+              if (DEBUG_LIVE_ACTIVITY) {
+                console.log('[LIVE_ACTIVITY] New events after terminal seen - clearing terminal state');
+              }
+              setTerminalSeenAt(null);
+              setTerminalConfirmed(false);
+              if (terminalConfirmTimerRef.current) {
+                clearTimeout(terminalConfirmTimerRef.current);
+                terminalConfirmTimerRef.current = null;
+              }
+            }
+          }
+        }
+        
+        prevEventCountRef.current = data.event_count;
+      }
 
       // Update activeClientRequestId only if we don't have one yet
-      // Once we have an activeClientRequestId, the parent component controls it
-      // This prevents server cache from flipping us back to an old request ID
       if (data.client_request_id && !activeClientRequestId) {
         onRequestIdChange?.(data.client_request_id);
       }
 
       // Chat-like auto-scroll: scroll to bottom if user is near bottom
-      if (nearBottomRef.current && data.event_count > prevEventCount.current) {
+      if (nearBottomRef.current && data.event_count > prevEventCountRef.current) {
         setTimeout(() => {
           bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
         }, 50);
       }
-      
-      // Reset thinking indicator when new events arrive
-      if (data.event_count > prevEventCount.current) {
-        setShowThinking(false);
-        thinkingStartedAtRef.current = null;
-        if (thinkingTimerRef.current) {
-          clearTimeout(thinkingTimerRef.current);
-          thinkingTimerRef.current = null;
-        }
-        // Also clear min display timer to prevent delayed callback from re-triggering
-        if (thinkingMinDisplayTimerRef.current) {
-          clearTimeout(thinkingMinDisplayTimerRef.current);
-          thinkingMinDisplayTimerRef.current = null;
-        }
-      }
-      
-      prevEventCount.current = data.event_count;
 
     } catch (err: any) {
       console.error("[LiveActivityPanel] Fetch error:", err);
@@ -460,97 +477,73 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
     } finally {
       setLoading(false);
     }
-  }, [user?.id, activeClientRequestId, autoScroll, onRequestIdChange]);
+  }, [user?.id, activeClientRequestId, onRequestIdChange, terminalSeenAt]);
 
   useEffect(() => {
     fetchStream();
   }, [fetchStream]);
 
-  // Detect new request and show overlay for 2 seconds
-  // Trigger when: (1) ID changes to a DIFFERENT ID, or (2) status transitions from terminal to active
-  const effectiveRequestId = activeClientRequestId || streamRequestId;
-  
-  // CRITICAL: Reset terminal state immediately when activeClientRequestId changes
-  // This prevents showing stale terminal state from previous request
+  // CRITICAL: Reset ALL state when activeClientRequestId changes
+  // This is "Rule 3": On new request start, immediately clear previous terminal/completed UI
   useEffect(() => {
     if (activeClientRequestId && activeClientRequestId !== prevRequestIdRef.current) {
-      if (DEBUG_TERMINAL) {
-        console.log('[STATUS_DEBUG] activeClientRequestId changed, resetting terminal state:', {
+      if (DEBUG_LIVE_ACTIVITY) {
+        console.log('[LIVE_ACTIVITY] activeClientRequestId changed:', {
           from: prevRequestIdRef.current,
           to: activeClientRequestId
         });
       }
-      // Immediate reset - don't wait for stream to catch up
-      setConfirmedTerminal(false);
-      terminalEventCountRef.current = null;
-      terminalConfirmCyclesRef.current = 0;
-      terminalTimestampRef.current = null;
-      prevEventCount.current = 0;
       
-      // Clear stream state to prevent stale data display
+      // Immediate reset - clear ALL terminal/event state for new request
+      setTerminalConfirmed(false);
+      setTerminalSeenAt(null);
+      setHasAnyEventsForActiveRequest(false);
+      setLastSeenEventAt(null);
+      prevEventCountRef.current = 0;
+      terminalSeenEventCountRef.current = null;
       setStream(null);
-    }
-  }, [activeClientRequestId]);
-  
-  useEffect(() => {
-    const prevWasTerminal = prevStatusRef.current && TERMINAL_STATUSES.includes(prevStatusRef.current);
-    const nowActive = streamStatus && ACTIVE_STATUSES.includes(streamStatus);
-    const statusTransitionToActive = prevWasTerminal && nowActive;
-    const idChangedToDifferent = effectiveRequestId && 
-      prevRequestIdRef.current && 
-      effectiveRequestId !== prevRequestIdRef.current;
-    
-    // Trigger overlay when status transitions from terminal to active
-    // OR when ID changes to a genuinely different ID
-    if (statusTransitionToActive || idChangedToDifferent) {
-      // Clear any existing timer FIRST (before setting new one)
-      if (overlayTimerRef.current) {
-        clearTimeout(overlayTimerRef.current);
-        overlayTimerRef.current = null;
+      
+      // Clear any pending terminal confirm timer
+      if (terminalConfirmTimerRef.current) {
+        clearTimeout(terminalConfirmTimerRef.current);
+        terminalConfirmTimerRef.current = null;
       }
       
-      // New request started - show overlay and reset event count
+      // Show overlay for new request
+      if (overlayTimerRef.current) {
+        clearTimeout(overlayTimerRef.current);
+      }
       setShowOverlay(true);
-      prevEventCount.current = 0;
-      setConfirmedTerminal(false); // Reset terminal confirmation for new request
-      terminalEventCountRef.current = null;
-      terminalConfirmCyclesRef.current = 0;
-      terminalTimestampRef.current = null;
-      
-      // Hide overlay after duration
       overlayTimerRef.current = setTimeout(() => {
         setShowOverlay(false);
         overlayTimerRef.current = null;
       }, OVERLAY_DURATION_MS);
+      
+      // Immediately show working indicator
+      setWorkingIndicatorVisible(true);
+      workingVisibleSinceRef.current = Date.now();
     }
-    
-    prevRequestIdRef.current = effectiveRequestId;
-    prevStatusRef.current = streamStatus;
-    
-    // Only clear timer on component unmount, not on every dep change
-  }, [effectiveRequestId, streamStatus]);
+    prevRequestIdRef.current = activeClientRequestId;
+  }, [activeClientRequestId]);
   
-  // Cleanup on unmount only
+  // Cleanup on unmount
   useEffect(() => {
     return () => {
       if (overlayTimerRef.current) {
         clearTimeout(overlayTimerRef.current);
-        overlayTimerRef.current = null;
       }
-      if (thinkingMinDisplayTimerRef.current) {
-        clearTimeout(thinkingMinDisplayTimerRef.current);
-        thinkingMinDisplayTimerRef.current = null;
+      if (terminalConfirmTimerRef.current) {
+        clearTimeout(terminalConfirmTimerRef.current);
       }
     };
   }, []);
 
+  // Polling interval - faster when active
   useEffect(() => {
-    const isActive = stream?.status && !['idle', 'completed', 'failed'].includes(stream.status) && (stream?.status as string) !== 'stopped';
-    const intervalMs = isActive ? 1500 : 10000;
-
+    const intervalMs = isWorking ? 1500 : 10000;
     const interval = setInterval(fetchStream, intervalMs);
     return () => clearInterval(interval);
-  }, [stream?.status, fetchStream]);
+  }, [isWorking, fetchStream]);
 
   useEffect(() => {
     const handleFocus = () => fetchStream();
@@ -558,168 +551,132 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
     return () => window.removeEventListener("focus", handleFocus);
   }, [fetchStream]);
 
-  // Manage terminal confirmation logic
-  // Use the API's is_terminal field as the source of truth
-  // HARD RULES: Only confirm terminal if:
-  // 1. stream.client_request_id === activeClientRequestId (or no active request)
-  // 2. eventCount > 0
-  // 3. stream.is_terminal === true
+  // TERMINAL CONFIRMATION LOGIC (per user specification):
+  // - Only start confirmation AFTER hasAnyEventsForActiveRequest is true
+  // - When terminal first seen, set terminalSeenAt but do NOT immediately show completed
+  // - Confirm only when: (a) no new events for 800ms after terminalSeenAt OR (b) server says terminal AND ID matches
+  // - If new event arrives after terminalSeenAt, clear terminalSeenAt and terminalConfirmed (handled in fetchStream)
   useEffect(() => {
     const apiIsTerminal = stream?.is_terminal ?? false;
     const terminalState = stream?.terminal_state;
-    const currentEventCount = stream?.event_count || 0;
     const now = Date.now();
     
-    // CRITICAL GUARDS per user specification:
-    // 1. isCurrentStream: stream must be for the active request
+    // HARD RULES:
+    // 1. Never confirm terminal for different request ID
     const isCurrentStream = activeClientRequestId 
       ? stream?.client_request_id === activeClientRequestId
       : true;
     
-    // 2. hasEvents: must have events for this request
-    const hasEvents = currentEventCount > 0;
+    // 2. Never confirm terminal if no events for this request
+    if (!isCurrentStream || !hasAnyEventsForActiveRequest) {
+      if (terminalSeenAt !== null || terminalConfirmed) {
+        if (DEBUG_LIVE_ACTIVITY) console.log('[LIVE_ACTIVITY] Guards failed - resetting terminal');
+        setTerminalSeenAt(null);
+        setTerminalConfirmed(false);
+      }
+      return;
+    }
     
-    // Combined guard: only allow terminal confirmation if all conditions met
-    const canConfirmTerminal = isCurrentStream && hasEvents && apiIsTerminal && terminalState;
-    
-    // DEBUG: Log terminal detection state (gated by DEBUG_TERMINAL flag)
-    if (DEBUG_TERMINAL) {
-      console.log('[TERMINAL_DEBUG] Check:', {
+    // DEBUG logging
+    if (DEBUG_LIVE_ACTIVITY) {
+      console.log('[LIVE_ACTIVITY] Terminal check:', {
+        activeClientRequestId: activeClientRequestId?.slice(-8),
+        streamRequestId: stream?.client_request_id?.slice(-8),
         apiIsTerminal,
         terminalState,
-        eventCount: currentEventCount,
-        isCurrentStream,
-        hasEvents,
-        canConfirmTerminal,
-        prevEventCount: terminalEventCountRef.current,
-        confirmCycles: terminalConfirmCyclesRef.current,
-        confirmedTerminal
+        hasAnyEventsForActiveRequest,
+        terminalSeenAt,
+        terminalConfirmed,
+        lastSeenEventAt
       });
     }
     
-    // If guards fail OR API says NOT terminal, reset terminal confirmation immediately
-    if (!canConfirmTerminal) {
-      if (confirmedTerminal || terminalEventCountRef.current !== null) {
-        if (DEBUG_TERMINAL) console.log('[TERMINAL_DEBUG] Guards failed or not terminal - resetting:', {
-          isCurrentStream,
-          hasEvents,
-          apiIsTerminal
-        });
-        setConfirmedTerminal(false);
-        terminalEventCountRef.current = null;
-        terminalConfirmCyclesRef.current = 0;
-        terminalTimestampRef.current = null;
-      }
-      return;
-    }
-    
-    // All guards passed - confirm terminal
-    // First time seeing terminal
-    if (terminalTimestampRef.current === null) {
-      if (DEBUG_TERMINAL) console.log('[TERMINAL_DEBUG] First terminal seen (all guards passed):', terminalState);
-      terminalEventCountRef.current = currentEventCount;
-      terminalConfirmCyclesRef.current = 1;
-      terminalTimestampRef.current = now;
-      // Confirm immediately if this is the first poll with terminal
-      setConfirmedTerminal(true);
-      return;
-    }
-    
-    // Already confirmed or will confirm
-    if (!confirmedTerminal) {
-      if (DEBUG_TERMINAL) console.log('[TERMINAL_DEBUG] *** CONFIRMING TERMINAL ***:', terminalState);
-      setConfirmedTerminal(true);
-    }
-  }, [stream?.is_terminal, stream?.terminal_state, stream?.event_count, stream?.client_request_id, activeClientRequestId]);
-  
-  // Manage thinking indicator timer (for inline indicator during gaps)
-  // - Shows after THINKING_THRESHOLD_MS of no new events
-  // - Stays visible for minimum THINKING_MIN_DISPLAY_MS to prevent flicker
-  useEffect(() => {
-    const statusIsActive = stream?.status && ACTIVE_STATUSES.includes(stream.status);
-    const isActiveAndNotTerminal = statusIsActive && !confirmedTerminal;
-    
-    // Also show thinking if we have no stream yet but have an activeClientRequestId (new request starting)
-    const isNewRequestStarting = !!activeClientRequestId && !stream;
-    
-    if (confirmedTerminal) {
-      // Terminal - hide thinking immediately
-      setShowThinking(false);
-      thinkingStartedAtRef.current = null;
-      if (thinkingTimerRef.current) {
-        clearTimeout(thinkingTimerRef.current);
-        thinkingTimerRef.current = null;
-      }
-      if (thinkingMinDisplayTimerRef.current) {
-        clearTimeout(thinkingMinDisplayTimerRef.current);
-        thinkingMinDisplayTimerRef.current = null;
-      }
-      return;
-    }
-    
-    // New events arrived - check if we need to hide thinking (respecting min display time)
-    if (isActiveAndNotTerminal && showThinking) {
-      const thinkingStarted = thinkingStartedAtRef.current || 0;
-      const elapsed = Date.now() - thinkingStarted;
-      
-      if (elapsed < THINKING_MIN_DISPLAY_MS) {
-        // Haven't shown for minimum time yet - set timer to hide after remaining time
-        if (!thinkingMinDisplayTimerRef.current) {
-          thinkingMinDisplayTimerRef.current = setTimeout(() => {
-            // After min display, check if we should restart thinking timer
-            setShowThinking(false);
-            thinkingStartedAtRef.current = null;
-            thinkingMinDisplayTimerRef.current = null;
-            
-            // Restart the threshold timer for next gap
-            if (!thinkingTimerRef.current) {
-              thinkingTimerRef.current = setTimeout(() => {
-                setShowThinking(true);
-                thinkingStartedAtRef.current = Date.now();
-                thinkingTimerRef.current = null;
-              }, THINKING_THRESHOLD_MS);
-            }
-          }, THINKING_MIN_DISPLAY_MS - elapsed);
+    // If server says NOT terminal, reset
+    if (!apiIsTerminal || !terminalState) {
+      if (terminalSeenAt !== null || terminalConfirmed) {
+        if (DEBUG_LIVE_ACTIVITY) console.log('[LIVE_ACTIVITY] Server says not terminal - resetting');
+        setTerminalSeenAt(null);
+        setTerminalConfirmed(false);
+        if (terminalConfirmTimerRef.current) {
+          clearTimeout(terminalConfirmTimerRef.current);
+          terminalConfirmTimerRef.current = null;
         }
-        return; // Don't hide yet
       }
+      return;
+    }
+    
+    // Server says terminal AND all guards pass
+    // First time seeing terminal for this request?
+    if (terminalSeenAt === null) {
+      if (DEBUG_LIVE_ACTIVITY) console.log('[LIVE_ACTIVITY] First terminal seen - starting 800ms timer');
+      setTerminalSeenAt(now);
       
-      // Shown long enough - hide and restart timer
-      setShowThinking(false);
-      thinkingStartedAtRef.current = null;
-    }
-    
-    // Show thinking for new requests that haven't received any events yet
-    if (isNewRequestStarting && !showThinking && !thinkingTimerRef.current) {
-      thinkingTimerRef.current = setTimeout(() => {
-        setShowThinking(true);
-        thinkingStartedAtRef.current = Date.now();
-        thinkingTimerRef.current = null;
-      }, THINKING_THRESHOLD_MS);
-    }
-    
-    // Start timer to show thinking indicator after threshold
-    if (!thinkingTimerRef.current && isActiveAndNotTerminal && !showThinking) {
-      thinkingTimerRef.current = setTimeout(() => {
-        setShowThinking(true);
-        thinkingStartedAtRef.current = Date.now();
-        thinkingTimerRef.current = null;
-      }, THINKING_THRESHOLD_MS);
-    }
-    
-    return () => {
-      if (thinkingTimerRef.current) {
-        clearTimeout(thinkingTimerRef.current);
-        thinkingTimerRef.current = null;
+      // Store the current event count to detect if new events arrive during the timer
+      const eventCountAtTimerStart = stream?.event_count || 0;
+      terminalSeenEventCountRef.current = eventCountAtTimerStart;
+      
+      // Start timer to confirm after 800ms with no new events
+      if (terminalConfirmTimerRef.current) {
+        clearTimeout(terminalConfirmTimerRef.current);
       }
-      // Also clear min display timer on dep change to prevent delayed callbacks
-      if (thinkingMinDisplayTimerRef.current) {
-        clearTimeout(thinkingMinDisplayTimerRef.current);
-        thinkingMinDisplayTimerRef.current = null;
+      terminalConfirmTimerRef.current = setTimeout(() => {
+        // RACE CONDITION FIX: Check if new events arrived during the timer
+        // If event count changed, do NOT confirm - new events arrived
+        if (terminalSeenEventCountRef.current !== null && 
+            prevEventCountRef.current > terminalSeenEventCountRef.current) {
+          if (DEBUG_LIVE_ACTIVITY) {
+            console.log('[LIVE_ACTIVITY] 800ms elapsed but new events arrived - NOT confirming', {
+              eventCountAtTimerStart: terminalSeenEventCountRef.current,
+              currentEventCount: prevEventCountRef.current
+            });
+          }
+          terminalConfirmTimerRef.current = null;
+          return;
+        }
+        
+        if (DEBUG_LIVE_ACTIVITY) console.log('[LIVE_ACTIVITY] 800ms elapsed - confirming terminal');
+        setTerminalConfirmed(true);
+        terminalConfirmTimerRef.current = null;
+        terminalSeenEventCountRef.current = null;
+      }, TERMINAL_DELAY_MS);
+      return;
+    }
+    
+    // Terminal was already seen - check if timer already confirmed it
+    // (Timer will set terminalConfirmed when it fires)
+  }, [stream?.is_terminal, stream?.terminal_state, stream?.client_request_id, activeClientRequestId, hasAnyEventsForActiveRequest, terminalSeenAt, terminalConfirmed, lastSeenEventAt]);
+  
+  // WORKING INDICATOR MANAGEMENT
+  // Per user spec: Always show when isWorking is true, with 600ms minimum display time
+  useEffect(() => {
+    if (isWorking) {
+      // Show indicator immediately
+      if (!workingIndicatorVisible) {
+        setWorkingIndicatorVisible(true);
+        workingVisibleSinceRef.current = Date.now();
       }
-    };
-  // Depend on primitives to avoid timer churn from stream object reference changes
-  }, [stream?.status, stream?.event_count, confirmedTerminal, showThinking, activeClientRequestId]);
+    } else {
+      // Hide indicator, respecting minimum display time
+      if (workingIndicatorVisible) {
+        const visibleSince = workingVisibleSinceRef.current || 0;
+        const elapsed = Date.now() - visibleSince;
+        
+        if (elapsed >= WORKING_MIN_DISPLAY_MS) {
+          // Shown long enough, hide immediately
+          setWorkingIndicatorVisible(false);
+          workingVisibleSinceRef.current = null;
+        } else {
+          // Need to wait before hiding
+          const remaining = WORKING_MIN_DISPLAY_MS - elapsed;
+          const hideTimer = setTimeout(() => {
+            setWorkingIndicatorVisible(false);
+            workingVisibleSinceRef.current = null;
+          }, remaining);
+          return () => clearTimeout(hideTimer);
+        }
+      }
+    }
+  }, [isWorking, workingIndicatorVisible]);
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const target = e.currentTarget;
@@ -760,14 +717,14 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
       stream.is_terminal === true &&
       stream.terminal_state !== null;
     
-    if (DEBUG_TERMINAL) {
+    if (DEBUG_LIVE_ACTIVITY) {
       console.log('[STATUS_DEBUG] mappedStatus evaluation:', {
         isCurrentStream,
         eventCount,
         serverIsTerminal: stream.is_terminal,
         serverTerminalState: stream.terminal_state,
         canShowTerminal,
-        confirmedTerminal,
+        terminalConfirmed,
         activeClientRequestId: activeClientRequestId?.slice(-8),
         streamClientRequestId: stream.client_request_id?.slice(-8)
       });
@@ -779,13 +736,13 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
     }
     
     // Terminal state handling
-    if (canShowTerminal && confirmedTerminal) {
+    if (canShowTerminal && terminalConfirmed) {
       // All conditions met - show terminal state
       return stream.terminal_state!;
     }
     
     // If server says terminal but we haven't confirmed, show executing briefly
-    if (canShowTerminal && !confirmedTerminal) {
+    if (canShowTerminal && !terminalConfirmed) {
       return 'executing';
     }
     
@@ -808,27 +765,23 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
     
     return 'idle';
   })();
-  
-  // Compute if we're in a working state (should show animated indicators)
-  const isWorking = !showOverlay && mappedStatus !== 'idle' && 
-    mappedStatus !== 'completed' && mappedStatus !== 'failed' && mappedStatus !== 'stopped';
     
   // DEBUG LOGGING - Temporary to diagnose status issues (must be before early returns)
   const streamEvents = stream?.events || [];
-  const lastEventForDebug = streamEvents[streamEvents.length - 1];
   useEffect(() => {
-    if (DEBUG_TERMINAL) {
+    if (DEBUG_LIVE_ACTIVITY) {
       console.log('[STATUS_DEBUG] Poll state:', {
         activeClientRequestId,
         is_terminal: stream?.is_terminal,
         terminal_state: stream?.terminal_state,
         mappedStatus,
-        confirmedTerminal,
+        terminalConfirmed,
+        hasAnyEventsForActiveRequest,
         eventCount: stream?.event_count || 0,
-        badgeShown: mappedStatus,
+        isWorking,
       });
     }
-  }, [stream?.is_terminal, stream?.terminal_state, stream?.event_count, confirmedTerminal, mappedStatus, activeClientRequestId]);
+  }, [stream?.is_terminal, stream?.terminal_state, stream?.event_count, terminalConfirmed, mappedStatus, activeClientRequestId, hasAnyEventsForActiveRequest, isWorking]);
 
   if (loading) {
     return (
@@ -897,10 +850,10 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
           </p>
         )}
         {/* TEMPORARY DEBUG STRIP - remove after fix confirmed */}
-        {DEBUG_TERMINAL && (
+        {DEBUG_LIVE_ACTIVITY && (
           <div className="mt-1 px-1 py-0.5 bg-muted/50 rounded text-[9px] font-mono text-muted-foreground/70 leading-tight">
-            <div>active: {activeClientRequestId?.slice(-8) || 'null'} | stream: {stream?.client_request_id?.slice(-8) || 'null'}</div>
-            <div>is_terminal: {String(stream?.is_terminal)} | terminal_state: {stream?.terminal_state || 'null'} | events: {stream?.events?.length ?? 0}</div>
+            <div>active: {activeClientRequestId?.slice(-8) || 'null'} | stream: {stream?.client_request_id?.slice(-8) || 'null'} | working: {String(isWorking)}</div>
+            <div>is_terminal: {String(stream?.is_terminal)} | terminalConfirmed: {String(terminalConfirmed)} | events: {stream?.events?.length ?? 0}</div>
           </div>
         )}
       </CardHeader>
@@ -910,7 +863,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
         {showOverlay && <StartingOverlay />}
         
         {!hasEvents ? (
-          <div className="h-full flex items-center justify-center p-6">
+          <div className="h-full flex flex-col items-center justify-center p-6">
             <div className="text-center">
               <MessageSquare className="h-8 w-8 text-muted-foreground/30 mx-auto mb-2" />
               <p className="text-sm text-muted-foreground">
@@ -920,6 +873,12 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
                 Send a message to see live updates
               </p>
             </div>
+            {/* Working indicator in no-events state - ALWAYS show when isWorking (per user spec) */}
+            {workingIndicatorVisible && (
+              <div className="mt-4">
+                <ThinkingIndicator variant="footer" />
+              </div>
+            )}
           </div>
         ) : (
           <div 
@@ -934,22 +893,17 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
               <TimelineEvent 
                 key={event.id} 
                 event={event} 
-                isLast={index === events.length - 1 && confirmedTerminal}
+                isLast={index === events.length - 1 && terminalConfirmed}
               />
             ))}
             
-            {/* Inline thinking indicator after last event - shows during gaps when working */}
-            {showThinking && isWorking && (
-              <ThinkingIndicator variant="inline" />
-            )}
-            
             {/* Terminal status indicator - only shows when terminal is confirmed */}
-            {confirmedTerminal && (mappedStatus === 'completed' || mappedStatus === 'failed' || mappedStatus === 'stopped') && (
+            {terminalConfirmed && (mappedStatus === 'completed' || mappedStatus === 'failed' || mappedStatus === 'stopped') && (
               <SequenceStatusRow status={mappedStatus} />
             )}
             
-            {/* PERSISTENT animated footer - ALWAYS shows when working (status-driven, not timer-driven) */}
-            {isWorking && (
+            {/* PERSISTENT animated working indicator - ALWAYS shows when isWorking (per user spec) */}
+            {workingIndicatorVisible && (
               <ThinkingIndicator variant="footer" />
             )}
             
