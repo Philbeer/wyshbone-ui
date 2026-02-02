@@ -446,24 +446,32 @@ export function createAfrRouter(_storage: typeof storage) {
       const clientRequestId = req.query.client_request_id as string | undefined;
       const userId = (req.query.userId || req.query.user_id) as string | undefined;
       
-      // CRITICAL: If client_request_id is provided, ONLY return data for that specific request
-      // Do NOT fall back to "most recent" - this causes terminal state from old requests to leak
-      if (!clientRequestId) {
-        // No specific request ID - return idle state, no fallback to most recent
+      if (!clientRequestId && !userId) {
         return res.json({ 
           events: [], 
           status: 'idle',
-          is_terminal: false,
-          terminal_state: null,
-          event_count: 0,
-          client_request_id: null,
-          message: 'No client_request_id provided. Provide client_request_id to stream a specific request.'
+          message: 'No active request. Provide client_request_id or userId.'
         });
       }
 
-      // Fetch activities ONLY for the specific client_request_id
+      // Fetch activities for this request or user's most recent request
       const activities = await storage.listAgentActivities(100, userId);
-      const relevantActivities = activities.filter(a => a.clientRequestId === clientRequestId);
+      
+      // Filter by client_request_id if provided
+      let relevantActivities = clientRequestId 
+        ? activities.filter(a => a.clientRequestId === clientRequestId)
+        : activities;
+
+      // If no specific client_request_id, get the most recent one
+      if (!clientRequestId && relevantActivities.length > 0) {
+        // Find the most recent activity with a client_request_id
+        const mostRecentWithCrid = relevantActivities.find(a => a.clientRequestId);
+        if (mostRecentWithCrid?.clientRequestId) {
+          relevantActivities = activities.filter(a => 
+            a.clientRequestId === mostRecentWithCrid.clientRequestId
+          );
+        }
+      }
 
       // Also fetch any deep research runs for this client_request_id
       let deepResearchRuns: any[] = [];
@@ -566,39 +574,9 @@ export function createAfrRouter(_storage: typeof storage) {
         'Processing request...';
 
       // Compute terminal state for client-side consumption
-      // CRITICAL GUARD: If client_request_id was explicitly provided but has 0 events,
-      // force is_terminal = false. A run can NEVER be terminal with 0 events.
       const terminalStatuses = ['completed', 'failed', 'stopped'];
-      const rawIsTerminal = terminalStatuses.includes(overallStatus);
-      
-      // If a specific client_request_id was requested, only return terminal if:
-      // 1. We have events for this specific request
-      // 2. Those events indicate terminal status
-      const requestedSpecificId = !!clientRequestId;
-      const hasEventsForRequestedId = requestedSpecificId && events.length > 0;
-      
-      // Force non-terminal if:
-      // - A specific ID was requested but we have no events for it
-      // - OR events are from a different request ID (fallback scenario)
-      const eventsMatchRequestedId = !requestedSpecificId || 
-        events.every(e => e.client_request_id === clientRequestId);
-      
-      const isTerminal = rawIsTerminal && 
-        (!requestedSpecificId || (hasEventsForRequestedId && eventsMatchRequestedId));
+      const isTerminal = terminalStatuses.includes(overallStatus);
       const terminalState = isTerminal ? overallStatus as 'completed' | 'failed' | 'stopped' : null;
-
-      // Debug log for troubleshooting
-      if (clientRequestId) {
-        console.log('[AFR /stream] Response debug:', {
-          requestedClientRequestId: clientRequestId,
-          eventCount: events.length,
-          rawIsTerminal,
-          hasEventsForRequestedId,
-          eventsMatchRequestedId,
-          finalIsTerminal: isTerminal,
-          overallStatus
-        });
-      }
 
       res.json({
         client_request_id: clientRequestId || relevantActivities[0]?.clientRequestId || null,
@@ -611,12 +589,6 @@ export function createAfrRouter(_storage: typeof storage) {
         last_updated: events.length > 0 
           ? events[events.length - 1].ts 
           : new Date().toISOString(),
-        // Debug fields (temporary)
-        _debug: {
-          requestedClientRequestId: clientRequestId,
-          eventsMatchRequestedId,
-          rawIsTerminal,
-        }
       });
     } catch (error: any) {
       console.error("AFR /stream error:", error);
