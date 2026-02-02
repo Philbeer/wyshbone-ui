@@ -448,14 +448,8 @@ export function createAfrRouter(_storage: typeof storage) {
       
       if (!clientRequestId && !userId) {
         return res.json({ 
-          client_request_id: null,
-          title: '',
-          status: 'idle',
-          is_terminal: false,
-          terminal_state: null,
           events: [], 
-          event_count: 0,
-          last_updated: new Date().toISOString(),
+          status: 'idle',
           message: 'No active request. Provide client_request_id or userId.'
         });
       }
@@ -463,23 +457,18 @@ export function createAfrRouter(_storage: typeof storage) {
       // Fetch activities for this request or user's most recent request
       const activities = await storage.listAgentActivities(100, userId);
       
-      // CRITICAL: If client_request_id is provided, ONLY return events for that exact ID
-      // Do NOT fall back to latest request - this prevents stale terminal state leaking
+      // Filter by client_request_id if provided
       let relevantActivities = clientRequestId 
         ? activities.filter(a => a.clientRequestId === clientRequestId)
         : activities;
-      
-      // Track which client_request_id we're actually returning
-      let effectiveClientRequestId = clientRequestId || null;
 
       // If no specific client_request_id, get the most recent one
       if (!clientRequestId && relevantActivities.length > 0) {
         // Find the most recent activity with a client_request_id
         const mostRecentWithCrid = relevantActivities.find(a => a.clientRequestId);
         if (mostRecentWithCrid?.clientRequestId) {
-          effectiveClientRequestId = mostRecentWithCrid.clientRequestId;
           relevantActivities = activities.filter(a => 
-            a.clientRequestId === effectiveClientRequestId
+            a.clientRequestId === mostRecentWithCrid.clientRequestId
           );
         }
       }
@@ -584,19 +573,15 @@ export function createAfrRouter(_storage: typeof storage) {
         events[0]?.summary || 
         'Processing request...';
 
-      // CRITICAL GUARD: Terminal state is ONLY valid if:
-      // 1. We have events (events.length > 0)
-      // 2. Status is actually terminal
-      // If no events for this client_request_id, NEVER report terminal
+      // Compute terminal state for client-side consumption
       const terminalStatuses = ['completed', 'failed', 'stopped'];
-      const hasEvents = events.length > 0;
-      const isTerminal = hasEvents && terminalStatuses.includes(overallStatus);
+      const isTerminal = terminalStatuses.includes(overallStatus);
       const terminalState = isTerminal ? overallStatus as 'completed' | 'failed' | 'stopped' : null;
 
       res.json({
-        client_request_id: effectiveClientRequestId,
+        client_request_id: clientRequestId || relevantActivities[0]?.clientRequestId || null,
         title: requestTitle,
-        status: hasEvents ? overallStatus : 'idle',
+        status: overallStatus,
         is_terminal: isTerminal,
         terminal_state: terminalState,
         events,

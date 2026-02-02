@@ -743,10 +743,10 @@ function RightPanelContent() {
   }
   
   // Otherwise show the default run/progress panels
-  // NOTE: PlanApprovalPanel removed per user request - only Live Activity + Stop button
   return (
     <div className="p-4 flex flex-col gap-4 overflow-y-auto h-full">
       <LiveActivityPanel />
+      <PlanApprovalPanel />
     </div>
   );
 }
