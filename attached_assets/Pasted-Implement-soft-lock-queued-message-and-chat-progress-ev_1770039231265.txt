@@ -1,0 +1,95 @@
+Implement “soft lock + queued message” and “chat progress events” exactly as specified. No parallel runs.
+
+Goals:
+A) While a run is active, the user can type but cannot submit a new message immediately.
+B) The chat shows progress lines like:
+   ✔ OK, working
+   🔍 Planning
+   🔎 Searching Wyshbone database
+   🗺 Running Google Places
+   ✍ Finalising response
+C) Keep Live Activity panel as-is for now (we want both), but the chat must display these status updates too.
+
+Non-negotiable rules:
+1) ONE active run per conversation at a time. No parallel execution.
+2) Don’t change Live Activity UI layout or styling other than wiring data. Keep it stable.
+3) Do not introduce new “approval” UI or extra panels.
+4) Do not remove streaming assistant text. Just add status events alongside it.
+5) No global rendering delays. UI-only timing is fine but do not slow execution.
+
+Part 1: Server - immediate ACK + status streaming
+1) In POST /api/chat (routes.ts), right after SSE headers are set and you have clientRequestId + conversationId:
+   - Immediately emit SSE event:
+     { type: "ack", clientRequestId, conversationId, ts, message: "OK, working" }
+   This must happen before intent classification and before any OpenAI calls.
+
+2) Emit SSE “status” events at key stages with timestamps (elapsed ms):
+   - stage: "classifying" (after intent classifier returns)
+   - stage: "planning" (when router/tool decision is made OR plan is created)
+   - stage: "executing" (when first tool starts / when plan execution starts)
+   - stage: "finalising" (when tool execution finishes and we are composing final response)
+   - stage: "completed" (when logRunCompleted is called)
+   - stage: "failed" (when logRunFailed is called)
+
+3) IMPORTANT: these status events must also map to the authoritative run lifecycle:
+   - agent_runs.status and terminal_state remain the source of truth
+   - do NOT infer terminal state from events
+   - status events should match run transitions you already have (starting/planning/executing/finalizing/completed)
+
+4) Add a simple helper to emit SSE events so it’s consistent:
+   emitSse({ type, stage, message, ts, elapsedMs, clientRequestId, conversationId })
+
+Part 2: Client chat UI - render ACK + status lines (non-intrusive)
+1) Update the chat SSE handler to support message types:
+   - ack: show a single short line under the user message: “✔ OK, working”
+   - status: show/update a “progress stack” under the same user message (not separate assistant messages)
+   - content tokens: render assistant message text as normal
+
+2) The progress stack should be in this order and update as stages arrive:
+   ✔ OK, working
+   🔍 Planning
+   🔎 Searching Wyshbone database
+   🗺 Running Google Places
+   ✍ Finalising response
+   (If you can’t know the exact tool, use generic: “Executing tools”)
+
+3) If stage repeats, do not add duplicates; update the latest status line.
+
+4) When stage becomes completed/failed/stopped:
+   - mark the progress stack as finished (e.g. last line becomes “✅ Done” or “❌ Failed”)
+   - remove typing dots
+
+Part 3: Soft lock + queue (no parallel runs)
+1) When a run is active (use authoritative run state: currentClientRequestId exists AND run terminal_state is null):
+   - keep the input enabled for typing
+   - pressing Enter or clicking Send must NOT submit immediately
+   - instead, store the typed message as queuedMessage and show a small inline notice:
+     “Wyshbone is working. Press Queue to run this next, or Cancel to stop the current run.”
+
+2) Add two controls next to the input while a run is active:
+   - “Queue” button: saves current input into queuedMessage and clears the input
+   - “Cancel” button: calls existing stop endpoint (or implement one) to stop the active run; after cancel completes, if queuedMessage exists, auto-submit it.
+
+3) When the current run completes naturally:
+   - if queuedMessage exists, auto-submit it immediately (as if user pressed send)
+   - clear queuedMessage
+
+4) Ensure queuedMessage is per conversation (not global) and survives minor rerenders.
+
+Part 4: Testing checklist (must complete)
+1) Start “find pubs in Kent”
+   - chat immediately shows “✔ OK, working”
+   - status lines appear while tools run
+   - assistant final answer streams normally
+2) While it’s running, type a new message and press Enter
+   - it should NOT start a new run
+   - it should prompt to Queue or Cancel
+3) Click Queue
+   - message is queued and input clears
+4) When first run completes, queued message auto-runs
+5) Confirm Live Activity panel still works and shows the same run lifecycle
+
+Deliverable:
+- List files changed
+- Show example SSE events emitted for one run (ack + status + content)
+- Confirm no regression: only one active run at a time
