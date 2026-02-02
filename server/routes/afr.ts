@@ -441,6 +441,8 @@ export function createAfrRouter(_storage: typeof storage) {
   });
 
   // GET /stream - Unified activity stream for a specific client_request_id (Live Activity Panel)
+  // CRITICAL: Terminal state is determined ONLY by agent_runs.terminal_state
+  // NEVER infer terminal state from events - this was the source of the "Completed" bug
   router.get("/stream", async (req, res) => {
     try {
       const clientRequestId = req.query.client_request_id as string | undefined;
@@ -450,34 +452,50 @@ export function createAfrRouter(_storage: typeof storage) {
         return res.json({ 
           events: [], 
           status: 'idle',
+          is_terminal: false,
+          terminal_state: null,
+          ui_ready: false,
           message: 'No active request. Provide client_request_id or userId.'
         });
       }
+
+      // Fetch the run record first - this is the authoritative source for status
+      let agentRun = clientRequestId 
+        ? await storage.getAgentRunByClientRequestId(clientRequestId)
+        : userId 
+          ? await storage.getMostRecentAgentRun(userId)
+          : null;
+
+      // Determine effective client_request_id
+      const effectiveClientRequestId = clientRequestId || agentRun?.clientRequestId;
 
       // Fetch activities for this request or user's most recent request
       const activities = await storage.listAgentActivities(100, userId);
       
       // Filter by client_request_id if provided
-      let relevantActivities = clientRequestId 
-        ? activities.filter(a => a.clientRequestId === clientRequestId)
+      let relevantActivities = effectiveClientRequestId 
+        ? activities.filter(a => a.clientRequestId === effectiveClientRequestId)
         : activities;
 
       // If no specific client_request_id, get the most recent one
-      if (!clientRequestId && relevantActivities.length > 0) {
-        // Find the most recent activity with a client_request_id
+      if (!effectiveClientRequestId && relevantActivities.length > 0) {
         const mostRecentWithCrid = relevantActivities.find(a => a.clientRequestId);
         if (mostRecentWithCrid?.clientRequestId) {
           relevantActivities = activities.filter(a => 
             a.clientRequestId === mostRecentWithCrid.clientRequestId
           );
+          // Also try to fetch the run record for backwards compatibility
+          if (!agentRun) {
+            agentRun = await storage.getAgentRunByClientRequestId(mostRecentWithCrid.clientRequestId);
+          }
         }
       }
 
       // Also fetch any deep research runs for this client_request_id
       let deepResearchRuns: any[] = [];
-      if (clientRequestId) {
+      if (effectiveClientRequestId) {
         const allRuns = await storage.listDeepResearchRunsForAfr(50);
-        deepResearchRuns = allRuns.filter(r => r.clientRequestId === clientRequestId);
+        deepResearchRuns = allRuns.filter(r => r.clientRequestId === effectiveClientRequestId);
       }
 
       // Build the unified event stream
@@ -542,29 +560,53 @@ export function createAfrRouter(_storage: typeof storage) {
       // Sort events chronologically (oldest first for timeline display)
       events.sort((a, b) => new Date(a.ts).getTime() - new Date(b.ts).getTime());
 
-      // Determine overall status
-      const hasRunning = events.some(e => e.status === 'running');
-      const hasFailed = events.some(e => e.status === 'failed');
-      const hasCompleted = events.some(e => e.status === 'completed');
-      
-      let overallStatus: 'idle' | 'routing' | 'planning' | 'executing' | 'completed' | 'failed' = 'idle';
-      if (events.length === 0) {
-        overallStatus = 'idle';
-      } else if (hasRunning) {
-        // Determine which phase we're in
-        const runningEvents = events.filter(e => e.status === 'running');
-        const lastRunning = runningEvents[runningEvents.length - 1];
-        if (lastRunning?.type.includes('router')) {
-          overallStatus = 'routing';
-        } else if (lastRunning?.type.includes('plan')) {
-          overallStatus = 'planning';
-        } else {
-          overallStatus = 'executing';
+      // AUTHORITATIVE STATUS FROM RUN RECORD
+      // If we have a run record, use it for status - NEVER infer from events
+      let overallStatus: 'idle' | 'routing' | 'planning' | 'executing' | 'finalizing' | 'completed' | 'failed' | 'stopped' = 'idle';
+      let isTerminal = false;
+      let terminalState: 'completed' | 'failed' | 'stopped' | null = null;
+      let uiReady = false;
+
+      if (agentRun) {
+        // RUN RECORD EXISTS - Use authoritative status
+        overallStatus = agentRun.status as typeof overallStatus;
+        uiReady = agentRun.uiReady === 1;
+        
+        // Terminal state comes ONLY from the run record
+        if (agentRun.terminalState) {
+          isTerminal = true;
+          terminalState = agentRun.terminalState as 'completed' | 'failed' | 'stopped';
         }
-      } else if (hasFailed) {
-        overallStatus = 'failed';
-      } else if (hasCompleted) {
-        overallStatus = 'completed';
+      } else {
+        // BACKWARDS COMPATIBILITY: No run record (older requests)
+        // Fall back to event-based inference but be conservative
+        const hasRunning = events.some(e => e.status === 'running');
+        const hasFailed = events.some(e => e.status === 'failed');
+        
+        if (events.length === 0) {
+          overallStatus = 'idle';
+        } else if (hasRunning) {
+          const runningEvents = events.filter(e => e.status === 'running');
+          const lastRunning = runningEvents[runningEvents.length - 1];
+          if (lastRunning?.type.includes('router')) {
+            overallStatus = 'routing';
+          } else if (lastRunning?.type.includes('plan')) {
+            overallStatus = 'planning';
+          } else {
+            overallStatus = 'executing';
+          }
+          uiReady = true; // If we have events, assume UI is ready
+        } else if (hasFailed) {
+          overallStatus = 'failed';
+          isTerminal = true;
+          terminalState = 'failed';
+          uiReady = true;
+        } else {
+          // For old requests without run records: DON'T assume completed
+          // Just show executing until we have a run record
+          overallStatus = 'executing';
+          uiReady = true;
+        }
       }
 
       // Get the user's message (title)
@@ -573,22 +615,24 @@ export function createAfrRouter(_storage: typeof storage) {
         events[0]?.summary || 
         'Processing request...';
 
-      // Compute terminal state for client-side consumption
-      const terminalStatuses = ['completed', 'failed', 'stopped'];
-      const isTerminal = terminalStatuses.includes(overallStatus);
-      const terminalState = isTerminal ? overallStatus as 'completed' | 'failed' | 'stopped' : null;
-
       res.json({
-        client_request_id: clientRequestId || relevantActivities[0]?.clientRequestId || null,
+        client_request_id: effectiveClientRequestId || null,
         title: requestTitle,
         status: overallStatus,
         is_terminal: isTerminal,
         terminal_state: terminalState,
+        ui_ready: uiReady,
+        run_id: agentRun?.id || null,
         events,
         event_count: events.length,
-        last_updated: events.length > 0 
-          ? events[events.length - 1].ts 
-          : new Date().toISOString(),
+        last_updated: agentRun?.updatedAt 
+          ? new Date(agentRun.updatedAt).toISOString()
+          : events.length > 0 
+            ? events[events.length - 1].ts 
+            : new Date().toISOString(),
+        last_event_at: agentRun?.lastEventAt 
+          ? new Date(agentRun.lastEventAt).toISOString()
+          : null,
       });
     } catch (error: any) {
       console.error("AFR /stream error:", error);
@@ -596,6 +640,9 @@ export function createAfrRouter(_storage: typeof storage) {
       res.json({ 
         events: [], 
         status: 'idle',
+        is_terminal: false,
+        terminal_state: null,
+        ui_ready: false,
         error: error.message,
         message: 'Failed to fetch activity stream'
       });

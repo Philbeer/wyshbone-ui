@@ -1,7 +1,8 @@
 import { storage } from '../storage';
 import { randomUUID } from 'crypto';
+import { runManager, type RunStatus } from './run-manager';
 
-export type ActivityRunType = 'deep_research' | 'plan' | 'tool' | 'chat' | 'user_message' | 'router_decision';
+export type ActivityRunType = 'deep_research' | 'plan' | 'tool' | 'chat' | 'user_message' | 'router_decision' | 'run_completed';
 export type ActivityStatus = 'started' | 'progress' | 'completed' | 'failed';
 export type RouterDecision = 'direct_response' | 'deep_research' | 'supervisor_plan' | 'tool_call';
 
@@ -187,8 +188,18 @@ export async function logUserMessageReceived(params: {
   conversationId: string;
   clientRequestId: string;
   rawUserText: string;
-}): Promise<string> {
-  return logActivity({
+}): Promise<{ activityId: string; runId: string }> {
+  const run = await runManager.getOrCreateRun({
+    clientRequestId: params.clientRequestId,
+    userId: params.userId,
+    conversationId: params.conversationId,
+    metadata: { 
+      userMessagePreview: params.rawUserText.slice(0, 100),
+      timestamp: new Date().toISOString(),
+    },
+  });
+
+  const activityId = await logActivity({
     userId: params.userId,
     runType: 'user_message',
     status: 'completed',
@@ -200,8 +211,11 @@ export async function logUserMessageReceived(params: {
     metadata: {
       messageLength: params.rawUserText.length,
       timestamp: new Date().toISOString(),
+      agentRunId: run.id,
     },
   });
+
+  return { activityId, runId: run.id };
 }
 
 export async function logRouterDecision(params: {
@@ -212,6 +226,13 @@ export async function logRouterDecision(params: {
   reason: string;
   signals?: Record<string, any>;
 }): Promise<string> {
+  const run = await runManager.getRunByClientRequestId(params.clientRequestId);
+  if (run) {
+    await runManager.setUiReady(run.id);
+    const newStatus: RunStatus = params.decision === 'supervisor_plan' ? 'planning' : 'executing';
+    await runManager.transitionTo(run.id, newStatus);
+  }
+
   return logActivity({
     userId: params.userId,
     runType: 'router_decision',
@@ -227,9 +248,78 @@ export async function logRouterDecision(params: {
       decision: params.decision,
       reason: params.reason,
       signals: params.signals,
+      agentRunId: run?.id,
     },
   });
 }
+
+export async function logRunCompleted(params: {
+  userId: string;
+  conversationId: string;
+  clientRequestId: string;
+}): Promise<string> {
+  const run = await runManager.getRunByClientRequestId(params.clientRequestId);
+  if (run && !run.terminalState) {
+    await runManager.completeRun(run.id);
+  }
+
+  return logActivity({
+    userId: params.userId,
+    runType: 'run_completed',
+    status: 'completed',
+    label: 'Run completed',
+    actionTaken: 'run_completed',
+    conversationId: params.conversationId,
+    clientRequestId: params.clientRequestId,
+    metadata: {
+      agentRunId: run?.id,
+      timestamp: new Date().toISOString(),
+    },
+  });
+}
+
+export async function logRunFailed(params: {
+  userId: string;
+  conversationId: string;
+  clientRequestId: string;
+  error: string;
+}): Promise<string> {
+  const run = await runManager.getRunByClientRequestId(params.clientRequestId);
+  if (run && !run.terminalState) {
+    await runManager.failRun(run.id, params.error);
+  }
+
+  return logActivity({
+    userId: params.userId,
+    runType: 'run_completed',
+    status: 'failed',
+    label: 'Run failed',
+    actionTaken: 'run_failed',
+    conversationId: params.conversationId,
+    clientRequestId: params.clientRequestId,
+    errorMessage: params.error,
+    metadata: {
+      agentRunId: run?.id,
+      timestamp: new Date().toISOString(),
+    },
+  });
+}
+
+export async function transitionRunToExecuting(clientRequestId: string): Promise<void> {
+  const run = await runManager.getRunByClientRequestId(clientRequestId);
+  if (run && run.status !== 'executing' && run.status !== 'completed' && run.status !== 'failed' && run.status !== 'stopped') {
+    await runManager.transitionTo(run.id, 'executing');
+  }
+}
+
+export async function transitionRunToFinalizing(clientRequestId: string): Promise<void> {
+  const run = await runManager.getRunByClientRequestId(clientRequestId);
+  if (run && run.status === 'executing') {
+    await runManager.transitionTo(run.id, 'finalizing');
+  }
+}
+
+export { runManager };
 
 function sanitizeParams(params: Record<string, any>): Record<string, any> {
   const safe: Record<string, any> = {};

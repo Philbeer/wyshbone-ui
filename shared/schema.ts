@@ -450,6 +450,51 @@ export const selectAgentActivitySchema = createSelectSchema(agentActivities);
 export type InsertAgentActivity = typeof agentActivities.$inferInsert;
 export type SelectAgentActivity = typeof agentActivities.$inferSelect;
 
+// ============= AGENT RUNS TABLE =============
+// First-class Run lifecycle record for Live Activity Panel
+// Status is authoritative for terminal detection - NEVER infer from events
+export const agentRunStatusEnum = z.enum([
+  "starting",    // Run created, waiting for initial processing
+  "planning",    // Chat has produced initial ack, planning phase
+  "executing",   // Tool/action execution in progress
+  "finalizing",  // Execution loop finished, final response streaming
+  "completed",   // Everything finished successfully
+  "failed",      // Run failed with error
+  "stopped",     // User cancelled/stopped the run
+]);
+export type AgentRunStatus = z.infer<typeof agentRunStatusEnum>;
+
+export const agentRunTerminalStateEnum = z.enum(["completed", "failed", "stopped"]);
+export type AgentRunTerminalState = z.infer<typeof agentRunTerminalStateEnum>;
+
+export const agentRuns = pgTable("agent_runs", {
+  id: text("id").primaryKey(),
+  clientRequestId: text("client_request_id").notNull().unique(), // Idempotency key - one run per request
+  userId: text("user_id").notNull(),
+  conversationId: text("conversation_id"),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+  status: text("status").notNull().default("starting"), // starting, planning, executing, finalizing, completed, failed, stopped
+  terminalState: text("terminal_state"), // completed, failed, stopped - only set when run is done
+  uiReady: integer("ui_ready").notNull().default(0), // 0 = not ready, 1 = ready - gate Live Activity display
+  lastEventAt: bigint("last_event_at", { mode: "number" }),
+  error: text("error"), // Error message if failed
+  errorDetails: jsonb("error_details"), // Structured error info
+  metadata: jsonb("metadata"), // Additional run context
+}, (table) => ({
+  clientRequestIdIdx: index("agent_runs_client_request_id_idx").on(table.clientRequestId),
+  userIdIdx: index("agent_runs_user_id_idx").on(table.userId),
+  statusIdx: index("agent_runs_status_idx").on(table.status),
+  createdAtIdx: index("agent_runs_created_at_idx").on(table.createdAt),
+  userIdCreatedAtIdx: index("agent_runs_user_id_created_at_idx").on(table.userId, table.createdAt),
+}));
+
+// Agent Runs insert/select schemas
+export const insertAgentRunSchema = createInsertSchema(agentRuns);
+export const selectAgentRunSchema = createSelectSchema(agentRuns);
+export type InsertAgentRun = typeof agentRuns.$inferInsert;
+export type SelectAgentRun = typeof agentRuns.$inferSelect;
+
 // Users table for authentication and subscription management
 export const users = pgTable("users", {
   id: text("id").primaryKey(),

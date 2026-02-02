@@ -109,7 +109,9 @@ import type {
   InsertOrgMember,
   SelectOrgMember,
   InsertOrgInvite,
-  SelectOrgInvite
+  SelectOrgInvite,
+  InsertAgentRun,
+  SelectAgentRun
 } from "@shared/schema";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
@@ -169,8 +171,11 @@ import {
   orgMembers,
   orgInvites,
   agentActivities,
+  agentRuns,
   type InsertAgentActivity,
-  type SelectAgentActivity
+  type SelectAgentActivity,
+  type InsertAgentRun,
+  type SelectAgentRun
 } from "@shared/schema";
 import { eq, or, and, desc, asc, lt, gt, lte, gte, isNull, isNotNull, sql } from "drizzle-orm";
 
@@ -621,6 +626,18 @@ export interface IStorage {
   createAgentActivities(activities: InsertAgentActivity[]): Promise<SelectAgentActivity[]>;
   listAgentActivities(limit?: number, userId?: string): Promise<SelectAgentActivity[]>;
   getAgentActivity(id: string): Promise<SelectAgentActivity | null>;
+  
+  // ============= AGENT RUNS (LIFECYCLE) METHODS =============
+  createAgentRun(run: InsertAgentRun): Promise<SelectAgentRun>;
+  getAgentRun(id: string): Promise<SelectAgentRun | null>;
+  getAgentRunByClientRequestId(clientRequestId: string): Promise<SelectAgentRun | null>;
+  getMostRecentAgentRun(userId: string): Promise<SelectAgentRun | null>;
+  updateAgentRun(id: string, updates: Partial<InsertAgentRun>): Promise<SelectAgentRun | null>;
+  updateAgentRunStatus(id: string, status: string, terminalState?: string | null, error?: string | null): Promise<SelectAgentRun | null>;
+  setAgentRunUiReady(id: string, ready: boolean): Promise<SelectAgentRun | null>;
+  completeAgentRun(id: string): Promise<SelectAgentRun | null>;
+  failAgentRun(id: string, error: string): Promise<SelectAgentRun | null>;
+  stopAgentRun(id: string): Promise<SelectAgentRun | null>;
 }
 
 export class MemStorage implements IStorage {
@@ -1351,6 +1368,62 @@ export class MemStorage implements IStorage {
   }
   async getAgentActivity(id: string): Promise<SelectAgentActivity | null> {
     return this.agentActivitiesMap.get(id) || null;
+  }
+
+  // MemStorage stubs for agent runs
+  private agentRunsMap: Map<string, SelectAgentRun> = new Map();
+  private clientRequestIdToRunId: Map<string, string> = new Map();
+  
+  async createAgentRun(run: InsertAgentRun): Promise<SelectAgentRun> {
+    const result = run as SelectAgentRun;
+    this.agentRunsMap.set(run.id, result);
+    this.clientRequestIdToRunId.set(run.clientRequestId, run.id);
+    return result;
+  }
+  
+  async getAgentRun(id: string): Promise<SelectAgentRun | null> {
+    return this.agentRunsMap.get(id) || null;
+  }
+  
+  async getAgentRunByClientRequestId(clientRequestId: string): Promise<SelectAgentRun | null> {
+    const runId = this.clientRequestIdToRunId.get(clientRequestId);
+    if (!runId) return null;
+    return this.agentRunsMap.get(runId) || null;
+  }
+  
+  async getMostRecentAgentRun(userId: string): Promise<SelectAgentRun | null> {
+    const runs = Array.from(this.agentRunsMap.values())
+      .filter(r => r.userId === userId)
+      .sort((a, b) => b.createdAt - a.createdAt);
+    return runs[0] || null;
+  }
+  
+  async updateAgentRun(id: string, updates: Partial<InsertAgentRun>): Promise<SelectAgentRun | null> {
+    const existing = this.agentRunsMap.get(id);
+    if (!existing) return null;
+    const updated = { ...existing, ...updates, updatedAt: Date.now() } as SelectAgentRun;
+    this.agentRunsMap.set(id, updated);
+    return updated;
+  }
+  
+  async updateAgentRunStatus(id: string, status: string, terminalState?: string | null, error?: string | null): Promise<SelectAgentRun | null> {
+    return this.updateAgentRun(id, { status, terminalState, error, updatedAt: Date.now() });
+  }
+  
+  async setAgentRunUiReady(id: string, ready: boolean): Promise<SelectAgentRun | null> {
+    return this.updateAgentRun(id, { uiReady: ready ? 1 : 0 });
+  }
+  
+  async completeAgentRun(id: string): Promise<SelectAgentRun | null> {
+    return this.updateAgentRunStatus(id, 'completed', 'completed', null);
+  }
+  
+  async failAgentRun(id: string, error: string): Promise<SelectAgentRun | null> {
+    return this.updateAgentRunStatus(id, 'failed', 'failed', error);
+  }
+  
+  async stopAgentRun(id: string): Promise<SelectAgentRun | null> {
+    return this.updateAgentRunStatus(id, 'stopped', 'stopped', null);
   }
 }
 
@@ -5037,6 +5110,111 @@ export class DbStorage implements IStorage {
       .select()
       .from(agentActivities)
       .where(eq(agentActivities.id, id));
+    return result || null;
+  }
+
+  // ============= AGENT RUNS (LIFECYCLE) METHODS =============
+  
+  async createAgentRun(run: InsertAgentRun): Promise<SelectAgentRun> {
+    const [result] = await db.insert(agentRuns).values(run).returning();
+    return result;
+  }
+  
+  async getAgentRun(id: string): Promise<SelectAgentRun | null> {
+    const [result] = await db
+      .select()
+      .from(agentRuns)
+      .where(eq(agentRuns.id, id));
+    return result || null;
+  }
+  
+  async getAgentRunByClientRequestId(clientRequestId: string): Promise<SelectAgentRun | null> {
+    const [result] = await db
+      .select()
+      .from(agentRuns)
+      .where(eq(agentRuns.clientRequestId, clientRequestId));
+    return result || null;
+  }
+  
+  async getMostRecentAgentRun(userId: string): Promise<SelectAgentRun | null> {
+    const [result] = await db
+      .select()
+      .from(agentRuns)
+      .where(eq(agentRuns.userId, userId))
+      .orderBy(desc(agentRuns.createdAt))
+      .limit(1);
+    return result || null;
+  }
+  
+  async updateAgentRun(id: string, updates: Partial<InsertAgentRun>): Promise<SelectAgentRun | null> {
+    const [result] = await db
+      .update(agentRuns)
+      .set({ ...updates, updatedAt: Date.now() })
+      .where(eq(agentRuns.id, id))
+      .returning();
+    return result || null;
+  }
+  
+  async updateAgentRunStatus(id: string, status: string, terminalState?: string | null, error?: string | null): Promise<SelectAgentRun | null> {
+    const [result] = await db
+      .update(agentRuns)
+      .set({ 
+        status, 
+        terminalState: terminalState ?? null, 
+        error: error ?? null,
+        updatedAt: Date.now() 
+      })
+      .where(eq(agentRuns.id, id))
+      .returning();
+    return result || null;
+  }
+  
+  async setAgentRunUiReady(id: string, ready: boolean): Promise<SelectAgentRun | null> {
+    const [result] = await db
+      .update(agentRuns)
+      .set({ uiReady: ready ? 1 : 0, updatedAt: Date.now() })
+      .where(eq(agentRuns.id, id))
+      .returning();
+    return result || null;
+  }
+  
+  async completeAgentRun(id: string): Promise<SelectAgentRun | null> {
+    const [result] = await db
+      .update(agentRuns)
+      .set({ 
+        status: 'completed', 
+        terminalState: 'completed',
+        updatedAt: Date.now() 
+      })
+      .where(eq(agentRuns.id, id))
+      .returning();
+    return result || null;
+  }
+  
+  async failAgentRun(id: string, error: string): Promise<SelectAgentRun | null> {
+    const [result] = await db
+      .update(agentRuns)
+      .set({ 
+        status: 'failed', 
+        terminalState: 'failed',
+        error,
+        updatedAt: Date.now() 
+      })
+      .where(eq(agentRuns.id, id))
+      .returning();
+    return result || null;
+  }
+  
+  async stopAgentRun(id: string): Promise<SelectAgentRun | null> {
+    const [result] = await db
+      .update(agentRuns)
+      .set({ 
+        status: 'stopped', 
+        terminalState: 'stopped',
+        updatedAt: Date.now() 
+      })
+      .where(eq(agentRuns.id, id))
+      .returning();
     return result || null;
   }
 }

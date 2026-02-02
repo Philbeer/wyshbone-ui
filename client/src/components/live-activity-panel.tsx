@@ -167,17 +167,20 @@ interface StreamEvent {
 interface StreamResponse {
   client_request_id: string | null;
   title: string;
-  status: 'idle' | 'routing' | 'planning' | 'executing' | 'completed' | 'failed';
+  status: 'idle' | 'routing' | 'planning' | 'executing' | 'finalizing' | 'completed' | 'failed' | 'stopped';
   is_terminal: boolean;
   terminal_state: 'completed' | 'failed' | 'stopped' | null;
+  ui_ready: boolean;
+  run_id: string | null;
   events: StreamEvent[];
   event_count: number;
   last_updated: string;
+  last_event_at?: string | null;
   error?: string;
   message?: string;
 }
 
-type OverallStatus = 'idle' | 'routing' | 'planning' | 'executing' | 'deep_research' | 'completed' | 'failed' | 'stopped';
+type OverallStatus = 'idle' | 'routing' | 'planning' | 'executing' | 'finalizing' | 'deep_research' | 'completed' | 'failed' | 'stopped';
 
 function formatRelativeTime(dateString: string): string {
   const date = new Date(dateString);
@@ -210,6 +213,7 @@ function StatusBadge({ status }: { status: OverallStatus }) {
     routing: { icon: Route, label: "Routing", className: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-200" },
     planning: { icon: Brain, label: "Planning", className: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-200" },
     executing: { icon: Zap, label: "Executing", className: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-200" },
+    finalizing: { icon: Zap, label: "Finalizing", className: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-200" },
     deep_research: { icon: FileSearch, label: "Researching", className: "bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-200" },
     completed: { icon: CheckCircle2, label: "Completed", className: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200" },
     failed: { icon: XCircle, label: "Failed", className: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-200" },
@@ -217,7 +221,7 @@ function StatusBadge({ status }: { status: OverallStatus }) {
   };
 
   const { icon: Icon, label, className } = config[status] || config.idle;
-  const isAnimated = ['routing', 'planning', 'executing', 'deep_research'].includes(status);
+  const isAnimated = ['routing', 'planning', 'executing', 'finalizing', 'deep_research'].includes(status);
   
   return (
     <span className={cn("inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium", className)}>
@@ -627,11 +631,12 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
     setAutoScroll(nearBottom);
   };
 
-  // PART 2: Compute display status - NEVER show terminal for non-matching request
+  // PART 2: Compute display status from RUN RECORD (not event inference)
+  // CRITICAL: Terminal state is ONLY from stream.terminal_state (set by run manager)
   // HARD RULES:
-  // - If idsMatch is false and we have activeClientRequestId, treat as executing (not idle, not completed)
-  // - Only show terminal status if idsMatch AND confirmedTerminal
-  // - If activeClientRequestId is null (no active request), show idle regardless of stream state
+  // - UI display is gated by stream.ui_ready - show nothing substantive until true
+  // - Terminal state comes ONLY from stream.terminal_state, NEVER inferred from events
+  // - If idsMatch is false and we have activeClientRequestId, treat as executing (waiting for stream to catch up)
   const mappedStatus: OverallStatus = (() => {
     // If we have an active request but stream doesn't match yet, show executing
     if (activeClientRequestId && !idsMatch) {
@@ -646,19 +651,29 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
       return 'idle';
     }
     
-    // Only show terminal if idsMatch AND confirmedTerminal
+    // Gate display on ui_ready: if backend hasn't set ui_ready, show executing
+    // This prevents showing "Completed" before router decision is made
+    if (activeClientRequestId && !stream.ui_ready) {
+      return 'executing';
+    }
+    
+    // AUTHORITATIVE TERMINAL STATE from run record
+    // Only show terminal if idsMatch AND terminal_state is set in run record AND confirmed
     if (idsMatch && stream.is_terminal && stream.terminal_state && confirmedTerminal) {
       return stream.terminal_state;
     }
     
     // If stream says terminal but we haven't confirmed (or IDs don't match), show executing
+    // This is the key fix: we don't immediately show "Completed"
     if (stream.is_terminal && stream.terminal_state) {
       return 'executing';
     }
     
+    // Map status from run record (authoritative source)
     const s = stream.status;
     if (s === 'routing') return 'routing';
     if (s === 'planning') return 'planning';
+    if (s === 'finalizing') return 'finalizing';
     if (s === 'executing') {
       const hasDeepResearch = stream.events.some(e => 
         e.type.includes('deep_research') && e.status === 'running'
@@ -673,7 +688,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
   // If we have an activeClientRequestId and not confirmed terminal, we're working
   const isWorking = !showOverlay && (
     (activeClientRequestId && !confirmedTerminal) ||
-    (mappedStatus !== 'idle' && mappedStatus !== 'completed' && mappedStatus !== 'failed' && mappedStatus !== 'stopped')
+    (mappedStatus !== 'idle' && mappedStatus !== 'completed' && mappedStatus !== 'failed' && mappedStatus !== 'stopped' && mappedStatus !== 'finalizing')
   );
     
   // DEBUG LOGGING - Temporary to diagnose status issues (must be before early returns)
@@ -686,6 +701,8 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
         idsMatch,
         is_terminal: stream?.is_terminal,
         terminal_state: stream?.terminal_state,
+        ui_ready: stream?.ui_ready,
+        run_id: stream?.run_id,
         mappedStatus,
         confirmedTerminal,
         isWorking,
@@ -694,7 +711,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
         eventCount: stream?.event_count || 0,
       });
     }
-  }, [stream?.is_terminal, stream?.terminal_state, stream?.event_count, confirmedTerminal, mappedStatus, activeClientRequestId, idsMatch, isWorking, showThinking, showOverlay, streamRequestId]);
+  }, [stream?.is_terminal, stream?.terminal_state, stream?.ui_ready, stream?.run_id, stream?.event_count, confirmedTerminal, mappedStatus, activeClientRequestId, idsMatch, isWorking, showThinking, showOverlay, streamRequestId]);
 
   if (loading) {
     return (
