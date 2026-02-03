@@ -1,0 +1,66 @@
+I want a forensic, read-only investigation of the Wyshbone chat and agent routing system.
+
+Do NOT modify, refactor, or fix anything.
+Do NOT propose improvements.
+Do NOT add features.
+Do NOT change prompts or code.
+
+This is investigation only.
+
+I want you to explain why the chat feels smarter and more coherent now, even though we have not explicitly implemented advanced chat logic.
+
+Specifically, investigate and report on:
+
+1) What happens when a user types a message that is NOT a command
+   For example:
+   “will you stop executing tasks if the predefined goal is not met”
+
+   Trace:
+   - Which router path this goes through
+   - Which model is called
+   - Which prompt is used
+   - Whether this hits the supervisor, planner, or direct chat response path
+
+2) What happens when a user types a command
+   For example:
+   “find pubs in Kent”
+
+   Trace:
+   - How the system distinguishes this from normal chat
+   - What intent classifier is used
+   - When it decides to plan vs chat
+
+3) Why the chat no longer behaves “dumb”
+   In particular:
+   - Why it no longer keeps asking obvious follow-up questions like “where?” after “find pubs in Sussex”
+   - What has changed in:
+     - intent classification
+     - routing
+     - prompts
+     - memory
+     - conversation context
+     that explains this
+
+4) Why the assistant claims things that are not implemented
+   For example:
+   - “I stop if the goal is not met”
+   - “I make a finite number of expansions”
+   - “I can schedule retries”
+
+   Identify:
+   - Which prompt or system message causes these statements
+   - Whether any code actually enforces these behaviours
+
+5) The real truth of current agenticity
+   Based only on the code:
+   - What can the system actually do today
+   - What it cannot do
+   - Whether any looping, retries, goal tracking, or stop rules exist in reality
+
+Output format:
+- Write a structured forensic report
+- Include file names, functions, and call paths
+- Use plain English
+- No speculation
+- No recommendations
+- No fixes
