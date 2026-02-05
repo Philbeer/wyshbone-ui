@@ -50,6 +50,7 @@ import { createThingsRouter } from "./routes/things";
 import { createEntityReviewRouter } from "./routes/entity-review";
 import { createDevToolsRouter } from "./routes/dev-tools";
 import { createDatabaseMaintenanceRouter } from "./routes/admin/database-maintenance";
+import { createMonitorsRouter } from "./routes/admin/monitors";
 import { createSuppliersRouter } from "./routes/suppliers";
 import { createActivityLogRouter } from "./routes/activity-log";
 import { routePlannerRoutes } from "./routes/route-planner";
@@ -7395,6 +7396,9 @@ ${run.outputText}`;
   
   // Register Database Maintenance routes (admin only)
   app.use("/api/admin/maintenance", createDatabaseMaintenanceRouter(storage));
+  
+  // Register Monitors routes (admin only - manual monitor-worker trigger)
+  app.use("/api/admin/monitors", createMonitorsRouter(storage));
 
   // Register Suppliers routes
   app.use("/api/suppliers", createSuppliersRouter(storage));
