@@ -266,11 +266,21 @@ app.use((req, res, next) => {
     const enableBackgroundWorkers = process.env.ENABLE_UI_BACKGROUND_WORKERS === 'true';
     const supervisorConfigured = !!process.env.SUPERVISOR_BASE_URL;
     
+    // Extract hostname from SUPERVISOR_BASE_URL for logging (no secrets)
+    let supervisorHost = '[not configured]';
+    if (process.env.SUPERVISOR_BASE_URL) {
+      try {
+        supervisorHost = new URL(process.env.SUPERVISOR_BASE_URL).hostname;
+      } catch {
+        supervisorHost = '[invalid URL]';
+      }
+    }
+    
     console.log('\n' + '='.repeat(80));
     console.log('🎛️  THIN CLIENT MODE - Background Worker Configuration');
     console.log('='.repeat(80));
-    console.log(`   ENABLE_UI_BACKGROUND_WORKERS: ${enableBackgroundWorkers ? 'true (local execution enabled)' : 'false (delegating to Supervisor)'}`);
-    console.log(`   SUPERVISOR_BASE_URL: ${supervisorConfigured ? '[configured]' : '[not configured]'}`);
+    console.log(`   SUPERVISOR_BASE_URL: ${supervisorConfigured ? 'yes' : 'no'} (host: ${supervisorHost})`);
+    console.log(`   ENABLE_UI_BACKGROUND_WORKERS: ${enableBackgroundWorkers}`);
     
     if (enableBackgroundWorkers) {
       console.log('\n⚠️  WARNING: UI is running background workers locally (fallback mode)');
