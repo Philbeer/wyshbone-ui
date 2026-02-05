@@ -1212,6 +1212,13 @@ async function pollAllPendingRuns(): Promise<void> {
   }
 }
 
-setInterval(pollAllPendingRuns, POLL_INTERVAL_MS);
+// Check if background polling should be enabled (default: OFF)
+const ENABLE_DEEP_RESEARCH_POLLER = process.env.ENABLE_DEEP_RESEARCH_POLLER === 'true' || 
+                                     process.env.ENABLE_UI_BACKGROUND_WORKERS === 'true';
 
-console.log(`🔬 Deep Research module initialized (polling every ${POLL_INTERVAL_MS}ms)`);
+if (ENABLE_DEEP_RESEARCH_POLLER) {
+  setInterval(pollAllPendingRuns, POLL_INTERVAL_MS);
+  console.log(`🔬 Deep Research poller: enabled, polling every ${POLL_INTERVAL_MS}ms`);
+} else {
+  console.log(`🔬 Deep Research poller: disabled`);
+}
