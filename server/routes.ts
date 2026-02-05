@@ -4480,8 +4480,15 @@ CRITICAL RULES:
       });
       
       // Check if Supervisor execution is enabled via feature flag
-      const supervisorEnabled = process.env.SUPERVISOR_EXECUTION_ENABLED === 'true';
-      const supervisorUrl = process.env.SUPERVISOR_URL;
+      // SESSION 1 DEV WIRING: Default to enabled with hardcoded Supervisor URL for local testing
+      const supervisorEnabled = process.env.SUPERVISOR_EXECUTION_ENABLED !== 'false'; // Default: true unless explicitly "false"
+      // Use deployed Supervisor URL - the .replit.app domain, NOT the repo page URL
+      const supervisorUrl = process.env.SUPERVISOR_URL?.includes('replit.app') 
+        ? process.env.SUPERVISOR_URL 
+        : 'https://wyshbone-supervisor-post-cc-phil246.replit.app';
+      
+      console.log(`[SUPERVISOR] execution enabled = ${supervisorEnabled}`);
+      console.log(`[SUPERVISOR] url = ${supervisorUrl}`);
       
       if (supervisorEnabled && supervisorUrl) {
         // Delegate execution to Supervisor
