@@ -286,6 +286,18 @@ app.use((req, res, next) => {
       console.log('\n⚠️  WARNING: UI is running background workers locally (fallback mode)');
       console.log('   This should only be used for development or when Supervisor is unavailable.');
       
+      // PRODUCTION SAFETY WARNING
+      if (process.env.NODE_ENV === 'production') {
+        console.log('\n' + '!'.repeat(80));
+        console.log('🚨 PRODUCTION SAFETY WARNING 🚨');
+        console.log('!'.repeat(80));
+        console.log('   ENABLE_UI_BACKGROUND_WORKERS=true is set in PRODUCTION!');
+        console.log('   This enables local background execution in the UI service.');
+        console.log('   This should normally be OFF in production.');
+        console.log('   Background jobs should be delegated to the Supervisor service.');
+        console.log('!'.repeat(80) + '\n');
+      }
+      
       // Start monitor background worker
       const { startMonitorWorker } = await import('./monitor-worker');
       startMonitorWorker();

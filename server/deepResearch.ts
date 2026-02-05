@@ -1219,6 +1219,15 @@ const ENABLE_DEEP_RESEARCH_POLLER = process.env.ENABLE_DEEP_RESEARCH_POLLER === 
 if (ENABLE_DEEP_RESEARCH_POLLER) {
   setInterval(pollAllPendingRuns, POLL_INTERVAL_MS);
   console.log(`🔬 Deep Research poller: enabled, polling every ${POLL_INTERVAL_MS}ms`);
+  
+  // PRODUCTION SAFETY WARNING
+  if (process.env.NODE_ENV === 'production') {
+    console.log('!'.repeat(80));
+    console.log('🚨 PRODUCTION SAFETY WARNING: Deep Research poller is ENABLED in production! 🚨');
+    console.log('   This runs background polling in the UI service.');
+    console.log('   This should normally be OFF - deep research polling should be handled by Supervisor.');
+    console.log('!'.repeat(80));
+  }
 } else {
   console.log(`🔬 Deep Research poller: disabled`);
 }

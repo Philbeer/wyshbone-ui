@@ -65,3 +65,17 @@ The user interface adheres to Material Design principles, featuring a dark mode,
 - **Xero:** Accounting platform integration.
 - **Hunter.io:** Domain discovery, email finding, and verification.
 - **SalesHandy:** Automated prospect management and campaign integration.
+
+## Session 2 Complete (2026-02-05)
+
+**Session 2 Invariants:**
+- UI does NOT run background workers by default (thin client architecture).
+- Long-running jobs are delegated to Supervisor service:
+  - `nightly-maintenance`: Database cleanup and optimization
+  - `xero-sync`: Xero accounting sync cron
+  - `monitor-worker`: Monitor execution worker
+  - `monitor-executor`: Monitor execution engine
+  - `deep-research-poll`: Deep research polling (manual trigger)
+- Local fallback execution is only available when `ENABLE_UI_BACKGROUND_WORKERS=true`.
+- Fallback mode is always loud in logs and AFR events.
+- Production safety warnings are logged if background workers are enabled in production (`NODE_ENV=production`).
