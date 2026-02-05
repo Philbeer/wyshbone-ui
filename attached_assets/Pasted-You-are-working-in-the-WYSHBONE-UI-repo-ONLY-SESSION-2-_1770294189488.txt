@@ -1,0 +1,90 @@
+You are working in the WYSHBONE UI repo ONLY.
+
+SESSION 2 GOAL (UI SIDE)
+Make UI a thin client for long running jobs. UI must not run any background workers, cron jobs, or long running execution as the authoritative path. UI should only:
+1) request jobs from Supervisor
+2) display progress and outcomes via AFR
+3) keep fallback only if Supervisor is unavailable, and fallback must be loud (visible in AFR/logs/UI)
+
+WHAT IS CURRENTLY WRONG
+These are long running/background responsibilities that are still sitting in UI repo and must stop being authoritative here:
+- server/jobWorker.ts
+- server/monitor-worker.ts
+- server/monitor-executor.ts
+- server/cron/nightly-maintenance.ts
+- server/cron/xero-sync.ts
+- server/agentic-suggestions.ts (execution side)
+
+UI CHANGES REQUIRED (DO NOT TOUCH SUPERVISOR REPO)
+A) Add a Supervisor "jobs" client and route all job starts through Supervisor
+Create a small client helper in UI repo, for example:
+- client/src/lib/supervisorClient.ts (or existing equivalent)
+It should call Supervisor base URL (already exists from Session 1 feature flag), and expose functions like:
+- startJob(jobType, payload) -> returns { jobId }
+- getJob(jobId) -> returns current status if Supervisor supports it
+- cancelJob(jobId) optional
+If endpoints do not exist yet, still implement the client calls exactly as spec below.
+
+B) UI must stop starting local workers/cron as authoritative
+Find where UI currently starts background workers, cron, or long running execution on server start. Disable or guard them behind a flag so they do not run by default.
+- Add a single flag, eg ENABLE_UI_BACKGROUND_WORKERS=false by default
+- Ensure on normal runs, UI does NOT start jobWorker / monitor worker / cron tasks.
+- Keep the code for now if needed, but it must not run unless the flag is explicitly enabled.
+
+C) Provide UI endpoints that delegate to Supervisor (same pattern as Session 1)
+If UI currently has API routes that kick off these jobs locally, change those routes to:
+1) call Supervisor startJob
+2) immediately return success to client with jobId
+3) log an AFR event that clearly says "Delegated to Supervisor" including jobType and jobId
+If Supervisor call fails, do NOT silently fall back. Either:
+- return an error, OR
+- if fallback is used, emit an AFR event "FALLBACK: UI executed job locally" and also show a visible warning in the UI.
+
+D) Contract for Supervisor endpoints (UI assumes these exist)
+Implement UI to call these endpoints (do not implement server side here, just call them):
+- POST {SUPERVISOR_BASE_URL}/api/supervisor/jobs/start
+  body: { jobType: string, payload: any, requestedBy: "ui", sourceRunId?: string }
+  returns: { jobId: string }
+- GET {SUPERVISOR_BASE_URL}/api/supervisor/jobs/:jobId
+  returns: { jobId, jobType, status: "queued"|"running"|"completed"|"failed"|"cancelled", progress?: number, message?: string, startedAt?, endedAt? }
+- POST {SUPERVISOR_BASE_URL}/api/supervisor/jobs/:jobId/cancel
+  returns: { ok: true }
+
+E) AFR visibility requirements
+Whenever UI delegates a job, emit AFR events in UI that show:
+- "job_queued" with jobType + jobId
+- If Supervisor responds with jobId, log "delegated_to_supervisor"
+If fallback happens, log:
+- "fallback_ui_execution_started"
+- "fallback_ui_execution_completed" or "failed"
+Never allow silent fallback.
+
+F) UI front end adjustments (minimal)
+If there is a Jobs / Runs / Live Activity panel, ensure it can show jobId and jobType and that the timeline is readable.
+If there is no explicit Jobs view, at least ensure Live Activity panel shows the delegation events and jobId.
+
+FILES TO UPDATE (EXPECTED)
+- Any server startup file that triggers workers/cron in UI repo
+- server/jobWorker.ts (guard or disable autostart)
+- server/monitor-worker.ts (guard or disable autostart)
+- server/monitor-executor.ts (guard or disable autostart)
+- server/cron/nightly-maintenance.ts (guard or disable autostart)
+- server/cron/xero-sync.ts (guard or disable autostart)
+- server/agentic-suggestions.ts (ensure execution is not started locally by default)
+- client/src/lib/supervisorClient.ts (new or update)
+- Any UI API route that triggers jobs, update to delegate to Supervisor
+
+ACCEPTANCE TESTS (MUST PASS)
+1) Start the app normally. Verify no background workers or cron tasks start in UI logs by default.
+2) Trigger a job from UI (whatever currently triggers nightly maintenance, xero sync, monitors, suggestions, etc.).
+   Expected: UI calls Supervisor start endpoint and returns jobId quickly.
+3) Live Activity panel shows clear AFR events: delegated_to_supervisor + jobId.
+4) If Supervisor base URL is wrong/unavailable, UI must not silently do the work. It either errors or shows a big fallback warning and logs fallback events.
+
+OUTPUT REQUIRED
+- Implement the UI-side changes fully.
+- Provide a short summary of what you changed and where.
+- Provide exact env var names and defaults (SUPERVISOR_BASE_URL, ENABLE_UI_BACKGROUND_WORKERS, etc).
+- Provide a quick manual test checklist.
+
+Do not invent new architecture. Follow the three-repo contract. UI is thin. Supervisor runs jobs. Tower judges later (not in this session).
