@@ -1,0 +1,52 @@
+I need a repo architecture audit across our 3 repos (UI, Supervisor, Tower).
+
+Goal:
+Return a clear map of (1) what exists in each repo, (2) what is actually wired up end-to-end, and (3) what is in the wrong place vs our intended architecture. This is not asking you to refactor anything yet, just to report clearly.
+
+Output format (strict):
+A) Current Intended Roles (1 paragraph)
+- UI: what it should own
+- Supervisor: what it should own
+- Tower: what it should own
+
+B) Inventory by Repo (tables)
+For each repo (UI / Supervisor / Tower), list the main components you find, grouped as:
+- API routes / server entrypoints
+- Agent runtime / orchestration
+- Tool execution (executeAction / tools registry / connectors)
+- Evaluation / scoring / critique / “Tower-like” logic
+- AFR / logging / activity feed
+- Data storage / schemas / migrations
+- Frontend pages / UI
+
+For each component, include:
+- file path(s)
+- what it does in 1 line
+- whether it is USED at runtime (yes/no/unclear) and how you know
+
+C) Wiring Map (end-to-end)
+Describe the current real execution flow for a typical request:
+User chat -> planning -> tool calls -> persistence/logging -> AFR display -> evaluation (if any) -> replan (if any)
+Show which repo each step is actually running in today.
+
+D) Misplacement Diagnosis
+List “Potentially in the wrong place” items, grouped by severity:
+- High severity: will cause long-term confusion or blocks proper separation
+- Medium severity: suboptimal but manageable
+- Low severity: cosmetic / can wait
+
+For each item:
+- current location (repo + file path)
+- where it should live (UI vs Supervisor vs Tower)
+- why (1-2 sentences)
+- what breaks if we do nothing
+
+E) Quick Recommendations (no refactor yet)
+Give 5-10 concrete boundary rules we should follow going forward, to stop the UI repo becoming a monolith.
+Examples: “All evaluation lives in Tower”, “All orchestration decisions live in Supervisor”, etc.
+
+Constraints:
+- Be precise: cite file paths and how calls flow.
+- If something is not actually wired up, say so plainly.
+- If you are unsure, label it as unclear and explain what signal you looked for.
+- Do NOT propose big rewrites. This is an audit only.
