@@ -4480,12 +4480,9 @@ CRITICAL RULES:
       });
       
       // Check if Supervisor execution is enabled via feature flag
-      // SESSION 1 DEV WIRING: Default to enabled with hardcoded Supervisor URL for local testing
-      const supervisorEnabled = process.env.SUPERVISOR_EXECUTION_ENABLED !== 'false'; // Default: true unless explicitly "false"
-      // Use deployed Supervisor URL - the .replit.app domain, NOT the repo page URL
-      const supervisorUrl = process.env.SUPERVISOR_URL?.includes('replit.app') 
-        ? process.env.SUPERVISOR_URL 
-        : 'https://wyshbone-supervisor-post-cc-phil246.replit.app';
+      // SESSION 1 DEV WIRING: Hardcoded to enabled with DEV URL (keep repls awake, no deploy)
+      const supervisorEnabled = true; // Hardcoded for Session 1 dev testing
+      const supervisorUrl = 'https://0683d338-5922-4d4f-8d17-c6623926977d-00-10wqa1dusmk5n.janeway.replit.dev';
       
       console.log(`[SUPERVISOR] execution enabled = ${supervisorEnabled}`);
       console.log(`[SUPERVISOR] url = ${supervisorUrl}`);
@@ -4518,9 +4515,9 @@ CRITICAL RULES:
             const supervisorResult = await supervisorResponse.json();
             
             if (supervisorResponse.ok && supervisorResult.ok) {
-              console.log(`✅ [APPROVE] Delegated execution to Supervisor for plan ${planId}`);
+              console.log(`✅ [APPROVE] Delegated execution to Supervisor (DEV URL) for plan ${planId}`);
               console.log(`   Supervisor response: ${JSON.stringify(supervisorResult)}`);
-              // Do NOT run local execution - Supervisor is handling it
+              // HARD RETURN - Do NOT run local execution - Supervisor is handling it
               return;
             } else {
               console.error(`❌ [APPROVE] Supervisor returned error: ${JSON.stringify(supervisorResult)}`);
