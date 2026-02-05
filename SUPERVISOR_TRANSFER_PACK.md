@@ -324,3 +324,98 @@ psql -c "SELECT COUNT(*) FROM leads WHERE plan_id = 'plan_xxx';"
 | Google Places API | - | `googlePlaces.ts` (copy) or shared package |
 
 The UI continues to own plan creation and approval. Supervisor owns execution once the feature flag is ON.
+
+---
+
+## Manual Test Checklist
+
+### Test 1: Feature Flag OFF (Local Execution)
+
+1. Ensure env vars are NOT set or set to false:
+   ```bash
+   unset SUPERVISOR_EXECUTION_ENABLED
+   # or
+   SUPERVISOR_EXECUTION_ENABLED=false
+   ```
+
+2. Trigger a plan approval in the UI (e.g., "Find pubs in Sussex")
+
+3. Watch UI server logs for:
+   ```
+   🏃 [APPROVE_API] Starting async execution for plan plan_xxx...
+   ⚙️ Background executor started for plan plan_xxx
+   ▶️ [PLAN_EXEC] Executing step 1/3: Search Wyshbone Global Database
+   ```
+
+4. **Expected**: Local executor runs, AFR events appear in Live Activity Panel
+
+### Test 2: Feature Flag ON (Supervisor Execution)
+
+1. Set env vars:
+   ```bash
+   SUPERVISOR_EXECUTION_ENABLED=true
+   SUPERVISOR_URL=http://localhost:4000  # or your Supervisor URL
+   ```
+
+2. Ensure Supervisor is running and has `POST /api/supervisor/execute-plan` endpoint
+
+3. Trigger a plan approval in the UI
+
+4. Watch UI server logs for:
+   ```
+   🔀 [APPROVE] Supervisor execution enabled, delegating to http://localhost:4000
+   📤 [APPROVE] POSTing to Supervisor: http://localhost:4000/api/supervisor/execute-plan
+   ✅ [APPROVE] Delegated execution to Supervisor for plan plan_xxx
+   ```
+
+5. Watch Supervisor logs for:
+   ```
+   [EXECUTE_PLAN] Received plan: plan_xxx
+   [PLAN_EXEC] Step 1/3 started...
+   ```
+
+6. **Expected**: 
+   - UI does NOT show `[PLAN_EXEC]` logs (local executor NOT running)
+   - Supervisor shows execution logs
+   - AFR events appear in Live Activity Panel (written by Supervisor)
+
+### Test 3: Supervisor Failure Fallback
+
+1. Set env vars with invalid Supervisor URL:
+   ```bash
+   SUPERVISOR_EXECUTION_ENABLED=true
+   SUPERVISOR_URL=http://localhost:9999  # Non-existent
+   ```
+
+2. Trigger a plan approval
+
+3. Watch UI logs for:
+   ```
+   🔀 [APPROVE] Supervisor execution enabled, delegating to http://localhost:9999
+   ❌ [APPROVE] Supervisor delegation failed: ...
+   🔄 [APPROVE] Falling back to local execution for plan plan_xxx
+   🏃 [APPROVE_API] Starting async execution...
+   ```
+
+4. **Expected**: Graceful fallback to local execution
+
+### Test 4: Live Activity Panel Shows AFR Events
+
+1. With Supervisor execution enabled and running
+
+2. Trigger plan approval
+
+3. Open the Live Activity Panel in the UI
+
+4. **Expected**: Real-time events appear:
+   - "Plan execution started: Find pubs in Sussex"
+   - "Tool: SEARCH_PLACES" (pending → completed)
+   - "Plan execution completed: Find pubs in Sussex"
+
+5. Verify in database:
+   ```sql
+   SELECT id, task_generated, status, metadata->>'runType' 
+   FROM agent_activities 
+   WHERE run_id = 'plan_xxx' 
+   ORDER BY timestamp;
+   ```

@@ -4479,26 +4479,87 @@ CRITICAL RULES:
         status: 'executing'
       });
       
-      // Kick off execution ASYNCHRONOUSLY (after response sent)
-      // This ensures approval never fails due to execution errors
-      setImmediate(async () => {
-        console.log(`\n🏃 [APPROVE_API] Starting async execution for plan ${planId}...`);
+      // Check if Supervisor execution is enabled via feature flag
+      const supervisorEnabled = process.env.SUPERVISOR_EXECUTION_ENABLED === 'true';
+      const supervisorUrl = process.env.SUPERVISOR_URL;
+      
+      if (supervisorEnabled && supervisorUrl) {
+        // Delegate execution to Supervisor
+        console.log(`🔀 [APPROVE] Supervisor execution enabled, delegating to ${supervisorUrl}`);
         
-        try {
-          await startPlanExecution(approvedPlan);
-          console.log(`✅ [APPROVE_API] Async execution completed for plan ${planId}`);
-        } catch (executionError: any) {
-          console.error(`❌ [APPROVE_API] Async execution failed for plan ${planId}:`, executionError.message);
-          
-          // Update plan status to failed (don't crash server)
+        setImmediate(async () => {
           try {
-            await updatePlanStatus(planId, 'failed');
-            console.log(`💾 [APPROVE_API] Plan ${planId} status updated to 'failed'`);
-          } catch (updateError: any) {
-            console.error(`❌ [APPROVE_API] Failed to update plan status:`, updateError.message);
+            const supervisorPayload = {
+              planId: approvedPlan.id,
+              userId: approvedPlan.userId,
+              sessionId: approvedPlan.sessionId,
+              conversationId: approvedPlan.conversationId,
+              goal: approvedPlan.goal,
+              steps: approvedPlan.steps,
+              toolMetadata: approvedPlan.toolMetadata,
+            };
+            
+            console.log(`📤 [APPROVE] POSTing to Supervisor: ${supervisorUrl}/api/supervisor/execute-plan`);
+            
+            const supervisorResponse = await fetch(`${supervisorUrl}/api/supervisor/execute-plan`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(supervisorPayload),
+              signal: AbortSignal.timeout(10000), // 10 second timeout
+            });
+            
+            const supervisorResult = await supervisorResponse.json();
+            
+            if (supervisorResponse.ok && supervisorResult.ok) {
+              console.log(`✅ [APPROVE] Delegated execution to Supervisor for plan ${planId}`);
+              console.log(`   Supervisor response: ${JSON.stringify(supervisorResult)}`);
+              // Do NOT run local execution - Supervisor is handling it
+              return;
+            } else {
+              console.error(`❌ [APPROVE] Supervisor returned error: ${JSON.stringify(supervisorResult)}`);
+              throw new Error(supervisorResult.error || 'Supervisor execution failed');
+            }
+          } catch (supervisorError: any) {
+            console.error(`❌ [APPROVE] Supervisor delegation failed: ${supervisorError.message}`);
+            console.log(`🔄 [APPROVE] Falling back to local execution for plan ${planId}`);
+            
+            // FALLBACK: Run local execution
+            try {
+              await startPlanExecution(approvedPlan);
+              console.log(`✅ [APPROVE] Fallback local execution completed for plan ${planId}`);
+            } catch (executionError: any) {
+              console.error(`❌ [APPROVE] Fallback execution also failed: ${executionError.message}`);
+              try {
+                await updatePlanStatus(planId, 'failed');
+              } catch (updateError: any) {
+                console.error(`❌ [APPROVE] Failed to update plan status:`, updateError.message);
+              }
+            }
           }
-        }
-      });
+        });
+      } else {
+        // Feature flag OFF - use existing local execution
+        // Kick off execution ASYNCHRONOUSLY (after response sent)
+        // This ensures approval never fails due to execution errors
+        setImmediate(async () => {
+          console.log(`\n🏃 [APPROVE_API] Starting async execution for plan ${planId}...`);
+          
+          try {
+            await startPlanExecution(approvedPlan);
+            console.log(`✅ [APPROVE_API] Async execution completed for plan ${planId}`);
+          } catch (executionError: any) {
+            console.error(`❌ [APPROVE_API] Async execution failed for plan ${planId}:`, executionError.message);
+            
+            // Update plan status to failed (don't crash server)
+            try {
+              await updatePlanStatus(planId, 'failed');
+              console.log(`💾 [APPROVE_API] Plan ${planId} status updated to 'failed'`);
+            } catch (updateError: any) {
+              console.error(`❌ [APPROVE_API] Failed to update plan status:`, updateError.message);
+            }
+          }
+        });
+      }
       
     } catch (error: any) {
       console.error(`❌ [APPROVE_API] Error approving plan:`, error);
