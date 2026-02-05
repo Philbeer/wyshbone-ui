@@ -1,0 +1,75 @@
+You are working in the WYSHBONE UI repo ONLY.
+
+TASK: Delegate nightly-maintenance to Supervisor (Session 2), keep local execution as explicit fallback only.
+
+Supervisor already supports jobType = "nightly-maintenance" and logs AFR lifecycle events to Supabase.
+
+Routes currently executing locally and must delegate:
+- /api/admin/maintenance/run-manual  (currently calls startDatabaseUpdateJob / local maintenance)
+- /api/sleeper-agent/trigger-nightly (currently calls triggerNightlyUpdate / local maintenance)
+
+GOAL
+When either route is hit:
+1) UI calls supervisorClient.startJob("nightly-maintenance", payload, context)
+2) UI immediately returns success with supervisorJobId and delegatedToSupervisor=true
+3) UI logs AFR events:
+   - job_queued (or equivalent)
+   - delegated_to_supervisor
+4) UI does NOT run local maintenance by default.
+
+FALLBACK RULE (IMPORTANT)
+Local execution may remain, but ONLY if:
+- Supervisor call fails AND
+- ENABLE_UI_BACKGROUND_WORKERS === true
+If fallback happens:
+- Emit AFR event "fallback_ui_execution_started"
+- Run the existing local function
+- Emit "fallback_ui_execution_completed" or "fallback_ui_execution_failed"
+- Include supervisor error details in metadata
+If ENABLE_UI_BACKGROUND_WORKERS is false (default), return a 503 with a clear message and DO NOT execute locally (same behavior as your region job start).
+
+PAYLOAD / CONTEXT
+Use payload that preserves current behavior:
+- include workspaceId and any settings currently passed into startDatabaseUpdateJob / triggerNightlyUpdate
+Include context:
+- userId
+- clientRequestId (maintenance_${Date.now()} or similar)
+- requestedBy:"ui"
+
+EXPECTED RESPONSE SHAPE (match existing start route patterns)
+Return JSON like:
+{
+  ok: true,
+  delegatedToSupervisor: true,
+  supervisorJobId: "<job id from supervisor>",
+  jobType: "nightly-maintenance"
+}
+If fallback executed locally, return:
+{
+  ok: true,
+  delegatedToSupervisor: false,
+  jobId: "<local job id>",
+  warning: "FALLBACK: executed in UI"
+}
+
+FILES TO CHANGE (LIKELY)
+- server/routes/admin/database-maintenance.ts (where run-manual route calls local job)
+- server/routes/sleeper-agent.ts or equivalent (where trigger-nightly calls local job)
+- Ensure supervisorClient is imported/available in those routes
+- If you have an AFR logging helper used in /api/jobs/start, reuse the same pattern here.
+
+ACCEPTANCE TESTS
+1) With ENABLE_UI_BACKGROUND_WORKERS=false:
+   - Calling /api/admin/maintenance/run-manual delegates to Supervisor and returns supervisorJobId.
+   - Calling /api/sleeper-agent/trigger-nightly delegates to Supervisor and returns supervisorJobId.
+   - No local maintenance runs (verify logs).
+2) Break SUPERVISOR_BASE_URL:
+   - Routes return 503 and do not execute locally.
+3) With ENABLE_UI_BACKGROUND_WORKERS=true and broken supervisor:
+   - Routes execute local fallback and log fallback AFR events loudly.
+
+OUTPUT REQUIRED
+- List the exact files changed
+- Show example responses for delegated and fallback paths
+- Provide a short manual test checklist
+Do not implement anything in Supervisor in this task.

@@ -3,6 +3,9 @@
  * 
  * Endpoints for AI-powered pub discovery and event discovery.
  * Runs searches in the background and returns job IDs for polling.
+ * 
+ * THIN CLIENT: Nightly maintenance jobs are delegated to Supervisor service by default.
+ * Local execution only occurs as explicit fallback when ENABLE_UI_BACKGROUND_WORKERS=true.
  */
 
 import { Router, type Request, type Response } from "express";
@@ -18,6 +21,7 @@ import {
   type SleeperAgentRunSummary,
   type EventDiscoveryRunSummary,
 } from "../lib/sleeper-agent";
+import { supervisorClient } from "../lib/supervisorClient";
 
 // ============================================
 // TYPES
@@ -690,9 +694,8 @@ export function createSleeperAgentRouter(storage: IStorage): Router {
   // ==========================================
   /**
    * Manually trigger the nightly database update.
-   * Useful for testing or on-demand refreshes.
-   * 
-   * This is a long-running operation and runs asynchronously.
+   * Delegates to Supervisor service by default.
+   * Local execution only occurs as fallback when ENABLE_UI_BACKGROUND_WORKERS=true.
    */
   router.post("/nightly-update", async (req: Request, res: Response) => {
     try {
@@ -705,10 +708,7 @@ export function createSleeperAgentRouter(storage: IStorage): Router {
         });
       }
 
-      // 2. Import and trigger nightly update
-      const { triggerNightlyUpdate } = await import("../cron/nightly-maintenance");
-      
-      // Convert userId to number
+      // Convert userId to number for payload
       const workspaceIdNum = parseInt(auth.userId);
       if (isNaN(workspaceIdNum)) {
         return res.status(400).json({
@@ -717,17 +717,68 @@ export function createSleeperAgentRouter(storage: IStorage): Router {
         });
       }
 
-      // 3. Run asynchronously (don't wait)
-      triggerNightlyUpdate(workspaceIdNum).catch(error => {
-        console.error("[sleeper-agent] Nightly update failed:", error);
-      });
+      const clientRequestId = `nightly_${Date.now()}`;
 
-      // 4. Return immediately
-      res.status(202).json({
-        success: true,
-        message: "Nightly database update started",
-        note: "This is a long-running operation. Check server logs for progress.",
-      });
+      // Prepare payload for Supervisor
+      const payload = {
+        workspaceId: workspaceIdNum,
+        userEmail: auth.userEmail,
+        triggeredBy: 'sleeper-agent-api',
+      };
+
+      try {
+        // 2. Attempt to delegate to Supervisor
+        const result = await supervisorClient.startJob('nightly-maintenance', payload, {
+          userId: auth.userId,
+          clientRequestId,
+        });
+
+        if (result.delegatedToSupervisor) {
+          // Successfully delegated to Supervisor
+          return res.status(202).json({
+            ok: true,
+            delegatedToSupervisor: true,
+            supervisorJobId: result.jobId,
+            jobType: 'nightly-maintenance',
+            message: 'Nightly database update delegated to Supervisor',
+          });
+        }
+
+        // Fallback executed (ENABLE_UI_BACKGROUND_WORKERS=true)
+        // Run local job
+        const { triggerNightlyUpdate } = await import("../cron/nightly-maintenance");
+        
+        // Run asynchronously (don't wait)
+        triggerNightlyUpdate(workspaceIdNum).then(() => {
+          supervisorClient.markFallbackCompleted('nightly-maintenance', result.jobId, {
+            userId: auth.userId,
+            clientRequestId,
+          });
+        }).catch(error => {
+          console.error("[sleeper-agent] Nightly update fallback failed:", error);
+          supervisorClient.markFallbackFailed('nightly-maintenance', result.jobId, error.message, {
+            userId: auth.userId,
+            clientRequestId,
+          });
+        });
+
+        return res.status(202).json({
+          ok: true,
+          delegatedToSupervisor: false,
+          jobId: result.jobId,
+          jobType: 'nightly-maintenance',
+          warning: 'FALLBACK: executed in UI',
+          message: 'Nightly database update started (local fallback)',
+        });
+
+      } catch (delegationError: any) {
+        // Supervisor delegation failed and fallback is disabled
+        console.error('[sleeper-agent] Supervisor delegation failed:', delegationError.message);
+        return res.status(503).json({
+          error: 'Supervisor unavailable and local fallback is disabled',
+          details: delegationError.message,
+        });
+      }
 
     } catch (error: any) {
       console.error("[sleeper-agent] Nightly update trigger error:", error);

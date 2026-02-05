@@ -3,6 +3,9 @@
  * 
  * Admin-only endpoints for managing the nightly pub database
  * maintenance job.
+ * 
+ * THIN CLIENT: Jobs are delegated to Supervisor service by default.
+ * Local execution only occurs as explicit fallback when ENABLE_UI_BACKGROUND_WORKERS=true.
  */
 
 import { Router, Request, Response } from 'express';
@@ -16,6 +19,7 @@ import {
   getEstimatedDuration,
   JobSettings
 } from '../../lib/database-update-job';
+import { supervisorClient } from '../../lib/supervisorClient';
 
 // Admin emails that can access these endpoints
 const ADMIN_EMAILS = ['phil@wyshbone.com', 'phil@listersbrewery.com'];
@@ -159,29 +163,73 @@ export function createDatabaseMaintenanceRouter(storage: IStorage): Router {
     }
   });
 
-  // Start manual job
+  // Start manual job - delegates to Supervisor by default
   router.post('/run-manual', requireAdmin, async (req: Request, res: Response) => {
     try {
       const settings: JobSettings = req.body;
       const auth = (req as any).auth;
+      const clientRequestId = `maintenance_${Date.now()}`;
 
-      // Check if there's already a running job
-      const activeJobs = getAllActiveJobs();
-      if (activeJobs.length > 0) {
-        return res.status(400).json({
-          success: false,
-          error: 'A job is already running',
-          activeJobId: activeJobs[0].id
+      // Prepare payload for Supervisor
+      const payload = {
+        workspaceId: auth.workspaceId,
+        settings,
+        userEmail: auth.userEmail,
+      };
+
+      try {
+        // Attempt to delegate to Supervisor
+        const result = await supervisorClient.startJob('nightly-maintenance', payload, {
+          userId: auth.userId,
+          clientRequestId,
+        });
+
+        if (result.delegatedToSupervisor) {
+          // Successfully delegated to Supervisor
+          return res.json({
+            ok: true,
+            delegatedToSupervisor: true,
+            supervisorJobId: result.jobId,
+            jobType: 'nightly-maintenance',
+          });
+        }
+
+        // Fallback executed (ENABLE_UI_BACKGROUND_WORKERS=true)
+        // Run local job
+        const activeJobs = getAllActiveJobs();
+        if (activeJobs.length > 0) {
+          return res.status(400).json({
+            success: false,
+            error: 'A job is already running',
+            activeJobId: activeJobs[0].id
+          });
+        }
+
+        const localJobId = await startDatabaseUpdateJob(auth.workspaceId, settings);
+        
+        // Mark fallback completed
+        await supervisorClient.markFallbackCompleted('nightly-maintenance', localJobId, {
+          userId: auth.userId,
+          clientRequestId,
+        });
+
+        return res.json({
+          ok: true,
+          delegatedToSupervisor: false,
+          jobId: localJobId,
+          jobType: 'nightly-maintenance',
+          warning: 'FALLBACK: executed in UI',
+        });
+
+      } catch (delegationError: any) {
+        // Supervisor delegation failed and fallback is disabled
+        console.error('[database-maintenance] Supervisor delegation failed:', delegationError.message);
+        return res.status(503).json({
+          error: 'Supervisor unavailable and local fallback is disabled',
+          details: delegationError.message,
         });
       }
 
-      const jobId = await startDatabaseUpdateJob(auth.workspaceId, settings);
-
-      res.json({
-        success: true,
-        jobId,
-        message: 'Job started'
-      });
     } catch (error: any) {
       console.error('[database-maintenance] Start job error:', error);
       res.status(500).json({ success: false, error: error.message });
