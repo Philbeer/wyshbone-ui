@@ -1,0 +1,31 @@
+MIGRATION SCOREBOARD (do not change):
+Goal: UI triggers a mission, Supervisor executes it, UI shows AFR events.
+Slice: Move plan execution to Supervisor (leadgen-executor responsibility).
+Success = With a feature flag ON, a leadgen run is executed by Supervisor and the UI Live Activity panel shows real AFR events for that run.
+
+You are in the UI repo workspace and you CANNOT edit Supervisor here.
+Task: generate a SUPERVISOR TRANSFER PACK that I can paste into the Supervisor repo workspace.
+
+Scope (strict):
+- Only move plan execution (leadgen-executor responsibility) off the UI process.
+- UI should still create the plan / mission request, then hand off execution to Supervisor.
+- Supervisor must execute the plan steps and call tools through a single spine (Supervisor-side equivalent of executeAction).
+- Supervisor must write AFR-compatible events so the UI can display them in the Live Activity panel.
+- Do NOT do long-running jobs (deepResearch/batch) in this session. Do NOT add Tower evaluation.
+
+What to include in the SUPERVISOR TRANSFER PACK (must be complete and copy-pastable):
+1) Supervisor endpoint(s) to add (exact routes), including request/response JSON shape
+2) Minimal Supervisor file list to create/modify (suggested paths) and what each file does
+3) Which UI repo files contain the logic being moved (exact file paths), and what needs to be re-implemented in Supervisor
+4) How Supervisor should log AFR events (event types + required fields) so UI can show progress
+5) How UI will call Supervisor when feature flag is enabled (SUPERVISOR_URL env var etc)
+6) Acceptance checklist for Session 1 (5-10 bullet points) including “how to verify execution is no longer happening in UI”
+
+Extra constraints:
+- Keep it minimal. No refactors of routes.ts or storage.ts.
+- Do not delete anything in UI yet.
+- Assume Supervisor has access to the same database (agent_activities table) or provide an alternate plan if not.
+- If there are multiple reasonable approaches, pick one and commit to it.
+
+Output format:
+Return ONLY the SUPERVISOR TRANSFER PACK with numbered headings 1-6. No other commentary.
