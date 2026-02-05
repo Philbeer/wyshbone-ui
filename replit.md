@@ -63,3 +63,68 @@ The user interface adheres to Material Design principles, featuring a dark mode,
 - **Xero:** Accounting platform integration via OAuth 2.0.
 - **Hunter.io:** For domain discovery, email finding, and email verification in batch processing.
 - **SalesHandy:** For automated prospect management and campaign integration.
+
+## Thin Client Architecture (Session 2)
+
+The UI is designed as a thin client that delegates long-running jobs to the Supervisor service. Background workers, cron jobs, and long-running execution are disabled by default.
+
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SUPERVISOR_BASE_URL` | (none) | Base URL for the Supervisor service (e.g., `https://supervisor.example.com`). Required for job delegation. |
+| `ENABLE_UI_BACKGROUND_WORKERS` | `false` | Set to `true` to enable local fallback execution of background workers. Should only be used for development or when Supervisor is unavailable. |
+
+### Job Delegation Flow
+
+1. When a job is triggered via UI API routes, the UI calls `SUPERVISOR_BASE_URL/api/supervisor/jobs/start`
+2. If Supervisor responds with a `jobId`, the UI logs an AFR event `delegated_to_supervisor` and returns success
+3. If Supervisor is unavailable and `ENABLE_UI_BACKGROUND_WORKERS=true`, the UI falls back to local execution with a visible `fallback_ui_execution_started` AFR event
+4. If Supervisor is unavailable and fallback is disabled, the UI returns a 503 error
+
+### Background Workers (Disabled by Default)
+
+These workers are guarded behind `ENABLE_UI_BACKGROUND_WORKERS`:
+- **Monitor Worker** (`server/monitor-worker.ts`): Polls scheduled monitors
+- **Xero Sync Cron** (`server/cron/xero-sync.ts`): Syncs Xero data periodically
+- **Nightly Maintenance** (`server/cron/nightly-maintenance.ts`): Database maintenance tasks
+- **Job Worker** (`server/jobWorker.ts`): Processes region search jobs
+
+### Supervisor Client
+
+Located at `server/lib/supervisorClient.ts`, provides:
+- `startJob(jobType, payload, options)`: Delegate a job to Supervisor
+- `getJob(jobId)`: Get job status from Supervisor
+- `cancelJob(jobId)`: Cancel a running job
+- `isSupervisorConfigured()`: Check if SUPERVISOR_BASE_URL is set
+- `isLocalFallbackEnabled()`: Check if ENABLE_UI_BACKGROUND_WORKERS is true
+
+### AFR Events for Job Delegation
+
+| Event | Description |
+|-------|-------------|
+| `job_queued` | Job is being queued for execution (logged for both Supervisor and local fallback) |
+| `delegated_to_supervisor` | Job successfully delegated to Supervisor |
+| `supervisor_call_failed` | Supervisor call failed |
+| `fallback_ui_execution_started` | UI executing job locally (fallback) |
+| `fallback_ui_execution_completed` | Local fallback execution completed successfully |
+| `fallback_ui_execution_failed` | Local fallback execution failed with error |
+| `fallback_ui_execution_paused` | Local fallback execution paused/stopped (user stopped or job cancelled) |
+
+### AFR Lifecycle for Local Fallback
+
+Complete lifecycle for local fallback jobs:
+1. `job_queued` - Logged when startJobWorker is called
+2. `fallback_ui_execution_started` - Logged immediately after job_queued
+3. One of:
+   - `fallback_ui_execution_completed` - Job finished successfully
+   - `fallback_ui_execution_failed` - Job encountered an error
+   - `fallback_ui_execution_paused` - Job was paused/stopped/cancelled
+
+### Manual Test Checklist
+
+1. **Start app with defaults** - Verify no background workers start (check logs for "Background workers DISABLED")
+2. **Trigger a job** - Should attempt Supervisor delegation (will fail if not configured, returns 503)
+3. **Set `ENABLE_UI_BACKGROUND_WORKERS=true`** - Workers should start, jobs should run locally with fallback warning
+4. **Check Live Activity Panel** - Should show delegation events (`job_queued`, `delegated_to_supervisor` or `fallback_*`)
+5. **Verify AFR logging** - Check `agent_activities` table for job delegation events

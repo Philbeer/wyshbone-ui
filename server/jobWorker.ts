@@ -1,5 +1,6 @@
 import { storage } from './storage';
 import { getRegions } from './regions';
+import { supervisorClient } from './lib/supervisorClient';
 
 const BASE = process.env.BUBBLE_BASE_URL || "";
 const WORKFLOW_SLUG = "run_search_for_region";
@@ -7,6 +8,9 @@ const WORKFLOW_SLUG = "run_search_for_region";
 type RunningJob = {
   jobId: string;
   shouldStop: boolean;
+  isFallback: boolean;
+  userId?: string;
+  clientRequestId?: string;
 };
 
 const runningJobs = new Map<string, RunningJob>();
@@ -60,6 +64,8 @@ export async function runJob(jobId: string): Promise<void> {
     console.error(`Job ${jobId} not found`);
     return;
   }
+  
+  const runningInfo = runningJobs.get(jobId);
 
   console.log(`🚀 Starting job ${jobId}: ${job.business_type} across ${job.region_ids.length} regions`);
 
@@ -68,7 +74,6 @@ export async function runJob(jobId: string): Promise<void> {
   const regions = regionsResult.regions;
 
   const regionMap = new Map(regions.map(r => [r.id, r]));
-  const runningInfo = runningJobs.get(jobId);
 
   // Process regions starting from cursor
   for (let i = job.cursor; i < job.region_ids.length; i++) {
@@ -76,12 +81,30 @@ export async function runJob(jobId: string): Promise<void> {
     const currentJob = await storage.getJob(jobId);
     if (!currentJob || currentJob.status === "paused" || currentJob.status === "cancelled") {
       console.log(`⏸️ Job ${jobId} paused/cancelled at region ${i}/${job.region_ids.length}`);
+      
+      // Log AFR event for fallback pause
+      if (runningInfo?.isFallback) {
+        await supervisorClient.markFallbackPaused('region_job', jobId, 'Job paused/cancelled externally', {
+          userId: runningInfo.userId || 'system',
+          clientRequestId: runningInfo.clientRequestId || jobId,
+        });
+      }
+      runningJobs.delete(jobId);
       return;
     }
 
     if (runningInfo?.shouldStop) {
       console.log(`⏸️ Job ${jobId} stopped by user at region ${i}/${job.region_ids.length}`);
       await storage.updateJob(jobId, { status: "paused", cursor: i });
+      
+      // Log AFR event for fallback pause
+      if (runningInfo?.isFallback) {
+        await supervisorClient.markFallbackPaused('region_job', jobId, 'Job stopped by user', {
+          userId: runningInfo.userId || 'system',
+          clientRequestId: runningInfo.clientRequestId || jobId,
+        });
+      }
+      runningJobs.delete(jobId);
       return;
     }
 
@@ -139,22 +162,61 @@ export async function runJob(jobId: string): Promise<void> {
 
   // Job complete
   await storage.updateJob(jobId, { status: "done" });
+  
+  // Log AFR event for fallback completion
+  if (runningInfo?.isFallback) {
+    await supervisorClient.markFallbackCompleted('region_job', jobId, {
+      userId: runningInfo.userId || 'system',
+      clientRequestId: runningInfo.clientRequestId || jobId,
+    });
+  }
+  
   runningJobs.delete(jobId);
   
   console.log(`✅ Job ${jobId} completed: ${job.processed.length} successful, ${job.failed?.length || 0} failed`);
 }
 
-export function startJobWorker(jobId: string): void {
+export interface StartJobWorkerOptions {
+  isFallback?: boolean;
+  userId?: string;
+  clientRequestId?: string;
+}
+
+export function startJobWorker(jobId: string, options: StartJobWorkerOptions = {}): void {
+  const { isFallback = true, userId = 'system', clientRequestId = jobId } = options;
+  
   if (runningJobs.has(jobId)) {
     console.log(`Job ${jobId} is already running`);
     return;
   }
 
-  runningJobs.set(jobId, { jobId, shouldStop: false });
+  runningJobs.set(jobId, { jobId, shouldStop: false, isFallback, userId, clientRequestId });
+  
+  // Log AFR events for local fallback execution
+  if (isFallback) {
+    (async () => {
+      try {
+        await supervisorClient.logLocalJobQueued('region_job', jobId, { userId, clientRequestId });
+        await supervisorClient.logFallbackStarted('region_job', jobId, { userId, clientRequestId });
+      } catch (err: any) {
+        console.warn(`[JOBS] Failed to log fallback start events: ${err.message}`);
+      }
+    })();
+  }
   
   // Run in background
-  runJob(jobId).catch(error => {
+  runJob(jobId).catch(async (error) => {
     console.error(`Error running job ${jobId}:`, error);
+    
+    // Log AFR event for fallback failure
+    const info = runningJobs.get(jobId);
+    if (info?.isFallback) {
+      await supervisorClient.markFallbackFailed('region_job', jobId, error.message || 'Unknown error', {
+        userId: info.userId || 'system',
+        clientRequestId: info.clientRequestId || jobId,
+      });
+    }
+    
     runningJobs.delete(jobId);
   });
 }

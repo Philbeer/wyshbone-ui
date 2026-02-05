@@ -6251,14 +6251,83 @@ Return structured data with the EXACT placeId provided above: "${placeId}"`;
         return res.status(400).json({ error: "Job is already completed" });
       }
 
-      // Update job status to running
-      await storage.updateJob(jobId, { status: "running" });
-
-      // Start the background worker
-      const { startJobWorker } = await import('./jobWorker');
-      startJobWorker(jobId);
-
-      return res.json({ ok: true, jobId, status: "running" });
+      // THIN CLIENT: Delegate to Supervisor service
+      const { supervisorClient } = await import('./lib/supervisorClient');
+      
+      try {
+        const result = await supervisorClient.startJob('region_job', {
+          jobId,
+          businessType: job.business_type,
+          country: job.country,
+          regionIds: job.region_ids,
+        }, {
+          userId: 'system',
+          clientRequestId: jobId,
+        });
+        
+        if (result.delegatedToSupervisor) {
+          // Successfully delegated to Supervisor
+          await storage.updateJob(jobId, { status: "running" });
+          return res.json({ 
+            ok: true, 
+            jobId, 
+            supervisorJobId: result.jobId,
+            status: "running",
+            delegatedToSupervisor: true,
+          });
+        }
+        
+        // Fallback: Local execution enabled
+        console.warn(`[JOBS] ⚠️ FALLBACK: Running job ${jobId} locally`);
+        await storage.updateJob(jobId, { status: "running" });
+        
+        const { startJobWorker } = await import('./jobWorker');
+        startJobWorker(jobId, {
+          isFallback: true,
+          userId: 'system',
+          clientRequestId: jobId,
+        });
+        
+        // Mark fallback completion when done (handled by jobWorker)
+        return res.json({ 
+          ok: true, 
+          jobId, 
+          status: "running",
+          delegatedToSupervisor: false,
+          fallback: true,
+        });
+        
+      } catch (supervisorError: any) {
+        // Check if fallback is enabled
+        if (supervisorClient.isLocalFallbackEnabled()) {
+          console.warn(`[JOBS] ⚠️ FALLBACK: Supervisor failed, running job ${jobId} locally: ${supervisorError.message}`);
+          
+          await storage.updateJob(jobId, { status: "running" });
+          
+          const { startJobWorker } = await import('./jobWorker');
+          startJobWorker(jobId, {
+            isFallback: true,
+            userId: 'system',
+            clientRequestId: jobId,
+          });
+          
+          return res.json({ 
+            ok: true, 
+            jobId, 
+            status: "running",
+            delegatedToSupervisor: false,
+            fallback: true,
+            fallbackReason: supervisorError.message,
+          });
+        }
+        
+        // No fallback - return error
+        console.error(`[JOBS] ❌ Supervisor delegation failed and fallback disabled: ${supervisorError.message}`);
+        return res.status(503).json({ 
+          error: "Supervisor unavailable and local fallback is disabled",
+          details: supervisorError.message,
+        });
+      }
     } catch (e: any) {
       console.error("jobs/start error:", e);
       return res.status(500).json({ error: e.message || "Failed to start job" });
@@ -6270,7 +6339,7 @@ Return structured data with the EXACT placeId provided above: "${placeId}"`;
   // ===========================
   app.post("/api/jobs/stop", async (req, res) => {
     try {
-      const { jobId } = req.body;
+      const { jobId, supervisorJobId } = req.body;
       
       if (!jobId) {
         return res.status(400).json({ error: "jobId is required" });
@@ -6283,12 +6352,32 @@ Return structured data with the EXACT placeId provided above: "${placeId}"`;
         return res.status(404).json({ error: "Job not found" });
       }
 
+      // Try to cancel via Supervisor if we have a supervisor job ID
+      const { supervisorClient } = await import('./lib/supervisorClient');
+      
+      if (supervisorJobId && supervisorClient.isSupervisorConfigured()) {
+        try {
+          await supervisorClient.cancelJob(supervisorJobId);
+          console.log(`[JOBS] Cancelled supervisor job ${supervisorJobId}`);
+        } catch (cancelError: any) {
+          console.warn(`[JOBS] Failed to cancel supervisor job ${supervisorJobId}: ${cancelError.message}`);
+        }
+      }
+
       // Update job status to paused
       await storage.updateJob(jobId, { status: "paused" });
 
-      // Stop the worker (it will check status and pause)
+      // Stop the local worker if running (it will check status and pause)
       const { stopJobWorker } = await import('./jobWorker');
       stopJobWorker(jobId);
+      
+      // Log AFR event for job stop (in case worker wasn't actively running)
+      if (supervisorClient.isLocalFallbackEnabled() && !supervisorJobId) {
+        await supervisorClient.markFallbackPaused('region_job', jobId, 'Job stopped via API', {
+          userId: 'system',
+          clientRequestId: jobId,
+        });
+      }
 
       return res.json({ ok: true, jobId, status: "paused" });
     } catch (e: any) {

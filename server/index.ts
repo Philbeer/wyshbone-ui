@@ -260,27 +260,57 @@ app.use((req, res, next) => {
   }, async () => {
     log(`serving on port ${port}`);
     
-    // Start monitor background worker
-    const { startMonitorWorker } = await import('./monitor-worker');
-    startMonitorWorker();
+    // THIN CLIENT MODE: Background workers are disabled by default
+    // Set ENABLE_UI_BACKGROUND_WORKERS=true to enable local execution (fallback mode)
+    // In production, all jobs should be delegated to Supervisor service
+    const enableBackgroundWorkers = process.env.ENABLE_UI_BACKGROUND_WORKERS === 'true';
+    const supervisorConfigured = !!process.env.SUPERVISOR_BASE_URL;
     
-    // Start Xero sync cron jobs (if webhook key configured)
-    if (process.env.XERO_CLIENT_ID) {
-      const { startXeroSyncCron } = await import('./cron/xero-sync');
-      const { getXeroSyncFunctions } = await import('./routes/xero-sync');
-      const syncFunctions = getXeroSyncFunctions();
-      if (syncFunctions) {
-        startXeroSyncCron({
-          processSyncQueue: syncFunctions.processSyncQueue,
-          backupPollXero: syncFunctions.backupPollXero,
-        });
+    console.log('\n' + '='.repeat(80));
+    console.log('🎛️  THIN CLIENT MODE - Background Worker Configuration');
+    console.log('='.repeat(80));
+    console.log(`   ENABLE_UI_BACKGROUND_WORKERS: ${enableBackgroundWorkers ? 'true (local execution enabled)' : 'false (delegating to Supervisor)'}`);
+    console.log(`   SUPERVISOR_BASE_URL: ${supervisorConfigured ? '[configured]' : '[not configured]'}`);
+    
+    if (enableBackgroundWorkers) {
+      console.log('\n⚠️  WARNING: UI is running background workers locally (fallback mode)');
+      console.log('   This should only be used for development or when Supervisor is unavailable.');
+      
+      // Start monitor background worker
+      const { startMonitorWorker } = await import('./monitor-worker');
+      startMonitorWorker();
+      console.log('   ✓ Monitor worker started (local)');
+      
+      // Start Xero sync cron jobs (if webhook key configured)
+      if (process.env.XERO_CLIENT_ID) {
+        const { startXeroSyncCron } = await import('./cron/xero-sync');
+        const { getXeroSyncFunctions } = await import('./routes/xero-sync');
+        const syncFunctions = getXeroSyncFunctions();
+        if (syncFunctions) {
+          startXeroSyncCron({
+            processSyncQueue: syncFunctions.processSyncQueue,
+            backupPollXero: syncFunctions.backupPollXero,
+          });
+          console.log('   ✓ Xero sync cron started (local)');
+        }
+      }
+      
+      // Start nightly database maintenance cron jobs
+      const { setupCronJobs } = await import('./cron/nightly-maintenance');
+      setupCronJobs();
+      console.log('   ✓ Nightly maintenance cron started (local)');
+    } else {
+      console.log('\n✅ Background workers DISABLED - jobs will be delegated to Supervisor');
+      console.log('   Monitor worker: disabled');
+      console.log('   Xero sync cron: disabled');
+      console.log('   Nightly maintenance: disabled');
+      
+      if (!supervisorConfigured) {
+        console.log('\n⚠️  WARNING: SUPERVISOR_BASE_URL not configured!');
+        console.log('   Job delegation will fail. Set SUPERVISOR_BASE_URL or enable ENABLE_UI_BACKGROUND_WORKERS=true');
       }
     }
-    
-    // Start nightly database maintenance cron jobs
-    // Only runs in production or when ENABLE_CRON=true
-    const { setupCronJobs } = await import('./cron/nightly-maintenance');
-    setupCronJobs();
+    console.log('='.repeat(80) + '\n');
     
     // Print region service documentation
     console.log('\n' + '='.repeat(80));
