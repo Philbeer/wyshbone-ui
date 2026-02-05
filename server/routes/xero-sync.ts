@@ -13,6 +13,7 @@ import {
   importXeroBills,
   fullXeroSupplierSync,
 } from "../lib/xero-import";
+import { supervisorClient } from '../lib/supervisorClient';
 
 // Webhook signing key for verifying Xero webhooks
 const XERO_WEBHOOK_KEY = process.env.XERO_WEBHOOK_KEY || "";
@@ -1239,7 +1240,7 @@ export function createXeroSyncRouter(storage: IStorage) {
     }
   });
 
-  // Force sync now
+  // Force sync now - delegates to Supervisor (thin client pattern)
   router.post("/sync/force", async (req: Request, res: Response) => {
     try {
       const workspaceId = req.body.workspaceId as string;
@@ -1247,11 +1248,56 @@ export function createXeroSyncRouter(storage: IStorage) {
         return res.status(400).json({ error: "workspaceId required" });
       }
 
-      // Process queue
-      await processSyncQueue();
+      const userId = req.query.user_id as string || 'system';
+      const clientRequestId = `xero_sync_${Date.now()}`;
 
-      res.json({ message: "Sync triggered" });
+      const payload = {
+        workspaceId,
+        syncType: 'queue',
+      };
+
+      try {
+        const result = await supervisorClient.startJob('xero-sync', payload, {
+          userId,
+          clientRequestId,
+        });
+
+        if (result.delegatedToSupervisor) {
+          return res.json({
+            ok: true,
+            delegatedToSupervisor: true,
+            supervisorJobId: result.jobId,
+            jobType: 'xero-sync',
+            message: 'Xero sync delegated to Supervisor',
+          });
+        }
+
+        await processSyncQueue();
+
+        await supervisorClient.markFallbackCompleted('xero-sync', result.jobId, {
+          userId,
+          clientRequestId,
+        });
+
+        return res.json({
+          ok: true,
+          delegatedToSupervisor: false,
+          jobId: result.jobId,
+          jobType: 'xero-sync',
+          warning: 'FALLBACK: executed in UI',
+          message: 'Xero sync completed (local fallback)',
+        });
+
+      } catch (delegationError: any) {
+        console.error('[xero-sync] Supervisor delegation failed:', delegationError.message);
+        return res.status(503).json({
+          error: 'Supervisor unavailable and local fallback is disabled',
+          details: delegationError.message,
+        });
+      }
+
     } catch (error: any) {
+      console.error('[xero-sync] Force sync error:', error);
       res.status(500).json({ error: error.message });
     }
   });
