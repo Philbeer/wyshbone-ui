@@ -8,6 +8,7 @@
  * - Quick access to CRM tools
  */
 
+import { useState } from "react";
 import { Link } from "wouter";
 import { 
   TrendingUp, 
@@ -20,7 +21,8 @@ import {
   Mail,
   Calendar,
   Search,
-  ExternalLink
+  ExternalLink,
+  Play
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -30,12 +32,35 @@ import { cn } from "@/lib/utils";
 import { LiveActivityPanel } from "@/components/live-activity-panel";
 import { useCurrentRequest } from "@/contexts/CurrentRequestContext";
 
+const SUPERVISOR_URL = import.meta.env.VITE_SUPERVISOR_URL || "http://localhost:3000";
+
 interface AgentWorkspaceProps {
   className?: string;
 }
 
 export function AgentWorkspace({ className }: AgentWorkspaceProps) {
-  const { currentClientRequestId } = useCurrentRequest();
+  const { currentClientRequestId, setCurrentClientRequestId } = useCurrentRequest();
+  const [demoStatus, setDemoStatus] = useState<string | null>(null);
+  const [demoLoading, setDemoLoading] = useState(false);
+
+  async function handleRunSupervisorDemo() {
+    setDemoLoading(true);
+    setDemoStatus(null);
+    try {
+      const res = await fetch(`${SUPERVISOR_URL}/api/debug/demo-plan-run`, { method: "POST" });
+      if (!res.ok) throw new Error(`Supervisor responded ${res.status}`);
+      const data = await res.json();
+      const id = data.clientRequestId;
+      if (!id) throw new Error("No clientRequestId in response");
+      setCurrentClientRequestId(id);
+      setDemoStatus(`Following ${id.slice(0, 8)}…`);
+    } catch (err: any) {
+      setDemoStatus(`Error: ${err.message}`);
+    } finally {
+      setDemoLoading(false);
+    }
+  }
+
   // Mock data - these would come from real API calls
   const activitySummary = {
     leadsFound: 0,
@@ -72,11 +97,25 @@ export function AgentWorkspace({ className }: AgentWorkspaceProps) {
               What your AI sales agent has been working on
             </p>
           </div>
-          <Badge variant="secondary" className="text-xs">
-            <Zap className="w-3 h-3 mr-1" />
-            24/7 Active
-          </Badge>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleRunSupervisorDemo}
+              disabled={demoLoading}
+            >
+              <Play className="w-3 h-3 mr-1" />
+              {demoLoading ? "Starting…" : "Run Supervisor Demo"}
+            </Button>
+            <Badge variant="secondary" className="text-xs">
+              <Zap className="w-3 h-3 mr-1" />
+              24/7 Active
+            </Badge>
+          </div>
         </div>
+        {demoStatus && (
+          <p className="text-xs text-muted-foreground mt-2">{demoStatus}</p>
+        )}
       </div>
 
       <ScrollArea className="flex-1">
