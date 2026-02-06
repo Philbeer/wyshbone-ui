@@ -1,6 +1,7 @@
 import { createContext, useContext, ReactNode } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useUser } from "@/contexts/UserContext";
+import { useCurrentRequest } from "@/contexts/CurrentRequestContext";
 import { apiRequest, handleApiError } from "@/lib/queryClient";
 import { publishEvent } from "@/lib/events";
 import { getCurrentVerticalId } from "@/contexts/VerticalContext";
@@ -46,6 +47,7 @@ const PlanContext = createContext<PlanContextValue | undefined>(undefined);
 export function PlanProvider({ children }: { children: ReactNode }) {
   const { user } = useUser();
   const queryClient = useQueryClient();
+  const { setCurrentClientRequestId } = useCurrentRequest();
 
   // Fetch current plan from backend - expose raw data, no overrides
   const { data: plan, isLoading, error } = useQuery<LeadGenPlan | null>({
@@ -94,9 +96,13 @@ export function PlanProvider({ children }: { children: ReactNode }) {
   // Mutation to approve a plan
   const approveMutation = useMutation({
     mutationFn: async (planId: string) => {
-      console.log(`[PLAN_CONTEXT] Calling POST /api/plan/approve for planId=${planId}`);
+      const clientRequestId = crypto.randomUUID();
+      console.log(`[PLAN_CONTEXT] Calling POST /api/plan/approve for planId=${planId}, clientRequestId=${clientRequestId.slice(0, 8)}...`);
       
-      const response = await apiRequest("POST", "/api/plan/approve", { planId });
+      // Set clientRequestId in context BEFORE the API call so LiveActivityPanel starts polling immediately
+      setCurrentClientRequestId(clientRequestId);
+      
+      const response = await apiRequest("POST", "/api/plan/approve", { planId, clientRequestId });
       
       // Check HTTP status first
       if (!response.ok) {
@@ -115,8 +121,8 @@ export function PlanProvider({ children }: { children: ReactNode }) {
       
       // Accept response if ok OR success is true (backwards compatibility)
       if (data.ok || data.success) {
-        console.log(`✅ [PLAN_CONTEXT] Approval successful`);
-        return { data, planId, success: true };
+        console.log(`✅ [PLAN_CONTEXT] Approval successful, LiveActivityPanel polling with clientRequestId=${clientRequestId.slice(0, 8)}...`);
+        return { data, planId, clientRequestId, success: true };
       }
       
       // If we got here, response was 200 but body indicates failure
@@ -138,6 +144,7 @@ export function PlanProvider({ children }: { children: ReactNode }) {
     },
     onError: (error) => {
       console.error(`❌ [PLAN_CONTEXT] Approve plan failed:`, error);
+      setCurrentClientRequestId(null);
       handleApiError(error, "approve plan");
     },
   });

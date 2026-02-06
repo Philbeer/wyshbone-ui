@@ -4411,13 +4411,16 @@ CRITICAL RULES:
     console.log(`📥 [APPROVE_API] Body:`, JSON.stringify(req.body || {}));
     
     try {
-      const { planId } = req.body || {};
+      const { planId, clientRequestId } = req.body || {};
       
       // Validate planId first (before auth, so we can give a clear error)
       if (!planId) {
         console.log(`❌ [APPROVE_API] Missing planId in request body`);
         return res.status(400).json({ error: "Plan ID is required", ok: false });
       }
+      
+      console.log(`📥 [APPROVE_API] clientRequestId: ${clientRequestId || '(none)'}`);
+
       
       const auth = await getAuthenticatedUserId(req);
       if (!auth) {
@@ -4530,7 +4533,7 @@ CRITICAL RULES:
             
             // FALLBACK: Run local execution
             try {
-              await startPlanExecution(approvedPlan);
+              await startPlanExecution(approvedPlan, clientRequestId);
               console.log(`✅ [APPROVE] Fallback local execution completed for plan ${planId}`);
             } catch (executionError: any) {
               console.error(`❌ [APPROVE] Fallback execution also failed: ${executionError.message}`);
@@ -4550,7 +4553,7 @@ CRITICAL RULES:
           console.log(`\n🏃 [APPROVE_API] Starting async execution for plan ${planId}...`);
           
           try {
-            await startPlanExecution(approvedPlan);
+            await startPlanExecution(approvedPlan, clientRequestId);
             console.log(`✅ [APPROVE_API] Async execution completed for plan ${planId}`);
           } catch (executionError: any) {
             console.error(`❌ [APPROVE_API] Async execution failed for plan ${planId}:`, executionError.message);

@@ -29,6 +29,7 @@ import { logPlanEvent } from './lib/activity-logger.js';
 import { persistLeadsToSupabase, type LeadToUpsert } from './supabase-client.js';
 import { updateStepProgress, updatePlanStatus as persistPlanStatus, getPlanExecutionStatus } from './leadgen-plan.js';
 import { isDemoMode } from './demo-config.js';
+import { runManager } from './lib/run-manager.js';
 import { 
   debugOnExecutionStart, 
   debugOnStepProgress, 
@@ -51,6 +52,8 @@ export interface PlanExecution {
   planId: string;
   sessionId: string;
   conversationId?: string;
+  clientRequestId?: string;
+  agentRunId?: string;
   goal: string;
   steps: LeadGenStep[];
   currentStepIndex: number;
@@ -67,21 +70,48 @@ const executions = new Map<string, PlanExecution>();
 /**
  * Start executing an approved plan
  */
-export async function startPlanExecution(plan: LeadGenPlan): Promise<PlanExecution> {
+export async function startPlanExecution(plan: LeadGenPlan, clientRequestId?: string): Promise<PlanExecution> {
   console.log(`\n${'='.repeat(60)}`);
   console.log(`🚀 [PLAN_EXEC] Starting execution for plan ${plan.id}`);
   console.log(`   Goal: ${plan.goal}`);
   console.log(`   Steps: ${plan.steps.map(s => s.type).join(' → ')}`);
   console.log(`   UserId: ${plan.userId}`);
+  console.log(`   ClientRequestId: ${clientRequestId || '(none)'}`);
   console.log(`${'='.repeat(60)}\n`);
   
   const startTime = Date.now();
+  
+  // Create an agent_run record so LiveActivityPanel can track this execution
+  let agentRunId: string | undefined;
+  if (clientRequestId) {
+    try {
+      const agentRun = await runManager.getOrCreateRun({
+        clientRequestId,
+        userId: plan.userId,
+        conversationId: plan.conversationId,
+        metadata: {
+          label: `Plan: ${plan.goal.substring(0, 80)}`,
+          planId: plan.id,
+          stepCount: plan.steps.length,
+          userMessage: plan.goal,
+          userMessagePreview: plan.goal.substring(0, 100),
+        },
+      });
+      agentRunId = agentRun.id;
+      await runManager.transitionTo(agentRun.id, 'executing');
+      console.log(`🏃 [PLAN_EXEC] Created agent_run ${agentRunId} for clientRequestId ${clientRequestId.slice(0, 8)}...`);
+    } catch (err: any) {
+      console.warn(`[PLAN_EXEC] Failed to create agent_run:`, err.message);
+    }
+  }
   
   // Initialize execution state
   const execution: PlanExecution = {
     planId: plan.id,
     sessionId: plan.sessionId,
     conversationId: plan.conversationId,
+    clientRequestId,
+    agentRunId,
     goal: plan.goal,
     steps: plan.steps,
     currentStepIndex: 0,
@@ -105,14 +135,16 @@ export async function startPlanExecution(plan: LeadGenPlan): Promise<PlanExecuti
     planId: plan.id,
     status: 'started',
     label: `Plan execution started: ${plan.goal.substring(0, 80)}`,
-    metadata: { stepCount: plan.steps.length }
+    metadata: { stepCount: plan.steps.length },
+    clientRequestId,
+    conversationId: plan.conversationId,
   }).catch(err => console.warn('[AFR] Plan execution log failed:', err.message));
   
   // Log plan start to Tower (non-blocking)
   logPlanExecutionToTower({
     planId: plan.id,
     userId: plan.userId,
-    userEmail: '', // Will be filled by Tower from userId lookup
+    userEmail: '',
     goal: plan.goal,
     status: 'started',
     steps: plan.steps.map(s => ({ id: s.id, label: s.label, status: 'pending' })),
@@ -134,13 +166,16 @@ export async function startPlanExecution(plan: LeadGenPlan): Promise<PlanExecuti
  * Background executor that processes steps sequentially
  */
 async function executeStepsInBackground(execution: PlanExecution, startTime: number = Date.now()): Promise<void> {
-  console.log(`⚙️ Background executor started for plan ${execution.planId}`);
+  console.log(`⚙️ Background executor started for plan ${execution.planId} (clientRequestId: ${execution.clientRequestId?.slice(0, 8) || 'none'})`);
   
   // Import updatePlanStatus to persist state back to leadgen-plan
   const { updatePlanStatus, getPlanById } = await import('./leadgen-plan.js');
   
   // Get plan for userId (needed for Tower logging)
   const plan = await getPlanById(execution.planId);
+  
+  const crid = execution.clientRequestId;
+  const convId = execution.conversationId;
   
   for (let i = 0; i < execution.steps.length; i++) {
     const step = execution.steps[i];
@@ -162,6 +197,25 @@ async function executeStepsInBackground(execution: PlanExecution, startTime: num
     
     // Update debug state for step start
     debugOnStepProgress(execution.planId, step.label, 'running');
+    
+    // Log step start to AFR
+    if (plan) {
+      logPlanEvent({
+        userId: plan.userId,
+        planId: execution.planId,
+        status: 'started',
+        label: `Step ${i + 1}/${execution.steps.length}: ${step.label}`,
+        stepInfo: { stepId: step.id, stepLabel: step.label },
+        metadata: { stepIndex: i, stepType: step.type },
+        clientRequestId: crid,
+        conversationId: convId,
+      }).catch(err => console.warn('[AFR] Step start log failed:', err.message));
+    }
+    
+    // Keep agent_run heartbeat alive
+    if (execution.agentRunId) {
+      runManager.recordEventTime(execution.agentRunId).catch(() => {});
+    }
     
     try {
       // Execute the step
@@ -186,6 +240,20 @@ async function executeStepsInBackground(execution: PlanExecution, startTime: num
       
       // Update debug state for step completion
       debugOnStepProgress(execution.planId, step.label, 'completed');
+      
+      // Log step completion to AFR
+      if (plan) {
+        logPlanEvent({
+          userId: plan.userId,
+          planId: execution.planId,
+          status: 'completed',
+          label: `Step ${i + 1}/${execution.steps.length} completed: ${step.label}`,
+          stepInfo: { stepId: step.id, stepLabel: step.label },
+          metadata: { stepIndex: i, stepType: step.type, leadsCreated },
+          clientRequestId: crid,
+          conversationId: convId,
+        }).catch(err => console.warn('[AFR] Step completion log failed:', err.message));
+      }
       
       console.log(`✅ [PLAN_EXEC] Completed step ${i + 1}/${execution.steps.length}: ${step.label}`);
     } catch (error: any) {
@@ -220,6 +288,11 @@ async function executeStepsInBackground(execution: PlanExecution, startTime: num
       // Persist failure status back to plan
       await persistPlanStatus(execution.planId, 'failed');
       
+      // Mark agent_run as failed
+      if (execution.agentRunId) {
+        runManager.failRun(execution.agentRunId, execution.error || 'Plan execution failed').catch(() => {});
+      }
+      
       // Log failure to Tower
       if (plan) {
         logPlanExecutionToTower({
@@ -246,7 +319,9 @@ async function executeStepsInBackground(execution: PlanExecution, startTime: num
           status: 'failed',
           label: `Plan execution failed: ${execution.error?.substring(0, 80)}`,
           error: execution.error,
-          metadata: { stepsFailed: i + 1, totalSteps: execution.steps.length }
+          metadata: { stepsFailed: i + 1, totalSteps: execution.steps.length },
+          clientRequestId: crid,
+          conversationId: convId,
         }).catch(err => console.warn('[AFR] Plan failure log failed:', err.message));
       }
       
@@ -265,6 +340,11 @@ async function executeStepsInBackground(execution: PlanExecution, startTime: num
   
   // Persist completion status back to plan (crash-safe)
   await persistPlanStatus(execution.planId, 'completed');
+  
+  // Mark agent_run as completed
+  if (execution.agentRunId) {
+    runManager.completeRun(execution.agentRunId).catch(() => {});
+  }
   
   // Log success to Tower
   if (plan) {
@@ -289,7 +369,9 @@ async function executeStepsInBackground(execution: PlanExecution, startTime: num
       planId: execution.planId,
       status: 'completed',
       label: `Plan execution completed: ${execution.goal.substring(0, 80)}`,
-      metadata: { totalSteps: execution.steps.length, durationMs: Date.now() - startTime }
+      metadata: { totalSteps: execution.steps.length, durationMs: Date.now() - startTime },
+      clientRequestId: crid,
+      conversationId: convId,
     }).catch(err => console.warn('[AFR] Plan success log failed:', err.message));
   }
   
