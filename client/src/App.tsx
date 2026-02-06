@@ -6,7 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { SidebarProvider, SidebarTrigger, useSidebar } from "@/components/ui/sidebar";
 import { AppSidebar, type RunItem } from "@/components/app-sidebar";
 import { HeaderCountrySelector } from "@/components/HeaderCountrySelector";
-import { Moon, Sun, FilePlus, ExternalLink } from "lucide-react";
+import { Moon, Sun, FilePlus, ExternalLink, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import ChatPage from "@/pages/chat";
 import DebugPage from "@/pages/debug";
@@ -732,7 +732,29 @@ function DevInfoBadge() {
  */
 function RightPanelContent() {
   const { isOpen, currentResult } = useResultsPanel();
-  const { currentClientRequestId } = useCurrentRequest();
+  const { currentClientRequestId, setCurrentClientRequestId } = useCurrentRequest();
+  const [demoLoading, setDemoLoading] = useState(false);
+  const [demoStatus, setDemoStatus] = useState<string | null>(null);
+
+  const supervisorUrl = (import.meta as any).env?.VITE_SUPERVISOR_URL || "http://localhost:3000";
+
+  async function handleRunSupervisorDemo() {
+    setDemoLoading(true);
+    setDemoStatus(null);
+    try {
+      const res = await fetch(`${supervisorUrl}/api/debug/demo-plan-run`, { method: "POST" });
+      if (!res.ok) throw new Error(`Supervisor responded ${res.status}`);
+      const data = await res.json();
+      const id = data.clientRequestId;
+      if (!id) throw new Error("No clientRequestId in response");
+      setCurrentClientRequestId(id);
+      setDemoStatus(`Following ${id.slice(0, 8)}…`);
+    } catch (err: any) {
+      setDemoStatus(`Error: ${err.message}`);
+    } finally {
+      setDemoLoading(false);
+    }
+  }
   
   // If results panel is open, show it
   if (isOpen && currentResult) {
@@ -746,6 +768,20 @@ function RightPanelContent() {
   // Otherwise show the default run/progress panels
   return (
     <div className="p-4 flex flex-col gap-4 overflow-y-auto h-full">
+      <div className="flex items-center gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleRunSupervisorDemo}
+          disabled={demoLoading}
+        >
+          <Play className="w-3 h-3 mr-1" />
+          {demoLoading ? "Starting…" : "Run Supervisor Demo"}
+        </Button>
+        {demoStatus && (
+          <span className="text-xs text-muted-foreground">{demoStatus}</span>
+        )}
+      </div>
       <LiveActivityPanel activeClientRequestId={currentClientRequestId} />
     </div>
   );
