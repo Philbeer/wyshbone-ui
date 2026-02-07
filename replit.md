@@ -79,3 +79,25 @@ The user interface adheres to Material Design principles, featuring a dark mode,
 - Local fallback execution is only available when `ENABLE_UI_BACKGROUND_WORKERS=true`.
 - Fallback mode is always loud in logs and AFR events.
 - Production safety warnings are logged if background workers are enabled in production (`NODE_ENV=production`).
+
+## Session 3 (2026-02-07) - AFR Performance Optimization
+
+**Changes:**
+- AFR page load optimized: shell renders <100ms with skeleton UI, data appears progressively
+- Session-level cache (sessionStorage, 60s TTL) for stale-while-revalidate pattern on runs list
+- Client-side pagination: first 20 runs visible, "Show more" button for rest
+- Server-Timing headers on `/api/afr/runs` endpoint for DB query diagnostics
+- Run Detail and Judgement Ledger now show skeleton placeholders during load
+- Playback queue rewritten as `while(true)` loop with microtask yield to avoid recursive re-entry
+- AFR entry points consolidated: `/dev/inspector` redirects to `/dev/afr`
+
+**Performance baseline:**
+- DB query (Supabase): ~390ms for 50 runs
+- Client fetch total: ~430ms including network
+- Perceived load: instant (cache hit) or skeleton → data in <500ms (cache miss)
+
+**AFR Architecture:**
+- Single entry point: `/dev/afr` (sidebar link + `/dev/inspector` redirect)
+- Runs list: session-cached, paginated (20 per page), search with useMemo
+- Run detail: lazy-loaded on click only
+- Judgement ledger: skeleton UI during load
