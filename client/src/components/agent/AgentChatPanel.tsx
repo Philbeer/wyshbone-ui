@@ -27,6 +27,7 @@ import { cn } from "@/lib/utils";
 import { useUser } from "@/contexts/UserContext";
 import wyshboneLogo from "@assets/wyshbone-logo_1759667581806.png";
 import { buildApiUrl, addDevAuthParams } from "@/lib/queryClient";
+import { LayoutToggle } from "@/components/LayoutToggle";
 
 // =============================================================================
 // TYPES
@@ -290,15 +291,18 @@ Please check:
             </div>
             <AgentStatusBadge status={status} className="text-xs" />
           </div>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={handleClearHistory}
-            title="Clear conversation"
-            className="h-8 w-8"
-          >
-            <RefreshCw className="w-4 h-4" />
-          </Button>
+          <div className="flex items-center gap-1">
+            <LayoutToggle variant="inline" />
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={handleClearHistory}
+              title="Clear conversation"
+              className="h-8 w-8"
+            >
+              <RefreshCw className="w-4 h-4" />
+            </Button>
+          </div>
         </div>
       </div>
 

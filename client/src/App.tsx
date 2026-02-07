@@ -660,7 +660,6 @@ function LayoutSwitcher(props: any) {
           handleNewChat={props.handleNewChat}
           handleLoadConversation={props.handleLoadConversation}
         />
-        <LayoutToggle />
       </>
     );
   }
@@ -690,7 +689,6 @@ function LayoutSwitcher(props: any) {
         />
         <CountryHint />
       </SidebarProvider>
-      <LayoutToggle />
     </>
   );
 }
@@ -772,10 +770,9 @@ function RightPanelContent() {
     );
   }
   
-  // Otherwise show the default run/progress panels
   return (
-    <div className="p-4 flex flex-col gap-4 overflow-y-auto h-full">
-      <div className="flex items-center gap-2">
+    <div className="p-4 flex flex-col gap-4 h-full min-h-0">
+      <div className="flex items-center gap-2 shrink-0">
         <Button
           variant="outline"
           size="sm"
@@ -977,6 +974,7 @@ function AppLayout({
             style={{ marginRight: userMenuMargin }}
           >
             <VerticalIndicator />
+            <LayoutToggle variant="inline" />
             <XeroStatusBadge className="mr-1" />
             <DevInfoBadge />
             <AgentStatusBadgeWrapper />

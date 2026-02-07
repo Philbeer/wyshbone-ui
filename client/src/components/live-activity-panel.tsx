@@ -56,7 +56,8 @@ function ThinkingIndicator({ variant = "inline" }: { variant?: "inline" | "foote
   
   return (
     <div className="relative pb-4">
-      <span className="absolute left-[7px] top-0 -ml-px h-full w-0.5 bg-border" aria-hidden="true" />
+      <span className="absolute left-[7px] top-0 -ml-px h-[1.5rem] w-0.5 bg-border" aria-hidden="true" />
+      <span className="absolute left-[7px] top-6 bottom-0 -ml-px w-0.5 bg-border" aria-hidden="true" />
       <div className="relative flex items-start gap-3">
         <div className="flex h-4 items-center">
           <Sparkles className="h-4 w-4 text-muted-foreground/50 animate-pulse" />
@@ -347,7 +348,7 @@ function isMessageReceivedRow(event: StreamEvent): boolean {
     summary.startsWith('Message received:');
 }
 
-function TimelineEvent({ event, isLast, isTerminal }: { event: StreamEvent; isLast: boolean; isTerminal: boolean }) {
+function TimelineEvent({ event, isFirst = false, isLast, isTerminal }: { event: StreamEvent; isFirst?: boolean; isLast: boolean; isTerminal: boolean }) {
   const [expanded, setExpanded] = useState(false);
   const hasDetails = event.details && (
     event.details.error || 
@@ -367,8 +368,11 @@ function TimelineEvent({ event, isLast, isTerminal }: { event: StreamEvent; isLa
 
   return (
     <div className={cn("relative", noConnector ? "pb-2" : "pb-4")}>
+      {!isFirst && (
+        <span className="absolute left-[7px] top-0 -ml-px h-[1.5rem] w-0.5 bg-border" aria-hidden="true" />
+      )}
       {!noConnector && (
-        <span className="absolute left-[7px] top-6 -ml-px h-full w-0.5 bg-border" aria-hidden="true" />
+        <span className="absolute left-[7px] top-6 bottom-0 -ml-px w-0.5 bg-border" aria-hidden="true" />
       )}
       <div className="relative flex items-start gap-3">
         <div className="flex h-4 items-center shrink-0">
@@ -580,7 +584,8 @@ function TransientPhaseRow({ phase }: { phase: PlaybackPhase }) {
   if (phase === 'thinking') {
     return (
       <div className="relative pb-4">
-        <span className="absolute left-[7px] top-0 -ml-px h-full w-0.5 bg-border" aria-hidden="true" />
+        <span className="absolute left-[7px] top-0 -ml-px h-[1.5rem] w-0.5 bg-border" aria-hidden="true" />
+        <span className="absolute left-[7px] top-6 bottom-0 -ml-px w-0.5 bg-border" aria-hidden="true" />
         <div className="relative flex items-start gap-3">
           <div className="flex h-4 items-center">
             <Sparkles className="h-4 w-4 text-muted-foreground/50 animate-pulse" />
@@ -595,7 +600,8 @@ function TransientPhaseRow({ phase }: { phase: PlaybackPhase }) {
 
   return (
     <div className="relative pb-4">
-      <span className="absolute left-[7px] top-0 -ml-px h-full w-0.5 bg-border" aria-hidden="true" />
+      <span className="absolute left-[7px] top-0 -ml-px h-[1.5rem] w-0.5 bg-border" aria-hidden="true" />
+      <span className="absolute left-[7px] top-6 bottom-0 -ml-px w-0.5 bg-border" aria-hidden="true" />
       <div className="relative flex items-start gap-3">
         <div className="flex h-4 items-center">
           <Loader2 className="h-4 w-4 text-blue-500 animate-spin" />
@@ -1119,7 +1125,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const target = e.currentTarget;
-    const nearBottom = target.scrollHeight - target.scrollTop - target.clientHeight < 120;
+    const nearBottom = target.scrollHeight - target.scrollTop - target.clientHeight < 80;
     nearBottomRef.current = nearBottom;
     setAutoScroll(nearBottom);
   };
@@ -1203,14 +1209,14 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
 
   if (loading) {
     return (
-      <Card className="flex flex-col" style={{ height: '66vh', minHeight: '400px' }}>
+      <Card className="flex flex-col flex-1 min-h-0">
         <CardHeader className="pb-2 shrink-0">
           <CardTitle className="text-sm font-medium flex items-center gap-2">
             <Loader2 className="h-4 w-4 animate-spin" />
             Live Activity
           </CardTitle>
         </CardHeader>
-        <CardContent className="flex-1 flex items-center justify-center">
+        <CardContent className="flex-1 flex items-center justify-center min-h-0">
           <div className="text-sm text-muted-foreground">Loading activity stream...</div>
         </CardContent>
       </Card>
@@ -1219,7 +1225,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
 
   if (error) {
     return (
-      <Card className="flex flex-col" style={{ height: '66vh', minHeight: '400px' }}>
+      <Card className="flex flex-col flex-1 min-h-0">
         <CardHeader className="pb-2 shrink-0">
           <CardTitle className="text-sm font-medium">Live Activity</CardTitle>
         </CardHeader>
@@ -1238,7 +1244,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
   const hasEvents = events.length > 0;
 
   return (
-    <Card className="flex flex-col" style={{ height: '66vh', minHeight: '400px' }}>
+    <Card className="flex flex-col flex-1 min-h-0">
       <CardHeader className="pb-2 shrink-0">
         <div className="flex items-center justify-between">
           <CardTitle className="text-sm font-medium">Live Activity</CardTitle>
@@ -1316,11 +1322,12 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
           <div 
             ref={scrollRef}
             className={cn(
-              "h-full overflow-y-auto px-4 py-2 transition-opacity duration-200",
+              "h-full overflow-y-auto transition-opacity duration-200",
               showOverlay && "opacity-0"
             )}
             onScroll={handleScroll}
           >
+            <div className="min-h-full flex flex-col justify-end px-4 py-2">
             {events.map((event: StreamEvent, index: number) => {
               const isLastEvent = index === events.length - 1;
               const last = isLastEvent && effectiveTerminal && !transientPhase;
@@ -1329,6 +1336,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
                 <TimelineEvent 
                   key={event.id} 
                   event={event} 
+                  isFirst={index === 0}
                   isLast={last}
                   isTerminal={terminal}
                 />
@@ -1352,6 +1360,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
             )}
             
             <div ref={bottomRef} />
+            </div>
           </div>
         )}
       </CardContent>
