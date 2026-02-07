@@ -60,7 +60,7 @@ export function getSupabaseClient(): SupabaseClient | null {
   const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
   if (!supabaseUrl || !supabaseAnonKey) {
-    console.warn('⚠️ Supabase not configured - Supervisor features disabled');
+    console.debug('ℹ️ Supabase not configured – realtime Supervisor chat disabled (activity tracking uses AFR)');
     return null;
   }
 

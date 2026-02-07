@@ -427,6 +427,92 @@ function useDemoPlaybackQueue(
   return allEvents.slice(0, revealedCount);
 }
 
+function mapActivityRunTypeToEventType(runType: string, action: string | null): string {
+  switch (runType) {
+    case 'user_message':
+      return 'user_message_received';
+    case 'router':
+    case 'routing':
+      return 'router_decision';
+    case 'plan':
+    case 'planning':
+      return action?.includes('create') ? 'plan_created' :
+             action?.includes('approve') ? 'plan_approved' :
+             action?.includes('reject') ? 'plan_rejected' : 'plan_updated';
+    case 'tool':
+    case 'tool_call':
+      return action?.includes('complete') || action?.includes('finish') ?
+             'tool_call_completed' : 'tool_call_started';
+    case 'deep_research':
+      return 'deep_research_started';
+    case 'supervisor':
+      return 'supervisor_plan';
+    case 'direct_response':
+      return 'direct_response';
+    case 'stream':
+      return 'streaming_response';
+    case 'run_completed':
+      return 'run_completed';
+    case 'run_failed':
+      return 'run_failed';
+    default:
+      return action || 'unknown_event';
+  }
+}
+
+function buildActivitySummary(runType: string, action: string | null, label: string | null): string {
+  switch (runType) {
+    case 'user_message':
+      return `Message received: "${label?.slice(0, 60) || 'User message'}${label && label.length > 60 ? '...' : ''}"`;
+    case 'router':
+    case 'routing':
+      return `Router decision: ${action || 'processing'}`;
+    case 'plan':
+    case 'planning':
+      if (action?.includes('create')) return 'Created execution plan';
+      if (action?.includes('approve')) return 'Plan approved by user';
+      if (action?.includes('reject')) return 'Plan rejected by user';
+      return label?.slice(0, 80) || `Plan: ${action || 'updating'}`;
+    case 'tool':
+    case 'tool_call':
+      return action?.includes('complete') || action?.includes('finish') ?
+        `Completed: ${action?.replace(/_/g, ' ') || 'Tool'}` :
+        `Started: ${action?.replace(/_/g, ' ') || 'Tool'}`;
+    case 'deep_research':
+      return `Deep research: ${label?.slice(0, 50) || 'analyzing'}`;
+    case 'supervisor':
+      return 'Supervisor creating plan';
+    case 'direct_response':
+      return 'Direct response (no tools needed)';
+    case 'stream':
+      return 'Streaming AI response';
+    case 'run_completed':
+      return label || 'Run completed';
+    case 'run_failed':
+      return label || 'Run failed';
+    default:
+      return label?.slice(0, 60) || action || 'Processing';
+  }
+}
+
+function mapActivityStatus(status: string | null): 'pending' | 'running' | 'completed' | 'failed' {
+  switch (status) {
+    case 'success':
+    case 'completed':
+      return 'completed';
+    case 'failed':
+    case 'error':
+      return 'failed';
+    case 'pending':
+      return 'pending';
+    case 'running':
+    case 'in_progress':
+      return 'running';
+    default:
+      return 'pending';
+  }
+}
+
 interface LiveActivityPanelProps {
   activeClientRequestId?: string | null;
   onRequestIdChange?: (id: string | null) => void;
@@ -495,6 +581,73 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
       }
       
       const data: StreamResponse = await response.json();
+
+      const streamHasNoEvents = data.events.length === 0;
+      const streamHasPartialEvents = data.events.length > 0 && data.events.every(e => !e.client_request_id);
+      if ((streamHasNoEvents || streamHasPartialEvents) && user?.id && activeClientRequestId) {
+        try {
+          const actParams = new URLSearchParams();
+          actParams.set('userId', user.id);
+          actParams.set('limit', '200');
+          const actRes = await fetch(`/api/afr/activities?${actParams.toString()}`);
+          if (actRes.ok) {
+            const actData = await actRes.json();
+            const activities: any[] = actData.activities || [];
+
+            let matched: any[] = [];
+            matched = activities.filter((a: any) => a.clientRequestId === activeClientRequestId);
+            if (matched.length === 0 && data.run_id) {
+              matched = activities.filter((a: any) => a.runId === data.run_id);
+            }
+            if (matched.length === 0) {
+              const lastEventTs = data.last_event_at ? new Date(data.last_event_at).getTime() : 0;
+              const lastUpdatedTs = data.last_updated ? new Date(data.last_updated).getTime() : 0;
+              const anchor = lastEventTs || lastUpdatedTs;
+              if (anchor > 0) {
+                const windowMs = 300000;
+                matched = activities.filter((a: any) => {
+                  if (a.clientRequestId && a.clientRequestId !== activeClientRequestId) return false;
+                  const ts = new Date(a.timestamp).getTime();
+                  return ts >= anchor - windowMs && ts <= anchor + 30000;
+                });
+              }
+            }
+
+            if (matched.length > 0) {
+              const existingIds = new Set(data.events.map(e => e.id));
+              const mappedEvents: StreamEvent[] = matched
+                .filter((a: any) => !existingIds.has(a.id))
+                .sort((a: any, b: any) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+                .map((a: any) => ({
+                  id: a.id,
+                  ts: a.timestamp,
+                  type: mapActivityRunTypeToEventType(a.runType, a.action),
+                  summary: buildActivitySummary(a.runType, a.action, a.label),
+                  details: {
+                    runType: a.runType,
+                    action: a.action,
+                    task: a.label,
+                    error: a.error,
+                    durationMs: a.durationMs,
+                    results: null,
+                  },
+                  status: mapActivityStatus(a.status),
+                  run_id: a.runId || null,
+                  client_request_id: a.clientRequestId || activeClientRequestId,
+                  router_decision: a.routerDecision || null,
+                  router_reason: a.routerReason || null,
+                }));
+              const merged = [...data.events, ...mappedEvents]
+                .sort((a, b) => new Date(a.ts).getTime() - new Date(b.ts).getTime());
+              data.events = merged;
+              data.event_count = merged.length;
+            }
+          }
+        } catch (actErr) {
+          if (IS_DEV) console.warn('[LiveActivityPanel] Activities fallback error:', actErr);
+        }
+      }
+
       setStream(data);
       setError(null);
       setLastFetch(new Date());
