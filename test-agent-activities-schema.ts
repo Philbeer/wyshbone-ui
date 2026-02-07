@@ -11,8 +11,9 @@ dotenv.config();
 const { Pool } = pg;
 
 async function testSchema() {
+  // Supabase is the only supported database.
   const pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
+    connectionString: process.env.SUPABASE_DATABASE_URL,
   });
 
   try {

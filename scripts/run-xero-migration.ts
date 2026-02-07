@@ -14,10 +14,11 @@ const __dirname = dirname(__filename);
 // Load env from repo root
 config({ path: resolve(__dirname, '..', '.env.local') });
 
-const DATABASE_URL = process.env.DATABASE_URL;
+// Supabase is the only supported database.
+const DATABASE_URL = process.env.SUPABASE_DATABASE_URL;
 
 if (!DATABASE_URL) {
-  console.error('❌ DATABASE_URL not set');
+  console.error('❌ SUPABASE_DATABASE_URL not set');
   process.exit(1);
 }
 

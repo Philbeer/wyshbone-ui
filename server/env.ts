@@ -70,9 +70,10 @@ function loadEnv(): EnvLoadResult {
 
 /**
  * Required environment variables for the backend
+ * Supabase is the only supported database.
  */
 const REQUIRED_ENV_VARS = [
-  'DATABASE_URL',
+  'SUPABASE_DATABASE_URL',
   'SUPABASE_URL',
   'SUPABASE_SERVICE_ROLE_KEY',
   'GOOGLE_PLACES_API_KEY',
@@ -174,6 +175,15 @@ console.log(`${'='.repeat(60)}\n`);
 // Handle missing required vars
 const isDev = process.env.NODE_ENV === 'development';
 
+// Supabase is the only supported database. Fatal error if SUPABASE_DATABASE_URL is missing.
+if (!process.env.SUPABASE_DATABASE_URL || process.env.SUPABASE_DATABASE_URL.trim() === '') {
+  console.error(`\n${'!'.repeat(60)}`);
+  console.error('❌ FATAL: SUPABASE_DATABASE_URL is not set or empty.');
+  console.error('   Supabase is the only supported database. No fallbacks.');
+  console.error(`${'!'.repeat(60)}\n`);
+  process.exit(1);
+}
+
 if (!validation.valid) {
   console.error(`\n${'!'.repeat(60)}`);
   console.error(`❌ ${isDev ? 'WARNING' : 'FATAL'}: Missing required environment variables:`);
@@ -186,7 +196,7 @@ if (!validation.valid) {
   console.error(`   2. Add the missing variables to .env.local`);
   console.error(`   3. Restart the server`);
   console.error(`\nExample .env.local:`);
-  console.error(`   DATABASE_URL=postgres://...`);
+  console.error(`   SUPABASE_DATABASE_URL=postgres://postgres.xxxx:password@aws-0-region.pooler.supabase.com:6543/postgres`);
   console.error(`   SUPABASE_URL=https://xxx.supabase.co`);
   console.error(`   SUPABASE_SERVICE_ROLE_KEY=eyJ...`);
   console.error(`   GOOGLE_PLACES_API_KEY=AIza...`);

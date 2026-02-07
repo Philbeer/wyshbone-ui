@@ -1488,10 +1488,10 @@ console.log('='.repeat(60));
 console.log('🗄️  DATABASE CONNECTION INFO (Supabase Only)');
 console.log(`   Host: ${dbInfo.host}`);
 console.log(`   Database: ${dbInfo.database}`);
-console.log(`   Is Supabase: ${dbInfo.isSupabase ? '✅ YES' : '⚠️ NO (verify your DATABASE_URL)'}`);
+console.log(`   Is Supabase: ${dbInfo.isSupabase ? '✅ YES' : '⚠️ NO (verify SUPABASE_DATABASE_URL)'}`);
 if (!dbInfo.isSupabase) {
-  console.log('   ⚠️  WARNING: DATABASE_URL does not appear to be a Supabase URL!');
-  console.log('   ⚠️  Make sure DATABASE_URL points to your Supabase Postgres instance.');
+  console.log('   ⚠️  WARNING: SUPABASE_DATABASE_URL does not appear to be a Supabase URL!');
+  console.log('   ⚠️  Make sure SUPABASE_DATABASE_URL points to your Supabase Postgres instance.');
 }
 console.log('='.repeat(60));
 console.log('');

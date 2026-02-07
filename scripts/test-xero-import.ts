@@ -43,8 +43,9 @@ import {
 // Load environment
 config({ path: '.env.local' });
 
-if (!process.env.DATABASE_URL) {
-  console.error('❌ DATABASE_URL not set. Create .env.local with your database connection.');
+// Supabase is the only supported database.
+if (!process.env.SUPABASE_DATABASE_URL) {
+  console.error('❌ SUPABASE_DATABASE_URL not set. Create .env.local with your Supabase connection.');
   process.exit(1);
 }
 
@@ -53,7 +54,7 @@ if (!process.env.ANTHROPIC_API_KEY) {
   process.exit(1);
 }
 
-const queryClient = postgres(process.env.DATABASE_URL);
+const queryClient = postgres(process.env.SUPABASE_DATABASE_URL);
 const db = drizzle(queryClient);
 
 // Test workspace ID

@@ -1,7 +1,10 @@
 import postgres from 'postgres';
 
-const DATABASE_URL = process.env.DATABASE_URL || "postgresql://postgres.zipsbmldjxytzowmmohu:Moby2014Moby2014Lister@aws-1-eu-west-2.pooler.supabase.com:6543/postgres";
-const client = postgres(DATABASE_URL);
+// Supabase is the only supported database.
+if (!process.env.SUPABASE_DATABASE_URL) {
+  throw new Error('SUPABASE_DATABASE_URL environment variable is required');
+}
+const client = postgres(process.env.SUPABASE_DATABASE_URL);
 
 const result = await client`
   SELECT id, status, error_message, processed_records, failed_records, total_records, created_at

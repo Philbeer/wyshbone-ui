@@ -2,8 +2,11 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 import { brewProducts } from './shared/schema.js';
 
-const DATABASE_URL = "postgresql://postgres.zipsbmldjxytzowmmohu:Moby2014Moby2014Lister@aws-1-eu-west-2.pooler.supabase.com:6543/postgres";
-const client = postgres(DATABASE_URL);
+// Supabase is the only supported database.
+if (!process.env.SUPABASE_DATABASE_URL) {
+  throw new Error('SUPABASE_DATABASE_URL environment variable is required');
+}
+const client = postgres(process.env.SUPABASE_DATABASE_URL);
 const db = drizzle(client);
 
 async function testBrewProductsSchema() {

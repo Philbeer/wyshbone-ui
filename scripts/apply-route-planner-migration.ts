@@ -7,9 +7,10 @@ import { config } from "dotenv";
 // Load .env file
 config();
 
-const DATABASE_URL = process.env.DATABASE_URL;
+// Supabase is the only supported database.
+const DATABASE_URL = process.env.SUPABASE_DATABASE_URL;
 if (!DATABASE_URL) {
-  throw new Error("DATABASE_URL environment variable is required");
+  throw new Error("SUPABASE_DATABASE_URL environment variable is required");
 }
 
 const sql = postgres(DATABASE_URL);

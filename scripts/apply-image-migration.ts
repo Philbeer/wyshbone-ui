@@ -7,10 +7,11 @@ import * as dotenv from 'dotenv';
 dotenv.config({ path: path.join(process.cwd(), '.env.local') });
 dotenv.config({ path: path.join(process.cwd(), '.env') });
 
-const DATABASE_URL = process.env.DATABASE_URL;
+// Supabase is the only supported database.
+const DATABASE_URL = process.env.SUPABASE_DATABASE_URL;
 
 if (!DATABASE_URL) {
-  console.error('❌ DATABASE_URL not found in environment');
+  console.error('❌ SUPABASE_DATABASE_URL not found in environment');
   process.exit(1);
 }
 
