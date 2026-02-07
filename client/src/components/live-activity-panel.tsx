@@ -1144,6 +1144,16 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
     setAutoScroll(nearBottom);
   };
 
+  const prevDisplayCountRef = useRef(0);
+  useEffect(() => {
+    if (displayEvents.length > prevDisplayCountRef.current && nearBottomRef.current) {
+      requestAnimationFrame(() => {
+        bottomRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' });
+      });
+    }
+    prevDisplayCountRef.current = displayEvents.length;
+  }, [displayEvents.length]);
+
   const effectiveTerminal = confirmedTerminal && !minVisibleHold && (effectiveDemoPlayback ? allRevealed : true);
 
   const mappedStatus: OverallStatus = (() => {
@@ -1193,6 +1203,14 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
     (activeClientRequestId && !effectiveTerminal) ||
     (mappedStatus !== 'idle' && mappedStatus !== 'completed' && mappedStatus !== 'failed' && mappedStatus !== 'stopped' && mappedStatus !== 'finalizing')
   );
+
+  useEffect(() => {
+    if (nearBottomRef.current && (transientPhase || showThinking || isWorking)) {
+      requestAnimationFrame(() => {
+        bottomRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' });
+      });
+    }
+  }, [transientPhase, showThinking, isWorking]);
     
   const streamEvents = stream?.events || [];
   useEffect(() => {
