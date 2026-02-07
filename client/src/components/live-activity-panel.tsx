@@ -307,6 +307,24 @@ function isTowerEvent(event: StreamEvent): boolean {
     !!(action && action.startsWith('tower_'));
 }
 
+const TERMINAL_EVENT_TYPES = new Set([
+  'run_completed',
+  'plan_execution_completed',
+  'tower_decision_stop',
+  'sequence_complete',
+  'run_failed',
+  'run_stopped',
+]);
+
+function isTerminalEvent(event: StreamEvent, index: number, events: StreamEvent[]): boolean {
+  const t = event.type?.toLowerCase() || '';
+  if (TERMINAL_EVENT_TYPES.has(t)) return true;
+  if (t.includes('completed') && index === events.length - 1) return true;
+  if (event.status === 'completed' && index === events.length - 1) return true;
+  if (event.status === 'failed' && index === events.length - 1) return true;
+  return false;
+}
+
 function ProvenanceBadge({ isTower }: { isTower: boolean }) {
   return isTower ? (
     <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300 leading-none">
@@ -319,7 +337,7 @@ function ProvenanceBadge({ isTower }: { isTower: boolean }) {
   );
 }
 
-function TimelineEvent({ event, isLast }: { event: StreamEvent; isLast: boolean }) {
+function TimelineEvent({ event, isLast, isTerminal }: { event: StreamEvent; isLast: boolean; isTerminal: boolean }) {
   const [expanded, setExpanded] = useState(false);
   const hasDetails = event.details && (
     event.details.error || 
@@ -329,6 +347,7 @@ function TimelineEvent({ event, isLast }: { event: StreamEvent; isLast: boolean 
   );
 
   const tower = isTowerEvent(event);
+  const hideConnector = isLast || isTerminal;
 
   const statusIcon = event.status === 'completed' ? '✅' :
                      event.status === 'failed' ? '❌' :
@@ -337,7 +356,7 @@ function TimelineEvent({ event, isLast }: { event: StreamEvent; isLast: boolean 
 
   return (
     <div className="relative pb-4">
-      {!isLast && (
+      {!hideConnector && (
         <span className="absolute left-[7px] top-6 -ml-px h-full w-0.5 bg-border" aria-hidden="true" />
       )}
       <div className="relative flex items-start gap-3">
@@ -1274,13 +1293,19 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
             )}
             onScroll={handleScroll}
           >
-            {events.map((event: StreamEvent, index: number) => (
-              <TimelineEvent 
-                key={event.id} 
-                event={event} 
-                isLast={index === events.length - 1 && effectiveTerminal && !transientPhase}
-              />
-            ))}
+            {events.map((event: StreamEvent, index: number) => {
+              const isLastEvent = index === events.length - 1;
+              const last = isLastEvent && effectiveTerminal && !transientPhase;
+              const terminal = isLastEvent && !transientPhase && isTerminalEvent(event, index, events);
+              return (
+                <TimelineEvent 
+                  key={event.id} 
+                  event={event} 
+                  isLast={last}
+                  isTerminal={terminal}
+                />
+              );
+            })}
             
             {transientPhase && (
               <TransientPhaseRow phase={transientPhase} />
