@@ -2,10 +2,17 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
 import { 
   RefreshCw, Clock, CheckCircle2, XCircle, Loader2, AlertTriangle, 
   MessageSquare, Route, FileSearch, Wrench, ListChecks, Play, ChevronDown, ChevronUp,
-  Zap, Brain, Send, Sparkles, Film
+  Zap, Brain, Send, Sparkles, Film, Eye
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUser } from "@/contexts/UserContext";
@@ -121,7 +128,194 @@ function StartingOverlay() {
   );
 }
 
-function SequenceStatusRow({ status }: { status: "completed" | "failed" | "stopped" }) {
+interface Artefact {
+  id: string;
+  run_id: string;
+  type: string;
+  title: string | null;
+  summary: string | null;
+  payload_json: any;
+  created_at: string;
+}
+
+interface Lead {
+  name?: string;
+  business_name?: string;
+  title?: string;
+  location?: string;
+  postcode?: string;
+  address?: string;
+  city?: string;
+  phone?: string;
+  phone_number?: string;
+  website?: string;
+  url?: string;
+  score?: number | string;
+  [key: string]: any;
+}
+
+function parsePayload(payload: any): any {
+  if (typeof payload === 'string') {
+    try { return JSON.parse(payload); } catch { return payload; }
+  }
+  return payload;
+}
+
+function tryPrettyJson(str: string): string {
+  try {
+    return JSON.stringify(JSON.parse(str), null, 2);
+  } catch {
+    return str;
+  }
+}
+
+function LeadsListTable({ payload }: { payload: any }) {
+  const parsed = parsePayload(payload);
+  const leads: Lead[] = Array.isArray(parsed)
+    ? parsed
+    : Array.isArray(parsed?.leads)
+      ? parsed.leads
+      : Array.isArray(parsed?.results)
+        ? parsed.results
+        : [];
+
+  if (leads.length === 0) {
+    return (
+      <pre className="text-xs bg-muted/50 rounded p-2 overflow-x-auto max-h-64 whitespace-pre-wrap font-mono">
+        {typeof payload === 'string' ? tryPrettyJson(payload) : JSON.stringify(payload, null, 2)}
+      </pre>
+    );
+  }
+
+  return (
+    <div className="overflow-x-auto rounded border max-h-96 overflow-y-auto">
+      <table className="w-full text-xs">
+        <thead className="bg-muted/60 sticky top-0">
+          <tr>
+            <th className="text-left px-2 py-1.5 font-medium">Name</th>
+            <th className="text-left px-2 py-1.5 font-medium">Location</th>
+            <th className="text-left px-2 py-1.5 font-medium">Phone</th>
+            <th className="text-left px-2 py-1.5 font-medium">Website</th>
+            <th className="text-left px-2 py-1.5 font-medium">Score</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y">
+          {leads.map((lead, i) => {
+            const loc = lead.location || lead.postcode || lead.address || lead.city || '-';
+            return (
+              <tr key={i} className="hover:bg-muted/20">
+                <td className="px-2 py-1.5 font-medium">{lead.name || lead.business_name || lead.title || '-'}</td>
+                <td className="px-2 py-1.5 text-muted-foreground">{loc}</td>
+                <td className="px-2 py-1.5 text-muted-foreground font-mono">{lead.phone || lead.phone_number || '-'}</td>
+                <td className="px-2 py-1.5">
+                  {(lead.website || lead.url) ? (
+                    <a
+                      href={lead.website || lead.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-500 hover:underline truncate block max-w-[180px]"
+                    >
+                      {(lead.website || lead.url || '').replace(/^https?:\/\/(www\.)?/, '')}
+                    </a>
+                  ) : '-'}
+                </td>
+                <td className="px-2 py-1.5 text-center">
+                  {lead.score != null ? (
+                    <span className="inline-block bg-primary/10 text-primary rounded px-1.5 py-0.5 font-mono text-[10px]">
+                      {lead.score}
+                    </span>
+                  ) : '-'}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function ResultsModal({ runId, open, onOpenChange }: { runId: string; open: boolean; onOpenChange: (open: boolean) => void }) {
+  const [artefact, setArtefact] = useState<Artefact | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open || !runId) return;
+    setLoading(true);
+    setError(null);
+    setArtefact(null);
+
+    fetch(`/api/afr/runs/${runId}/artefacts`)
+      .then(res => {
+        if (!res.ok) throw new Error('Failed to fetch results');
+        return res.json();
+      })
+      .then((rows: Artefact[]) => {
+        const leadsList = rows
+          .filter(a => a.type === 'leads_list')
+          .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+        if (leadsList.length > 0) {
+          setArtefact(leadsList[0]);
+          return;
+        }
+        const planResult = rows
+          .filter(a => a.type === 'plan_result')
+          .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+        if (planResult.length > 0) {
+          setArtefact(planResult[0]);
+          return;
+        }
+        if (rows.length > 0) {
+          const sorted = [...rows].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+          setArtefact(sorted[0]);
+        }
+      })
+      .catch(() => setError('Could not load results.'))
+      .finally(() => setLoading(false));
+  }, [open, runId]);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>{artefact?.title || 'Results'}</DialogTitle>
+          <DialogDescription>
+            {artefact?.summary || (loading ? 'Loading results...' : 'Run results')}
+          </DialogDescription>
+        </DialogHeader>
+        {loading && (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          </div>
+        )}
+        {error && (
+          <div className="text-sm text-red-500 py-4 text-center">{error}</div>
+        )}
+        {!loading && !error && !artefact && (
+          <div className="text-sm text-muted-foreground py-8 text-center">No results yet.</div>
+        )}
+        {!loading && !error && artefact && (
+          <div className="mt-2">
+            {artefact.type === 'leads_list' ? (
+              <LeadsListTable payload={artefact.payload_json} />
+            ) : (
+              <pre className="text-xs bg-muted/50 rounded p-3 overflow-x-auto max-h-96 whitespace-pre-wrap font-mono">
+                {typeof artefact.payload_json === 'string'
+                  ? tryPrettyJson(artefact.payload_json)
+                  : JSON.stringify(artefact.payload_json, null, 2)}
+              </pre>
+            )}
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function SequenceStatusRow({ status, runId }: { status: "completed" | "failed" | "stopped"; runId?: string | null }) {
+  const [showResults, setShowResults] = useState(false);
+
   const config = {
     completed: { 
       icon: CheckCircle2, 
@@ -143,10 +337,28 @@ function SequenceStatusRow({ status }: { status: "completed" | "failed" | "stopp
   const { icon: Icon, label, className } = config[status];
   
   return (
-    <div className="flex items-center gap-2 py-2 px-1 border-t border-border/50 mt-2">
-      <Icon className={cn("h-4 w-4", className)} />
-      <span className={cn("text-xs font-medium", className)}>{label}</span>
-    </div>
+    <>
+      <div className="flex items-center justify-between gap-2 py-2 px-1 border-t border-border/50 mt-2">
+        <div className="flex items-center gap-2">
+          <Icon className={cn("h-4 w-4", className)} />
+          <span className={cn("text-xs font-medium", className)}>{label}</span>
+        </div>
+        {runId && status === 'completed' && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-6 text-xs px-2 gap-1"
+            onClick={() => setShowResults(true)}
+          >
+            <Eye className="h-3 w-3" />
+            View results
+          </Button>
+        )}
+      </div>
+      {runId && (
+        <ResultsModal runId={runId} open={showResults} onOpenChange={setShowResults} />
+      )}
+    </>
   );
 }
 
@@ -1384,7 +1596,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
             )}
             
             {effectiveTerminal && allRevealed && !transientPhase && (mappedStatus === 'completed' || mappedStatus === 'failed' || mappedStatus === 'stopped') && (
-              <SequenceStatusRow status={mappedStatus} />
+              <SequenceStatusRow status={mappedStatus} runId={stream?.run_id} />
             )}
             
             {isWorking && (
