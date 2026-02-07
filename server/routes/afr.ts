@@ -868,12 +868,17 @@ function mapRunTypeToEventType(runType: string, action: string | null): string {
       return 'plan_execution_halted';
     case 'judgement_received':
     case 'tower_judgement':
+    case 'tower_evaluation_completed':
+    case 'tower_decision_stop':
+    case 'tower_decision_change_plan':
       return runType;
     case 'run_completed':
       return 'run_completed';
     case 'run_failed':
       return 'run_failed';
     default:
+      if (runType.startsWith('tower_')) return runType;
+      if (action?.startsWith('tower_')) return action;
       if (action === 'plan_execution_started') return 'plan_execution_started';
       if (action === 'plan_execution_completed') return 'plan_execution_completed';
       if (action === 'plan_execution_failed') return 'plan_execution_failed';
@@ -953,11 +958,21 @@ function buildEventSummary(
     case 'judgement_received':
     case 'tower_judgement':
       return task || 'Tower evaluated results';
+    case 'tower_evaluation_completed':
+      return task || 'Tower evaluation completed';
+    case 'tower_decision_stop':
+      return task || 'Tower decided to stop execution';
+    case 'tower_decision_change_plan':
+      return task || 'Tower decided to change plan';
     case 'run_completed':
       return task || 'Run completed';
     case 'run_failed':
       return task || 'Run failed';
     default:
+      if (runType.startsWith('tower_'))
+        return task?.slice(0, 80) || runType.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+      if (action?.startsWith('tower_'))
+        return task?.slice(0, 80) || action.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
       if (action === 'plan_execution_started') return task || 'Plan created and execution started';
       if (action === 'plan_execution_completed') return task || 'Plan execution completed';
       if (action === 'plan_execution_failed') return task || 'Plan execution failed';

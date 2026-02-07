@@ -258,6 +258,9 @@ function EventIcon({ type }: { type: string }) {
     step_completed: { icon: CheckCircle2, className: "text-green-500" },
     judgement_received: { icon: Brain, className: "text-purple-500" },
     tower_judgement: { icon: Brain, className: "text-purple-500" },
+    tower_evaluation_completed: { icon: Brain, className: "text-purple-500" },
+    tower_decision_stop: { icon: AlertTriangle, className: "text-orange-500" },
+    tower_decision_change_plan: { icon: ListChecks, className: "text-purple-400" },
   };
 
   const baseType = type.includes(':') ? type.split(':')[0] : type;
@@ -289,6 +292,27 @@ function resolveEventSummary(event: StreamEvent): string {
   return humanizeEventType(event.type);
 }
 
+function isTowerEvent(event: StreamEvent): boolean {
+  const t = event.type;
+  const action = event.details?.action;
+  return t.startsWith('tower_') ||
+    t === 'judgement_received' ||
+    t === 'tower_judgement' ||
+    !!(action && action.startsWith('tower_'));
+}
+
+function ProvenanceBadge({ isTower }: { isTower: boolean }) {
+  return isTower ? (
+    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300 leading-none">
+      Tower
+    </span>
+  ) : (
+    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300 leading-none">
+      Supervisor
+    </span>
+  );
+}
+
 function TimelineEvent({ event, isLast }: { event: StreamEvent; isLast: boolean }) {
   const [expanded, setExpanded] = useState(false);
   const hasDetails = event.details && (
@@ -297,6 +321,8 @@ function TimelineEvent({ event, isLast }: { event: StreamEvent; isLast: boolean 
     event.router_decision ||
     event.router_reason
   );
+
+  const tower = isTowerEvent(event);
 
   const statusIcon = event.status === 'completed' ? '✅' :
                      event.status === 'failed' ? '❌' :
@@ -318,9 +344,12 @@ function TimelineEvent({ event, isLast }: { event: StreamEvent; isLast: boolean 
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center justify-between gap-2">
-            <p className="text-sm font-medium text-foreground leading-tight">
-              {resolveEventSummary(event)}
-            </p>
+            <div className="flex items-center gap-1.5 min-w-0">
+              <p className="text-sm font-medium text-foreground leading-tight truncate">
+                {resolveEventSummary(event)}
+              </p>
+              <ProvenanceBadge isTower={tower} />
+            </div>
             <div className="flex items-center gap-1 shrink-0">
               <span className="text-[10px] text-muted-foreground">
                 {formatRelativeTime(event.ts)}
@@ -493,8 +522,13 @@ function mapActivityRunTypeToEventType(runType: string, action: string | null): 
       return 'plan_execution_halted';
     case 'judgement_received':
     case 'tower_judgement':
+    case 'tower_evaluation_completed':
+    case 'tower_decision_stop':
+    case 'tower_decision_change_plan':
       return runType;
     default:
+      if (runType.startsWith('tower_')) return runType;
+      if (action?.startsWith('tower_')) return action;
       if (action?.startsWith('step_started')) return action;
       if (action?.startsWith('step_completed')) return action;
       return action || runType || 'unknown_event';
@@ -508,6 +542,9 @@ function humanizeEventType(eventType: string): string {
     plan_execution_halted: 'Execution stopped by Tower',
     judgement_received: 'Tower evaluated results',
     tower_judgement: 'Tower evaluated results',
+    tower_evaluation_completed: 'Tower evaluation completed',
+    tower_decision_stop: 'Tower decided to stop execution',
+    tower_decision_change_plan: 'Tower decided to change plan',
   };
 
   if (knownLabels[eventType]) return knownLabels[eventType];
@@ -570,7 +607,15 @@ function buildActivitySummary(runType: string, action: string | null, label: str
     case 'judgement_received':
     case 'tower_judgement':
       return 'Tower evaluated results';
+    case 'tower_evaluation_completed':
+      return 'Tower evaluation completed';
+    case 'tower_decision_stop':
+      return 'Tower decided to stop execution';
+    case 'tower_decision_change_plan':
+      return 'Tower decided to change plan';
     default:
+      if (runType.startsWith('tower_'))
+        return label?.slice(0, 80) || humanizeEventType(runType);
       return label?.slice(0, 80) || (action ? humanizeEventType(action) : humanizeEventType(runType));
   }
 }
