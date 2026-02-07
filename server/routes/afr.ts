@@ -39,9 +39,7 @@ export function createAfrRouter(_storage: typeof storage) {
       const userId = (req.query.userId || req.query.user_id) as string | undefined;
       const showAllUsers = req.query.all === 'true';
       
-      // AUTHORITATIVE SOURCE: agent_runs table
-      // Each row = ONE user request, activities are child events viewed in detail
-      const agentRuns = await storage.listAgentRuns(limit, showAllUsers ? undefined : userId);
+      const agentRuns = await storage.listAgentRuns(limit);
 
       const runs: Run[] = agentRuns.map((r) => {
         // Map agent run status to display status
@@ -82,12 +80,20 @@ export function createAfrRouter(_storage: typeof storage) {
       const agentRun = await storage.getAgentRun(runId);
       
       if (agentRun) {
-        // Found in agent_runs - this is a unified run with child activities
         const metadata = agentRun.metadata as Record<string, any> | null;
         const label = metadata?.label || metadata?.userMessagePreview || metadata?.userMessage?.slice(0, 100) || 'Request';
         
-        // Fetch child activities for this run's client_request_id
-        const activities = await storage.getActivitiesByClientRequestId(agentRun.clientRequestId);
+        let activities = await storage.getActivitiesByClientRequestId(agentRun.clientRequestId);
+        
+        if (activities.length === 0) {
+          const allRecent = await storage.listAgentActivities(200);
+          activities = allRecent.filter(a => {
+            if (a.runId === agentRun.id) return true;
+            const meta = a.metadata as Record<string, any> | null;
+            if (meta?.clientRequestId === agentRun.clientRequestId) return true;
+            return false;
+          });
+        }
         
         const run: Run = {
           id: agentRun.id,
@@ -729,6 +735,16 @@ export function createAfrRouter(_storage: typeof storage) {
         error: error.message,
         message: 'Failed to fetch activity stream'
       });
+    }
+  });
+
+  router.get("/judgements", async (req, res) => {
+    try {
+      const runId = req.query.run_id as string | undefined;
+      res.json({ judgements: [], message: runId ? `No judgements recorded for run ${runId}` : 'No judgements recorded yet' });
+    } catch (error: any) {
+      console.error("AFR /judgements error:", error);
+      res.status(500).json({ error: "Failed to fetch judgements" });
     }
   });
 

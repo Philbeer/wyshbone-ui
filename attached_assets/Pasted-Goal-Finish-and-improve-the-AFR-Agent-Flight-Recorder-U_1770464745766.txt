@@ -1,0 +1,79 @@
+Goal
+Finish and improve the AFR (Agent Flight Recorder) UI so it is a proper forensic viewer: Runs List, Run Detail, and a basic Judgement Ledger tab (read-only). This is for dev/operator use, but it must be production-grade and discoverable via main navigation (no typing URLs).
+
+Non-negotiables
+- Do NOT change Supervisor or Tower in this task.
+- Do NOT create any new databases or local Replit DB. Use Supabase only.
+- Do NOT fake events. Show real events from existing APIs/tables.
+- Make the AFR accessible from the app navigation (sidebar).
+- Keep it simple visually, but usable: list -> click -> detail.
+
+What exists already
+- Live Activity panel works and shows real step events.
+- Backend APIs exist: /api/afr/stream and /api/afr/activities.
+- There may already be an “AFR dev inspector” style page in the repo, but it’s not properly wired into navigation or does not show the right run list / run detail.
+
+Deliverables
+1) Navigation
+- Add a sidebar item under a sensible section (e.g. “Discovery” or “Admin/Dev”) called: “Agent Flight Recorder”.
+- Route should be something like /afr (or /dev/afr if you prefer), but it must be reachable from the sidebar.
+
+2) AFR Runs List page
+- Shows a table of recent runs, newest first.
+- Each row should include:
+  - Created time
+  - Goal / summary (best available)
+  - Status (executing/completed/failed/stopped)
+  - Vertical (if available)
+  - clientRequestId (shown short, with copy button)
+- Clicking a row opens Run Detail.
+
+How to source the Runs List (important)
+- We do not currently have a clean “list runs” API, so implement one of these (choose best):
+  A) Add UI-server endpoint in UI repo: GET /api/afr/runs?limit=50
+     - Reads from Supabase agent_runs table (this repo already uses it) and returns recent rows for the current user.
+  OR
+  B) Derive runs from /api/afr/activities by grouping by run_id, then for each group infer created time + status.
+Prefer option A if agent_runs exists in this repo; it will be cleaner.
+
+3) AFR Run Detail page
+- Shows:
+  - Header: goal/summary + status + run_id + clientRequestId
+  - Timeline of events (real events), oldest -> newest.
+- Events must come from existing data:
+  - Primary: call /api/afr/stream using client_request_id if present, otherwise by run_id.
+  - If /api/afr/stream does not support run_id lookup, use /api/afr/activities and filter by run_id.
+- Each event row should show:
+  - Timestamp
+  - Icon + human label (plan started, step running, step completed, etc.)
+  - The original “task_generated” text as the main line (do not replace it)
+  - Raw action_taken shown smaller underneath (monospace)
+  - Status pill: pending/success/failed
+
+4) Judgement Ledger tab (basic, read-only)
+- Add a third tab in AFR: “Judgement Ledger”.
+- For now, keep it simple:
+  - If there is an existing UI-server endpoint for Tower judgements, use it.
+  - If not, add a UI-server endpoint in UI repo: GET /api/tower/judgements?run_id=...
+    - Reads from Supabase judgement_evaluations table (Tower writes this).
+    - Return newest first with: evaluated_at, verdict, reason_code, explanation.
+- Display judgements in a simple table.
+- If there are no judgements for a run, show “No judgements recorded for this run yet”.
+
+5) UX polish (minimal but important)
+- Add a search box on Runs List (filters goal text / run id / clientRequestId).
+- Add “Copy” buttons for run_id and clientRequestId.
+- Make sure the AFR pages do not break normal users: either hide behind DEV flag or show but harmless. If you gate it, do it via an obvious “Dev Tools” section in nav, but still discoverable via nav.
+
+Acceptance tests (must verify)
+- Clicking “Run Supervisor Demo” produces events in Live Activity.
+- I can then open “Agent Flight Recorder” from the sidebar.
+- I can find that run in Runs List (by time or clientRequestId).
+- Clicking it shows a full event timeline matching what Live Activity showed.
+- If judgement rows exist in judgement_evaluations for that run_id, they appear in Judgement Ledger.
+
+Implementation rules
+- Rewrite full files when you change them (no partial snippets).
+- After changes: restart, click demo, confirm AFR shows the run, and report exactly which files were changed.
+
+Do it now.

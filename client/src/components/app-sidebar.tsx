@@ -1135,6 +1135,14 @@ export function AppSidebar({
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
+                <SidebarMenuItem>
+                  <SidebarMenuButton asChild isActive={location === "/dev/afr"} data-testid="link-dev-afr">
+                    <Link href="/dev/afr">
+                      <ClipboardCheck className="h-4 w-4" />
+                      <span>Agent Flight Recorder</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
                 {(user?.role === 'admin' || ['phil@wyshbone.com', 'phil@listersbrewery.com'].includes(user?.email?.toLowerCase() || '')) && (
                   <SidebarMenuItem>
                     <SidebarMenuButton asChild isActive={location === "/admin/database-maintenance"} data-testid="link-admin-db-maintenance">

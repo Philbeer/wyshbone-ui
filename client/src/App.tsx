@@ -63,6 +63,7 @@ import SleeperAgentMonitor from "@/pages/dev/sleeper-agent-monitor";
 import DevProgressPage from "@/pages/dev/progress";
 import DatabaseMaintenance from "@/pages/admin/database-maintenance";
 import InspectorPage from "@/pages/dev/inspector";
+import AfrPage from "@/pages/dev/afr";
 import WorkflowPage from "@/pages/workflow";
 import { LayoutToggle } from "@/components/LayoutToggle";
 import DriverTodayPage from "@/pages/driver/today";
@@ -138,6 +139,7 @@ function AgentFirstRouter({
       <Route path="/dev/sleeper-agent" component={SleeperAgentMonitor} />
       <Route path="/dev/progress" component={DevProgressPage} />
       <Route path="/dev/inspector" component={InspectorPage} />
+      <Route path="/dev/afr" component={AfrPage} />
       <Route path="/admin/database-maintenance" component={DatabaseMaintenance} />
       <Route path="/admin/users" component={UserManagementPage} />
 
@@ -206,6 +208,7 @@ function Router({
       <Route path="/dev/sleeper-agent" component={SleeperAgentMonitor} />
       <Route path="/dev/progress" component={DevProgressPage} />
       <Route path="/dev/inspector" component={InspectorPage} />
+      <Route path="/dev/afr" component={AfrPage} />
       <Route path="/admin/database-maintenance" component={DatabaseMaintenance} />
       <Route path="/admin/users" component={UserManagementPage} />
       <Route path="/settings/users" component={UserManagementPage} />
