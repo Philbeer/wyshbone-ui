@@ -1341,7 +1341,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
             )}
             onScroll={handleScroll}
           >
-            <div className="px-4 py-2">
+            <div className="px-4 pt-2 pb-12">
             {events.map((event: StreamEvent, index: number) => {
               const isLastEvent = index === events.length - 1;
               const last = isLastEvent && effectiveTerminal && !transientPhase;
@@ -1373,7 +1373,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
               <ThinkingIndicator variant="footer" />
             )}
             
-            <div ref={bottomRef} />
+            <div ref={bottomRef} className="h-10 shrink-0" />
             </div>
           </div>
         )}
