@@ -1,5 +1,6 @@
 import { Router } from "express";
-import { storage } from "../storage";
+import { storage, getDrizzleDb } from "../storage";
+import { sql } from "drizzle-orm";
 import type { Run, RuleUpdate, RunBundle } from "../../client/src/types/afr";
 
 // Debug flag for AFR run lifecycle logging
@@ -309,6 +310,27 @@ export function createAfrRouter(_storage: typeof storage) {
     } catch (error: any) {
       console.error("AFR /runs/:id error:", error);
       res.status(500).json({ error: "Failed to fetch run bundle" });
+    }
+  });
+
+  router.get("/runs/:id/artefacts", async (req, res) => {
+    try {
+      const runId = req.params.id;
+      const db = getDrizzleDb();
+      const result = await db.execute(
+        sql`SELECT id, run_id, type, title, summary, payload_json, created_at
+            FROM artefacts
+            WHERE run_id = ${runId}
+            ORDER BY created_at ASC`
+      );
+      const rows = Array.isArray(result) ? result : (result as any).rows ?? [];
+      res.json(rows);
+    } catch (error: any) {
+      if (error?.message?.includes('does not exist')) {
+        return res.json([]);
+      }
+      console.error("AFR /runs/:id/artefacts error:", error);
+      res.status(500).json({ error: "Failed to fetch artefacts" });
     }
   });
 

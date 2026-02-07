@@ -21,6 +21,7 @@ import {
   ChevronRight,
   Activity,
   ChevronDown,
+  Package,
 } from 'lucide-react';
 import { authedFetch, addDevAuthParams } from '@/lib/queryClient';
 
@@ -592,8 +593,138 @@ function RunDetail({
           </div>
         )}
       </div>
+
+      <ArtefactsPanel runId={runId} />
     </div>
   );
+}
+
+interface Artefact {
+  id: string;
+  run_id: string;
+  type: string;
+  title: string;
+  summary: string | null;
+  payload_json: any | null;
+  created_at: string;
+}
+
+function ArtefactsPanel({ runId }: { runId: string }) {
+  const [artefacts, setArtefacts] = useState<Artefact[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  const fetchArtefacts = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const url = addDevAuthParams(`/api/afr/runs/${encodeURIComponent(runId)}/artefacts`);
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`Failed: ${res.status}`);
+      const data = await res.json();
+      const list = Array.isArray(data) ? data : (data?.rows ?? []);
+      setArtefacts(list);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [runId]);
+
+  useEffect(() => { fetchArtefacts(); }, [fetchArtefacts]);
+
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between mb-2">
+        <h3 className="text-sm font-medium text-muted-foreground flex items-center gap-1.5">
+          <Package className="w-3.5 h-3.5" />
+          {loading ? (
+            <span className="animate-pulse">Loading artefacts...</span>
+          ) : (
+            `Artefacts (${artefacts.length})`
+          )}
+        </h3>
+        {!loading && (
+          <Button variant="ghost" size="sm" onClick={fetchArtefacts} className="h-6 px-2">
+            <RefreshCw className="w-3 h-3" />
+          </Button>
+        )}
+      </div>
+
+      {loading ? (
+        <div className="border rounded-lg divide-y">
+          {Array.from({ length: 2 }).map((_, i) => (
+            <div key={i} className="px-3 py-2.5 animate-pulse">
+              <div className="flex items-center gap-3">
+                <div className="h-3 bg-muted rounded w-16" />
+                <div className="h-3 bg-muted rounded w-12" />
+                <div className="h-3.5 bg-muted rounded w-48" />
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : error ? (
+        <div className="text-center py-6 border rounded-lg">
+          <XCircle className="w-6 h-6 text-red-500 mx-auto mb-1" />
+          <p className="text-xs text-red-400">{error}</p>
+          <Button variant="outline" size="sm" className="mt-2" onClick={fetchArtefacts}>
+            <RefreshCw className="w-3 h-3 mr-1" /> Retry
+          </Button>
+        </div>
+      ) : artefacts.length === 0 ? (
+        <div className="text-center py-6 text-muted-foreground border rounded-lg">
+          <Package className="w-5 h-5 mx-auto mb-1 opacity-40" />
+          <p className="text-xs">No artefacts for this run</p>
+        </div>
+      ) : (
+        <div className="border rounded-lg divide-y">
+          {artefacts.map((art) => {
+            const isExpanded = expandedId === art.id;
+            return (
+              <div key={art.id} className="hover:bg-muted/20 transition-colors">
+                <button
+                  onClick={() => setExpandedId(isExpanded ? null : art.id)}
+                  className="w-full px-3 py-2.5 text-left"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground font-mono flex-shrink-0">
+                      {art.created_at ? new Date(art.created_at).toLocaleTimeString() : '-'}
+                    </span>
+                    <Badge variant="outline" className="text-[10px] flex-shrink-0">
+                      {art.type || 'unknown'}
+                    </Badge>
+                    <span className="text-sm truncate">{art.title || 'Untitled'}</span>
+                    <ChevronDown className={`w-3.5 h-3.5 ml-auto flex-shrink-0 text-muted-foreground transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+                  </div>
+                  {art.summary && (
+                    <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{art.summary}</p>
+                  )}
+                </button>
+                {isExpanded && art.payload_json != null && (
+                  <div className="px-3 pb-3">
+                    <pre className="text-xs bg-muted/50 rounded p-2 overflow-x-auto max-h-64 whitespace-pre-wrap font-mono">
+                      {typeof art.payload_json === 'string'
+                        ? tryPrettyJson(art.payload_json)
+                        : JSON.stringify(art.payload_json, null, 2)}
+                    </pre>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function tryPrettyJson(str: string): string {
+  try {
+    return JSON.stringify(JSON.parse(str), null, 2);
+  } catch {
+    return str;
+  }
 }
 
 function EventRow({ event, index }: { event: StreamEvent; index: number }) {
