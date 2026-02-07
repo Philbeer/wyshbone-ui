@@ -703,11 +703,15 @@ function ArtefactsPanel({ runId }: { runId: string }) {
                 </button>
                 {isExpanded && art.payload_json != null && (
                   <div className="px-3 pb-3">
-                    <pre className="text-xs bg-muted/50 rounded p-2 overflow-x-auto max-h-64 whitespace-pre-wrap font-mono">
-                      {typeof art.payload_json === 'string'
-                        ? tryPrettyJson(art.payload_json)
-                        : JSON.stringify(art.payload_json, null, 2)}
-                    </pre>
+                    {art.type === 'leads_list'
+                      ? <LeadsListRenderer payload={art.payload_json} />
+                      : (
+                        <pre className="text-xs bg-muted/50 rounded p-2 overflow-x-auto max-h-64 whitespace-pre-wrap font-mono">
+                          {typeof art.payload_json === 'string'
+                            ? tryPrettyJson(art.payload_json)
+                            : JSON.stringify(art.payload_json, null, 2)}
+                        </pre>
+                      )}
                   </div>
                 )}
               </div>
@@ -715,6 +719,89 @@ function ArtefactsPanel({ runId }: { runId: string }) {
           })}
         </div>
       )}
+    </div>
+  );
+}
+
+function parsePayload(payload: any): any {
+  if (typeof payload === 'string') {
+    try { return JSON.parse(payload); } catch { return payload; }
+  }
+  return payload;
+}
+
+interface Lead {
+  name?: string;
+  location?: string;
+  postcode?: string;
+  phone?: string;
+  website?: string;
+  score?: number | string;
+  [key: string]: any;
+}
+
+function LeadsListRenderer({ payload }: { payload: any }) {
+  const parsed = parsePayload(payload);
+  const leads: Lead[] = Array.isArray(parsed)
+    ? parsed
+    : Array.isArray(parsed?.leads)
+      ? parsed.leads
+      : Array.isArray(parsed?.results)
+        ? parsed.results
+        : [];
+
+  if (leads.length === 0) {
+    return (
+      <pre className="text-xs bg-muted/50 rounded p-2 overflow-x-auto max-h-64 whitespace-pre-wrap font-mono">
+        {typeof payload === 'string' ? tryPrettyJson(payload) : JSON.stringify(payload, null, 2)}
+      </pre>
+    );
+  }
+
+  return (
+    <div className="overflow-x-auto rounded border max-h-72 overflow-y-auto">
+      <table className="w-full text-xs">
+        <thead className="bg-muted/60 sticky top-0">
+          <tr>
+            <th className="text-left px-2 py-1.5 font-medium">Name</th>
+            <th className="text-left px-2 py-1.5 font-medium">Location</th>
+            <th className="text-left px-2 py-1.5 font-medium">Phone</th>
+            <th className="text-left px-2 py-1.5 font-medium">Website</th>
+            <th className="text-left px-2 py-1.5 font-medium">Score</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y">
+          {leads.map((lead, i) => {
+            const loc = lead.location || lead.postcode || lead.address || lead.city || '-';
+            return (
+              <tr key={i} className="hover:bg-muted/20">
+                <td className="px-2 py-1.5 font-medium">{lead.name || lead.business_name || lead.title || '-'}</td>
+                <td className="px-2 py-1.5 text-muted-foreground">{loc}</td>
+                <td className="px-2 py-1.5 text-muted-foreground font-mono">{lead.phone || lead.phone_number || '-'}</td>
+                <td className="px-2 py-1.5">
+                  {(lead.website || lead.url) ? (
+                    <a
+                      href={lead.website || lead.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-500 hover:underline truncate block max-w-[180px]"
+                    >
+                      {(lead.website || lead.url || '').replace(/^https?:\/\/(www\.)?/, '')}
+                    </a>
+                  ) : '-'}
+                </td>
+                <td className="px-2 py-1.5 text-center">
+                  {lead.score != null ? (
+                    <span className="inline-block bg-primary/10 text-primary rounded px-1.5 py-0.5 font-mono text-[10px]">
+                      {lead.score}
+                    </span>
+                  ) : '-'}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }
