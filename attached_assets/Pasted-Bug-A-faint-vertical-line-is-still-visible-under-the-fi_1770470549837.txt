@@ -1,0 +1,62 @@
+Bug: A faint vertical line is still visible under the final “Run completed” tick. Previous fix removed the per-row connector, so this remaining line must be coming from the timeline rail / wrapper, not the connector element.
+
+Task:
+
+Inspect the DOM/CSS for the Live Activity timeline and identify which element is rendering the vertical rail (often a left border, background gradient, or :before pseudo-element on the list container).
+
+For the final terminal item, ensure that rail does not extend below the terminal icon:
+
+Either clip the rail height to end at the last item’s center, or
+
+Render the rail per-item only (preferred), or
+
+Apply overflow-hidden with a calculated container height so nothing can show below the last row.
+
+Constraint: Do not change visuals for non-terminal rows. Only eliminate the rail below the final terminal tick.
+
+Success: Under the final tick there are zero pixels of vertical line (no faint rail) on any background.
+
+2) Live Activity panel should stretch to bottom of page
+Prompt
+
+UI tweak: Make the Live Activity panel occupy full available height to the bottom of the viewport.
+
+Task: Convert the right sidebar container to a full-height flex column:
+
+Parent sidebar: h-screen (or min-h-screen) and flex flex-col
+
+Live Activity card: flex-1 min-h-0
+
+Activity list inside: flex-1 min-h-0 overflow-y-auto
+
+Success: The Live Activity panel grows to the bottom and the list scrolls inside it, not the whole page.
+
+3) Move “Switch to agent first” button out of the panel and make feed grow upward
+
+You want two things:
+
+Move the button to the top header area (next to “Vertical: Breweries”)
+
+Make new events appear at the bottom (chat-style), pushing older ones up
+
+Prompt
+
+UI change (minimal):
+
+Move the “Switch to agent first” control out of the Live Activity panel and into the top app header row, positioned next to “Vertical: Breweries” (same visual style, just relocated).
+
+Change Live Activity list behaviour to be chat-like:
+
+New events appear at the bottom
+
+The scroll position stays pinned to bottom while new items arrive (unless the user has manually scrolled up)
+
+Older items remain above and scroll out of view
+
+Implementation notes:
+
+Render events in chronological order but visually anchored to bottom (either reverse the render order or keep normal order and auto-scroll).
+
+Add “stick to bottom” logic: if user is within ~80px of bottom, auto-scroll on new event; if they scroll up, don’t yank them down.
+
+Success: Events “come in” at the bottom like chat, and the button no longer blocks the panel.
