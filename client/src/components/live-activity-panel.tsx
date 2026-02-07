@@ -251,9 +251,17 @@ function EventIcon({ type }: { type: string }) {
     streaming_response: { icon: Zap, className: "text-yellow-500" },
     run_completed: { icon: CheckCircle2, className: "text-green-500" },
     run_failed: { icon: XCircle, className: "text-red-500" },
+    plan_execution_started: { icon: Play, className: "text-indigo-500" },
+    plan_execution_completed: { icon: CheckCircle2, className: "text-green-500" },
+    plan_execution_halted: { icon: AlertTriangle, className: "text-orange-500" },
+    step_started: { icon: Zap, className: "text-blue-500" },
+    step_completed: { icon: CheckCircle2, className: "text-green-500" },
+    judgement_received: { icon: Brain, className: "text-purple-500" },
+    tower_judgement: { icon: Brain, className: "text-purple-500" },
   };
 
-  const { icon: Icon, className } = iconMap[type] || { icon: Play, className: "text-gray-500" };
+  const baseType = type.includes(':') ? type.split(':')[0] : type;
+  const { icon: Icon, className } = iconMap[type] || iconMap[baseType] || { icon: Play, className: "text-gray-500" };
   return <Icon className={cn("h-4 w-4 shrink-0", className)} />;
 }
 
@@ -270,6 +278,17 @@ function EventStatusIndicator({ status }: { status: StreamEvent['status'] }) {
   return <Clock className="h-3 w-3 text-gray-400 shrink-0" />;
 }
 
+function resolveEventSummary(event: StreamEvent): string {
+  if (event.summary && event.summary !== event.type) {
+    const looksRaw = /^[a-z_]+$/.test(event.summary) || event.summary.includes('_');
+    if (!looksRaw) return event.summary;
+    const humanized = humanizeEventType(event.summary);
+    if (humanized !== event.summary) return humanized;
+    return event.summary;
+  }
+  return humanizeEventType(event.type);
+}
+
 function TimelineEvent({ event, isLast }: { event: StreamEvent; isLast: boolean }) {
   const [expanded, setExpanded] = useState(false);
   const hasDetails = event.details && (
@@ -279,6 +298,11 @@ function TimelineEvent({ event, isLast }: { event: StreamEvent; isLast: boolean 
     event.router_reason
   );
 
+  const statusIcon = event.status === 'completed' ? '✅' :
+                     event.status === 'failed' ? '❌' :
+                     event.status === 'running' ? null :
+                     '⏳';
+
   return (
     <div className="relative pb-4">
       {!isLast && (
@@ -286,17 +310,20 @@ function TimelineEvent({ event, isLast }: { event: StreamEvent; isLast: boolean 
       )}
       <div className="relative flex items-start gap-3">
         <div className="flex h-4 items-center">
-          <EventIcon type={event.type} />
+          {statusIcon ? (
+            <span className="text-sm leading-none" aria-label={event.status}>{statusIcon}</span>
+          ) : (
+            <Loader2 className="h-4 w-4 text-blue-500 animate-spin shrink-0" />
+          )}
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center justify-between gap-2">
             <p className="text-sm font-medium text-foreground leading-tight">
-              {event.summary}
+              {resolveEventSummary(event)}
             </p>
             <div className="flex items-center gap-1 shrink-0">
-              <EventStatusIndicator status={event.status} />
-              <span className="text-[10px] text-muted-foreground font-mono">
-                {formatEventTime(event.ts)}
+              <span className="text-[10px] text-muted-foreground">
+                {formatRelativeTime(event.ts)}
               </span>
             </div>
           </div>
@@ -428,6 +455,9 @@ function useDemoPlaybackQueue(
 }
 
 function mapActivityRunTypeToEventType(runType: string, action: string | null): string {
+  if (runType.startsWith('step_started')) return runType;
+  if (runType.startsWith('step_completed')) return runType;
+
   switch (runType) {
     case 'user_message':
       return 'user_message_received';
@@ -455,12 +485,53 @@ function mapActivityRunTypeToEventType(runType: string, action: string | null): 
       return 'run_completed';
     case 'run_failed':
       return 'run_failed';
+    case 'plan_execution_started':
+      return 'plan_execution_started';
+    case 'plan_execution_completed':
+      return 'plan_execution_completed';
+    case 'plan_execution_halted':
+      return 'plan_execution_halted';
+    case 'judgement_received':
+    case 'tower_judgement':
+      return runType;
     default:
-      return action || 'unknown_event';
+      if (action?.startsWith('step_started')) return action;
+      if (action?.startsWith('step_completed')) return action;
+      return action || runType || 'unknown_event';
   }
 }
 
+function humanizeEventType(eventType: string): string {
+  const knownLabels: Record<string, string> = {
+    plan_execution_started: 'Plan created and execution started',
+    plan_execution_completed: 'Plan execution completed',
+    plan_execution_halted: 'Execution stopped by Tower',
+    judgement_received: 'Tower evaluated results',
+    tower_judgement: 'Tower evaluated results',
+  };
+
+  if (knownLabels[eventType]) return knownLabels[eventType];
+
+  if (eventType.startsWith('step_started:')) {
+    const stepName = eventType.slice('step_started:'.length);
+    return `Executing step: ${stepName}`;
+  }
+  if (eventType.startsWith('step_completed:')) {
+    const stepName = eventType.slice('step_completed:'.length);
+    return `Step completed: ${stepName}`;
+  }
+
+  return eventType.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+
 function buildActivitySummary(runType: string, action: string | null, label: string | null): string {
+  if (runType.startsWith('step_started:') || runType.startsWith('step_completed:')) {
+    return humanizeEventType(runType);
+  }
+  if (action?.startsWith('step_started:') || action?.startsWith('step_completed:')) {
+    return humanizeEventType(action);
+  }
+
   switch (runType) {
     case 'user_message':
       return `Message received: "${label?.slice(0, 60) || 'User message'}${label && label.length > 60 ? '...' : ''}"`;
@@ -490,8 +561,17 @@ function buildActivitySummary(runType: string, action: string | null, label: str
       return label || 'Run completed';
     case 'run_failed':
       return label || 'Run failed';
+    case 'plan_execution_started':
+      return 'Plan created and execution started';
+    case 'plan_execution_completed':
+      return 'Plan execution completed';
+    case 'plan_execution_halted':
+      return 'Execution stopped by Tower';
+    case 'judgement_received':
+    case 'tower_judgement':
+      return 'Tower evaluated results';
     default:
-      return label?.slice(0, 60) || action || 'Processing';
+      return label?.slice(0, 80) || (action ? humanizeEventType(action) : humanizeEventType(runType));
   }
 }
 
@@ -562,7 +642,8 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
   const idsMatch = !!(activeClientRequestId && streamRequestId && activeClientRequestId === streamRequestId);
 
   const allEvents = useMemo(() => stream?.events || [], [stream?.events]);
-  const displayEvents = useDemoPlaybackQueue(allEvents, demoPlayback);
+  const effectiveDemoPlayback = demoPlayback && !activeClientRequestId;
+  const displayEvents = useDemoPlaybackQueue(allEvents, effectiveDemoPlayback);
   const allRevealed = displayEvents.length >= allEvents.length;
 
   const fetchStream = useCallback(async () => {
@@ -873,7 +954,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
     setAutoScroll(nearBottom);
   };
 
-  const effectiveTerminal = confirmedTerminal && !minVisibleHold && (demoPlayback ? allRevealed : true);
+  const effectiveTerminal = confirmedTerminal && !minVisibleHold && (effectiveDemoPlayback ? allRevealed : true);
 
   const mappedStatus: OverallStatus = (() => {
     if (activeClientRequestId && !idsMatch) {
@@ -939,7 +1020,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
         effectiveTerminal,
         minVisibleHold,
         postTerminalHold,
-        demoPlayback,
+        demoPlayback: effectiveDemoPlayback,
         revealedEvents: displayEvents.length,
         totalEvents: allEvents.length,
         isWorking,
@@ -1038,13 +1119,27 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
         {!hasEvents ? (
           <div className="h-full flex items-center justify-center p-6">
             <div className="text-center">
-              <MessageSquare className="h-8 w-8 text-muted-foreground/30 mx-auto mb-2" />
-              <p className="text-sm text-muted-foreground">
-                No activity yet
-              </p>
-              <p className="text-xs text-muted-foreground/70 mt-1">
-                Send a message to see live updates
-              </p>
+              {activeClientRequestId ? (
+                <>
+                  <Loader2 className="h-8 w-8 text-primary/50 mx-auto mb-2 animate-spin" />
+                  <p className="text-sm text-muted-foreground">
+                    Waiting for first agent action...
+                  </p>
+                  <p className="text-xs text-muted-foreground/70 mt-1">
+                    The agent is processing your request
+                  </p>
+                </>
+              ) : (
+                <>
+                  <MessageSquare className="h-8 w-8 text-muted-foreground/30 mx-auto mb-2" />
+                  <p className="text-sm text-muted-foreground">
+                    No activity yet
+                  </p>
+                  <p className="text-xs text-muted-foreground/70 mt-1">
+                    Send a message to see live updates
+                  </p>
+                </>
+              )}
             </div>
           </div>
         ) : (
