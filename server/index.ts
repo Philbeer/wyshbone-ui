@@ -17,7 +17,7 @@ import { createSuppliersRouter } from "./routes/suppliers";
 import { wabsScoresRouter } from "./routes/wabs-scores";
 import { redditRouter } from "./routes/reddit";
 import { hnRouter } from "./routes/hn";
-import { storage, runStartupMigrations } from "./storage";
+import { storage, runStartupMigrations, getMaskedDbInfo } from "./storage";
 import { logDemoConfig } from "./demo-config";
 import { runSchemaHealthCheck } from "./schema-check";
 
@@ -128,6 +128,16 @@ app.get('/api/health', (_req, res) => {
     service: 'wyshbone-ui',
     timestamp: new Date().toISOString(),
     uptime: process.uptime()
+  });
+});
+
+// DEV config endpoint - exposes non-sensitive runtime info for the dev banner
+app.get('/api/config', (_req, res) => {
+  const info = getMaskedDbInfo();
+  res.json({
+    db: info.isSupabase ? 'supabase' : 'local',
+    dbHost: info.host,
+    nodeEnv: process.env.NODE_ENV || 'development',
   });
 });
 

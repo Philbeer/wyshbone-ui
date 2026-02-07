@@ -1466,7 +1466,7 @@ if (!DATABASE_CONNECTION_URL || DATABASE_CONNECTION_URL.trim() === '') {
 }
 
 // Extract and log connection info (masked for security)
-function getMaskedDbInfo(): { host: string; database: string; isSupabase: boolean } {
+export function getMaskedDbInfo(): { host: string; database: string; isSupabase: boolean } {
   try {
     const url = new URL(DATABASE_CONNECTION_URL!);
     const isSupabase = url.hostname.includes('supabase.co') || url.hostname.includes('pooler.supabase.com');

@@ -4,21 +4,30 @@
  * Only visible in development mode. Shows as a small badge in the bottom-left corner:
  * - Backend URL being used
  * - Connection status (✅ reachable / ❌ unreachable)
+ * - Database connection indicator (Supabase vs Local)
  * - Expandable for more details if needed
  */
 
 import { useState, useEffect } from 'react';
-import { Server, CheckCircle2, XCircle, RefreshCw, ChevronUp, ChevronDown } from 'lucide-react';
+import { Server, Database, CheckCircle2, XCircle, RefreshCw, ChevronUp, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { buildApiUrl } from '@/lib/queryClient';
 
 const BACKEND_URL = 'http://localhost:5001';
 const isDev = import.meta.env.DEV;
+
+interface ServerConfig {
+  db: 'supabase' | 'local';
+  dbHost: string;
+  nodeEnv: string;
+}
 
 export function DevBanner() {
   const [backendReachable, setBackendReachable] = useState<boolean | null>(null);
   const [checking, setChecking] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const [serverConfig, setServerConfig] = useState<ServerConfig | null>(null);
 
   const checkBackend = async () => {
     setChecking(true);
@@ -36,23 +45,37 @@ export function DevBanner() {
     }
   };
 
+  const fetchConfig = async () => {
+    try {
+      const response = await fetch(buildApiUrl('/api/config'), {
+        method: 'GET',
+        cache: 'no-cache',
+        credentials: 'include',
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setServerConfig(data);
+      }
+    } catch {
+    }
+  };
+
   useEffect(() => {
     if (!isDev) return;
     
-    // Check immediately
     checkBackend();
+    fetchConfig();
     
-    // Re-check every 10 seconds (less frequent to reduce noise)
     const interval = setInterval(checkBackend, 10000);
     return () => clearInterval(interval);
   }, []);
 
-  // Don't show in production
   if (!isDev) {
     return null;
   }
 
-  // Compact badge in bottom-left corner
+  const isSupabase = serverConfig?.db === 'supabase';
+
   return (
     <div 
       className={cn(
@@ -65,7 +88,6 @@ export function DevBanner() {
             : "bg-slate-100/95 border-slate-200"
       )}
     >
-      {/* Collapsed badge view */}
       <button
         onClick={() => setExpanded(!expanded)}
         className={cn(
@@ -85,6 +107,16 @@ export function DevBanner() {
           <XCircle className="h-3 w-3 text-red-600" />
         )}
         <span>DEV</span>
+        {serverConfig && (
+          <span className={cn(
+            "px-1.5 py-0.5 rounded text-[10px] font-mono",
+            isSupabase
+              ? "bg-blue-100 text-blue-700"
+              : "bg-amber-100 text-amber-700"
+          )}>
+            {isSupabase ? 'Supabase' : 'Local DB'}
+          </span>
+        )}
         {expanded ? (
           <ChevronDown className="h-3 w-3 opacity-50" />
         ) : (
@@ -92,7 +124,6 @@ export function DevBanner() {
         )}
       </button>
 
-      {/* Expanded details */}
       {expanded && (
         <div className={cn(
           "px-3 pb-2 pt-1 border-t text-xs",
@@ -113,6 +144,7 @@ export function DevBanner() {
               onClick={(e) => {
                 e.stopPropagation();
                 checkBackend();
+                fetchConfig();
               }}
               disabled={checking}
               className="h-5 w-5 p-0 hover:bg-white/50"
@@ -121,6 +153,23 @@ export function DevBanner() {
               <RefreshCw className={cn("h-3 w-3", checking && "animate-spin")} />
             </Button>
           </div>
+
+          {serverConfig && (
+            <div className={cn(
+              "flex items-center gap-2 mb-2 px-2 py-1.5 rounded text-[10px]",
+              isSupabase
+                ? "bg-blue-50 text-blue-700"
+                : "bg-amber-50 text-amber-700"
+            )}>
+              <Database className="h-3 w-3 flex-shrink-0" />
+              <div>
+                <div className="font-medium">
+                  {isSupabase ? 'Connected DB: Supabase' : 'Connected DB: Local (DEV ONLY)'}
+                </div>
+                <code className="text-[9px] opacity-70">{serverConfig.dbHost}</code>
+              </div>
+            </div>
+          )}
           
           {backendReachable === false && (
             <div className="bg-red-100 rounded px-2 py-1.5 text-[10px] space-y-1">
@@ -131,13 +180,12 @@ export function DevBanner() {
             </div>
           )}
           
-          {backendReachable === true && (
+          {backendReachable === true && !serverConfig && (
             <div className="text-emerald-600/70 text-[10px]">
-              Backend connected ✓
+              Backend connected
             </div>
           )}
           
-          {/* Dev Tools Links */}
           <div className="flex items-center gap-2 mt-2 pt-2 border-t border-slate-200/50">
             <span className="text-[10px] text-slate-500">Dev:</span>
             <a 

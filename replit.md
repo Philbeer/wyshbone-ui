@@ -101,3 +101,12 @@ The user interface adheres to Material Design principles, featuring a dark mode,
 - Runs list: session-cached, paginated (20 per page), search with useMemo
 - Run detail: lazy-loaded on click only
 - Judgement ledger: skeleton UI during load
+
+## Data Ownership & Persistence Guardrails
+
+**The UI never owns persistence.** All artefacts, runs, judgements, and business data come from Supabase via the backend. The frontend is a read/display layer only — it does not write directly to any database.
+
+- All data mutations flow through backend API endpoints → Supabase PostgreSQL
+- The DEV banner (bottom-left, development mode only) shows the active database connection: "Supabase" or "Local (DEV ONLY)"
+- The `/api/config` endpoint exposes the DB type (derived from `SUPABASE_DATABASE_URL` hostname) for the dev banner
+- `SUPABASE_DATABASE_URL` is the single source of truth for database connectivity; `DATABASE_URL` (Replit's built-in) is never used
