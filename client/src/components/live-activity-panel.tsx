@@ -424,83 +424,102 @@ function TimelineEvent({ event, isLast }: { event: StreamEvent; isLast: boolean 
 
 type PlaybackPhase = 'thinking' | 'working' | 'revealed';
 
+const delay = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
+
 function usePacedPlaybackQueue(
   allEvents: StreamEvent[],
   isDemoMode: boolean
 ): { displayEvents: StreamEvent[]; transientPhase: PlaybackPhase | null } {
-  const [revealedCount, setRevealedCount] = useState(0);
-  const [currentPhase, setCurrentPhase] = useState<PlaybackPhase | null>(null);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const processingRef = useRef(false);
-  const prevAllLenRef = useRef(0);
+  const [, forceRender] = useState(0);
+  const kick = useCallback(() => forceRender(n => n + 1), []);
 
-  const thinkingMs = isDemoMode ? DEMO_THINKING_MS : THINKING_MS;
-  const workingMs = isDemoMode ? DEMO_WORKING_MS : WORKING_MS;
-  const gapMs = isDemoMode ? DEMO_EVENT_GAP_MS : EVENT_GAP_MS;
+  const revealedRef = useRef<StreamEvent[]>([]);
+  const seenIdsRef = useRef<Set<string>>(new Set());
+  const queueRef = useRef<StreamEvent[]>([]);
+  const isPlayingRef = useRef(false);
+  const phaseRef = useRef<PlaybackPhase | null>(null);
+  const prevRunIdRef = useRef<string | null | undefined>(undefined);
+  const cancelRef = useRef(0);
 
-  const clearTimer = useCallback(() => {
-    if (timerRef.current) {
-      clearTimeout(timerRef.current);
-      timerRef.current = null;
+  const timingsRef = useRef({ thinkingMs: THINKING_MS, workingMs: WORKING_MS, gapMs: EVENT_GAP_MS });
+  timingsRef.current = {
+    thinkingMs: isDemoMode ? DEMO_THINKING_MS : THINKING_MS,
+    workingMs: isDemoMode ? DEMO_WORKING_MS : WORKING_MS,
+    gapMs: isDemoMode ? DEMO_EVENT_GAP_MS : EVENT_GAP_MS,
+  };
+
+  const kickPlayer = useCallback(() => {
+    if (isPlayingRef.current) return;
+    isPlayingRef.current = true;
+    const generation = ++cancelRef.current;
+
+    const loop = async () => {
+      while (queueRef.current.length > 0) {
+        if (cancelRef.current !== generation) return;
+
+        const event = queueRef.current[0];
+
+        phaseRef.current = 'thinking';
+        kick();
+        await delay(timingsRef.current.thinkingMs);
+        if (cancelRef.current !== generation) return;
+
+        phaseRef.current = 'working';
+        kick();
+        await delay(timingsRef.current.workingMs);
+        if (cancelRef.current !== generation) return;
+
+        queueRef.current.shift();
+        revealedRef.current = [...revealedRef.current, event];
+        phaseRef.current = null;
+        kick();
+
+        if (queueRef.current.length > 0) {
+          await delay(timingsRef.current.gapMs);
+          if (cancelRef.current !== generation) return;
+        }
+      }
+
+      isPlayingRef.current = false;
+      kick();
+    };
+
+    loop();
+  }, [kick]);
+
+  useEffect(() => {
+    const currentRunId = allEvents.length > 0 ? allEvents[0].run_id : null;
+    if (currentRunId !== prevRunIdRef.current && prevRunIdRef.current !== undefined) {
+      cancelRef.current++;
+      isPlayingRef.current = false;
+      revealedRef.current = [];
+      seenIdsRef.current = new Set();
+      queueRef.current = [];
+      phaseRef.current = null;
     }
+    prevRunIdRef.current = currentRunId;
+
+    let hasNew = false;
+    for (const event of allEvents) {
+      if (!seenIdsRef.current.has(event.id)) {
+        seenIdsRef.current.add(event.id);
+        queueRef.current.push(event);
+        hasNew = true;
+      }
+    }
+
+    if (hasNew) {
+      kickPlayer();
+    }
+  }, [allEvents, kickPlayer]);
+
+  useEffect(() => {
+    return () => { cancelRef.current++; };
   }, []);
 
-  const processNext = useCallback(() => {
-    if (processingRef.current) return;
-    processingRef.current = true;
-
-    setCurrentPhase('thinking');
-
-    timerRef.current = setTimeout(() => {
-      setCurrentPhase('working');
-
-      timerRef.current = setTimeout(() => {
-        setRevealedCount(prev => prev + 1);
-        setCurrentPhase(null);
-        processingRef.current = false;
-
-        timerRef.current = setTimeout(() => {
-          timerRef.current = null;
-        }, gapMs);
-      }, workingMs);
-    }, thinkingMs);
-  }, [thinkingMs, workingMs, gapMs]);
-
-  useEffect(() => {
-    if (allEvents.length === 0) {
-      clearTimer();
-      setRevealedCount(0);
-      setCurrentPhase(null);
-      processingRef.current = false;
-      prevAllLenRef.current = 0;
-      return;
-    }
-
-    prevAllLenRef.current = allEvents.length;
-
-    if (revealedCount < allEvents.length && !processingRef.current && !timerRef.current) {
-      processNext();
-    }
-  }, [allEvents.length, revealedCount, processNext, clearTimer]);
-
-  useEffect(() => {
-    if (revealedCount < allEvents.length && !processingRef.current && !timerRef.current) {
-      const checkTimer = setTimeout(() => {
-        if (revealedCount < allEvents.length && !processingRef.current && !timerRef.current) {
-          processNext();
-        }
-      }, 50);
-      return () => clearTimeout(checkTimer);
-    }
-  }, [revealedCount, allEvents.length, processNext]);
-
-  useEffect(() => {
-    return clearTimer;
-  }, [clearTimer]);
-
   return {
-    displayEvents: allEvents.slice(0, revealedCount),
-    transientPhase: revealedCount < allEvents.length ? currentPhase : null,
+    displayEvents: revealedRef.current,
+    transientPhase: queueRef.current.length > 0 ? phaseRef.current : null,
   };
 }
 
