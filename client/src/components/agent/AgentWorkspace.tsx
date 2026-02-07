@@ -32,8 +32,6 @@ import { cn } from "@/lib/utils";
 import { LiveActivityPanel } from "@/components/live-activity-panel";
 import { useCurrentRequest } from "@/contexts/CurrentRequestContext";
 
-const SUPERVISOR_URL = (import.meta.env.VITE_SUPERVISOR_URL || "").replace(/\/+$/, "");
-
 interface AgentWorkspaceProps {
   className?: string;
 }
@@ -47,14 +45,14 @@ export function AgentWorkspace({ className }: AgentWorkspaceProps) {
     setDemoLoading(true);
     setDemoStatus(null);
     try {
-      if (!SUPERVISOR_URL) {
-        throw new Error("VITE_SUPERVISOR_URL is not set");
-      }
-      const res = await fetch(`${SUPERVISOR_URL}/api/debug/demo-plan-run`, {
+      const res = await fetch("/api/debug/demo-plan-run", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
       });
-      if (!res.ok) throw new Error(`Supervisor responded ${res.status}`);
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `Server responded ${res.status}`);
+      }
       const data = await res.json();
       const id = data.clientRequestId;
       if (!id) throw new Error("No clientRequestId in response");

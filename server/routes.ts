@@ -4668,6 +4668,31 @@ CRITICAL RULES:
     }
   });
   
+  app.post("/api/debug/demo-plan-run", async (req, res) => {
+    const supervisorUrl = (process.env.SUPERVISOR_BASE_URL || '').replace(/\/+$/, '');
+    if (!supervisorUrl) {
+      return res.status(500).json({ error: "SUPERVISOR_BASE_URL not configured" });
+    }
+    try {
+      console.log(`[DEMO] Proxying demo-plan-run to ${supervisorUrl}/api/debug/demo-plan-run`);
+      const upstream = await fetch(`${supervisorUrl}/api/debug/demo-plan-run`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        signal: AbortSignal.timeout(15000),
+      });
+      const data = await upstream.json();
+      if (!upstream.ok) {
+        console.error(`[DEMO] Supervisor error: ${JSON.stringify(data)}`);
+        return res.status(upstream.status).json(data);
+      }
+      console.log(`[DEMO] Supervisor response: ${JSON.stringify(data)}`);
+      return res.json(data);
+    } catch (err: any) {
+      console.error(`[DEMO] Proxy error: ${err.message}`);
+      return res.status(502).json({ error: `Supervisor unreachable: ${err.message}` });
+    }
+  });
+
   // GET /api/debug/last-plan - DEV ONLY: Get debug info about the last plan execution
   app.get("/api/debug/last-plan", async (req, res) => {
     // DEV ONLY - only allow in development
