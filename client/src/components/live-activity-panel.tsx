@@ -813,6 +813,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
   const terminalStabilityTimerRef = useRef<NodeJS.Timeout | null>(null);
   const terminalEventCountRef = useRef<number | null>(null);
   const nearBottomRef = useRef(true);
+  const autoScrollTimerRef = useRef<NodeJS.Timeout | null>(null);
   
   const streamRequestId = stream?.client_request_id;
   const idsMatch = !!(activeClientRequestId && streamRequestId && activeClientRequestId === streamRequestId);
@@ -914,9 +915,14 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
       }
 
       if (nearBottomRef.current && data.event_count > prevEventCount.current) {
-        setTimeout(() => {
-          bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-        }, 50);
+        if (autoScrollTimerRef.current) clearTimeout(autoScrollTimerRef.current);
+        autoScrollTimerRef.current = setTimeout(() => {
+          const el = scrollRef.current;
+          if (el) {
+            el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+          }
+          autoScrollTimerRef.current = null;
+        }, 80);
       }
       
       if (data.event_count > prevEventCount.current) {
@@ -1007,6 +1013,10 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
       if (postTerminalTimerRef.current) {
         clearTimeout(postTerminalTimerRef.current);
         postTerminalTimerRef.current = null;
+      }
+      if (autoScrollTimerRef.current) {
+        clearTimeout(autoScrollTimerRef.current);
+        autoScrollTimerRef.current = null;
       }
     };
   }, []);
@@ -1322,12 +1332,12 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
           <div 
             ref={scrollRef}
             className={cn(
-              "h-full overflow-y-auto transition-opacity duration-200",
+              "h-full overflow-y-auto scrollbar-hidden transition-opacity duration-200",
               showOverlay && "opacity-0"
             )}
             onScroll={handleScroll}
           >
-            <div className="min-h-full flex flex-col justify-end px-4 py-2">
+            <div className="px-4 py-2">
             {events.map((event: StreamEvent, index: number) => {
               const isLastEvent = index === events.length - 1;
               const last = isLastEvent && effectiveTerminal && !transientPhase;
@@ -1373,7 +1383,8 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
             onClick={() => {
               nearBottomRef.current = true;
               setAutoScroll(true);
-              bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+              const el = scrollRef.current;
+              if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
             }}
           >
             <ChevronDown className="h-3 w-3 mr-1" />
