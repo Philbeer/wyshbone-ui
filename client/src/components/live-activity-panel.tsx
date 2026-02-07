@@ -337,6 +337,16 @@ function ProvenanceBadge({ isTower }: { isTower: boolean }) {
   );
 }
 
+function isMessageReceivedRow(event: StreamEvent): boolean {
+  const t = event.type?.toLowerCase() || '';
+  const action = event.details?.action?.toLowerCase() || '';
+  const summary = resolveEventSummary(event);
+  return t === 'user_message_received' ||
+    t === 'user_message' ||
+    action === 'user_message_received' ||
+    summary.startsWith('Message received:');
+}
+
 function TimelineEvent({ event, isLast, isTerminal }: { event: StreamEvent; isLast: boolean; isTerminal: boolean }) {
   const [expanded, setExpanded] = useState(false);
   const hasDetails = event.details && (
@@ -347,7 +357,8 @@ function TimelineEvent({ event, isLast, isTerminal }: { event: StreamEvent; isLa
   );
 
   const tower = isTowerEvent(event);
-  const hideConnector = isLast || isTerminal;
+  const noConnector = isLast || isTerminal;
+  const messageRow = isMessageReceivedRow(event);
 
   const statusIcon = event.status === 'completed' ? '✅' :
                      event.status === 'failed' ? '❌' :
@@ -355,12 +366,12 @@ function TimelineEvent({ event, isLast, isTerminal }: { event: StreamEvent; isLa
                      '⏳';
 
   return (
-    <div className="relative pb-4">
-      {!hideConnector && (
+    <div className={cn("relative", noConnector ? "pb-2" : "pb-4")}>
+      {!noConnector && (
         <span className="absolute left-[7px] top-6 -ml-px h-full w-0.5 bg-border" aria-hidden="true" />
       )}
       <div className="relative flex items-start gap-3">
-        <div className="flex h-4 items-center">
+        <div className="flex h-4 items-center shrink-0">
           {statusIcon ? (
             <span className="text-sm leading-none" aria-label={event.status}>{statusIcon}</span>
           ) : (
@@ -368,20 +379,37 @@ function TimelineEvent({ event, isLast, isTerminal }: { event: StreamEvent; isLa
           )}
         </div>
         <div className="min-w-0 flex-1">
-          <div className="flex justify-between gap-2">
-            <p
-              className="text-sm font-medium text-foreground leading-snug whitespace-normal break-words line-clamp-3 min-w-0"
-              title={resolveEventSummary(event)}
-            >
-              {resolveEventSummary(event)}
-            </p>
-            <div className="flex items-start gap-1.5 shrink-0 pt-0.5">
-              <ProvenanceBadge isTower={tower} />
-              <span className="text-[10px] text-muted-foreground whitespace-nowrap">
-                {formatRelativeTime(event.ts)}
-              </span>
+          {messageRow ? (
+            <div className="flex flex-col gap-1">
+              <p
+                className="text-sm font-medium text-foreground leading-snug whitespace-normal break-words w-full"
+                title={resolveEventSummary(event)}
+              >
+                {resolveEventSummary(event)}
+              </p>
+              <div className="flex items-center gap-1.5">
+                <ProvenanceBadge isTower={tower} />
+                <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+                  {formatRelativeTime(event.ts)}
+                </span>
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="flex justify-between gap-2">
+              <p
+                className="text-sm font-medium text-foreground leading-snug whitespace-normal break-words line-clamp-3 min-w-0"
+                title={resolveEventSummary(event)}
+              >
+                {resolveEventSummary(event)}
+              </p>
+              <div className="flex items-start gap-1.5 shrink-0 pt-0.5">
+                <ProvenanceBadge isTower={tower} />
+                <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+                  {formatRelativeTime(event.ts)}
+                </span>
+              </div>
+            </div>
+          )}
           
           {event.router_decision && (
             <p className="text-xs text-muted-foreground mt-0.5">
