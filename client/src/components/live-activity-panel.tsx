@@ -1303,7 +1303,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
         )}
       </CardHeader>
 
-      <CardContent className="flex-1 min-h-0 overflow-hidden p-0 relative">
+      <CardContent className="flex-1 min-h-0 flex flex-col overflow-hidden p-0 relative">
         {showOverlay && <StartingOverlay />}
         
         {!hasEvents ? (
