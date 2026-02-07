@@ -343,15 +343,16 @@ function TimelineEvent({ event, isLast }: { event: StreamEvent; isLast: boolean 
           )}
         </div>
         <div className="min-w-0 flex-1">
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-1.5 min-w-0">
-              <p className="text-sm font-medium text-foreground leading-tight truncate">
-                {resolveEventSummary(event)}
-              </p>
+          <div className="flex justify-between gap-2">
+            <p
+              className="text-sm font-medium text-foreground leading-snug whitespace-normal break-words line-clamp-3 min-w-0"
+              title={resolveEventSummary(event)}
+            >
+              {resolveEventSummary(event)}
+            </p>
+            <div className="flex items-start gap-1.5 shrink-0 pt-0.5">
               <ProvenanceBadge isTower={tower} />
-            </div>
-            <div className="flex items-center gap-1 shrink-0">
-              <span className="text-[10px] text-muted-foreground">
+              <span className="text-[10px] text-muted-foreground whitespace-nowrap">
                 {formatRelativeTime(event.ts)}
               </span>
             </div>
