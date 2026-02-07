@@ -813,7 +813,8 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
   const terminalStabilityTimerRef = useRef<NodeJS.Timeout | null>(null);
   const terminalEventCountRef = useRef<number | null>(null);
   const nearBottomRef = useRef(true);
-  const autoScrollTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const autoScrollTimerRef = useRef<number | null>(null);
+  const lastAutoScrollRef = useRef(0);
   
   const streamRequestId = stream?.client_request_id;
   const idsMatch = !!(activeClientRequestId && streamRequestId && activeClientRequestId === streamRequestId);
@@ -915,14 +916,17 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
       }
 
       if (nearBottomRef.current && data.event_count > prevEventCount.current) {
-        if (autoScrollTimerRef.current) clearTimeout(autoScrollTimerRef.current);
-        autoScrollTimerRef.current = setTimeout(() => {
-          const el = scrollRef.current;
-          if (el) {
-            el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
-          }
+        if (autoScrollTimerRef.current) cancelAnimationFrame(autoScrollTimerRef.current);
+        autoScrollTimerRef.current = requestAnimationFrame(() => {
+          const now = Date.now();
+          const isBursty = now - lastAutoScrollRef.current < 300;
+          lastAutoScrollRef.current = now;
+          bottomRef.current?.scrollIntoView({
+            block: 'end',
+            behavior: isBursty ? 'auto' : 'smooth',
+          });
           autoScrollTimerRef.current = null;
-        }, 80);
+        });
       }
       
       if (data.event_count > prevEventCount.current) {
@@ -1015,7 +1019,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
         postTerminalTimerRef.current = null;
       }
       if (autoScrollTimerRef.current) {
-        clearTimeout(autoScrollTimerRef.current);
+        cancelAnimationFrame(autoScrollTimerRef.current);
         autoScrollTimerRef.current = null;
       }
     };
@@ -1383,8 +1387,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
             onClick={() => {
               nearBottomRef.current = true;
               setAutoScroll(true);
-              const el = scrollRef.current;
-              if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+              bottomRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' });
             }}
           >
             <ChevronDown className="h-3 w-3 mr-1" />
