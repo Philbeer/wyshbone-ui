@@ -4680,6 +4680,15 @@ CRITICAL RULES:
         headers: { "Content-Type": "application/json" },
         signal: AbortSignal.timeout(15000),
       });
+      const contentType = upstream.headers.get("content-type") || "";
+      if (!contentType.includes("application/json")) {
+        const text = (await upstream.text()).slice(0, 200);
+        console.error(`[DEMO] Supervisor returned non-JSON (${upstream.status}): ${text}`);
+        if (text.includes("couldn't reach this app") || text.includes("couldn&#39;t reach")) {
+          return res.status(502).json({ error: "Supervisor Repl is asleep or stopped. Please start it first." });
+        }
+        return res.status(502).json({ error: `Supervisor returned HTML instead of JSON (status ${upstream.status}). Is the Supervisor running?` });
+      }
       const data = await upstream.json();
       if (!upstream.ok) {
         console.error(`[DEMO] Supervisor error: ${JSON.stringify(data)}`);
