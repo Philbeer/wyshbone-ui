@@ -510,50 +510,56 @@ export function createAfrRouter(_storage: typeof storage) {
         });
       }
 
-      // Fetch the run record first - this is the authoritative source for status
       let agentRun = clientRequestId 
         ? await storage.getAgentRunByClientRequestId(clientRequestId)
         : userId 
           ? await storage.getMostRecentAgentRun(userId)
           : null;
 
-      // Determine effective client_request_id
       const effectiveClientRequestId = clientRequestId || agentRun?.clientRequestId;
-
-      // Fetch activities for this request or user's most recent request
-      const activities = await storage.listAgentActivities(200, userId);
-      
-      // TEMPORARY DEBUG: log raw fetch count
       const activeRunId = agentRun?.id || null;
-      console.log(`[AFR_STREAM_DEBUG] Fetched ${activities.length} activities for userId=${userId || '(none)'}, clientRequestId=${effectiveClientRequestId || '(none)'}, runId=${activeRunId || '(none)'}`);
 
-      // Loosen filtering: match by clientRequestId OR by runId from the active agent_run
-      let relevantActivities = effectiveClientRequestId 
-        ? activities.filter(a => {
-            if (a.clientRequestId === effectiveClientRequestId) return true;
-            if (activeRunId && a.runId === activeRunId) return true;
-            const meta = a.metadata as Record<string, any> | null;
-            if (meta?.clientRequestId === effectiveClientRequestId) return true;
-            return false;
-          })
-        : activities;
+      const activities = await storage.listAgentActivities(200);
 
-      // If no specific client_request_id, get the most recent one
+      let relevantActivities: typeof activities;
+
+      if (effectiveClientRequestId) {
+        relevantActivities = activities.filter(a => {
+          if (a.clientRequestId === effectiveClientRequestId) return true;
+          if (activeRunId && a.runId === activeRunId) return true;
+          const row = a as any;
+          if (activeRunId && row.agent_run_id === activeRunId) return true;
+          const meta = a.metadata as Record<string, any> | null;
+          if (meta?.clientRequestId === effectiveClientRequestId) return true;
+          return false;
+        });
+      } else if (activeRunId) {
+        relevantActivities = activities.filter(a => {
+          if (a.runId === activeRunId) return true;
+          const row = a as any;
+          if (row.agent_run_id === activeRunId) return true;
+          return false;
+        });
+      } else {
+        relevantActivities = activities;
+      }
+
       if (!effectiveClientRequestId && relevantActivities.length > 0) {
         const mostRecentWithCrid = relevantActivities.find(a => a.clientRequestId);
         if (mostRecentWithCrid?.clientRequestId) {
-          relevantActivities = activities.filter(a => 
-            a.clientRequestId === mostRecentWithCrid.clientRequestId
-          );
-          // Also try to fetch the run record for backwards compatibility
+          relevantActivities = activities.filter(a => {
+            if (a.clientRequestId === mostRecentWithCrid.clientRequestId) return true;
+            const meta = a.metadata as Record<string, any> | null;
+            if (meta?.clientRequestId === mostRecentWithCrid.clientRequestId) return true;
+            return false;
+          });
           if (!agentRun) {
             agentRun = await storage.getAgentRunByClientRequestId(mostRecentWithCrid.clientRequestId);
           }
         }
       }
 
-      // TEMPORARY DEBUG: log post-filter count
-      console.log(`[AFR_STREAM_DEBUG] After filtering: ${relevantActivities.length} relevant activities (from ${activities.length} total)`);
+      console.log(`[AFR_STREAM] userId=${userId || '-'} crid=${effectiveClientRequestId || '-'} runId=${activeRunId || '-'} fetched=${activities.length} matched=${relevantActivities.length}`);
 
       // Also fetch any deep research runs for this client_request_id
       let deepResearchRuns: any[] = [];
