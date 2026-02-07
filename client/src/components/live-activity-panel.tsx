@@ -15,7 +15,13 @@ const IS_DEV = import.meta.env.DEV;
 
 const MIN_VISIBLE_RUN_MS = 6000;
 const POST_TERMINAL_HOLD_MS = 60000;
-const DEMO_EVENT_DELAY_MS = 400;
+
+const THINKING_MS = 250;
+const WORKING_MS = 250;
+const EVENT_GAP_MS = 150;
+const DEMO_THINKING_MS = 400;
+const DEMO_WORKING_MS = 400;
+const DEMO_EVENT_GAP_MS = 250;
 
 function ThinkingIndicator({ variant = "inline" }: { variant?: "inline" | "footer" }) {
   const [phase, setPhase] = useState(0);
@@ -416,72 +422,118 @@ function TimelineEvent({ event, isLast }: { event: StreamEvent; isLast: boolean 
   );
 }
 
-function useDemoPlaybackQueue(
+type PlaybackPhase = 'thinking' | 'working' | 'revealed';
+
+function usePacedPlaybackQueue(
   allEvents: StreamEvent[],
-  demoPlaybackOn: boolean
-): StreamEvent[] {
+  isDemoMode: boolean
+): { displayEvents: StreamEvent[]; transientPhase: PlaybackPhase | null } {
   const [revealedCount, setRevealedCount] = useState(0);
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const [currentPhase, setCurrentPhase] = useState<PlaybackPhase | null>(null);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const processingRef = useRef(false);
   const prevAllLenRef = useRef(0);
 
+  const thinkingMs = isDemoMode ? DEMO_THINKING_MS : THINKING_MS;
+  const workingMs = isDemoMode ? DEMO_WORKING_MS : WORKING_MS;
+  const gapMs = isDemoMode ? DEMO_EVENT_GAP_MS : EVENT_GAP_MS;
+
+  const clearTimer = useCallback(() => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+  }, []);
+
+  const processNext = useCallback(() => {
+    if (processingRef.current) return;
+    processingRef.current = true;
+
+    setCurrentPhase('thinking');
+
+    timerRef.current = setTimeout(() => {
+      setCurrentPhase('working');
+
+      timerRef.current = setTimeout(() => {
+        setRevealedCount(prev => prev + 1);
+        setCurrentPhase(null);
+        processingRef.current = false;
+
+        timerRef.current = setTimeout(() => {
+          timerRef.current = null;
+        }, gapMs);
+      }, workingMs);
+    }, thinkingMs);
+  }, [thinkingMs, workingMs, gapMs]);
+
   useEffect(() => {
-    if (!demoPlaybackOn) {
-      setRevealedCount(allEvents.length);
-      prevAllLenRef.current = allEvents.length;
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-        timerRef.current = null;
-      }
+    if (allEvents.length === 0) {
+      clearTimer();
+      setRevealedCount(0);
+      setCurrentPhase(null);
+      processingRef.current = false;
+      prevAllLenRef.current = 0;
       return;
     }
 
-    if (allEvents.length === 0) {
-      setRevealedCount(0);
-      prevAllLenRef.current = 0;
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-        timerRef.current = null;
-      }
-      return;
-    }
+    prevAllLenRef.current = allEvents.length;
 
-    if (allEvents.length > prevAllLenRef.current) {
-      prevAllLenRef.current = allEvents.length;
+    if (revealedCount < allEvents.length && !processingRef.current && !timerRef.current) {
+      processNext();
     }
-
-    if (revealedCount < allEvents.length && !timerRef.current) {
-      timerRef.current = setInterval(() => {
-        setRevealedCount(prev => {
-          const next = prev + 1;
-          if (next >= allEvents.length) {
-            if (timerRef.current) {
-              clearInterval(timerRef.current);
-              timerRef.current = null;
-            }
-          }
-          return next;
-        });
-      }, DEMO_EVENT_DELAY_MS);
-    }
-
-    return () => {
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-        timerRef.current = null;
-      }
-    };
-  }, [allEvents.length, demoPlaybackOn, revealedCount]);
+  }, [allEvents.length, revealedCount, processNext, clearTimer]);
 
   useEffect(() => {
-    if (!demoPlaybackOn) return;
-    if (allEvents.length === 0) {
-      setRevealedCount(0);
-      prevAllLenRef.current = 0;
+    if (revealedCount < allEvents.length && !processingRef.current && !timerRef.current) {
+      const checkTimer = setTimeout(() => {
+        if (revealedCount < allEvents.length && !processingRef.current && !timerRef.current) {
+          processNext();
+        }
+      }, 50);
+      return () => clearTimeout(checkTimer);
     }
-  }, [allEvents.length === 0, demoPlaybackOn]);
+  }, [revealedCount, allEvents.length, processNext]);
 
-  if (!demoPlaybackOn) return allEvents;
-  return allEvents.slice(0, revealedCount);
+  useEffect(() => {
+    return clearTimer;
+  }, [clearTimer]);
+
+  return {
+    displayEvents: allEvents.slice(0, revealedCount),
+    transientPhase: revealedCount < allEvents.length ? currentPhase : null,
+  };
+}
+
+function TransientPhaseRow({ phase }: { phase: PlaybackPhase }) {
+  if (phase === 'thinking') {
+    return (
+      <div className="relative pb-4">
+        <span className="absolute left-[7px] top-0 -ml-px h-full w-0.5 bg-border" aria-hidden="true" />
+        <div className="relative flex items-start gap-3">
+          <div className="flex h-4 items-center">
+            <Sparkles className="h-4 w-4 text-muted-foreground/50 animate-pulse" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm text-muted-foreground/70 italic">Thinking...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative pb-4">
+      <span className="absolute left-[7px] top-0 -ml-px h-full w-0.5 bg-border" aria-hidden="true" />
+      <div className="relative flex items-start gap-3">
+        <div className="flex h-4 items-center">
+          <Loader2 className="h-4 w-4 text-blue-500 animate-spin" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm text-muted-foreground/70 italic">Working...</p>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function mapActivityRunTypeToEventType(runType: string, action: string | null): string {
@@ -689,7 +741,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
 
   const allEvents = useMemo(() => stream?.events || [], [stream?.events]);
   const effectiveDemoPlayback = demoPlayback && !activeClientRequestId;
-  const displayEvents = useDemoPlaybackQueue(allEvents, effectiveDemoPlayback);
+  const { displayEvents, transientPhase } = usePacedPlaybackQueue(allEvents, effectiveDemoPlayback);
   const allRevealed = displayEvents.length >= allEvents.length;
 
   const fetchStream = useCallback(async () => {
@@ -1197,19 +1249,23 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
             )}
             onScroll={handleScroll}
           >
-            {events.map((event, index) => (
+            {events.map((event: StreamEvent, index: number) => (
               <TimelineEvent 
                 key={event.id} 
                 event={event} 
-                isLast={index === events.length - 1 && effectiveTerminal}
+                isLast={index === events.length - 1 && effectiveTerminal && !transientPhase}
               />
             ))}
             
-            {showThinking && isWorking && (
+            {transientPhase && (
+              <TransientPhaseRow phase={transientPhase} />
+            )}
+            
+            {!transientPhase && showThinking && isWorking && (
               <ThinkingIndicator variant="inline" />
             )}
             
-            {effectiveTerminal && (mappedStatus === 'completed' || mappedStatus === 'failed' || mappedStatus === 'stopped') && (
+            {effectiveTerminal && allRevealed && !transientPhase && (mappedStatus === 'completed' || mappedStatus === 'failed' || mappedStatus === 'stopped') && (
               <SequenceStatusRow status={mappedStatus} />
             )}
             
