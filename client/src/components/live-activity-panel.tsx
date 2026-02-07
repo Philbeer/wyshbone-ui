@@ -454,8 +454,14 @@ function usePacedPlaybackQueue(
     const generation = ++cancelRef.current;
 
     const loop = async () => {
-      while (queueRef.current.length > 0) {
+      while (true) {
         if (cancelRef.current !== generation) return;
+
+        if (queueRef.current.length === 0) {
+          await Promise.resolve();
+          if (queueRef.current.length > 0) continue;
+          break;
+        }
 
         const event = queueRef.current[0];
 
