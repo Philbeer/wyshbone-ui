@@ -521,11 +521,21 @@ export function createAfrRouter(_storage: typeof storage) {
       const effectiveClientRequestId = clientRequestId || agentRun?.clientRequestId;
 
       // Fetch activities for this request or user's most recent request
-      const activities = await storage.listAgentActivities(100, userId);
+      const activities = await storage.listAgentActivities(200, userId);
       
-      // Filter by client_request_id if provided
+      // TEMPORARY DEBUG: log raw fetch count
+      const activeRunId = agentRun?.id || null;
+      console.log(`[AFR_STREAM_DEBUG] Fetched ${activities.length} activities for userId=${userId || '(none)'}, clientRequestId=${effectiveClientRequestId || '(none)'}, runId=${activeRunId || '(none)'}`);
+
+      // Loosen filtering: match by clientRequestId OR by runId from the active agent_run
       let relevantActivities = effectiveClientRequestId 
-        ? activities.filter(a => a.clientRequestId === effectiveClientRequestId)
+        ? activities.filter(a => {
+            if (a.clientRequestId === effectiveClientRequestId) return true;
+            if (activeRunId && a.runId === activeRunId) return true;
+            const meta = a.metadata as Record<string, any> | null;
+            if (meta?.clientRequestId === effectiveClientRequestId) return true;
+            return false;
+          })
         : activities;
 
       // If no specific client_request_id, get the most recent one
@@ -541,6 +551,9 @@ export function createAfrRouter(_storage: typeof storage) {
           }
         }
       }
+
+      // TEMPORARY DEBUG: log post-filter count
+      console.log(`[AFR_STREAM_DEBUG] After filtering: ${relevantActivities.length} relevant activities (from ${activities.length} total)`);
 
       // Also fetch any deep research runs for this client_request_id
       let deepResearchRuns: any[] = [];
@@ -792,6 +805,14 @@ function mapActivityStatus(
 // Helper functions for the activity stream
 
 function mapRunTypeToEventType(runType: string, action: string | null): string {
+  if (runType.startsWith('step_started:') || runType.startsWith('step_completed:') || runType.startsWith('step_failed:')) {
+    return runType;
+  }
+
+  if (action?.startsWith('step_started:') || action?.startsWith('step_completed:') || action?.startsWith('step_failed:')) {
+    return action;
+  }
+
   switch (runType) {
     case 'user_message':
       return 'user_message_received';
@@ -815,8 +836,27 @@ function mapRunTypeToEventType(runType: string, action: string | null): string {
       return 'direct_response';
     case 'stream':
       return 'streaming_response';
+    case 'plan_execution_started':
+      return 'plan_execution_started';
+    case 'plan_execution_completed':
+      return 'plan_execution_completed';
+    case 'plan_execution_failed':
+      return 'plan_execution_failed';
+    case 'plan_execution_halted':
+      return 'plan_execution_halted';
+    case 'judgement_received':
+    case 'tower_judgement':
+      return runType;
+    case 'run_completed':
+      return 'run_completed';
+    case 'run_failed':
+      return 'run_failed';
     default:
-      return action || 'unknown_event';
+      if (action === 'plan_execution_started') return 'plan_execution_started';
+      if (action === 'plan_execution_completed') return 'plan_execution_completed';
+      if (action === 'plan_execution_failed') return 'plan_execution_failed';
+      if (action === 'plan_execution_halted') return 'plan_execution_halted';
+      return action || runType || 'unknown_event';
   }
 }
 
@@ -826,6 +866,32 @@ function buildEventSummary(
   task: string | null,
   results: Record<string, any> | null
 ): string {
+  if (runType.startsWith('step_started:')) {
+    const stepName = runType.slice('step_started:'.length);
+    return task || `Executing step: ${stepName}`;
+  }
+  if (runType.startsWith('step_completed:')) {
+    const stepName = runType.slice('step_completed:'.length);
+    return task || `Step completed: ${stepName}`;
+  }
+  if (runType.startsWith('step_failed:')) {
+    const stepName = runType.slice('step_failed:'.length);
+    return task || `Step failed: ${stepName}`;
+  }
+
+  if (action?.startsWith('step_started:')) {
+    const stepName = action.slice('step_started:'.length);
+    return task || `Executing step: ${stepName}`;
+  }
+  if (action?.startsWith('step_completed:')) {
+    const stepName = action.slice('step_completed:'.length);
+    return task || `Step completed: ${stepName}`;
+  }
+  if (action?.startsWith('step_failed:')) {
+    const stepName = action.slice('step_failed:'.length);
+    return task || `Step failed: ${stepName}`;
+  }
+
   switch (runType) {
     case 'user_message':
       return `Message received: "${task?.slice(0, 60) || 'User message'}${task && task.length > 60 ? '...' : ''}"`;
@@ -834,28 +900,46 @@ function buildEventSummary(
       return `Router decision: ${action || 'processing'}`;
     case 'plan':
     case 'planning':
-      if (action?.includes('create')) return 'Created execution plan';
-      if (action?.includes('approve')) return 'Plan approved by user';
-      if (action?.includes('reject')) return 'Plan rejected by user';
-      return `Plan: ${action || 'updating'}`;
+      if (action?.includes('create')) return task || 'Created execution plan';
+      if (action?.includes('approve')) return task || 'Plan approved by user';
+      if (action?.includes('reject')) return task || 'Plan rejected by user';
+      return task || `Plan: ${action || 'updating'}`;
     case 'tool':
     case 'tool_call':
       const toolName = action?.replace(/_/g, ' ') || 'Tool';
       const resultNote = results?.note || results?.count !== undefined ? 
         ` (${results.count || 0} results)` : '';
       return action?.includes('complete') || action?.includes('finish') ?
-        `Completed: ${toolName}${resultNote}` :
-        `Started: ${toolName}`;
+        (task || `Completed: ${toolName}${resultNote}`) :
+        (task || `Started: ${toolName}`);
     case 'deep_research':
-      return `Deep research: ${task?.slice(0, 50) || 'analyzing'}`;
+      return task || `Deep research: ${task?.slice(0, 50) || 'analyzing'}`;
     case 'supervisor':
-      return 'Supervisor creating plan';
+      return task || 'Supervisor creating plan';
     case 'direct_response':
-      return 'Direct response (no tools needed)';
+      return task || 'Direct response (no tools needed)';
     case 'stream':
-      return 'Streaming AI response';
+      return task || 'Streaming AI response';
+    case 'plan_execution_started':
+      return task || 'Plan created and execution started';
+    case 'plan_execution_completed':
+      return task || 'Plan execution completed';
+    case 'plan_execution_failed':
+      return task || 'Plan execution failed';
+    case 'plan_execution_halted':
+      return task || 'Execution stopped by Tower';
+    case 'judgement_received':
+    case 'tower_judgement':
+      return task || 'Tower evaluated results';
+    case 'run_completed':
+      return task || 'Run completed';
+    case 'run_failed':
+      return task || 'Run failed';
     default:
-      return task?.slice(0, 60) || action || 'Processing';
+      if (action === 'plan_execution_started') return task || 'Plan created and execution started';
+      if (action === 'plan_execution_completed') return task || 'Plan execution completed';
+      if (action === 'plan_execution_failed') return task || 'Plan execution failed';
+      return task?.slice(0, 80) || action || 'Processing';
   }
 }
 
