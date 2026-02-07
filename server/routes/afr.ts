@@ -35,11 +35,14 @@ export function createAfrRouter(_storage: typeof storage) {
 
   router.get("/runs", async (req, res) => {
     try {
+      const t0 = Date.now();
       const limit = Math.min(parseInt(req.query.limit as string) || 200, 500);
+      const offset = Math.max(parseInt(req.query.offset as string) || 0, 0);
       const userId = (req.query.userId || req.query.user_id) as string | undefined;
       const showAllUsers = req.query.all === 'true';
       
       const agentRuns = await storage.listAgentRuns(limit);
+      const dbMs = Date.now() - t0;
 
       const runs: Run[] = agentRuns.map((r) => {
         // Map agent run status to display status
@@ -65,6 +68,8 @@ export function createAfrRouter(_storage: typeof storage) {
         };
       });
 
+      const totalMs = Date.now() - t0;
+      res.setHeader('Server-Timing', `db;dur=${dbMs}, total;dur=${totalMs}`);
       res.json(runs);
     } catch (error: any) {
       console.error("AFR /runs error:", error);

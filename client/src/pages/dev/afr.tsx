@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useSearch } from 'wouter';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -20,10 +20,15 @@ import {
   Gavel,
   ChevronRight,
   Activity,
+  ChevronDown,
 } from 'lucide-react';
 import { authedFetch, addDevAuthParams } from '@/lib/queryClient';
 
 type Tab = 'runs' | 'detail' | 'judgements';
+
+const RUNS_CACHE_KEY = 'afr_runs_cache';
+const RUNS_CACHE_TTL = 60_000;
+const PAGE_SIZE = 20;
 
 interface AfrRun {
   id: string;
@@ -63,6 +68,29 @@ interface Judgement {
   verdict: string;
   reason_code: string;
   explanation: string;
+}
+
+interface CachedRuns {
+  runs: AfrRun[];
+  ts: number;
+}
+
+function getCachedRuns(): AfrRun[] | null {
+  try {
+    const raw = sessionStorage.getItem(RUNS_CACHE_KEY);
+    if (!raw) return null;
+    const cached: CachedRuns = JSON.parse(raw);
+    if (Date.now() - cached.ts > RUNS_CACHE_TTL) return null;
+    return cached.runs;
+  } catch {
+    return null;
+  }
+}
+
+function setCachedRuns(runs: AfrRun[]) {
+  try {
+    sessionStorage.setItem(RUNS_CACHE_KEY, JSON.stringify({ runs, ts: Date.now() }));
+  } catch {}
 }
 
 function updateURLParams(params: Record<string, string | null>) {
@@ -167,6 +195,19 @@ function TabBtn({ active, onClick, disabled, icon, children }: {
   );
 }
 
+function SkeletonRow() {
+  return (
+    <tr className="border-t animate-pulse">
+      <td className="px-3 py-2.5"><div className="h-3.5 bg-muted rounded w-28" /></td>
+      <td className="px-3 py-2.5"><div className="h-3.5 bg-muted rounded w-48" /></td>
+      <td className="px-3 py-2.5"><div className="h-5 bg-muted rounded w-16" /></td>
+      <td className="px-3 py-2.5"><div className="h-3.5 bg-muted rounded w-12" /></td>
+      <td className="px-3 py-2.5"><div className="h-3.5 bg-muted rounded w-20" /></td>
+      <td className="px-3 py-2.5"><div className="h-4 bg-muted rounded w-4" /></td>
+    </tr>
+  );
+}
+
 function CopyButton({ text, label }: { text: string; label?: string }) {
   const [copied, setCopied] = useState(false);
   const handleCopy = async (e: React.MouseEvent) => {
@@ -227,61 +268,78 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 function RunsList({ onRunClick }: { onRunClick: (run: AfrRun) => void }) {
-  const [runs, setRuns] = useState<AfrRun[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [runs, setRuns] = useState<AfrRun[]>(() => getCachedRuns() || []);
+  const [loading, setLoading] = useState(() => !getCachedRuns());
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [fetchMs, setFetchMs] = useState<number | null>(null);
+  const mountRef = useRef(Date.now());
 
-  const fetchRuns = useCallback(async () => {
-    setLoading(true);
+  const fetchRuns = useCallback(async (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true); else setLoading(true);
     setError(null);
+    const t0 = performance.now();
     try {
       const url = addDevAuthParams('/api/afr/runs?limit=50&all=true');
       const res = await fetch(url);
       if (!res.ok) throw new Error(`Failed: ${res.status}`);
       const data = await res.json();
       setRuns(data);
+      setCachedRuns(data);
+      setFetchMs(Math.round(performance.now() - t0));
+      const serverTiming = res.headers.get('Server-Timing');
+      if (serverTiming) {
+        console.log(`[AFR_PERF] Server-Timing: ${serverTiming}`);
+      }
+      console.log(`[AFR_PERF] Runs fetched in ${Math.round(performance.now() - t0)}ms (${data.length} runs)`);
     } catch (e: any) {
       setError(e.message);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, []);
 
-  useEffect(() => { fetchRuns(); }, [fetchRuns]);
+  useEffect(() => {
+    const cached = getCachedRuns();
+    if (cached) {
+      setRuns(cached);
+      setLoading(false);
+      console.log(`[AFR_PERF] Shell rendered from cache in ${Date.now() - mountRef.current}ms (${cached.length} cached runs)`);
+      fetchRuns(true);
+    } else {
+      fetchRuns(false);
+    }
+  }, [fetchRuns]);
 
-  const filtered = search.trim()
-    ? runs.filter(r => {
-        const q = search.toLowerCase();
-        return (
-          r.goal_summary?.toLowerCase().includes(q) ||
-          r.id?.toLowerCase().includes(q) ||
-          r.client_request_id?.toLowerCase().includes(q) ||
-          r.status?.toLowerCase().includes(q)
-        );
-      })
-    : runs;
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center py-12 text-muted-foreground">
-        <Loader2 className="w-5 h-5 animate-spin mr-2" />
-        Loading runs...
-      </div>
+  const filtered = useMemo(() => {
+    if (!search.trim()) return runs;
+    const q = search.toLowerCase();
+    return runs.filter(r =>
+      r.goal_summary?.toLowerCase().includes(q) ||
+      r.id?.toLowerCase().includes(q) ||
+      r.client_request_id?.toLowerCase().includes(q) ||
+      r.status?.toLowerCase().includes(q)
     );
-  }
+  }, [runs, search]);
 
-  if (error) {
-    return (
-      <div className="text-center py-12">
-        <XCircle className="w-8 h-8 text-red-500 mx-auto mb-2" />
-        <p className="text-sm text-red-400">{error}</p>
-        <Button variant="outline" size="sm" className="mt-3" onClick={fetchRuns}>
-          <RefreshCw className="w-3 h-3 mr-1" /> Retry
-        </Button>
-      </div>
-    );
-  }
+  const visible = filtered.slice(0, visibleCount);
+  const hasMore = visibleCount < filtered.length;
+
+  const tableHeader = (
+    <thead>
+      <tr className="bg-muted/50 text-left">
+        <th className="px-3 py-2 font-medium">Created</th>
+        <th className="px-3 py-2 font-medium">Goal / Summary</th>
+        <th className="px-3 py-2 font-medium">Status</th>
+        <th className="px-3 py-2 font-medium">Type</th>
+        <th className="px-3 py-2 font-medium">Client Request ID</th>
+        <th className="px-3 py-2 font-medium w-8"></th>
+      </tr>
+    </thead>
+  );
 
   return (
     <div className="space-y-3">
@@ -291,63 +349,89 @@ function RunsList({ onRunClick }: { onRunClick: (run: AfrRun) => void }) {
           <Input
             placeholder="Search by goal, run ID, or clientRequestId..."
             value={search}
-            onChange={e => setSearch(e.target.value)}
+            onChange={e => { setSearch(e.target.value); setVisibleCount(PAGE_SIZE); }}
             className="pl-9 h-9"
           />
         </div>
-        <Button variant="outline" size="sm" onClick={fetchRuns}>
-          <RefreshCw className="w-3 h-3 mr-1" /> Refresh
+        <Button variant="outline" size="sm" onClick={() => fetchRuns(true)} disabled={refreshing}>
+          <RefreshCw className={`w-3 h-3 mr-1 ${refreshing ? 'animate-spin' : ''}`} /> Refresh
         </Button>
-        <span className="text-xs text-muted-foreground">{filtered.length} runs</span>
+        <span className="text-xs text-muted-foreground">
+          {filtered.length} runs
+          {fetchMs !== null && <span className="ml-1 opacity-60">({fetchMs}ms)</span>}
+          {refreshing && <Loader2 className="w-3 h-3 inline ml-1 animate-spin" />}
+        </span>
       </div>
 
-      {filtered.length === 0 ? (
+      {error && !runs.length ? (
+        <div className="text-center py-12">
+          <XCircle className="w-8 h-8 text-red-500 mx-auto mb-2" />
+          <p className="text-sm text-red-400">{error}</p>
+          <Button variant="outline" size="sm" className="mt-3" onClick={() => fetchRuns(false)}>
+            <RefreshCw className="w-3 h-3 mr-1" /> Retry
+          </Button>
+        </div>
+      ) : loading && runs.length === 0 ? (
+        <div className="border rounded-lg overflow-hidden">
+          <table className="w-full text-sm">
+            {tableHeader}
+            <tbody>
+              {Array.from({ length: 6 }).map((_, i) => <SkeletonRow key={i} />)}
+            </tbody>
+          </table>
+        </div>
+      ) : filtered.length === 0 ? (
         <div className="text-center py-12 text-muted-foreground">
           <Activity className="w-8 h-8 mx-auto mb-2 opacity-50" />
           <p className="text-sm">{search ? 'No runs match your search' : 'No runs found. Run a Supervisor demo to create one.'}</p>
         </div>
       ) : (
-        <div className="border rounded-lg overflow-hidden">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-muted/50 text-left">
-                <th className="px-3 py-2 font-medium">Created</th>
-                <th className="px-3 py-2 font-medium">Goal / Summary</th>
-                <th className="px-3 py-2 font-medium">Status</th>
-                <th className="px-3 py-2 font-medium">Type</th>
-                <th className="px-3 py-2 font-medium">Client Request ID</th>
-                <th className="px-3 py-2 font-medium w-8"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map(run => (
-                <tr
-                  key={run.id}
-                  onClick={() => onRunClick(run)}
-                  className="border-t hover:bg-muted/30 cursor-pointer transition-colors"
-                >
-                  <td className="px-3 py-2.5 text-xs text-muted-foreground whitespace-nowrap">
-                    <Clock className="w-3 h-3 inline mr-1" />
-                    {new Date(run.created_at).toLocaleString()}
-                  </td>
-                  <td className="px-3 py-2.5 max-w-[300px] truncate">{run.goal_summary || 'Untitled'}</td>
-                  <td className="px-3 py-2.5"><StatusBadge status={run.status} /></td>
-                  <td className="px-3 py-2.5 text-xs text-muted-foreground">{run.run_type || '-'}</td>
-                  <td className="px-3 py-2.5">
-                    {run.client_request_id ? (
-                      <CopyButton text={run.client_request_id} label="clientRequestId" />
-                    ) : (
-                      <span className="text-xs text-muted-foreground">-</span>
-                    )}
-                  </td>
-                  <td className="px-3 py-2.5">
-                    <ChevronRight className="w-4 h-4 text-muted-foreground" />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <>
+          <div className="border rounded-lg overflow-hidden">
+            <table className="w-full text-sm">
+              {tableHeader}
+              <tbody>
+                {visible.map(run => (
+                  <tr
+                    key={run.id}
+                    onClick={() => onRunClick(run)}
+                    className="border-t hover:bg-muted/30 cursor-pointer transition-colors"
+                  >
+                    <td className="px-3 py-2.5 text-xs text-muted-foreground whitespace-nowrap">
+                      <Clock className="w-3 h-3 inline mr-1" />
+                      {new Date(run.created_at).toLocaleString()}
+                    </td>
+                    <td className="px-3 py-2.5 max-w-[300px] truncate">{run.goal_summary || 'Untitled'}</td>
+                    <td className="px-3 py-2.5"><StatusBadge status={run.status} /></td>
+                    <td className="px-3 py-2.5 text-xs text-muted-foreground">{run.run_type || '-'}</td>
+                    <td className="px-3 py-2.5">
+                      {run.client_request_id ? (
+                        <CopyButton text={run.client_request_id} label="clientRequestId" />
+                      ) : (
+                        <span className="text-xs text-muted-foreground">-</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2.5">
+                      <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {hasMore && (
+            <div className="flex justify-center">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setVisibleCount(c => c + PAGE_SIZE)}
+              >
+                <ChevronDown className="w-3 h-3 mr-1" />
+                Show more ({filtered.length - visibleCount} remaining)
+              </Button>
+            </div>
+          )}
+        </>
       )}
     </div>
   );
@@ -421,27 +505,6 @@ function RunDetail({
 
   useEffect(() => { fetchDetail(); }, [fetchDetail]);
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center py-12 text-muted-foreground">
-        <Loader2 className="w-5 h-5 animate-spin mr-2" />
-        Loading run detail...
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="text-center py-12">
-        <XCircle className="w-8 h-8 text-red-500 mx-auto mb-2" />
-        <p className="text-sm text-red-400">{error}</p>
-        <Button variant="outline" size="sm" className="mt-3" onClick={fetchDetail}>
-          <RefreshCw className="w-3 h-3 mr-1" /> Retry
-        </Button>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2">
@@ -454,12 +517,21 @@ function RunDetail({
         <CardHeader className="pb-3">
           <div className="flex items-start justify-between">
             <div className="space-y-1">
-              <CardTitle className="text-base">{runMeta?.title || 'Agent Run'}</CardTitle>
-              <div className="flex items-center gap-3 flex-wrap">
-                <StatusBadge status={runMeta?.status || 'unknown'} />
-                {runMeta?.run_id && <CopyButton text={runMeta.run_id} label="run_id" />}
-                {clientRequestId && <CopyButton text={clientRequestId} label="clientRequestId" />}
-              </div>
+              {loading ? (
+                <div className="space-y-2 animate-pulse">
+                  <div className="h-5 bg-muted rounded w-48" />
+                  <div className="h-4 bg-muted rounded w-32" />
+                </div>
+              ) : (
+                <>
+                  <CardTitle className="text-base">{runMeta?.title || 'Agent Run'}</CardTitle>
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <StatusBadge status={runMeta?.status || 'unknown'} />
+                    {runMeta?.run_id && <CopyButton text={runMeta.run_id} label="run_id" />}
+                    {clientRequestId && <CopyButton text={clientRequestId} label="clientRequestId" />}
+                  </div>
+                </>
+              )}
             </div>
             <div className="flex gap-2">
               <Button variant="outline" size="sm" onClick={fetchDetail}>
@@ -475,10 +547,39 @@ function RunDetail({
 
       <div className="space-y-1">
         <h3 className="text-sm font-medium text-muted-foreground mb-2">
-          Event Timeline ({events.length} events, oldest first)
+          {loading ? (
+            <span className="animate-pulse">Loading events...</span>
+          ) : (
+            `Event Timeline (${events.length} events, oldest first)`
+          )}
         </h3>
 
-        {events.length === 0 ? (
+        {loading ? (
+          <div className="border rounded-lg divide-y">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="px-3 py-2.5 animate-pulse">
+                <div className="flex items-start gap-3">
+                  <div className="w-4 h-4 bg-muted rounded-full mt-0.5" />
+                  <div className="flex-1 space-y-1.5">
+                    <div className="flex gap-2">
+                      <div className="h-3 bg-muted rounded w-16" />
+                      <div className="h-3 bg-muted rounded w-12" />
+                    </div>
+                    <div className="h-3.5 bg-muted rounded w-64" />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : error ? (
+          <div className="text-center py-12">
+            <XCircle className="w-8 h-8 text-red-500 mx-auto mb-2" />
+            <p className="text-sm text-red-400">{error}</p>
+            <Button variant="outline" size="sm" className="mt-3" onClick={fetchDetail}>
+              <RefreshCw className="w-3 h-3 mr-1" /> Retry
+            </Button>
+          </div>
+        ) : events.length === 0 ? (
           <div className="text-center py-8 text-muted-foreground">
             <Activity className="w-6 h-6 mx-auto mb-2 opacity-50" />
             <p className="text-sm">No events found for this run</p>
@@ -600,9 +701,27 @@ function JudgementLedger({ runId }: { runId: string | null }) {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-12 text-muted-foreground">
-        <Loader2 className="w-5 h-5 animate-spin mr-2" />
-        Loading judgements...
+      <div className="border rounded-lg overflow-hidden">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="bg-muted/50 text-left">
+              <th className="px-3 py-2 font-medium">Evaluated At</th>
+              <th className="px-3 py-2 font-medium">Verdict</th>
+              <th className="px-3 py-2 font-medium">Reason Code</th>
+              <th className="px-3 py-2 font-medium">Explanation</th>
+            </tr>
+          </thead>
+          <tbody>
+            {Array.from({ length: 3 }).map((_, i) => (
+              <tr key={i} className="border-t animate-pulse">
+                <td className="px-3 py-2"><div className="h-3.5 bg-muted rounded w-28" /></td>
+                <td className="px-3 py-2"><div className="h-5 bg-muted rounded w-16" /></td>
+                <td className="px-3 py-2"><div className="h-3.5 bg-muted rounded w-20" /></td>
+                <td className="px-3 py-2"><div className="h-3.5 bg-muted rounded w-48" /></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     );
   }
