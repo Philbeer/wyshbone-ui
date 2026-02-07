@@ -1,17 +1,22 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { 
   RefreshCw, Clock, CheckCircle2, XCircle, Loader2, AlertTriangle, 
   MessageSquare, Route, FileSearch, Wrench, ListChecks, Play, ChevronDown, ChevronUp,
-  Zap, Brain, Send, Sparkles
+  Zap, Brain, Send, Sparkles, Film
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUser } from "@/contexts/UserContext";
 import { usePlan } from "@/contexts/PlanContext";
 
-// Animated brain icons for thinking indicator
+const IS_DEV = import.meta.env.DEV;
+
+const MIN_VISIBLE_RUN_MS = 6000;
+const POST_TERMINAL_HOLD_MS = 60000;
+const DEMO_EVENT_DELAY_MS = 400;
+
 function ThinkingIndicator({ variant = "inline" }: { variant?: "inline" | "footer" }) {
   const [phase, setPhase] = useState(0);
   
@@ -71,7 +76,6 @@ function ThinkingIndicator({ variant = "inline" }: { variant?: "inline" | "foote
   );
 }
 
-// Starting overlay component - shows for 2 seconds when new request starts
 function StartingOverlay() {
   const [phase, setPhase] = useState(0);
   
@@ -110,7 +114,6 @@ function StartingOverlay() {
   );
 }
 
-// Terminal status row
 function SequenceStatusRow({ status }: { status: "completed" | "failed" | "stopped" }) {
   const config = {
     completed: { 
@@ -356,19 +359,85 @@ function TimelineEvent({ event, isLast }: { event: StreamEvent; isLast: boolean 
   );
 }
 
+function useDemoPlaybackQueue(
+  allEvents: StreamEvent[],
+  demoPlaybackOn: boolean
+): StreamEvent[] {
+  const [revealedCount, setRevealedCount] = useState(0);
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const prevAllLenRef = useRef(0);
+
+  useEffect(() => {
+    if (!demoPlaybackOn) {
+      setRevealedCount(allEvents.length);
+      prevAllLenRef.current = allEvents.length;
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+      return;
+    }
+
+    if (allEvents.length === 0) {
+      setRevealedCount(0);
+      prevAllLenRef.current = 0;
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+      return;
+    }
+
+    if (allEvents.length > prevAllLenRef.current) {
+      prevAllLenRef.current = allEvents.length;
+    }
+
+    if (revealedCount < allEvents.length && !timerRef.current) {
+      timerRef.current = setInterval(() => {
+        setRevealedCount(prev => {
+          const next = prev + 1;
+          if (next >= allEvents.length) {
+            if (timerRef.current) {
+              clearInterval(timerRef.current);
+              timerRef.current = null;
+            }
+          }
+          return next;
+        });
+      }, DEMO_EVENT_DELAY_MS);
+    }
+
+    return () => {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+    };
+  }, [allEvents.length, demoPlaybackOn, revealedCount]);
+
+  useEffect(() => {
+    if (!demoPlaybackOn) return;
+    if (allEvents.length === 0) {
+      setRevealedCount(0);
+      prevAllLenRef.current = 0;
+    }
+  }, [allEvents.length === 0, demoPlaybackOn]);
+
+  if (!demoPlaybackOn) return allEvents;
+  return allEvents.slice(0, revealedCount);
+}
+
 interface LiveActivityPanelProps {
   activeClientRequestId?: string | null;
   onRequestIdChange?: (id: string | null) => void;
 }
 
-const THINKING_THRESHOLD_MS = 200; // Show inline thinking after 200ms gap
+const THINKING_THRESHOLD_MS = 200;
 const OVERLAY_DURATION_MS = 2000;
-const TERMINAL_STABILITY_MS = 800; // Wait 800ms after terminal + no new events to confirm
-const DEBUG_TERMINAL = true; // TEMPORARY: Enable debug logs to diagnose status issues
+const TERMINAL_STABILITY_MS = 800;
+const DEBUG_TERMINAL = true;
 
-// Active statuses where we show working indicators
 const ACTIVE_STATUSES = ['routing', 'planning', 'executing', 'deep_research', 'running', 'in_progress'];
-// Terminal statuses
 const TERMINAL_STATUSES = ['completed', 'failed', 'stopped'];
 
 export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: LiveActivityPanelProps) {
@@ -381,25 +450,34 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
   const [autoScroll, setAutoScroll] = useState(true);
   const [showThinking, setShowThinking] = useState(false);
   const [showOverlay, setShowOverlay] = useState(false);
-  const [confirmedTerminal, setConfirmedTerminal] = useState(false); // True only after terminal is confirmed
+  const [confirmedTerminal, setConfirmedTerminal] = useState(false);
   
-  // Check if there's an active plan (for mode display)
+  const [demoPlayback, setDemoPlayback] = useState(IS_DEV);
+
+  const [minVisibleHold, setMinVisibleHold] = useState(false);
+  const [postTerminalHold, setPostTerminalHold] = useState(false);
+  const minVisibleTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const postTerminalTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const runStartTimeRef = useRef<number | null>(null);
+
   const hasActivePlan = plan && ['approved', 'executing', 'pending_approval'].includes(plan.status);
   const isMultiStepPlan = hasActivePlan && plan.steps && plan.steps.length >= 2;
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const prevEventCount = useRef(0);
-  const prevActiveIdRef = useRef<string | null | undefined>(undefined); // Track prop changes
+  const prevActiveIdRef = useRef<string | null | undefined>(undefined);
   const thinkingTimerRef = useRef<NodeJS.Timeout | null>(null);
   const overlayTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const terminalStabilityTimerRef = useRef<NodeJS.Timeout | null>(null); // 800ms stability check
-  const terminalEventCountRef = useRef<number | null>(null); // Event count when stability timer started
-  const nearBottomRef = useRef(true); // Track if user is near bottom for chat-like scroll
+  const terminalStabilityTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const terminalEventCountRef = useRef<number | null>(null);
+  const nearBottomRef = useRef(true);
   
-  // Compute idsMatch - CRITICAL for correct terminal/working state
   const streamRequestId = stream?.client_request_id;
   const idsMatch = !!(activeClientRequestId && streamRequestId && activeClientRequestId === streamRequestId);
-  
+
+  const allEvents = useMemo(() => stream?.events || [], [stream?.events]);
+  const displayEvents = useDemoPlaybackQueue(allEvents, demoPlayback);
+  const allRevealed = displayEvents.length >= allEvents.length;
 
   const fetchStream = useCallback(async () => {
     try {
@@ -425,14 +503,12 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
         onRequestIdChange?.(data.client_request_id);
       }
 
-      // Chat-like auto-scroll: scroll to bottom if user is near bottom
       if (nearBottomRef.current && data.event_count > prevEventCount.current) {
         setTimeout(() => {
           bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
         }, 50);
       }
       
-      // Reset thinking indicator when new events arrive
       if (data.event_count > prevEventCount.current) {
         setShowThinking(false);
         if (thinkingTimerRef.current) {
@@ -455,8 +531,6 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
     fetchStream();
   }, [fetchStream]);
 
-  // PART 3: Overlay triggers on activeClientRequestId prop change, NOT stream changes
-  // When activeClientRequestId changes to a NEW value, show overlay and reset all state
   useEffect(() => {
     if (activeClientRequestId && activeClientRequestId !== prevActiveIdRef.current) {
       if (DEBUG_TERMINAL) {
@@ -466,7 +540,6 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
         });
       }
       
-      // Clear any existing timers
       if (overlayTimerRef.current) {
         clearTimeout(overlayTimerRef.current);
         overlayTimerRef.current = null;
@@ -476,13 +549,27 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
         terminalStabilityTimerRef.current = null;
       }
       
-      // Reset ALL state for new request
       setConfirmedTerminal(false);
       setShowThinking(false);
       terminalEventCountRef.current = null;
       prevEventCount.current = 0;
       
-      // Show overlay for new request
+      setMinVisibleHold(true);
+      setPostTerminalHold(false);
+      runStartTimeRef.current = Date.now();
+      if (minVisibleTimerRef.current) {
+        clearTimeout(minVisibleTimerRef.current);
+      }
+      minVisibleTimerRef.current = setTimeout(() => {
+        setMinVisibleHold(false);
+        minVisibleTimerRef.current = null;
+      }, MIN_VISIBLE_RUN_MS);
+
+      if (postTerminalTimerRef.current) {
+        clearTimeout(postTerminalTimerRef.current);
+        postTerminalTimerRef.current = null;
+      }
+      
       setShowOverlay(true);
       overlayTimerRef.current = setTimeout(() => {
         setShowOverlay(false);
@@ -493,7 +580,6 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
     prevActiveIdRef.current = activeClientRequestId;
   }, [activeClientRequestId]);
   
-  // Cleanup all timers on unmount
   useEffect(() => {
     return () => {
       if (overlayTimerRef.current) {
@@ -503,6 +589,14 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
       if (terminalStabilityTimerRef.current) {
         clearTimeout(terminalStabilityTimerRef.current);
         terminalStabilityTimerRef.current = null;
+      }
+      if (minVisibleTimerRef.current) {
+        clearTimeout(minVisibleTimerRef.current);
+        minVisibleTimerRef.current = null;
+      }
+      if (postTerminalTimerRef.current) {
+        clearTimeout(postTerminalTimerRef.current);
+        postTerminalTimerRef.current = null;
       }
     };
   }, []);
@@ -521,14 +615,11 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
     return () => window.removeEventListener("focus", handleFocus);
   }, [fetchStream]);
 
-  // PART 4: Terminal confirmation with stability check
-  // Only confirm terminal if: idsMatch AND is_terminal AND event count stable for 800ms
   useEffect(() => {
     const apiIsTerminal = stream?.is_terminal ?? false;
     const terminalState = stream?.terminal_state;
     const currentEventCount = stream?.event_count || 0;
     
-    // DEBUG: Log terminal detection state
     if (DEBUG_TERMINAL) {
       console.log('[TERMINAL_DEBUG] Check:', {
         apiIsTerminal,
@@ -540,18 +631,15 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
       });
     }
     
-    // RULE: If IDs don't match, NEVER confirm terminal (we're showing old request data)
     if (!idsMatch) {
       if (terminalStabilityTimerRef.current) {
         clearTimeout(terminalStabilityTimerRef.current);
         terminalStabilityTimerRef.current = null;
       }
       terminalEventCountRef.current = null;
-      // Don't set confirmedTerminal = false here - it was already reset on ID change
       return;
     }
     
-    // If API says NOT terminal, reset and stop any pending confirmation
     if (!apiIsTerminal) {
       if (terminalStabilityTimerRef.current) {
         clearTimeout(terminalStabilityTimerRef.current);
@@ -565,9 +653,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
       return;
     }
     
-    // API says terminal AND idsMatch - start or check stability timer
     if (apiIsTerminal && terminalState && idsMatch) {
-      // If new events arrived since we started stability timer, reset
       if (terminalEventCountRef.current !== null && currentEventCount !== terminalEventCountRef.current) {
         if (DEBUG_TERMINAL) console.log('[TERMINAL_DEBUG] New events arrived, resetting stability timer');
         if (terminalStabilityTimerRef.current) {
@@ -577,7 +663,6 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
         terminalEventCountRef.current = null;
       }
       
-      // Start stability timer if not already running
       if (terminalEventCountRef.current === null && !terminalStabilityTimerRef.current) {
         if (DEBUG_TERMINAL) console.log('[TERMINAL_DEBUG] Starting 800ms stability timer');
         terminalEventCountRef.current = currentEventCount;
@@ -589,18 +674,24 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
       }
     }
   }, [stream?.is_terminal, stream?.terminal_state, stream?.event_count, idsMatch]);
-  
-  // PART 5: Thinking indicator shows while current run is active
-  // Show if: activeClientRequestId exists AND confirmedTerminal is false
-  // Either (a) no events yet for this request, OR (b) gap of >200ms since last event
+
   useEffect(() => {
-    // Clear any existing timer first
+    if (!confirmedTerminal) return;
+    if (postTerminalTimerRef.current) return;
+
+    setPostTerminalHold(true);
+    postTerminalTimerRef.current = setTimeout(() => {
+      setPostTerminalHold(false);
+      postTerminalTimerRef.current = null;
+    }, POST_TERMINAL_HOLD_MS);
+  }, [confirmedTerminal]);
+
+  useEffect(() => {
     if (thinkingTimerRef.current) {
       clearTimeout(thinkingTimerRef.current);
       thinkingTimerRef.current = null;
     }
     
-    // If we have an active request and it's not terminal, show thinking indicator after gap
     const hasActiveRequest = !!activeClientRequestId;
     const isRunActive = hasActiveRequest && !confirmedTerminal && !showOverlay;
     
@@ -609,7 +700,6 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
       return;
     }
     
-    // Start timer to show thinking indicator after threshold (200ms gap)
     thinkingTimerRef.current = setTimeout(() => {
       setShowThinking(true);
       thinkingTimerRef.current = null;
@@ -625,51 +715,42 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const target = e.currentTarget;
-    // Chat-like scroll detection: user is "near bottom" if within 120px
     const nearBottom = target.scrollHeight - target.scrollTop - target.clientHeight < 120;
     nearBottomRef.current = nearBottom;
     setAutoScroll(nearBottom);
   };
 
-  // PART 2: Compute display status from RUN RECORD (not event inference)
-  // CRITICAL: Terminal state is ONLY from stream.terminal_state (set by run manager)
-  // HARD RULES:
-  // - UI display is gated by stream.ui_ready - show nothing substantive until true
-  // - Terminal state comes ONLY from stream.terminal_state, NEVER inferred from events
-  // - If idsMatch is false and we have activeClientRequestId, treat as executing (waiting for stream to catch up)
+  const effectiveTerminal = confirmedTerminal && !minVisibleHold && (demoPlayback ? allRevealed : true);
+
   const mappedStatus: OverallStatus = (() => {
-    // If we have an active request but stream doesn't match yet, show executing
     if (activeClientRequestId && !idsMatch) {
       return 'executing';
     }
     
     if (!stream) return 'idle';
     
-    // If no activeClientRequestId, don't show stale terminal state - just show idle
-    // (This prevents showing "Completed" from previous session on page load)
     if (!activeClientRequestId && stream.is_terminal) {
+      if (postTerminalHold) {
+        return stream.terminal_state || 'idle';
+      }
       return 'idle';
     }
     
-    // Gate display on ui_ready: if backend hasn't set ui_ready, show executing
-    // This prevents showing "Completed" before router decision is made
     if (activeClientRequestId && !stream.ui_ready) {
       return 'executing';
     }
     
-    // AUTHORITATIVE TERMINAL STATE from run record
-    // Only show terminal if idsMatch AND terminal_state is set in run record AND confirmed
-    if (idsMatch && stream.is_terminal && stream.terminal_state && confirmedTerminal) {
+    if (idsMatch && stream.is_terminal && stream.terminal_state && effectiveTerminal) {
       return stream.terminal_state;
     }
     
-    // If stream says terminal but we haven't confirmed (or IDs don't match), show executing
-    // This is the key fix: we don't immediately show "Completed"
     if (stream.is_terminal && stream.terminal_state) {
+      if (minVisibleHold || (demoPlayback && !allRevealed)) {
+        return 'executing';
+      }
       return 'executing';
     }
     
-    // Map status from run record (authoritative source)
     const s = stream.status;
     if (s === 'routing') return 'routing';
     if (s === 'planning') return 'planning';
@@ -684,14 +765,11 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
     return 'idle';
   })();
   
-  // Compute if we're in a working state (should show animated indicators)
-  // If we have an activeClientRequestId and not confirmed terminal, we're working
   const isWorking = !showOverlay && (
-    (activeClientRequestId && !confirmedTerminal) ||
+    (activeClientRequestId && !effectiveTerminal) ||
     (mappedStatus !== 'idle' && mappedStatus !== 'completed' && mappedStatus !== 'failed' && mappedStatus !== 'stopped' && mappedStatus !== 'finalizing')
   );
     
-  // DEBUG LOGGING - Temporary to diagnose status issues (must be before early returns)
   const streamEvents = stream?.events || [];
   useEffect(() => {
     if (DEBUG_TERMINAL) {
@@ -705,13 +783,19 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
         run_id: stream?.run_id,
         mappedStatus,
         confirmedTerminal,
+        effectiveTerminal,
+        minVisibleHold,
+        postTerminalHold,
+        demoPlayback,
+        revealedEvents: displayEvents.length,
+        totalEvents: allEvents.length,
         isWorking,
         showThinking,
         showOverlay,
         eventCount: stream?.event_count || 0,
       });
     }
-  }, [stream?.is_terminal, stream?.terminal_state, stream?.ui_ready, stream?.run_id, stream?.event_count, confirmedTerminal, mappedStatus, activeClientRequestId, idsMatch, isWorking, showThinking, showOverlay, streamRequestId]);
+  }, [stream?.is_terminal, stream?.terminal_state, stream?.ui_ready, stream?.run_id, stream?.event_count, confirmedTerminal, effectiveTerminal, minVisibleHold, postTerminalHold, demoPlayback, displayEvents.length, allEvents.length, mappedStatus, activeClientRequestId, idsMatch, isWorking, showThinking, showOverlay, streamRequestId]);
 
   if (loading) {
     return (
@@ -746,7 +830,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
     );
   }
 
-  const events = stream?.events || [];
+  const events = displayEvents;
   const hasEvents = events.length > 0;
 
   return (
@@ -755,7 +839,21 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
         <div className="flex items-center justify-between">
           <CardTitle className="text-sm font-medium">Live Activity</CardTitle>
           <div className="flex items-center gap-2">
-            {/* Mode indicator - shows when there's an active plan */}
+            {IS_DEV && (
+              <button
+                onClick={() => setDemoPlayback(prev => !prev)}
+                className={cn(
+                  "inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors cursor-pointer select-none",
+                  demoPlayback
+                    ? "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200"
+                    : "bg-gray-100 text-gray-500 dark:bg-gray-800/50 dark:text-gray-400"
+                )}
+                title={demoPlayback ? "Demo playback ON: events revealed with delay, min-visible and post-terminal holds active" : "Demo playback OFF: real-time event display"}
+              >
+                <Film className="h-3 w-3" />
+                Demo {demoPlayback ? "ON" : "OFF"}
+              </button>
+            )}
             {hasActivePlan && isWorking && (
               <span className={cn(
                 "px-1.5 py-0.5 rounded text-[10px] font-medium",
@@ -782,7 +880,6 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
       </CardHeader>
 
       <CardContent className="flex-1 overflow-hidden p-0 relative">
-        {/* Starting overlay - shows for 2 seconds when new request begins */}
         {showOverlay && <StartingOverlay />}
         
         {!hasEvents ? (
@@ -810,26 +907,22 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
               <TimelineEvent 
                 key={event.id} 
                 event={event} 
-                isLast={index === events.length - 1 && confirmedTerminal}
+                isLast={index === events.length - 1 && effectiveTerminal}
               />
             ))}
             
-            {/* Inline thinking indicator after last event - shows during gaps when working */}
             {showThinking && isWorking && (
               <ThinkingIndicator variant="inline" />
             )}
             
-            {/* Terminal status indicator - only shows when terminal is confirmed */}
-            {confirmedTerminal && (mappedStatus === 'completed' || mappedStatus === 'failed' || mappedStatus === 'stopped') && (
+            {effectiveTerminal && (mappedStatus === 'completed' || mappedStatus === 'failed' || mappedStatus === 'stopped') && (
               <SequenceStatusRow status={mappedStatus} />
             )}
             
-            {/* PERSISTENT animated footer - ALWAYS shows when working (status-driven, not timer-driven) */}
             {isWorking && (
               <ThinkingIndicator variant="footer" />
             )}
             
-            {/* Bottom sentinel for chat-like auto-scroll */}
             <div ref={bottomRef} />
           </div>
         )}
