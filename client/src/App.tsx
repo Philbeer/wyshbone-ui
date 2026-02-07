@@ -736,13 +736,19 @@ function RightPanelContent() {
   const [demoLoading, setDemoLoading] = useState(false);
   const [demoStatus, setDemoStatus] = useState<string | null>(null);
 
-  const supervisorUrl = (import.meta as any).env?.VITE_SUPERVISOR_URL || "http://localhost:3000";
+  const supervisorUrl = (import.meta.env.VITE_SUPERVISOR_URL || "").replace(/\/+$/, "");
 
   async function handleRunSupervisorDemo() {
     setDemoLoading(true);
     setDemoStatus(null);
     try {
-      const res = await fetch(`${supervisorUrl}/api/debug/demo-plan-run`, { method: "POST" });
+      if (!supervisorUrl) {
+        throw new Error("VITE_SUPERVISOR_URL is not set");
+      }
+      const res = await fetch(`${supervisorUrl}/api/debug/demo-plan-run`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
       if (!res.ok) throw new Error(`Supervisor responded ${res.status}`);
       const data = await res.json();
       const id = data.clientRequestId;
