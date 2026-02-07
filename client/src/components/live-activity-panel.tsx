@@ -1303,7 +1303,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
         )}
       </CardHeader>
 
-      <CardContent className="flex-1 overflow-hidden p-0 relative">
+      <CardContent className="flex-1 min-h-0 overflow-hidden p-0 relative">
         {showOverlay && <StartingOverlay />}
         
         {!hasEvents ? (
@@ -1336,7 +1336,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
           <div 
             ref={scrollRef}
             className={cn(
-              "h-full overflow-y-auto scrollbar-hidden transition-opacity duration-200",
+              "flex-1 min-h-0 overflow-y-auto scrollbar-hidden transition-opacity duration-200",
               showOverlay && "opacity-0"
             )}
             onScroll={handleScroll}

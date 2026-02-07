@@ -9,24 +9,16 @@
  */
 
 import { useState } from "react";
-import { Link } from "wouter";
 import { 
   TrendingUp, 
-  Users, 
-  FileText, 
-  Package, 
-  ChevronRight,
   Zap,
   Target,
   Mail,
   Calendar,
-  Search,
-  ExternalLink,
   Play
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { LiveActivityPanel } from "@/components/live-activity-panel";
@@ -73,25 +65,11 @@ export function AgentWorkspace({ className }: AgentWorkspaceProps) {
     successRate: 0,
   };
 
-  const recentDiscoveries: Array<{
-    id: string;
-    name: string;
-    type: string;
-    score: number;
-    foundAt: string;
-  }> = [];
-
-  const upcomingTasks: Array<{
-    id: string;
-    title: string;
-    dueAt: string;
-    priority: "high" | "medium" | "low";
-  }> = [];
 
   return (
-    <div className={cn("flex flex-col h-full", className)}>
+    <div className={cn("flex flex-col flex-1 min-h-0 h-full", className)}>
       {/* Header */}
-      <div className="flex-shrink-0 p-6 border-b border-border">
+      <div className="flex-shrink-0 p-6 pb-4 border-b border-border">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-semibold text-foreground">
@@ -122,13 +100,13 @@ export function AgentWorkspace({ className }: AgentWorkspaceProps) {
         )}
       </div>
 
-      <ScrollArea className="flex-1">
-        <div className="p-6 space-y-6">
-          {/* Live Activity Panel - Real-time decision and progress tracking */}
-          <div className="h-[400px]">
-            <LiveActivityPanel activeClientRequestId={currentClientRequestId} />
-          </div>
-          
+      {/* Live Activity Panel - fills available height, scrolls internally */}
+      <div className="flex-1 min-h-0 flex flex-col p-6 pb-3">
+        <LiveActivityPanel activeClientRequestId={currentClientRequestId} />
+      </div>
+
+      {/* Activity Metrics - fixed height footer section */}
+      <div className="flex-shrink-0 overflow-x-auto px-6 pb-6">
           {/* Activity Metrics */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <Card className="bg-gradient-to-br from-primary/10 to-primary/5 border-primary/20">
@@ -195,172 +173,7 @@ export function AgentWorkspace({ className }: AgentWorkspaceProps) {
               </CardContent>
             </Card>
           </div>
-
-          {/* Recent Discoveries */}
-          <Card>
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="text-lg">Recent Discoveries</CardTitle>
-                  <CardDescription>New leads found by your agent</CardDescription>
-                </div>
-                <Button variant="ghost" size="sm" asChild>
-                  <Link href="/leads">
-                    View All <ChevronRight className="w-4 h-4 ml-1" />
-                  </Link>
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {recentDiscoveries.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-8 text-center">
-                  <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
-                    <Search className="w-8 h-8 text-muted-foreground" />
-                  </div>
-                  <h3 className="font-medium text-foreground mb-1">
-                    Your agent is searching...
-                  </h3>
-                  <p className="text-sm text-muted-foreground max-w-sm">
-                    Tell your agent what kind of customers you're looking for, 
-                    and they'll find them for you.
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {recentDiscoveries.map((discovery) => (
-                    <div
-                      key={discovery.id}
-                      className="flex items-center justify-between p-3 rounded-lg bg-muted/50 hover:bg-muted transition-colors cursor-pointer"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-                          <Target className="w-5 h-5 text-primary" />
-                        </div>
-                        <div>
-                          <div className="font-medium text-foreground">{discovery.name}</div>
-                          <div className="text-xs text-muted-foreground">{discovery.type}</div>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Badge variant="secondary" className="text-xs">
-                          Score: {discovery.score}
-                        </Badge>
-                        <ChevronRight className="w-4 h-4 text-muted-foreground" />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Upcoming Agent Tasks */}
-          <Card>
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="text-lg">Agent's Work Queue</CardTitle>
-                  <CardDescription>What your agent is planning to do</CardDescription>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {upcomingTasks.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-8 text-center">
-                  <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
-                    <Zap className="w-8 h-8 text-muted-foreground" />
-                  </div>
-                  <h3 className="font-medium text-foreground mb-1">
-                    Ready for instructions
-                  </h3>
-                  <p className="text-sm text-muted-foreground max-w-sm">
-                    Your agent is waiting for your next instruction. 
-                    Tell them what you need!
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {upcomingTasks.map((task) => (
-                    <div
-                      key={task.id}
-                      className="flex items-center justify-between p-3 rounded-lg border border-border hover:bg-muted/50 transition-colors"
-                    >
-                      <div className="flex items-center gap-3">
-                        <Badge
-                          variant={
-                            task.priority === "high"
-                              ? "destructive"
-                              : task.priority === "medium"
-                              ? "default"
-                              : "secondary"
-                          }
-                          className="text-xs"
-                        >
-                          {task.priority}
-                        </Badge>
-                        <span className="text-sm text-foreground">{task.title}</span>
-                      </div>
-                      <span className="text-xs text-muted-foreground">{task.dueAt}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Quick Access CRM */}
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-lg">Agent's Workspace Tools</CardTitle>
-              <CardDescription>Access the CRM where your agent tracks everything</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                <Button
-                  variant="outline"
-                  className="h-auto py-4 flex-col gap-2"
-                  asChild
-                >
-                  <Link href="/auth/crm/customers">
-                    <Users className="w-5 h-5 text-primary" />
-                    <span className="text-sm">Customers</span>
-                  </Link>
-                </Button>
-                <Button
-                  variant="outline"
-                  className="h-auto py-4 flex-col gap-2"
-                  asChild
-                >
-                  <Link href="/auth/crm/orders">
-                    <FileText className="w-5 h-5 text-primary" />
-                    <span className="text-sm">Orders</span>
-                  </Link>
-                </Button>
-                <Button
-                  variant="outline"
-                  className="h-auto py-4 flex-col gap-2"
-                  asChild
-                >
-                  <Link href="/auth/crm/products">
-                    <Package className="w-5 h-5 text-primary" />
-                    <span className="text-sm">Products</span>
-                  </Link>
-                </Button>
-                <Button
-                  variant="outline"
-                  className="h-auto py-4 flex-col gap-2"
-                  asChild
-                >
-                  <Link href="/leads">
-                    <Target className="w-5 h-5 text-primary" />
-                    <span className="text-sm">Leads</span>
-                  </Link>
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      </ScrollArea>
+      </div>
     </div>
   );
 }

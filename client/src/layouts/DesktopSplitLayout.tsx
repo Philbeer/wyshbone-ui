@@ -26,7 +26,7 @@ export function DesktopSplitLayout({
       </div>
       
       {/* Right Panel - Workspace (Dynamic 60%) */}
-      <div className="right-panel flex-1 min-w-0 flex flex-col bg-background overflow-y-auto">
+      <div className="right-panel flex-1 min-w-0 flex flex-col bg-background overflow-hidden">
         {children}
       </div>
     </div>
