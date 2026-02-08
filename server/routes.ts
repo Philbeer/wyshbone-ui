@@ -2592,7 +2592,7 @@ CRITICAL RULES:
       const googlePlacesSearchTool = {
         type: "function" as const,
         function: {
-          name: "search_wyshbone_database",
+          name: "SEARCH_PLACES",
           description: "Search for businesses using Wyshbone Global Database. Returns structured results with Place IDs, names, addresses, phone numbers, websites, ratings, and coordinates. Use this when user wants to find specific businesses, get business listings, or needs Place IDs. Returns up to 60 results with pagination.",
           parameters: {
             type: "object",
@@ -2799,7 +2799,6 @@ CRITICAL RULES:
         // Define heavy tools that should go through the plan system
         const heavyTools = new Set([
           "SEARCH_PLACES",
-          "search_wyshbone_database",
           "DEEP_RESEARCH",
           "deep_research",
           "BATCH_CONTACT_FINDER",
@@ -3350,8 +3349,8 @@ CRITICAL RULES:
             aiBuffer = `Error processing workflow: ${toolErr.message}`;
             res.write(`data: ${JSON.stringify({ content: aiBuffer })}\n\n`);
           }
-        } else if (isToolCall && toolCallBuffer.name === "search_wyshbone_database") {
-          console.log("🔍 Wyshbone Global Database search tool call detected");
+        } else if (isToolCall && toolCallBuffer.name === "SEARCH_PLACES") {
+          console.log("🔍 SEARCH_PLACES tool call detected");
           console.log("📦 Arguments:", toolCallBuffer.arguments);
           
           try {
@@ -3391,7 +3390,7 @@ CRITICAL RULES:
             });
             
             // Format results as a nice markdown response
-            let responseText = `🔍 **Wyshbone Global Database Results**\n\n`;
+            let responseText = `🔍 **Search Results**\n\n`;
             responseText += `Found **${results.length} businesses** for "${params.query}"\n\n`;
             
             if (results.length === 0) {
@@ -3439,7 +3438,7 @@ CRITICAL RULES:
             
           } catch (toolErr: any) {
             console.error("❌ Wyshbone Global Database search error:", toolErr.message);
-            aiBuffer = `Error searching Wyshbone Global Database: ${toolErr.message}`;
+            aiBuffer = `Error running search: ${toolErr.message}`;
             res.write(`data: ${JSON.stringify({ content: aiBuffer })}\n\n`);
             
             appendMessage(sessionId, { role: "assistant", content: aiBuffer });
@@ -3511,7 +3510,7 @@ CRITICAL RULES:
 
             const monitorTypeDisplay = params.monitorType === 'deep_research' ? 'Deep Research' :
                                        params.monitorType === 'business_search' ? 'Business Search' :
-                                       'Wyshbone Global Database';
+                                       'Business Search';
 
             // Create a structured response that the UI can detect and render nicely
             let responseText = `🔔 MONITOR_CREATED\n`;

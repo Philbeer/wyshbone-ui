@@ -134,16 +134,10 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
       case 'executing':
         if (toolName) {
           const lower = toolName.toLowerCase();
-          if (lower === 'search_wyshbone_database') {
-            return { icon: '\u{1F50E}', label: 'Searching Wyshbone database' };
+          if (lower === 'search_places' || lower.includes('places') || lower.includes('google')) {
+            return { icon: '\u{1F50E}', label: 'Running search' };
           }
-          if (lower === 'search_places') {
-            return { icon: '\u{1F5FA}', label: 'Running Search Places' };
-          }
-          if (lower.includes('google') || lower.includes('places')) {
-            return { icon: '\u{1F5FA}', label: 'Running Google Places' };
-          }
-          return { icon: '\u{1F527}', label: `Running ${toolName.replace(/_/g, ' ')}` };
+          return { icon: '\u{1F527}', label: 'Running tool' };
         }
         return { icon: '\u{1F527}', label: 'Executing tools' };
       case 'finalising':
