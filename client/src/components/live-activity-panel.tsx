@@ -235,8 +235,99 @@ function LeadsListTable({ payload }: { payload: any }) {
   );
 }
 
+interface EmailDraft {
+  to?: string;
+  subject?: string;
+  body?: string;
+  recipient_name?: string;
+  company?: string;
+  [key: string]: any;
+}
+
+function EmailDraftsView({ payload }: { payload: any }) {
+  const parsed = parsePayload(payload);
+  const drafts: EmailDraft[] = Array.isArray(parsed)
+    ? parsed
+    : Array.isArray(parsed?.drafts)
+      ? parsed.drafts
+      : Array.isArray(parsed?.emails)
+        ? parsed.emails
+        : [];
+
+  if (drafts.length === 0) {
+    return (
+      <pre className="text-xs bg-muted/50 rounded p-2 overflow-x-auto max-h-64 whitespace-pre-wrap font-mono">
+        {typeof payload === 'string' ? tryPrettyJson(payload) : JSON.stringify(payload, null, 2)}
+      </pre>
+    );
+  }
+
+  return (
+    <div className="space-y-3 max-h-96 overflow-y-auto pr-1">
+      {drafts.map((draft, i) => (
+        <div key={i} className="rounded-lg border bg-card p-4 space-y-2">
+          <div className="flex items-start gap-2">
+            <Send className="h-4 w-4 text-blue-500 mt-0.5 flex-shrink-0" />
+            <div className="flex-1 min-w-0 space-y-1.5">
+              {draft.subject && (
+                <div>
+                  <span className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Subject</span>
+                  <p className="text-sm font-medium leading-tight">{draft.subject}</p>
+                </div>
+              )}
+              {(draft.to || draft.recipient_name) && (
+                <div>
+                  <span className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">To</span>
+                  <p className="text-xs text-muted-foreground">
+                    {draft.recipient_name && <span className="font-medium text-foreground">{draft.recipient_name}</span>}
+                    {draft.recipient_name && draft.to && ' — '}
+                    {draft.to}
+                    {draft.company && <span className="text-muted-foreground"> ({draft.company})</span>}
+                  </p>
+                </div>
+              )}
+              {draft.body && (
+                <div>
+                  <span className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Body</span>
+                  <div className="text-xs text-muted-foreground whitespace-pre-wrap bg-muted/30 rounded p-2 mt-0.5 leading-relaxed">
+                    {draft.body}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ArtefactRenderer({ artefact }: { artefact: Artefact }) {
+  switch (artefact.type) {
+    case 'leads_list':
+      return <LeadsListTable payload={artefact.payload_json} />;
+    case 'email_drafts':
+      return <EmailDraftsView payload={artefact.payload_json} />;
+    default:
+      return (
+        <pre className="text-xs bg-muted/50 rounded p-3 overflow-x-auto max-h-96 whitespace-pre-wrap font-mono">
+          {typeof artefact.payload_json === 'string'
+            ? tryPrettyJson(artefact.payload_json)
+            : JSON.stringify(artefact.payload_json, null, 2)}
+        </pre>
+      );
+  }
+}
+
+const ARTEFACT_LABELS: Record<string, { label: string; icon: string }> = {
+  leads_list: { label: 'Leads', icon: '🏢' },
+  email_drafts: { label: 'Email Drafts', icon: '✉️' },
+  plan_result: { label: 'Summary', icon: '📋' },
+};
+
 function ResultsModal({ runId, open, onOpenChange }: { runId: string; open: boolean; onOpenChange: (open: boolean) => void }) {
-  const [artefact, setArtefact] = useState<Artefact | null>(null);
+  const [artefacts, setArtefacts] = useState<Artefact[]>([]);
+  const [activeTab, setActiveTab] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -244,7 +335,8 @@ function ResultsModal({ runId, open, onOpenChange }: { runId: string; open: bool
     if (!open || !runId) return;
     setLoading(true);
     setError(null);
-    setArtefact(null);
+    setArtefacts([]);
+    setActiveTab('');
 
     fetch(`/api/afr/runs/${runId}/artefacts`)
       .then(res => {
@@ -252,36 +344,49 @@ function ResultsModal({ runId, open, onOpenChange }: { runId: string; open: bool
         return res.json();
       })
       .then((rows: Artefact[]) => {
-        const leadsList = rows
-          .filter(a => a.type === 'leads_list')
-          .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-        if (leadsList.length > 0) {
-          setArtefact(leadsList[0]);
-          return;
+        const byType = new Map<string, Artefact>();
+        const typeOrder = ['leads_list', 'email_drafts', 'plan_result'];
+
+        for (const row of rows) {
+          const existing = byType.get(row.type);
+          if (!existing || new Date(row.created_at) > new Date(existing.created_at)) {
+            byType.set(row.type, row);
+          }
         }
-        const planResult = rows
-          .filter(a => a.type === 'plan_result')
-          .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-        if (planResult.length > 0) {
-          setArtefact(planResult[0]);
-          return;
-        }
-        if (rows.length > 0) {
-          const sorted = [...rows].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-          setArtefact(sorted[0]);
+
+        const sorted = Array.from(byType.values()).sort((a, b) => {
+          const ai = typeOrder.indexOf(a.type);
+          const bi = typeOrder.indexOf(b.type);
+          return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+        });
+
+        setArtefacts(sorted);
+        if (sorted.length > 0) {
+          setActiveTab(sorted[0].type);
         }
       })
       .catch(() => setError('Could not load results.'))
       .finally(() => setLoading(false));
   }, [open, runId]);
 
+  const activeArtefact = artefacts.find(a => a.type === activeTab) || null;
+  const hasTabs = artefacts.length > 1;
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{artefact?.title || 'Results'}</DialogTitle>
+          <DialogTitle>
+            {artefacts.length === 1
+              ? (activeArtefact?.title || 'Results')
+              : 'Run Results'}
+          </DialogTitle>
           <DialogDescription>
-            {artefact?.summary || (loading ? 'Loading results...' : 'Run results')}
+            {artefacts.length === 0 && !loading && !error
+              ? 'No results yet.'
+              : loading
+                ? 'Loading results...'
+                : `${artefacts.length} artefact${artefacts.length === 1 ? '' : 's'} from this run`}
           </DialogDescription>
         </DialogHeader>
         {loading && (
@@ -292,19 +397,39 @@ function ResultsModal({ runId, open, onOpenChange }: { runId: string; open: bool
         {error && (
           <div className="text-sm text-red-500 py-4 text-center">{error}</div>
         )}
-        {!loading && !error && !artefact && (
+        {!loading && !error && artefacts.length === 0 && (
           <div className="text-sm text-muted-foreground py-8 text-center">No results yet.</div>
         )}
-        {!loading && !error && artefact && (
-          <div className="mt-2">
-            {artefact.type === 'leads_list' ? (
-              <LeadsListTable payload={artefact.payload_json} />
-            ) : (
-              <pre className="text-xs bg-muted/50 rounded p-3 overflow-x-auto max-h-96 whitespace-pre-wrap font-mono">
-                {typeof artefact.payload_json === 'string'
-                  ? tryPrettyJson(artefact.payload_json)
-                  : JSON.stringify(artefact.payload_json, null, 2)}
-              </pre>
+        {!loading && !error && artefacts.length > 0 && (
+          <div className="mt-2 space-y-3">
+            {hasTabs && (
+              <div className="flex gap-1 border-b pb-2">
+                {artefacts.map(a => {
+                  const meta = ARTEFACT_LABELS[a.type] || { label: a.type, icon: '📄' };
+                  return (
+                    <button
+                      key={a.type}
+                      onClick={() => setActiveTab(a.type)}
+                      className={cn(
+                        "px-3 py-1.5 text-xs font-medium rounded-md transition-colors",
+                        activeTab === a.type
+                          ? "bg-primary text-primary-foreground"
+                          : "text-muted-foreground hover:bg-muted"
+                      )}
+                    >
+                      {meta.icon} {meta.label}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            {activeArtefact && (
+              <>
+                {hasTabs && activeArtefact.summary && (
+                  <p className="text-xs text-muted-foreground">{activeArtefact.summary}</p>
+                )}
+                <ArtefactRenderer artefact={activeArtefact} />
+              </>
             )}
           </div>
         )}

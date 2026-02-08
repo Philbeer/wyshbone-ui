@@ -30,6 +30,8 @@ import { persistLeadsToSupabase, type LeadToUpsert } from './supabase-client.js'
 import { updateStepProgress, updatePlanStatus as persistPlanStatus, getPlanExecutionStatus } from './leadgen-plan.js';
 import { isDemoMode } from './demo-config.js';
 import { runManager } from './lib/run-manager.js';
+import { getDrizzleDb } from './storage.js';
+import { sql } from 'drizzle-orm';
 import { 
   debugOnExecutionStart, 
   debugOnStepProgress, 
@@ -66,6 +68,81 @@ export interface PlanExecution {
 
 // In-memory execution state
 const executions = new Map<string, PlanExecution>();
+
+async function persistArtefacts(execution: PlanExecution, plan: LeadGenPlan): Promise<void> {
+  const runId = execution.agentRunId;
+  if (!runId) {
+    console.warn('[ARTEFACT] No agentRunId — skipping artefact persistence');
+    return;
+  }
+
+  try {
+    const db = getDrizzleDb();
+
+    const searchResults: any[] = (execution as any).searchResults || [];
+    if (searchResults.length > 0) {
+      const leadsPayload = searchResults.map((p: any) => ({
+        name: p.name || p.displayName?.text || 'Unknown',
+        address: p.formatted_address || p.formattedAddress || p.address || '',
+        phone: p.formatted_phone_number || p.nationalPhoneNumber || p.phone || null,
+        website: p.website || p.websiteUri || null,
+        rating: p.rating || null,
+        place_id: p.place_id || p.placeId || '',
+      }));
+
+      await db.execute(sql`
+        INSERT INTO artefacts (run_id, type, title, summary, payload_json)
+        VALUES (
+          ${runId},
+          'leads_list',
+          ${`Leads: ${plan.goal.substring(0, 80)}`},
+          ${`${leadsPayload.length} businesses found`},
+          ${JSON.stringify(leadsPayload)}::jsonb
+        )
+      `);
+      console.log(`📦 [ARTEFACT] Saved leads_list artefact (${leadsPayload.length} leads) for run ${runId}`);
+    }
+
+    const emailDrafts: any[] = (execution as any).emailDrafts || [];
+    if (emailDrafts.length > 0) {
+      await db.execute(sql`
+        INSERT INTO artefacts (run_id, type, title, summary, payload_json)
+        VALUES (
+          ${runId},
+          'email_drafts',
+          ${`Draft emails: ${plan.goal.substring(0, 80)}`},
+          ${`${emailDrafts.length} email drafts generated`},
+          ${JSON.stringify(emailDrafts)}::jsonb
+        )
+      `);
+      console.log(`📦 [ARTEFACT] Saved email_drafts artefact (${emailDrafts.length} drafts) for run ${runId}`);
+    }
+
+    const stepSummaries = execution.stepProgress
+      .filter(sp => sp.resultSummary)
+      .map(sp => ({
+        step: execution.steps[sp.stepIndex]?.label || sp.stepId,
+        status: sp.status,
+        summary: sp.resultSummary,
+      }));
+
+    if (stepSummaries.length > 0) {
+      await db.execute(sql`
+        INSERT INTO artefacts (run_id, type, title, summary, payload_json)
+        VALUES (
+          ${runId},
+          'plan_result',
+          ${`Results: ${plan.goal.substring(0, 80)}`},
+          ${`${stepSummaries.length} steps completed`},
+          ${JSON.stringify(stepSummaries)}::jsonb
+        )
+      `);
+      console.log(`📦 [ARTEFACT] Saved plan_result artefact for run ${runId}`);
+    }
+  } catch (err: any) {
+    console.warn(`[ARTEFACT] Failed to persist artefacts: ${err.message}`);
+  }
+}
 
 /**
  * Start executing an approved plan
@@ -340,6 +417,11 @@ async function executeStepsInBackground(execution: PlanExecution, startTime: num
   
   // Persist completion status back to plan (crash-safe)
   await persistPlanStatus(execution.planId, 'completed');
+  
+  // Persist artefacts (leads, email drafts) for the "View results" modal
+  if (plan) {
+    await persistArtefacts(execution, plan);
+  }
   
   // Mark agent_run as completed
   if (execution.agentRunId) {
