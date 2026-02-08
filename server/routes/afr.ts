@@ -532,65 +532,35 @@ export function createAfrRouter(_storage: typeof storage) {
       const clientRequestId = req.query.client_request_id as string | undefined;
       const userId = (req.query.userId || req.query.user_id) as string | undefined;
       
-      if (!clientRequestId && !userId) {
+      if (!clientRequestId) {
         return res.json({ 
           events: [], 
+          event_count: 0,
           status: 'idle',
           is_terminal: false,
           terminal_state: null,
           ui_ready: false,
-          message: 'No active request. Provide client_request_id or userId.'
+          client_request_id: null,
+          message: 'No client_request_id provided. Returning empty.'
         });
       }
 
-      let agentRun = clientRequestId 
-        ? await storage.getAgentRunByClientRequestId(clientRequestId)
-        : userId 
-          ? await storage.getMostRecentAgentRun(userId)
-          : null;
+      let agentRun = await storage.getAgentRunByClientRequestId(clientRequestId);
 
-      const effectiveClientRequestId = clientRequestId || agentRun?.clientRequestId;
+      const effectiveClientRequestId = clientRequestId;
       const activeRunId = agentRun?.id || null;
 
       const activities = await storage.listAgentActivities(200);
 
-      let relevantActivities: typeof activities;
-
-      if (effectiveClientRequestId) {
-        relevantActivities = activities.filter(a => {
-          if (a.clientRequestId === effectiveClientRequestId) return true;
-          if (activeRunId && a.runId === activeRunId) return true;
-          const row = a as any;
-          if (activeRunId && row.agent_run_id === activeRunId) return true;
-          const meta = a.metadata as Record<string, any> | null;
-          if (meta?.clientRequestId === effectiveClientRequestId) return true;
-          return false;
-        });
-      } else if (activeRunId) {
-        relevantActivities = activities.filter(a => {
-          if (a.runId === activeRunId) return true;
-          const row = a as any;
-          if (row.agent_run_id === activeRunId) return true;
-          return false;
-        });
-      } else {
-        relevantActivities = [];
-      }
-
-      if (!effectiveClientRequestId && relevantActivities.length > 0) {
-        const mostRecentWithCrid = relevantActivities.find(a => a.clientRequestId);
-        if (mostRecentWithCrid?.clientRequestId) {
-          relevantActivities = activities.filter(a => {
-            if (a.clientRequestId === mostRecentWithCrid.clientRequestId) return true;
-            const meta = a.metadata as Record<string, any> | null;
-            if (meta?.clientRequestId === mostRecentWithCrid.clientRequestId) return true;
-            return false;
-          });
-          if (!agentRun) {
-            agentRun = await storage.getAgentRunByClientRequestId(mostRecentWithCrid.clientRequestId);
-          }
-        }
-      }
+      const relevantActivities = activities.filter(a => {
+        if (a.clientRequestId === effectiveClientRequestId) return true;
+        if (activeRunId && a.runId === activeRunId) return true;
+        const row = a as any;
+        if (activeRunId && row.agent_run_id === activeRunId) return true;
+        const meta = a.metadata as Record<string, any> | null;
+        if (meta?.clientRequestId === effectiveClientRequestId) return true;
+        return false;
+      });
 
       console.log(`[AFR_STREAM] userId=${userId || '-'} crid=${effectiveClientRequestId || '-'} runId=${activeRunId || '-'} fetched=${activities.length} matched=${relevantActivities.length}`);
 

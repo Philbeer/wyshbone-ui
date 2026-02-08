@@ -1045,13 +1045,14 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
     fetchAbortRef.current = controller;
 
     try {
+      if (!activeClientRequestId) {
+        setStream(null);
+        setLoading(false);
+        return;
+      }
+
       const params = new URLSearchParams();
-      if (activeClientRequestId) {
-        params.set('client_request_id', activeClientRequestId);
-      }
-      if (user?.id) {
-        params.set('userId', user.id);
-      }
+      params.set('client_request_id', activeClientRequestId);
       
       const response = await fetch(`/api/afr/stream?${params.toString()}`, { signal: controller.signal });
       if (!response.ok) {
@@ -1060,68 +1061,17 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
       
       const data: StreamResponse = await response.json();
 
-      const streamHasNoEvents = data.events.length === 0;
-      const streamHasPartialEvents = data.events.length > 0 && data.events.every(e => !e.client_request_id);
-      if ((streamHasNoEvents || streamHasPartialEvents) && user?.id && activeClientRequestId) {
-        try {
-          const actParams = new URLSearchParams();
-          actParams.set('userId', user.id);
-          actParams.set('limit', '200');
-          const actRes = await fetch(`/api/afr/activities?${actParams.toString()}`);
-          if (actRes.ok) {
-            const actData = await actRes.json();
-            const activities: any[] = actData.activities || [];
-
-            let matched: any[] = [];
-            matched = activities.filter((a: any) => a.clientRequestId === activeClientRequestId);
-            if (matched.length === 0 && data.run_id) {
-              matched = activities.filter((a: any) => a.runId === data.run_id);
-            }
-
-            if (matched.length > 0) {
-              const existingIds = new Set(data.events.map(e => e.id));
-              const mappedEvents: StreamEvent[] = matched
-                .filter((a: any) => !existingIds.has(a.id))
-                .sort((a: any, b: any) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
-                .map((a: any) => ({
-                  id: a.id,
-                  ts: a.timestamp,
-                  type: mapActivityRunTypeToEventType(a.runType, a.action),
-                  summary: buildActivitySummary(a.runType, a.action, a.label),
-                  details: {
-                    runType: a.runType,
-                    action: a.action,
-                    task: a.label,
-                    error: a.error,
-                    durationMs: a.durationMs,
-                    results: null,
-                  },
-                  status: mapActivityStatus(a.status),
-                  run_id: a.runId || null,
-                  client_request_id: a.clientRequestId || activeClientRequestId,
-                  router_decision: a.routerDecision || null,
-                  router_reason: a.routerReason || null,
-                }));
-              const merged = [...data.events, ...mappedEvents]
-                .sort((a, b) => new Date(a.ts).getTime() - new Date(b.ts).getTime());
-              data.events = merged;
-              data.event_count = merged.length;
-            }
-          }
-        } catch (actErr) {
-          if (IS_DEV) console.warn('[LiveActivityPanel] Activities fallback error:', actErr);
-        }
-      }
-
       if (controller.signal.aborted) return;
+
+      if (activeClientRequestId && data.client_request_id && data.client_request_id !== activeClientRequestId) {
+        if (IS_DEV) console.warn('[LiveActivityPanel] Ignoring stale response for', data.client_request_id, 'expected', activeClientRequestId);
+        return;
+      }
 
       setStream(data);
       setError(null);
       setLastFetch(new Date());
 
-      if (data.client_request_id && data.client_request_id !== activeClientRequestId) {
-        onRequestIdChange?.(data.client_request_id);
-      }
 
       if (nearBottomRef.current && data.event_count > prevEventCount.current) {
         if (autoScrollTimerRef.current) cancelAnimationFrame(autoScrollTimerRef.current);
@@ -1154,7 +1104,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
     } finally {
       setLoading(false);
     }
-  }, [user?.id, activeClientRequestId, autoScroll, onRequestIdChange]);
+  }, [user?.id, activeClientRequestId, autoScroll]);
 
   useEffect(() => {
     fetchStream();
@@ -1537,6 +1487,12 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
         {hasEvents && stream?.title && (
           <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
             {stream.title}
+          </p>
+        )}
+        {IS_DEV && (
+          <p className="text-[9px] text-muted-foreground/50 font-mono mt-0.5 truncate">
+            crid={activeClientRequestId ? activeClientRequestId.slice(0, 12) + '…' : 'none'}
+            {streamRequestId && streamRequestId !== activeClientRequestId ? ` stream=${streamRequestId.slice(0, 8)}…` : ''}
           </p>
         )}
       </CardHeader>
