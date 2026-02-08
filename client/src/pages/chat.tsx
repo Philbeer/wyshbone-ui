@@ -677,6 +677,9 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                   });
                   setTimeout(() => {
                     setActiveClientRequestId(null);
+                    setPinnedClientRequestId(null);
+                    setCurrentClientRequestId(null);
+                    setExecutedToolsSummary(null);
                     // Check for queued message and auto-submit
                     if (queuedMessageRef.current) {
                       const messageToSend = queuedMessageRef.current;

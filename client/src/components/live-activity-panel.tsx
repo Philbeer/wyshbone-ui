@@ -816,7 +816,8 @@ const delay = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, m
 
 function usePacedPlaybackQueue(
   allEvents: StreamEvent[],
-  isDemoMode: boolean
+  isDemoMode: boolean,
+  clientRequestId: string | null | undefined
 ): { displayEvents: StreamEvent[]; transientPhase: PlaybackPhase | null } {
   const [, forceRender] = useState(0);
   const kick = useCallback(() => forceRender(n => n + 1), []);
@@ -826,7 +827,7 @@ function usePacedPlaybackQueue(
   const queueRef = useRef<StreamEvent[]>([]);
   const isPlayingRef = useRef(false);
   const phaseRef = useRef<PlaybackPhase | null>(null);
-  const prevRunIdRef = useRef<string | null | undefined>(undefined);
+  const prevKeyRef = useRef<string | null | undefined>(undefined);
   const cancelRef = useRef(0);
 
   const timingsRef = useRef({ thinkingMs: THINKING_MS, workingMs: WORKING_MS, gapMs: EVENT_GAP_MS });
@@ -882,16 +883,16 @@ function usePacedPlaybackQueue(
   }, [kick]);
 
   useEffect(() => {
-    const currentRunId = allEvents.length > 0 ? allEvents[0].run_id : null;
-    if (currentRunId !== prevRunIdRef.current && prevRunIdRef.current !== undefined) {
+    if (clientRequestId !== prevKeyRef.current && prevKeyRef.current !== undefined) {
       cancelRef.current++;
       isPlayingRef.current = false;
       revealedRef.current = [];
       seenIdsRef.current = new Set();
       queueRef.current = [];
       phaseRef.current = null;
+      kick();
     }
-    prevRunIdRef.current = currentRunId;
+    prevKeyRef.current = clientRequestId;
 
     let hasNew = false;
     for (const event of allEvents) {
@@ -905,7 +906,7 @@ function usePacedPlaybackQueue(
     if (hasNew) {
       kickPlayer();
     }
-  }, [allEvents, kickPlayer]);
+  }, [allEvents, clientRequestId, kickPlayer, kick]);
 
   useEffect(() => {
     return () => { cancelRef.current++; };
@@ -1159,7 +1160,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
 
   const allEvents = useMemo(() => stream?.events || [], [stream?.events]);
   const effectiveDemoPlayback = demoPlayback && !activeClientRequestId;
-  const { displayEvents, transientPhase } = usePacedPlaybackQueue(allEvents, effectiveDemoPlayback);
+  const { displayEvents, transientPhase } = usePacedPlaybackQueue(allEvents, effectiveDemoPlayback, activeClientRequestId);
   const allRevealed = displayEvents.length >= allEvents.length;
 
   const fetchStream = useCallback(async () => {

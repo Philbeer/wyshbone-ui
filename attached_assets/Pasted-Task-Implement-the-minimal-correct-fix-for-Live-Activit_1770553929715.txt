@@ -1,0 +1,72 @@
+Task: Implement the minimal, correct fix for Live Activity / Chat Progress carry-over between runs.
+
+You already found root cause:
+
+Issue 1 (primary): pinnedClientRequestId never cleared on completion, so LiveActivityPanel keeps polling old run.
+
+Issue 2: usePacedPlaybackQueue resets by run_id, which is sometimes null early → stale queue survives.
+
+Issue 3 (minor): executedToolsSummary persists until next send.
+
+Implement fixes (do not refactor / redesign):
+
+1) Clear stale pin when a run completes (primary fix)
+
+In client/src/pages/chat.tsx completion handler (where you currently do setActiveClientRequestId(null)), also clear context ids:
+
+setPinnedClientRequestId(null)
+
+setCurrentClientRequestId(null)
+(Or whatever the setters are in CurrentRequestContext.)
+
+Goal: after completion, LiveActivityPanel must not be able to keep polling old run via a pinned id.
+
+2) Key LiveActivityPanel playback queue by client_request_id, not run_id
+
+In client/src/components/live-activity-panel.tsx / usePacedPlaybackQueue:
+
+Change the reset condition to use clientRequestId (the prop) as the key.
+
+i.e. when clientRequestId changes, reset revealedRef/seenIdsRef/queueRef immediately, even if events haven’t loaded and run_id is null.
+
+Goal: on a new request, the event queue must reset instantly even with zero events loaded.
+
+3) Cancel/override postTerminalHold when a new request begins
+
+Keep the 60s hold if you want, but:
+
+If a new clientRequestId arrives, immediately end the hold and clear old visible events.
+
+Goal: Run B should never show Run A for “up to 60 seconds” once Run B starts.
+
+4) Clear executedToolsSummary earlier (minor polish)
+
+Either:
+
+clear it immediately on completion, or
+
+hide it when there is no active request id
+
+Goal: old “Executed tools” summary should not sit there while the user is starting the next query.
+
+Acceptance tests (you must verify):
+
+Run “find 200 shoe shops kent” → complete.
+
+Immediately run “find 200 bookshops london”.
+
+Live Activity panel must:
+
+stop showing/polling Run A as soon as Run B begins,
+
+not keep old terminal events,
+
+only show Run B events.
+
+No regression to misleading “Wyshbone database” labels due to stale state.
+
+Deliverable:
+
+Make the code changes and report back with the exact files changed + a short summary of what you changed.
+
+Do not do unrelated cleanups.
