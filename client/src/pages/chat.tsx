@@ -108,6 +108,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
   }
   const [progressStack, setProgressStack] = useState<ProgressEvent[]>([]);
   const [activeClientRequestId, setActiveClientRequestId] = useState<string | null>(null);
+  const [executedToolsSummary, setExecutedToolsSummary] = useState<{ tools: string[]; rejected: { tool: string; reason: string }[] } | null>(null);
   
   // Queued message for soft lock (Part 3 implementation)
   const [queuedMessage, setQueuedMessage] = useState<string | null>(null);
@@ -129,13 +130,17 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         return { icon: '\u{1F50D}', label: 'Planning' };
       case 'executing':
         if (toolName) {
-          if (toolName.toLowerCase().includes('search') || toolName.toLowerCase().includes('wyshbone')) {
+          const lower = toolName.toLowerCase();
+          if (lower === 'search_wyshbone_database') {
             return { icon: '\u{1F50E}', label: 'Searching Wyshbone database' };
           }
-          if (toolName.toLowerCase().includes('google') || toolName.toLowerCase().includes('places')) {
+          if (lower === 'search_places') {
+            return { icon: '\u{1F5FA}', label: 'Running Search Places' };
+          }
+          if (lower.includes('google') || lower.includes('places')) {
             return { icon: '\u{1F5FA}', label: 'Running Google Places' };
           }
-          return { icon: '\u{1F527}', label: `Executing ${toolName.replace(/_/g, ' ')}` };
+          return { icon: '\u{1F527}', label: `Running ${toolName.replace(/_/g, ' ')}` };
         }
         return { icon: '\u{1F527}', label: 'Executing tools' };
       case 'finalising':
@@ -549,6 +554,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     
     // Clear progress stack and set active request for new run
     setProgressStack([]);
+    setExecutedToolsSummary(null);
     setActiveClientRequestId(clientRequestId);
     
     // Immediately notify LiveActivityPanel of new request (before any server events)
@@ -658,8 +664,17 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                   return [...prev, newEvent];
                 });
                 
-                // If completed or failed, clear active request after a delay
+                // If completed or failed, build tools summary and clear active request
                 if (parsed.stage === 'completed' || parsed.stage === 'failed') {
+                  setProgressStack((prev) => {
+                    const toolNames = prev
+                      .filter(p => p.stage === 'executing' && p.toolName)
+                      .map(p => p.toolName!);
+                    if (toolNames.length > 0) {
+                      setExecutedToolsSummary({ tools: toolNames, rejected: [] });
+                    }
+                    return prev;
+                  });
                   setTimeout(() => {
                     setActiveClientRequestId(null);
                     // Check for queued message and auto-submit
@@ -1861,6 +1876,19 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                         </div>
                       );
                     })}
+                    {executedToolsSummary && executedToolsSummary.tools.length > 0 && (
+                      <div className="mt-1 pt-1 border-t border-border/50">
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <span>⚙️</span>
+                          <span>Executed tools: {executedToolsSummary.tools.join(' → ')}</span>
+                        </div>
+                        {executedToolsSummary.rejected.map((r, i) => (
+                          <div key={i} className="flex items-center gap-2 text-xs text-muted-foreground/70 ml-5">
+                            <span>Rejected: {r.tool} ({r.reason})</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
