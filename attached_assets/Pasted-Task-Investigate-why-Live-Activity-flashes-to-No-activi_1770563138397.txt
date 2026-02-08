@@ -1,0 +1,95 @@
+Task: Investigate why Live Activity flashes to “No activity yet / crid-none” mid-run and why run completion + “View results” is no longer appearing.
+
+Observed behaviour (from screenshots):
+
+Start query “find hat shops kent”
+
+Live Activity shows events (“Message received…”, “Router: Tool Call…”)
+
+Then Live Activity suddenly resets to “No activity yet” and shows crid-none
+
+Then it re-attaches and shows “Message received…” again (looks like the same run)
+
+Run never shows completion and “View results” button is missing.
+
+Important: this is probably NOT a new backend run. It looks like the UI loses the request-id anchor or clears panel state.
+
+What you must do (report only, no fixes yet)
+1) Prove whether clientRequestId becomes null during the run
+
+Instrument (temporary logs) the exact values over time:
+
+currentClientRequestId
+
+pinnedClientRequestId
+
+activeClientRequestId
+
+whichever value is passed into LiveActivityPanel as the “display id”
+
+Add logs in:
+
+CurrentRequestContext setters
+
+the component that computes/passes the id into LiveActivityPanel
+
+inside LiveActivityPanel whenever its incoming id prop changes
+
+Output logs like:
+
+[CRID] setCurrentClientRequestId -> <value>
+
+[CRID] setPinnedClientRequestId -> <value>
+
+[LAP] clientRequestId prop -> <value>
+
+Goal: confirm whether we see <uuid> → null → <uuid> during a single run (that would explain the flash).
+
+2) If the id does NOT go null, then prove the panel is wiping itself
+
+In live-activity-panel.tsx, identify every code path that can show “No activity yet”:
+
+setting internal stream/events state to empty
+
+setting the panel’s “connected / idle / hasEvents” flags
+
+any effect that calls setStream(null) or clears events
+
+Key suspect: fetchStream / polling effect re-running due to dependencies (e.g. autoScroll) causing state reset.
+Confirm whether fetchStream is recreated during scroll and triggers a reset to empty.
+
+3) Explain why completion/results disappeared
+
+Trace what drives:
+
+“Run completed” display
+
+“View results” button availability
+
+Confirm whether we are:
+
+missing the terminal event from AFR stream (dropped subscription / reconnect)
+
+or receiving it but not handling it (state cleared)
+
+or clearing IDs before the completion handler can fetch/store plan_result
+
+4) “Not Connected” relevance
+
+The UI shows “Not Connected”. Determine whether:
+
+websocket / SSE drops cause the Live Activity panel to reset
+
+and whether reconnect currently wipes panel state instead of resuming
+
+Output required (short diagnostic report)
+
+Do the request IDs go null mid-run? yes/no (with log evidence)
+
+If yes: what code sets them null (file + line)
+
+If no: what internal panel reset path causes “No activity yet”
+
+Why completion/results are missing (exact missing step)
+
+Do not implement fixes yet.
