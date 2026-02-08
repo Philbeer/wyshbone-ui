@@ -97,8 +97,6 @@ export function PlanProvider({ children }: { children: ReactNode }) {
   const approveMutation = useMutation({
     mutationFn: async (planId: string) => {
       const clientRequestId = crypto.randomUUID();
-      console.log(`[APPROVE] approveMutation fired | planId=${planId} | clientRequestId=${clientRequestId.slice(0, 8)}`);
-      console.trace('[APPROVE] approveMutation stack trace');
       console.log(`[PLAN_CONTEXT] Calling POST /api/plan/approve for planId=${planId}, clientRequestId=${clientRequestId.slice(0, 8)}...`);
       
       // Set clientRequestId in context BEFORE the API call so LiveActivityPanel starts polling immediately

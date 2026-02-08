@@ -111,6 +111,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
   const [executedToolsSummary, setExecutedToolsSummary] = useState<{ tools: string[]; rejected: { tool: string; reason: string }[] } | null>(null);
   
   const inFlightRequestIdRef = useRef<string | null>(null);
+  const pendingCleanupRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   
   // Queued message for soft lock (Part 3 implementation)
   const [queuedMessage, setQueuedMessage] = useState<string | null>(null);
@@ -450,7 +451,6 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     if (onInjectSystemMessage) {
       const injectMessage = (content: string, asUser: boolean = true) => {
         if (asUser) {
-          console.log(`[INJECT] injectMessage firing handleSendRef | content=${content.slice(0,30)}`);
           // Send to AI
           handleSendRef.current?.(content);
         } else {
@@ -550,20 +550,20 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
   }, [onLoadConversation]);
 
   const streamChatResponse = async (conversationMessages: ChatMessage[]) => {
-    console.log(`[STREAM_START] streamChatResponse called | inFlight=${inFlightRequestIdRef.current?.slice(0,8) ?? 'null'}`);
-    console.trace('[STREAM_START] streamChatResponse stack trace');
     if (inFlightRequestIdRef.current) {
-      console.warn('⛔ streamChatResponse blocked — already in-flight:', inFlightRequestIdRef.current.slice(0, 8));
       return;
+    }
+    
+    if (pendingCleanupRef.current) {
+      clearTimeout(pendingCleanupRef.current);
+      pendingCleanupRef.current = null;
     }
     
     setIsStreaming(true);
     
-    // Generate unique client request ID for idempotency and AFR correlation
     const clientRequestId = crypto.randomUUID();
     inFlightRequestIdRef.current = clientRequestId;
     
-    // Clear progress stack and set active request for new run
     setProgressStack([]);
     setExecutedToolsSummary(null);
     setActiveClientRequestId(clientRequestId);
@@ -687,18 +687,19 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                     }
                     return prev;
                   });
-                  setTimeout(() => {
-                    inFlightRequestIdRef.current = null;
+                  pendingCleanupRef.current = setTimeout(() => {
+                    pendingCleanupRef.current = null;
+                    if (inFlightRequestIdRef.current === clientRequestId) {
+                      inFlightRequestIdRef.current = null;
+                    }
                     setLastCompletedClientRequestId(clientRequestId);
-                    setActiveClientRequestId(null);
-                    setPinnedClientRequestId(null);
-                    setCurrentClientRequestId(null);
+                    setActiveClientRequestId((current) => current === clientRequestId ? null : current);
+                    setPinnedClientRequestId((current) => current === clientRequestId ? null : current);
+                    setCurrentClientRequestId((current) => current === clientRequestId ? null : current);
                     setExecutedToolsSummary(null);
-                    // Check for queued message and auto-submit
                     if (queuedMessageRef.current) {
                       const messageToSend = queuedMessageRef.current;
                       setQueuedMessage(null);
-                      console.log('📤 Auto-submitting queued message:', messageToSend.slice(0, 50));
                       handleSendRef.current?.(messageToSend);
                     }
                   }, 500);
@@ -859,26 +860,22 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
       
       setIsStreaming(false);
       
-      // ROBUST CLEANUP: Clear soft lock and trigger queued message if no terminal status was received
-      // This is a fallback in case the server didn't emit completed/failed status events
-      setTimeout(() => {
-        setActiveClientRequestId((current) => {
-          // Only clear if still the same request (prevents race conditions)
-          if (current === clientRequestId) {
-            console.log('🧹 Stream completed, clearing active request (fallback cleanup)');
+      if (!pendingCleanupRef.current) {
+        pendingCleanupRef.current = setTimeout(() => {
+          pendingCleanupRef.current = null;
+          if (inFlightRequestIdRef.current === clientRequestId) {
             inFlightRequestIdRef.current = null;
-            // Check for queued message and auto-submit
-            if (queuedMessageRef.current) {
-              const messageToSend = queuedMessageRef.current;
-              setQueuedMessage(null);
-              console.log('📤 Auto-submitting queued message (fallback):', messageToSend.slice(0, 50));
-              setTimeout(() => handleSendRef.current?.(messageToSend), 100);
-            }
-            return null;
           }
-          return current;
-        });
-      }, 500);
+          setActiveClientRequestId((current) => current === clientRequestId ? null : current);
+          setPinnedClientRequestId((current) => current === clientRequestId ? null : current);
+          setCurrentClientRequestId((current) => current === clientRequestId ? null : current);
+          if (queuedMessageRef.current) {
+            const messageToSend = queuedMessageRef.current;
+            setQueuedMessage(null);
+            setTimeout(() => handleSendRef.current?.(messageToSend), 100);
+          }
+        }, 500);
+      }
       
     } catch (error: any) {
       setIsStreaming(false);
@@ -1007,7 +1004,6 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         
         // Re-submit after a brief delay to allow mode switch
         setTimeout(() => {
-          console.log('[MEGA_FALLBACK] MEGA→Standard fallback firing handleSend');
           handleSend(messageContent);
         }, 500);
         
@@ -1238,9 +1234,6 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     const messageContent = promptOverride || input.trim();
     if (!messageContent) return;
     
-    console.log(`[SEND] handleSend called | inFlight=${inFlightRequestIdRef.current?.slice(0,8) ?? 'null'} | isStreaming=${isStreaming} | isRunActive=${isRunActive} | promptOverride=${!!promptOverride}`);
-    console.trace('[SEND] handleSend stack trace');
-    
     // SOFT LOCK: If a run is active, don't submit - this is handled by handleKeyDown
     // This check is here as a safety net for direct calls
     if (isStreaming || isRunActive) {
@@ -1357,7 +1350,6 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey && !e.repeat) {
-      console.log(`[ENTER_KEY] Enter pressed | repeat=${e.repeat} | isRunActive=${isRunActive} | isStreaming=${isStreaming}`);
       e.preventDefault();
       setShowLocationSuggestions(false);
       
@@ -2117,7 +2109,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
             {/* Show Send button when no run is active */}
             {!isRunActive && (
               <Button
-                onClick={() => { console.log('[BTN_CLICK] Send button clicked'); handleSend(); }}
+                onClick={() => handleSend()}
                 disabled={!input.trim() || isStreaming}
                 size="icon"
                 className="flex-shrink-0 p-0 overflow-hidden"

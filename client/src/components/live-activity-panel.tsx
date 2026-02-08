@@ -1238,8 +1238,6 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
 
   useEffect(() => {
     if (activeClientRequestId && activeClientRequestId !== prevActiveIdRef.current) {
-      console.log(`[LAP_ID_CHANGE] LiveActivityPanel detected ID change | from=${prevActiveIdRef.current?.slice(0,8) ?? 'null'} → to=${activeClientRequestId.slice(0,8)}`);
-      console.trace('[LAP_ID_CHANGE] stack trace');
       if (DEBUG_TERMINAL) {
         console.log('[STATUS_DEBUG] activeClientRequestId changed (overlay trigger):', {
           from: prevActiveIdRef.current,
