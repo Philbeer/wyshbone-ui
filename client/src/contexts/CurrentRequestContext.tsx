@@ -12,9 +12,25 @@ interface CurrentRequestContextType {
 const CurrentRequestContext = createContext<CurrentRequestContextType | null>(null);
 
 export function CurrentRequestProvider({ children }: { children: ReactNode }) {
-  const [currentClientRequestId, setCurrentClientRequestId] = useState<string | null>(null);
-  const [pinnedClientRequestId, setPinnedClientRequestId] = useState<string | null>(null);
-  const [lastCompletedClientRequestId, setLastCompletedClientRequestId] = useState<string | null>(null);
+  const [currentClientRequestId, _setCurrentClientRequestId] = useState<string | null>(null);
+  const [pinnedClientRequestId, _setPinnedClientRequestId] = useState<string | null>(null);
+  const [lastCompletedClientRequestId, _setLastCompletedClientRequestId] = useState<string | null>(null);
+  
+  const setCurrentClientRequestId = useCallback((id: string | null) => {
+    console.log(`[ID_SET] setCurrentClientRequestId: ${id?.slice(0,8) ?? 'null'}`);
+    console.trace('[ID_SET] setCurrentClientRequestId caller');
+    _setCurrentClientRequestId(id);
+  }, []);
+
+  const setPinnedClientRequestId = useCallback((id: string | null) => {
+    console.log(`[ID_SET] setPinnedClientRequestId: ${id?.slice(0,8) ?? 'null'}`);
+    _setPinnedClientRequestId(id);
+  }, []);
+
+  const setLastCompletedClientRequestId = useCallback((id: string | null) => {
+    console.log(`[ID_SET] setLastCompletedClientRequestId: ${id?.slice(0,8) ?? 'null'}`);
+    _setLastCompletedClientRequestId(id);
+  }, []);
   
   return (
     <CurrentRequestContext.Provider value={{ currentClientRequestId, setCurrentClientRequestId, pinnedClientRequestId, setPinnedClientRequestId, lastCompletedClientRequestId, setLastCompletedClientRequestId }}>

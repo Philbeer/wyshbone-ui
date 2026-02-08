@@ -450,6 +450,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     if (onInjectSystemMessage) {
       const injectMessage = (content: string, asUser: boolean = true) => {
         if (asUser) {
+          console.log(`[INJECT] injectMessage firing handleSendRef | content=${content.slice(0,30)}`);
           // Send to AI
           handleSendRef.current?.(content);
         } else {
@@ -549,6 +550,8 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
   }, [onLoadConversation]);
 
   const streamChatResponse = async (conversationMessages: ChatMessage[]) => {
+    console.log(`[STREAM_START] streamChatResponse called | inFlight=${inFlightRequestIdRef.current?.slice(0,8) ?? 'null'}`);
+    console.trace('[STREAM_START] streamChatResponse stack trace');
     if (inFlightRequestIdRef.current) {
       console.warn('⛔ streamChatResponse blocked — already in-flight:', inFlightRequestIdRef.current.slice(0, 8));
       return;
@@ -1004,6 +1007,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         
         // Re-submit after a brief delay to allow mode switch
         setTimeout(() => {
+          console.log('[MEGA_FALLBACK] MEGA→Standard fallback firing handleSend');
           handleSend(messageContent);
         }, 500);
         
@@ -1234,6 +1238,9 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     const messageContent = promptOverride || input.trim();
     if (!messageContent) return;
     
+    console.log(`[SEND] handleSend called | inFlight=${inFlightRequestIdRef.current?.slice(0,8) ?? 'null'} | isStreaming=${isStreaming} | isRunActive=${isRunActive} | promptOverride=${!!promptOverride}`);
+    console.trace('[SEND] handleSend stack trace');
+    
     // SOFT LOCK: If a run is active, don't submit - this is handled by handleKeyDown
     // This check is here as a safety net for direct calls
     if (isStreaming || isRunActive) {
@@ -1350,6 +1357,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey && !e.repeat) {
+      console.log(`[ENTER_KEY] Enter pressed | repeat=${e.repeat} | isRunActive=${isRunActive} | isStreaming=${isStreaming}`);
       e.preventDefault();
       setShowLocationSuggestions(false);
       
@@ -2109,7 +2117,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
             {/* Show Send button when no run is active */}
             {!isRunActive && (
               <Button
-                onClick={() => handleSend()}
+                onClick={() => { console.log('[BTN_CLICK] Send button clicked'); handleSend(); }}
                 disabled={!input.trim() || isStreaming}
                 size="icon"
                 className="flex-shrink-0 p-0 overflow-hidden"
