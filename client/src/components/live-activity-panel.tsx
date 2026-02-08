@@ -1027,6 +1027,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
   const nearBottomRef = useRef(true);
   const autoScrollTimerRef = useRef<number | null>(null);
   const lastAutoScrollRef = useRef(0);
+  const fetchAbortRef = useRef<AbortController | null>(null);
   
   const streamRequestId = stream?.client_request_id;
   const idsMatch = !!(activeClientRequestId && streamRequestId && activeClientRequestId === streamRequestId);
@@ -1037,6 +1038,12 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
   const allRevealed = displayEvents.length >= allEvents.length;
 
   const fetchStream = useCallback(async () => {
+    if (fetchAbortRef.current) {
+      fetchAbortRef.current.abort();
+    }
+    const controller = new AbortController();
+    fetchAbortRef.current = controller;
+
     try {
       const params = new URLSearchParams();
       if (activeClientRequestId) {
@@ -1046,7 +1053,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
         params.set('userId', user.id);
       }
       
-      const response = await fetch(`/api/afr/stream?${params.toString()}`);
+      const response = await fetch(`/api/afr/stream?${params.toString()}`, { signal: controller.signal });
       if (!response.ok) {
         throw new Error("Failed to fetch activity stream");
       }
@@ -1069,19 +1076,6 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
             matched = activities.filter((a: any) => a.clientRequestId === activeClientRequestId);
             if (matched.length === 0 && data.run_id) {
               matched = activities.filter((a: any) => a.runId === data.run_id);
-            }
-            if (matched.length === 0) {
-              const lastEventTs = data.last_event_at ? new Date(data.last_event_at).getTime() : 0;
-              const lastUpdatedTs = data.last_updated ? new Date(data.last_updated).getTime() : 0;
-              const anchor = lastEventTs || lastUpdatedTs;
-              if (anchor > 0) {
-                const windowMs = 300000;
-                matched = activities.filter((a: any) => {
-                  if (a.clientRequestId && a.clientRequestId !== activeClientRequestId) return false;
-                  const ts = new Date(a.timestamp).getTime();
-                  return ts >= anchor - windowMs && ts <= anchor + 30000;
-                });
-              }
             }
 
             if (matched.length > 0) {
@@ -1119,6 +1113,8 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
         }
       }
 
+      if (controller.signal.aborted) return;
+
       setStream(data);
       setError(null);
       setLastFetch(new Date());
@@ -1152,6 +1148,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
       prevEventCount.current = data.event_count;
 
     } catch (err: any) {
+      if (err?.name === 'AbortError') return;
       console.error("[LiveActivityPanel] Fetch error:", err);
       setError("Could not load activity stream.");
     } finally {
@@ -1181,10 +1178,17 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
         terminalStabilityTimerRef.current = null;
       }
       
+      if (fetchAbortRef.current) {
+        fetchAbortRef.current.abort();
+        fetchAbortRef.current = null;
+      }
+      
       setConfirmedTerminal(false);
       setShowThinking(false);
       terminalEventCountRef.current = null;
       prevEventCount.current = 0;
+      
+      setStream(null);
       
       setMinVisibleHold(true);
       setPostTerminalHold(false);
@@ -1233,6 +1237,10 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
       if (autoScrollTimerRef.current) {
         cancelAnimationFrame(autoScrollTimerRef.current);
         autoScrollTimerRef.current = null;
+      }
+      if (fetchAbortRef.current) {
+        fetchAbortRef.current.abort();
+        fetchAbortRef.current = null;
       }
     };
   }, []);

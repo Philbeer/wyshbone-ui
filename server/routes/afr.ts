@@ -574,7 +574,7 @@ export function createAfrRouter(_storage: typeof storage) {
           return false;
         });
       } else {
-        relevantActivities = activities;
+        relevantActivities = [];
       }
 
       if (!effectiveClientRequestId && relevantActivities.length > 0) {
