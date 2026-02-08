@@ -787,7 +787,10 @@ function RightPanelContent() {
           <span className="text-xs text-muted-foreground">{demoStatus}</span>
         )}
       </div>
-      <LiveActivityPanel activeClientRequestId={pinnedClientRequestId ?? currentClientRequestId ?? lastCompletedClientRequestId} />
+      {(() => {
+        const resolvedId = pinnedClientRequestId ?? currentClientRequestId ?? lastCompletedClientRequestId;
+        return <LiveActivityPanel key={resolvedId ?? 'none'} activeClientRequestId={resolvedId} />;
+      })()}
     </div>
   );
 }

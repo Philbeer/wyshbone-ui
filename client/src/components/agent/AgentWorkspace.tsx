@@ -103,7 +103,10 @@ export function AgentWorkspace({ className }: AgentWorkspaceProps) {
 
       {/* Live Activity Panel - fills available height, scrolls internally */}
       <div className="flex-1 min-h-0 flex flex-col p-6 pb-3">
-        <LiveActivityPanel activeClientRequestId={pinnedClientRequestId ?? currentClientRequestId ?? lastCompletedClientRequestId} />
+        {(() => {
+          const resolvedId = pinnedClientRequestId ?? currentClientRequestId ?? lastCompletedClientRequestId;
+          return <LiveActivityPanel key={resolvedId ?? 'none'} activeClientRequestId={resolvedId} />;
+        })()}
       </div>
 
       {/* Activity Metrics - fixed height footer section */}
