@@ -110,6 +110,8 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
   const [activeClientRequestId, setActiveClientRequestId] = useState<string | null>(null);
   const [executedToolsSummary, setExecutedToolsSummary] = useState<{ tools: string[]; rejected: { tool: string; reason: string }[] } | null>(null);
   
+  const inFlightRequestIdRef = useRef<string | null>(null);
+  
   // Queued message for soft lock (Part 3 implementation)
   const [queuedMessage, setQueuedMessage] = useState<string | null>(null);
   const queuedMessageRef = useRef<string | null>(null);
@@ -547,10 +549,16 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
   }, [onLoadConversation]);
 
   const streamChatResponse = async (conversationMessages: ChatMessage[]) => {
+    if (inFlightRequestIdRef.current) {
+      console.warn('⛔ streamChatResponse blocked — already in-flight:', inFlightRequestIdRef.current.slice(0, 8));
+      return;
+    }
+    
     setIsStreaming(true);
     
     // Generate unique client request ID for idempotency and AFR correlation
     const clientRequestId = crypto.randomUUID();
+    inFlightRequestIdRef.current = clientRequestId;
     
     // Clear progress stack and set active request for new run
     setProgressStack([]);
@@ -677,6 +685,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                     return prev;
                   });
                   setTimeout(() => {
+                    inFlightRequestIdRef.current = null;
                     setLastCompletedClientRequestId(clientRequestId);
                     setActiveClientRequestId(null);
                     setPinnedClientRequestId(null);
@@ -854,6 +863,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
           // Only clear if still the same request (prevents race conditions)
           if (current === clientRequestId) {
             console.log('🧹 Stream completed, clearing active request (fallback cleanup)');
+            inFlightRequestIdRef.current = null;
             // Check for queued message and auto-submit
             if (queuedMessageRef.current) {
               const messageToSend = queuedMessageRef.current;
@@ -869,6 +879,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
       
     } catch (error: any) {
       setIsStreaming(false);
+      inFlightRequestIdRef.current = null;
       
       // ROBUST CLEANUP: Clear soft lock state on error
       setActiveClientRequestId(null);
@@ -1338,7 +1349,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
+    if (e.key === "Enter" && !e.shiftKey && !e.repeat) {
       e.preventDefault();
       setShowLocationSuggestions(false);
       
@@ -1377,6 +1388,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
       abortControllerRef.current = null;
     }
     setIsStreaming(false);
+    inFlightRequestIdRef.current = null;
     setActiveClientRequestId(null);
     setProgressStack((prev) => {
       const last = prev[prev.length - 1];

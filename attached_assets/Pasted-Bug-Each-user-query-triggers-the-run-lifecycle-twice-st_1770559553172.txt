@@ -1,0 +1,79 @@
+Bug: Each user query triggers the run lifecycle twice (“start run → flip → start again”). Live Activity shows duplicate sequences for the same prompt.
+
+Goal: Identify the single cause of the duplicate trigger and implement a minimal guard so one user send = one backend run.
+
+Do not guess. Instrument and prove.
+
+1) Add instrumentation (temporary logs)
+
+Add console.log (or a lightweight logger) at the exact entrypoints that can trigger plan/run creation:
+
+handleSend (or equivalent send function)
+
+the function that calls the backend to create/approve/start a plan
+
+any useEffect that auto-starts execution / polling when currentClientRequestId or activePlanId changes
+
+any retry / re-fetch logic (React Query onError, onSuccess, onSettled, refetchInterval, etc.)
+
+Each log must include:
+
+timestamp
+
+clientRequestId
+
+userMessageId (if you have one)
+
+callsite label (string constant)
+
+stack trace once (use new Error().stack) for the second trigger
+
+2) Reproduce and count triggers
+
+With logs on, run a single query once.
+Confirm whether we see two invocations of:
+
+send
+
+approve/start
+
+or an effect firing twice
+
+3) Identify which of these is happening
+
+One of these will be true — tell me which:
+A) handleSend is firing twice (double click / Enter + click / bubbling)
+B) React StrictMode / double-render is causing an effect to run twice
+C) A React Query retry / refetch interval is re-triggering “approve/start”
+D) Clearing/setting IDs causes an effect to re-run and call start again
+E) Websocket reconnect / subscription re-register causes duplicate event sequence
+
+4) Minimal fix (pick the right one based on evidence)
+
+Implement the smallest guard that prevents duplicate execution:
+
+Add an idempotency guard keyed by clientRequestId:
+
+if inFlightRequestIds contains this id, do nothing
+
+only clear it when backend reports terminal state
+
+OR prevent approve/start from being called from both:
+
+an explicit user action AND an effect (choose one owner)
+
+OR disable React Query automatic retries for approve/start mutation if that’s the culprit
+
+Acceptance test
+
+Single user send produces exactly one “Message received” and one router decision sequence.
+
+No flip/reset to “starting again”.
+
+Deliverable:
+
+Short report: which trigger path caused the second run (file + function).
+
+The minimal code change to enforce “one send → one run”.
+
+List files changed.
