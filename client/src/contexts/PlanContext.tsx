@@ -145,8 +145,6 @@ export function PlanProvider({ children }: { children: ReactNode }) {
     },
     onError: (error) => {
       console.error(`❌ [PLAN_CONTEXT] Approve plan failed:`, error);
-      setCurrentClientRequestId(null);
-      setPinnedClientRequestId(null);
       handleApiError(error, "approve plan");
     },
   });
