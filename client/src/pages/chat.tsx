@@ -61,7 +61,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
   const { trigger: triggerSidebarFlash } = useSidebarFlash();
   const { goal, hasGoal, isLoading: isLoadingGoal } = useUserGoal();
   const { openResults } = useResultsPanel();
-  const { setCurrentClientRequestId } = useCurrentRequest();
+  const { setCurrentClientRequestId, setPinnedClientRequestId } = useCurrentRequest();
   const queryClient = useQueryClient();
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
   const [input, setInput] = useState("");
@@ -553,6 +553,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     
     // Immediately notify LiveActivityPanel of new request (before any server events)
     setCurrentClientRequestId(clientRequestId);
+    setPinnedClientRequestId(clientRequestId);
     
     // Create assistant message with empty content
     const assistantMessageId = crypto.randomUUID();

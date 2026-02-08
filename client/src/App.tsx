@@ -733,7 +733,7 @@ function DevInfoBadge() {
  */
 function RightPanelContent() {
   const { isOpen, currentResult } = useResultsPanel();
-  const { currentClientRequestId, setCurrentClientRequestId } = useCurrentRequest();
+  const { currentClientRequestId, setCurrentClientRequestId, pinnedClientRequestId, setPinnedClientRequestId } = useCurrentRequest();
   const [demoLoading, setDemoLoading] = useState(false);
   const [demoStatus, setDemoStatus] = useState<string | null>(null);
 
@@ -753,6 +753,7 @@ function RightPanelContent() {
       const id = data.clientRequestId;
       if (!id) throw new Error("No clientRequestId in response");
       setCurrentClientRequestId(id);
+      setPinnedClientRequestId(id);
       setDemoStatus(`Following ${id.slice(0, 8)}…`);
     } catch (err: any) {
       setDemoStatus(`Error: ${err.message}`);

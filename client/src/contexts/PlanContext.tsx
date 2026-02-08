@@ -47,7 +47,7 @@ const PlanContext = createContext<PlanContextValue | undefined>(undefined);
 export function PlanProvider({ children }: { children: ReactNode }) {
   const { user } = useUser();
   const queryClient = useQueryClient();
-  const { setCurrentClientRequestId } = useCurrentRequest();
+  const { setCurrentClientRequestId, setPinnedClientRequestId } = useCurrentRequest();
 
   // Fetch current plan from backend - expose raw data, no overrides
   const { data: plan, isLoading, error } = useQuery<LeadGenPlan | null>({
@@ -101,6 +101,7 @@ export function PlanProvider({ children }: { children: ReactNode }) {
       
       // Set clientRequestId in context BEFORE the API call so LiveActivityPanel starts polling immediately
       setCurrentClientRequestId(clientRequestId);
+      setPinnedClientRequestId(clientRequestId);
       
       const response = await apiRequest("POST", "/api/plan/approve", { planId, clientRequestId });
       
@@ -145,6 +146,7 @@ export function PlanProvider({ children }: { children: ReactNode }) {
     onError: (error) => {
       console.error(`❌ [PLAN_CONTEXT] Approve plan failed:`, error);
       setCurrentClientRequestId(null);
+      setPinnedClientRequestId(null);
       handleApiError(error, "approve plan");
     },
   });

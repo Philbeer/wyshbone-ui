@@ -29,7 +29,7 @@ interface AgentWorkspaceProps {
 }
 
 export function AgentWorkspace({ className }: AgentWorkspaceProps) {
-  const { currentClientRequestId, setCurrentClientRequestId } = useCurrentRequest();
+  const { currentClientRequestId, setCurrentClientRequestId, pinnedClientRequestId, setPinnedClientRequestId } = useCurrentRequest();
   const [demoStatus, setDemoStatus] = useState<string | null>(null);
   const [demoLoading, setDemoLoading] = useState(false);
 
@@ -49,6 +49,7 @@ export function AgentWorkspace({ className }: AgentWorkspaceProps) {
       const id = data.clientRequestId;
       if (!id) throw new Error("No clientRequestId in response");
       setCurrentClientRequestId(id);
+      setPinnedClientRequestId(id);
       setDemoStatus(`Following ${id.slice(0, 8)}…`);
     } catch (err: any) {
       setDemoStatus(`Error: ${err.message}`);
@@ -102,7 +103,7 @@ export function AgentWorkspace({ className }: AgentWorkspaceProps) {
 
       {/* Live Activity Panel - fills available height, scrolls internally */}
       <div className="flex-1 min-h-0 flex flex-col p-6 pb-3">
-        <LiveActivityPanel activeClientRequestId={currentClientRequestId} />
+        <LiveActivityPanel activeClientRequestId={pinnedClientRequestId ?? currentClientRequestId} />
       </div>
 
       {/* Activity Metrics - fixed height footer section */}
