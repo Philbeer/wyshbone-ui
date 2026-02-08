@@ -1,0 +1,63 @@
+Bug: Live Activity panel no longer shows the last completed run. It shows the current run, then resets and shows the current run again (because completion clears request IDs so there’s no “last run” anchor).
+
+What’s happening:
+
+We fixed stale carry-over by clearing pinnedClientRequestId/currentClientRequestId on completion.
+
+But LiveActivityPanel uses pinned ?? current as its identity.
+
+So after completion, it has no ID to render → last run disappears.
+
+Then next run starts and it renders that ID (sometimes twice due to state transitions / timers).
+
+Fix (minimal, no refactor): add an explicit “last completed” id
+
+1) Add lastCompletedClientRequestId to CurrentRequestContext
+
+In client/src/contexts/CurrentRequestContext.tsx, add state:
+
+lastCompletedClientRequestId: string | null
+
+setter setLastCompletedClientRequestId
+
+2) On run completion, set lastCompleted before clearing active ids
+
+In client/src/pages/chat.tsx where the completion handler is:
+
+setLastCompletedClientRequestId(currentClientRequestId or pinnedClientRequestId)
+
+then clear:
+
+setActiveClientRequestId(null)
+
+setPinnedClientRequestId(null)
+
+setCurrentClientRequestId(null)
+
+3) LiveActivityPanel should render active ?? lastCompleted
+
+In AgentWorkspace.tsx (or wherever you pass props):
+
+compute displayClientRequestId = activeClientRequestId ?? lastCompletedClientRequestId
+
+pass that into LiveActivityPanel
+
+keep activeClientRequestId separately for “Executing/Idle” badge
+
+4) Prevent “double reset / re-show” flicker
+
+Ensure LiveActivityPanel resets its playback queue when displayClientRequestId changes (not when run_id changes).
+
+Confirm we are not calling set*Id(null) in multiple places (e.g. both in a timeout and in an event handler).
+
+Acceptance test:
+
+Run A completes → Live Activity panel still shows Run A as “last run”.
+
+Start Run B → panel switches to Run B immediately (no Run A polling).
+
+Run B completes → panel shows Run B as last run.
+
+No duplicate “current run shown again” flicker.
+
+Deliverable: implement + report files changed and why.

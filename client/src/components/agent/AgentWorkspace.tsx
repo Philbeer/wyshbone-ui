@@ -29,7 +29,7 @@ interface AgentWorkspaceProps {
 }
 
 export function AgentWorkspace({ className }: AgentWorkspaceProps) {
-  const { currentClientRequestId, setCurrentClientRequestId, pinnedClientRequestId, setPinnedClientRequestId } = useCurrentRequest();
+  const { currentClientRequestId, setCurrentClientRequestId, pinnedClientRequestId, setPinnedClientRequestId, lastCompletedClientRequestId } = useCurrentRequest();
   const [demoStatus, setDemoStatus] = useState<string | null>(null);
   const [demoLoading, setDemoLoading] = useState(false);
 
@@ -103,7 +103,7 @@ export function AgentWorkspace({ className }: AgentWorkspaceProps) {
 
       {/* Live Activity Panel - fills available height, scrolls internally */}
       <div className="flex-1 min-h-0 flex flex-col p-6 pb-3">
-        <LiveActivityPanel activeClientRequestId={pinnedClientRequestId ?? currentClientRequestId} />
+        <LiveActivityPanel activeClientRequestId={pinnedClientRequestId ?? currentClientRequestId ?? lastCompletedClientRequestId} />
       </div>
 
       {/* Activity Metrics - fixed height footer section */}

@@ -5,6 +5,8 @@ interface CurrentRequestContextType {
   setCurrentClientRequestId: (id: string | null) => void;
   pinnedClientRequestId: string | null;
   setPinnedClientRequestId: (id: string | null) => void;
+  lastCompletedClientRequestId: string | null;
+  setLastCompletedClientRequestId: (id: string | null) => void;
 }
 
 const CurrentRequestContext = createContext<CurrentRequestContextType | null>(null);
@@ -12,9 +14,10 @@ const CurrentRequestContext = createContext<CurrentRequestContextType | null>(nu
 export function CurrentRequestProvider({ children }: { children: ReactNode }) {
   const [currentClientRequestId, setCurrentClientRequestId] = useState<string | null>(null);
   const [pinnedClientRequestId, setPinnedClientRequestId] = useState<string | null>(null);
+  const [lastCompletedClientRequestId, setLastCompletedClientRequestId] = useState<string | null>(null);
   
   return (
-    <CurrentRequestContext.Provider value={{ currentClientRequestId, setCurrentClientRequestId, pinnedClientRequestId, setPinnedClientRequestId }}>
+    <CurrentRequestContext.Provider value={{ currentClientRequestId, setCurrentClientRequestId, pinnedClientRequestId, setPinnedClientRequestId, lastCompletedClientRequestId, setLastCompletedClientRequestId }}>
       {children}
     </CurrentRequestContext.Provider>
   );
