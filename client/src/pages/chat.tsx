@@ -694,15 +694,13 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                     }
                     setLastCompletedClientRequestId(clientRequestId);
                     setActiveClientRequestId((current) => current === clientRequestId ? null : current);
-                    setPinnedClientRequestId((current) => current === clientRequestId ? null : current);
-                    setCurrentClientRequestId((current) => current === clientRequestId ? null : current);
                     setExecutedToolsSummary(null);
                     if (queuedMessageRef.current) {
                       const messageToSend = queuedMessageRef.current;
                       setQueuedMessage(null);
                       handleSendRef.current?.(messageToSend);
                     }
-                  }, 500);
+                  }, 1200);
                 }
               }
               
@@ -867,14 +865,12 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
             inFlightRequestIdRef.current = null;
           }
           setActiveClientRequestId((current) => current === clientRequestId ? null : current);
-          setPinnedClientRequestId((current) => current === clientRequestId ? null : current);
-          setCurrentClientRequestId((current) => current === clientRequestId ? null : current);
           if (queuedMessageRef.current) {
             const messageToSend = queuedMessageRef.current;
             setQueuedMessage(null);
             setTimeout(() => handleSendRef.current?.(messageToSend), 100);
           }
-        }, 500);
+        }, 1200);
       }
       
     } catch (error: any) {

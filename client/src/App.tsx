@@ -733,7 +733,7 @@ function DevInfoBadge() {
  */
 function RightPanelContent() {
   const { isOpen, currentResult } = useResultsPanel();
-  const { currentClientRequestId, setCurrentClientRequestId, pinnedClientRequestId, setPinnedClientRequestId } = useCurrentRequest();
+  const { currentClientRequestId, setCurrentClientRequestId, pinnedClientRequestId, setPinnedClientRequestId, lastCompletedClientRequestId } = useCurrentRequest();
   const [demoLoading, setDemoLoading] = useState(false);
   const [demoStatus, setDemoStatus] = useState<string | null>(null);
 
@@ -787,7 +787,7 @@ function RightPanelContent() {
           <span className="text-xs text-muted-foreground">{demoStatus}</span>
         )}
       </div>
-      <LiveActivityPanel activeClientRequestId={currentClientRequestId} />
+      <LiveActivityPanel activeClientRequestId={pinnedClientRequestId ?? currentClientRequestId ?? lastCompletedClientRequestId} />
     </div>
   );
 }
