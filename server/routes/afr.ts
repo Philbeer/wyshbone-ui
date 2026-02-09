@@ -364,6 +364,8 @@ export function createAfrRouter(_storage: typeof storage) {
             ORDER BY created_at ASC`
       );
       const rows = Array.isArray(result) ? result : (result as any).rows ?? [];
+      const types = rows.map((r: any) => r.type);
+      console.log(`[AFR artefacts] Returning ${rows.length} artefact(s) for runId=${resolvedRunId} — types: [${types.join(', ')}]`);
       res.json(rows);
     } catch (error: any) {
       if (error?.message?.includes('does not exist')) {
