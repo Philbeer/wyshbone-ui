@@ -102,6 +102,30 @@ The user interface adheres to Material Design principles, featuring a dark mode,
 - Run detail: lazy-loaded on click only
 - Judgement ledger: skeleton UI during load
 
+## AFR Artefact Ingestion & Retrieval Contract (2026-02-09)
+
+**POST `/api/afr/artefacts`** — Persists an artefact for a run.
+- File: `server/routes/afr.ts`
+- Required fields (JSON body): `runId` (string), `type` (string)
+- Optional fields: `payload` (object), `payloadJson` (object or JSON string — Supervisor format), `clientRequestId`, `createdAt` (ISO string), `title`, `summary`
+- Payload canonicalization: `payload` object takes priority; else `payloadJson` is parsed (string→object if needed); else `{}`
+- Title resolution: explicit `title` field → `payload.title` → falls back to `type`
+- Summary resolution: explicit `summary` field → `payload.summary` → falls back to `""`
+- Database: inserts into `artefacts` table (`run_id`, `type`, `title`, `summary`, `payload_json`, `created_at`)
+- Returns: `{ artefactId: string }`
+
+**GET `/api/afr/artefacts`** — Retrieves artefacts for a run.
+- Supports `?runId=...` (direct lookup, preferred) and `?client_request_id=...` (resolves via `agent_runs` table)
+- If both provided, `runId` wins
+- Queries `artefacts` table by `run_id` column
+- Returns array of artefact rows
+
+**UI "View results" flow** (`client/src/components/live-activity-panel.tsx`):
+- `SequenceStatusRow` receives both `clientRequestId` and `runId` (from `stream.run_id`)
+- "View results" button appears when either ID is present and status is `completed`
+- `ResultsModal` fetches by `runId` when available, falls back to `client_request_id`
+- This ensures Supervisor-originated runs (which have `runId` but may lack `agent_runs` mapping) can display artefacts
+
 ## Data Ownership & Persistence Guardrails
 
 **The UI never owns persistence.** All artefacts, runs, judgements, and business data come from Supabase via the backend. The frontend is a read/display layer only — it does not write directly to any database.

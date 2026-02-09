@@ -180,10 +180,17 @@ function LeadsListTable({ payload }: { payload: any }) {
         : [];
 
   if (leads.length === 0) {
+    const hasRawContent = payload && (typeof payload === 'string' ? payload.trim().length > 2 : Object.keys(payload).length > 0);
     return (
-      <pre className="text-xs bg-muted/50 rounded p-2 overflow-x-auto max-h-64 whitespace-pre-wrap font-mono">
-        {typeof payload === 'string' ? tryPrettyJson(payload) : JSON.stringify(payload, null, 2)}
-      </pre>
+      <div className="text-sm text-muted-foreground py-6 text-center">
+        <p className="font-medium">No leads found</p>
+        <p className="text-xs mt-1">This run did not produce any leads data.</p>
+        {hasRawContent && (
+          <pre className="text-xs bg-muted/50 rounded p-2 overflow-x-auto max-h-40 whitespace-pre-wrap font-mono mt-3 text-left">
+            {typeof payload === 'string' ? tryPrettyJson(payload) : JSON.stringify(payload, null, 2)}
+          </pre>
+        )}
+      </div>
     );
   }
 
