@@ -407,6 +407,166 @@ function DeepResearchResultView({ payload }: { payload: any }) {
   );
 }
 
+function TowerVerdictBadge({ verdict, score }: { verdict: string; score?: number | null }) {
+  const config: Record<string, { bg: string; text: string; label: string }> = {
+    accept: { bg: 'bg-green-100 dark:bg-green-900/30', text: 'text-green-700 dark:text-green-300', label: 'Accepted' },
+    continue: { bg: 'bg-green-100 dark:bg-green-900/30', text: 'text-green-700 dark:text-green-300', label: 'Accepted' },
+    revise: { bg: 'bg-amber-100 dark:bg-amber-900/30', text: 'text-amber-700 dark:text-amber-300', label: 'Revise' },
+    change_plan: { bg: 'bg-purple-100 dark:bg-purple-900/30', text: 'text-purple-700 dark:text-purple-300', label: 'Plan Changed' },
+    abandon: { bg: 'bg-red-100 dark:bg-red-900/30', text: 'text-red-700 dark:text-red-300', label: 'Abandoned' },
+    stop: { bg: 'bg-orange-100 dark:bg-orange-900/30', text: 'text-orange-700 dark:text-orange-300', label: 'Stopped' },
+  };
+  const v = verdict.toLowerCase();
+  const c = config[v] || { bg: 'bg-gray-100 dark:bg-gray-800/50', text: 'text-gray-700 dark:text-gray-300', label: verdict };
+
+  return (
+    <div className={cn("inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold", c.bg, c.text)}>
+      <Brain className="h-3.5 w-3.5" />
+      <span>Tower: {c.label}</span>
+      {score != null && (
+        <span className="ml-1 font-mono text-[10px] opacity-80">({Math.round(score * 100)}%)</span>
+      )}
+    </div>
+  );
+}
+
+function RunSummaryView({ payload }: { payload: any }) {
+  const parsed = parsePayload(payload);
+  const delivered = parsed?.delivered ?? parsed?.delivered_count ?? null;
+  const requested = parsed?.requested ?? parsed?.requested_count ?? null;
+  const gaps = parsed?.gaps ?? parsed?.gap_list ?? [];
+  const confidence = parsed?.confidence ?? parsed?.confidence_score ?? null;
+  const rationale = parsed?.rationale ?? parsed?.reason ?? parsed?.explanation ?? '';
+  const verdict = parsed?.verdict ?? null;
+  const score = parsed?.score ?? null;
+
+  return (
+    <div className="space-y-3">
+      {verdict && (
+        <TowerVerdictBadge verdict={verdict} score={score} />
+      )}
+
+      {(delivered != null || requested != null) && (
+        <div className="flex gap-4">
+          {requested != null && (
+            <div className="flex-1 rounded-lg border bg-muted/30 p-3 text-center">
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Requested</p>
+              <p className="text-2xl font-bold text-foreground mt-0.5">{requested}</p>
+            </div>
+          )}
+          {delivered != null && (
+            <div className="flex-1 rounded-lg border bg-muted/30 p-3 text-center">
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Delivered</p>
+              <p className={cn(
+                "text-2xl font-bold mt-0.5",
+                delivered >= (requested ?? 0) ? "text-green-600 dark:text-green-400" : "text-amber-600 dark:text-amber-400"
+              )}>{delivered}</p>
+            </div>
+          )}
+          {confidence != null && (
+            <div className="flex-1 rounded-lg border bg-muted/30 p-3 text-center">
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Confidence</p>
+              <p className="text-2xl font-bold text-foreground mt-0.5">{typeof confidence === 'number' && confidence <= 1 ? `${Math.round(confidence * 100)}%` : confidence}</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {Array.isArray(gaps) && gaps.length > 0 && (
+        <div>
+          <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium mb-1">Gaps</p>
+          <ul className="space-y-1">
+            {gaps.map((gap: any, i: number) => (
+              <li key={i} className="flex items-start gap-2 text-xs text-amber-600 dark:text-amber-400">
+                <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" />
+                <span>{typeof gap === 'string' ? gap : gap.description || gap.text || JSON.stringify(gap)}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {rationale && (
+        <div>
+          <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium mb-1">Rationale</p>
+          <p className="text-sm text-foreground/80 leading-relaxed whitespace-pre-wrap bg-muted/30 rounded p-2">{rationale}</p>
+        </div>
+      )}
+
+      {!delivered && !requested && !rationale && gaps.length === 0 && (
+        <pre className="text-xs bg-muted/50 rounded p-3 overflow-x-auto max-h-96 whitespace-pre-wrap font-mono">
+          {JSON.stringify(parsed, null, 2)}
+        </pre>
+      )}
+    </div>
+  );
+}
+
+function PlanUpdateView({ payload }: { payload: any }) {
+  const parsed = parsePayload(payload);
+  const reason = parsed?.reason ?? parsed?.rationale ?? parsed?.change_reason ?? '';
+  const changes = parsed?.changes ?? parsed?.plan_changes ?? parsed?.modifications ?? [];
+  const newPlan = parsed?.new_plan ?? parsed?.plan_v2 ?? parsed?.updated_plan ?? null;
+  const verdict = parsed?.verdict ?? null;
+  const score = parsed?.score ?? null;
+
+  return (
+    <div className="space-y-3">
+      {verdict && (
+        <TowerVerdictBadge verdict={verdict} score={score} />
+      )}
+
+      {reason && (
+        <div className="rounded-lg border border-purple-200 dark:border-purple-800/50 bg-purple-50/50 dark:bg-purple-900/10 p-3">
+          <p className="text-[10px] uppercase tracking-wide text-purple-600 dark:text-purple-400 font-medium mb-1">Reason for Change</p>
+          <p className="text-sm text-foreground/90 leading-relaxed">{reason}</p>
+        </div>
+      )}
+
+      {Array.isArray(changes) && changes.length > 0 && (
+        <div>
+          <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium mb-1.5">Changes</p>
+          <div className="space-y-1.5">
+            {changes.map((change: any, i: number) => (
+              <div key={i} className="flex items-start gap-2 text-xs rounded border bg-card p-2">
+                <ListChecks className="h-3.5 w-3.5 text-purple-500 mt-0.5 shrink-0" />
+                <span className="text-foreground/80">{typeof change === 'string' ? change : change.description || change.text || JSON.stringify(change)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {newPlan && (
+        <div>
+          <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium mb-1">Updated Plan</p>
+          {typeof newPlan === 'string' ? (
+            <p className="text-sm text-foreground/80 leading-relaxed whitespace-pre-wrap bg-muted/30 rounded p-2">{newPlan}</p>
+          ) : Array.isArray(newPlan) ? (
+            <ol className="space-y-1 list-decimal list-inside">
+              {newPlan.map((step: any, i: number) => (
+                <li key={i} className="text-xs text-foreground/80">
+                  {typeof step === 'string' ? step : step.description || step.text || JSON.stringify(step)}
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <pre className="text-xs bg-muted/50 rounded p-2 overflow-x-auto max-h-40 whitespace-pre-wrap font-mono">
+              {JSON.stringify(newPlan, null, 2)}
+            </pre>
+          )}
+        </div>
+      )}
+
+      {!reason && changes.length === 0 && !newPlan && (
+        <pre className="text-xs bg-muted/50 rounded p-3 overflow-x-auto max-h-96 whitespace-pre-wrap font-mono">
+          {JSON.stringify(parsed, null, 2)}
+        </pre>
+      )}
+    </div>
+  );
+}
+
 function ArtefactRenderer({ artefact }: { artefact: Artefact }) {
   switch (artefact.type) {
     case 'leads_list':
@@ -417,6 +577,10 @@ function ArtefactRenderer({ artefact }: { artefact: Artefact }) {
       return <ChatResponseView payload={artefact.payload_json} />;
     case 'deep_research_result':
       return <DeepResearchResultView payload={artefact.payload_json} />;
+    case 'run_summary':
+      return <RunSummaryView payload={artefact.payload_json} />;
+    case 'plan_update':
+      return <PlanUpdateView payload={artefact.payload_json} />;
     default:
       return (
         <pre className="text-xs bg-muted/50 rounded p-3 overflow-x-auto max-h-96 whitespace-pre-wrap font-mono">
@@ -434,6 +598,8 @@ const ARTEFACT_LABELS: Record<string, { label: string; icon: string }> = {
   plan_result: { label: 'Summary', icon: '📋' },
   chat_response: { label: 'Chat Response', icon: '💬' },
   deep_research_result: { label: 'Research Report', icon: '🔬' },
+  run_summary: { label: 'Run Summary', icon: '📊' },
+  plan_update: { label: 'Plan v2', icon: '🔄' },
 };
 
 function ResultsModal({ clientRequestId, runId, open, onOpenChange }: { clientRequestId?: string | null; runId?: string | null; open: boolean; onOpenChange: (open: boolean) => void }) {
@@ -464,7 +630,7 @@ function ResultsModal({ clientRequestId, runId, open, onOpenChange }: { clientRe
       .then((rows: Artefact[]) => {
         console.log(`[ResultsModal] Got ${rows.length} artefact(s) — types: [${rows.map(r => r.type).join(', ')}]`);
         const byType = new Map<string, Artefact>();
-        const typeOrder = ['deep_research_result', 'leads_list', 'email_drafts', 'plan_result', 'chat_response'];
+        const typeOrder = ['run_summary', 'plan_update', 'deep_research_result', 'leads_list', 'email_drafts', 'plan_result', 'chat_response'];
 
         for (const row of rows) {
           const existing = byType.get(row.type);
@@ -519,7 +685,20 @@ function ResultsModal({ clientRequestId, runId, open, onOpenChange }: { clientRe
         {!loading && !error && artefacts.length === 0 && (
           <div className="text-sm text-muted-foreground py-8 text-center">No results yet.</div>
         )}
-        {!loading && !error && artefacts.length > 0 && !artefacts.some(a => a.type === 'leads_list') && !artefacts.some(a => a.type === 'deep_research_result') && (() => {
+        {!loading && !error && artefacts.length > 0 && (() => {
+          const verdictSource = artefacts.find(a => {
+            const p = parsePayload(a.payload_json);
+            return p?.verdict && (a.type === 'run_summary' || a.type === 'plan_update' || p?.tower_judgement_received);
+          });
+          if (!verdictSource) return null;
+          const p = parsePayload(verdictSource.payload_json);
+          return (
+            <div className="mb-2">
+              <TowerVerdictBadge verdict={p.verdict} score={p.score ?? p.confidence} />
+            </div>
+          );
+        })()}
+        {!loading && !error && artefacts.length > 0 && !artefacts.some(a => a.type === 'leads_list') && !artefacts.some(a => a.type === 'deep_research_result') && !artefacts.some(a => a.type === 'run_summary') && !artefacts.some(a => a.type === 'plan_update') && (() => {
           const delegationArtefact = artefacts.find(a => {
             const p = parsePayload(a.payload_json);
             return p?.delegated_to_supervisor === true;
