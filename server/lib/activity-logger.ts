@@ -1,6 +1,7 @@
-import { storage } from '../storage';
+import { storage, getDrizzleDb } from '../storage';
 import { randomUUID } from 'crypto';
 import { runManager, type RunStatus } from './run-manager';
+import { sql } from 'drizzle-orm';
 
 export type ActivityRunType = 'deep_research' | 'plan' | 'tool' | 'chat' | 'user_message' | 'router_decision' | 'run_completed';
 export type ActivityStatus = 'started' | 'progress' | 'completed' | 'failed';
@@ -316,6 +317,48 @@ export async function transitionRunToFinalizing(clientRequestId: string): Promis
   const run = await runManager.getRunByClientRequestId(clientRequestId);
   if (run && run.status === 'executing') {
     await runManager.transitionTo(run.id, 'finalizing');
+  }
+}
+
+export async function persistChatArtefact(params: {
+  clientRequestId: string;
+  userMessage: string;
+  aiResponse: string;
+  toolCalls?: Array<{ name: string; args: any; result?: any; error?: string }>;
+}): Promise<void> {
+  try {
+    const run = await runManager.getRunByClientRequestId(params.clientRequestId);
+    if (!run) {
+      console.warn(`[ARTEFACT] No agent run for crid=${params.clientRequestId.slice(0, 12)}... — skipping chat artefact`);
+      return;
+    }
+
+    const db = getDrizzleDb();
+    const payload = {
+      user_message: params.userMessage,
+      ai_response: params.aiResponse,
+      tool_calls: params.toolCalls?.map(tc => ({ name: tc.name, args: tc.args })) || [],
+      response_length: params.aiResponse.length,
+    };
+
+    await db.execute(sql`
+      INSERT INTO artefacts (run_id, type, title, summary, payload_json)
+      VALUES (
+        ${run.id},
+        'chat_response',
+        ${'Chat Response'},
+        ${params.aiResponse.slice(0, 200)},
+        ${JSON.stringify(payload)}::jsonb
+      )
+    `);
+
+    console.log(`📦 [ARTEFACT] Persisted chat_response for runId=${run.id} crid=${params.clientRequestId.slice(0, 12)}...`);
+  } catch (err: any) {
+    if (err?.message?.includes('does not exist')) {
+      console.warn(`[ARTEFACT] artefacts table does not exist — skipping`);
+      return;
+    }
+    console.warn(`[ARTEFACT] Failed to persist chat artefact: ${err.message}`);
   }
 }
 

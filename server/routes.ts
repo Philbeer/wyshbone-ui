@@ -69,7 +69,7 @@ import { getSummary, getFileContent } from './lib/exporter';
 import { randomBytes } from 'crypto';
 import { startRunLog, completeRunLog, logToolCall, isTowerLoggingEnabled } from './lib/towerClient';
 import { getUserGoal, setUserGoal, hasUserGoal } from './userGoalHelper';
-import { logUserMessageReceived, logRouterDecision, logRunCompleted, logRunFailed, transitionRunToExecuting, transitionRunToFinalizing, type RouterDecision } from './lib/activity-logger';
+import { logUserMessageReceived, logRouterDecision, logRunCompleted, logRunFailed, transitionRunToExecuting, transitionRunToFinalizing, persistChatArtefact, type RouterDecision } from './lib/activity-logger';
 
 // ============================================
 // SSE HELPER FOR CHAT PROGRESS EVENTS
@@ -3695,6 +3695,13 @@ CRITICAL RULES:
           conversationId,
           clientRequestId,
         }).catch(err => console.error('AFR run complete error:', err.message));
+
+        await persistChatArtefact({
+          clientRequestId,
+          userMessage: latestUserText,
+          aiResponse: aiBuffer,
+          toolCalls: toolCallsLog.length > 0 ? toolCallsLog : undefined,
+        }).catch(err => console.error('AFR artefact persist error:', err.message));
       }
 
       // Emit completed status

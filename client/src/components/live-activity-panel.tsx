@@ -302,12 +302,52 @@ function EmailDraftsView({ payload }: { payload: any }) {
   );
 }
 
+function ChatResponseView({ payload }: { payload: any }) {
+  const parsed = typeof payload === 'string' ? (() => { try { return JSON.parse(payload); } catch { return null; } })() : payload;
+  if (!parsed) return <pre className="text-xs bg-muted/50 rounded p-3 whitespace-pre-wrap">{String(payload)}</pre>;
+
+  return (
+    <div className="space-y-3">
+      {parsed.user_message && (
+        <div>
+          <span className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Your Message</span>
+          <p className="text-sm text-foreground mt-0.5">{parsed.user_message}</p>
+        </div>
+      )}
+      {parsed.ai_response && (
+        <div>
+          <span className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">AI Response</span>
+          <div className="text-sm text-muted-foreground whitespace-pre-wrap bg-muted/30 rounded p-2 mt-0.5 leading-relaxed max-h-96 overflow-y-auto">
+            {parsed.ai_response}
+          </div>
+        </div>
+      )}
+      {parsed.tool_calls?.length > 0 && (
+        <div>
+          <span className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">
+            Tools Used ({parsed.tool_calls.length})
+          </span>
+          <div className="flex flex-wrap gap-1 mt-0.5">
+            {parsed.tool_calls.map((tc: any, i: number) => (
+              <span key={i} className="text-xs bg-blue-500/10 text-blue-600 dark:text-blue-400 px-1.5 py-0.5 rounded">
+                {tc.name}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ArtefactRenderer({ artefact }: { artefact: Artefact }) {
   switch (artefact.type) {
     case 'leads_list':
       return <LeadsListTable payload={artefact.payload_json} />;
     case 'email_drafts':
       return <EmailDraftsView payload={artefact.payload_json} />;
+    case 'chat_response':
+      return <ChatResponseView payload={artefact.payload_json} />;
     default:
       return (
         <pre className="text-xs bg-muted/50 rounded p-3 overflow-x-auto max-h-96 whitespace-pre-wrap font-mono">
@@ -323,6 +363,7 @@ const ARTEFACT_LABELS: Record<string, { label: string; icon: string }> = {
   leads_list: { label: 'Leads', icon: '🏢' },
   email_drafts: { label: 'Email Drafts', icon: '✉️' },
   plan_result: { label: 'Summary', icon: '📋' },
+  chat_response: { label: 'Chat Response', icon: '💬' },
 };
 
 function ResultsModal({ clientRequestId, open, onOpenChange }: { clientRequestId: string; open: boolean; onOpenChange: (open: boolean) => void }) {
@@ -338,16 +379,18 @@ function ResultsModal({ clientRequestId, open, onOpenChange }: { clientRequestId
     setArtefacts([]);
     setActiveTab('');
 
-    console.log(`[ResultsModal] View results clicked — crid=${clientRequestId.slice(0, 12)}...`);
+    console.log(`[ResultsModal] Fetching artefacts — crid=${clientRequestId.slice(0, 12)}...`);
 
     fetch(`/api/afr/artefacts?client_request_id=${encodeURIComponent(clientRequestId)}`)
       .then(res => {
+        console.log(`[ResultsModal] Response status=${res.status} for crid=${clientRequestId.slice(0, 12)}...`);
         if (!res.ok) throw new Error('Failed to fetch results');
         return res.json();
       })
       .then((rows: Artefact[]) => {
+        console.log(`[ResultsModal] Got ${rows.length} artefact(s) — types: [${rows.map(r => r.type).join(', ')}]`);
         const byType = new Map<string, Artefact>();
-        const typeOrder = ['leads_list', 'email_drafts', 'plan_result'];
+        const typeOrder = ['leads_list', 'email_drafts', 'plan_result', 'chat_response'];
 
         for (const row of rows) {
           const existing = byType.get(row.type);
@@ -475,7 +518,10 @@ function SequenceStatusRow({ status, clientRequestId }: { status: "completed" | 
             variant="outline"
             size="sm"
             className="h-6 text-xs px-2 gap-1"
-            onClick={() => setShowResults(true)}
+            onClick={() => {
+              console.log(`[ViewResults] Button clicked — crid=${clientRequestId.slice(0, 12)}...`);
+              setShowResults(true);
+            }}
           >
             <Eye className="h-3 w-3" />
             View results
@@ -689,12 +735,13 @@ function isMessageReceivedRow(event: StreamEvent): boolean {
 
 function TimelineEvent({ event, isFirst = false, isLast, isTerminal }: { event: StreamEvent; isFirst?: boolean; isLast: boolean; isTerminal: boolean }) {
   const [expanded, setExpanded] = useState(false);
-  const hasDetails = event.details && (
+  const hasIds = !!(event.client_request_id || event.run_id);
+  const hasDetails = hasIds || (event.details && (
     event.details.error || 
     event.details.results || 
     event.router_decision ||
     event.router_reason
-  );
+  ));
 
   const tower = isTowerEvent(event);
   const noConnector = isLast || isTerminal;
@@ -778,7 +825,13 @@ function TimelineEvent({ event, isFirst = false, isLast, isTerminal }: { event: 
 
           {hasDetails && (
             <button
-              onClick={() => setExpanded(!expanded)}
+              onClick={() => {
+                const next = !expanded;
+                setExpanded(next);
+                if (next) {
+                  console.log(`[ShowDetails] crid=${event.client_request_id || 'n/a'} runId=${event.run_id || 'n/a'} type=${event.type}`);
+                }
+              }}
               className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground mt-1"
             >
               {expanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
@@ -788,17 +841,32 @@ function TimelineEvent({ event, isFirst = false, isLast, isTerminal }: { event: 
 
           {expanded && hasDetails && (
             <div className="mt-2 p-2 bg-muted/50 rounded-md text-xs space-y-1">
-              {event.details.error && (
+              {event.client_request_id && (
+                <p className="text-muted-foreground font-mono">
+                  <span className="font-medium text-foreground">crid:</span> {event.client_request_id}
+                </p>
+              )}
+              {event.run_id && (
+                <p className="text-muted-foreground font-mono">
+                  <span className="font-medium text-foreground">runId:</span> {event.run_id}
+                </p>
+              )}
+              {(event.details as any)?.supervisorTaskId && (
+                <p className="text-muted-foreground font-mono">
+                  <span className="font-medium text-foreground">supervisorTaskId:</span> {(event.details as any).supervisorTaskId}
+                </p>
+              )}
+              {event.details?.error && (
                 <p className="text-red-600 dark:text-red-400">
                   Error: {event.details.error}
                 </p>
               )}
-              {event.details.durationMs && (
+              {event.details?.durationMs && (
                 <p className="text-muted-foreground">
                   Duration: {event.details.durationMs}ms
                 </p>
               )}
-              {event.details.results && (
+              {event.details?.results && (
                 <p className="text-muted-foreground break-all">
                   Results: {event.details.results.slice(0, 200)}
                   {event.details.results.length > 200 && '...'}
