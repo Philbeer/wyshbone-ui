@@ -2293,33 +2293,40 @@ CRITICAL RULES:
             }).catch(err => console.error('AFR router log error:', err.message));
           }
           
-          // DIRECT CALL: Import and call startBackgroundResponsesJob directly
-          // This avoids internal HTTP fetch which drops auth headers
-          const { startBackgroundResponsesJob } = await import("./deepResearch");
+          // SUPERVISOR-OWNED: Delegate deep research to Supervisor service
+          const { startJob } = await import('./lib/supervisorClient.js');
           
-          // HARD ASSERTION: user.id is already authenticated at chat entry point (line 1255-1264)
-          // We pass it explicitly - no guessing, no fallback
-          console.log(`🔬 [DIRECT_RESEARCH] Starting run for authenticated user: ${user.id}`);
+          console.log(`🔬 [DEEP_RESEARCH] Delegating to Supervisor for user: ${user.id}, topic: "${researchTopic.slice(0, 60)}"`);
           
-          const run = await startBackgroundResponsesJob(
+          const supervisorResult = await startJob(
+            'deep_research',
             {
+              run_id: agentRunId || runId,
+              client_request_id: clientRequestId,
               prompt: researchTopic,
               label: researchTopic.slice(0, 50),
-              mode: "report",
-              intensity: "standard",
+              mode: 'report',
+              intensity: 'standard',
+              user_id: user.id,
+              user_email: user.email,
+              conversation_id: conversationId,
+              session_id: sessionId,
             },
-            sessionId,
-            user.id  // Explicit userId from authenticated user
+            {
+              userId: user.id,
+              conversationId,
+              clientRequestId,
+            }
           );
           
-          console.log(`✅ [DIRECT_RESEARCH] Run created: ${run.id} for userId: ${user.id}`);
+          console.log(`✅ [DEEP_RESEARCH] Supervisor job created: ${supervisorResult.jobId}, delegated=${supervisorResult.delegatedToSupervisor}`);
           
           const confirmMsg = `🔬 Deep research started!\n\nI'm investigating: "${researchTopic}"\n\nYou can view the progress in the sidebar. I'll notify you when it's complete.`;
           appendMessage(sessionId, { role: "assistant", content: confirmMsg });
           await saveMessage(conversationId, "assistant", confirmMsg);
           console.log("💾 Saved research start message to database");
 
-          // BRIDGE: Link deep research run to the UI agent run and persist delegation artefact
+          // Persist immediate chat_response artefact so UI shows something right away
           if (agentRunId && clientRequestId) {
             try {
               const db = (await import('./storage.js')).getDrizzleDb();
@@ -2327,31 +2334,31 @@ CRITICAL RULES:
 
               await db.execute(dsql`
                 UPDATE agent_runs 
-                SET supervisor_run_id = ${run.id}, updated_at = ${Date.now()}
+                SET supervisor_run_id = ${supervisorResult.jobId}, updated_at = ${Date.now()}
                 WHERE id = ${agentRunId}
               `);
-              console.log(`🔗 [RunBridge] Linked supervisor_run_id=${run.id} → agent_run=${agentRunId}`);
+              console.log(`🔗 [RunBridge] Linked supervisor_job_id=${supervisorResult.jobId} → agent_run=${agentRunId}`);
 
               await db.execute(dsql`
                 INSERT INTO artefacts (run_id, type, title, summary, payload_json)
                 VALUES (
                   ${agentRunId},
                   'chat_response',
-                  ${'Deep Research Delegated'},
+                  ${'Deep Research Started'},
                   ${confirmMsg.slice(0, 200)},
                   ${JSON.stringify({
                     delegated_to_supervisor: true,
                     status: 'started',
                     ui_run_id: agentRunId,
                     client_request_id: clientRequestId,
-                    deep_research_run_id: run.id,
+                    supervisor_job_id: supervisorResult.jobId,
                     research_topic: researchTopic,
                     user_message: latestUserText,
                     ai_response: confirmMsg,
                   })}::jsonb
                 )
               `);
-              console.log(`📦 [RunBridge] Persisted delegation artefact for agentRun=${agentRunId} crid=${clientRequestId.slice(0, 12)}...`);
+              console.log(`📦 [ARTEFACT] Persisted chat_response (started) for agentRun=${agentRunId}`);
             } catch (bridgeErr: any) {
               console.warn(`[RunBridge] Non-fatal bridge error: ${bridgeErr.message}`);
             }

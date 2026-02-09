@@ -347,6 +347,66 @@ function ChatResponseView({ payload }: { payload: any }) {
   );
 }
 
+function DeepResearchResultView({ payload }: { payload: any }) {
+  const [expanded, setExpanded] = useState(false);
+  const parsed = typeof payload === 'string' ? (() => { try { return JSON.parse(payload); } catch { return {}; } })() : (payload || {});
+  
+  const report = parsed.report || parsed.full_report || parsed.content || '';
+  const sources = parsed.sources || parsed.references || [];
+  const summary = parsed.summary || parsed.executive_summary || '';
+  
+  return (
+    <div className="space-y-3">
+      {summary && (
+        <div className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">{summary}</div>
+      )}
+      {report && (
+        <div>
+          <button
+            onClick={() => setExpanded(!expanded)}
+            className="flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
+          >
+            {expanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+            {expanded ? 'Collapse full report' : 'Expand full report'}
+          </button>
+          {expanded && (
+            <div className="mt-2 text-sm text-foreground/90 leading-relaxed whitespace-pre-wrap bg-muted/30 rounded p-3 max-h-[60vh] overflow-y-auto">
+              {report}
+            </div>
+          )}
+        </div>
+      )}
+      {sources.length > 0 && (
+        <div>
+          <span className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">
+            Sources ({sources.length})
+          </span>
+          <ul className="mt-1 space-y-1">
+            {sources.map((src: any, i: number) => {
+              const url = typeof src === 'string' ? src : (src.url || src.link || '');
+              const title = typeof src === 'string' ? src : (src.title || src.name || url);
+              return (
+                <li key={i} className="text-xs text-blue-600 dark:text-blue-400 truncate">
+                  {url ? (
+                    <a href={url} target="_blank" rel="noopener noreferrer" className="hover:underline">{title}</a>
+                  ) : (
+                    <span>{title}</span>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
+      {!summary && !report && (
+        <pre className="text-xs bg-muted/50 rounded p-3 overflow-x-auto max-h-96 whitespace-pre-wrap font-mono">
+          {JSON.stringify(parsed, null, 2)}
+        </pre>
+      )}
+    </div>
+  );
+}
+
 function ArtefactRenderer({ artefact }: { artefact: Artefact }) {
   switch (artefact.type) {
     case 'leads_list':
@@ -355,6 +415,8 @@ function ArtefactRenderer({ artefact }: { artefact: Artefact }) {
       return <EmailDraftsView payload={artefact.payload_json} />;
     case 'chat_response':
       return <ChatResponseView payload={artefact.payload_json} />;
+    case 'deep_research_result':
+      return <DeepResearchResultView payload={artefact.payload_json} />;
     default:
       return (
         <pre className="text-xs bg-muted/50 rounded p-3 overflow-x-auto max-h-96 whitespace-pre-wrap font-mono">
@@ -371,6 +433,7 @@ const ARTEFACT_LABELS: Record<string, { label: string; icon: string }> = {
   email_drafts: { label: 'Email Drafts', icon: '✉️' },
   plan_result: { label: 'Summary', icon: '📋' },
   chat_response: { label: 'Chat Response', icon: '💬' },
+  deep_research_result: { label: 'Research Report', icon: '🔬' },
 };
 
 function ResultsModal({ clientRequestId, runId, open, onOpenChange }: { clientRequestId?: string | null; runId?: string | null; open: boolean; onOpenChange: (open: boolean) => void }) {
@@ -401,7 +464,7 @@ function ResultsModal({ clientRequestId, runId, open, onOpenChange }: { clientRe
       .then((rows: Artefact[]) => {
         console.log(`[ResultsModal] Got ${rows.length} artefact(s) — types: [${rows.map(r => r.type).join(', ')}]`);
         const byType = new Map<string, Artefact>();
-        const typeOrder = ['leads_list', 'email_drafts', 'plan_result', 'chat_response'];
+        const typeOrder = ['deep_research_result', 'leads_list', 'email_drafts', 'plan_result', 'chat_response'];
 
         for (const row of rows) {
           const existing = byType.get(row.type);
@@ -456,7 +519,7 @@ function ResultsModal({ clientRequestId, runId, open, onOpenChange }: { clientRe
         {!loading && !error && artefacts.length === 0 && (
           <div className="text-sm text-muted-foreground py-8 text-center">No results yet.</div>
         )}
-        {!loading && !error && artefacts.length > 0 && !artefacts.some(a => a.type === 'leads_list') && (() => {
+        {!loading && !error && artefacts.length > 0 && !artefacts.some(a => a.type === 'leads_list') && !artefacts.some(a => a.type === 'deep_research_result') && (() => {
           const delegationArtefact = artefacts.find(a => {
             const p = parsePayload(a.payload_json);
             return p?.delegated_to_supervisor === true;
@@ -464,7 +527,7 @@ function ResultsModal({ clientRequestId, runId, open, onOpenChange }: { clientRe
           if (delegationArtefact) {
             return (
               <div className="text-xs text-blue-500/80 bg-blue-500/10 rounded px-3 py-2 mt-1">
-                This task was delegated to deep research. Leads will appear here once the research completes.
+                This task was delegated to deep research. Results will appear here once the research completes.
               </div>
             );
           }
