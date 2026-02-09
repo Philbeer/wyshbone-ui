@@ -13,6 +13,7 @@ interface CreatePlanFromToolCallParams {
   sessionId: string;
   conversationId: string;
   storage: IStorage;
+  clientRequestId?: string;
 }
 
 export interface PlanCreationResult {
@@ -27,9 +28,9 @@ export interface PlanCreationResult {
 export async function createPlanFromToolCall(
   params: CreatePlanFromToolCallParams
 ): Promise<PlanCreationResult> {
-  const { toolName, toolArgs, userId, sessionId, conversationId, storage } = params;
+  const { toolName, toolArgs, userId, sessionId, conversationId, storage, clientRequestId } = params;
   
-  console.log(`🔄 Creating plan from tool call: ${toolName}`);
+  console.log(`🔄 Creating plan from tool call: ${toolName}${clientRequestId ? ` (crid:${clientRequestId.slice(0, 8)}...)` : ''}`);
   
   // Build goal and steps based on the tool type
   let goal = '';
@@ -177,7 +178,7 @@ export async function createPlanFromToolCall(
   // Start execution in background
   try {
     const { startPlanExecution } = await import('./leadgen-executor.js');
-    await startPlanExecution(plan); // Pass the full plan object
+    await startPlanExecution(plan, clientRequestId);
     console.log(`✅ Plan ${plan.id} auto-started execution`);
   } catch (execError) {
     console.error(`❌ Auto-execution failed for plan ${plan.id}:`, execError);

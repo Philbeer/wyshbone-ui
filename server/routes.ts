@@ -2977,7 +2977,8 @@ CRITICAL RULES:
                 userId: user.id,
                 sessionId,
                 conversationId,
-                storage
+                storage,
+                clientRequestId: clientRequestId || undefined,
               });
               
               console.log(`✅ Plan ${result.planId} created and executing for ${toolCallBuffer.name}`);

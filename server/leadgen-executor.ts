@@ -423,6 +423,11 @@ async function executeStepsInBackground(execution: PlanExecution, startTime: num
     await persistArtefacts(execution, plan);
   }
   
+  const searchResults: any[] = (execution as any).searchResults || [];
+  if (searchResults.length === 0 && execution.agentRunId) {
+    console.warn(`⚠️ [ARTEFACT] Run ${execution.agentRunId} (plan ${execution.planId}) completed WITHOUT any leads artefact — searchResults was empty`);
+  }
+  
   // Mark agent_run as completed
   if (execution.agentRunId) {
     runManager.completeRun(execution.agentRunId).catch(() => {});
