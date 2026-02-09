@@ -336,25 +336,31 @@ export function createAfrRouter(_storage: typeof storage) {
 
   router.get("/artefacts", async (req, res) => {
     try {
-      const clientRequestId = req.query.client_request_id as string;
-      if (!clientRequestId) {
-        return res.status(400).json({ error: "client_request_id is required" });
-      }
+      const clientRequestId = req.query.client_request_id as string | undefined;
+      const runIdParam = req.query.runId as string | undefined;
 
-      const agentRun = await storage.getAgentRunByClientRequestId(clientRequestId);
-      if (!agentRun) {
-        console.log(`[AFR artefacts] No run found for client_request_id=${clientRequestId.slice(0, 12)}...`);
-        return res.json([]);
-      }
+      let resolvedRunId: string | undefined;
 
-      const runId = agentRun.id;
-      console.log(`[AFR artefacts] Resolved client_request_id=${clientRequestId.slice(0, 12)}... → runId=${runId}`);
+      if (runIdParam) {
+        resolvedRunId = runIdParam;
+        console.log(`[AFR artefacts] Direct runId lookup: ${runIdParam}`);
+      } else if (clientRequestId) {
+        const agentRun = await storage.getAgentRunByClientRequestId(clientRequestId);
+        if (!agentRun) {
+          console.log(`[AFR artefacts] No run found for client_request_id=${clientRequestId.slice(0, 12)}...`);
+          return res.json([]);
+        }
+        resolvedRunId = agentRun.id;
+        console.log(`[AFR artefacts] Resolved client_request_id=${clientRequestId.slice(0, 12)}... → runId=${resolvedRunId}`);
+      } else {
+        return res.status(400).json({ error: "Either client_request_id or runId query parameter is required" });
+      }
 
       const db = getDrizzleDb();
       const result = await db.execute(
         sql`SELECT id, run_id, type, title, summary, payload_json, created_at
             FROM artefacts
-            WHERE run_id = ${runId}
+            WHERE run_id = ${resolvedRunId}
             ORDER BY created_at ASC`
       );
       const rows = Array.isArray(result) ? result : (result as any).rows ?? [];
@@ -365,6 +371,35 @@ export function createAfrRouter(_storage: typeof storage) {
       }
       console.error("AFR /artefacts error:", error);
       res.status(500).json({ error: "Failed to fetch artefacts" });
+    }
+  });
+
+  router.post("/artefacts", async (req, res) => {
+    try {
+      const { runId, clientRequestId, type, payload, createdAt } = req.body;
+
+      if (!runId || !type) {
+        return res.status(400).json({ error: "runId and type are required" });
+      }
+
+      const db = getDrizzleDb();
+      const ts = createdAt ? new Date(createdAt).toISOString() : new Date().toISOString();
+      const title = (payload as any)?.title || type;
+      const summary = (payload as any)?.summary || '';
+
+      const result = await db.execute(
+        sql`INSERT INTO artefacts (run_id, type, title, summary, payload_json, created_at)
+            VALUES (${runId}, ${type}, ${title}, ${summary}, ${JSON.stringify(payload ?? {})}::jsonb, ${ts}::timestamptz)
+            RETURNING id`
+      );
+      const rows = Array.isArray(result) ? result : (result as any).rows ?? [];
+      const artefactId = rows[0]?.id;
+
+      console.log(`[AFR artefacts] Persisted artefact type=${type} runId=${runId} → artefactId=${artefactId}`);
+      res.status(201).json({ artefactId });
+    } catch (error: any) {
+      console.error("AFR POST /artefacts error:", error);
+      res.status(500).json({ error: "Failed to persist artefact" });
     }
   });
 
