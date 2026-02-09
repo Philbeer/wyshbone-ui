@@ -138,6 +138,17 @@ The user interface adheres to Material Design principles, featuring a dark mode,
 - Delegation detection: if only `chat_response` exists with `delegated_to_supervisor: true`, shows blue info banner
 - Missing leads: if artefacts exist but no `leads_list`, shows amber warning banner
 
+## Session 4 (2026-02-09) - AFR Artefact Fix for Chat-Triggered Plans
+
+**Bug:** When a real chat query triggered a tool call (e.g., SEARCH_PLACES), the plan executed and found businesses, but `persistArtefacts()` was silently skipped because no `agentRunId` existed. Root cause: `createPlanFromToolCall` in `plan-from-chat.ts` was not passing `clientRequestId` to `startPlanExecution`, so no `agent_run` row was created.
+
+**Fix (3 lines):**
+- `createPlanFromToolCall` now accepts and passes `clientRequestId` to `startPlanExecution`
+- `routes.ts` supplies `clientRequestId` from the chat handler
+- Warning log added in `leadgen-executor.ts` when a run completes with empty `searchResults`
+
+**Result:** Chat queries like "find shoe shop kent" now produce all 3 artefact types: `chat_response`, `leads_list` (20 real businesses), and `plan_result` — all linked by the canonical `runId` and retrievable via `clientRequestId`.
+
 ## Data Ownership & Persistence Guardrails
 
 **The UI never owns persistence.** All artefacts, runs, judgements, and business data come from Supabase via the backend. The frontend is a read/display layer only — it does not write directly to any database.
