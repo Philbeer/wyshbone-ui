@@ -334,6 +334,40 @@ export function createAfrRouter(_storage: typeof storage) {
     }
   });
 
+  router.get("/artefacts", async (req, res) => {
+    try {
+      const clientRequestId = req.query.client_request_id as string;
+      if (!clientRequestId) {
+        return res.status(400).json({ error: "client_request_id is required" });
+      }
+
+      const agentRun = await storage.getAgentRunByClientRequestId(clientRequestId);
+      if (!agentRun) {
+        console.log(`[AFR artefacts] No run found for client_request_id=${clientRequestId.slice(0, 12)}...`);
+        return res.json([]);
+      }
+
+      const runId = agentRun.id;
+      console.log(`[AFR artefacts] Resolved client_request_id=${clientRequestId.slice(0, 12)}... → runId=${runId}`);
+
+      const db = getDrizzleDb();
+      const result = await db.execute(
+        sql`SELECT id, run_id, type, title, summary, payload_json, created_at
+            FROM artefacts
+            WHERE run_id = ${runId}
+            ORDER BY created_at ASC`
+      );
+      const rows = Array.isArray(result) ? result : (result as any).rows ?? [];
+      res.json(rows);
+    } catch (error: any) {
+      if (error?.message?.includes('does not exist')) {
+        return res.json([]);
+      }
+      console.error("AFR /artefacts error:", error);
+      res.status(500).json({ error: "Failed to fetch artefacts" });
+    }
+  });
+
   router.get("/rules", async (req, res) => {
     try {
       const limit = Math.min(parseInt(req.query.limit as string) || 200, 500);

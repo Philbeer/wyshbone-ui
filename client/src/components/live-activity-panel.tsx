@@ -325,20 +325,22 @@ const ARTEFACT_LABELS: Record<string, { label: string; icon: string }> = {
   plan_result: { label: 'Summary', icon: '📋' },
 };
 
-function ResultsModal({ runId, open, onOpenChange }: { runId: string; open: boolean; onOpenChange: (open: boolean) => void }) {
+function ResultsModal({ clientRequestId, open, onOpenChange }: { clientRequestId: string; open: boolean; onOpenChange: (open: boolean) => void }) {
   const [artefacts, setArtefacts] = useState<Artefact[]>([]);
   const [activeTab, setActiveTab] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!open || !runId) return;
+    if (!open || !clientRequestId) return;
     setLoading(true);
     setError(null);
     setArtefacts([]);
     setActiveTab('');
 
-    fetch(`/api/afr/runs/${runId}/artefacts`)
+    console.log(`[ResultsModal] View results clicked — crid=${clientRequestId.slice(0, 12)}...`);
+
+    fetch(`/api/afr/artefacts?client_request_id=${encodeURIComponent(clientRequestId)}`)
       .then(res => {
         if (!res.ok) throw new Error('Failed to fetch results');
         return res.json();
@@ -367,7 +369,7 @@ function ResultsModal({ runId, open, onOpenChange }: { runId: string; open: bool
       })
       .catch(() => setError('Could not load results.'))
       .finally(() => setLoading(false));
-  }, [open, runId]);
+  }, [open, clientRequestId]);
 
   const activeArtefact = artefacts.find(a => a.type === activeTab) || null;
   const hasTabs = artefacts.length > 1;
@@ -438,7 +440,7 @@ function ResultsModal({ runId, open, onOpenChange }: { runId: string; open: bool
   );
 }
 
-function SequenceStatusRow({ status, runId }: { status: "completed" | "failed" | "stopped"; runId?: string | null }) {
+function SequenceStatusRow({ status, clientRequestId }: { status: "completed" | "failed" | "stopped"; clientRequestId?: string | null }) {
   const [showResults, setShowResults] = useState(false);
 
   const config = {
@@ -468,7 +470,7 @@ function SequenceStatusRow({ status, runId }: { status: "completed" | "failed" |
           <Icon className={cn("h-4 w-4", className)} />
           <span className={cn("text-xs font-medium", className)}>{label}</span>
         </div>
-        {runId && status === 'completed' && (
+        {clientRequestId && status === 'completed' && (
           <Button
             variant="outline"
             size="sm"
@@ -480,8 +482,8 @@ function SequenceStatusRow({ status, runId }: { status: "completed" | "failed" |
           </Button>
         )}
       </div>
-      {runId && (
-        <ResultsModal runId={runId} open={showResults} onOpenChange={setShowResults} />
+      {clientRequestId && (
+        <ResultsModal clientRequestId={clientRequestId} open={showResults} onOpenChange={setShowResults} />
       )}
     </>
   );
@@ -1686,7 +1688,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
             )}
             
             {effectiveTerminal && allRevealed && !transientPhase && (mappedStatus === 'completed' || mappedStatus === 'failed' || mappedStatus === 'stopped') && (
-              <SequenceStatusRow status={mappedStatus} runId={stream?.run_id} />
+              <SequenceStatusRow status={mappedStatus} clientRequestId={activeClientRequestId} />
             )}
             
             {isWorking && (
