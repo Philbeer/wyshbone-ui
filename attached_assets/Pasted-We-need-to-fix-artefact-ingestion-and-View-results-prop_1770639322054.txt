@@ -1,0 +1,70 @@
+We need to fix artefact ingestion and “View results” properly for chat runs executed by Supervisor.
+
+Truths:
+
+Supervisor posts artefacts by runId and may send payloadJson (not payload).
+
+UI POST /api/afr/artefacts currently expects { runId, type, payload, createdAt? } and derives title/summary from payload.title/payload.summary.
+
+UI Live Activity “View results” currently fetches artefacts only via client_request_id: GET /api/afr/artefacts?client_request_id=..., which depends on agent_runs mapping and fails for Supervisor-posted artefacts.
+
+Implement production-grade fixes:
+
+A) Make POST /api/afr/artefacts accept BOTH formats:
+
+{ runId, type, payload, createdAt?, clientRequestId? }
+
+{ runId, clientRequestId?, type, title?, summary?, payloadJson, createdAt? } (Supervisor format)
+
+Canonicalize to a single payload object for DB insert.
+Rules:
+
+If payload is present, use it.
+
+Else if payloadJson is present, parse it if it is a string, otherwise use it directly if it is an object.
+
+Derive title and summary from:
+
+explicit title/summary fields if provided
+
+else payload.title / payload.summary if present
+
+else fallback title = type and summary = "".
+
+Ensure NOT NULL title constraint is always satisfied.
+
+B) Update Live Activity “View results” to fetch artefacts by runId whenever available.
+Specifically:
+
+The Live Activity items already show crid in details. Add runId to the event metadata/details (if already present, use it).
+
+ResultsModal should call:
+
+if runId exists: GET /api/afr/artefacts?runId=<runId>
+
+else fallback: GET /api/afr/artefacts?client_request_id=<clientRequestId>
+
+Keep both code paths. This makes Supervisor runs work without relying on agent_runs.
+
+C) Add one temporary server-side debug log (safe, no secrets) for POST /api/afr/artefacts:
+
+log the keys present in req.body (Object.keys) and whether payload or payloadJson was used
+This is for verification during test; keep it behind a simple guard like process.env.NODE_ENV !== "production" or remove after confirmation.
+
+D) Provide a quick local test:
+
+Add a minimal curl example (in a comment) showing both payload and payloadJson formats that should now succeed.
+
+Constraints:
+
+Do not introduce hacks like bypassing Supervisor or storing duplicates.
+
+Keep the API backwards compatible.
+
+Update any types as needed so LSP is clean.
+
+Deliverable:
+
+Implement changes in the correct files (server/routes/afr.ts and client live activity modal component).
+
+Restart and confirm POST works for both formats and “View results” displays artefacts for a runId.

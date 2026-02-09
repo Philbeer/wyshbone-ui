@@ -366,24 +366,28 @@ const ARTEFACT_LABELS: Record<string, { label: string; icon: string }> = {
   chat_response: { label: 'Chat Response', icon: '💬' },
 };
 
-function ResultsModal({ clientRequestId, open, onOpenChange }: { clientRequestId: string; open: boolean; onOpenChange: (open: boolean) => void }) {
+function ResultsModal({ clientRequestId, runId, open, onOpenChange }: { clientRequestId?: string | null; runId?: string | null; open: boolean; onOpenChange: (open: boolean) => void }) {
   const [artefacts, setArtefacts] = useState<Artefact[]>([]);
   const [activeTab, setActiveTab] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!open || !clientRequestId) return;
+    if (!open || (!runId && !clientRequestId)) return;
     setLoading(true);
     setError(null);
     setArtefacts([]);
     setActiveTab('');
 
-    console.log(`[ResultsModal] Fetching artefacts — crid=${clientRequestId.slice(0, 12)}...`);
+    const url = runId
+      ? `/api/afr/artefacts?runId=${encodeURIComponent(runId)}`
+      : `/api/afr/artefacts?client_request_id=${encodeURIComponent(clientRequestId!)}`;
 
-    fetch(`/api/afr/artefacts?client_request_id=${encodeURIComponent(clientRequestId)}`)
+    console.log(`[ResultsModal] Fetching artefacts — runId=${runId || 'n/a'} crid=${clientRequestId?.slice(0, 12) || 'n/a'} url=${url}`);
+
+    fetch(url)
       .then(res => {
-        console.log(`[ResultsModal] Response status=${res.status} for crid=${clientRequestId.slice(0, 12)}...`);
+        console.log(`[ResultsModal] Response status=${res.status}`);
         if (!res.ok) throw new Error('Failed to fetch results');
         return res.json();
       })
@@ -412,7 +416,7 @@ function ResultsModal({ clientRequestId, open, onOpenChange }: { clientRequestId
       })
       .catch(() => setError('Could not load results.'))
       .finally(() => setLoading(false));
-  }, [open, clientRequestId]);
+  }, [open, clientRequestId, runId]);
 
   const activeArtefact = artefacts.find(a => a.type === activeTab) || null;
   const hasTabs = artefacts.length > 1;
@@ -483,7 +487,7 @@ function ResultsModal({ clientRequestId, open, onOpenChange }: { clientRequestId
   );
 }
 
-function SequenceStatusRow({ status, clientRequestId }: { status: "completed" | "failed" | "stopped"; clientRequestId?: string | null }) {
+function SequenceStatusRow({ status, clientRequestId, runId }: { status: "completed" | "failed" | "stopped"; clientRequestId?: string | null; runId?: string | null }) {
   const [showResults, setShowResults] = useState(false);
 
   const config = {
@@ -513,13 +517,13 @@ function SequenceStatusRow({ status, clientRequestId }: { status: "completed" | 
           <Icon className={cn("h-4 w-4", className)} />
           <span className={cn("text-xs font-medium", className)}>{label}</span>
         </div>
-        {clientRequestId && status === 'completed' && (
+        {(clientRequestId || runId) && status === 'completed' && (
           <Button
             variant="outline"
             size="sm"
             className="h-6 text-xs px-2 gap-1"
             onClick={() => {
-              console.log(`[ViewResults] Button clicked — crid=${clientRequestId.slice(0, 12)}...`);
+              console.log(`[ViewResults] Button clicked — runId=${runId || 'n/a'} crid=${clientRequestId?.slice(0, 12) || 'n/a'}`);
               setShowResults(true);
             }}
           >
@@ -528,8 +532,8 @@ function SequenceStatusRow({ status, clientRequestId }: { status: "completed" | 
           </Button>
         )}
       </div>
-      {clientRequestId && (
-        <ResultsModal clientRequestId={clientRequestId} open={showResults} onOpenChange={setShowResults} />
+      {(clientRequestId || runId) && (
+        <ResultsModal clientRequestId={clientRequestId} runId={runId} open={showResults} onOpenChange={setShowResults} />
       )}
     </>
   );
@@ -1756,7 +1760,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
             )}
             
             {effectiveTerminal && allRevealed && !transientPhase && (mappedStatus === 'completed' || mappedStatus === 'failed' || mappedStatus === 'stopped') && (
-              <SequenceStatusRow status={mappedStatus} clientRequestId={activeClientRequestId} />
+              <SequenceStatusRow status={mappedStatus} clientRequestId={activeClientRequestId} runId={stream?.run_id} />
             )}
             
             {isWorking && (

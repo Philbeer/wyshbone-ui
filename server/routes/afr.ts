@@ -374,22 +374,56 @@ export function createAfrRouter(_storage: typeof storage) {
     }
   });
 
+  // POST /api/afr/artefacts — accepts both UI format (payload) and Supervisor format (payloadJson)
+  //
+  // UI format:        { runId, type, payload: {...}, createdAt?, clientRequestId? }
+  // Supervisor format: { runId, type, payloadJson: {...} | "string", title?, summary?, createdAt?, clientRequestId? }
+  //
+  // curl examples (both should succeed):
+  //   curl -X POST http://localhost:5001/api/afr/artefacts -H 'Content-Type: application/json' \
+  //     -d '{"runId":"r1","type":"chat_response","payload":{"title":"T","summary":"S","text":"hi"}}'
+  //   curl -X POST http://localhost:5001/api/afr/artefacts -H 'Content-Type: application/json' \
+  //     -d '{"runId":"r2","type":"chat_response","payloadJson":"{\"title\":\"T2\",\"text\":\"hi\"}","title":"T2","summary":"S2"}'
   router.post("/artefacts", async (req, res) => {
     try {
-      const { runId, clientRequestId, type, payload, createdAt } = req.body;
+      const body = req.body;
+      const { runId, type, createdAt, clientRequestId } = body;
 
       if (!runId || !type) {
         return res.status(400).json({ error: "runId and type are required" });
       }
 
+      if (process.env.NODE_ENV !== "production") {
+        console.log(`[AFR artefacts DEBUG] POST keys=${Object.keys(body).join(',')} payloadSource=${body.payload ? 'payload' : body.payloadJson != null ? 'payloadJson' : 'none'}`);
+      }
+
+      let canonicalPayload: Record<string, unknown>;
+      if (body.payload && typeof body.payload === 'object') {
+        canonicalPayload = body.payload;
+      } else if (body.payloadJson != null) {
+        canonicalPayload = typeof body.payloadJson === 'string'
+          ? JSON.parse(body.payloadJson)
+          : body.payloadJson;
+      } else {
+        canonicalPayload = {};
+      }
+
+      const title: string =
+        body.title ||
+        (canonicalPayload as any).title ||
+        type;
+
+      const summary: string =
+        body.summary ||
+        (canonicalPayload as any).summary ||
+        '';
+
       const db = getDrizzleDb();
       const ts = createdAt ? new Date(createdAt).toISOString() : new Date().toISOString();
-      const title = (payload as any)?.title || type;
-      const summary = (payload as any)?.summary || '';
 
       const result = await db.execute(
         sql`INSERT INTO artefacts (run_id, type, title, summary, payload_json, created_at)
-            VALUES (${runId}, ${type}, ${title}, ${summary}, ${JSON.stringify(payload ?? {})}::jsonb, ${ts}::timestamptz)
+            VALUES (${runId}, ${type}, ${title}, ${summary}, ${JSON.stringify(canonicalPayload)}::jsonb, ${ts}::timestamptz)
             RETURNING id`
       );
       const rows = Array.isArray(result) ? result : (result as any).rows ?? [];
