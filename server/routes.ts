@@ -7440,6 +7440,52 @@ ${run.outputText}`;
     }
   });
 
+  app.get("/api/debug/supervisor", async (_req, res) => {
+    try {
+      const supervisorUrl = (process.env.SUPERVISOR_BASE_URL || '').replace(/\/+$/, '');
+      console.log(`[DEBUG] /api/debug/supervisor called`);
+      console.log(`   [SUPERVISOR_URL] ${supervisorUrl || '(not set)'}`);
+
+      if (!supervisorUrl) {
+        return res.json({
+          configured: false,
+          supervisorUrl: '(not set)',
+          remoteEnv: null,
+          error: 'SUPERVISOR_BASE_URL not configured',
+        });
+      }
+
+      const envUrl = `${supervisorUrl}/api/debug/env`;
+      console.log(`   Fetching: ${envUrl}`);
+      const upstream = await fetch(envUrl, { signal: AbortSignal.timeout(8000) });
+      if (!upstream.ok) {
+        const errText = await upstream.text();
+        console.log(`   ❌ Supervisor /api/debug/env returned ${upstream.status}: ${errText}`);
+        return res.json({
+          configured: true,
+          supervisorUrl,
+          remoteEnv: null,
+          error: `Supervisor returned ${upstream.status}: ${errText}`,
+        });
+      }
+      const remoteEnv = await upstream.json();
+      console.log(`   ✅ Supervisor /api/debug/env response:`, JSON.stringify(remoteEnv));
+      return res.json({
+        configured: true,
+        supervisorUrl,
+        remoteEnv,
+      });
+    } catch (error: any) {
+      console.error("[DEBUG] supervisor probe error:", error.message);
+      return res.status(500).json({
+        configured: !!process.env.SUPERVISOR_BASE_URL,
+        supervisorUrl: process.env.SUPERVISOR_BASE_URL || '(not set)',
+        remoteEnv: null,
+        error: error.message,
+      });
+    }
+  });
+
   app.get("/api/debug/conversations", async (_req, res) => {
     try {
       const conversations = await storage.listAllConversations();

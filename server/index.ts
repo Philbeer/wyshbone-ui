@@ -290,6 +290,7 @@ app.use((req, res, next) => {
     console.log('🎛️  THIN CLIENT MODE - Background Worker Configuration');
     console.log('='.repeat(80));
     console.log(`   SUPERVISOR_BASE_URL: ${supervisorConfigured ? 'yes' : 'no'} (host: ${supervisorHost})`);
+    console.log(`   [SUPERVISOR_URL] ${process.env.SUPERVISOR_BASE_URL || '(not set)'}`);
     console.log(`   ENABLE_UI_BACKGROUND_WORKERS: ${enableBackgroundWorkers}`);
     
     if (enableBackgroundWorkers) {
