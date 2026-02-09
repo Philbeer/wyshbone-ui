@@ -16,6 +16,8 @@ export interface StartJobRequest {
   payload: any;
   requestedBy: 'ui';
   sourceRunId?: string;
+  clientRequestId?: string;
+  userId?: string;
 }
 
 export interface StartJobResponse {
@@ -136,17 +138,23 @@ export async function startJob(
       clientRequestId,
     });
     
+    const requestBody: StartJobRequest = {
+      jobType,
+      payload,
+      requestedBy: 'ui',
+      sourceRunId: payload?.run_id || clientRequestId,
+      clientRequestId: clientRequestId || undefined,
+      userId: userId || undefined,
+    };
+    
+    console.log(`📤 [SUPERVISOR] POST /api/supervisor/jobs/start body: sourceRunId=${requestBody.sourceRunId}, clientRequestId=${requestBody.clientRequestId}, userId=${requestBody.userId}, jobType=${requestBody.jobType}`);
+    
     const response = await fetch(`${SUPERVISOR_BASE_URL}/api/supervisor/jobs/start`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        jobType,
-        payload,
-        requestedBy: 'ui',
-        sourceRunId: clientRequestId,
-      } satisfies StartJobRequest),
+      body: JSON.stringify(requestBody),
     });
     
     if (!response.ok) {
