@@ -7441,6 +7441,9 @@ ${run.outputText}`;
   });
 
   app.get("/api/debug/supervisor", async (_req, res) => {
+    if (process.env.NODE_ENV === 'production') {
+      return res.status(404).json({ error: 'Not found' });
+    }
     try {
       const supervisorUrl = (process.env.SUPERVISOR_BASE_URL || '').replace(/\/+$/, '');
       console.log(`[DEBUG] /api/debug/supervisor called`);
