@@ -1629,6 +1629,11 @@ export async function runStartupMigrations(): Promise<void> {
       CREATE INDEX IF NOT EXISTS oauth_states_expires_at_idx ON public.oauth_states(expires_at);
     `;
     
+    await queryClient`
+      ALTER TABLE public.agent_runs
+      ADD COLUMN IF NOT EXISTS supervisor_run_id TEXT;
+    `;
+
     // AFR Correlation & Decision Tracking columns for deep_research_runs
     await queryClient`
       ALTER TABLE public.deep_research_runs 

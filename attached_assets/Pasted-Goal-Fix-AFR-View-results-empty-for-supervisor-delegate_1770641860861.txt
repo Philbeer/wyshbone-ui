@@ -1,0 +1,48 @@
+Goal: Fix AFR "View results" empty for supervisor delegated (deep research) runs by ensuring:
+1) The UI runId stays canonical end to end.
+2) The deep research chat path does not return early without persisting at least one artefact and a run bridge row.
+3) Supervisor produced results are stored and retrievable under the same UI runId.
+
+Context and bug:
+For runId 1d46b49c-bcde-4f9b-bdbd-abbdc7f5f788 and CRID a5e59c19-0447-4490-88f2-a28d00a6d997, both /api/afr/artefacts?runId=... and ?client_request_id=... return only chat_response. No leads artefact is ever created for deep research delegated runs. We found an early return in routes.ts (deep research path) that skips persistChatArtefact and any results artefact persistence.
+
+Required changes (production grade):
+A) Add a proper run bridge row when creating a run, so CRID and runId are always linked.
+- Ensure agent_runs row exists for every run created in chat, even if work is delegated out.
+- agent_runs must store: run_id (the UI runId), client_request_id, created_at, and optionally supervisor_run_id (nullable).
+- If the table already exists but the row is not created consistently, fix the creation path.
+- If supervisor_run_id column does not exist, add a migration.
+
+B) In the deep research delegation path (the one that currently does return res.end()):
+- Before returning, persist a chat_response artefact that clearly marks "delegated_to_supervisor" and includes:
+  - ui_run_id (runId)
+  - client_request_id
+  - status = "started"
+  - optional: supervisor_task_id or deep_research_run_id if known
+- This ensures the run always has an artefact for "View results" even before final results arrive.
+
+C) Add an API endpoint for Supervisor to update the bridge and to persist results under the canonical UI runId:
+- Add a POST endpoint (example: POST /api/afr/run-bridge) that accepts:
+  { runId, client_request_id, supervisor_run_id }
+  and upserts agent_runs to set supervisor_run_id.
+- Ensure auth matches existing internal calls.
+
+D) Artefacts persistence:
+- Keep existing /api/afr/artefacts POST behavior.
+- Ensure when artefacts are posted by Supervisor they can be saved under the UI runId (not the supervisor internal id). The easiest is: Supervisor will POST using runId = UI runId. UI does not need to infer.
+
+E) UI ResultsModal:
+- Leave logic preferring runId.
+- Add clearer copy if only chat_response exists and no leads artefact exists, but do not block display of available artefacts.
+
+Acceptance tests:
+1) Trigger a chat query that delegates to Supervisor. The run must immediately have at least one artefact under /api/afr/artefacts?runId=<ui runId>.
+2) When Supervisor later posts leads artefact, /api/afr/artefacts?runId=<ui runId> must include type "leads" (or "leads_list").
+3) /api/afr/artefacts?client_request_id=<crid> must also work (because agent_runs row exists).
+4) No early return path should skip persistence and bridging.
+
+Deliverables:
+- Implement changes with full file rewrites where needed (do not give partial snippets).
+- Update migrations if needed.
+- Add minimal server logs: when creating agent_runs row, and when deep research returns early, log runId and CRID.
+- Keep changes small but correct.

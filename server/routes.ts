@@ -1354,14 +1354,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await saveMessage(conversationId, "user", latestUserText);
       console.log("💾 Saved user message to database");
 
-      // AFR: Log user message received with correlation ID
+      // AFR: Log user message received with correlation ID — captures the agent run ID
+      let agentRunId: string | null = null;
       if (clientRequestId) {
-        await logUserMessageReceived({
-          userId: user.id,
-          conversationId,
-          clientRequestId,
-          rawUserText: latestUserText,
-        }).catch(err => console.error('AFR log error:', err.message));
+        try {
+          const afrResult = await logUserMessageReceived({
+            userId: user.id,
+            conversationId,
+            clientRequestId,
+            rawUserText: latestUserText,
+          });
+          agentRunId = afrResult.runId;
+          console.log(`🔗 [RunBridge] agent_runs row created: runId=${agentRunId} crid=${clientRequestId.slice(0, 12)}...`);
+        } catch (err: any) {
+          console.error('AFR log error:', err.message);
+        }
       }
 
       // Update conversation label if this is the first user message
@@ -2311,6 +2318,50 @@ CRITICAL RULES:
           appendMessage(sessionId, { role: "assistant", content: confirmMsg });
           await saveMessage(conversationId, "assistant", confirmMsg);
           console.log("💾 Saved research start message to database");
+
+          // BRIDGE: Link deep research run to the UI agent run and persist delegation artefact
+          if (agentRunId && clientRequestId) {
+            try {
+              const db = (await import('./storage.js')).getDrizzleDb();
+              const { sql: dsql } = await import('drizzle-orm');
+
+              await db.execute(dsql`
+                UPDATE agent_runs 
+                SET supervisor_run_id = ${run.id}, updated_at = ${Date.now()}
+                WHERE id = ${agentRunId}
+              `);
+              console.log(`🔗 [RunBridge] Linked supervisor_run_id=${run.id} → agent_run=${agentRunId}`);
+
+              await db.execute(dsql`
+                INSERT INTO artefacts (run_id, type, title, summary, payload_json)
+                VALUES (
+                  ${agentRunId},
+                  'chat_response',
+                  ${'Deep Research Delegated'},
+                  ${confirmMsg.slice(0, 200)},
+                  ${JSON.stringify({
+                    delegated_to_supervisor: true,
+                    status: 'started',
+                    ui_run_id: agentRunId,
+                    client_request_id: clientRequestId,
+                    deep_research_run_id: run.id,
+                    research_topic: researchTopic,
+                    user_message: latestUserText,
+                    ai_response: confirmMsg,
+                  })}::jsonb
+                )
+              `);
+              console.log(`📦 [RunBridge] Persisted delegation artefact for agentRun=${agentRunId} crid=${clientRequestId.slice(0, 12)}...`);
+            } catch (bridgeErr: any) {
+              console.warn(`[RunBridge] Non-fatal bridge error: ${bridgeErr.message}`);
+            }
+
+            await logRunCompleted({
+              userId: user.id,
+              conversationId,
+              clientRequestId,
+            }).catch(err => console.error('AFR run complete error:', err.message));
+          }
           
           // 🏢 TOWER: Log research start confirmation
           await completeRunLog(

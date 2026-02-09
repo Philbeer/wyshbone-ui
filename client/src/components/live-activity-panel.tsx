@@ -456,11 +456,24 @@ function ResultsModal({ clientRequestId, runId, open, onOpenChange }: { clientRe
         {!loading && !error && artefacts.length === 0 && (
           <div className="text-sm text-muted-foreground py-8 text-center">No results yet.</div>
         )}
-        {!loading && !error && artefacts.length > 0 && !artefacts.some(a => a.type === 'leads_list') && (
-          <div className="text-xs text-amber-500/80 bg-amber-500/10 rounded px-3 py-2 mt-1">
-            No leads artefact found for this run.
-          </div>
-        )}
+        {!loading && !error && artefacts.length > 0 && !artefacts.some(a => a.type === 'leads_list') && (() => {
+          const delegationArtefact = artefacts.find(a => {
+            const p = parsePayload(a.payload_json);
+            return p?.delegated_to_supervisor === true;
+          });
+          if (delegationArtefact) {
+            return (
+              <div className="text-xs text-blue-500/80 bg-blue-500/10 rounded px-3 py-2 mt-1">
+                This task was delegated to deep research. Leads will appear here once the research completes.
+              </div>
+            );
+          }
+          return (
+            <div className="text-xs text-amber-500/80 bg-amber-500/10 rounded px-3 py-2 mt-1">
+              No leads artefact found for this run.
+            </div>
+          );
+        })()}
         {!loading && !error && artefacts.length > 0 && (
           <div className="mt-2 space-y-3">
             {hasTabs && (

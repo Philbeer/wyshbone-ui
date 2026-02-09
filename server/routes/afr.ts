@@ -376,6 +376,44 @@ export function createAfrRouter(_storage: typeof storage) {
     }
   });
 
+  // POST /api/afr/run-bridge — Supervisor updates the bridge between UI runId and supervisor internal run
+  router.post("/run-bridge", async (req, res) => {
+    try {
+      const { runId, client_request_id, supervisor_run_id } = req.body;
+
+      if (!runId && !client_request_id) {
+        return res.status(400).json({ error: "Either runId or client_request_id is required" });
+      }
+      if (!supervisor_run_id) {
+        return res.status(400).json({ error: "supervisor_run_id is required" });
+      }
+
+      const db = getDrizzleDb();
+
+      if (runId) {
+        await db.execute(
+          sql`UPDATE agent_runs SET supervisor_run_id = ${supervisor_run_id}, updated_at = ${Date.now()} WHERE id = ${runId}`
+        );
+        console.log(`🔗 [RunBridge API] Linked supervisor_run_id=${supervisor_run_id} → runId=${runId}`);
+        return res.json({ ok: true, runId, supervisor_run_id });
+      }
+
+      const agentRun = await storage.getAgentRunByClientRequestId(client_request_id);
+      if (!agentRun) {
+        return res.status(404).json({ error: `No agent_run found for client_request_id=${client_request_id}` });
+      }
+
+      await db.execute(
+        sql`UPDATE agent_runs SET supervisor_run_id = ${supervisor_run_id}, updated_at = ${Date.now()} WHERE id = ${agentRun.id}`
+      );
+      console.log(`🔗 [RunBridge API] Linked supervisor_run_id=${supervisor_run_id} → runId=${agentRun.id} (via crid=${client_request_id.slice(0, 12)})`);
+      return res.json({ ok: true, runId: agentRun.id, supervisor_run_id });
+    } catch (error: any) {
+      console.error("[RunBridge API] Error:", error.message);
+      res.status(500).json({ error: "Failed to update run bridge" });
+    }
+  });
+
   // POST /api/afr/artefacts — accepts both UI format (payload) and Supervisor format (payloadJson)
   //
   // UI format:        { runId, type, payload: {...}, createdAt?, clientRequestId? }

@@ -469,18 +469,19 @@ export type AgentRunTerminalState = z.infer<typeof agentRunTerminalStateEnum>;
 
 export const agentRuns = pgTable("agent_runs", {
   id: text("id").primaryKey(),
-  clientRequestId: text("client_request_id").notNull().unique(), // Idempotency key - one run per request
+  clientRequestId: text("client_request_id").notNull().unique(),
   userId: text("user_id").notNull(),
   conversationId: text("conversation_id"),
+  supervisorRunId: text("supervisor_run_id"),
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
   updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
-  status: text("status").notNull().default("starting"), // starting, planning, executing, finalizing, completed, failed, stopped
-  terminalState: text("terminal_state"), // completed, failed, stopped - only set when run is done
-  uiReady: integer("ui_ready").notNull().default(0), // 0 = not ready, 1 = ready - gate Live Activity display
+  status: text("status").notNull().default("starting"),
+  terminalState: text("terminal_state"),
+  uiReady: integer("ui_ready").notNull().default(0),
   lastEventAt: bigint("last_event_at", { mode: "number" }),
-  error: text("error"), // Error message if failed
-  errorDetails: jsonb("error_details"), // Structured error info
-  metadata: jsonb("metadata"), // Additional run context
+  error: text("error"),
+  errorDetails: jsonb("error_details"),
+  metadata: jsonb("metadata"),
 }, (table) => ({
   clientRequestIdIdx: index("agent_runs_client_request_id_idx").on(table.clientRequestId),
   userIdIdx: index("agent_runs_user_id_idx").on(table.userId),

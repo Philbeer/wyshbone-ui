@@ -120,11 +120,23 @@ The user interface adheres to Material Design principles, featuring a dark mode,
 - Queries `artefacts` table by `run_id` column
 - Returns array of artefact rows
 
+**POST `/api/afr/run-bridge`** — Links a Supervisor run to the canonical UI runId.
+- Accepts: `{ runId?, client_request_id?, supervisor_run_id }` (one of `runId` or `client_request_id` required)
+- Updates `agent_runs.supervisor_run_id` column
+- Returns `{ ok: true, runId, supervisor_run_id }`
+
+**Run Bridge Architecture (2026-02-09):**
+- `agent_runs` table has a `supervisor_run_id` column (nullable TEXT) linking UI runs to deep research/Supervisor runs
+- The deep research delegation path (routes.ts) now persists a `chat_response` artefact with `delegated_to_supervisor: true` before early return
+- This ensures every delegated run immediately has an artefact for "View results" even before final results arrive
+- Supervisor can later POST leads artefacts under the same UI runId
+
 **UI "View results" flow** (`client/src/components/live-activity-panel.tsx`):
 - `SequenceStatusRow` receives both `clientRequestId` and `runId` (from `stream.run_id`)
 - "View results" button appears when either ID is present and status is `completed`
 - `ResultsModal` fetches by `runId` when available, falls back to `client_request_id`
-- This ensures Supervisor-originated runs (which have `runId` but may lack `agent_runs` mapping) can display artefacts
+- Delegation detection: if only `chat_response` exists with `delegated_to_supervisor: true`, shows blue info banner
+- Missing leads: if artefacts exist but no `leads_list`, shows amber warning banner
 
 ## Data Ownership & Persistence Guardrails
 
