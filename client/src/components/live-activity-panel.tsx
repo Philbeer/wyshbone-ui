@@ -749,32 +749,83 @@ function ResultsModal({ clientRequestId, runId, open, onOpenChange }: { clientRe
           <div className="text-sm text-muted-foreground py-8 text-center">No results yet.</div>
         )}
         {!loading && !error && artefacts.length > 0 && (() => {
-          const verdictSource = artefacts.find(a => {
+          const verdictArtefact = artefacts.find(a => a.type === 'tower_judgement');
+          const verdictSource = verdictArtefact || artefacts.find(a => {
             const p = parsePayload(a.payload_json);
-            return p?.verdict && (a.type === 'run_summary' || a.type === 'plan_update' || a.type === 'tower_judgement' || p?.tower_judgement_received);
+            return p?.verdict && (a.type === 'run_summary' || a.type === 'plan_update' || p?.tower_judgement_received);
           });
           const hasPlanUpdate = artefacts.some(a => a.type === 'plan_update');
           const planVersion = hasPlanUpdate ? 2 : 1;
+          const hasTowerJudgement = !!verdictArtefact;
+          const hasLeads = artefacts.some(a => a.type === 'leads_list');
+
+          const leadsArtefact = artefacts.find(a => a.type === 'leads_list');
+          const leadsPayload = leadsArtefact ? parsePayload(leadsArtefact.payload_json) : null;
+          const leadsArray = leadsPayload
+            ? (Array.isArray(leadsPayload) ? leadsPayload : Array.isArray(leadsPayload?.leads) ? leadsPayload.leads : Array.isArray(leadsPayload?.results) ? leadsPayload.results : [])
+            : [];
+          const deliveredCount = leadsArray.length;
+          const targetCount = leadsPayload?.target_count ?? leadsPayload?.requested ?? leadsPayload?.requested_count ?? null;
+
+          const summaryPayload = artefacts.find(a => a.type === 'run_summary') ? parsePayload(artefacts.find(a => a.type === 'run_summary')!.payload_json) : null;
+          const towerPayload = verdictArtefact ? parsePayload(verdictArtefact.payload_json) : null;
+          const effectiveTarget = targetCount ?? towerPayload?.requested ?? summaryPayload?.requested ?? null;
+          const effectiveDelivered = towerPayload?.delivered ?? summaryPayload?.delivered ?? (hasLeads ? deliveredCount : null);
           
           return (
-            <div className="flex flex-wrap items-center gap-2 mb-2">
-              {verdictSource && (() => {
-                const p = parsePayload(verdictSource.payload_json);
-                return <TowerVerdictBadge verdict={p.verdict} score={p.score ?? p.confidence} />;
-              })()}
-              <span className={cn(
-                "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold",
-                planVersion > 1 
-                  ? "bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300" 
-                  : "bg-gray-100 dark:bg-gray-800/50 text-gray-600 dark:text-gray-400"
-              )}>
-                <ListChecks className="h-3 w-3" />
-                Plan v{planVersion}
-              </span>
+            <div className="space-y-2 mb-2">
+              <div className="flex flex-wrap items-center gap-2">
+                {verdictSource && (() => {
+                  const p = parsePayload(verdictSource.payload_json);
+                  return <TowerVerdictBadge verdict={p.verdict} score={p.score ?? p.confidence} />;
+                })()}
+                <span className={cn(
+                  "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold",
+                  planVersion > 1 
+                    ? "bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300" 
+                    : "bg-gray-100 dark:bg-gray-800/50 text-gray-600 dark:text-gray-400"
+                )}>
+                  <ListChecks className="h-3 w-3" />
+                  Plan v{planVersion}
+                </span>
+              </div>
+
+              {(effectiveTarget != null || effectiveDelivered != null) && (
+                <div className="flex items-center gap-3 text-xs">
+                  {effectiveTarget != null && (
+                    <span className="text-muted-foreground">
+                      Target: <span className="font-semibold text-foreground">{effectiveTarget}</span>
+                    </span>
+                  )}
+                  {effectiveDelivered != null && (
+                    <span className="text-muted-foreground">
+                      Delivered: <span className={cn("font-semibold", effectiveDelivered >= (effectiveTarget ?? 0) ? "text-green-600 dark:text-green-400" : "text-amber-600 dark:text-amber-400")}>{effectiveDelivered}</span>
+                    </span>
+                  )}
+                  {effectiveTarget != null && effectiveDelivered != null && (
+                    <span className={cn("font-mono text-[10px] px-1.5 py-0.5 rounded",
+                      effectiveDelivered >= effectiveTarget 
+                        ? "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300" 
+                        : "bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300"
+                    )}>
+                      {Math.round((effectiveDelivered / effectiveTarget) * 100)}%
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {!hasTowerJudgement && hasLeads && (
+                <div className="flex items-start gap-2 rounded-lg border border-amber-200 dark:border-amber-800/50 bg-amber-50/50 dark:bg-amber-900/10 p-2.5">
+                  <AlertTriangle className="h-3.5 w-3.5 text-amber-500 mt-0.5 shrink-0" />
+                  <p className="text-xs text-amber-700 dark:text-amber-300 leading-relaxed">
+                    Run finished execution but Tower judgement missing. Results have not been quality-verified.
+                  </p>
+                </div>
+              )}
             </div>
           );
         })()}
-        {!loading && !error && artefacts.length > 0 && !artefacts.some(a => a.type === 'leads_list') && !artefacts.some(a => a.type === 'deep_research_result') && !artefacts.some(a => a.type === 'run_summary') && !artefacts.some(a => a.type === 'plan_update') && (() => {
+        {!loading && !error && artefacts.length > 0 && !artefacts.some(a => a.type === 'leads_list') && !artefacts.some(a => a.type === 'deep_research_result') && !artefacts.some(a => a.type === 'run_summary') && !artefacts.some(a => a.type === 'plan_update') && !artefacts.some(a => a.type === 'tower_judgement') && (() => {
           const delegationArtefact = artefacts.find(a => {
             const p = parsePayload(a.payload_json);
             return p?.delegated_to_supervisor === true;
@@ -862,7 +913,7 @@ function SequenceStatusRow({ status, clientRequestId, runId, towerVerdict }: { s
   };
   
   const { icon: Icon, label, className } = config[status] || config.stopped;
-  const showViewResults = (clientRequestId || runId) && (status === 'completed' || status === 'stopped');
+  const showViewResults = (clientRequestId || runId) && (status === 'completed' || status === 'stopped' || status === 'awaiting_judgement');
   
   return (
     <>
@@ -1550,16 +1601,25 @@ const DEBUG_TERMINAL = true;
 const ACTIVE_STATUSES = ['routing', 'planning', 'executing', 'deep_research', 'running', 'in_progress', 'awaiting_judgement', 'replanning'];
 const TERMINAL_STATUSES = ['completed', 'failed', 'stopped'];
 
-function deriveTowerAwareStatus(events: StreamEvent[], serverTerminalState: 'completed' | 'failed' | 'stopped' | null): { towerVerdict: string | null; derivedStatus: OverallStatus | null } {
+interface TowerAwareResult {
+  towerVerdict: string | null;
+  derivedStatus: OverallStatus | null;
+  isLeadRun: boolean;
+  towerMissing: boolean;
+}
+
+function deriveTowerAwareStatus(events: StreamEvent[], serverTerminalState: 'completed' | 'failed' | 'stopped' | null): TowerAwareResult {
   let lastTowerVerdict: string | null = null;
   let hasRunCompleted = false;
   let hasRunStopped = false;
   let hasTowerJudgement = false;
   let hasToolCompleted = false;
+  let isLeadRun = false;
 
   for (const e of events) {
     const t = e.type?.toLowerCase() || '';
     const action = e.details?.action?.toLowerCase() || '';
+    const label = (e.details?.label || '').toLowerCase();
 
     if (t === 'tower_judgement' || t === 'judgement_received' || t === 'tower_evaluation_completed') {
       hasTowerJudgement = true;
@@ -1578,37 +1638,66 @@ function deriveTowerAwareStatus(events: StreamEvent[], serverTerminalState: 'com
     if (t === 'run_completed') hasRunCompleted = true;
     if (t === 'run_stopped' || t === 'plan_execution_halted') hasRunStopped = true;
     if (t === 'tool_call_completed') hasToolCompleted = true;
+
+    const leadStepNames = ['search_places', 'batch_contact_finder', 'create_scheduled_monitor'];
+    for (const step of leadStepNames) {
+      if (
+        t === `step_started:${step}` ||
+        t === `step_completed:${step}` ||
+        action === `step_started:${step}` ||
+        action === `step_completed:${step}` ||
+        action === step ||
+        t === step
+      ) {
+        isLeadRun = true;
+        break;
+      }
+    }
   }
 
   if (lastTowerVerdict === 'stop' || hasRunStopped) {
-    return { towerVerdict: lastTowerVerdict || 'stop', derivedStatus: 'stopped' };
+    return { towerVerdict: lastTowerVerdict || 'stop', derivedStatus: 'stopped', isLeadRun, towerMissing: !hasTowerJudgement };
   }
 
   if (serverTerminalState === 'stopped') {
-    return { towerVerdict: lastTowerVerdict || 'stop', derivedStatus: 'stopped' };
+    return { towerVerdict: lastTowerVerdict || 'stop', derivedStatus: 'stopped', isLeadRun, towerMissing: !hasTowerJudgement };
   }
 
   if (lastTowerVerdict === 'change_plan' || lastTowerVerdict === 'retry') {
-    return { towerVerdict: lastTowerVerdict, derivedStatus: 'replanning' };
+    return { towerVerdict: lastTowerVerdict, derivedStatus: 'replanning', isLeadRun, towerMissing: false };
   }
 
-  if (serverTerminalState === 'completed' || hasRunCompleted) {
-    if (lastTowerVerdict === 'accept' || lastTowerVerdict === 'continue' || hasRunCompleted) {
-      return { towerVerdict: lastTowerVerdict, derivedStatus: 'completed' };
+  const isTerminal = serverTerminalState === 'completed' || hasRunCompleted;
+
+  if (isTerminal) {
+    if (isLeadRun) {
+      if (hasTowerJudgement && lastTowerVerdict === 'accept') {
+        return { towerVerdict: lastTowerVerdict, derivedStatus: 'completed', isLeadRun, towerMissing: false };
+      }
+      if (!hasTowerJudgement) {
+        return { towerVerdict: null, derivedStatus: 'awaiting_judgement', isLeadRun, towerMissing: true };
+      }
+      return { towerVerdict: lastTowerVerdict, derivedStatus: 'awaiting_judgement', isLeadRun, towerMissing: false };
     }
-    if (hasTowerJudgement && lastTowerVerdict) {
-      return { towerVerdict: lastTowerVerdict, derivedStatus: 'awaiting_judgement' };
+
+    if (hasTowerJudgement && (lastTowerVerdict === 'accept' || lastTowerVerdict === 'continue')) {
+      return { towerVerdict: lastTowerVerdict, derivedStatus: 'completed', isLeadRun, towerMissing: false };
     }
+
     if (!hasTowerJudgement) {
-      return { towerVerdict: null, derivedStatus: 'completed' };
+      return { towerVerdict: null, derivedStatus: 'completed', isLeadRun, towerMissing: false };
+    }
+
+    if (hasTowerJudgement && lastTowerVerdict) {
+      return { towerVerdict: lastTowerVerdict, derivedStatus: 'awaiting_judgement', isLeadRun, towerMissing: false };
     }
   }
 
   if (hasToolCompleted && !hasTowerJudgement && !serverTerminalState) {
-    return { towerVerdict: null, derivedStatus: 'awaiting_judgement' };
+    return { towerVerdict: null, derivedStatus: 'awaiting_judgement', isLeadRun, towerMissing: true };
   }
 
-  return { towerVerdict: lastTowerVerdict, derivedStatus: null };
+  return { towerVerdict: lastTowerVerdict, derivedStatus: null, isLeadRun, towerMissing: !hasTowerJudgement };
 }
 
 export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: LiveActivityPanelProps) {
@@ -2184,8 +2273,8 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
               <ThinkingIndicator variant="inline" />
             )}
             
-            {effectiveTerminal && allRevealed && !transientPhase && (mappedStatus === 'completed' || mappedStatus === 'failed' || mappedStatus === 'stopped') && (
-              <SequenceStatusRow status={mappedStatus} clientRequestId={activeClientRequestId} runId={stream?.run_id} towerVerdict={towerAware.towerVerdict} />
+            {effectiveTerminal && allRevealed && !transientPhase && (mappedStatus === 'completed' || mappedStatus === 'failed' || mappedStatus === 'stopped' || mappedStatus === 'awaiting_judgement') && (
+              <SequenceStatusRow status={mappedStatus as any} clientRequestId={activeClientRequestId} runId={stream?.run_id} towerVerdict={towerAware.towerVerdict} />
             )}
             
             {isWorking && (
