@@ -87,7 +87,7 @@ export async function createLeadGenPlan(
     {
       id: `step_1`,
       type: 'search',
-      label: 'Search Wyshbone Global Database',
+      label: 'SEARCH_PLACES (Google Places)',
       description: 'Find businesses matching your criteria',
       estimatedTime: '1-2 minutes'
     },

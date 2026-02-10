@@ -883,8 +883,36 @@ function ResultsModal({ clientRequestId, runId, open, onOpenChange }: { clientRe
   );
 }
 
-function SequenceStatusRow({ status, clientRequestId, runId, towerVerdict }: { status: "completed" | "failed" | "stopped" | "awaiting_judgement" | "replanning"; clientRequestId?: string | null; runId?: string | null; towerVerdict?: string | null }) {
+function SequenceStatusRow({ status, clientRequestId, runId, towerVerdict, towerMissing }: { status: "completed" | "failed" | "stopped" | "awaiting_judgement" | "replanning"; clientRequestId?: string | null; runId?: string | null; towerVerdict?: string | null; towerMissing?: boolean }) {
   const [showResults, setShowResults] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
+  const [rerunRequested, setRerunRequested] = useState(false);
+  const mountRef = useRef(Date.now());
+
+  useEffect(() => {
+    if (status !== 'awaiting_judgement' || !towerMissing) return;
+    const interval = setInterval(() => {
+      setElapsed(Date.now() - mountRef.current);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [status, towerMissing]);
+
+  const judgementTimedOut = status === 'awaiting_judgement' && towerMissing && elapsed >= 30000;
+
+  const handleRerunJudgement = async () => {
+    if (!runId || rerunRequested) return;
+    setRerunRequested(true);
+    try {
+      await fetch('/api/afr/rerun-judgement', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ runId }),
+      });
+    } catch (err) {
+      console.error('[RerunJudgement] Failed:', err);
+      setRerunRequested(false);
+    }
+  };
 
   const config: Record<string, { icon: typeof CheckCircle2; label: string; className: string }> = {
     completed: { 
@@ -904,10 +932,12 @@ function SequenceStatusRow({ status, clientRequestId, runId, towerVerdict }: { s
     },
     awaiting_judgement: { 
       icon: Brain, 
-      label: towerVerdict && towerVerdict !== 'accept'
-        ? `Awaiting judgement (verdict: ${towerVerdict})`
-        : "Awaiting Tower judgement", 
-      className: "text-purple-500/70" 
+      label: judgementTimedOut
+        ? "Judgement missing"
+        : towerVerdict && towerVerdict !== 'accept'
+          ? `Awaiting judgement (verdict: ${towerVerdict})`
+          : "Awaiting Tower judgement", 
+      className: judgementTimedOut ? "text-orange-500/70" : "text-purple-500/70" 
     },
     replanning: { 
       icon: ListChecks, 
@@ -926,21 +956,42 @@ function SequenceStatusRow({ status, clientRequestId, runId, towerVerdict }: { s
           <Icon className={cn("h-4 w-4", className)} />
           <span className={cn("text-xs font-medium", className)}>{label}</span>
         </div>
-        {showViewResults && (
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-6 text-xs px-2 gap-1"
-            onClick={() => {
-              console.log(`[ViewResults] Button clicked — runId=${runId || 'n/a'} crid=${clientRequestId?.slice(0, 12) || 'n/a'}`);
-              setShowResults(true);
-            }}
-          >
-            <Eye className="h-3 w-3" />
-            View results
-          </Button>
-        )}
+        <div className="flex items-center gap-1.5">
+          {judgementTimedOut && runId && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-6 text-xs px-2 gap-1 border-orange-300 text-orange-600 hover:bg-orange-50 dark:border-orange-700 dark:text-orange-400 dark:hover:bg-orange-900/20"
+              onClick={handleRerunJudgement}
+              disabled={rerunRequested}
+            >
+              <RefreshCw className={cn("h-3 w-3", rerunRequested && "animate-spin")} />
+              {rerunRequested ? 'Requested' : 'Request judgement'}
+            </Button>
+          )}
+          {showViewResults && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-6 text-xs px-2 gap-1"
+              onClick={() => {
+                console.log(`[ViewResults] Button clicked — runId=${runId || 'n/a'} crid=${clientRequestId?.slice(0, 12) || 'n/a'}`);
+                setShowResults(true);
+              }}
+            >
+              <Eye className="h-3 w-3" />
+              View results
+            </Button>
+          )}
+        </div>
       </div>
+      {judgementTimedOut && (
+        <div className="px-1 pb-1">
+          <p className="text-[10px] text-orange-500/80">
+            Tower judgement not received after 30s. Results may still be available.
+          </p>
+        </div>
+      )}
       {(clientRequestId || runId) && (
         <ResultsModal clientRequestId={clientRequestId} runId={runId} open={showResults} onOpenChange={setShowResults} />
       )}
@@ -1126,14 +1177,35 @@ function isTerminalEvent(event: StreamEvent, index: number, events: StreamEvent[
   return false;
 }
 
-function ProvenanceBadge({ isTower }: { isTower: boolean }) {
-  return isTower ? (
-    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300 leading-none">
-      Tower
-    </span>
-  ) : (
-    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300 leading-none">
-      Supervisor
+type ActorType = 'UI' | 'Supervisor' | 'Tower';
+
+function deriveActor(event: StreamEvent): ActorType {
+  const meta = event.details as any;
+  if (meta?.actor) {
+    const a = meta.actor.toLowerCase();
+    if (a === 'tower') return 'Tower';
+    if (a === 'ui' || a === 'user' || a === 'client') return 'UI';
+    if (a === 'supervisor' || a === 'worker') return 'Supervisor';
+  }
+  if (isTowerEvent(event)) return 'Tower';
+  const t = event.type?.toLowerCase() || '';
+  const action = event.details?.action?.toLowerCase() || '';
+  if (t === 'user_message' || t === 'user_message_received' || action === 'user_message_received') return 'UI';
+  if (t === 'router' || t === 'routing') return 'UI';
+  if (t === 'direct_response' || t === 'stream') return 'UI';
+  return 'Supervisor';
+}
+
+const ACTOR_STYLES: Record<ActorType, string> = {
+  UI: "bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300",
+  Supervisor: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
+  Tower: "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300",
+};
+
+function ActorBadge({ actor }: { actor: ActorType }) {
+  return (
+    <span className={cn("inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold leading-none", ACTOR_STYLES[actor])}>
+      {actor}
     </span>
   );
 }
@@ -1158,7 +1230,8 @@ function TimelineEvent({ event, isFirst = false, isLast, isTerminal }: { event: 
     event.router_reason
   ));
 
-  const tower = isTowerEvent(event);
+  const actor = deriveActor(event);
+  const tower = actor === 'Tower';
   const noConnector = isLast || isTerminal;
   const messageRow = isMessageReceivedRow(event);
 
@@ -1193,7 +1266,7 @@ function TimelineEvent({ event, isFirst = false, isLast, isTerminal }: { event: 
                 {resolveEventSummary(event)}
               </p>
               <div className="flex items-center gap-1.5">
-                <ProvenanceBadge isTower={tower} />
+                <ActorBadge actor={actor} />
                 <span className="text-[10px] text-muted-foreground whitespace-nowrap">
                   {formatRelativeTime(event.ts)}
                 </span>
@@ -1208,7 +1281,7 @@ function TimelineEvent({ event, isFirst = false, isLast, isTerminal }: { event: 
                 {resolveEventSummary(event)}
               </p>
               <div className="flex items-start gap-1.5 shrink-0 pt-0.5">
-                <ProvenanceBadge isTower={tower} />
+                <ActorBadge actor={actor} />
                 <span className="text-[10px] text-muted-foreground whitespace-nowrap">
                   {formatRelativeTime(event.ts)}
                 </span>
@@ -1252,6 +1325,30 @@ function TimelineEvent({ event, isFirst = false, isLast, isTerminal }: { event: 
               {expanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
               {expanded ? 'Hide details' : 'Show details'}
             </button>
+          )}
+
+          {tower && (event.type === 'tower_judgement' || event.type === 'tower_verdict' || event.type === 'judgement_received') && (
+            <div className="mt-1 flex flex-wrap gap-1.5">
+              {(event.details as any)?.verdict && (
+                <span className={cn("px-1.5 py-0.5 rounded text-[10px] font-semibold leading-none",
+                  (event.details as any).verdict === 'accept' ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200"
+                  : (event.details as any).verdict === 'stop' ? "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-200"
+                  : "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-200"
+                )}>
+                  {(event.details as any).verdict.toUpperCase()}
+                </span>
+              )}
+              {(event.details as any)?.requested != null && (event.details as any)?.delivered != null && (
+                <span className="text-[10px] text-muted-foreground">
+                  {(event.details as any).delivered}/{(event.details as any).requested} delivered
+                </span>
+              )}
+              {(event.details as any)?.confidence != null && (
+                <span className="text-[10px] text-muted-foreground">
+                  confidence: {Math.round((event.details as any).confidence * 100)}%
+                </span>
+              )}
+            </div>
           )}
 
           {expanded && hasDetails && (
@@ -1495,10 +1592,13 @@ function humanizeEventType(eventType: string): string {
     plan_execution_completed: 'Plan execution completed',
     plan_execution_halted: 'Execution stopped by Tower',
     judgement_received: 'Tower evaluated results',
-    tower_judgement: 'Tower evaluated results',
+    tower_judgement: 'Tower verdict received',
     tower_evaluation_completed: 'Tower evaluation completed',
     tower_decision_stop: 'Tower decided to stop execution',
     tower_decision_change_plan: 'Tower decided to change plan',
+    tower_call_started: 'Tower evaluation started',
+    tower_call_completed: 'Tower evaluation completed',
+    tower_verdict: 'Tower verdict received',
   };
 
   if (knownLabels[eventType]) return knownLabels[eventType];
@@ -1560,7 +1660,14 @@ function buildActivitySummary(runType: string, action: string | null, label: str
       return 'Execution stopped by Tower';
     case 'judgement_received':
     case 'tower_judgement':
-      return 'Tower evaluated results';
+    case 'tower_verdict': {
+      const verdict = action;
+      return verdict ? `Tower verdict: ${verdict.toUpperCase()}` : 'Tower verdict received';
+    }
+    case 'tower_call_started':
+      return 'Tower evaluation started';
+    case 'tower_call_completed':
+      return 'Tower evaluation completed';
     case 'tower_evaluation_completed':
       return 'Tower evaluation completed';
     case 'tower_decision_stop':
@@ -2284,7 +2391,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
             )}
             
             {effectiveTerminal && allRevealed && !transientPhase && (mappedStatus === 'completed' || mappedStatus === 'failed' || mappedStatus === 'stopped' || mappedStatus === 'awaiting_judgement' || mappedStatus === 'replanning') && (
-              <SequenceStatusRow status={mappedStatus as any} clientRequestId={activeClientRequestId} runId={stream?.run_id} towerVerdict={towerAware.towerVerdict} />
+              <SequenceStatusRow status={mappedStatus as any} clientRequestId={activeClientRequestId} runId={stream?.run_id} towerVerdict={towerAware.towerVerdict} towerMissing={towerAware.towerMissing} />
             )}
             
             {isWorking && (

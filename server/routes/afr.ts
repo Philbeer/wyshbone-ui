@@ -966,6 +966,47 @@ export function createAfrRouter(_storage: typeof storage) {
     }
   });
 
+  router.post("/rerun-judgement", async (req, res) => {
+    try {
+      const { runId } = req.body;
+      if (!runId) {
+        return res.status(400).json({ error: "runId is required" });
+      }
+
+      const db = getDrizzleDb();
+      if (!db) {
+        return res.status(500).json({ error: "Database not available" });
+      }
+
+      const eventId = `evt_rerun_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+      const now = new Date().toISOString();
+
+      await db.execute(sql`
+        INSERT INTO afr_events (id, run_id, type, summary, status, details, created_at)
+        VALUES (
+          ${eventId},
+          ${runId},
+          'tower_call_started',
+          'Tower re-evaluation requested',
+          'running',
+          ${JSON.stringify({ action: 'rerun_judgement', requestedAt: now })}::jsonb,
+          NOW()
+        )
+      `);
+
+      console.log(`[AFR] Re-run judgement requested for run ${runId}`);
+
+      res.json({ 
+        ok: true, 
+        message: "Tower re-evaluation requested",
+        eventId 
+      });
+    } catch (error: any) {
+      console.error("AFR /rerun-judgement error:", error);
+      res.status(500).json({ error: "Failed to request re-run judgement" });
+    }
+  });
+
   return router;
 }
 

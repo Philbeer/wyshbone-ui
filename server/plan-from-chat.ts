@@ -47,7 +47,7 @@ export async function createPlanFromToolCall(
         {
           id: 'step_1',
           type: 'search',
-          label: 'Search Wyshbone Global Database',
+          label: 'SEARCH_PLACES (Google Places)',
           description: `Search for ${query} in ${loc}`,
           estimatedTime: '1-2 minutes'
         }
@@ -65,7 +65,7 @@ export async function createPlanFromToolCall(
         {
           id: 'step_1',
           type: 'search',
-          label: 'Search Wyshbone Global Database',
+          label: 'SEARCH_PLACES (Google Places)',
           description: `Find ${query} businesses in ${location}`,
           estimatedTime: '1-2 minutes'
         },
@@ -132,7 +132,7 @@ export async function createPlanFromToolCall(
         {
           id: 'step_1',
           type: 'search',
-          label: 'Search Wyshbone Global Database',
+          label: 'SEARCH_PLACES (Google Places)',
           description: `Find ${businessType} in ${country || 'specified location'}`,
           estimatedTime: '1-2 minutes'
         },
