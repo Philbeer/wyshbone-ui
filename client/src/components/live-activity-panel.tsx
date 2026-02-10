@@ -917,7 +917,7 @@ function SequenceStatusRow({ status, clientRequestId, runId, towerVerdict }: { s
   };
   
   const { icon: Icon, label, className } = config[status] || config.stopped;
-  const showViewResults = (clientRequestId || runId) && (status === 'completed' || status === 'stopped' || status === 'awaiting_judgement');
+  const showViewResults = (clientRequestId || runId) && (status === 'completed' || status === 'stopped' || status === 'awaiting_judgement' || status === 'replanning');
   
   return (
     <>
@@ -2187,6 +2187,20 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
               </span>
             )}
             <StatusBadge status={mappedStatus} />
+            {hasEvents && effectiveTerminal && (
+              <span className={cn(
+                "px-1.5 py-0.5 rounded text-[10px] font-medium",
+                towerAware.towerMissing
+                  ? "bg-gray-100 text-gray-500 dark:bg-gray-800/50 dark:text-gray-400"
+                  : towerAware.towerVerdict === 'accept'
+                    ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200"
+                    : towerAware.towerVerdict === 'stop'
+                      ? "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-200"
+                      : "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-200"
+              )}>
+                Tower: {towerAware.towerMissing ? 'pending' : (towerAware.towerVerdict || 'unknown').toUpperCase()}
+              </span>
+            )}
             {lastFetch && (
               <span className="text-[10px] text-muted-foreground">
                 {formatRelativeTime(lastFetch.toISOString())}
@@ -2269,7 +2283,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
               <ThinkingIndicator variant="inline" />
             )}
             
-            {effectiveTerminal && allRevealed && !transientPhase && (mappedStatus === 'completed' || mappedStatus === 'failed' || mappedStatus === 'stopped' || mappedStatus === 'awaiting_judgement') && (
+            {effectiveTerminal && allRevealed && !transientPhase && (mappedStatus === 'completed' || mappedStatus === 'failed' || mappedStatus === 'stopped' || mappedStatus === 'awaiting_judgement' || mappedStatus === 'replanning') && (
               <SequenceStatusRow status={mappedStatus as any} clientRequestId={activeClientRequestId} runId={stream?.run_id} towerVerdict={towerAware.towerVerdict} />
             )}
             
