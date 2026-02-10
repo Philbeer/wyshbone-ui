@@ -692,7 +692,8 @@ function ResultsModal({ clientRequestId, runId, open, onOpenChange }: { clientRe
         return res.json();
       })
       .then((rows: Artefact[]) => {
-        console.log(`[ResultsModal] Got ${rows.length} artefact(s) — types: [${rows.map(r => r.type).join(', ')}] runIds: [${[...new Set(rows.map(r => r.run_id))].join(', ')}]`);
+        const uniqueRunIds = Array.from(new Set(rows.map(r => r.run_id)));
+        console.log(`[ResultsModal] Got ${rows.length} artefact(s) — types: [${rows.map(r => r.type).join(', ')}] runIds: [${uniqueRunIds.join(', ')}]`);
         const byType = new Map<string, Artefact>();
         const typeOrder = ['run_summary', 'plan_update', 'tower_judgement', 'deep_research_result', 'leads_list', 'email_drafts', 'plan_result', 'chat_response'];
 
@@ -903,7 +904,9 @@ function SequenceStatusRow({ status, clientRequestId, runId, towerVerdict }: { s
     },
     awaiting_judgement: { 
       icon: Brain, 
-      label: "Awaiting Tower judgement", 
+      label: towerVerdict && towerVerdict !== 'accept'
+        ? `Awaiting judgement (verdict: ${towerVerdict})`
+        : "Awaiting Tower judgement", 
       className: "text-purple-500/70" 
     },
     replanning: { 
@@ -1671,27 +1674,19 @@ function deriveTowerAwareStatus(events: StreamEvent[], serverTerminalState: 'com
   const isTerminal = serverTerminalState === 'completed' || hasRunCompleted;
 
   if (isTerminal) {
-    if (isLeadRun) {
-      if (hasTowerJudgement && lastTowerVerdict === 'accept') {
-        return { towerVerdict: lastTowerVerdict, derivedStatus: 'completed', isLeadRun, towerMissing: false };
-      }
-      if (!hasTowerJudgement) {
-        return { towerVerdict: null, derivedStatus: 'awaiting_judgement', isLeadRun, towerMissing: true };
-      }
-      return { towerVerdict: lastTowerVerdict, derivedStatus: 'awaiting_judgement', isLeadRun, towerMissing: false };
-    }
-
-    if (hasTowerJudgement && (lastTowerVerdict === 'accept' || lastTowerVerdict === 'continue')) {
+    if (hasTowerJudgement && lastTowerVerdict === 'accept') {
       return { towerVerdict: lastTowerVerdict, derivedStatus: 'completed', isLeadRun, towerMissing: false };
     }
 
     if (!hasTowerJudgement) {
-      return { towerVerdict: null, derivedStatus: 'completed', isLeadRun, towerMissing: false };
+      return { towerVerdict: null, derivedStatus: 'awaiting_judgement', isLeadRun, towerMissing: true };
     }
 
-    if (hasTowerJudgement && lastTowerVerdict) {
+    if (lastTowerVerdict === 'continue') {
       return { towerVerdict: lastTowerVerdict, derivedStatus: 'awaiting_judgement', isLeadRun, towerMissing: false };
     }
+
+    return { towerVerdict: lastTowerVerdict, derivedStatus: 'awaiting_judgement', isLeadRun, towerMissing: false };
   }
 
   if (hasToolCompleted && !hasTowerJudgement && !serverTerminalState) {
