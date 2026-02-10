@@ -1792,7 +1792,7 @@ interface TowerAwareResult {
   towerMissing: boolean;
 }
 
-function deriveTowerAwareStatus(events: StreamEvent[], serverTerminalState: 'completed' | 'failed' | 'stopped' | null): TowerAwareResult {
+function deriveTowerAwareStatus(events: StreamEvent[], serverTerminalState: 'completed' | 'failed' | 'stopped' | null, artefacts?: Array<{ type: string }>): TowerAwareResult {
   let lastTowerVerdict: string | null = null;
   let hasRunCompleted = false;
   let hasRunStopped = false;
@@ -1800,10 +1800,27 @@ function deriveTowerAwareStatus(events: StreamEvent[], serverTerminalState: 'com
   let hasToolCompleted = false;
   let isLeadRun = false;
 
+  const LEAD_ARTEFACT_TYPES = ['leads_list', 'plan_result'];
+  if (artefacts?.length) {
+    isLeadRun = artefacts.some(a => LEAD_ARTEFACT_TYPES.includes(a.type));
+  }
+
+  if (!isLeadRun) {
+    for (const e of events) {
+      const t = e.type?.toLowerCase() || '';
+      if (t === 'artefact_created' || t === 'artifact_created') {
+        const artType = (e.details as any)?.artefact_type || (e.details as any)?.type || '';
+        if (LEAD_ARTEFACT_TYPES.includes(artType)) {
+          isLeadRun = true;
+          break;
+        }
+      }
+    }
+  }
+
   for (const e of events) {
     const t = e.type?.toLowerCase() || '';
     const action = e.details?.action?.toLowerCase() || '';
-    const label = (e.details?.label || '').toLowerCase();
 
     if (t === 'tower_judgement' || t === 'judgement_received' || t === 'tower_evaluation_completed' || t === 'tower_verdict') {
       hasTowerJudgement = true;
@@ -1826,21 +1843,6 @@ function deriveTowerAwareStatus(events: StreamEvent[], serverTerminalState: 'com
     if (t === 'run_completed') hasRunCompleted = true;
     if (t === 'run_stopped' || t === 'plan_execution_halted') hasRunStopped = true;
     if (t === 'tool_call_completed') hasToolCompleted = true;
-
-    const leadStepNames = ['search_places', 'batch_contact_finder', 'create_scheduled_monitor'];
-    for (const step of leadStepNames) {
-      if (
-        t === `step_started:${step}` ||
-        t === `step_completed:${step}` ||
-        action === `step_started:${step}` ||
-        action === `step_completed:${step}` ||
-        action === step ||
-        t === step
-      ) {
-        isLeadRun = true;
-        break;
-      }
-    }
   }
 
   if (lastTowerVerdict === 'stop' || hasRunStopped) {

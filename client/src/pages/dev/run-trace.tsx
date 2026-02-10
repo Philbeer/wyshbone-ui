@@ -57,6 +57,8 @@ interface RunTraceReport {
     tower_verdict: string | null;
     tower_missing: boolean;
     is_lead_run: boolean;
+    inferred_is_lead_run: boolean;
+    lead_run_evidence: Array<{ source: string; type: string; id?: string }>;
   };
   suspected_breakpoint: SuspectedBreakpoint;
 }
@@ -71,14 +73,40 @@ const TOWER_EVENT_TYPES = [
   'judgement_received',
 ];
 
+const LEAD_ARTEFACT_TYPES = ['leads_list', 'plan_result'];
+
 // Mirrored from live-activity-panel.tsx deriveTowerAwareStatus - keep in sync
-function deriveTowerAwareStatus(events: any[], serverTerminalState: 'completed' | 'failed' | 'stopped' | null) {
+function deriveTowerAwareStatus(events: any[], serverTerminalState: 'completed' | 'failed' | 'stopped' | null, artefacts?: Array<{ type: string }>) {
   let lastTowerVerdict: string | null = null;
   let hasRunCompleted = false;
   let hasRunStopped = false;
   let hasTowerJudgement = false;
   let hasToolCompleted = false;
   let isLeadRun = false;
+  const leadEvidence: Array<{ source: string; type: string; id?: string }> = [];
+
+  if (artefacts?.length) {
+    for (const a of artefacts) {
+      if (LEAD_ARTEFACT_TYPES.includes(a.type)) {
+        isLeadRun = true;
+        leadEvidence.push({ source: 'artefact_endpoint', type: a.type, id: (a as any).id });
+      }
+    }
+  }
+
+  if (!isLeadRun) {
+    for (const e of events) {
+      const t = (e.type || '').toLowerCase();
+      if (t === 'artefact_created' || t === 'artifact_created') {
+        const artType = e.details?.artefact_type || e.details?.type || '';
+        if (LEAD_ARTEFACT_TYPES.includes(artType)) {
+          isLeadRun = true;
+          leadEvidence.push({ source: 'afr_artefact_created_event', type: artType, id: e.id });
+          break;
+        }
+      }
+    }
+  }
 
   for (const e of events) {
     const t = (e.type || '').toLowerCase();
@@ -105,39 +133,31 @@ function deriveTowerAwareStatus(events: any[], serverTerminalState: 'completed' 
     if (t === 'run_completed') hasRunCompleted = true;
     if (t === 'run_stopped' || t === 'plan_execution_halted') hasRunStopped = true;
     if (t === 'tool_call_completed') hasToolCompleted = true;
-
-    const leadStepNames = ['search_places', 'batch_contact_finder', 'create_scheduled_monitor'];
-    for (const step of leadStepNames) {
-      if (t === `step_started:${step}` || t === `step_completed:${step}` || action === `step_started:${step}` || action === `step_completed:${step}` || action === step || t === step) {
-        isLeadRun = true;
-        break;
-      }
-    }
   }
 
   if (lastTowerVerdict === 'stop' || hasRunStopped) {
-    return { towerVerdict: lastTowerVerdict || 'stop', derivedStatus: 'stopped', isLeadRun, towerMissing: !hasTowerJudgement };
+    return { towerVerdict: lastTowerVerdict || 'stop', derivedStatus: 'stopped', isLeadRun, leadEvidence, towerMissing: !hasTowerJudgement };
   }
   if (serverTerminalState === 'stopped') {
-    return { towerVerdict: lastTowerVerdict || 'stop', derivedStatus: 'stopped', isLeadRun, towerMissing: !hasTowerJudgement };
+    return { towerVerdict: lastTowerVerdict || 'stop', derivedStatus: 'stopped', isLeadRun, leadEvidence, towerMissing: !hasTowerJudgement };
   }
   if (lastTowerVerdict === 'change_plan' || lastTowerVerdict === 'retry') {
-    return { towerVerdict: lastTowerVerdict, derivedStatus: 'replanning', isLeadRun, towerMissing: false };
+    return { towerVerdict: lastTowerVerdict, derivedStatus: 'replanning', isLeadRun, leadEvidence, towerMissing: false };
   }
   const isTerminal = serverTerminalState === 'completed' || hasRunCompleted;
   if (isTerminal) {
     if (hasTowerJudgement && lastTowerVerdict === 'accept') {
-      return { towerVerdict: lastTowerVerdict, derivedStatus: 'completed', isLeadRun, towerMissing: false };
+      return { towerVerdict: lastTowerVerdict, derivedStatus: 'completed', isLeadRun, leadEvidence, towerMissing: false };
     }
     if (hasRunCompleted || serverTerminalState === 'completed') {
-      return { towerVerdict: lastTowerVerdict, derivedStatus: 'completed', isLeadRun, towerMissing: !hasTowerJudgement };
+      return { towerVerdict: lastTowerVerdict, derivedStatus: 'completed', isLeadRun, leadEvidence, towerMissing: !hasTowerJudgement };
     }
-    return { towerVerdict: lastTowerVerdict, derivedStatus: 'completed', isLeadRun, towerMissing: !hasTowerJudgement };
+    return { towerVerdict: lastTowerVerdict, derivedStatus: 'completed', isLeadRun, leadEvidence, towerMissing: !hasTowerJudgement };
   }
   if (hasToolCompleted && !hasTowerJudgement && !serverTerminalState) {
-    return { towerVerdict: null, derivedStatus: 'awaiting_judgement', isLeadRun, towerMissing: true };
+    return { towerVerdict: null, derivedStatus: 'awaiting_judgement', isLeadRun, leadEvidence, towerMissing: true };
   }
-  return { towerVerdict: lastTowerVerdict, derivedStatus: null, isLeadRun, towerMissing: !hasTowerJudgement };
+  return { towerVerdict: lastTowerVerdict, derivedStatus: null, isLeadRun, leadEvidence, towerMissing: !hasTowerJudgement };
 }
 
 function determineSuspectedBreakpoint(report: Omit<RunTraceReport, 'suspected_breakpoint'>): SuspectedBreakpoint {
@@ -286,7 +306,7 @@ export default function RunTracePage() {
         ? (serverStatus as 'completed' | 'failed' | 'stopped')
         : null;
 
-      const towerAware = deriveTowerAwareStatus(sorted, terminalState);
+      const towerAware = deriveTowerAwareStatus(sorted, terminalState, artefacts);
 
       const awaitingShown = towerAware.derivedStatus === 'awaiting_judgement';
       const completedNoTowerShown = towerAware.derivedStatus === 'completed' && towerAware.towerMissing;
@@ -358,6 +378,8 @@ export default function RunTracePage() {
           tower_verdict: towerAware.towerVerdict,
           tower_missing: towerAware.towerMissing,
           is_lead_run: towerAware.isLeadRun,
+          inferred_is_lead_run: towerAware.isLeadRun,
+          lead_run_evidence: towerAware.leadEvidence,
         },
       };
 
