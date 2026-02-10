@@ -682,16 +682,17 @@ function ResultsModal({ clientRequestId, runId, open, onOpenChange }: { clientRe
       ? `/api/afr/artefacts?runId=${encodeURIComponent(runId)}`
       : `/api/afr/artefacts?client_request_id=${encodeURIComponent(clientRequestId!)}`;
 
-    console.log(`[ResultsModal] Fetching artefacts — runId=${runId || 'n/a'} crid=${clientRequestId?.slice(0, 12) || 'n/a'} url=${url}`);
+    const fullUrl = `${window.location.origin}${url}`;
+    console.log(`[ResultsModal] Fetching artefacts — runId=${runId || 'n/a'} crid=${clientRequestId?.slice(0, 12) || 'n/a'} url=${fullUrl}`);
 
     fetch(url)
       .then(res => {
-        console.log(`[ResultsModal] Response status=${res.status}`);
+        console.log(`[ResultsModal] Response status=${res.status} contentLength=${res.headers.get('content-length') || 'unknown'}`);
         if (!res.ok) throw new Error('Failed to fetch results');
         return res.json();
       })
       .then((rows: Artefact[]) => {
-        console.log(`[ResultsModal] Got ${rows.length} artefact(s) — types: [${rows.map(r => r.type).join(', ')}]`);
+        console.log(`[ResultsModal] Got ${rows.length} artefact(s) — types: [${rows.map(r => r.type).join(', ')}] runIds: [${[...new Set(rows.map(r => r.run_id))].join(', ')}]`);
         const byType = new Map<string, Artefact>();
         const typeOrder = ['run_summary', 'plan_update', 'tower_judgement', 'deep_research_result', 'leads_list', 'email_drafts', 'plan_result', 'chat_response'];
 
