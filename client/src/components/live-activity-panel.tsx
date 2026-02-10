@@ -412,9 +412,10 @@ function TowerVerdictBadge({ verdict, score }: { verdict: string; score?: number
     accept: { bg: 'bg-green-100 dark:bg-green-900/30', text: 'text-green-700 dark:text-green-300', label: 'Accepted' },
     continue: { bg: 'bg-green-100 dark:bg-green-900/30', text: 'text-green-700 dark:text-green-300', label: 'Accepted' },
     revise: { bg: 'bg-amber-100 dark:bg-amber-900/30', text: 'text-amber-700 dark:text-amber-300', label: 'Revise' },
-    change_plan: { bg: 'bg-purple-100 dark:bg-purple-900/30', text: 'text-purple-700 dark:text-purple-300', label: 'Plan Changed' },
+    change_plan: { bg: 'bg-amber-100 dark:bg-amber-900/30', text: 'text-amber-700 dark:text-amber-300', label: 'Plan Changed' },
+    retry: { bg: 'bg-amber-100 dark:bg-amber-900/30', text: 'text-amber-700 dark:text-amber-300', label: 'Retrying' },
     abandon: { bg: 'bg-red-100 dark:bg-red-900/30', text: 'text-red-700 dark:text-red-300', label: 'Abandoned' },
-    stop: { bg: 'bg-orange-100 dark:bg-orange-900/30', text: 'text-orange-700 dark:text-orange-300', label: 'Stopped' },
+    stop: { bg: 'bg-red-100 dark:bg-red-900/30', text: 'text-red-700 dark:text-red-300', label: 'Stopped' },
   };
   const v = verdict.toLowerCase();
   const c = config[v] || { bg: 'bg-gray-100 dark:bg-gray-800/50', text: 'text-gray-700 dark:text-gray-300', label: verdict };
@@ -439,11 +440,19 @@ function RunSummaryView({ payload }: { payload: any }) {
   const rationale = parsed?.rationale ?? parsed?.reason ?? parsed?.explanation ?? '';
   const verdict = parsed?.verdict ?? null;
   const score = parsed?.score ?? null;
+  const stopReason = parsed?.stop_reason ?? parsed?.halt_reason ?? '';
 
   return (
     <div className="space-y-3">
       {verdict && (
         <TowerVerdictBadge verdict={verdict} score={score} />
+      )}
+
+      {stopReason && (
+        <div className="rounded-lg border border-orange-200 dark:border-orange-800/50 bg-orange-50/50 dark:bg-orange-900/10 p-3">
+          <p className="text-[10px] uppercase tracking-wide text-orange-600 dark:text-orange-400 font-medium mb-1">Stop Reason</p>
+          <p className="text-sm text-foreground/90 leading-relaxed">{stopReason}</p>
+        </div>
       )}
 
       {(delivered != null || requested != null) && (
@@ -567,6 +576,57 @@ function PlanUpdateView({ payload }: { payload: any }) {
   );
 }
 
+function TowerJudgementView({ payload }: { payload: any }) {
+  const parsed = parsePayload(payload);
+  const verdict = parsed?.verdict ?? parsed?.decision ?? '';
+  const score = parsed?.score ?? parsed?.confidence ?? null;
+  const reason = parsed?.reason ?? parsed?.rationale ?? parsed?.explanation ?? '';
+  const stopReason = parsed?.stop_reason ?? parsed?.halt_reason ?? '';
+  const delivered = parsed?.delivered ?? parsed?.delivered_count ?? null;
+  const requested = parsed?.requested ?? parsed?.requested_count ?? null;
+
+  return (
+    <div className="space-y-3">
+      {verdict && (
+        <TowerVerdictBadge verdict={verdict} score={score} />
+      )}
+      {(delivered != null || requested != null) && (
+        <div className="flex gap-4">
+          {requested != null && (
+            <div className="flex-1 rounded-lg border bg-muted/30 p-3 text-center">
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Requested</p>
+              <p className="text-2xl font-bold text-foreground mt-0.5">{requested}</p>
+            </div>
+          )}
+          {delivered != null && (
+            <div className="flex-1 rounded-lg border bg-muted/30 p-3 text-center">
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Delivered</p>
+              <p className={cn("text-2xl font-bold mt-0.5", delivered >= (requested ?? 0) ? "text-green-600 dark:text-green-400" : "text-amber-600 dark:text-amber-400")}>{delivered}</p>
+            </div>
+          )}
+        </div>
+      )}
+      {stopReason && (
+        <div className="rounded-lg border border-orange-200 dark:border-orange-800/50 bg-orange-50/50 dark:bg-orange-900/10 p-3">
+          <p className="text-[10px] uppercase tracking-wide text-orange-600 dark:text-orange-400 font-medium mb-1">Stop Reason</p>
+          <p className="text-sm text-foreground/90 leading-relaxed">{stopReason}</p>
+        </div>
+      )}
+      {reason && (
+        <div>
+          <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium mb-1">Rationale</p>
+          <p className="text-sm text-foreground/80 leading-relaxed whitespace-pre-wrap bg-muted/30 rounded p-2">{reason}</p>
+        </div>
+      )}
+      {!verdict && !reason && !stopReason && (
+        <pre className="text-xs bg-muted/50 rounded p-3 overflow-x-auto max-h-96 whitespace-pre-wrap font-mono">
+          {JSON.stringify(parsed, null, 2)}
+        </pre>
+      )}
+    </div>
+  );
+}
+
 function ArtefactRenderer({ artefact }: { artefact: Artefact }) {
   switch (artefact.type) {
     case 'leads_list':
@@ -581,6 +641,8 @@ function ArtefactRenderer({ artefact }: { artefact: Artefact }) {
       return <RunSummaryView payload={artefact.payload_json} />;
     case 'plan_update':
       return <PlanUpdateView payload={artefact.payload_json} />;
+    case 'tower_judgement':
+      return <TowerJudgementView payload={artefact.payload_json} />;
     default:
       return (
         <pre className="text-xs bg-muted/50 rounded p-3 overflow-x-auto max-h-96 whitespace-pre-wrap font-mono">
@@ -600,6 +662,7 @@ const ARTEFACT_LABELS: Record<string, { label: string; icon: string }> = {
   deep_research_result: { label: 'Research Report', icon: '🔬' },
   run_summary: { label: 'Run Summary', icon: '📊' },
   plan_update: { label: 'Plan v2', icon: '🔄' },
+  tower_judgement: { label: 'Tower Verdict', icon: '🧠' },
 };
 
 function ResultsModal({ clientRequestId, runId, open, onOpenChange }: { clientRequestId?: string | null; runId?: string | null; open: boolean; onOpenChange: (open: boolean) => void }) {
@@ -630,7 +693,7 @@ function ResultsModal({ clientRequestId, runId, open, onOpenChange }: { clientRe
       .then((rows: Artefact[]) => {
         console.log(`[ResultsModal] Got ${rows.length} artefact(s) — types: [${rows.map(r => r.type).join(', ')}]`);
         const byType = new Map<string, Artefact>();
-        const typeOrder = ['run_summary', 'plan_update', 'deep_research_result', 'leads_list', 'email_drafts', 'plan_result', 'chat_response'];
+        const typeOrder = ['run_summary', 'plan_update', 'tower_judgement', 'deep_research_result', 'leads_list', 'email_drafts', 'plan_result', 'chat_response'];
 
         for (const row of rows) {
           const existing = byType.get(row.type);
@@ -688,13 +751,26 @@ function ResultsModal({ clientRequestId, runId, open, onOpenChange }: { clientRe
         {!loading && !error && artefacts.length > 0 && (() => {
           const verdictSource = artefacts.find(a => {
             const p = parsePayload(a.payload_json);
-            return p?.verdict && (a.type === 'run_summary' || a.type === 'plan_update' || p?.tower_judgement_received);
+            return p?.verdict && (a.type === 'run_summary' || a.type === 'plan_update' || a.type === 'tower_judgement' || p?.tower_judgement_received);
           });
-          if (!verdictSource) return null;
-          const p = parsePayload(verdictSource.payload_json);
+          const hasPlanUpdate = artefacts.some(a => a.type === 'plan_update');
+          const planVersion = hasPlanUpdate ? 2 : 1;
+          
           return (
-            <div className="mb-2">
-              <TowerVerdictBadge verdict={p.verdict} score={p.score ?? p.confidence} />
+            <div className="flex flex-wrap items-center gap-2 mb-2">
+              {verdictSource && (() => {
+                const p = parsePayload(verdictSource.payload_json);
+                return <TowerVerdictBadge verdict={p.verdict} score={p.score ?? p.confidence} />;
+              })()}
+              <span className={cn(
+                "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold",
+                planVersion > 1 
+                  ? "bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300" 
+                  : "bg-gray-100 dark:bg-gray-800/50 text-gray-600 dark:text-gray-400"
+              )}>
+                <ListChecks className="h-3 w-3" />
+                Plan v{planVersion}
+              </span>
             </div>
           );
         })()}
@@ -754,10 +830,10 @@ function ResultsModal({ clientRequestId, runId, open, onOpenChange }: { clientRe
   );
 }
 
-function SequenceStatusRow({ status, clientRequestId, runId }: { status: "completed" | "failed" | "stopped"; clientRequestId?: string | null; runId?: string | null }) {
+function SequenceStatusRow({ status, clientRequestId, runId, towerVerdict }: { status: "completed" | "failed" | "stopped" | "awaiting_judgement" | "replanning"; clientRequestId?: string | null; runId?: string | null; towerVerdict?: string | null }) {
   const [showResults, setShowResults] = useState(false);
 
-  const config = {
+  const config: Record<string, { icon: typeof CheckCircle2; label: string; className: string }> = {
     completed: { 
       icon: CheckCircle2, 
       label: "Sequence complete", 
@@ -770,12 +846,23 @@ function SequenceStatusRow({ status, clientRequestId, runId }: { status: "comple
     },
     stopped: { 
       icon: AlertTriangle, 
-      label: "Sequence stopped", 
+      label: towerVerdict === 'stop' ? "Stopped by Tower" : "Sequence stopped", 
       className: "text-orange-500/70" 
+    },
+    awaiting_judgement: { 
+      icon: Brain, 
+      label: "Awaiting Tower judgement", 
+      className: "text-purple-500/70" 
+    },
+    replanning: { 
+      icon: ListChecks, 
+      label: "Replanning (Tower requested changes)", 
+      className: "text-purple-500/70" 
     },
   };
   
-  const { icon: Icon, label, className } = config[status];
+  const { icon: Icon, label, className } = config[status] || config.stopped;
+  const showViewResults = (clientRequestId || runId) && (status === 'completed' || status === 'stopped');
   
   return (
     <>
@@ -784,7 +871,7 @@ function SequenceStatusRow({ status, clientRequestId, runId }: { status: "comple
           <Icon className={cn("h-4 w-4", className)} />
           <span className={cn("text-xs font-medium", className)}>{label}</span>
         </div>
-        {(clientRequestId || runId) && status === 'completed' && (
+        {showViewResults && (
           <Button
             variant="outline"
             size="sm"
@@ -846,7 +933,7 @@ interface StreamResponse {
   message?: string;
 }
 
-type OverallStatus = 'idle' | 'routing' | 'planning' | 'executing' | 'finalizing' | 'deep_research' | 'completed' | 'failed' | 'stopped';
+type OverallStatus = 'idle' | 'routing' | 'planning' | 'executing' | 'finalizing' | 'deep_research' | 'awaiting_judgement' | 'replanning' | 'completed' | 'failed' | 'stopped';
 
 function formatRelativeTime(dateString: string): string {
   const date = new Date(dateString);
@@ -881,13 +968,15 @@ function StatusBadge({ status }: { status: OverallStatus }) {
     executing: { icon: Zap, label: "Executing", className: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-200" },
     finalizing: { icon: Zap, label: "Finalizing", className: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-200" },
     deep_research: { icon: FileSearch, label: "Researching", className: "bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-200" },
+    awaiting_judgement: { icon: Brain, label: "Awaiting judgement", className: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-200" },
+    replanning: { icon: ListChecks, label: "Replanning", className: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-200" },
     completed: { icon: CheckCircle2, label: "Completed", className: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200" },
     failed: { icon: XCircle, label: "Failed", className: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-200" },
     stopped: { icon: AlertTriangle, label: "Stopped", className: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-200" },
   };
 
   const { icon: Icon, label, className } = config[status] || config.idle;
-  const isAnimated = ['routing', 'planning', 'executing', 'finalizing', 'deep_research'].includes(status);
+  const isAnimated = ['routing', 'planning', 'executing', 'finalizing', 'deep_research', 'awaiting_judgement', 'replanning'].includes(status);
   
   return (
     <span className={cn("inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium", className)}>
@@ -1458,8 +1547,69 @@ const OVERLAY_DURATION_MS = 2000;
 const TERMINAL_STABILITY_MS = 800;
 const DEBUG_TERMINAL = true;
 
-const ACTIVE_STATUSES = ['routing', 'planning', 'executing', 'deep_research', 'running', 'in_progress'];
+const ACTIVE_STATUSES = ['routing', 'planning', 'executing', 'deep_research', 'running', 'in_progress', 'awaiting_judgement', 'replanning'];
 const TERMINAL_STATUSES = ['completed', 'failed', 'stopped'];
+
+function deriveTowerAwareStatus(events: StreamEvent[], serverTerminalState: 'completed' | 'failed' | 'stopped' | null): { towerVerdict: string | null; derivedStatus: OverallStatus | null } {
+  let lastTowerVerdict: string | null = null;
+  let hasRunCompleted = false;
+  let hasRunStopped = false;
+  let hasTowerJudgement = false;
+  let hasToolCompleted = false;
+
+  for (const e of events) {
+    const t = e.type?.toLowerCase() || '';
+    const action = e.details?.action?.toLowerCase() || '';
+
+    if (t === 'tower_judgement' || t === 'judgement_received' || t === 'tower_evaluation_completed') {
+      hasTowerJudgement = true;
+      const results = e.details?.results;
+      if (results) {
+        try {
+          const parsed = JSON.parse(results);
+          if (parsed.verdict) lastTowerVerdict = parsed.verdict.toLowerCase();
+        } catch {}
+      }
+      if (action.includes('stop')) lastTowerVerdict = 'stop';
+      if (action.includes('change_plan')) lastTowerVerdict = 'change_plan';
+    }
+    if (t === 'tower_decision_stop') { hasTowerJudgement = true; lastTowerVerdict = 'stop'; }
+    if (t === 'tower_decision_change_plan') { hasTowerJudgement = true; lastTowerVerdict = 'change_plan'; }
+    if (t === 'run_completed') hasRunCompleted = true;
+    if (t === 'run_stopped' || t === 'plan_execution_halted') hasRunStopped = true;
+    if (t === 'tool_call_completed') hasToolCompleted = true;
+  }
+
+  if (lastTowerVerdict === 'stop' || hasRunStopped) {
+    return { towerVerdict: lastTowerVerdict || 'stop', derivedStatus: 'stopped' };
+  }
+
+  if (serverTerminalState === 'stopped') {
+    return { towerVerdict: lastTowerVerdict || 'stop', derivedStatus: 'stopped' };
+  }
+
+  if (lastTowerVerdict === 'change_plan' || lastTowerVerdict === 'retry') {
+    return { towerVerdict: lastTowerVerdict, derivedStatus: 'replanning' };
+  }
+
+  if (serverTerminalState === 'completed' || hasRunCompleted) {
+    if (lastTowerVerdict === 'accept' || lastTowerVerdict === 'continue' || hasRunCompleted) {
+      return { towerVerdict: lastTowerVerdict, derivedStatus: 'completed' };
+    }
+    if (hasTowerJudgement && lastTowerVerdict) {
+      return { towerVerdict: lastTowerVerdict, derivedStatus: 'awaiting_judgement' };
+    }
+    if (!hasTowerJudgement) {
+      return { towerVerdict: null, derivedStatus: 'completed' };
+    }
+  }
+
+  if (hasToolCompleted && !hasTowerJudgement && !serverTerminalState) {
+    return { towerVerdict: null, derivedStatus: 'awaiting_judgement' };
+  }
+
+  return { towerVerdict: lastTowerVerdict, derivedStatus: null };
+}
 
 export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: LiveActivityPanelProps) {
   const { user } = useUser();
@@ -1793,6 +1943,10 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
 
   const effectiveTerminal = confirmedTerminal && !minVisibleHold && (effectiveDemoPlayback ? allRevealed : true);
 
+  const towerAware = useMemo(() => {
+    return deriveTowerAwareStatus(allEvents, stream?.terminal_state as any || null);
+  }, [allEvents, stream?.terminal_state]);
+
   const mappedStatus: OverallStatus = (() => {
     if (activeClientRequestId && !idsMatch) {
       return 'executing';
@@ -1802,6 +1956,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
     
     if (!activeClientRequestId && stream.is_terminal) {
       if (postTerminalHold) {
+        if (towerAware.derivedStatus) return towerAware.derivedStatus;
         return stream.terminal_state || 'idle';
       }
       return 'idle';
@@ -1812,6 +1967,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
     }
     
     if (idsMatch && stream.is_terminal && stream.terminal_state && effectiveTerminal) {
+      if (towerAware.derivedStatus) return towerAware.derivedStatus;
       return stream.terminal_state;
     }
     
@@ -1827,6 +1983,8 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
     if (s === 'planning') return 'planning';
     if (s === 'finalizing') return 'finalizing';
     if (s === 'executing') {
+      if (towerAware.derivedStatus === 'awaiting_judgement') return 'awaiting_judgement';
+      if (towerAware.derivedStatus === 'replanning') return 'replanning';
       const hasDeepResearch = stream.events.some(e => 
         e.type.includes('deep_research') && e.status === 'running'
       );
@@ -2027,7 +2185,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
             )}
             
             {effectiveTerminal && allRevealed && !transientPhase && (mappedStatus === 'completed' || mappedStatus === 'failed' || mappedStatus === 'stopped') && (
-              <SequenceStatusRow status={mappedStatus} clientRequestId={activeClientRequestId} runId={stream?.run_id} />
+              <SequenceStatusRow status={mappedStatus} clientRequestId={activeClientRequestId} runId={stream?.run_id} towerVerdict={towerAware.towerVerdict} />
             )}
             
             {isWorking && (
