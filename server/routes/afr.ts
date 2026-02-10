@@ -363,9 +363,53 @@ export function createAfrRouter(_storage: typeof storage) {
             WHERE run_id = ${resolvedRunId}
             ORDER BY created_at ASC`
       );
-      const rows = Array.isArray(result) ? result : (result as any).rows ?? [];
+      let rows = Array.isArray(result) ? result : (result as any).rows ?? [];
+      let lookupPath = 'direct';
+
+      if (rows.length === 0 && resolvedRunId) {
+        let supervisorRunId: string | undefined;
+
+        const agentRunById = await storage.getAgentRun(resolvedRunId);
+        if (agentRunById && (agentRunById as any).supervisorRunId) {
+          supervisorRunId = (agentRunById as any).supervisorRunId;
+          console.log(`[AFR artefacts] Fallback: local runId=${resolvedRunId} has supervisor_run_id=${supervisorRunId}`);
+        }
+
+        if (!supervisorRunId && clientRequestId) {
+          const agentRunByCrid = await storage.getAgentRunByClientRequestId(clientRequestId);
+          if (agentRunByCrid && (agentRunByCrid as any).supervisorRunId) {
+            supervisorRunId = (agentRunByCrid as any).supervisorRunId;
+            console.log(`[AFR artefacts] Fallback: crid=${clientRequestId.slice(0, 12)}... has supervisor_run_id=${supervisorRunId}`);
+          }
+        }
+
+        if (!supervisorRunId) {
+          const bridgeResult = await db.execute(
+            sql`SELECT supervisor_run_id FROM agent_runs WHERE supervisor_run_id = ${resolvedRunId} LIMIT 1`
+          );
+          const bridgeRows = Array.isArray(bridgeResult) ? bridgeResult : (bridgeResult as any).rows ?? [];
+          if (bridgeRows.length > 0) {
+            supervisorRunId = resolvedRunId;
+            console.log(`[AFR artefacts] Fallback: requested ID ${resolvedRunId} IS a supervisor_run_id`);
+          }
+        }
+
+        if (supervisorRunId && supervisorRunId !== resolvedRunId) {
+          const fallbackResult = await db.execute(
+            sql`SELECT id, run_id, type, title, summary, payload_json, created_at
+                FROM artefacts
+                WHERE run_id = ${supervisorRunId}
+                ORDER BY created_at ASC`
+          );
+          rows = Array.isArray(fallbackResult) ? fallbackResult : (fallbackResult as any).rows ?? [];
+          if (rows.length > 0) {
+            lookupPath = `fallback:supervisor_run_id=${supervisorRunId}`;
+          }
+        }
+      }
+
       const types = rows.map((r: any) => r.type);
-      console.log(`[AFR artefacts] Returning ${rows.length} artefact(s) for runId=${resolvedRunId} — types: [${types.join(', ')}]`);
+      console.log(`[AFR artefacts] Returning ${rows.length} artefact(s) for runId=${resolvedRunId} path=${lookupPath} — types: [${types.join(', ')}]`);
       res.json(rows);
     } catch (error: any) {
       if (error?.message?.includes('does not exist')) {
