@@ -12,7 +12,7 @@ import {
 import { 
   RefreshCw, Clock, CheckCircle2, XCircle, Loader2, AlertTriangle, 
   MessageSquare, Route, FileSearch, Wrench, ListChecks, Play, ChevronDown, ChevronUp,
-  Zap, Brain, Send, Sparkles, Film, Eye
+  Zap, Brain, Send, Sparkles, Film, Eye, Package, GitBranch
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUser } from "@/contexts/UserContext";
@@ -917,8 +917,8 @@ function SequenceStatusRow({ status, clientRequestId, runId, towerVerdict, tower
   const config: Record<string, { icon: typeof CheckCircle2; label: string; className: string }> = {
     completed: { 
       icon: CheckCircle2, 
-      label: "Sequence complete", 
-      className: "text-green-500/70" 
+      label: towerMissing ? "Completed (no Tower verdict)" : "Sequence complete", 
+      className: towerMissing ? "text-green-500/60" : "text-green-500/70" 
     },
     failed: { 
       icon: XCircle, 
@@ -974,6 +974,7 @@ function SequenceStatusRow({ status, clientRequestId, runId, towerVerdict, tower
               variant="outline"
               size="sm"
               className="h-6 text-xs px-2 gap-1"
+              data-view-results="true"
               onClick={() => {
                 console.log(`[ViewResults] Button clicked — runId=${runId || 'n/a'} crid=${clientRequestId?.slice(0, 12) || 'n/a'}`);
                 setShowResults(true);
@@ -1099,7 +1100,8 @@ function EventIcon({ type }: { type: string }) {
     plan_created: { icon: ListChecks, className: "text-indigo-500" },
     plan_approved: { icon: CheckCircle2, className: "text-green-500" },
     plan_rejected: { icon: XCircle, className: "text-red-500" },
-    plan_updated: { icon: ListChecks, className: "text-indigo-400" },
+    plan_updated: { icon: GitBranch, className: "text-indigo-400" },
+    artefact_created: { icon: Package, className: "text-emerald-500" },
     tool_call_started: { icon: Wrench, className: "text-orange-500" },
     tool_call_completed: { icon: CheckCircle2, className: "text-green-500" },
     deep_research_started: { icon: FileSearch, className: "text-cyan-500" },
@@ -1119,6 +1121,7 @@ function EventIcon({ type }: { type: string }) {
     tower_evaluation_completed: { icon: Brain, className: "text-purple-500" },
     tower_decision_stop: { icon: AlertTriangle, className: "text-orange-500" },
     tower_decision_change_plan: { icon: ListChecks, className: "text-purple-400" },
+    tower_verdict: { icon: Brain, className: "text-purple-500" },
   };
 
   const baseType = type.includes(':') ? type.split(':')[0] : type;
@@ -1327,27 +1330,83 @@ function TimelineEvent({ event, isFirst = false, isLast, isTerminal }: { event: 
             </button>
           )}
 
-          {tower && (event.type === 'tower_judgement' || event.type === 'tower_verdict' || event.type === 'judgement_received') && (
-            <div className="mt-1 flex flex-wrap gap-1.5">
-              {(event.details as any)?.verdict && (
-                <span className={cn("px-1.5 py-0.5 rounded text-[10px] font-semibold leading-none",
-                  (event.details as any).verdict === 'accept' ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200"
-                  : (event.details as any).verdict === 'stop' ? "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-200"
-                  : "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-200"
-                )}>
-                  {(event.details as any).verdict.toUpperCase()}
+          {tower && (event.type === 'tower_judgement' || event.type === 'tower_verdict' || event.type === 'judgement_received') && (() => {
+            const d = event.details as Record<string, any> | undefined;
+            const verdict = d?.verdict as string | undefined;
+            const rationale = (d?.rationale || d?.reason || d?.summary) as string | undefined;
+            const requested = d?.requested as number | undefined;
+            const delivered = d?.delivered as number | undefined;
+            const confidence = d?.confidence as number | undefined;
+            return (
+              <div className="mt-1 space-y-1">
+                <div className="flex flex-wrap gap-1.5 items-center">
+                  {verdict && (
+                    <span className={cn("px-1.5 py-0.5 rounded text-[10px] font-semibold leading-none",
+                      verdict === 'accept' ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200"
+                      : verdict === 'stop' ? "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-200"
+                      : "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-200"
+                    )}>
+                      {verdict.toUpperCase()}
+                    </span>
+                  )}
+                  {requested != null && delivered != null && (
+                    <span className="text-[10px] text-muted-foreground">
+                      {delivered}/{requested} delivered
+                    </span>
+                  )}
+                  {confidence != null && (
+                    <span className="text-[10px] text-muted-foreground">
+                      confidence: {Math.round(confidence * 100)}%
+                    </span>
+                  )}
+                </div>
+                {rationale && (
+                  <p className="text-[10px] text-muted-foreground/80 italic leading-snug line-clamp-2">
+                    {rationale}
+                  </p>
+                )}
+              </div>
+            );
+          })()}
+
+          {event.type === 'artefact_created' && (() => {
+            const d = event.details as Record<string, any> | undefined;
+            const artefactType = (d?.artefact_type || d?.type || d?.action) as string | undefined;
+            const deliveredCount = d?.delivered_count as number | undefined;
+            const runId = event.run_id || d?.runId;
+            const typeName = artefactType ? artefactType.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : 'Result';
+            return (
+              <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                <span className="px-1.5 py-0.5 rounded text-[10px] font-medium leading-none bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-200">
+                  {typeName}
                 </span>
-              )}
-              {(event.details as any)?.requested != null && (event.details as any)?.delivered != null && (
-                <span className="text-[10px] text-muted-foreground">
-                  {(event.details as any).delivered}/{(event.details as any).requested} delivered
-                </span>
-              )}
-              {(event.details as any)?.confidence != null && (
-                <span className="text-[10px] text-muted-foreground">
-                  confidence: {Math.round((event.details as any).confidence * 100)}%
-                </span>
-              )}
+                {deliveredCount != null && (
+                  <span className="text-[10px] text-muted-foreground">
+                    {deliveredCount} item{deliveredCount !== 1 ? 's' : ''}
+                  </span>
+                )}
+                {runId && (
+                  <button
+                    onClick={() => {
+                      console.log(`[ViewArtefact] runId=${runId} type=${artefactType}`);
+                      const viewResultsBtn = document.querySelector<HTMLButtonElement>('[data-view-results]');
+                      if (viewResultsBtn) viewResultsBtn.click();
+                    }}
+                    className="text-[10px] text-blue-600 dark:text-blue-400 hover:underline font-medium"
+                  >
+                    View
+                  </button>
+                )}
+              </div>
+            );
+          })()}
+
+          {event.type === 'plan_updated' && (
+            <div className="mt-1 flex items-center gap-1.5">
+              <GitBranch className="h-3 w-3 text-indigo-400" />
+              <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-medium">
+                {(event.details as any)?.version ? `Plan v${(event.details as any).version} created` : 'Plan v2 created'}
+              </span>
             </div>
           )}
 
@@ -1576,7 +1635,12 @@ function mapActivityRunTypeToEventType(runType: string, action: string | null): 
     case 'tower_evaluation_completed':
     case 'tower_decision_stop':
     case 'tower_decision_change_plan':
+    case 'tower_verdict':
       return runType;
+    case 'artefact_created':
+      return 'artefact_created';
+    case 'plan_updated':
+      return 'plan_updated';
     default:
       if (runType.startsWith('tower_')) return runType;
       if (action?.startsWith('tower_')) return action;
@@ -1599,6 +1663,8 @@ function humanizeEventType(eventType: string): string {
     tower_call_started: 'Tower evaluation started',
     tower_call_completed: 'Tower evaluation completed',
     tower_verdict: 'Tower verdict received',
+    artefact_created: 'Artefact created',
+    plan_updated: 'Plan updated',
   };
 
   if (knownLabels[eventType]) return knownLabels[eventType];
@@ -1674,6 +1740,13 @@ function buildActivitySummary(runType: string, action: string | null, label: str
       return 'Tower decided to stop execution';
     case 'tower_decision_change_plan':
       return 'Tower decided to change plan';
+    case 'artefact_created': {
+      const artefactType = action || label || 'result';
+      const typeName = artefactType.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+      return `Artefact created: ${typeName}`;
+    }
+    case 'plan_updated':
+      return label || 'Plan v2 created';
     default:
       if (runType.startsWith('tower_'))
         return label?.slice(0, 80) || humanizeEventType(runType);
@@ -1732,7 +1805,7 @@ function deriveTowerAwareStatus(events: StreamEvent[], serverTerminalState: 'com
     const action = e.details?.action?.toLowerCase() || '';
     const label = (e.details?.label || '').toLowerCase();
 
-    if (t === 'tower_judgement' || t === 'judgement_received' || t === 'tower_evaluation_completed') {
+    if (t === 'tower_judgement' || t === 'judgement_received' || t === 'tower_evaluation_completed' || t === 'tower_verdict') {
       hasTowerJudgement = true;
       const results = e.details?.results;
       if (results) {
@@ -1740,6 +1813,10 @@ function deriveTowerAwareStatus(events: StreamEvent[], serverTerminalState: 'com
           const parsed = JSON.parse(results);
           if (parsed.verdict) lastTowerVerdict = parsed.verdict.toLowerCase();
         } catch {}
+      }
+      const directVerdict = (e.details as any)?.verdict;
+      if (directVerdict && typeof directVerdict === 'string') {
+        lastTowerVerdict = directVerdict.toLowerCase();
       }
       if (action.includes('stop')) lastTowerVerdict = 'stop';
       if (action.includes('change_plan')) lastTowerVerdict = 'change_plan';
@@ -1785,15 +1862,11 @@ function deriveTowerAwareStatus(events: StreamEvent[], serverTerminalState: 'com
       return { towerVerdict: lastTowerVerdict, derivedStatus: 'completed', isLeadRun, towerMissing: false };
     }
 
-    if (!hasTowerJudgement) {
-      return { towerVerdict: null, derivedStatus: 'awaiting_judgement', isLeadRun, towerMissing: true };
+    if (hasRunCompleted || serverTerminalState === 'completed') {
+      return { towerVerdict: lastTowerVerdict, derivedStatus: 'completed', isLeadRun, towerMissing: !hasTowerJudgement };
     }
 
-    if (lastTowerVerdict === 'continue') {
-      return { towerVerdict: lastTowerVerdict, derivedStatus: 'awaiting_judgement', isLeadRun, towerMissing: false };
-    }
-
-    return { towerVerdict: lastTowerVerdict, derivedStatus: 'awaiting_judgement', isLeadRun, towerMissing: false };
+    return { towerVerdict: lastTowerVerdict, derivedStatus: 'completed', isLeadRun, towerMissing: !hasTowerJudgement };
   }
 
   if (hasToolCompleted && !hasTowerJudgement && !serverTerminalState) {
