@@ -903,13 +903,23 @@ function SequenceStatusRow({ status, clientRequestId, runId, towerVerdict, tower
     if (!runId || rerunRequested) return;
     setRerunRequested(true);
     try {
-      await fetch('/api/afr/rerun-judgement', {
+      const payload: Record<string, string> = { runId };
+      if (clientRequestId) payload.crid = clientRequestId;
+      const resp = await fetch('/api/supervisor/request-judgement', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ runId }),
+        body: JSON.stringify(payload),
       });
+      if (!resp.ok) {
+        const errBody = await resp.text();
+        console.error('[RequestJudgement] Server error:', resp.status, errBody);
+        setRerunRequested(false);
+      } else {
+        const result = await resp.json();
+        console.log('[RequestJudgement] Success:', result);
+      }
     } catch (err) {
-      console.error('[RerunJudgement] Failed:', err);
+      console.error('[RequestJudgement] Failed:', err);
       setRerunRequested(false);
     }
   };

@@ -60,6 +60,7 @@ import { orgRoutes } from "./routes/org";
 import { agentActivitiesRouter } from "./routes/agent-activities";
 import { createAfrRouter } from "./routes/afr";
 import { createProofRouter } from "./routes/proof";
+import { createSupervisorRouter } from "./routes/supervisor";
 import { hashPassword, verifyPassword, generateId, canCreateMonitor, canCreateDeepResearch, TIER_LIMITS } from "./auth";
 import { signupRequestSchema, loginRequestSchema, updateProfileRequestSchema } from "@shared/schema";
 import { buildSessionContext, generatePersonalizedOpening, type SessionContext } from "./lib/context";
@@ -7566,6 +7567,10 @@ ${run.outputText}`;
 
   // Register Proof routes - Tower loop proof endpoint
   app.use("/api/proof", createProofRouter(storage));
+
+  // Register Supervisor routes - Tower judgement request
+  app.use("/api/supervisor", createSupervisorRouter());
+  console.log('✅ Supervisor routes mounted at /api/supervisor');
 
   // Register Route Planner routes
   app.use("/api", routePlannerRoutes);
