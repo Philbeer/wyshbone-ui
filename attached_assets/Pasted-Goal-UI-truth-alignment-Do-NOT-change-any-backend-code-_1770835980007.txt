@@ -1,0 +1,45 @@
+Goal: UI truth alignment. Do NOT change any backend code. Do NOT change Supervisor or Tower behaviour. Only change UI so it shows whatever the backend actually did.
+
+Context (current reality):
+- Tower judgements are proven by AFR events (tower_call_started, tower_verdict, judgement_received etc) and by persisted artefacts (tower_judgement).
+- The current “Tower ON/OFF” toggle is UI-only and changes labels/status. It can make real runs look like “nothing happened” or hide the judgement workflow behind a display mode.
+- Demo concepts are confusing. For now, we want production UI to show real activity, not demo playback.
+
+Tasks (UI only):
+1) Remove confusion: make Tower status display default to “truth mode”
+   - Delete the “Tower ON/OFF” toggle from the UI (or make it dev-only behind IS_DEV and default ON in dev).
+   - The UI should always derive run status from actual observed events/artefacts, not from a user toggle.
+
+2) Always show judgement state based on facts:
+   - If a run has tower events OR a tower_judgement artefact exists: show the Tower verdict section and badge it “[Tower]”.
+   - If a run has no tower events and no tower_judgement artefact: show a clear label “No Tower judgement yet” (not “Completed” if it could still be judged).
+   - If the run is terminal and still has no judgement after X seconds, show “Judgement missing” and show the “Request judgement” button.
+
+3) Request judgement button behaviour:
+   - Ensure the button always calls POST /api/supervisor/request-judgement with { runId, crid }.
+   - After clicking, poll/reload the run’s activities/artefacts until either:
+     a) tower_verdict event appears, or
+     b) tower_judgement artefact appears, or
+     c) timeout and show a visible error.
+   - Do not assume success from { ok: true } alone.
+
+4) Surface the evidence:
+   - In Run Details / View Results, add a small “Evidence” section:
+     - List the latest Tower-related AFR events with timestamps.
+     - Link to / show the latest tower_judgement artefact (id + summary).
+   - This must be purely read-only display of backend truth.
+
+5) Demo UI:
+   - Make demoMode/demoPlayback controls dev-only (IS_DEV).
+   - Default production UI to real data fetches (no demoActivities arrays).
+   - If demoMode is enabled via URL (?demo=1), show a big “DEMO DATA” banner so it can’t be mistaken for real.
+
+Deliverable:
+- Implement the above with minimal changes.
+- Output: which files changed and a quick note of what was removed/hidden (Tower toggle, demo controls) and how the new “truth mode” status is derived.
+
+Hard constraints:
+- No backend edits.
+- No fake verdicts.
+- UI must never hide real Tower activity.
+- UI must never claim Tower ran unless evidence exists.
