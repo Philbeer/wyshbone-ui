@@ -1122,6 +1122,8 @@ function EventIcon({ type }: { type: string }) {
     tower_decision_stop: { icon: AlertTriangle, className: "text-orange-500" },
     tower_decision_change_plan: { icon: ListChecks, className: "text-purple-400" },
     tower_verdict: { icon: Brain, className: "text-purple-500" },
+    tower_call_started: { icon: Eye, className: "text-purple-400" },
+    tower_call_completed: { icon: Brain, className: "text-purple-500" },
   };
 
   const baseType = type.includes(':') ? type.split(':')[0] : type;
@@ -1178,6 +1180,52 @@ function isTerminalEvent(event: StreamEvent, index: number, events: StreamEvent[
   if (event.status === 'completed' && index === events.length - 1) return true;
   if (event.status === 'failed' && index === events.length - 1) return true;
   return false;
+}
+
+function TruthStrip({ events }: { events: StreamEvent[] }) {
+  const isProof = events.some(e => {
+    const meta = (e as any).metadata || (e.details as any)?.metadata;
+    return meta?.proof === true;
+  });
+  if (!isProof) return null;
+
+  const hasArtefact = events.some(e => e.type === 'artefact_created' || e.type === 'artifact_created');
+  const hasTowerVerdict = events.some(e => e.type === 'tower_verdict' || e.type === 'tower_judgement' || e.type === 'judgement_received');
+  const hasRunCompleted = events.some(e => e.type === 'run_completed');
+
+  const indicators = [
+    { label: 'Artefact', ok: hasArtefact },
+    { label: 'Tower verdict', ok: hasTowerVerdict },
+    { label: 'Run stored', ok: hasRunCompleted },
+  ];
+
+  return (
+    <div className="mx-2 my-2 p-2 rounded-md bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800">
+      <div className="flex items-center gap-1 mb-1">
+        <Eye className="h-3 w-3 text-purple-500" />
+        <span className="text-[10px] font-semibold text-purple-700 dark:text-purple-300 uppercase tracking-wide">
+          Proof Truth Strip
+        </span>
+      </div>
+      <div className="flex items-center gap-3">
+        {indicators.map(({ label, ok }) => (
+          <div key={label} className="flex items-center gap-1">
+            {ok ? (
+              <CheckCircle2 className="h-3 w-3 text-green-500" />
+            ) : (
+              <Clock className="h-3 w-3 text-amber-500 animate-pulse" />
+            )}
+            <span className={cn(
+              "text-[10px] font-medium",
+              ok ? "text-green-700 dark:text-green-300" : "text-amber-700 dark:text-amber-300"
+            )}>
+              {label}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 type ActorType = 'UI' | 'Supervisor' | 'Tower';
@@ -2463,6 +2511,10 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
             
             {!transientPhase && showThinking && isWorking && (
               <ThinkingIndicator variant="inline" />
+            )}
+            
+            {effectiveTerminal && allRevealed && !transientPhase && (
+              <TruthStrip events={displayEvents} />
             )}
             
             {effectiveTerminal && allRevealed && !transientPhase && (mappedStatus === 'completed' || mappedStatus === 'failed' || mappedStatus === 'stopped' || mappedStatus === 'awaiting_judgement' || mappedStatus === 'replanning') && (

@@ -32,6 +32,7 @@ export function AgentWorkspace({ className }: AgentWorkspaceProps) {
   const { currentClientRequestId, setCurrentClientRequestId, pinnedClientRequestId, setPinnedClientRequestId, lastCompletedClientRequestId } = useCurrentRequest();
   const [demoStatus, setDemoStatus] = useState<string | null>(null);
   const [demoLoading, setDemoLoading] = useState(false);
+  const [proofLoading, setProofLoading] = useState(false);
 
   async function handleRunSupervisorDemo() {
     setDemoLoading(true);
@@ -58,6 +59,31 @@ export function AgentWorkspace({ className }: AgentWorkspaceProps) {
     }
   }
 
+  async function handleProofTowerLoop() {
+    setProofLoading(true);
+    setDemoStatus(null);
+    try {
+      const res = await fetch("/api/proof/tower-loop", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `Server responded ${res.status}`);
+      }
+      const data = await res.json();
+      const id = data.clientRequestId;
+      if (!id) throw new Error("No clientRequestId in response");
+      setCurrentClientRequestId(id);
+      setPinnedClientRequestId(id);
+      setDemoStatus(`Proof run: ${id.slice(0, 8)}…`);
+    } catch (err: any) {
+      setDemoStatus(`Error: ${err.message}`);
+    } finally {
+      setProofLoading(false);
+    }
+  }
+
   // Mock data - these would come from real API calls
   const activitySummary = {
     leadsFound: 0,
@@ -80,7 +106,7 @@ export function AgentWorkspace({ className }: AgentWorkspaceProps) {
               What your AI sales agent has been working on
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <Button
               variant="outline"
               size="sm"
@@ -89,6 +115,16 @@ export function AgentWorkspace({ className }: AgentWorkspaceProps) {
             >
               <Play className="w-3 h-3 mr-1" />
               {demoLoading ? "Starting…" : "Run Supervisor Demo"}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleProofTowerLoop}
+              disabled={proofLoading}
+              className="border-purple-300 dark:border-purple-700 text-purple-700 dark:text-purple-300"
+            >
+              <Play className="w-3 h-3 mr-1" />
+              {proofLoading ? "Starting…" : "Proof: Tower Loop"}
             </Button>
             <Badge variant="secondary" className="text-xs">
               <Zap className="w-3 h-3 mr-1" />

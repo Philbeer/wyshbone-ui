@@ -779,6 +779,7 @@ export function createAfrRouter(_storage: typeof storage) {
             error: a.errorMessage,
             durationMs: a.durationMs,
             results: results ? JSON.stringify(results).slice(0, 500) : null,
+            metadata: metadata || undefined,
           },
           status: mapActivityStatusToEventStatus(a.status),
           run_id: a.runId,
@@ -1097,6 +1098,17 @@ function mapRunTypeToEventType(runType: string, action: string | null): string {
     case 'tower_decision_stop':
     case 'tower_decision_change_plan':
       return runType;
+    case 'artefact_created':
+    case 'artifact_created':
+      return 'artefact_created';
+    case 'tower_call_started':
+      return 'tower_call_started';
+    case 'tower_call_completed':
+      return 'tower_call_completed';
+    case 'tower_verdict':
+      return 'tower_verdict';
+    case 'plan_updated':
+      return 'plan_updated';
     case 'run_completed':
       return 'run_completed';
     case 'run_failed':
