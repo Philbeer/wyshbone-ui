@@ -665,6 +665,117 @@ const ARTEFACT_LABELS: Record<string, { label: string; icon: string }> = {
   tower_judgement: { label: 'Tower Verdict', icon: '🧠' },
 };
 
+interface TowerEvidenceEvent {
+  id: string;
+  ts: string;
+  type: string;
+  summary: string;
+  details?: Record<string, any>;
+}
+
+function EvidenceSection({ clientRequestId, runId }: { clientRequestId?: string | null; runId?: string | null }) {
+  const [events, setEvents] = useState<TowerEvidenceEvent[]>([]);
+  const [judgementArtefact, setJudgementArtefact] = useState<Artefact | null>(null);
+  const [expanded, setExpanded] = useState(false);
+
+  useEffect(() => {
+    if (!clientRequestId && !runId) return;
+
+    if (clientRequestId) {
+      fetch(`/api/afr/stream?client_request_id=${encodeURIComponent(clientRequestId)}`)
+        .then(res => res.ok ? res.json() : null)
+        .then((data: StreamResponse | null) => {
+          if (!data?.events) return;
+          const towerEvents = data.events.filter(e => {
+            const t = e.type?.toLowerCase() || '';
+            return t.startsWith('tower_') || t === 'judgement_received';
+          });
+          setEvents(towerEvents.map(e => ({
+            id: e.id,
+            ts: e.ts,
+            type: e.type,
+            summary: e.summary || humanizeEventType(e.type),
+            details: e.details as Record<string, any>,
+          })));
+        })
+        .catch(() => {});
+    }
+
+    const artefactUrl = runId
+      ? `/api/afr/artefacts?runId=${encodeURIComponent(runId)}`
+      : clientRequestId
+        ? `/api/afr/artefacts?client_request_id=${encodeURIComponent(clientRequestId)}`
+        : null;
+    if (artefactUrl) {
+      fetch(artefactUrl)
+        .then(res => res.ok ? res.json() : [])
+        .then((rows: Artefact[]) => {
+          const tj = rows.find(r => r.type === 'tower_judgement');
+          if (tj) setJudgementArtefact(tj);
+        })
+        .catch(() => {});
+    }
+  }, [clientRequestId, runId]);
+
+  if (events.length === 0 && !judgementArtefact) return null;
+
+  return (
+    <div className="mt-3 border-t pt-3">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="flex items-center gap-1.5 text-xs font-medium text-purple-600 dark:text-purple-400 hover:underline"
+      >
+        <Eye className="h-3 w-3" />
+        {expanded ? 'Hide evidence' : `Evidence (${events.length} Tower event${events.length !== 1 ? 's' : ''}${judgementArtefact ? ' + judgement' : ''})`}
+        {expanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+      </button>
+      {expanded && (
+        <div className="mt-2 space-y-2">
+          {events.length > 0 && (
+            <div className="space-y-1">
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Tower AFR Events</p>
+              <div className="rounded border bg-muted/30 divide-y">
+                {events.map((evt) => (
+                  <div key={evt.id} className="px-2 py-1.5 flex items-start gap-2">
+                    <Brain className="h-3 w-3 text-purple-500 mt-0.5 shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium text-foreground">{evt.summary || humanizeEventType(evt.type)}</p>
+                      <p className="text-[10px] text-muted-foreground font-mono">{new Date(evt.ts).toLocaleString()}</p>
+                      {evt.details?.verdict && (
+                        <span className={cn("inline-block mt-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold",
+                          evt.details.verdict === 'accept' ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200"
+                          : evt.details.verdict === 'stop' ? "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-200"
+                          : "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-200"
+                        )}>
+                          {String(evt.details.verdict).toUpperCase()}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {judgementArtefact && (
+            <div className="space-y-1">
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Tower Judgement Artefact</p>
+              <div className="rounded border bg-purple-50/50 dark:bg-purple-900/10 p-2">
+                <p className="text-[10px] text-muted-foreground font-mono">ID: {judgementArtefact.id}</p>
+                {judgementArtefact.summary && (
+                  <p className="text-xs text-foreground mt-0.5">{judgementArtefact.summary}</p>
+                )}
+                <p className="text-[10px] text-muted-foreground font-mono mt-0.5">
+                  Created: {new Date(judgementArtefact.created_at).toLocaleString()}
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ResultsModal({ clientRequestId, runId, open, onOpenChange }: { clientRequestId?: string | null; runId?: string | null; open: boolean; onOpenChange: (open: boolean) => void }) {
   const [artefacts, setArtefacts] = useState<Artefact[]>([]);
   const [activeTab, setActiveTab] = useState<string>('');
@@ -876,6 +987,7 @@ function ResultsModal({ clientRequestId, runId, open, onOpenChange }: { clientRe
                 <ArtefactRenderer artefact={activeArtefact} />
               </>
             )}
+            <EvidenceSection clientRequestId={clientRequestId} runId={runId} />
           </div>
         )}
       </DialogContent>
@@ -887,21 +999,30 @@ function SequenceStatusRow({ status, clientRequestId, runId, towerVerdict, tower
   const [showResults, setShowResults] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [rerunRequested, setRerunRequested] = useState(false);
+  const [pollStatus, setPollStatus] = useState<'idle' | 'polling' | 'success' | 'error'>('idle');
   const mountRef = useRef(Date.now());
+  const pollTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
-    if (status !== 'awaiting_judgement' || !towerMissing) return;
+    if (!towerMissing) return;
     const interval = setInterval(() => {
       setElapsed(Date.now() - mountRef.current);
     }, 1000);
     return () => clearInterval(interval);
-  }, [status, towerMissing]);
+  }, [towerMissing]);
 
-  const judgementTimedOut = status === 'awaiting_judgement' && towerMissing && elapsed >= 30000;
+  useEffect(() => {
+    return () => {
+      if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
+    };
+  }, []);
+
+  const judgementTimedOut = towerMissing && elapsed >= 30000;
 
   const handleRerunJudgement = async () => {
     if (!runId || rerunRequested) return;
     setRerunRequested(true);
+    setPollStatus('idle');
     try {
       const payload: Record<string, string> = { runId };
       if (clientRequestId) payload.crid = clientRequestId;
@@ -914,21 +1035,80 @@ function SequenceStatusRow({ status, clientRequestId, runId, towerVerdict, tower
         const errBody = await resp.text();
         console.error('[RequestJudgement] Server error:', resp.status, errBody);
         setRerunRequested(false);
+        setPollStatus('error');
       } else {
         const result = await resp.json();
         console.log('[RequestJudgement] Success:', result);
+        setPollStatus('polling');
+        let attempts = 0;
+        const maxAttempts = 20;
+        const pollInterval = 3000;
+
+        const poll = async () => {
+          attempts++;
+          try {
+            const url = runId
+              ? `/api/afr/artefacts?runId=${encodeURIComponent(runId)}`
+              : clientRequestId
+                ? `/api/afr/artefacts?client_request_id=${encodeURIComponent(clientRequestId)}`
+                : null;
+            if (!url) { setPollStatus('error'); return; }
+            
+            const artefactRes = await fetch(url);
+            if (artefactRes.ok) {
+              const artefacts = await artefactRes.json();
+              const hasJudgement = artefacts.some((a: any) => a.type === 'tower_judgement');
+              if (hasJudgement) {
+                setPollStatus('success');
+                setRerunRequested(false);
+                return;
+              }
+            }
+
+            if (clientRequestId) {
+              const streamRes = await fetch(`/api/afr/stream?client_request_id=${encodeURIComponent(clientRequestId)}`);
+              if (streamRes.ok) {
+                const streamData = await streamRes.json();
+                const hasVerdictEvent = (streamData.events || []).some((e: any) => 
+                  e.type === 'tower_verdict' || e.type === 'tower_judgement' || e.type === 'judgement_received'
+                );
+                if (hasVerdictEvent) {
+                  setPollStatus('success');
+                  setRerunRequested(false);
+                  return;
+                }
+              }
+            }
+
+            if (attempts >= maxAttempts) {
+              setPollStatus('error');
+              setRerunRequested(false);
+              return;
+            }
+            pollTimerRef.current = setTimeout(poll, pollInterval);
+          } catch {
+            if (attempts >= maxAttempts) {
+              setPollStatus('error');
+              setRerunRequested(false);
+            } else {
+              pollTimerRef.current = setTimeout(poll, pollInterval);
+            }
+          }
+        };
+        pollTimerRef.current = setTimeout(poll, pollInterval);
       }
     } catch (err) {
       console.error('[RequestJudgement] Failed:', err);
       setRerunRequested(false);
+      setPollStatus('error');
     }
   };
 
   const config: Record<string, { icon: typeof CheckCircle2; label: string; className: string }> = {
     completed: { 
-      icon: CheckCircle2, 
-      label: towerMissing && !chatMode ? "Completed (no Tower verdict)" : "Sequence complete", 
-      className: towerMissing && !chatMode ? "text-green-500/60" : "text-green-500/70" 
+      icon: towerMissing ? AlertTriangle : CheckCircle2, 
+      label: towerMissing ? "No Tower judgement yet" : "Sequence complete", 
+      className: towerMissing ? "text-amber-500/70" : "text-green-500/70" 
     },
     failed: { 
       icon: XCircle, 
@@ -960,6 +1140,7 @@ function SequenceStatusRow({ status, clientRequestId, runId, towerVerdict, tower
   
   const { icon: Icon, label, className } = config[status] || config.stopped;
   const showViewResults = (clientRequestId || runId) && (status === 'completed' || status === 'stopped' || status === 'awaiting_judgement' || status === 'replanning');
+  const showRequestJudgement = towerMissing && runId && (status === 'completed' || status === 'awaiting_judgement');
   
   return (
     <>
@@ -969,16 +1150,21 @@ function SequenceStatusRow({ status, clientRequestId, runId, towerVerdict, tower
           <span className={cn("text-xs font-medium", className)}>{label}</span>
         </div>
         <div className="flex items-center gap-1.5">
-          {judgementTimedOut && runId && (
+          {showRequestJudgement && (
             <Button
               variant="outline"
               size="sm"
-              className="h-6 text-xs px-2 gap-1 border-orange-300 text-orange-600 hover:bg-orange-50 dark:border-orange-700 dark:text-orange-400 dark:hover:bg-orange-900/20"
+              className={cn(
+                "h-6 text-xs px-2 gap-1",
+                judgementTimedOut
+                  ? "border-orange-300 text-orange-600 hover:bg-orange-50 dark:border-orange-700 dark:text-orange-400 dark:hover:bg-orange-900/20"
+                  : "border-purple-300 text-purple-600 hover:bg-purple-50 dark:border-purple-700 dark:text-purple-400 dark:hover:bg-purple-900/20"
+              )}
               onClick={handleRerunJudgement}
               disabled={rerunRequested}
             >
               <RefreshCw className={cn("h-3 w-3", rerunRequested && "animate-spin")} />
-              {rerunRequested ? 'Requested' : 'Request judgement'}
+              {rerunRequested ? 'Requested' : judgementTimedOut ? 'Judgement missing - Retry' : 'Request judgement'}
             </Button>
           )}
           {showViewResults && (
@@ -998,10 +1184,34 @@ function SequenceStatusRow({ status, clientRequestId, runId, towerVerdict, tower
           )}
         </div>
       </div>
-      {judgementTimedOut && (
+      {judgementTimedOut && pollStatus !== 'polling' && pollStatus !== 'success' && (
         <div className="px-1 pb-1">
           <p className="text-[10px] text-orange-500/80">
             Tower judgement not received after 30s. Results may still be available.
+          </p>
+        </div>
+      )}
+      {pollStatus === 'polling' && (
+        <div className="px-1 pb-1 flex items-center gap-1.5">
+          <Loader2 className="h-3 w-3 animate-spin text-purple-500" />
+          <p className="text-[10px] text-purple-600 dark:text-purple-400">
+            Waiting for Tower verdict...
+          </p>
+        </div>
+      )}
+      {pollStatus === 'success' && (
+        <div className="px-1 pb-1 flex items-center gap-1.5">
+          <CheckCircle2 className="h-3 w-3 text-green-500" />
+          <p className="text-[10px] text-green-600 dark:text-green-400">
+            Tower verdict received. Refresh to see results.
+          </p>
+        </div>
+      )}
+      {pollStatus === 'error' && (
+        <div className="px-1 pb-1 flex items-center gap-1.5">
+          <XCircle className="h-3 w-3 text-red-500" />
+          <p className="text-[10px] text-red-500/80">
+            Could not confirm Tower verdict. Try again or check results.
           </p>
         </div>
       )}
@@ -1859,6 +2069,7 @@ function deriveTowerAwareStatus(events: StreamEvent[], serverTerminalState: 'com
   let hasTowerJudgement = false;
   let hasToolCompleted = false;
   let isLeadRun = false;
+  let hasTowerEvents = false;
 
   const LEAD_ARTEFACT_TYPES = ['leads_list', 'plan_result'];
   if (artefacts?.length) {
@@ -1882,6 +2093,10 @@ function deriveTowerAwareStatus(events: StreamEvent[], serverTerminalState: 'com
     const t = e.type?.toLowerCase() || '';
     const action = e.details?.action?.toLowerCase() || '';
 
+    if (t.startsWith('tower_') || t === 'judgement_received') {
+      hasTowerEvents = true;
+    }
+
     if (t === 'tower_judgement' || t === 'judgement_received' || t === 'tower_evaluation_completed' || t === 'tower_verdict') {
       hasTowerJudgement = true;
       const results = e.details?.results;
@@ -1898,8 +2113,8 @@ function deriveTowerAwareStatus(events: StreamEvent[], serverTerminalState: 'com
       if (action.includes('stop')) lastTowerVerdict = 'stop';
       if (action.includes('change_plan')) lastTowerVerdict = 'change_plan';
     }
-    if (t === 'tower_decision_stop') { hasTowerJudgement = true; lastTowerVerdict = 'stop'; }
-    if (t === 'tower_decision_change_plan') { hasTowerJudgement = true; lastTowerVerdict = 'change_plan'; }
+    if (t === 'tower_decision_stop') { hasTowerJudgement = true; hasTowerEvents = true; lastTowerVerdict = 'stop'; }
+    if (t === 'tower_decision_change_plan') { hasTowerJudgement = true; hasTowerEvents = true; lastTowerVerdict = 'change_plan'; }
     if (t === 'run_completed') hasRunCompleted = true;
     if (t === 'run_stopped' || t === 'plan_execution_halted') hasRunStopped = true;
     if (t === 'tool_call_completed') hasToolCompleted = true;
@@ -1924,15 +2139,15 @@ function deriveTowerAwareStatus(events: StreamEvent[], serverTerminalState: 'com
       return { towerVerdict: lastTowerVerdict, derivedStatus: 'completed', isLeadRun, towerMissing: false };
     }
 
-    if (chatMode && !hasTowerJudgement) {
-      return { towerVerdict: null, derivedStatus: 'awaiting_judgement', isLeadRun, towerMissing: true };
+    if (hasTowerJudgement) {
+      return { towerVerdict: lastTowerVerdict, derivedStatus: 'completed', isLeadRun, towerMissing: false };
     }
 
     if (hasRunCompleted || serverTerminalState === 'completed') {
-      return { towerVerdict: lastTowerVerdict, derivedStatus: 'completed', isLeadRun, towerMissing: !hasTowerJudgement };
+      return { towerVerdict: lastTowerVerdict, derivedStatus: 'completed', isLeadRun, towerMissing: true };
     }
 
-    return { towerVerdict: lastTowerVerdict, derivedStatus: 'completed', isLeadRun, towerMissing: !hasTowerJudgement };
+    return { towerVerdict: lastTowerVerdict, derivedStatus: 'completed', isLeadRun, towerMissing: true };
   }
 
   if (hasToolCompleted && !hasTowerJudgement && !serverTerminalState) {
@@ -1956,6 +2171,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
   
   const [demoPlayback, setDemoPlayback] = useState(false);
   const [towerLoopChatMode, setTowerLoopChatMode] = useState(() => {
+    if (!IS_DEV) return false;
     try { return localStorage.getItem('TOWER_LOOP_CHAT_MODE') === 'true'; } catch { return false; }
   });
 
@@ -2458,18 +2674,21 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
               </span>
             )}
             <StatusBadge status={mappedStatus} />
-            {hasEvents && effectiveTerminal && (
+            {hasEvents && (effectiveTerminal || towerAware.towerVerdict) && (
               <span className={cn(
                 "px-1.5 py-0.5 rounded text-[10px] font-medium",
                 towerAware.towerMissing
-                  ? "bg-gray-100 text-gray-500 dark:bg-gray-800/50 dark:text-gray-400"
+                  ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
                   : towerAware.towerVerdict === 'accept'
                     ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200"
                     : towerAware.towerVerdict === 'stop'
                       ? "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-200"
-                      : "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-200"
+                      : "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-200"
               )}>
-                Tower: {towerAware.towerMissing ? 'pending' : (towerAware.towerVerdict || 'unknown').toUpperCase()}
+                {towerAware.towerMissing
+                  ? '[Tower] No judgement yet'
+                  : `[Tower] ${(towerAware.towerVerdict || 'unknown').toUpperCase()}`
+                }
               </span>
             )}
             {lastFetch && (

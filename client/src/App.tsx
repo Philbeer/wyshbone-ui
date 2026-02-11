@@ -849,46 +849,50 @@ function RightPanelContent() {
   
   return (
     <div className="p-4 flex flex-col gap-4 flex-1 min-h-0">
-      <div className="flex items-center gap-2 flex-wrap shrink-0">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={handleRunSupervisorDemo}
-          disabled={demoLoading}
-        >
-          <Play className="w-3 h-3 mr-1" />
-          {demoLoading ? "Starting…" : "Run Supervisor Demo"}
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={handleProofTowerLoop}
-          disabled={proofLoading}
-          className="border-purple-300 dark:border-purple-700 text-purple-700 dark:text-purple-300"
-        >
-          <Play className="w-3 h-3 mr-1" />
-          {proofLoading ? "Starting…" : "Proof: Tower Loop"}
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={handleProofTowerLoopV2}
-          disabled={proofV2Loading}
-          className="border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-300"
-        >
-          <Play className="w-3 h-3 mr-1" />
-          {proofV2Loading ? "Starting…" : "Proof: Tower Loop v2 (REAL)"}
-        </Button>
-        {demoStatus && (
-          <span className="text-xs text-muted-foreground">{demoStatus}</span>
-        )}
-      </div>
-      {proofV2Ids && (
-        <div className="text-[10px] font-mono bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded px-2 py-1 shrink-0">
-          <span className="text-emerald-700 dark:text-emerald-300 font-semibold">v2 IDs</span>
-          {" "}crid=<span className="select-all">{proofV2Ids.crid}</span>
-          {" "}runId=<span className="select-all">{proofV2Ids.runId}</span>
-        </div>
+      {import.meta.env.DEV && (
+        <>
+          <div className="flex items-center gap-2 flex-wrap shrink-0">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleRunSupervisorDemo}
+              disabled={demoLoading}
+            >
+              <Play className="w-3 h-3 mr-1" />
+              {demoLoading ? "Starting…" : "Run Supervisor Demo"}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleProofTowerLoop}
+              disabled={proofLoading}
+              className="border-purple-300 dark:border-purple-700 text-purple-700 dark:text-purple-300"
+            >
+              <Play className="w-3 h-3 mr-1" />
+              {proofLoading ? "Starting…" : "Proof: Tower Loop"}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleProofTowerLoopV2}
+              disabled={proofV2Loading}
+              className="border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-300"
+            >
+              <Play className="w-3 h-3 mr-1" />
+              {proofV2Loading ? "Starting…" : "Proof: Tower Loop v2 (REAL)"}
+            </Button>
+            {demoStatus && (
+              <span className="text-xs text-muted-foreground">{demoStatus}</span>
+            )}
+          </div>
+          {proofV2Ids && (
+            <div className="text-[10px] font-mono bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded px-2 py-1 shrink-0">
+              <span className="text-emerald-700 dark:text-emerald-300 font-semibold">v2 IDs</span>
+              {" "}crid=<span className="select-all">{proofV2Ids.crid}</span>
+              {" "}runId=<span className="select-all">{proofV2Ids.runId}</span>
+            </div>
+          )}
+        </>
       )}
       {(() => {
         const resolvedId = pinnedClientRequestId ?? currentClientRequestId ?? lastCompletedClientRequestId;

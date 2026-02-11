@@ -580,10 +580,13 @@ function TourButton() {
 
 /**
  * UI-20: Demo Mode Toggle Button
- * Allows users to toggle demo mode on/off from the sidebar.
+ * Dev-only: allows toggling demo mode from the sidebar.
+ * In production, demo mode is only available via ?demo=1 URL param.
  */
 function DemoModeToggle() {
   const { demoMode, enableDemoMode, disableDemoMode } = useDemoModeContext();
+  
+  if (!import.meta.env.DEV) return null;
   
   return (
     <SidebarMenuItem>

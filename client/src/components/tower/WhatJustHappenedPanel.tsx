@@ -195,12 +195,12 @@ export function WhatJustHappenedPanel({ isOpen, onClose }: WhatJustHappenedPanel
       }
       return res.json();
     },
-    enabled: isOpen && !inDemoMode,
+    enabled: isOpen && !(inDemoMode && import.meta.env.DEV),
     refetchInterval: 30000, // Refresh every 30 seconds
     staleTime: 10000
   });
 
-  const activities = inDemoMode ? demoActivities : (data?.activities || []);
+  const activities = (inDemoMode && import.meta.env.DEV) ? demoActivities : (data?.activities || []);
   const filteredActivities = filter === 'all' 
     ? activities 
     : activities.filter(a => a.category === filter);
