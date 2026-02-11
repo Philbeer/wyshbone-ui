@@ -1954,7 +1954,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
   const [showOverlay, setShowOverlay] = useState(false);
   const [confirmedTerminal, setConfirmedTerminal] = useState(false);
   
-  const [demoPlayback, setDemoPlayback] = useState(IS_DEV);
+  const [demoPlayback, setDemoPlayback] = useState(false);
   const [towerLoopChatMode, setTowerLoopChatMode] = useState(() => {
     try { return localStorage.getItem('TOWER_LOOP_CHAT_MODE') === 'true'; } catch { return false; }
   });
