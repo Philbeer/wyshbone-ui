@@ -7571,6 +7571,7 @@ ${run.outputText}`;
   // Register Supervisor routes - Tower judgement request
   app.use("/api/supervisor", createSupervisorRouter());
   console.log('✅ Supervisor routes mounted at /api/supervisor');
+  console.log(`[ROUTES] Supervisor execution enabled: ${process.env.SUPERVISOR_EXECUTION_ENABLED === 'true'}`);
 
   // Register Route Planner routes
   app.use("/api", routePlannerRoutes);

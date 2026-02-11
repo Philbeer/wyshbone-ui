@@ -48,6 +48,7 @@ expertMode = true
 VITE_USE_MOCK_AFR = "false"
 SUPERVISOR_BASE_URL = "https://0683d338-5922-4d4f-8d17-c6623926977d-00-10wqa1dusmk5n.janeway.replit.dev"
 ENABLE_UI_BACKGROUND_WORKERS = "false"
+SUPERVISOR_EXECUTION_ENABLED = "true"
 
 [userenv.development]
 DEBUG_AFR = "true"
