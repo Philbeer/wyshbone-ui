@@ -1651,8 +1651,15 @@ export async function runStartupMigrations(): Promise<void> {
       ADD COLUMN IF NOT EXISTS router_reason TEXT,
       ADD COLUMN IF NOT EXISTS parent_activity_id TEXT;
     `;
+
+    // Supervisor tasks: add run_id + client_request_id for Tower/AFR linking
+    await queryClient`
+      ALTER TABLE public.supervisor_tasks
+      ADD COLUMN IF NOT EXISTS run_id TEXT,
+      ADD COLUMN IF NOT EXISTS client_request_id TEXT;
+    `;
     
-    console.log('✅ Startup migrations completed - org system, oauth_states, and AFR correlation columns ensured');
+    console.log('✅ Startup migrations completed - org system, oauth_states, AFR correlation, and supervisor_tasks linking columns ensured');
   } catch (error: any) {
     // Only log if it's not a "column already exists" error
     if (error?.code !== '42701') { // 42701 = duplicate_column

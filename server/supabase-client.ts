@@ -47,9 +47,11 @@ export interface SupervisorTask {
   id: string;
   conversation_id: string;
   user_id: string;
-  task_type: 'generate_leads' | 'analyze_conversation' | 'provide_insights';
+  task_type: 'find_prospects' | 'analyze_conversation' | 'provide_insights';
   request_data: SupervisorTaskData;
   status: 'pending' | 'processing' | 'completed' | 'failed';
+  run_id?: string;
+  client_request_id?: string;
   created_at: number;
 }
 
@@ -70,8 +72,9 @@ export interface SupervisorMessage {
 export async function createSupervisorTask(
   conversationId: string,
   userId: string,
-  taskType: 'generate_leads' | 'analyze_conversation' | 'provide_insights',
-  requestData: SupervisorTaskData
+  taskType: 'find_prospects' | 'analyze_conversation' | 'provide_insights',
+  requestData: SupervisorTaskData,
+  options?: { runId?: string; clientRequestId?: string }
 ): Promise<SupervisorTask> {
   const client = ensureSupabaseClient();
   
@@ -82,6 +85,8 @@ export async function createSupervisorTask(
     task_type: taskType,
     request_data: requestData,
     status: 'pending',
+    run_id: options?.runId || undefined,
+    client_request_id: options?.clientRequestId || undefined,
     created_at: Date.now(),
   };
 

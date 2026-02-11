@@ -2,7 +2,7 @@ import { SupervisorTaskData } from './supabase-client';
 
 export interface IntentDetectionResult {
   requiresSupervisor: boolean;
-  taskType?: 'generate_leads' | 'analyze_conversation' | 'provide_insights';
+  taskType?: 'find_prospects' | 'analyze_conversation' | 'provide_insights';
   requestData?: SupervisorTaskData;
 }
 
@@ -49,7 +49,7 @@ export function detectSupervisorIntent(userMessage: string): IntentDetectionResu
 
     return {
       requiresSupervisor: true,
-      taskType: 'generate_leads',
+      taskType: 'find_prospects',
       requestData: {
         user_message: userMessage,
         search_query: {

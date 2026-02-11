@@ -1414,15 +1414,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
               }).catch(err => console.error('AFR router log error:', err.message));
             }
             
-            // Create Supervisor task in Supabase
+            // Create Supervisor task in Supabase with AFR/Tower linking IDs
             const supervisorTask = await createSupervisorTask(
               conversationId,
               user.id,
               intentResult.taskType,
-              intentResult.requestData
+              intentResult.requestData,
+              {
+                runId: agentRunId || runId,
+                clientRequestId: clientRequestId || undefined,
+              }
             );
             
-            console.log(`✅ Created Supervisor task ${supervisorTask.id} for ${intentResult.taskType}`);
+            console.log(`✅ Created Supervisor task ${supervisorTask.id} for ${intentResult.taskType} runId=${supervisorTask.run_id || 'N/A'} crid=${supervisorTask.client_request_id?.slice(0, 12) || 'N/A'}`);
             
             // Notify frontend that Supervisor is working
             res.write(`data: ${JSON.stringify({ 
