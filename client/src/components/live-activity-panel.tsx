@@ -995,31 +995,13 @@ function ResultsModal({ clientRequestId, runId, open, onOpenChange }: { clientRe
   );
 }
 
-const AUTO_JUDGEMENT_KEY = 'wysh_auto_judgement_requested';
-function getAutoJudgementStore(): Set<string> {
-  try {
-    const raw = localStorage.getItem(AUTO_JUDGEMENT_KEY);
-    return raw ? new Set(JSON.parse(raw)) : new Set();
-  } catch { return new Set(); }
-}
-function markAutoJudgementRequested(id: string) {
-  const store = getAutoJudgementStore();
-  store.add(id);
-  try {
-    const arr = Array.from(store).slice(-50);
-    localStorage.setItem(AUTO_JUDGEMENT_KEY, JSON.stringify(arr));
-  } catch {}
-}
-
 function SequenceStatusRow({ status, clientRequestId, runId, towerVerdict, towerMissing, chatMode }: { status: "completed" | "failed" | "stopped" | "awaiting_judgement" | "replanning"; clientRequestId?: string | null; runId?: string | null; towerVerdict?: string | null; towerMissing?: boolean; chatMode?: boolean }) {
   const [showResults, setShowResults] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [rerunRequested, setRerunRequested] = useState(false);
   const [pollStatus, setPollStatus] = useState<'idle' | 'polling' | 'success' | 'error'>('idle');
-  const [autoRequesting, setAutoRequesting] = useState(false);
   const mountRef = useRef(Date.now());
   const pollTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const autoTriggeredRef = useRef(false);
 
   useEffect(() => {
     if (!towerMissing) return;
@@ -1034,102 +1016,6 @@ function SequenceStatusRow({ status, clientRequestId, runId, towerVerdict, tower
       if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
     };
   }, []);
-
-  useEffect(() => {
-    if (autoTriggeredRef.current) return;
-    if (!towerMissing || !runId) return;
-    if (status !== 'completed' && status !== 'awaiting_judgement') return;
-    if (rerunRequested || pollStatus === 'polling' || pollStatus === 'success') return;
-
-    const alreadyRequested = getAutoJudgementStore().has(runId);
-    if (alreadyRequested) return;
-
-    autoTriggeredRef.current = true;
-    markAutoJudgementRequested(runId);
-    console.log(`[AutoJudgement] Auto-requesting Tower judgement for runId=${runId}`);
-    setAutoRequesting(true);
-
-    (async () => {
-      try {
-        const payload: Record<string, string> = { runId };
-        if (clientRequestId) payload.crid = clientRequestId;
-        const resp = await fetch('/api/supervisor/request-judgement', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        });
-        if (!resp.ok) {
-          console.error('[AutoJudgement] Server error:', resp.status);
-          setAutoRequesting(false);
-          return;
-        }
-        console.log('[AutoJudgement] Request sent, polling for verdict...');
-        setRerunRequested(true);
-        setPollStatus('polling');
-
-        let attempts = 0;
-        const maxAttempts = 15;
-        const pollInterval = 2000;
-
-        const poll = async () => {
-          attempts++;
-          try {
-            const url = `/api/afr/artefacts?runId=${encodeURIComponent(runId)}`;
-            const artefactRes = await fetch(url);
-            if (artefactRes.ok) {
-              const artefacts = await artefactRes.json();
-              const hasJudgement = artefacts.some((a: any) => a.type === 'tower_judgement');
-              if (hasJudgement) {
-                console.log('[AutoJudgement] Tower verdict received!');
-                setPollStatus('success');
-                setRerunRequested(false);
-                setAutoRequesting(false);
-                return;
-              }
-            }
-
-            if (clientRequestId) {
-              const streamRes = await fetch(`/api/afr/stream?client_request_id=${encodeURIComponent(clientRequestId)}`);
-              if (streamRes.ok) {
-                const streamData = await streamRes.json();
-                const hasVerdictEvent = (streamData.events || []).some((e: any) =>
-                  e.type === 'tower_verdict' || e.type === 'tower_judgement' || e.type === 'judgement_received'
-                );
-                if (hasVerdictEvent) {
-                  console.log('[AutoJudgement] Tower verdict event found!');
-                  setPollStatus('success');
-                  setRerunRequested(false);
-                  setAutoRequesting(false);
-                  return;
-                }
-              }
-            }
-
-            if (attempts >= maxAttempts) {
-              console.log('[AutoJudgement] Timed out waiting for verdict');
-              setPollStatus('error');
-              setRerunRequested(false);
-              setAutoRequesting(false);
-              return;
-            }
-            pollTimerRef.current = setTimeout(poll, pollInterval);
-          } catch {
-            if (attempts >= maxAttempts) {
-              setPollStatus('error');
-              setRerunRequested(false);
-              setAutoRequesting(false);
-            } else {
-              pollTimerRef.current = setTimeout(poll, pollInterval);
-            }
-          }
-        };
-        pollTimerRef.current = setTimeout(poll, pollInterval);
-      } catch (err) {
-        console.error('[AutoJudgement] Failed:', err);
-        setAutoRequesting(false);
-      }
-    })();
-  }, [towerMissing, runId, status, clientRequestId, rerunRequested, pollStatus]);
 
   const judgementTimedOut = towerMissing && elapsed >= 30000;
 
@@ -1220,13 +1106,9 @@ function SequenceStatusRow({ status, clientRequestId, runId, towerVerdict, tower
 
   const config: Record<string, { icon: typeof CheckCircle2; label: string; className: string }> = {
     completed: { 
-      icon: towerMissing ? (autoRequesting ? Brain : AlertTriangle) : CheckCircle2, 
-      label: towerMissing 
-        ? (autoRequesting ? "Requesting Tower judgement..." : pollStatus === 'success' ? "Sequence complete" : "No Tower judgement yet") 
-        : "Sequence complete", 
-      className: towerMissing 
-        ? (autoRequesting ? "text-purple-500/70 animate-pulse" : "text-amber-500/70") 
-        : "text-green-500/70" 
+      icon: towerMissing ? AlertTriangle : CheckCircle2, 
+      label: towerMissing ? "No Tower judgement yet" : "Sequence complete", 
+      className: towerMissing ? "text-amber-500/70" : "text-green-500/70" 
     },
     failed: { 
       icon: XCircle, 
@@ -1258,7 +1140,7 @@ function SequenceStatusRow({ status, clientRequestId, runId, towerVerdict, tower
   
   const { icon: Icon, label, className } = config[status] || config.stopped;
   const showViewResults = (clientRequestId || runId) && (status === 'completed' || status === 'stopped' || status === 'awaiting_judgement' || status === 'replanning');
-  const showRequestJudgement = towerMissing && runId && (status === 'completed' || status === 'awaiting_judgement') && !autoRequesting;
+  const showRequestJudgement = towerMissing && runId && (status === 'completed' || status === 'awaiting_judgement');
   
   return (
     <>
