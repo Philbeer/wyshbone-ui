@@ -741,6 +741,8 @@ function RightPanelContent() {
   const [demoStatus, setDemoStatus] = useState<string | null>(null);
 
   const [proofLoading, setProofLoading] = useState(false);
+  const [proofV2Loading, setProofV2Loading] = useState(false);
+  const [proofV2Ids, setProofV2Ids] = useState<{ crid: string; runId: string } | null>(null);
 
   async function handleRunSupervisorDemo() {
     setDemoLoading(true);
@@ -791,6 +793,33 @@ function RightPanelContent() {
       setProofLoading(false);
     }
   }
+
+  async function handleProofTowerLoopV2() {
+    setProofV2Loading(true);
+    setDemoStatus(null);
+    setProofV2Ids(null);
+    try {
+      const res = await fetch("/api/proof/tower-loop-v2", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `Server responded ${res.status}`);
+      }
+      const data = await res.json();
+      const id = data.clientRequestId;
+      if (!id) throw new Error("No clientRequestId in response");
+      setProofV2Ids({ crid: id, runId: data.runId });
+      setCurrentClientRequestId(id);
+      setPinnedClientRequestId(id);
+      setDemoStatus(`Proof v2 run: ${id.slice(0, 8)}…`);
+    } catch (err: any) {
+      setDemoStatus(`Error: ${err.message}`);
+    } finally {
+      setProofV2Loading(false);
+    }
+  }
   
   // If results panel is open, show it
   if (isOpen && currentResult) {
@@ -823,10 +852,27 @@ function RightPanelContent() {
           <Play className="w-3 h-3 mr-1" />
           {proofLoading ? "Starting…" : "Proof: Tower Loop"}
         </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleProofTowerLoopV2}
+          disabled={proofV2Loading}
+          className="border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-300"
+        >
+          <Play className="w-3 h-3 mr-1" />
+          {proofV2Loading ? "Starting…" : "Proof: Tower Loop v2 (REAL)"}
+        </Button>
         {demoStatus && (
           <span className="text-xs text-muted-foreground">{demoStatus}</span>
         )}
       </div>
+      {proofV2Ids && (
+        <div className="text-[10px] font-mono bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded px-2 py-1 shrink-0">
+          <span className="text-emerald-700 dark:text-emerald-300 font-semibold">v2 IDs</span>
+          {" "}crid=<span className="select-all">{proofV2Ids.crid}</span>
+          {" "}runId=<span className="select-all">{proofV2Ids.runId}</span>
+        </div>
+      )}
       {(() => {
         const resolvedId = pinnedClientRequestId ?? currentClientRequestId ?? lastCompletedClientRequestId;
         return <LiveActivityPanel key={resolvedId ?? 'none'} activeClientRequestId={resolvedId} />;
