@@ -883,7 +883,7 @@ function ResultsModal({ clientRequestId, runId, open, onOpenChange }: { clientRe
   );
 }
 
-function SequenceStatusRow({ status, clientRequestId, runId, towerVerdict, towerMissing }: { status: "completed" | "failed" | "stopped" | "awaiting_judgement" | "replanning"; clientRequestId?: string | null; runId?: string | null; towerVerdict?: string | null; towerMissing?: boolean }) {
+function SequenceStatusRow({ status, clientRequestId, runId, towerVerdict, towerMissing, chatMode }: { status: "completed" | "failed" | "stopped" | "awaiting_judgement" | "replanning"; clientRequestId?: string | null; runId?: string | null; towerVerdict?: string | null; towerMissing?: boolean; chatMode?: boolean }) {
   const [showResults, setShowResults] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [rerunRequested, setRerunRequested] = useState(false);
@@ -917,8 +917,8 @@ function SequenceStatusRow({ status, clientRequestId, runId, towerVerdict, tower
   const config: Record<string, { icon: typeof CheckCircle2; label: string; className: string }> = {
     completed: { 
       icon: CheckCircle2, 
-      label: towerMissing ? "Completed (no Tower verdict)" : "Sequence complete", 
-      className: towerMissing ? "text-green-500/60" : "text-green-500/70" 
+      label: towerMissing && !chatMode ? "Completed (no Tower verdict)" : "Sequence complete", 
+      className: towerMissing && !chatMode ? "text-green-500/60" : "text-green-500/70" 
     },
     failed: { 
       icon: XCircle, 
@@ -934,9 +934,11 @@ function SequenceStatusRow({ status, clientRequestId, runId, towerVerdict, tower
       icon: Brain, 
       label: judgementTimedOut
         ? "Judgement missing"
-        : towerVerdict && towerVerdict !== 'accept'
-          ? `Awaiting judgement (verdict: ${towerVerdict})`
-          : "Awaiting Tower judgement", 
+        : chatMode
+          ? "Tower pending"
+          : towerVerdict && towerVerdict !== 'accept'
+            ? `Awaiting judgement (verdict: ${towerVerdict})`
+            : "Awaiting Tower judgement", 
       className: judgementTimedOut ? "text-orange-500/70" : "text-purple-500/70" 
     },
     replanning: { 
@@ -1840,7 +1842,7 @@ interface TowerAwareResult {
   towerMissing: boolean;
 }
 
-function deriveTowerAwareStatus(events: StreamEvent[], serverTerminalState: 'completed' | 'failed' | 'stopped' | null, artefacts?: Array<{ type: string }>): TowerAwareResult {
+function deriveTowerAwareStatus(events: StreamEvent[], serverTerminalState: 'completed' | 'failed' | 'stopped' | null, artefacts?: Array<{ type: string }>, chatMode?: boolean): TowerAwareResult {
   let lastTowerVerdict: string | null = null;
   let hasRunCompleted = false;
   let hasRunStopped = false;
@@ -1912,6 +1914,10 @@ function deriveTowerAwareStatus(events: StreamEvent[], serverTerminalState: 'com
       return { towerVerdict: lastTowerVerdict, derivedStatus: 'completed', isLeadRun, towerMissing: false };
     }
 
+    if (chatMode && !hasTowerJudgement) {
+      return { towerVerdict: null, derivedStatus: 'awaiting_judgement', isLeadRun, towerMissing: true };
+    }
+
     if (hasRunCompleted || serverTerminalState === 'completed') {
       return { towerVerdict: lastTowerVerdict, derivedStatus: 'completed', isLeadRun, towerMissing: !hasTowerJudgement };
     }
@@ -1939,6 +1945,9 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
   const [confirmedTerminal, setConfirmedTerminal] = useState(false);
   
   const [demoPlayback, setDemoPlayback] = useState(IS_DEV);
+  const [towerLoopChatMode, setTowerLoopChatMode] = useState(() => {
+    try { return localStorage.getItem('TOWER_LOOP_CHAT_MODE') === 'true'; } catch { return false; }
+  });
 
   const [minVisibleHold, setMinVisibleHold] = useState(false);
   const [postTerminalHold, setPostTerminalHold] = useState(false);
@@ -2259,8 +2268,8 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
   const effectiveTerminal = confirmedTerminal && !minVisibleHold && (effectiveDemoPlayback ? allRevealed : true);
 
   const towerAware = useMemo(() => {
-    return deriveTowerAwareStatus(allEvents, stream?.terminal_state as any || null);
-  }, [allEvents, stream?.terminal_state]);
+    return deriveTowerAwareStatus(allEvents, stream?.terminal_state as any || null, undefined, towerLoopChatMode);
+  }, [allEvents, stream?.terminal_state, towerLoopChatMode]);
 
   const mappedStatus: OverallStatus = (() => {
     if (activeClientRequestId && !idsMatch) {
@@ -2406,6 +2415,28 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
                 Demo {demoPlayback ? "ON" : "OFF"}
               </button>
             )}
+            {IS_DEV && (
+              <button
+                onClick={() => {
+                  const next = !towerLoopChatMode;
+                  setTowerLoopChatMode(next);
+                  try {
+                    localStorage.setItem('TOWER_LOOP_CHAT_MODE', String(next));
+                    window.dispatchEvent(new CustomEvent('tower-chat-mode-changed', { detail: next }));
+                  } catch {}
+                }}
+                className={cn(
+                  "inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors cursor-pointer select-none",
+                  towerLoopChatMode
+                    ? "bg-cyan-100 text-cyan-800 dark:bg-cyan-900/40 dark:text-cyan-200"
+                    : "bg-gray-100 text-gray-500 dark:bg-gray-800/50 dark:text-gray-400"
+                )}
+                title={towerLoopChatMode ? "Tower Chat Mode ON: runs require Tower verdict to show Completed" : "Tower Chat Mode OFF: standard status derivation"}
+              >
+                <Brain className="h-3 w-3" />
+                Tower {towerLoopChatMode ? "ON" : "OFF"}
+              </button>
+            )}
             {hasActivePlan && isWorking && (
               <span className={cn(
                 "px-1.5 py-0.5 rounded text-[10px] font-medium",
@@ -2518,7 +2549,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
             )}
             
             {effectiveTerminal && allRevealed && !transientPhase && (mappedStatus === 'completed' || mappedStatus === 'failed' || mappedStatus === 'stopped' || mappedStatus === 'awaiting_judgement' || mappedStatus === 'replanning') && (
-              <SequenceStatusRow status={mappedStatus as any} clientRequestId={activeClientRequestId} runId={stream?.run_id} towerVerdict={towerAware.towerVerdict} towerMissing={towerAware.towerMissing} />
+              <SequenceStatusRow status={mappedStatus as any} clientRequestId={activeClientRequestId} runId={stream?.run_id} towerVerdict={towerAware.towerVerdict} towerMissing={towerAware.towerMissing} chatMode={towerLoopChatMode} />
             )}
             
             {isWorking && (

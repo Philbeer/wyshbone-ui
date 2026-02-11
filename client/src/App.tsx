@@ -707,6 +707,23 @@ function AgentStatusBadgeWrapper() {
 /**
  * Dev info badge showing user ID and workspace ID for debugging
  */
+function TowerChatModeBadge() {
+  const [on, setOn] = useState(() => {
+    try { return localStorage.getItem('TOWER_LOOP_CHAT_MODE') === 'true'; } catch { return false; }
+  });
+  useEffect(() => {
+    const handler = (e: Event) => setOn((e as CustomEvent).detail === true);
+    window.addEventListener('tower-chat-mode-changed', handler);
+    return () => window.removeEventListener('tower-chat-mode-changed', handler);
+  }, []);
+  if (!on) return null;
+  return (
+    <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-semibold bg-cyan-100 text-cyan-700 dark:bg-cyan-900/40 dark:text-cyan-200 select-none" title="Tower Loop Chat Mode is active">
+      Tower
+    </span>
+  );
+}
+
 function DevInfoBadge() {
   const { user } = useUser();
   
@@ -1065,6 +1082,7 @@ function AppLayout({
           >
             <VerticalIndicator />
             <LayoutToggle variant="inline" />
+            {import.meta.env.DEV && <TowerChatModeBadge />}
             <XeroStatusBadge className="mr-1" />
             <DevInfoBadge />
             <AgentStatusBadgeWrapper />

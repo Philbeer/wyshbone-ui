@@ -29,6 +29,23 @@ import wyshboneLogo from "@assets/wyshbone-logo_1759667581806.png";
 import { buildApiUrl, addDevAuthParams } from "@/lib/queryClient";
 import { LayoutToggle } from "@/components/LayoutToggle";
 
+function TowerBadgeInline() {
+  const [on, setOn] = useState(() => {
+    try { return localStorage.getItem('TOWER_LOOP_CHAT_MODE') === 'true'; } catch { return false; }
+  });
+  useEffect(() => {
+    const handler = (e: Event) => setOn((e as CustomEvent).detail === true);
+    window.addEventListener('tower-chat-mode-changed', handler);
+    return () => window.removeEventListener('tower-chat-mode-changed', handler);
+  }, []);
+  if (!on) return null;
+  return (
+    <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-semibold bg-cyan-100 text-cyan-700 dark:bg-cyan-900/40 dark:text-cyan-200 select-none" title="Tower Loop Chat Mode is active">
+      Tower
+    </span>
+  );
+}
+
 // =============================================================================
 // TYPES
 // =============================================================================
@@ -293,6 +310,7 @@ Please check:
           </div>
           <div className="flex items-center gap-1">
             <LayoutToggle variant="inline" />
+            {import.meta.env.DEV && <TowerBadgeInline />}
             <Button
               variant="ghost"
               size="icon"
