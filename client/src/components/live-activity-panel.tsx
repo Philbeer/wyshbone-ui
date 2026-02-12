@@ -2062,7 +2062,7 @@ interface TowerAwareResult {
   towerMissing: boolean;
 }
 
-function deriveTowerAwareStatus(events: StreamEvent[], serverTerminalState: 'completed' | 'failed' | 'stopped' | null, artefacts?: Array<{ type: string }>, chatMode?: boolean): TowerAwareResult {
+function deriveTowerAwareStatus(events: StreamEvent[], serverTerminalState: 'completed' | 'failed' | 'stopped' | null, artefacts?: Array<{ type: string; payload_json?: any }>, chatMode?: boolean): TowerAwareResult {
   let lastTowerVerdict: string | null = null;
   let hasRunCompleted = false;
   let hasRunStopped = false;
@@ -2074,6 +2074,16 @@ function deriveTowerAwareStatus(events: StreamEvent[], serverTerminalState: 'com
   const LEAD_ARTEFACT_TYPES = ['leads_list', 'plan_result'];
   if (artefacts?.length) {
     isLeadRun = artefacts.some(a => LEAD_ARTEFACT_TYPES.includes(a.type));
+    const towerArtefact = artefacts.find(a => a.type === 'tower_judgement');
+    if (towerArtefact) {
+      hasTowerJudgement = true;
+      hasTowerEvents = true;
+      const p = towerArtefact.payload_json;
+      if (p?.verdict && typeof p.verdict === 'string') {
+        lastTowerVerdict = p.verdict.toLowerCase();
+      }
+      console.log('[deriveTowerAwareStatus] Found tower_judgement in artefacts, verdict:', lastTowerVerdict);
+    }
   }
 
   if (!isLeadRun) {
@@ -2177,6 +2187,9 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
 
   const [minVisibleHold, setMinVisibleHold] = useState(false);
   const [postTerminalHold, setPostTerminalHold] = useState(false);
+  const [polledArtefacts, setPolledArtefacts] = useState<Array<{ type: string; payload_json?: any }>>([]);
+  const artefactPollRef = useRef<NodeJS.Timeout | null>(null);
+  const artefactPollStartRef = useRef<number | null>(null);
   const minVisibleTimerRef = useRef<NodeJS.Timeout | null>(null);
   const postTerminalTimerRef = useRef<NodeJS.Timeout | null>(null);
   const runStartTimeRef = useRef<number | null>(null);
@@ -2277,6 +2290,62 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
     fetchStream();
   }, [fetchStream]);
 
+  const runIdForPolling = stream?.run_id;
+  const hasTowerInPolled = polledArtefacts.some(a => a.type === 'tower_judgement');
+  useEffect(() => {
+    if (artefactPollRef.current) {
+      clearInterval(artefactPollRef.current);
+      artefactPollRef.current = null;
+    }
+
+    if (!runIdForPolling || hasTowerInPolled) return;
+
+    artefactPollStartRef.current = Date.now();
+    console.log(`[ArtefactPoll] Starting auto-poll for runId=${runIdForPolling}`);
+
+    const poll = async () => {
+      try {
+        const elapsed = Date.now() - (artefactPollStartRef.current || Date.now());
+        if (elapsed > 90_000) {
+          console.log('[ArtefactPoll] Timeout reached (90s), stopping poll');
+          if (artefactPollRef.current) {
+            clearInterval(artefactPollRef.current);
+            artefactPollRef.current = null;
+          }
+          return;
+        }
+
+        const url = `/api/afr/artefacts?runId=${encodeURIComponent(runIdForPolling)}`;
+        const resp = await fetch(url);
+        if (!resp.ok) return;
+        const rows = await resp.json();
+        if (Array.isArray(rows) && rows.length > 0) {
+          console.log(`[ArtefactPoll] Got ${rows.length} artefact(s) — types: [${rows.map((r: any) => r.type).join(', ')}]`);
+          setPolledArtefacts(rows);
+          if (rows.some((r: any) => r.type === 'tower_judgement')) {
+            console.log('[ArtefactPoll] tower_judgement found, stopping poll');
+            if (artefactPollRef.current) {
+              clearInterval(artefactPollRef.current);
+              artefactPollRef.current = null;
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('[ArtefactPoll] Error:', err);
+      }
+    };
+
+    poll();
+    artefactPollRef.current = setInterval(poll, 3000);
+
+    return () => {
+      if (artefactPollRef.current) {
+        clearInterval(artefactPollRef.current);
+        artefactPollRef.current = null;
+      }
+    };
+  }, [runIdForPolling, hasTowerInPolled]);
+
   useEffect(() => {
     if (activeClientRequestId && activeClientRequestId !== prevActiveIdRef.current) {
       if (DEBUG_TERMINAL) {
@@ -2306,6 +2375,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
       prevEventCount.current = 0;
       
       setStream(null);
+      setPolledArtefacts([]);
       
       setMinVisibleHold(true);
       setPostTerminalHold(false);
@@ -2494,8 +2564,8 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
   const effectiveTerminal = confirmedTerminal && !minVisibleHold && (effectiveDemoPlayback ? allRevealed : true);
 
   const towerAware = useMemo(() => {
-    return deriveTowerAwareStatus(allEvents, stream?.terminal_state as any || null, undefined, towerLoopChatMode);
-  }, [allEvents, stream?.terminal_state, towerLoopChatMode]);
+    return deriveTowerAwareStatus(allEvents, stream?.terminal_state as any || null, polledArtefacts.length > 0 ? polledArtefacts : undefined, towerLoopChatMode);
+  }, [allEvents, stream?.terminal_state, towerLoopChatMode, polledArtefacts]);
 
   const mappedStatus: OverallStatus = (() => {
     if (activeClientRequestId && !idsMatch) {
