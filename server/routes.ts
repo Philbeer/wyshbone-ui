@@ -1250,6 +1250,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     // DEV MODE: Check for missing OPENAI_API_KEY and return helpful stub response
     if (!process.env.OPENAI_API_KEY) {
       console.warn('⚠️ OPENAI_API_KEY not set - returning stub response');
+      console.log('[CHAT_ROUTE=NO_API_KEY] crid=pre-validation — Returning stub response, OPENAI_API_KEY missing');
       res.setHeader('Content-Type', 'text/plain');
       res.setHeader('Transfer-Encoding', 'chunked');
       res.write('⚠️ **Chat unavailable**: OPENAI_API_KEY is not configured.\n\n');
@@ -1269,12 +1270,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     let runStartTime = Date.now();
     const toolCallsLog: Array<{ name: string; args: any; result?: any; error?: string }> = [];
     let user: any = null;
+    let clientRequestId: string | undefined;
     
     try {
       // Validate request body against your existing schema
       const validation = chatRequestSchema.safeParse(req.body);
       if (!validation.success) {
         console.log('❌ Validation failed:', validation.error);
+        console.log('[CHAT_ROUTE=VALIDATION_FAIL] crid=pre-validation');
         return res
           .status(400)
           .json({ error: "Invalid request format", details: validation.error });
@@ -1282,18 +1285,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const validatedData = validation.data;
       user = validatedData.user;
-      const { messages, defaultCountry, conversationId: requestedConversationId, clientRequestId } = validatedData;
+      const { messages, defaultCountry, conversationId: requestedConversationId, clientRequestId: _clientRequestId } = validatedData;
+      clientRequestId = _clientRequestId;
       console.log('📝 Chat request from user:', user.id, user.email, clientRequestId ? `(crid:${clientRequestId.slice(0,8)})` : '');
       
       // SECURITY: Validate authenticated user matches the user in request
       const auth = await getAuthenticatedUserId(req);
       console.log('🔐 Auth result:', auth);
       if (!auth) {
-        console.log('❌ No auth - returning 401');
+        console.log(`[CHAT_ROUTE=NO_AUTH] crid=${clientRequestId || 'pre-auth'}`);
         return res.status(401).json({ error: "Unauthorized" });
       }
       if (user.id !== auth.userId) {
-        console.warn(`🚫 User ${auth.userEmail} attempted to chat as ${user.id}`);
+        console.log(`[CHAT_ROUTE=FORBIDDEN] crid=${clientRequestId || 'none'} — User mismatch`);
         return res.status(403).json({ error: "Forbidden: Cannot chat as another user" });
       }
       console.log('✅ Authentication passed for:', auth.userEmail);
@@ -1373,6 +1377,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
+      // ═══ FORENSIC ENTRY LOG ═══
+      console.log(`[CHAT_ENTRY] crid=${clientRequestId || 'none'} run_id=${agentRunId || runId} conversation_id=${conversationId} user=${user.id} text="${latestUserText.slice(0, 80)}"`);
+
       // Update conversation label if this is the first user message
       await updateConversationLabel(conversationId, latestUserText);
 
@@ -1385,10 +1392,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         conversationId,
       });
 
+      // Track whether this request was delegated to supervisor (used for guardrail check)
+      let wasDelegatedToSupervisor = false;
+
       // SUPERVISOR INTEGRATION: Detect if this message requires Supervisor assistance
       if (isSupabaseConfigured()) {
         try {
           const intentResult = detectSupervisorIntent(latestUserText);
+          console.log(`[CHAT_INTENT] requiresSupervisor=${intentResult.requiresSupervisor} taskType=${intentResult.taskType || 'none'} crid=${clientRequestId || 'none'}`);
           
           if (intentResult.requiresSupervisor && intentResult.taskType && intentResult.requestData) {
             console.log(`🤖 Supervisor intent detected: ${intentResult.taskType}`);
@@ -1427,6 +1438,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             );
             
             console.log(`✅ Created Supervisor task ${supervisorTask.id} for ${intentResult.taskType} runId=${supervisorTask.run_id || 'N/A'} crid=${supervisorTask.client_request_id?.slice(0, 12) || 'N/A'}`);
+            console.log(`[SUPERVISOR_TASK_CREATED] id=${supervisorTask.id} status=${supervisorTask.status} task_type=${supervisorTask.task_type} run_id=${supervisorTask.run_id || 'N/A'} client_request_id=${supervisorTask.client_request_id || 'N/A'} conversation_id=${supervisorTask.conversation_id}`);
             
             // Notify frontend that Supervisor is working
             res.write(`data: ${JSON.stringify({ 
@@ -1470,13 +1482,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
             })}\n\n`);
 
             // Close SSE stream — CRITICAL: return immediately, no downstream execution
+            wasDelegatedToSupervisor = true;
+            console.log(`[CHAT_ROUTE=DELEGATED_RETURN] crid=${clientRequestId || 'none'} run_id=${agentRunId || runId} taskId=${supervisorTask.id}`);
             res.write(`data: [DONE]\n\n`);
             res.end();
+
+            // GUARDRAIL: After 30s, check if artefacts were created by Supervisor
+            setTimeout(async () => {
+              try {
+                const guardRunId = agentRunId || runId;
+                const db = (await import('./storage.js')).getDrizzleDb();
+                const { sql: dsql } = await import('drizzle-orm');
+                const result = await db.execute(dsql`SELECT COUNT(*) as cnt FROM artefacts WHERE run_id = ${guardRunId}`);
+                const count = Number((result as any).rows?.[0]?.cnt ?? (result as any)[0]?.cnt ?? 0);
+                if (count === 0) {
+                  console.error(`[CHAT_DELEGATION_BROKEN] run_id=${guardRunId} crid=${clientRequestId || 'none'} taskId=${supervisorTask.id} — 30s elapsed with ZERO artefacts. Supervisor may not have processed this task.`);
+                } else {
+                  console.log(`[CHAT_DELEGATION_OK] run_id=${guardRunId} crid=${clientRequestId || 'none'} — ${count} artefact(s) found after 30s`);
+                }
+              } catch (guardErr: any) {
+                console.warn(`[CHAT_DELEGATION_GUARD_ERROR] ${guardErr.message}`);
+              }
+            }, 30_000);
+
             return;
           }
         } catch (error: any) {
           console.error('❌ Supervisor integration error:', error);
-          // Don't fail the whole request - continue with standard chat
+          console.error(`[CHAT_ROUTE=SUPERVISOR_ERROR_FALLTHROUGH] crid=${clientRequestId || 'none'} run_id=${agentRunId || runId} error=${error.message}`);
+          console.error(`[CRITICAL] Supervisor intent was detected but task creation FAILED. Falling through to standard chat. This run will have an agent_runs row but Supervisor will NOT process it.`);
+          // Continue with standard chat — but log that this is a degraded path
         }
       }
 
@@ -1556,6 +1591,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           'standard'
         );
         
+        console.log(`[CHAT_ROUTE=GOAL_CAPTURE] crid=${clientRequestId || 'none'}`);
         res.write(`data: ${JSON.stringify({ content: confirmationMsg })}\n\n`);
         res.write(`data: [DONE]\n\n`);
         res.end();
@@ -1598,7 +1634,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               
               appendMessage(sessionId, { role: "assistant", content: responseText });
               await saveMessage(conversationId, "assistant", responseText);
-              console.log("💾 Saved job status message to database");
+              console.log(`[CHAT_ROUTE=JOB_STATUS] jobId=${jobId}`);
               res.write(`data: ${JSON.stringify({ done: false, text: responseText })}\n\n`);
               res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
               return res.end();
@@ -1606,7 +1642,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               const errorMsg = `❌ Failed to get job status: ${statusData.error || 'Unknown error'}`;
               appendMessage(sessionId, { role: "assistant", content: errorMsg });
               await saveMessage(conversationId, "assistant", errorMsg);
-              console.log("💾 Saved job status error message to database");
+              console.log(`[CHAT_ROUTE=JOB_STATUS_ERROR] jobId=${jobId}`);
               res.write(`data: ${JSON.stringify({ done: false, text: errorMsg })}\n\n`);
               res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
               return res.end();
@@ -1628,6 +1664,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             console.log("💾 Saved job pause message to database");
             res.write(`data: ${JSON.stringify({ done: false, text: responseText })}\n\n`);
             res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+            console.log(`[CHAT_ROUTE=JOB_PAUSE] crid=${clientRequestId || "none"}`);
             return res.end();
           } else if (command.toLowerCase() === 'resume') {
             const startResp = await fetch(`http://localhost:5000/api/jobs/start`, {
@@ -1646,6 +1683,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             console.log("💾 Saved job resume message to database");
             res.write(`data: ${JSON.stringify({ done: false, text: responseText })}\n\n`);
             res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+            console.log(`[CHAT_ROUTE=JOB_RESUME] crid=${clientRequestId || "none"}`);
             return res.end();
           } else if (command.toLowerCase() === 'cancel') {
             const stopResp = await fetch(`http://localhost:5000/api/jobs/stop`, {
@@ -1664,6 +1702,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             console.log("💾 Saved job cancel message to database");
             res.write(`data: ${JSON.stringify({ done: false, text: responseText })}\n\n`);
             res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+            console.log(`[CHAT_ROUTE=JOB_CANCEL] crid=${clientRequestId || "none"}`);
             return res.end();
           }
         } catch (error: any) {
@@ -1674,6 +1713,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           console.log("💾 Saved job command error message to database");
           res.write(`data: ${JSON.stringify({ done: false, text: errorMsg })}\n\n`);
           res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+          console.log(`[CHAT_ROUTE=JOB_COMMAND_ERROR] crid=${clientRequestId || "none"}`);
           return res.end();
         }
       }
@@ -1747,6 +1787,7 @@ Examples:
               console.log("💾 Saved job creation message to database");
               res.write(`data: ${JSON.stringify({ done: false, text: responseText })}\n\n`);
               res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+              console.log(`[CHAT_ROUTE=REGION_JOB_CREATED] crid=${clientRequestId || "none"}`);
               return res.end();
             } else {
               const errorMsg = `❌ Failed to create job: ${createData.error}`;
@@ -1755,6 +1796,7 @@ Examples:
               console.log("💾 Saved job creation error message to database");
               res.write(`data: ${JSON.stringify({ done: false, text: errorMsg })}\n\n`);
               res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+              console.log(`[CHAT_ROUTE=REGION_JOB_ERROR] crid=${clientRequestId || "none"}`);
               return res.end();
             }
           } else {
@@ -1843,6 +1885,7 @@ Examples:
                     appendMessage(sessionId, { role: "assistant", content: guard.message });
                     await saveMessage(conversationId, "assistant", guard.message);
                     console.log("💾 Saved assistant message to database");
+                    console.log(`[CHAT_ROUTE=LOCATION_GUARD] crid=${clientRequestId || "none"}`);
                     return;
                   }
                   
@@ -1887,6 +1930,7 @@ Examples:
             console.log("💾 Saved workflow preview message to database");
             res.write(`data: ${JSON.stringify({ content: previewText })}\n\n`);
             res.write(`data: [DONE]\n\n`);
+            console.log(`[CHAT_ROUTE=WORKFLOW_MODIFY] crid=${clientRequestId || "none"}`);
             res.end();
             return;
           } catch (err: any) {
@@ -1899,6 +1943,7 @@ Examples:
             console.log("💾 Saved workflow modification error message to database");
             res.write(`data: ${JSON.stringify({ content: responseText })}\n\n`);
             res.write(`data: [DONE]\n\n`);
+            console.log(`[CHAT_ROUTE=WORKFLOW_MODIFY_ERROR] crid=${clientRequestId || "none"}`);
             res.end();
             return;
           }
@@ -1941,6 +1986,7 @@ Examples:
             
             res.write(`data: ${JSON.stringify({ content: responseText })}\n\n`);
             res.write(`data: [DONE]\n\n`);
+            console.log(`[CHAT_ROUTE=BATCH_CONFIRMED] crid=${clientRequestId || "none"}`);
             return res.end();
           } catch (error: any) {
             console.error("❌ Bubble batch execution error:", error.message);
@@ -1950,6 +1996,7 @@ Examples:
             console.log("💾 Saved batch execution error message to database");
             res.write(`data: ${JSON.stringify({ content: errorMsg })}\n\n`);
             res.write(`data: [DONE]\n\n`);
+            console.log(`[CHAT_ROUTE=BATCH_CONFIRM_ERROR] crid=${clientRequestId || "none"}`);
             return res.end();
           }
         } else if (cancellationPattern.test(latestUserText.trim())) {
@@ -1962,6 +2009,7 @@ Examples:
           console.log("💾 Saved workflow cancellation message to database");
           res.write(`data: ${JSON.stringify({ content: responseText })}\n\n`);
           res.write(`data: [DONE]\n\n`);
+          console.log(`[CHAT_ROUTE=BATCH_CANCELLED] crid=${clientRequestId || "none"}`);
           return res.end();
         }
       }
@@ -2065,6 +2113,7 @@ Only extract fields that are in the missing list: ${partialWorkflow.missing_fiel
           
           res.write(`data: ${JSON.stringify({ content: previewText })}\n\n`);
           res.write(`data: [DONE]\n\n`);
+          console.log(`[CHAT_ROUTE=PARTIAL_WORKFLOW] crid=${clientRequestId || "none"}`);
           res.end();
           return;
         } catch (err: any) {
@@ -2156,6 +2205,7 @@ ${run.outputText}`;
           
           res.write(`data: ${JSON.stringify({ content: summaryMsg })}\n\n`);
           res.write(`data: [DONE]\n\n`);
+          console.log(`[CHAT_ROUTE=SUMMARIZE] crid=${clientRequestId || "none"}`);
           return res.end();
         } catch (err: any) {
           console.error("❌ Summarize error:", err.message);
@@ -2181,6 +2231,7 @@ ${run.outputText}`;
           
           res.write(`data: ${JSON.stringify({ content: errorMsg })}\n\n`);
           res.write(`data: [DONE]\n\n`);
+          console.log(`[CHAT_ROUTE=SUMMARIZE_ERROR] crid=${clientRequestId || "none"}`);
           return res.end();
         }
       }
@@ -2321,6 +2372,7 @@ CRITICAL RULES:
             
             res.write(`data: ${JSON.stringify({ content: askMsg })}\n\n`);
             res.write(`data: [DONE]\n\n`);
+            console.log(`[CHAT_ROUTE=RESEARCH_CLARIFY] crid=${clientRequestId || "none"}`);
             return res.end();
           }
 
@@ -2433,6 +2485,7 @@ CRITICAL RULES:
           
           res.write(`data: ${JSON.stringify({ content: confirmMsg })}\n\n`);
           res.write(`data: [DONE]\n\n`);
+          console.log(`[CHAT_ROUTE=RESEARCH_DELEGATED] crid=${clientRequestId || "none"}`);
           return res.end();
         } catch (err: any) {
           console.error("❌ Deep research error:", err.message);
@@ -2458,6 +2511,7 @@ CRITICAL RULES:
           
           res.write(`data: ${JSON.stringify({ content: errorMsg })}\n\n`);
           res.write(`data: [DONE]\n\n`);
+          console.log(`[CHAT_ROUTE=RESEARCH_ERROR] crid=${clientRequestId || "none"}`);
           return res.end();
         }
       }
@@ -2844,6 +2898,7 @@ CRITICAL RULES:
         
         res.write(`data: ${JSON.stringify({ content: clarificationResult.formattedMessage })}\n\n`);
         res.write(`data: [DONE]\n\n`);
+        console.log(`[CHAT_ROUTE=LEAD_CLARIFY] crid=${clientRequestId || "none"}`);
         return res.end();
       } else if (clarificationResult.type === 'proceed') {
         // All fields present - inject enriched context into chat messages
@@ -2949,6 +3004,7 @@ CRITICAL RULES:
               appendMessage(sessionId, { role: "assistant", content: aiBuffer });
               await saveMessage(conversationId, "assistant", aiBuffer);
               res.write(`data: [DONE]\n\n`);
+              console.log(`[CHAT_ROUTE=DUPLICATE_RUN] crid=${clientRequestId || "none"}`);
               res.end();
               return;
             }
@@ -3141,6 +3197,7 @@ CRITICAL RULES:
                   appendMessage(sessionId, { role: "assistant", content: guard.message });
                   await saveMessage(conversationId, "assistant", guard.message);
                   console.log("💾 Saved assistant message to database");
+                  console.log(`[CHAT_ROUTE=BUBBLE_LOCATION_GUARD] crid=${clientRequestId || "none"}`);
                   return;
                 }
                 
@@ -3173,6 +3230,7 @@ CRITICAL RULES:
                     appendMessage(sessionId, { role: "assistant", content: guard.message });
                     await saveMessage(conversationId, "assistant", guard.message);
                     console.log("💾 Saved assistant message to database");
+                    console.log(`[CHAT_ROUTE=BUBBLE_COUNTY_GUARD] crid=${clientRequestId || "none"}`);
                     return;
                   }
                   
@@ -3210,6 +3268,7 @@ CRITICAL RULES:
                 appendMessage(sessionId, { role: "assistant", content: mismatchMsg });
                 await saveMessage(conversationId, "assistant", mismatchMsg);
                 console.log("💾 Saved assistant message to database");
+                console.log(`[CHAT_ROUTE=COUNTRY_MISMATCH] crid=${clientRequestId || "none"}`);
                 return;
               }
             }
@@ -3295,6 +3354,7 @@ CRITICAL RULES:
               console.log("💾 Saved assistant message to database");
               res.write(`data: ${JSON.stringify({ content: clarificationMsg, done: true })}\n\n`);
               res.write(`data: [DONE]\n\n`);
+              console.log(`[CHAT_ROUTE=BUBBLE_MISSING_FIELDS] crid=${clientRequestId || "none"}`);
               return res.end();
             }
             
@@ -3801,6 +3861,7 @@ CRITICAL RULES:
           clientRequestId,
         }).catch(err => console.error('AFR run complete error:', err.message));
 
+        console.log(`[ARTEFACT_WRITE] type=chat_response crid=${clientRequestId} run_id=${agentRunId || runId}`);
         await persistChatArtefact({
           clientRequestId,
           userMessage: latestUserText,
@@ -3820,6 +3881,7 @@ CRITICAL RULES:
 
       // End stream
       res.write(`data: [DONE]\n\n`);
+      console.log(`[CHAT_ROUTE=STANDARD_CHAT_COMPLETE] crid=${clientRequestId || "none"}`);
       res.end();
     } catch (error: any) {
       console.error("Chat error:", error);
@@ -3868,6 +3930,7 @@ CRITICAL RULES:
       }
       
       res.write(`data: ${JSON.stringify({ error: error.message })}\n\n`);
+      console.log(`[CHAT_ROUTE=UNHANDLED_ERROR] crid=${clientRequestId || "none"}`);
       res.end();
     }
   });

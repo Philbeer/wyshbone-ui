@@ -1,0 +1,70 @@
+UI prompt: Forensic routing report + fix (copy paste)
+
+You are in the Wyshbone UI repo. We have a critical production bug: some chat runs create an agent_runs row but create zero artefacts in Supabase artefacts for the same run_id. That means the run bypassed the real Supervisor/plan executor loop.
+
+Evidence:
+
+run_id ce8af629-733d-4906-9137-45830eaa6aa2 returns no rows in artefacts:
+select type,title,created_at from artefacts where run_id='ce8af629-733d-4906-9137-45830eaa6aa2' order by created_at asc;
+
+a prior run did create artefacts (chat_response, leads_list, plan_result, tower_judgement), so we have two execution paths.
+
+Task:
+
+Trace the full routing logic for chat runs:
+
+entrypoint: POST /api/chat
+
+how client_request_id and run_id are created/resolved
+
+all branches that can return early or take “fast path”
+
+exactly when a supervisor_tasks row is created
+
+exactly when startPlanExecutionAsync or any plan executor is invoked (if at all)
+
+any inline execution paths (Google Places, tool-calling loop, etc)
+
+Add hard instrumentation (must be in code, not just explanation):
+
+log one line at the top of /api/chat with: crid, run_id, conversation_id, intent.requiresSupervisor
+
+log one line immediately before EVERY return path with a unique label, e.g. CHAT_ROUTE=DELEGATED_RETURN, CHAT_ROUTE=INLINE_EXEC, CHAT_ROUTE=NON_SUPERVISOR, etc
+
+log one line when creating supervisor_tasks with the full inserted row shape (especially status, task_type, request_data.run_id, request_data.client_request_id)
+
+log one line when any artefact is written from UI (type + run_id)
+
+Identify the exact cause of “zero artefacts” runs:
+
+is the run_id being written to agent_runs different from the run_id used by artefacts?
+
+is chat delegating and returning, but Supervisor never sees the task (wrong status, wrong supabase project, missing fields)?
+
+is chat taking an unintended fast path that doesn’t create artefacts?
+
+Implement the production-correct fix:
+
+If intent.requiresSupervisor === true, UI must:
+
+create supervisor task with status='pending'
+
+include both request_data.run_id and request_data.client_request_id
+
+stream “delegated to Supervisor”
+
+RETURN immediately
+
+UI must NOT execute tools inline, must NOT mark run complete, must NOT create leads_list/plan_result artefacts for delegated runs.
+
+Add a guardrail: if delegated run reaches “completed” in UI without any artefacts after 30s, log an error CHAT_DELEGATION_BROKEN with IDs.
+
+Deliverables:
+
+A short report listing every possible route label and what it means.
+
+The code changes (rewrite full files changed).
+
+A manual test procedure: run one chat delegated job and show the logs proving which route was taken and that artefacts are created by Supervisor.
+
+Do not give theory. Use file paths and show the exact branch conditions.
