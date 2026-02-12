@@ -1065,21 +1065,6 @@ function SequenceStatusRow({ status, clientRequestId, runId, towerVerdict, tower
               }
             }
 
-            if (clientRequestId) {
-              const streamRes = await fetch(`/api/afr/stream?client_request_id=${encodeURIComponent(clientRequestId)}`);
-              if (streamRes.ok) {
-                const streamData = await streamRes.json();
-                const hasVerdictEvent = (streamData.events || []).some((e: any) => 
-                  e.type === 'tower_verdict' || e.type === 'tower_judgement' || e.type === 'judgement_received'
-                );
-                if (hasVerdictEvent) {
-                  setPollStatus('success');
-                  setRerunRequested(false);
-                  return;
-                }
-              }
-            }
-
             if (attempts >= maxAttempts) {
               setPollStatus('error');
               setRerunRequested(false);
@@ -1159,7 +1144,7 @@ function SequenceStatusRow({ status, clientRequestId, runId, towerVerdict, tower
               disabled={rerunRequested}
             >
               <RefreshCw className={cn("h-3 w-3", rerunRequested && "animate-spin")} />
-              {rerunRequested ? 'Requested' : 'Request judgement'}
+              {rerunRequested ? 'Requested' : 'Manual: Request judgement'}
             </Button>
           )}
           {showViewResults && (
@@ -1399,21 +1384,36 @@ function isTerminalEvent(event: StreamEvent, index: number, events: StreamEvent[
   return false;
 }
 
-function TruthStrip({ events }: { events: StreamEvent[] }) {
-  const isProof = events.some(e => {
-    const meta = (e as any).metadata || (e.details as any)?.metadata;
-    return meta?.proof === true;
-  });
-  if (!isProof) return null;
+function TruthStrip({ runId }: { runId?: string | null }) {
+  const [dbArtefacts, setDbArtefacts] = useState<Array<{ type: string; created_at?: string }>>([]);
+  const [fetchState, setFetchState] = useState<'idle' | 'loading' | 'done' | 'error'>('idle');
 
-  const hasArtefact = events.some(e => e.type === 'artefact_created' || e.type === 'artifact_created');
-  const hasTowerVerdict = events.some(e => e.type === 'tower_verdict' || e.type === 'tower_judgement' || e.type === 'judgement_received');
-  const hasRunCompleted = events.some(e => e.type === 'run_completed');
+  useEffect(() => {
+    if (!runId) { setFetchState('idle'); setDbArtefacts([]); return; }
+    let cancelled = false;
+    setFetchState('loading');
+    fetch(`/api/afr/artefacts?runId=${encodeURIComponent(runId)}`)
+      .then(r => r.ok ? r.json() : Promise.reject(r.status))
+      .then((rows: any[]) => {
+        if (cancelled) return;
+        setDbArtefacts(Array.isArray(rows) ? rows : []);
+        setFetchState('done');
+      })
+      .catch(() => { if (!cancelled) setFetchState('error'); });
+    return () => { cancelled = true; };
+  }, [runId]);
+
+  if (!runId || fetchState === 'idle' || fetchState === 'loading') return null;
+
+  const artefactTypes = new Set(dbArtefacts.map(a => a.type));
+  const hasArtefact = artefactTypes.has('leads_list') || artefactTypes.has('plan_result') || artefactTypes.has('step_result') || artefactTypes.has('deep_research_result') || artefactTypes.has('run_summary');
+  const hasTowerVerdict = artefactTypes.has('tower_judgement');
+  const hasRunStored = dbArtefacts.length > 0;
 
   const indicators = [
-    { label: 'Artefact', ok: hasArtefact },
-    { label: 'Tower verdict', ok: hasTowerVerdict },
-    { label: 'Run stored', ok: hasRunCompleted },
+    { label: 'Artefact persisted', ok: hasArtefact, missing: 'Not persisted' },
+    { label: 'Tower verdict', ok: hasTowerVerdict, missing: 'Missing' },
+    { label: 'Run stored', ok: hasRunStored, missing: 'Not persisted' },
   ];
 
   return (
@@ -1421,26 +1421,29 @@ function TruthStrip({ events }: { events: StreamEvent[] }) {
       <div className="flex items-center gap-1 mb-1">
         <Eye className="h-3 w-3 text-purple-500" />
         <span className="text-[10px] font-semibold text-purple-700 dark:text-purple-300 uppercase tracking-wide">
-          Proof Truth Strip
+          DB Truth Strip
         </span>
       </div>
       <div className="flex items-center gap-3">
-        {indicators.map(({ label, ok }) => (
+        {indicators.map(({ label, ok, missing }) => (
           <div key={label} className="flex items-center gap-1">
             {ok ? (
               <CheckCircle2 className="h-3 w-3 text-green-500" />
             ) : (
-              <Clock className="h-3 w-3 text-amber-500 animate-pulse" />
+              <XCircle className="h-3 w-3 text-red-400" />
             )}
             <span className={cn(
               "text-[10px] font-medium",
-              ok ? "text-green-700 dark:text-green-300" : "text-amber-700 dark:text-amber-300"
+              ok ? "text-green-700 dark:text-green-300" : "text-red-600 dark:text-red-400"
             )}>
-              {label}
+              {ok ? label : `${label}: ${missing}`}
             </span>
           </div>
         ))}
       </div>
+      {fetchState === 'error' && (
+        <p className="text-[10px] text-red-500 mt-1">Failed to fetch artefacts from DB</p>
+      )}
     </div>
   );
 }
@@ -2094,31 +2097,8 @@ function deriveTowerAwareStatus(events: StreamEvent[], serverTerminalState: 'com
     }
   }
 
-  if (!hasTowerJudgementArtefact) {
-    for (const e of events) {
-      const t = e.type?.toLowerCase() || '';
-      const action = e.details?.action?.toLowerCase() || '';
-
-      if (t === 'tower_judgement' || t === 'judgement_received' || t === 'tower_evaluation_completed' || t === 'tower_verdict') {
-        hasTowerJudgement = true;
-        const results = e.details?.results;
-        if (results) {
-          try {
-            const parsed = JSON.parse(results);
-            if (parsed.verdict) lastTowerVerdict = parsed.verdict.toLowerCase();
-          } catch {}
-        }
-        const directVerdict = (e.details as any)?.verdict;
-        if (directVerdict && typeof directVerdict === 'string') {
-          lastTowerVerdict = directVerdict.toLowerCase();
-        }
-        if (action.includes('stop')) lastTowerVerdict = 'stop';
-        if (action.includes('change_plan')) lastTowerVerdict = 'change_plan';
-      }
-      if (t === 'tower_decision_stop') { hasTowerJudgement = true; lastTowerVerdict = 'stop'; }
-      if (t === 'tower_decision_change_plan') { hasTowerJudgement = true; lastTowerVerdict = 'change_plan'; }
-    }
-  }
+  // Tower verdict is ONLY derived from DB artefact rows (polledArtefacts).
+  // SSE activity events are NOT used — they are observability signals, not truth.
 
   for (const e of events) {
     const t = e.type?.toLowerCase() || '';
@@ -2900,7 +2880,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
             )}
             
             {effectiveTerminal && allRevealed && !transientPhase && (
-              <TruthStrip events={displayEvents} />
+              <TruthStrip runId={canonicalRunId || stream?.run_id} />
             )}
             
             {effectiveTerminal && allRevealed && !transientPhase && (mappedStatus === 'completed' || mappedStatus === 'failed' || mappedStatus === 'stopped' || mappedStatus === 'awaiting_judgement' || mappedStatus === 'replanning') && (
