@@ -1106,9 +1106,11 @@ function SequenceStatusRow({ status, clientRequestId, runId, towerVerdict, tower
 
   const config: Record<string, { icon: typeof CheckCircle2; label: string; className: string }> = {
     completed: { 
-      icon: towerMissing ? AlertTriangle : CheckCircle2, 
-      label: towerMissing ? "No Tower judgement yet" : "Sequence complete", 
-      className: towerMissing ? "text-amber-500/70" : "text-green-500/70" 
+      icon: CheckCircle2, 
+      label: towerVerdict
+        ? `Sequence complete — Tower: ${towerVerdict.toUpperCase()}`
+        : "Sequence complete", 
+      className: "text-green-500/70" 
     },
     failed: { 
       icon: XCircle, 
@@ -1122,14 +1124,12 @@ function SequenceStatusRow({ status, clientRequestId, runId, towerVerdict, tower
     },
     awaiting_judgement: { 
       icon: Brain, 
-      label: judgementTimedOut
-        ? "Judgement missing"
-        : chatMode
+      label: chatMode
           ? "Tower pending"
           : towerVerdict && towerVerdict !== 'accept'
             ? `Awaiting judgement (verdict: ${towerVerdict})`
             : "Awaiting Tower judgement", 
-      className: judgementTimedOut ? "text-orange-500/70" : "text-purple-500/70" 
+      className: "text-purple-500/70" 
     },
     replanning: { 
       icon: ListChecks, 
@@ -1154,17 +1154,12 @@ function SequenceStatusRow({ status, clientRequestId, runId, towerVerdict, tower
             <Button
               variant="outline"
               size="sm"
-              className={cn(
-                "h-6 text-xs px-2 gap-1",
-                judgementTimedOut
-                  ? "border-orange-300 text-orange-600 hover:bg-orange-50 dark:border-orange-700 dark:text-orange-400 dark:hover:bg-orange-900/20"
-                  : "border-purple-300 text-purple-600 hover:bg-purple-50 dark:border-purple-700 dark:text-purple-400 dark:hover:bg-purple-900/20"
-              )}
+              className="h-6 text-xs px-2 gap-1 border-purple-300 text-purple-600 hover:bg-purple-50 dark:border-purple-700 dark:text-purple-400 dark:hover:bg-purple-900/20"
               onClick={handleRerunJudgement}
               disabled={rerunRequested}
             >
               <RefreshCw className={cn("h-3 w-3", rerunRequested && "animate-spin")} />
-              {rerunRequested ? 'Requested' : judgementTimedOut ? 'Judgement missing - Retry' : 'Request judgement'}
+              {rerunRequested ? 'Requested' : 'Request judgement'}
             </Button>
           )}
           {showViewResults && (
@@ -1184,10 +1179,10 @@ function SequenceStatusRow({ status, clientRequestId, runId, towerVerdict, tower
           )}
         </div>
       </div>
-      {judgementTimedOut && pollStatus !== 'polling' && pollStatus !== 'success' && (
+      {towerMissing && judgementTimedOut && pollStatus !== 'polling' && pollStatus !== 'success' && (
         <div className="px-1 pb-1">
-          <p className="text-[10px] text-orange-500/80">
-            Tower judgement not received after 30s. Results may still be available.
+          <p className="text-[10px] text-muted-foreground/70">
+            Tower evaluation in progress. Results may still be available.
           </p>
         </div>
       )}
@@ -1203,7 +1198,7 @@ function SequenceStatusRow({ status, clientRequestId, runId, towerVerdict, tower
         <div className="px-1 pb-1 flex items-center gap-1.5">
           <CheckCircle2 className="h-3 w-3 text-green-500" />
           <p className="text-[10px] text-green-600 dark:text-green-400">
-            Tower verdict received. Refresh to see results.
+            Tower verdict received.
           </p>
         </div>
       )}
@@ -2069,20 +2064,20 @@ function deriveTowerAwareStatus(events: StreamEvent[], serverTerminalState: 'com
   let hasTowerJudgement = false;
   let hasToolCompleted = false;
   let isLeadRun = false;
-  let hasTowerEvents = false;
+  let hasTowerJudgementArtefact = false;
 
   const LEAD_ARTEFACT_TYPES = ['leads_list', 'plan_result'];
+
   if (artefacts?.length) {
     isLeadRun = artefacts.some(a => LEAD_ARTEFACT_TYPES.includes(a.type));
     const towerArtefact = artefacts.find(a => a.type === 'tower_judgement');
     if (towerArtefact) {
       hasTowerJudgement = true;
-      hasTowerEvents = true;
+      hasTowerJudgementArtefact = true;
       const p = towerArtefact.payload_json;
       if (p?.verdict && typeof p.verdict === 'string') {
         lastTowerVerdict = p.verdict.toLowerCase();
       }
-      console.log('[deriveTowerAwareStatus] Found tower_judgement in artefacts, verdict:', lastTowerVerdict);
     }
   }
 
@@ -2099,32 +2094,34 @@ function deriveTowerAwareStatus(events: StreamEvent[], serverTerminalState: 'com
     }
   }
 
+  if (!hasTowerJudgementArtefact) {
+    for (const e of events) {
+      const t = e.type?.toLowerCase() || '';
+      const action = e.details?.action?.toLowerCase() || '';
+
+      if (t === 'tower_judgement' || t === 'judgement_received' || t === 'tower_evaluation_completed' || t === 'tower_verdict') {
+        hasTowerJudgement = true;
+        const results = e.details?.results;
+        if (results) {
+          try {
+            const parsed = JSON.parse(results);
+            if (parsed.verdict) lastTowerVerdict = parsed.verdict.toLowerCase();
+          } catch {}
+        }
+        const directVerdict = (e.details as any)?.verdict;
+        if (directVerdict && typeof directVerdict === 'string') {
+          lastTowerVerdict = directVerdict.toLowerCase();
+        }
+        if (action.includes('stop')) lastTowerVerdict = 'stop';
+        if (action.includes('change_plan')) lastTowerVerdict = 'change_plan';
+      }
+      if (t === 'tower_decision_stop') { hasTowerJudgement = true; lastTowerVerdict = 'stop'; }
+      if (t === 'tower_decision_change_plan') { hasTowerJudgement = true; lastTowerVerdict = 'change_plan'; }
+    }
+  }
+
   for (const e of events) {
     const t = e.type?.toLowerCase() || '';
-    const action = e.details?.action?.toLowerCase() || '';
-
-    if (t.startsWith('tower_') || t === 'judgement_received') {
-      hasTowerEvents = true;
-    }
-
-    if (t === 'tower_judgement' || t === 'judgement_received' || t === 'tower_evaluation_completed' || t === 'tower_verdict') {
-      hasTowerJudgement = true;
-      const results = e.details?.results;
-      if (results) {
-        try {
-          const parsed = JSON.parse(results);
-          if (parsed.verdict) lastTowerVerdict = parsed.verdict.toLowerCase();
-        } catch {}
-      }
-      const directVerdict = (e.details as any)?.verdict;
-      if (directVerdict && typeof directVerdict === 'string') {
-        lastTowerVerdict = directVerdict.toLowerCase();
-      }
-      if (action.includes('stop')) lastTowerVerdict = 'stop';
-      if (action.includes('change_plan')) lastTowerVerdict = 'change_plan';
-    }
-    if (t === 'tower_decision_stop') { hasTowerJudgement = true; hasTowerEvents = true; lastTowerVerdict = 'stop'; }
-    if (t === 'tower_decision_change_plan') { hasTowerJudgement = true; hasTowerEvents = true; lastTowerVerdict = 'change_plan'; }
     if (t === 'run_completed') hasRunCompleted = true;
     if (t === 'run_stopped' || t === 'plan_execution_halted') hasRunStopped = true;
     if (t === 'tool_call_completed') hasToolCompleted = true;
@@ -2145,18 +2142,9 @@ function deriveTowerAwareStatus(events: StreamEvent[], serverTerminalState: 'com
   const isTerminal = serverTerminalState === 'completed' || hasRunCompleted;
 
   if (isTerminal) {
-    if (hasTowerJudgement && lastTowerVerdict === 'accept') {
-      return { towerVerdict: lastTowerVerdict, derivedStatus: 'completed', isLeadRun, towerMissing: false };
-    }
-
     if (hasTowerJudgement) {
       return { towerVerdict: lastTowerVerdict, derivedStatus: 'completed', isLeadRun, towerMissing: false };
     }
-
-    if (hasRunCompleted || serverTerminalState === 'completed') {
-      return { towerVerdict: lastTowerVerdict, derivedStatus: 'completed', isLeadRun, towerMissing: true };
-    }
-
     return { towerVerdict: lastTowerVerdict, derivedStatus: 'completed', isLeadRun, towerMissing: true };
   }
 
@@ -2347,7 +2335,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
     };
   }, [activeClientRequestId]);
 
-  const effectiveRunIdForPolling = canonicalRunId || (stream?.run_id && /^[0-9a-f]{8}-/.test(stream.run_id) ? stream.run_id : null);
+  const effectiveRunIdForPolling = canonicalRunId;
   const hasTowerInPolled = polledArtefacts.some(a => a.type === 'tower_judgement');
   useEffect(() => {
     if (artefactPollRef.current) {
@@ -2358,7 +2346,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
     if (!effectiveRunIdForPolling || hasTowerInPolled) return;
 
     artefactPollStartRef.current = Date.now();
-    console.log(`[ArtefactPoll] Starting auto-poll for runId=${effectiveRunIdForPolling} (canonical=${canonicalRunId || 'n/a'} stream=${stream?.run_id || 'n/a'})`);
+    console.log(`[ArtefactPoll] Starting auto-poll for canonicalRunId=${effectiveRunIdForPolling} (stream.run_id=${stream?.run_id || 'n/a'})`);
 
     const stopPoll = () => {
       if (artefactPollRef.current) {
@@ -2817,21 +2805,16 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
               </span>
             )}
             <StatusBadge status={mappedStatus} />
-            {hasEvents && (effectiveTerminal || towerAware.towerVerdict) && (
+            {hasEvents && (effectiveTerminal || towerAware.towerVerdict) && !towerAware.towerMissing && (
               <span className={cn(
                 "px-1.5 py-0.5 rounded text-[10px] font-medium",
-                towerAware.towerMissing
-                  ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
-                  : towerAware.towerVerdict === 'accept'
-                    ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200"
-                    : towerAware.towerVerdict === 'stop'
-                      ? "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-200"
-                      : "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-200"
+                towerAware.towerVerdict === 'accept'
+                  ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200"
+                  : towerAware.towerVerdict === 'stop'
+                    ? "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-200"
+                    : "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-200"
               )}>
-                {towerAware.towerMissing
-                  ? '[Tower] No judgement yet'
-                  : `[Tower] ${(towerAware.towerVerdict || 'unknown').toUpperCase()}`
-                }
+                Tower: {(towerAware.towerVerdict || 'evaluated').toUpperCase()}
               </span>
             )}
             {lastFetch && (
