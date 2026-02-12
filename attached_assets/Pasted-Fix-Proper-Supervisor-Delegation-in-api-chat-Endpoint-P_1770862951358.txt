@@ -1,0 +1,237 @@
+Fix: Proper Supervisor Delegation in /api/chat Endpoint
+Problem
+The UI currently creates a supervisor_tasks entry BUT then continues to execute the work itself (Google Places, leads creation, etc.), resulting in:
+
+No Tower judgement (because Supervisor never processes the task)
+Instant completion (no agent loop orchestration)
+"Request judgement" button required
+
+Solution
+Return immediately after creating supervisor_tasks and let Supervisor handle everything.
+
+File: server/routes.ts
+Location: /api/chat endpoint (approximately lines 1388-1441)
+BEFORE (Current Broken Code):
+typescript// Around line 1391 - after intent detection
+if (intentResult.requiresSupervisor) {
+  console.log('[Chat] Requires supervisor, creating task...');
+  
+  const taskId = await createSupervisorTask(
+    conversationId,
+    userId,
+    intentResult.taskType,
+    {
+      user_message: latestUserText,
+      search_query: intentResult.metadata?.searchQuery,
+      run_id: agentRunId,
+      client_request_id: clientRequestId
+    },
+    {
+      runId: agentRunId,
+      clientRequestId: clientRequestId
+    }
+  );
+  
+  console.log('[Chat] Supervisor task created:', taskId);
+  
+  // ❌ PROBLEM: Code continues here instead of returning
+  // The UI then does Google Places call, creates leads_list, etc.
+}
+
+// ❌ This code below still executes even when supervisor is required:
+const placesResults = await callGooglePlaces(...);  // Line ~1450
+await createArtefact('leads_list', ...);            // Line ~1480
+await persistChatArtefact(...);                      // Line ~3764
+await logRunCompleted(...);                          // Line ~3758
+AFTER (Fixed Code):
+typescript// Around line 1391 - after intent detection
+if (intentResult.requiresSupervisor) {
+  console.log('[Chat] Requires supervisor, creating task...');
+  
+  const taskId = await createSupervisorTask(
+    conversationId,
+    userId,
+    intentResult.taskType,
+    {
+      user_message: latestUserText,
+      search_query: intentResult.metadata?.searchQuery,
+      run_id: agentRunId,
+      client_request_id: clientRequestId
+    },
+    {
+      runId: agentRunId,
+      clientRequestId: clientRequestId
+    }
+  );
+  
+  console.log('[Chat] Supervisor task created:', taskId);
+  
+  // ✅ NEW: Stream delegation message to user
+  res.write(`data: ${JSON.stringify({
+    type: 'message',
+    content: 'Task delegated to Supervisor for execution. The Supervisor will handle tool calls, Tower evaluation, and results delivery.',
+    role: 'assistant'
+  })}\n\n`);
+  
+  // ✅ NEW: Log delegation activity
+  await logActivity({
+    runType: 'supervisor_delegation',
+    runId: agentRunId,
+    clientRequestId: clientRequestId,
+    conversationId,
+    userId,
+    status: 'delegated',
+    metadata: {
+      taskId,
+      taskType: intentResult.taskType,
+      message: 'Chat request delegated to Supervisor backend'
+    }
+  });
+  
+  // ✅ NEW: Mark run as "processing" (not completed)
+  await supabase
+    .from('agent_runs')
+    .update({ 
+      status: 'processing',
+      updated_at: new Date().toISOString()
+    })
+    .eq('id', agentRunId);
+  
+  // ✅ NEW: Close the SSE stream
+  res.write(`data: [DONE]\n\n`);
+  res.end();
+  
+  // ✅ CRITICAL: Return immediately - DO NOT execute any code below
+  return;
+}
+
+// ✅ Everything below this point now ONLY runs for non-supervisor messages
+// (simple chat, clarifications, etc.)
+
+Additional Changes Required
+1. Remove Duplicate Logic After the if (requiresSupervisor) Block
+All of these should NOT execute when requiresSupervisor is true:
+typescript// ❌ DELETE or move behind the return statement:
+
+// Line ~1450 - Google Places call
+const placesResults = await fetch('https://maps.googleapis.com/...');
+
+// Line ~1480 - leads_list artefact creation  
+await supabase.from('artefacts').insert({
+  run_id: agentRunId,
+  type: 'leads_list',
+  // ...
+});
+
+// Line ~3758 - Run completion
+await logRunCompleted({
+  runId: agentRunId,
+  // ...
+});
+
+// Line ~3764 - Chat artefact persistence
+await persistChatArtefact({
+  runId: agentRunId,
+  // ...
+});
+These should only execute for simple chat messages that don't require Supervisor.
+
+2. Update Status Tracking
+Since the run is now "processing" (not "completed"), the UI must poll for completion:
+File: client/src/pages/chat.tsx
+Location: Inside streamChatResponse() function
+typescript// After receiving [DONE] from SSE stream:
+
+// ✅ NEW: If response indicated supervisor delegation, start polling
+const wasDelegated = /* check if delegation message was received */;
+
+if (wasDelegated) {
+  console.log('[Chat] Starting polling for Supervisor completion...');
+  
+  // Poll agent_runs table every 3 seconds
+  const pollInterval = setInterval(async () => {
+    const { data: run } = await fetch(`/api/runs/${runId}`).then(r => r.json());
+    
+    if (run.status === 'completed' || run.status === 'failed') {
+      clearInterval(pollInterval);
+      
+      // Refresh activity log and artefacts
+      // The LiveActivityPanel will automatically pick up tower_judgement
+      setRefreshTrigger(Date.now());
+    }
+  }, 3000);
+  
+  // Clear interval after 5 minutes (safety timeout)
+  setTimeout(() => clearInterval(pollInterval), 300000);
+}
+
+Expected Behavior After Fix
+Test Case: "find 15 pubs in manchester"
+Timeline:
+[00:00] User hits Enter
+├─ UI creates supervisor_tasks row
+├─ UI streams: "Task delegated to Supervisor..."
+├─ UI shows: "⏳ Supervisor processing..." (loading state)
+└─ SSE stream closes
+
+[00:15] (Supervisor polls every ~15 seconds)
+├─ Supervisor picks up supervisor_tasks row
+├─ Sets status: pending → processing
+├─ Logs AFR: mission_received
+
+[00:18] Supervisor executes search
+├─ Calls Google Places API
+├─ Creates leads_list artefact
+├─ Logs AFR: tool_call_started, tool_call_completed
+
+[00:21] Supervisor calls Tower
+├─ POST /api/tower/judge-artefact
+├─ Receives verdict: { verdict: "pass", action: "continue" }
+├─ Creates tower_judgement artefact in Supabase
+├─ Logs AFR: tower_call_started, tower_verdict
+├─ Reacts to verdict: ACCEPT
+
+[00:22] Supervisor completes run
+├─ Updates agent_runs.status = 'completed'
+├─ Logs AFR: run_completed
+
+[00:22] UI polling detects completion
+├─ Fetches /api/afr/artefacts?runId=...
+├─ Finds tower_judgement artefact
+├─ LiveActivityPanel shows: "✓ Pass: 15/15 delivered (100%)"
+└─ ✅ NO "Request judgement" button needed
+Key indicators that it's working:
+
+⏱️ 15-30 second delay between message send and completion
+🔄 "Processing..." state visible in UI
+📊 Tower judgement appears automatically without manual click
+📝 AFR events show full sequence: mission → tool → tower → verdict → completion
+
+
+Verification Commands
+After deploying the fix:
+bash# 1. Check supervisor_tasks table
+psql $DATABASE_URL -c "SELECT id, status, task_type, created_at FROM supervisor_tasks ORDER BY created_at DESC LIMIT 5;"
+
+# Should show: status changing from 'pending' → 'processing' → 'completed'
+
+# 2. Check artefacts table
+psql $DATABASE_URL -c "SELECT run_id, type, title FROM artefacts WHERE run_id = '<your-run-id>' ORDER BY created_at;"
+
+# Should show BOTH:
+# - leads_list artefact (from Supervisor)
+# - tower_judgement artefact (from Supervisor after Tower call)
+
+# 3. Check AFR events
+curl "http://localhost:3000/api/afr/stream?client_request_id=<your-crid>" | grep "tower"
+
+# Should show:
+# - tower_call_started
+# - tower_verdict
+
+Rollback Plan
+If this breaks anything:
+
+Comment out the return; statement
+The UI will fall back to doing work itself (current behavior)
+Manual "Request judgement" button still works as safety net

@@ -1437,21 +1437,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
             // OPTION A: Delegate fully to Supervisor — RETURN immediately.
             // Supervisor handles the full agent loop: tools → artefacts → Tower → AFR.
             // No UI-side execution (no Google Places, no leads_list, no persistChatArtefact, no logRunCompleted).
-            const delegateMsg = `I've submitted your request to the Supervisor. It will find the results, evaluate them with Tower, and deliver the verdict automatically.`;
+
+            // Transition agent_runs to 'executing' so UI shows processing state
+            if (clientRequestId) {
+              await transitionRunToExecuting(clientRequestId);
+            }
+
+            // Log delegation activity in AFR
+            await logRouterDecision({
+              userId: user.id,
+              conversationId,
+              clientRequestId: clientRequestId || '',
+              decision: 'supervisor_plan',
+              reason: `Delegated ${intentResult.taskType} to Supervisor — full agent loop (tools → artefacts → Tower → AFR)`,
+              signals: {
+                taskId: supervisorTask.id,
+                taskType: intentResult.taskType,
+                delegationMode: 'option_a_full',
+                runId: agentRunId || runId,
+              },
+            }).catch(err => console.error('AFR delegation log error:', err.message));
+
+            const delegateMsg = `Task delegated to Supervisor for execution. The Supervisor will handle tool calls, Tower evaluation, and results delivery.`;
             appendMessage(sessionId, { role: "assistant", content: delegateMsg });
             await saveMessage(conversationId, "assistant", delegateMsg);
 
-            emitSse({
-              type: 'status',
-              stage: 'executing',
-              message: 'Delegated to Supervisor',
-              clientRequestId: clientRequestId || undefined,
-              conversationId,
-            });
+            // Stream delegation message in format client expects
+            res.write(`data: ${JSON.stringify({
+              type: 'message',
+              content: delegateMsg,
+              role: 'assistant'
+            })}\n\n`);
 
-            res.write(`data: ${JSON.stringify({ content: delegateMsg })}\n\n`);
+            // Close SSE stream — CRITICAL: return immediately, no downstream execution
             res.write(`data: [DONE]\n\n`);
-            return res.end();
+            res.end();
+            return;
           }
         } catch (error: any) {
           console.error('❌ Supervisor integration error:', error);
