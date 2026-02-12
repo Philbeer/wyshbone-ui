@@ -2188,6 +2188,8 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
   const [minVisibleHold, setMinVisibleHold] = useState(false);
   const [postTerminalHold, setPostTerminalHold] = useState(false);
   const [polledArtefacts, setPolledArtefacts] = useState<Array<{ type: string; payload_json?: any }>>([]);
+  const [canonicalRunId, setCanonicalRunId] = useState<string | null>(null);
+  const [canonicalRunIdStatus, setCanonicalRunIdStatus] = useState<'idle' | 'loading' | 'found' | 'not_found' | 'error'>('idle');
   const artefactPollRef = useRef<NodeJS.Timeout | null>(null);
   const artefactPollStartRef = useRef<number | null>(null);
   const minVisibleTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -2290,7 +2292,62 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
     fetchStream();
   }, [fetchStream]);
 
-  const runIdForPolling = stream?.run_id;
+  useEffect(() => {
+    if (!activeClientRequestId) {
+      setCanonicalRunId(null);
+      setCanonicalRunIdStatus('idle');
+      return;
+    }
+
+    let cancelled = false;
+    let retryInterval: NodeJS.Timeout | null = null;
+    let resolved = false;
+    const startedAt = Date.now();
+    setCanonicalRunIdStatus('loading');
+
+    const resolve = async () => {
+      if (resolved || cancelled) return;
+      if (Date.now() - startedAt > 30_000) {
+        console.log('[CanonicalRunId] Timeout (30s), stopping retries');
+        if (retryInterval) { clearInterval(retryInterval); retryInterval = null; }
+        return;
+      }
+      try {
+        const resp = await fetch(`/api/afr/run-id?crid=${encodeURIComponent(activeClientRequestId)}`);
+        if (cancelled) return;
+        if (!resp.ok) {
+          setCanonicalRunIdStatus('error');
+          return;
+        }
+        const data = await resp.json();
+        if (cancelled) return;
+        if (data.runId) {
+          console.log(`[CanonicalRunId] Resolved crid=${activeClientRequestId.slice(0, 12)}... → runId=${data.runId}`);
+          setCanonicalRunId(data.runId);
+          setCanonicalRunIdStatus('found');
+          resolved = true;
+          if (retryInterval) { clearInterval(retryInterval); retryInterval = null; }
+        } else {
+          setCanonicalRunIdStatus('not_found');
+        }
+      } catch (err) {
+        if (!cancelled) {
+          console.warn('[CanonicalRunId] Error resolving:', err);
+          setCanonicalRunIdStatus('error');
+        }
+      }
+    };
+
+    resolve();
+    retryInterval = setInterval(resolve, 3000);
+
+    return () => {
+      cancelled = true;
+      if (retryInterval) clearInterval(retryInterval);
+    };
+  }, [activeClientRequestId]);
+
+  const effectiveRunIdForPolling = canonicalRunId || (stream?.run_id && /^[0-9a-f]{8}-/.test(stream.run_id) ? stream.run_id : null);
   const hasTowerInPolled = polledArtefacts.some(a => a.type === 'tower_judgement');
   useEffect(() => {
     if (artefactPollRef.current) {
@@ -2298,36 +2355,52 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
       artefactPollRef.current = null;
     }
 
-    if (!runIdForPolling || hasTowerInPolled) return;
+    if (!effectiveRunIdForPolling || hasTowerInPolled) return;
 
     artefactPollStartRef.current = Date.now();
-    console.log(`[ArtefactPoll] Starting auto-poll for runId=${runIdForPolling}`);
+    console.log(`[ArtefactPoll] Starting auto-poll for runId=${effectiveRunIdForPolling} (canonical=${canonicalRunId || 'n/a'} stream=${stream?.run_id || 'n/a'})`);
+
+    const stopPoll = () => {
+      if (artefactPollRef.current) {
+        clearInterval(artefactPollRef.current);
+        artefactPollRef.current = null;
+      }
+    };
 
     const poll = async () => {
       try {
         const elapsed = Date.now() - (artefactPollStartRef.current || Date.now());
         if (elapsed > 90_000) {
           console.log('[ArtefactPoll] Timeout reached (90s), stopping poll');
-          if (artefactPollRef.current) {
-            clearInterval(artefactPollRef.current);
-            artefactPollRef.current = null;
-          }
+          stopPoll();
           return;
         }
 
-        const url = `/api/afr/artefacts?runId=${encodeURIComponent(runIdForPolling)}`;
-        const resp = await fetch(url);
-        if (!resp.ok) return;
-        const rows = await resp.json();
+        const [artefactResp, statusResp] = await Promise.all([
+          fetch(`/api/afr/artefacts?runId=${encodeURIComponent(effectiveRunIdForPolling)}`),
+          activeClientRequestId
+            ? fetch(`/api/afr/run-id?crid=${encodeURIComponent(activeClientRequestId)}`)
+            : Promise.resolve(null),
+        ]);
+
+        let runStatus: string | null = null;
+        if (statusResp && statusResp.ok) {
+          const statusData = await statusResp.json();
+          runStatus = statusData.status;
+        }
+
+        if (!artefactResp.ok) return;
+        const rows = await artefactResp.json();
         if (Array.isArray(rows) && rows.length > 0) {
-          console.log(`[ArtefactPoll] Got ${rows.length} artefact(s) — types: [${rows.map((r: any) => r.type).join(', ')}]`);
+          console.log(`[ArtefactPoll] Got ${rows.length} artefact(s) — types: [${rows.map((r: any) => r.type).join(', ')}] runStatus=${runStatus}`);
           setPolledArtefacts(rows);
-          if (rows.some((r: any) => r.type === 'tower_judgement')) {
+          const hasTower = rows.some((r: any) => r.type === 'tower_judgement');
+          if (hasTower) {
             console.log('[ArtefactPoll] tower_judgement found, stopping poll');
-            if (artefactPollRef.current) {
-              clearInterval(artefactPollRef.current);
-              artefactPollRef.current = null;
-            }
+            stopPoll();
+          } else if (runStatus === 'completed' || runStatus === 'failed' || runStatus === 'stopped') {
+            console.log(`[ArtefactPoll] Run is ${runStatus}, stopping poll (no tower judgement)`);
+            stopPoll();
           }
         }
       } catch (err) {
@@ -2344,7 +2417,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
         artefactPollRef.current = null;
       }
     };
-  }, [runIdForPolling, hasTowerInPolled]);
+  }, [effectiveRunIdForPolling, hasTowerInPolled]);
 
   useEffect(() => {
     if (activeClientRequestId && activeClientRequestId !== prevActiveIdRef.current) {
@@ -2848,7 +2921,15 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
             )}
             
             {effectiveTerminal && allRevealed && !transientPhase && (mappedStatus === 'completed' || mappedStatus === 'failed' || mappedStatus === 'stopped' || mappedStatus === 'awaiting_judgement' || mappedStatus === 'replanning') && (
-              <SequenceStatusRow status={mappedStatus as any} clientRequestId={activeClientRequestId} runId={stream?.run_id} towerVerdict={towerAware.towerVerdict} towerMissing={towerAware.towerMissing} chatMode={towerLoopChatMode} />
+              <SequenceStatusRow status={mappedStatus as any} clientRequestId={activeClientRequestId} runId={canonicalRunId || stream?.run_id} towerVerdict={towerAware.towerVerdict} towerMissing={towerAware.towerMissing} chatMode={towerLoopChatMode} />
+            )}
+            {IS_DEV && activeClientRequestId && (
+              <div className="mt-1 px-2 py-1 rounded bg-gray-100 dark:bg-gray-800/50 text-[10px] font-mono text-muted-foreground/70 space-y-0.5">
+                <div>crid: {activeClientRequestId.slice(0, 16)}...</div>
+                <div>streamRunId: {stream?.run_id || 'n/a'}</div>
+                <div>canonicalRunId: {canonicalRunId || `(${canonicalRunIdStatus})`}</div>
+                <div>pollingWith: {effectiveRunIdForPolling || 'none'}</div>
+              </div>
             )}
             
             {isWorking && (

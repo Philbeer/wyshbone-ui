@@ -1,0 +1,94 @@
+You are in the Wyshbone UI repo. Implement the correct dynamic mapping so Live Activity always shows Tower judgement for the current run, without any hardcoded IDs.
+
+Problem
+
+Live Activity sometimes shows a runId like plan_1770... (not a UUID). But the artefacts table stores artefacts under run_id = agent_runs.id (UUID). So polling /api/afr/artefacts?runId=plan_... will never return tower_judgement even when it exists.
+
+Required behaviour (source of truth)
+
+For any run shown in Live Activity:
+
+The client_request_id (crid) is present.
+
+The canonical UUID run id is: agent_runs.id where agent_runs.client_request_id = crid.
+
+All artefact fetching and tower judgement detection must use that UUID.
+
+Implement
+
+In LiveActivityPanel, add state:
+
+canonicalRunId: string | null
+
+canonicalRunIdStatus: 'idle'|'loading'|'found'|'not_found'|'error'
+
+Whenever activeClientRequestId changes:
+
+Fetch canonical run id:
+
+Query Supabase agent_runs by client_request_id = activeClientRequestId
+
+Select id, status, created_at
+
+Choose the most recent matching row if multiple exist
+
+Set canonicalRunId = row.id (UUID)
+
+Artefacts polling
+
+Poll /api/afr/artefacts?runId=<canonicalRunId> every 3s for up to 90s
+
+Stop polling when:
+
+tower_judgement artefact appears, OR
+
+run status becomes completed and judgement exists, OR
+
+timeout
+
+Never poll using stream.run_id if it is not a UUID (eg starts with plan_)
+
+Tower judgement display logic
+
+Update deriveTowerAwareStatus(...) call so the artefacts parameter is the polled artefacts (not undefined)
+
+Determine “Tower missing” using:
+
+stream events (if present) OR
+
+presence of artefacts.some(a => a.type === 'tower_judgement')
+
+Add debug visibility (important)
+In the run details UI, show:
+
+crid
+
+streamRunId (whatever /api/afr/stream returns)
+
+canonicalRunId (UUID resolved from agent_runs)
+This makes it obvious which id is being used.
+
+Where to implement the lookup
+
+Preferred: add a UI backend endpoint:
+
+GET /api/afr/run-id?crid=<crid>
+
+It queries Supabase agent_runs and returns { runId: <uuid>, status }
+Then LiveActivityPanel calls this endpoint.
+
+Do NOT use service role keys in the browser.
+
+Acceptance criteria
+
+On a brand new chat run, Live Activity automatically resolves canonicalRunId from the current crid.
+
+Tower judgement appears automatically once created, without clicking “Request judgement”.
+
+Works regardless of whether stream.run_id looks like plan_... or a UUID.
+
+No hardcoded IDs anywhere.
+
+Deliver:
+
+Rewrite full changed files for copy/paste.

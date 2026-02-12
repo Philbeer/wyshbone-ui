@@ -420,6 +420,35 @@ export function createAfrRouter(_storage: typeof storage) {
     }
   });
 
+  router.get("/run-id", async (req, res) => {
+    try {
+      const crid = req.query.crid as string | undefined;
+      if (!crid) {
+        return res.status(400).json({ error: "crid query parameter is required" });
+      }
+
+      const db = getDrizzleDb();
+      const result = await db.execute(
+        sql`SELECT id, status, created_at FROM agent_runs
+            WHERE client_request_id = ${crid}
+            ORDER BY created_at DESC
+            LIMIT 1`
+      );
+      const rows = Array.isArray(result) ? result : (result as any).rows ?? [];
+      if (rows.length === 0) {
+        console.log(`[AFR run-id] No agent_run found for crid=${crid.slice(0, 12)}...`);
+        return res.json({ runId: null, status: null });
+      }
+
+      const row = rows[0];
+      console.log(`[AFR run-id] Resolved crid=${crid.slice(0, 12)}... → runId=${row.id} status=${row.status}`);
+      return res.json({ runId: row.id, status: row.status });
+    } catch (error: any) {
+      console.error("[AFR run-id] Error:", error.message);
+      res.status(500).json({ error: "Failed to resolve run ID" });
+    }
+  });
+
   // POST /api/afr/run-bridge — Supervisor updates the bridge between UI runId and supervisor internal run
   router.post("/run-bridge", async (req, res) => {
     try {
