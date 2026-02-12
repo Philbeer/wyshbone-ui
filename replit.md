@@ -46,12 +46,13 @@ The user interface adheres to Material Design principles, featuring a dark mode,
 - `runStartupMigrations()` handles schema drift.
 - Org-related tables use TEXT ids (UUIDs) and BIGINT timestamps.
 
-**Thin Client Architecture:**
+**Thin Client Architecture (Option A — Full Delegation):**
 - UI delegates long-running jobs to a Supervisor service (`SUPERVISOR_BASE_URL`).
 - Background workers, cron jobs, and long-running execution are disabled by default.
 - Fallback to local execution is available if `ENABLE_UI_BACKGROUND_WORKERS` is true.
 - Supervisor Client handles job delegation, status, and cancellation.
 - AFR events track job delegation and local fallback execution.
+- **Chat → Supervisor delegation (Feb 2026):** When `/api/chat` detects supervisor intent (via `detectSupervisorIntent()`), it creates a `supervisor_tasks` row with `run_id` + `client_request_id`, sends a delegation message to the user, and **returns immediately**. No UI-side execution occurs (no Google Places calls, no leads_list creation, no persistChatArtefact, no logRunCompleted). The Supervisor backend handles the full agent loop: tools → artefacts → Tower evaluation → AFR events. This ensures `tower_judgement` appears automatically without requiring "Request judgement" button clicks.
 
 **AFR Artefact Ingestion & Retrieval Contract:**
 - **POST `/api/afr/artefacts`**: Persists an artefact for a run, with required `runId` and `type`.

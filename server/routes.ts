@@ -1433,6 +1433,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
               supervisorTaskId: supervisorTask.id,
               supervisorTaskType: intentResult.taskType 
             })}\n\n`);
+
+            // OPTION A: Delegate fully to Supervisor — RETURN immediately.
+            // Supervisor handles the full agent loop: tools → artefacts → Tower → AFR.
+            // No UI-side execution (no Google Places, no leads_list, no persistChatArtefact, no logRunCompleted).
+            const delegateMsg = `I've submitted your request to the Supervisor. It will find the results, evaluate them with Tower, and deliver the verdict automatically.`;
+            appendMessage(sessionId, { role: "assistant", content: delegateMsg });
+            await saveMessage(conversationId, "assistant", delegateMsg);
+
+            emitSse({
+              type: 'status',
+              stage: 'executing',
+              message: 'Delegated to Supervisor',
+              clientRequestId: clientRequestId || undefined,
+              conversationId,
+            });
+
+            res.write(`data: ${JSON.stringify({ content: delegateMsg })}\n\n`);
+            res.write(`data: [DONE]\n\n`);
+            return res.end();
           }
         } catch (error: any) {
           console.error('❌ Supervisor integration error:', error);
