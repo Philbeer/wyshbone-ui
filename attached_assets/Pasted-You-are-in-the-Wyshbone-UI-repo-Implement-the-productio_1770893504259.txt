@@ -1,0 +1,65 @@
+You are in the Wyshbone UI repo. Implement the production-grade fix so chat runs always show Tower judgements automatically when they exist.
+
+Proof
+
+In Supabase artefacts table, for run_id 1cd50687-5d1c-4999-b187-c12315b8e533, the following types exist: chat_response, leads_list, plan_result, and tower_judgement. Yet the UI still shows “No Tower judgement yet”. So the UI is querying or filtering wrong.
+
+Goal
+
+When a chat run delegates to Supervisor and completes, the UI must:
+
+Fetch artefacts using run_id (NOT client_request_id/crid)
+
+Include and render tower_judgement when present
+
+Poll automatically after delegation until tower_judgement appears (or timeout)
+
+Requirements
+
+Identify where the UI decides “No Tower judgement yet”.
+
+Likely in client/src/components/live-activity-panel.tsx (and/or ResultsModal)
+
+Find the code that searches for artefacts.find(a => a.type === 'tower_judgement')
+
+Fix the fetch/query so it uses runId consistently:
+
+Ensure the API call is GET /api/afr/artefacts?runId=<run_id>
+
+Remove any path that fetches by client_request_id / crid for artefacts, unless it is only used to resolve run_id first.
+
+If the UI currently only has crid at that point:
+
+Add a resolve step: fetch the run row first (agent_runs) to get the run_id, then fetch artefacts by that run_id.
+
+Do NOT guess. Implement a clean helper: resolveRunId({ runId?, clientRequestId? }).
+
+Ensure tower_judgement is not filtered out:
+
+If there is an allowlist of artefact types, add tower_judgement
+
+If there is a “latest artefact per type” reducer, ensure tower_judgement survives.
+
+Automatic polling
+
+When a run is delegated to Supervisor (you already stream “delegated to Supervisor”), start polling artefacts every 2-3 seconds for up to 90 seconds (or until run status is completed AND judgement exists).
+
+Stop polling once tower_judgement is present.
+
+Remove reliance on the “Request judgement” button for normal flow (button can remain as manual fallback, but UI should not need it).
+
+Deliverable
+
+Rewrite the full file(s) you change so they can be copy-pasted.
+
+Add minimal logging so we can see runId used in the artefacts fetch.
+
+Acceptance criteria
+
+For run_id 1cd50687-5d1c-4999-b187-c12315b8e533, the UI must show the Tower judgement automatically without clicking anything.
+
+For new delegated chat runs, judgement appears when it exists in Supabase artefacts.
+
+No regressions for proof v2 or simulate.
+
+Implement now.
