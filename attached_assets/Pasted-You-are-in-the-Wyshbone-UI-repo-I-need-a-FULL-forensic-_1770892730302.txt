@@ -1,0 +1,75 @@
+You are in the Wyshbone UI repo. I need a FULL forensic report (not a fix yet).
+
+Goal: Explain, with code references, how the “chat box run” flow works today vs the “proof v2 / simulate” flow, and why chat runs are not auto producing Tower judgements.
+
+Deliver a report with these sections:
+
+Entry points and routes
+
+Identify the exact entry point(s) for:
+
+chat box send (the API endpoint, eg /api/chat)
+
+proof v2
+
+simulate
+
+For each: list the file path(s) and function names involved.
+
+The run lifecycle in UI
+For each flow (chat, proof v2, simulate), trace the lifecycle steps in order, including:
+
+How run_id and client_request_id (crid) are created or passed
+
+Where a supervisor_tasks row is created (if it is)
+
+Whether UI calls tools directly (Google Places etc)
+
+Where artefacts are created (eg leads_list, plan_result, step_result)
+
+Where AFR events are emitted
+
+Where/when “run completed” is written
+
+The delegation branch
+Find the code branch that checks intentResult.requiresSupervisor === true (or equivalent).
+
+Show the exact code block.
+
+Answer: after inserting supervisor_tasks, does code execution continue into tool execution / artefact creation / run completion?
+
+List every function called after the supervisor_tasks insert, in order.
+
+Evidence of bypass
+Provide concrete evidence in code that UI is bypassing Supervisor:
+
+Which function calls Google Places
+
+Which function creates leads_list
+
+Which function marks the run completed
+
+Where Tower judgement is expected to come from in the UI view layer (what query is used to display judgement)
+
+What “correct behaviour” requires (architectural statement)
+Write the minimal correct behaviour for UI when requiresSupervisor is true:
+
+“create supervisor_tasks, stream delegated message, return immediately”
+Also state explicitly what UI must NOT do in that path.
+
+Exact diff recommendation
+Propose the exact minimal change in UI to enforce “hard return after delegation”.
+
+Reference the exact file and show the exact code patch or pseudocode.
+
+Output requirements:
+
+Be extremely detailed and explicit.
+
+Include file paths and code snippets.
+
+Include a bullet list of “facts proven by code” at the top.
+
+Include a final single sentence conclusion: “Chat bypasses Supervisor because ___”.
+
+Do NOT implement anything yet. Only produce the report.
