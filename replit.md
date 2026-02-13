@@ -48,13 +48,14 @@ The user interface adheres to Material Design principles, featuring a dark mode,
 - `runStartupMigrations()` handles schema drift.
 - Org-related tables use TEXT ids (UUIDs) and BIGINT timestamps.
 
-**Thin Client Architecture (Option A — Full Delegation):**
-- UI delegates long-running jobs to a Supervisor service (`SUPERVISOR_BASE_URL`).
+**Thin Client Architecture (Hard Rule — Feb 2026):**
+- **HARD RULE:** UI server must NEVER execute leadgen tools (Google Places, deep research, region jobs, batch contacts). The ONLY execution path is creating a `supervisor_tasks` row in Supabase.
+- **`assertNoExecutionInUI()` guardrail:** All legacy execution endpoints (`/api/search`, `/api/places/*`, `/api/prospects/*`, `/api/tool/bubble_run_batch`, `/api/debug/demo-plan-run`, `/api/plan/start`, `/api/plan/create-test`, `/api/deep-research` POST, `/api/tools/execute`) return 501 with explicit "UI execution path forbidden" error if hit.
+- **CHAT lane:** Pure GPT-5 streaming with no tools — no tool definitions, no tool-call processing, no artefact creation.
+- **RUN lane:** Inserts `supervisor_tasks` row and returns immediately. Supervisor backend handles the full agent loop.
 - Background workers, cron jobs, and long-running execution are disabled by default.
-- Fallback to local execution is available if `ENABLE_UI_BACKGROUND_WORKERS` is true.
-- Supervisor Client handles job delegation, status, and cancellation.
-- AFR events track job delegation and local fallback execution.
-- **Chat → Supervisor delegation (Feb 2026):** When `/api/chat` detects supervisor intent (via `detectSupervisorIntent()`), it creates a `supervisor_tasks` row with `run_id` + `client_request_id`, sends a delegation message to the user, and **returns immediately**. No UI-side execution occurs (no Google Places calls, no leads_list creation, no persistChatArtefact, no logRunCompleted). The Supervisor backend handles the full agent loop: tools → artefacts → Tower evaluation → AFR events. This ensures `tower_judgement` appears automatically without requiring "Request judgement" button clicks.
+- Supervisor Client handles job delegation, status, and cancellation via `SUPERVISOR_BASE_URL`.
+- AFR events track job delegation.
 
 **AFR Artefact Ingestion & Retrieval Contract:**
 - **POST `/api/afr/artefacts`**: Persists an artefact for a run, with required `runId` and `type`.
