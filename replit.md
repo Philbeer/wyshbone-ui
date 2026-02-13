@@ -11,11 +11,13 @@ CRITICAL DATABASE RULE: ALL database connections MUST use `SUPABASE_DATABASE_URL
 ## System Architecture
 The application features a Node.js/Express backend and a React frontend, built with TypeScript, Tailwind CSS, and shadcn/ui, with TanStack Query managing API state. Core AI interactions utilize OpenAI's GPT models. The system supports multi-tenant user isolation with session-based authentication and robust data security.
 
-**Dual-Mode AI Architecture:**
-- **Standard Mode:** Streaming GPT-5 chat with tool calling for fast, interactive responses.
+**2-Lane Chat Architecture (Feb 2026 refactor):**
+- **CHAT Lane:** GPT-5 streaming with tool calling for conversational responses. All messages POST to `/api/chat`.
+- **RUN Lane:** Supervisor delegation for lead-finding, deep research, and batch tasks. Creates `supervisor_tasks` row and returns immediately.
+- **Routing:** `server/lib/decideChatMode.ts` uses keyword matching to fork CHAT vs RUN. `detectSupervisorIntent()` gates actual task enqueue — if intent doesn't require supervisor, falls through to CHAT lane.
+- **Client-side:** No pre-routing interception. UI always POSTs to `/api/chat`; server decides the lane. Client `classifyIntent()` remains for UX/history handling only (NEW_REPLACE/CONTINUE/MODIFY/NEW_UNRELATED).
 - **MEGA Mode:** GPT-4o planner-executor pattern for complex multi-step tasks with intelligent delegation.
 - **Shared Infrastructure:** Both modes use a unified execution layer and PostgreSQL for conversation history.
-- **Bidirectional Flow:** MEGA can delegate streaming tasks back to Standard mode, with automatic mode reversion.
 
 **UI/UX Decisions:**
 The user interface adheres to Material Design principles, featuring a dark mode, Inter font, consistent spacing, real-time chat, auto-expanding input, theme toggle, and a collapsible sidebar with a default UK country selector. Accessibility (WCAG AA) is a key consideration.
