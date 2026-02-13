@@ -705,13 +705,15 @@ function ArtefactsPanel({ runId }: { runId: string }) {
                   <div className="px-3 pb-3">
                     {art.type === 'leads_list'
                       ? <LeadsListRenderer payload={art.payload_json} />
-                      : (
-                        <pre className="text-xs bg-muted/50 rounded p-2 overflow-x-auto max-h-64 whitespace-pre-wrap font-mono">
-                          {typeof art.payload_json === 'string'
-                            ? tryPrettyJson(art.payload_json)
-                            : JSON.stringify(art.payload_json, null, 2)}
-                        </pre>
-                      )}
+                      : art.type === 'plan'
+                        ? <PlanArtefactRenderer payload={art.payload_json} />
+                        : (
+                          <pre className="text-xs bg-muted/50 rounded p-2 overflow-x-auto max-h-64 whitespace-pre-wrap font-mono">
+                            {typeof art.payload_json === 'string'
+                              ? tryPrettyJson(art.payload_json)
+                              : JSON.stringify(art.payload_json, null, 2)}
+                          </pre>
+                        )}
                   </div>
                 )}
               </div>
@@ -738,6 +740,116 @@ interface Lead {
   website?: string;
   score?: number | string;
   [key: string]: any;
+}
+
+function PlanArtefactRenderer({ payload }: { payload: any }) {
+  const parsed = parsePayload(payload);
+  const version = parsed?.version ?? parsed?.plan_version ?? 1;
+  const title = parsed?.title ?? `Plan v${version}`;
+  const goal = parsed?.original_user_goal ?? parsed?.user_goal ?? parsed?.goal ?? '';
+  const steps = parsed?.steps ?? parsed?.plan_steps ?? parsed?.actions ?? [];
+  const constraints = parsed?.constraints ?? [];
+  const assumptions = parsed?.assumptions ?? [];
+
+  const hasContent = goal || (Array.isArray(steps) && steps.length > 0) || (Array.isArray(constraints) && constraints.length > 0) || (Array.isArray(assumptions) && assumptions.length > 0);
+
+  if (!hasContent) {
+    return (
+      <pre className="text-xs bg-muted/50 rounded p-2 overflow-x-auto max-h-64 whitespace-pre-wrap font-mono">
+        {typeof payload === 'string' ? tryPrettyJson(payload) : JSON.stringify(parsed, null, 2)}
+      </pre>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2">
+        <Badge variant="outline" className="text-purple-600 dark:text-purple-400 border-purple-300 dark:border-purple-700 font-bold">
+          {title}
+        </Badge>
+      </div>
+
+      {goal && (
+        <div className="rounded border border-blue-200 dark:border-blue-800/50 bg-blue-50/50 dark:bg-blue-900/10 p-2.5">
+          <p className="text-[10px] uppercase tracking-wide text-blue-600 dark:text-blue-400 font-medium mb-0.5">Original User Goal</p>
+          <p className="text-sm text-foreground font-medium">{goal}</p>
+        </div>
+      )}
+
+      {Array.isArray(steps) && steps.length > 0 && (
+        <div>
+          <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium mb-1.5">Steps ({steps.length})</p>
+          <div className="space-y-1.5">
+            {steps.map((step: any, i: number) => {
+              const tool = step.tool ?? step.action ?? step.type ?? '';
+              const args = step.args ?? step.parameters ?? step.params ?? step.input ?? {};
+              const desc = step.description ?? step.label ?? step.summary ?? '';
+              const argEntries = typeof args === 'object' && args !== null ? Object.entries(args) : [];
+
+              return (
+                <div key={i} className="rounded border bg-card p-2">
+                  <div className="flex items-start gap-2">
+                    <span className="flex-shrink-0 w-4 h-4 rounded-full bg-primary/10 text-primary text-[9px] font-bold flex items-center justify-center mt-0.5">
+                      {i + 1}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        {tool && (
+                          <span className="text-[11px] font-mono bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300 px-1.5 py-0.5 rounded font-semibold">
+                            {tool}
+                          </span>
+                        )}
+                        {desc && <span className="text-xs text-muted-foreground">{desc}</span>}
+                      </div>
+                      {argEntries.length > 0 && (
+                        <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1">
+                          {argEntries.map(([k, v]) => (
+                            <span key={k} className="text-[10px] text-foreground/80">
+                              <span className="text-muted-foreground font-medium">{k}:</span>{' '}
+                              <span className="font-mono">{typeof v === 'string' ? v : JSON.stringify(v)}</span>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      {typeof step === 'string' && <p className="text-xs text-foreground/80">{step}</p>}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {Array.isArray(constraints) && constraints.length > 0 && (
+        <div>
+          <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium mb-1">Constraints</p>
+          <ul className="space-y-0.5">
+            {constraints.map((c: any, i: number) => (
+              <li key={i} className="flex items-start gap-1.5 text-xs text-foreground/80">
+                <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0 text-amber-500" />
+                <span>{typeof c === 'string' ? c : c.description || c.text || JSON.stringify(c)}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {Array.isArray(assumptions) && assumptions.length > 0 && (
+        <div>
+          <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium mb-1">Assumptions</p>
+          <ul className="space-y-0.5">
+            {assumptions.map((a: any, i: number) => (
+              <li key={i} className="flex items-start gap-1.5 text-xs text-foreground/80">
+                <span className="text-blue-500 mt-0.5 shrink-0">*</span>
+                <span>{typeof a === 'string' ? a : a.description || a.text || JSON.stringify(a)}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function LeadsListRenderer({ payload }: { payload: any }) {
