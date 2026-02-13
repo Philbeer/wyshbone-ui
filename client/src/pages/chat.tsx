@@ -251,20 +251,6 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     };
   }, [conversationId, toast]);
 
-  const detectDeepResearchIntent = (text: string): boolean => {
-    const lowerText = text.toLowerCase();
-    const researchKeywords = /\b(research|investigate|analyze|study|explore|deep dive|comprehensive|thorough|detailed report|sources|citations|evidence|findings|create.*report|write.*report|compile.*report)\b/;
-    const actionKeywords = /\b(find|search|get|show|list|discover|gather|collect|do|make|create|write|compile|generate|build)\b/;
-    
-    // If it has strong research indicators, return true
-    const strongResearchIndicators = /\b(deep dive|detailed report|research.*for me|do.*research|create.*report|write.*report|comprehensive report)\b/;
-    if (strongResearchIndicators.test(lowerText)) {
-      return true;
-    }
-    
-    // Otherwise must have both research keywords and action words
-    return researchKeywords.test(lowerText) && actionKeywords.test(lowerText);
-  };
 
   const startDeepResearch = async (request: DeepResearchCreateRequest) => {
     try {
@@ -1274,34 +1260,6 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     // Route to MEGA agent if in MEGA mode
     if (chatMode === "mega") {
       await sendMegaMessage(messageContent);
-      return;
-    }
-
-    // Check if this looks like a deep research request
-    if (detectDeepResearchIntent(messageContent)) {
-      const assistantMessage: Message = {
-        id: crypto.randomUUID(),
-        role: "assistant",
-        content: "I can run a deep research dive with web browsing for you. This will take a few minutes and produce a comprehensive report with sources. Would you like me to start this research?",
-        timestamp: new Date(),
-      };
-      setMessages((prev) => [...prev, assistantMessage]);
-
-      // Store the research request for the user to confirm
-      const researchRequest: DeepResearchCreateRequest = {
-        prompt: messageContent,
-        label: messageContent.length > 60 ? messageContent.slice(0, 57) + "…" : messageContent,
-        mode: "report",
-      };
-
-      // Add confirmation button (we'll do this via a special system message)
-      const confirmMessage: SystemMessage = {
-        id: crypto.randomUUID(),
-        type: "system",
-        content: JSON.stringify({ type: "deep_research_confirm", data: researchRequest }),
-        timestamp: new Date(),
-      };
-      setMessages((prev) => [...prev, confirmMessage]);
       return;
     }
 
