@@ -16,10 +16,19 @@ const LEAD_GENERATION_KEYWORDS = [
   'find shop', 'find restaurant', 'find clinic', 'find dentist', 'find dental',
   'find lawyer', 'find attorney', 'find doctor', 'find salon', 'find gym',
   'find hotel', 'find cafe', 'find coffee', 'find retail', 'find store',
+  'find pub', 'find bar', 'find venue', 'find brewery', 'find bakery',
+  'find florist', 'find plumber', 'find electrician', 'find mechanic',
+  'find garage', 'find nursery', 'find school', 'find church',
+  'find office', 'find warehouse', 'find factory', 'find takeaway',
   
   // Alternative phrasings
   'businesses in', 'companies in', 'shops in', 'restaurants in',
+  'pubs in', 'bars in', 'venues in', 'hotels in', 'cafes in',
+  'clinics in', 'salons in', 'gyms in', 'stores in',
   'leads for', 'prospects for', 'contacts in',
+  
+  // Explicit tool references
+  'google places', 'search google', 'places search', 'places api',
 ];
 
 const ANALYSIS_KEYWORDS = [
@@ -71,6 +80,23 @@ export function detectSupervisorIntent(userMessage: string): IntentDetectionResu
       taskType: 'analyze_conversation',
       requestData: {
         user_message: userMessage,
+      },
+    };
+  }
+
+  // Broad fallback: "find [N] [noun] in [location]" pattern
+  const genericFindInLocation = /\bfind\s+(?:\d+\s+)?([a-z]+(?:\s+[a-z]+)?)\s+in\s+([a-z][a-z\s,]+)/i;
+  const genericMatch = normalized.match(genericFindInLocation);
+  if (genericMatch) {
+    return {
+      requiresSupervisor: true,
+      taskType: 'find_prospects',
+      requestData: {
+        user_message: userMessage,
+        search_query: {
+          business_type: genericMatch[1]?.trim(),
+          location: genericMatch[2]?.trim(),
+        },
       },
     };
   }
