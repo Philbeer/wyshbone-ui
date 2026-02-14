@@ -205,7 +205,7 @@ export function AgentWorkspace({ className }: AgentWorkspaceProps) {
                   onClick={handleExplainRun}
                   disabled={!hasRunToExplain || explainLoading}
                   title={hasRunToExplain ? "Generate a plain-English explanation of this run" : "No run yet"}
-                  className="border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300"
+                  className="border-2 border-amber-400 dark:border-amber-600 text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950 disabled:opacity-60"
                 >
                   {explainLoading ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <FileText className="w-3 h-3 mr-1" />}
                   {explainLoading ? "Explaining…" : "Explain last run"}
