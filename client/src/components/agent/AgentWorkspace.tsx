@@ -10,11 +10,18 @@ import {
   Loader2,
   Copy,
   Check,
-  X
+  X,
+  ChevronDown,
+  Wrench
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import {
   Dialog,
   DialogContent,
@@ -191,67 +198,80 @@ export function AgentWorkspace({ className }: AgentWorkspaceProps) {
               What your AI sales agent has been working on
             </p>
           </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleExplainRun}
-              disabled={explainLoading}
-              title="Generate a plain-English explanation of the last run"
-              className="border-2 border-amber-400 dark:border-amber-600 text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950 disabled:opacity-60"
-            >
-              {explainLoading ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <FileText className="w-3 h-3 mr-1" />}
-              {explainLoading ? "Explaining…" : "Explain last run"}
-            </Button>
-            {IS_DEV && (
-              <>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleRunSupervisorDemo}
-                  disabled={demoLoading}
-                >
-                  <Play className="w-3 h-3 mr-1" />
-                  {demoLoading ? "Starting…" : "Run Supervisor Demo"}
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleProofTowerLoop}
-                  disabled={proofLoading}
-                  className="border-purple-300 dark:border-purple-700 text-purple-700 dark:text-purple-300"
-                >
-                  <Play className="w-3 h-3 mr-1" />
-                  {proofLoading ? "Starting…" : "Proof: Tower Loop"}
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleProofTowerLoopV2}
-                  disabled={proofV2Loading}
-                  className="border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-300"
-                >
-                  <Play className="w-3 h-3 mr-1" />
-                  {proofV2Loading ? "Starting…" : "Proof: Tower Loop v2 (REAL)"}
-                </Button>
-              </>
-            )}
+          <div className="flex items-center gap-2">
             <Badge variant="secondary" className="text-xs">
               <Zap className="w-3 h-3 mr-1" />
               24/7 Active
             </Badge>
           </div>
         </div>
-        {demoStatus && (
-          <p className="text-xs text-muted-foreground mt-2">{demoStatus}</p>
-        )}
-        {proofV2Ids && (
-          <div className="mx-6 mt-2 text-[10px] font-mono bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded px-2 py-1">
-            <span className="text-emerald-700 dark:text-emerald-300 font-semibold">v2 IDs</span>
-            {" "}crid=<span className="select-all">{proofV2Ids.crid}</span>
-            {" "}runId=<span className="select-all">{proofV2Ids.runId}</span>
-          </div>
-        )}
+        <Collapsible>
+          <CollapsibleTrigger asChild>
+            <button className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors mt-2 group/tools">
+              <Wrench className="w-3 h-3" />
+              <span>Tools</span>
+              <ChevronDown className="w-3 h-3 transition-transform group-data-[state=open]/tools:rotate-180" />
+            </button>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <div className="flex items-center gap-2 flex-wrap pt-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleExplainRun}
+                disabled={explainLoading}
+                title="Generate a plain-English explanation of the last run"
+                className="border-2 border-amber-400 dark:border-amber-600 text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950 disabled:opacity-60"
+              >
+                {explainLoading ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <FileText className="w-3 h-3 mr-1" />}
+                {explainLoading ? "Explaining…" : "Explain last run"}
+              </Button>
+              {IS_DEV && (
+                <>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleRunSupervisorDemo}
+                    disabled={demoLoading}
+                  >
+                    <Play className="w-3 h-3 mr-1" />
+                    {demoLoading ? "Starting…" : "Run Supervisor Demo"}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleProofTowerLoop}
+                    disabled={proofLoading}
+                    className="border-purple-300 dark:border-purple-700 text-purple-700 dark:text-purple-300"
+                  >
+                    <Play className="w-3 h-3 mr-1" />
+                    {proofLoading ? "Starting…" : "Proof: Tower Loop"}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleProofTowerLoopV2}
+                    disabled={proofV2Loading}
+                    className="border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-300"
+                  >
+                    <Play className="w-3 h-3 mr-1" />
+                    {proofV2Loading ? "Starting…" : "Proof: Tower Loop v2 (REAL)"}
+                  </Button>
+                </>
+              )}
+            </div>
+            {demoStatus && (
+              <p className="text-xs text-muted-foreground mt-2">{demoStatus}</p>
+            )}
+            {proofV2Ids && (
+              <div className="mt-2 text-[10px] font-mono bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded px-2 py-1">
+                <span className="text-emerald-700 dark:text-emerald-300 font-semibold">v2 IDs</span>
+                {" "}crid=<span className="select-all">{proofV2Ids.crid}</span>
+                {" "}runId=<span className="select-all">{proofV2Ids.runId}</span>
+              </div>
+            )}
+          </CollapsibleContent>
+        </Collapsible>
       </div>
 
       {/* Live Activity Panel - fills available height, scrolls internally */}
