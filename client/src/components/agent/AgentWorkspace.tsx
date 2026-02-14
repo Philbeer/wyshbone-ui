@@ -202,6 +202,17 @@ export function AgentWorkspace({ className }: AgentWorkspaceProps) {
                 <Button
                   variant="outline"
                   size="sm"
+                  onClick={handleExplainRun}
+                  disabled={!hasRunToExplain || explainLoading}
+                  title={hasRunToExplain ? "Generate a plain-English explanation of this run" : "No run yet"}
+                  className="border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300"
+                >
+                  {explainLoading ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <FileText className="w-3 h-3 mr-1" />}
+                  {explainLoading ? "Explaining…" : "Explain last run"}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
                   onClick={handleProofTowerLoop}
                   disabled={proofLoading}
                   className="border-purple-300 dark:border-purple-700 text-purple-700 dark:text-purple-300"
@@ -218,17 +229,6 @@ export function AgentWorkspace({ className }: AgentWorkspaceProps) {
                 >
                   <Play className="w-3 h-3 mr-1" />
                   {proofV2Loading ? "Starting…" : "Proof: Tower Loop v2 (REAL)"}
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleExplainRun}
-                  disabled={!hasRunToExplain || explainLoading}
-                  title={hasRunToExplain ? "Generate a plain-English explanation of this run" : "No run yet"}
-                  className="border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300"
-                >
-                  {explainLoading ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <FileText className="w-3 h-3 mr-1" />}
-                  {explainLoading ? "Explaining…" : "Explain last run"}
                 </Button>
               </>
             )}
