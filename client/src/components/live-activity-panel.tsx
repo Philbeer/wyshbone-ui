@@ -17,6 +17,8 @@ import {
 import { cn } from "@/lib/utils";
 import { useUser } from "@/contexts/UserContext";
 import { usePlan } from "@/contexts/PlanContext";
+import UserResultsView from "@/components/results/UserResultsView";
+import type { DeliverySummary } from "@/components/results/UserResultsView";
 
 const IS_DEV = import.meta.env.DEV;
 
@@ -1243,8 +1245,74 @@ function ResultsModal({ clientRequestId, runId, open, onOpenChange }: { clientRe
   );
 }
 
+function UserResultsModal({ clientRequestId, runId, open, onOpenChange }: { clientRequestId?: string | null; runId?: string | null; open: boolean; onOpenChange: (open: boolean) => void }) {
+  const [deliverySummary, setDeliverySummary] = useState<DeliverySummary | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    if (!clientRequestId && !runId) {
+      setError("No results summary is available for this run yet.");
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    setDeliverySummary(null);
+
+    const fullUrl = runId
+      ? `/api/afr/artefacts?runId=${encodeURIComponent(runId)}`
+      : `/api/afr/artefacts?client_request_id=${encodeURIComponent(clientRequestId!)}`;
+
+    fetch(fullUrl)
+      .then(res => {
+        if (!res.ok) throw new Error("Failed to fetch results");
+        return res.json();
+      })
+      .then((rows: Artefact[]) => {
+        const dsArtefact = rows.find(r => r.type === "delivery_summary");
+        if (!dsArtefact) {
+          setError("No results summary is available for this run yet.");
+          return;
+        }
+        const parsed = parsePayload(dsArtefact.payload_json);
+        if (parsed && typeof parsed === "object") {
+          setDeliverySummary(parsed as DeliverySummary);
+        } else {
+          setError("No results summary is available for this run yet.");
+        }
+      })
+      .catch(() => setError("No results summary is available for this run yet."))
+      .finally(() => setLoading(false));
+  }, [open, clientRequestId, runId]);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Results</DialogTitle>
+          <DialogDescription className="sr-only">Run results summary</DialogDescription>
+        </DialogHeader>
+        {loading && (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          </div>
+        )}
+        {error && !loading && (
+          <p className="text-sm text-muted-foreground py-6 text-center">{error}</p>
+        )}
+        {deliverySummary && !loading && !error && (
+          <UserResultsView deliverySummary={deliverySummary} />
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function SequenceStatusRow({ status, clientRequestId, runId, towerVerdict, towerMissing, chatMode }: { status: "completed" | "failed" | "stopped" | "awaiting_judgement" | "replanning"; clientRequestId?: string | null; runId?: string | null; towerVerdict?: string | null; towerMissing?: boolean; chatMode?: boolean }) {
   const [showResults, setShowResults] = useState(false);
+  const [showUserResults, setShowUserResults] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [rerunRequested, setRerunRequested] = useState(false);
   const [pollStatus, setPollStatus] = useState<'idle' | 'polling' | 'success' | 'error'>('idle');
@@ -1396,19 +1464,30 @@ function SequenceStatusRow({ status, clientRequestId, runId, towerVerdict, tower
             </Button>
           )}
           {showViewResults && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-6 text-xs px-2 gap-1"
-              data-view-results="true"
-              onClick={() => {
-                console.log(`[ViewResults] Button clicked — runId=${runId || 'n/a'} crid=${clientRequestId?.slice(0, 12) || 'n/a'}`);
-                setShowResults(true);
-              }}
-            >
-              <Eye className="h-3 w-3" />
-              View results
-            </Button>
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-6 text-xs px-2 gap-1"
+                data-view-results="true"
+                onClick={() => {
+                  console.log(`[ViewResults] Button clicked — runId=${runId || 'n/a'} crid=${clientRequestId?.slice(0, 12) || 'n/a'}`);
+                  setShowResults(true);
+                }}
+              >
+                <Eye className="h-3 w-3" />
+                View results
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-6 text-xs px-2 gap-1"
+                onClick={() => setShowUserResults(true)}
+              >
+                <Package className="h-3 w-3" />
+                Results
+              </Button>
+            </>
           )}
         </div>
       </div>
@@ -1444,7 +1523,10 @@ function SequenceStatusRow({ status, clientRequestId, runId, towerVerdict, tower
         </div>
       )}
       {(clientRequestId || runId) && (
-        <ResultsModal clientRequestId={clientRequestId} runId={runId} open={showResults} onOpenChange={setShowResults} />
+        <>
+          <ResultsModal clientRequestId={clientRequestId} runId={runId} open={showResults} onOpenChange={setShowResults} />
+          <UserResultsModal clientRequestId={clientRequestId} runId={runId} open={showUserResults} onOpenChange={setShowUserResults} />
+        </>
       )}
     </>
   );
