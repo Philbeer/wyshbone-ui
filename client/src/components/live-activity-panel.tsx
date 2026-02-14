@@ -1445,12 +1445,12 @@ function SequenceStatusRow({ status, clientRequestId, runId, towerVerdict, tower
   
   return (
     <>
-      <div className="flex items-center justify-between gap-2 py-2 px-1 border-t border-border/50 mt-2">
-        <div className="flex items-center gap-2">
-          <Icon className={cn("h-4 w-4", className)} />
-          <span className={cn("text-xs font-medium", className)}>{label}</span>
+      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 py-2 px-1 border-t border-border/50 mt-2 overflow-hidden">
+        <div className="flex items-center gap-2 min-w-0">
+          <Icon className={cn("h-4 w-4 shrink-0", className)} />
+          <span className={cn("text-xs font-medium truncate", className)}>{label}</span>
         </div>
-        <div className="flex items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
           {showRequestJudgement && (
             <Button
               variant="outline"
@@ -1747,14 +1747,14 @@ function TruthStrip({ runId }: { runId?: string | null }) {
   ];
 
   return (
-    <div className="mx-2 my-2 p-2 rounded-md bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800">
+    <div className="mx-2 my-2 p-2 rounded-md bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 overflow-hidden">
       <div className="flex items-center gap-1 mb-1">
         <Eye className="h-3 w-3 text-purple-500" />
         <span className="text-[10px] font-semibold text-purple-700 dark:text-purple-300 uppercase tracking-wide">
           DB Truth Strip
         </span>
       </div>
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         {indicators.map(({ label, ok, missing }) => (
           <div key={label} className="flex items-center gap-1">
             {ok ? (
@@ -3064,9 +3064,9 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
   return (
     <Card className="flex flex-col flex-1 min-h-0">
       <CardHeader className="pb-2 shrink-0">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-sm font-medium">Live Activity</CardTitle>
-          <div className="flex items-center gap-2">
+        <div className="flex items-center justify-between gap-2 min-w-0">
+          <CardTitle className="text-sm font-medium shrink-0">Live Activity</CardTitle>
+          <div className="flex flex-wrap items-center gap-1.5 justify-end min-w-0">
             {IS_DEV && (
               <button
                 onClick={() => setDemoPlayback(prev => !prev)}
@@ -3185,7 +3185,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
             )}
             onScroll={handleScroll}
           >
-            <div className="px-4 pt-2 pb-12">
+            <div className="px-4 pt-2 pb-12 overflow-x-hidden">
             {events.map((event: StreamEvent, index: number) => {
               const isLastEvent = index === events.length - 1;
               const last = isLastEvent && effectiveTerminal && !transientPhase;
@@ -3217,11 +3217,11 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
               <SequenceStatusRow status={mappedStatus as any} clientRequestId={activeClientRequestId} runId={canonicalRunId || stream?.run_id} towerVerdict={towerAware.towerVerdict} towerMissing={towerAware.towerMissing} chatMode={towerLoopChatMode} />
             )}
             {IS_DEV && activeClientRequestId && (
-              <div className="mt-1 px-2 py-1 rounded bg-gray-100 dark:bg-gray-800/50 text-[10px] font-mono text-muted-foreground/70 space-y-0.5">
-                <div>crid: {activeClientRequestId.slice(0, 16)}...</div>
-                <div>streamRunId: {stream?.run_id || 'n/a'}</div>
-                <div>canonicalRunId: {canonicalRunId || `(${canonicalRunIdStatus})`}</div>
-                <div>pollingWith: {effectiveRunIdForPolling || 'none'}</div>
+              <div className="mt-1 px-2 py-1 rounded bg-gray-100 dark:bg-gray-800/50 text-[10px] font-mono text-muted-foreground/70 space-y-0.5 overflow-hidden">
+                <div className="truncate">crid: {activeClientRequestId.slice(0, 16)}...</div>
+                <div className="truncate">streamRunId: {stream?.run_id || 'n/a'}</div>
+                <div className="truncate">canonicalRunId: {canonicalRunId || `(${canonicalRunIdStatus})`}</div>
+                <div className="truncate">pollingWith: {effectiveRunIdForPolling || 'none'}</div>
               </div>
             )}
             
