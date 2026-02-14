@@ -6,7 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { SidebarProvider, SidebarTrigger, useSidebar } from "@/components/ui/sidebar";
 import { AppSidebar, type RunItem } from "@/components/app-sidebar";
 import { HeaderCountrySelector } from "@/components/HeaderCountrySelector";
-import { Moon, Sun, FilePlus, ExternalLink, Play } from "lucide-react";
+import { Moon, Sun, FilePlus, ExternalLink, Play, FileText, Loader2, Copy, Check, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import ChatPage from "@/pages/chat";
 import DebugPage from "@/pages/debug";
@@ -25,6 +25,8 @@ import { BreweryOnboardingWizard } from "@/features/onboarding";
 import { GeneralOnboardingWizard } from "@/features/onboarding/GeneralOnboardingWizard";
 import CountryHint from "@/components/CountryHint";
 import { LoginDialog } from "@/components/LoginDialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { addDevAuthParams, buildApiUrl } from "@/lib/queryClient";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { UserProvider, useUser } from "@/contexts/UserContext";
 import { SidebarFlashProvider } from "@/contexts/SidebarFlashContext";
@@ -761,6 +763,57 @@ function RightPanelContent() {
   const [proofV2Loading, setProofV2Loading] = useState(false);
   const [proofV2Ids, setProofV2Ids] = useState<{ crid: string; runId: string } | null>(null);
 
+  const [explainOpen, setExplainOpen] = useState(false);
+  const [explainLoading, setExplainLoading] = useState(false);
+  const [explainError, setExplainError] = useState<string | null>(null);
+  const [explainReport, setExplainReport] = useState<string | null>(null);
+  const [explainRunId, setExplainRunId] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const resolvedId = pinnedClientRequestId ?? currentClientRequestId ?? lastCompletedClientRequestId;
+
+  const handleExplainRun = useCallback(async () => {
+    setExplainOpen(true);
+    setExplainLoading(true);
+    setExplainError(null);
+    setExplainReport(null);
+    setExplainRunId(null);
+    setCopied(false);
+    try {
+      const body: Record<string, string> = {};
+      if (resolvedId) {
+        body.client_request_id = resolvedId;
+      } else {
+        body.latest = "true";
+      }
+      const url = addDevAuthParams(buildApiUrl("/api/dev/explain-run"));
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || errData.message || `Server responded ${res.status}`);
+      }
+      const data = await res.json();
+      setExplainRunId(data.runId || null);
+      setExplainReport(data.report_markdown || "No report generated.");
+    } catch (err: any) {
+      setExplainError(err.message || "Failed to generate explanation");
+    } finally {
+      setExplainLoading(false);
+    }
+  }, [resolvedId]);
+
+  const handleCopy = useCallback(() => {
+    if (!explainReport) return;
+    navigator.clipboard.writeText(explainReport).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }, [explainReport]);
+
   async function handleRunSupervisorDemo() {
     setDemoLoading(true);
     setDemoStatus(null);
@@ -849,6 +902,19 @@ function RightPanelContent() {
   
   return (
     <div className="p-4 flex flex-col gap-4 flex-1 min-h-0">
+      <div className="flex items-center gap-2 flex-wrap shrink-0">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleExplainRun}
+          disabled={explainLoading}
+          title="Generate a plain-English explanation of the last run"
+          className="border-2 border-amber-400 dark:border-amber-600 text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950 disabled:opacity-60"
+        >
+          {explainLoading ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <FileText className="w-3 h-3 mr-1" />}
+          {explainLoading ? "Explaining…" : "Explain last run"}
+        </Button>
+      </div>
       {import.meta.env.DEV && (
         <>
           <div className="flex items-center gap-2 flex-wrap shrink-0">
@@ -895,9 +961,65 @@ function RightPanelContent() {
         </>
       )}
       {(() => {
-        const resolvedId = pinnedClientRequestId ?? currentClientRequestId ?? lastCompletedClientRequestId;
         return <LiveActivityPanel key={resolvedId ?? 'none'} activeClientRequestId={resolvedId} />;
       })()}
+
+      <Dialog open={explainOpen} onOpenChange={setExplainOpen}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileText className="w-5 h-5 text-amber-600" />
+              Run Explanation
+              {explainRunId && (
+                <span className="text-xs font-mono text-muted-foreground ml-2">
+                  {explainRunId.slice(0, 8)}…
+                </span>
+              )}
+            </DialogTitle>
+            <DialogDescription>
+              AI-generated summary of the last agent run
+            </DialogDescription>
+          </DialogHeader>
+
+          {explainLoading && (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="w-8 h-8 animate-spin text-amber-500" />
+              <span className="ml-3 text-muted-foreground">Analysing run data…</span>
+            </div>
+          )}
+
+          {explainError && (
+            <div className="border border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-950 rounded-lg p-4">
+              <p className="text-red-700 dark:text-red-300 text-sm">{explainError}</p>
+            </div>
+          )}
+
+          {explainReport && (
+            <div className="space-y-4">
+              <div className="flex justify-end">
+                <Button variant="outline" size="sm" onClick={handleCopy}>
+                  {copied ? <Check className="w-3 h-3 mr-1" /> : <Copy className="w-3 h-3 mr-1" />}
+                  {copied ? "Copied" : "Copy"}
+                </Button>
+              </div>
+              <div className="prose prose-sm dark:prose-invert max-w-none">
+                {explainReport.split('\n').map((line, i) => {
+                  if (line.startsWith('## ')) return <h2 key={i} className="text-lg font-semibold mt-4 mb-2">{line.slice(3)}</h2>;
+                  if (line.startsWith('# ')) return <h1 key={i} className="text-xl font-bold mt-4 mb-2">{line.slice(2)}</h1>;
+                  if (line.startsWith('- **')) {
+                    const match = line.match(/^- \*\*(.+?)\*\*:?\s*(.*)/);
+                    if (match) return <p key={i} className="ml-4 my-1"><strong>{match[1]}:</strong> {match[2]}</p>;
+                  }
+                  if (line.startsWith('- ')) return <p key={i} className="ml-4 my-1">• {line.slice(2)}</p>;
+                  if (/^\d+\.\s/.test(line)) return <p key={i} className="ml-4 my-1">{line}</p>;
+                  if (line.trim() === '') return <br key={i} />;
+                  return <p key={i} className="my-1">{line}</p>;
+                })}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
