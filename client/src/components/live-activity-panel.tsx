@@ -743,6 +743,132 @@ function TowerJudgementView({ payload }: { payload: any }) {
   );
 }
 
+function DeliverySummaryView({ payload }: { payload: any }) {
+  const parsed = parsePayload(payload);
+  const exactMatches: Lead[] = Array.isArray(parsed?.exact_matches) ? parsed.exact_matches : [];
+  const closestMatches: Lead[] = Array.isArray(parsed?.closest_matches) ? parsed.closest_matches : [];
+  const targetCount: number | null = parsed?.target_count ?? parsed?.requested ?? null;
+  const deliveredCount: number | null = parsed?.delivered_count ?? null;
+  const shortfall = (targetCount != null && deliveredCount != null) ? Math.max(0, targetCount - deliveredCount) : null;
+  const suggestedNextQuestion: string | null = parsed?.suggested_next_question ?? null;
+
+  const renderLeadRow = (lead: Lead, i: number) => {
+    const loc = lead.location || lead.postcode || lead.address || lead.city || '-';
+    return (
+      <tr key={i} className="hover:bg-muted/20">
+        <td className="px-2 py-1.5 font-medium">{lead.name || lead.business_name || lead.title || '-'}</td>
+        <td className="px-2 py-1.5 text-muted-foreground">{loc}</td>
+        <td className="px-2 py-1.5 text-muted-foreground font-mono">{lead.phone || lead.phone_number || '-'}</td>
+        <td className="px-2 py-1.5">
+          {(lead.website || lead.url) ? (
+            <a
+              href={lead.website || lead.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-500 hover:underline truncate block max-w-[180px]"
+            >
+              {(lead.website || lead.url || '').replace(/^https?:\/\/(www\.)?/, '')}
+            </a>
+          ) : '-'}
+        </td>
+        <td className="px-2 py-1.5 text-center">
+          {lead.score != null ? (
+            <span className="inline-block bg-primary/10 text-primary rounded px-1.5 py-0.5 font-mono text-[10px]">
+              {lead.score}
+            </span>
+          ) : '-'}
+        </td>
+      </tr>
+    );
+  };
+
+  const renderTable = (leads: Lead[]) => (
+    <div className="overflow-x-auto rounded border max-h-64 overflow-y-auto">
+      <table className="w-full text-xs">
+        <thead className="bg-muted/60 sticky top-0">
+          <tr>
+            <th className="text-left px-2 py-1.5 font-medium">Name</th>
+            <th className="text-left px-2 py-1.5 font-medium">Location</th>
+            <th className="text-left px-2 py-1.5 font-medium">Phone</th>
+            <th className="text-left px-2 py-1.5 font-medium">Website</th>
+            <th className="text-left px-2 py-1.5 font-medium">Score</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y">
+          {leads.map(renderLeadRow)}
+        </tbody>
+      </table>
+    </div>
+  );
+
+  return (
+    <div className="space-y-4">
+      {(targetCount != null || deliveredCount != null) && (
+        <div className="flex gap-4">
+          {targetCount != null && (
+            <div className="flex-1 rounded-lg border bg-muted/30 p-3 text-center">
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Requested</p>
+              <p className="text-2xl font-bold text-foreground mt-0.5">{targetCount}</p>
+            </div>
+          )}
+          {deliveredCount != null && (
+            <div className="flex-1 rounded-lg border bg-muted/30 p-3 text-center">
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Delivered</p>
+              <p className={cn("text-2xl font-bold mt-0.5", shortfall === 0 || shortfall === null ? "text-green-600 dark:text-green-400" : "text-amber-600 dark:text-amber-400")}>{deliveredCount}</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {shortfall != null && shortfall > 0 && (
+        <div className="rounded-lg border border-amber-300 dark:border-amber-700/60 bg-amber-50/60 dark:bg-amber-900/15 p-3 flex items-start gap-2">
+          <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
+          <div>
+            <p className="text-sm font-medium text-amber-800 dark:text-amber-300">
+              Shortfall: {shortfall} of {targetCount} not delivered
+            </p>
+            <p className="text-xs text-amber-700/80 dark:text-amber-400/70 mt-0.5">
+              The search could not find enough results matching your criteria.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {exactMatches.length > 0 && (
+        <div>
+          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1.5">
+            Exact matches ({exactMatches.length})
+          </p>
+          {renderTable(exactMatches)}
+        </div>
+      )}
+
+      {closestMatches.length > 0 && (
+        <div>
+          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1.5">
+            Closest matches ({closestMatches.length})
+          </p>
+          {renderTable(closestMatches)}
+        </div>
+      )}
+
+      {exactMatches.length === 0 && closestMatches.length === 0 && (
+        <div className="text-sm text-muted-foreground py-6 text-center">
+          <p className="font-medium">No matches found</p>
+          <p className="text-xs mt-1">This delivery produced no matching results.</p>
+        </div>
+      )}
+
+      {suggestedNextQuestion && (
+        <div className="rounded-lg border border-blue-200 dark:border-blue-800/50 bg-blue-50/50 dark:bg-blue-900/10 p-3">
+          <p className="text-[10px] uppercase tracking-wide text-blue-600 dark:text-blue-400 font-medium mb-1">Suggested next question</p>
+          <p className="text-sm text-foreground/90 leading-relaxed italic">"{suggestedNextQuestion}"</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ArtefactRenderer({ artefact }: { artefact: Artefact }) {
   switch (artefact.type) {
     case 'leads_list':
@@ -761,6 +887,8 @@ function ArtefactRenderer({ artefact }: { artefact: Artefact }) {
       return <TowerJudgementView payload={artefact.payload_json} />;
     case 'plan':
       return <PlanArtefactView payload={artefact.payload_json} />;
+    case 'delivery_summary':
+      return <DeliverySummaryView payload={artefact.payload_json} />;
     default:
       return (
         <pre className="text-xs bg-muted/50 rounded p-3 overflow-x-auto max-h-96 whitespace-pre-wrap font-mono">
@@ -782,6 +910,7 @@ const ARTEFACT_LABELS: Record<string, { label: string; icon: string }> = {
   plan_update: { label: 'Plan v2', icon: '🔄' },
   tower_judgement: { label: 'Tower Verdict', icon: '🧠' },
   plan: { label: 'Plan', icon: '📐' },
+  delivery_summary: { label: 'Delivery Summary', icon: '📦' },
 };
 
 interface TowerEvidenceEvent {
@@ -925,7 +1054,7 @@ function ResultsModal({ clientRequestId, runId, open, onOpenChange }: { clientRe
         const uniqueRunIds = Array.from(new Set(rows.map(r => r.run_id)));
         console.log(`[ResultsModal] Got ${rows.length} artefact(s) — types: [${rows.map(r => r.type).join(', ')}] runIds: [${uniqueRunIds.join(', ')}]`);
         const byType = new Map<string, Artefact>();
-        const typeOrder = ['plan', 'run_summary', 'plan_update', 'tower_judgement', 'deep_research_result', 'leads_list', 'email_drafts', 'plan_result', 'chat_response'];
+        const typeOrder = ['plan', 'run_summary', 'plan_update', 'tower_judgement', 'deep_research_result', 'leads_list', 'delivery_summary', 'email_drafts', 'plan_result', 'chat_response'];
 
         for (const row of rows) {
           const existing = byType.get(row.type);
@@ -1057,7 +1186,7 @@ function ResultsModal({ clientRequestId, runId, open, onOpenChange }: { clientRe
             </div>
           );
         })()}
-        {!loading && !error && artefacts.length > 0 && !artefacts.some(a => a.type === 'leads_list') && !artefacts.some(a => a.type === 'deep_research_result') && !artefacts.some(a => a.type === 'run_summary') && !artefacts.some(a => a.type === 'plan_update') && !artefacts.some(a => a.type === 'tower_judgement') && (() => {
+        {!loading && !error && artefacts.length > 0 && !artefacts.some(a => a.type === 'leads_list') && !artefacts.some(a => a.type === 'delivery_summary') && !artefacts.some(a => a.type === 'deep_research_result') && !artefacts.some(a => a.type === 'run_summary') && !artefacts.some(a => a.type === 'plan_update') && !artefacts.some(a => a.type === 'tower_judgement') && (() => {
           const delegationArtefact = artefacts.find(a => {
             const p = parsePayload(a.payload_json);
             return p?.delegated_to_supervisor === true;
@@ -1525,7 +1654,7 @@ function TruthStrip({ runId }: { runId?: string | null }) {
   if (!runId || fetchState === 'idle' || fetchState === 'loading') return null;
 
   const artefactTypes = new Set(dbArtefacts.map(a => a.type));
-  const hasArtefact = artefactTypes.has('leads_list') || artefactTypes.has('plan_result') || artefactTypes.has('step_result') || artefactTypes.has('deep_research_result') || artefactTypes.has('run_summary');
+  const hasArtefact = artefactTypes.has('leads_list') || artefactTypes.has('plan_result') || artefactTypes.has('step_result') || artefactTypes.has('deep_research_result') || artefactTypes.has('run_summary') || artefactTypes.has('delivery_summary');
   const hasTowerVerdict = artefactTypes.has('tower_judgement');
   const hasRunStored = dbArtefacts.length > 0;
 
@@ -2188,7 +2317,7 @@ function deriveTowerAwareStatus(events: StreamEvent[], serverTerminalState: 'com
   let isLeadRun = false;
   let hasTowerJudgementArtefact = false;
 
-  const LEAD_ARTEFACT_TYPES = ['leads_list', 'plan_result'];
+  const LEAD_ARTEFACT_TYPES = ['leads_list', 'plan_result', 'delivery_summary'];
 
   if (artefacts?.length) {
     isLeadRun = artefacts.some(a => LEAD_ARTEFACT_TYPES.includes(a.type));
