@@ -589,6 +589,189 @@ export function createDevToolsRouter(storage: IStorage): Router {
   });
 
   /**
+   * POST /api/dev/explain-run
+   * 
+   * Generate a plain-English explanation of a run using AFR events + artefacts
+   * Uses GPT to produce a narrative report with key facts and timeline
+   */
+  router.post("/explain-run", async (req: Request, res: Response) => {
+    try {
+      const auth = await getAuthenticatedUser(req, storage);
+      if (!auth) {
+        return res.status(401).json({ success: false, error: "Unauthorized" });
+      }
+      if (!hasDevAccess(auth.userEmail)) {
+        return res.status(403).json({ success: false, error: "Developer access required" });
+      }
+
+      let { runId, client_request_id } = req.body;
+      if (!runId && !client_request_id) {
+        return res.status(400).json({ success: false, error: "runId or client_request_id is required" });
+      }
+
+      const db = getDrizzleDb();
+
+      if (!runId && client_request_id) {
+        try {
+          const runResult = await db.execute(
+            sql`SELECT id FROM agent_runs WHERE client_request_id = ${client_request_id} ORDER BY created_at DESC LIMIT 1`
+          );
+          const runRows = Array.isArray(runResult) ? runResult : (runResult as any).rows ?? [];
+          if (runRows[0]?.id) {
+            runId = runRows[0].id;
+          }
+        } catch (_e) {}
+
+        if (!runId) {
+          try {
+            const actResult = await db.execute(
+              sql`SELECT run_id FROM agent_activities WHERE client_request_id = ${client_request_id} AND run_id IS NOT NULL ORDER BY timestamp DESC LIMIT 1`
+            );
+            const actRows = Array.isArray(actResult) ? actResult : (actResult as any).rows ?? [];
+            if (actRows[0]?.run_id) {
+              runId = actRows[0].run_id;
+            }
+          } catch (_e) {}
+        }
+
+        if (!runId) {
+          return res.status(404).json({ success: false, error: "No run found for this client_request_id" });
+        }
+      }
+
+      const artefactResult = await db.execute(
+        sql`SELECT id, run_id, type, title, summary, payload_json, created_at
+            FROM artefacts
+            WHERE run_id = ${runId}
+            ORDER BY created_at ASC`
+      );
+      const artefacts = Array.isArray(artefactResult) ? artefactResult : (artefactResult as any).rows ?? [];
+
+      let agentRun: any = null;
+      try {
+        const runResult = await db.execute(
+          sql`SELECT id, status, terminal_state, created_at, updated_at, supervisor_run_id, client_request_id
+              FROM agent_runs WHERE id = ${runId} LIMIT 1`
+        );
+        const runRows = Array.isArray(runResult) ? runResult : (runResult as any).rows ?? [];
+        agentRun = runRows[0] || null;
+      } catch (_e) {}
+
+      let events: any[] = [];
+      try {
+        const clientRequestId = agentRun?.client_request_id;
+        if (clientRequestId) {
+          const actResult = await db.execute(
+            sql`SELECT id, action_taken, task_generated, status, results, error_message, duration_ms,
+                       router_decision, router_reason, metadata, timestamp
+                FROM agent_activities
+                WHERE client_request_id = ${clientRequestId}
+                ORDER BY timestamp ASC
+                LIMIT 100`
+          );
+          events = Array.isArray(actResult) ? actResult : (actResult as any).rows ?? [];
+        }
+        if (events.length === 0) {
+          const actResult2 = await db.execute(
+            sql`SELECT id, action_taken, task_generated, status, results, error_message, duration_ms,
+                       router_decision, router_reason, metadata, timestamp
+                FROM agent_activities
+                WHERE run_id = ${runId}
+                ORDER BY timestamp ASC
+                LIMIT 100`
+          );
+          events = Array.isArray(actResult2) ? actResult2 : (actResult2 as any).rows ?? [];
+        }
+      } catch (_e) {}
+
+      const contextDump = {
+        runId,
+        agentRun: agentRun ? {
+          status: agentRun.status,
+          terminal_state: agentRun.terminal_state,
+          created_at: agentRun.created_at,
+          updated_at: agentRun.updated_at,
+          supervisor_run_id: agentRun.supervisor_run_id,
+        } : null,
+        artefacts: artefacts.map((a: any) => ({
+          type: a.type,
+          title: a.title,
+          summary: a.summary,
+          created_at: a.created_at,
+          payload_preview: typeof a.payload_json === 'string'
+            ? a.payload_json.slice(0, 800)
+            : JSON.stringify(a.payload_json).slice(0, 800),
+        })),
+        events: events.map((e: any) => ({
+          action: e.action_taken,
+          task: e.task_generated,
+          status: e.status,
+          error: e.error_message,
+          duration_ms: e.duration_ms,
+          router_decision: e.router_decision,
+          router_reason: e.router_reason,
+          timestamp: e.timestamp,
+        })),
+      };
+
+      const OpenAI = (await import("openai")).default;
+      const openaiClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+      const gptResponse = await openaiClient.chat.completions.create({
+        model: "gpt-4o-mini",
+        temperature: 0.3,
+        max_tokens: 2000,
+        messages: [
+          {
+            role: "system",
+            content: `You are a dev-tools assistant that explains agent runs in plain English.
+Given the raw data from an agent run (events, artefacts, run metadata), produce a concise report in Markdown with these sections:
+
+## Summary
+A 2-3 sentence narrative of what happened in this run.
+
+## Key Facts
+A bullet list:
+- **Verdict:** (Tower verdict if present, or "N/A")
+- **Plan versions:** (how many plan artefacts, e.g. "v1 only" or "v1 → v2")
+- **Replans:** (count of plan_update artefacts)
+- **Delivered vs requested:** (from leads_list artefact if present)
+- **Constraints relaxed:** (from plan artefact if present, or "None noted")
+- **Stop reason:** (terminal_state or final status)
+- **Duration:** (from first to last event timestamp)
+
+## Timeline
+A numbered list showing the progression:
+1. Plan v1 created → ...
+2. Step(s) executed → ...
+3. Tower judgement → ...
+4. Plan v2 (if replan happened)
+5. Final status → ...
+
+Keep it factual. If data is missing, say "Not available". Do NOT invent data.`
+          },
+          {
+            role: "user",
+            content: `Explain this run:\n\n${JSON.stringify(contextDump, null, 2)}`
+          }
+        ]
+      });
+
+      const reportMarkdown = gptResponse.choices[0]?.message?.content || "Unable to generate report.";
+
+      res.json({ runId, report_markdown: reportMarkdown });
+
+    } catch (error: any) {
+      console.error("[dev-tools] explain-run error:", error);
+      res.status(500).json({
+        success: false,
+        error: "Failed to generate run explanation",
+        message: error.message,
+      });
+    }
+  });
+
+  /**
    * GET /api/dev/db-info
    * 
    * Debug endpoint to verify database connection info
