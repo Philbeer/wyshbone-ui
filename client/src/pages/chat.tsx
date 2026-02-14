@@ -122,6 +122,18 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     queuedMessageRef.current = queuedMessage;
   }, [queuedMessage]);
 
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const msg = (e as CustomEvent<string>).detail;
+      if (typeof msg === "string" && msg.trim()) {
+        setInput(msg);
+        textareaRef.current?.focus();
+      }
+    };
+    window.addEventListener("wyshbone-prefill-chat", handler);
+    return () => window.removeEventListener("wyshbone-prefill-chat", handler);
+  }, []);
+
   // Helper to get stage icon and label
   const getStageDisplay = (stage: ProgressStage, toolName?: string): { icon: string; label: string } => {
     switch (stage) {

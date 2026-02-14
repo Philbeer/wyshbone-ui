@@ -1,4 +1,6 @@
-import { MapPin, Phone, Globe, AlertTriangle, MessageCircleQuestion } from "lucide-react";
+import { MapPin, Phone, Globe, Info, CheckCircle2, CircleDot, CircleSlash } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 interface DeliveryLead {
   name?: string;
@@ -13,7 +15,39 @@ export interface DeliverySummary {
   delivered_exact?: DeliveryLead[];
   delivered_closest?: DeliveryLead[];
   shortfall?: number;
+  requested_count?: number;
+  delivered_count?: number;
   suggested_next_question?: string | null;
+  relaxations?: string[];
+}
+
+type OutcomeKind = "complete" | "partial" | "no_exact" | "no_matches";
+
+function deriveOutcome(shortfall: number | null, hasExact: boolean, hasClosest: boolean): { kind: OutcomeKind; label: string; subtext: string } {
+  if (shortfall === 0) {
+    return { kind: "complete", label: "Complete", subtext: "You got everything you asked for." };
+  }
+  if (shortfall != null && shortfall > 0 && hasExact) {
+    return { kind: "partial", label: "Partial", subtext: "Some exact matches were found." };
+  }
+  if (!hasExact && hasClosest) {
+    return { kind: "no_exact", label: "No exact matches", subtext: "Closest alternatives are available." };
+  }
+  if (!hasExact && !hasClosest) {
+    return { kind: "no_matches", label: "No matches", subtext: "Nothing matched your requirements." };
+  }
+  return { kind: "partial", label: "Partial", subtext: "Some results were found." };
+}
+
+const OUTCOME_STYLES: Record<OutcomeKind, { badge: string; icon: typeof CheckCircle2 }> = {
+  complete: { badge: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200", icon: CheckCircle2 },
+  partial: { badge: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-200", icon: CircleDot },
+  no_exact: { badge: "bg-gray-100 text-gray-700 dark:bg-gray-800/50 dark:text-gray-300", icon: CircleSlash },
+  no_matches: { badge: "bg-gray-100 text-gray-600 dark:bg-gray-800/50 dark:text-gray-400", icon: CircleSlash },
+};
+
+function prefillChat(message: string) {
+  window.dispatchEvent(new CustomEvent("wyshbone-prefill-chat", { detail: message }));
 }
 
 function LeadCard({ lead, showViolations }: { lead: DeliveryLead; showViolations?: boolean }) {
@@ -57,7 +91,7 @@ function LeadCard({ lead, showViolations }: { lead: DeliveryLead; showViolations
       </div>
 
       {violations && (
-        <p className="text-[11px] text-muted-foreground/70 leading-snug pt-0.5">
+        <p className="text-[11px] text-muted-foreground/50 leading-snug pt-0.5">
           {violations.join(" · ")}
         </p>
       )}
@@ -65,18 +99,78 @@ function LeadCard({ lead, showViolations }: { lead: DeliveryLead; showViolations
   );
 }
 
-export default function UserResultsView({ deliverySummary }: { deliverySummary: DeliverySummary }) {
+function NextActionsSection({ suggestedQuestion, shortfall, requestedCount, onClose }: { suggestedQuestion: string | null; shortfall: number | null; requestedCount: number | null; onClose?: () => void }) {
+  const target = requestedCount ?? "the original number";
+  const q = (suggestedQuestion || "").toLowerCase();
+
+  const actions: Array<{ label: string; message: string; variant?: "default" | "outline" }> = [];
+
+  if (q.includes("nearby")) {
+    actions.push({ label: "Include nearby", message: `Ok, include nearby results. Try to reach ${target}.`, variant: "default" });
+    actions.push({ label: "Keep it strict", message: `Keep the constraints strict. If you can't reach ${target}, stop and explain.`, variant: "outline" });
+  } else if (q.includes("similar")) {
+    actions.push({ label: "Include similar", message: `Ok, include similar matches. Try to reach ${target}.`, variant: "default" });
+    actions.push({ label: "Keep it strict", message: `Keep the constraints strict. If you can't reach ${target}, stop and explain.`, variant: "outline" });
+  } else if (q.includes("broaden")) {
+    actions.push({ label: "Broaden criteria", message: `Ok, broaden the criteria sensibly and try to reach ${target}. Tell me what you relaxed.`, variant: "default" });
+    actions.push({ label: "Keep it strict", message: `Keep the constraints strict. If you can't reach ${target}, stop and explain.`, variant: "outline" });
+  } else if (shortfall != null && shortfall > 0) {
+    actions.push({ label: "Broaden criteria", message: `Ok, broaden the criteria sensibly and try to reach ${target}. Tell me what you relaxed.`, variant: "default" });
+    actions.push({ label: "Keep it strict", message: `Keep the constraints strict. If you can't reach ${target}, stop and explain.`, variant: "outline" });
+  }
+
+  actions.push({ label: "Try a different search", message: `Try a different approach to find ${target} while keeping the original constraints.`, variant: "outline" });
+
+  if (actions.length === 1 && shortfall == null) return null;
+
+  const handleClick = (message: string) => {
+    prefillChat(message);
+    onClose?.();
+  };
+
+  return (
+    <section className="space-y-3 pt-1">
+      <h3 className="text-sm font-semibold text-foreground">Next actions</h3>
+      <div className="flex flex-wrap gap-2">
+        {actions.map((action, i) => (
+          <Button
+            key={i}
+            variant={action.variant || "outline"}
+            size="sm"
+            className="text-xs"
+            onClick={() => handleClick(action.message)}
+          >
+            {action.label}
+          </Button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+export default function UserResultsView({ deliverySummary, onClose }: { deliverySummary: DeliverySummary; onClose?: () => void }) {
   const exact = Array.isArray(deliverySummary.delivered_exact) ? deliverySummary.delivered_exact : [];
   const closest = Array.isArray(deliverySummary.delivered_closest) ? deliverySummary.delivered_closest : [];
   const shortfall = deliverySummary.shortfall ?? null;
+  const requestedCount = deliverySummary.requested_count ?? null;
+  const deliveredCount = deliverySummary.delivered_count ?? null;
   const suggestedQuestion = deliverySummary.suggested_next_question ?? null;
-  const hasResults = exact.length > 0 || closest.length > 0;
+
+  const outcome = deriveOutcome(shortfall, exact.length > 0, closest.length > 0);
+  const style = OUTCOME_STYLES[outcome.kind];
+  const OutcomeIcon = style.icon;
 
   return (
-    <div className="space-y-6">
-      <h2 className="text-lg font-semibold text-foreground">Results</h2>
+    <div className="space-y-5">
+      <div className="flex items-center gap-3">
+        <span className={cn("inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold", style.badge)}>
+          <OutcomeIcon className="h-3.5 w-3.5" />
+          {outcome.label}
+        </span>
+        <p className="text-sm text-muted-foreground">{outcome.subtext}</p>
+      </div>
 
-      {!hasResults && shortfall == null && (
+      {exact.length === 0 && closest.length === 0 && shortfall == null && (
         <p className="text-sm text-muted-foreground">No results to display.</p>
       )}
 
@@ -84,7 +178,7 @@ export default function UserResultsView({ deliverySummary }: { deliverySummary: 
         <section className="space-y-2">
           <div>
             <h3 className="text-sm font-semibold text-foreground">
-              Exact matches ({exact.length})
+              Exact matches
             </h3>
             <p className="text-xs text-muted-foreground mt-0.5">
               These meet all your stated requirements.
@@ -102,7 +196,7 @@ export default function UserResultsView({ deliverySummary }: { deliverySummary: 
         <section className="space-y-2">
           <div>
             <h3 className="text-sm font-semibold text-foreground">
-              Closest matches ({closest.length})
+              Closest matches
             </h3>
             <p className="text-xs text-muted-foreground mt-0.5">
               These are the nearest alternatives once soft constraints were relaxed.
@@ -117,22 +211,25 @@ export default function UserResultsView({ deliverySummary }: { deliverySummary: 
       )}
 
       {shortfall != null && shortfall > 0 && (
-        <div className="rounded-lg border border-amber-300 dark:border-amber-700/60 bg-amber-50/60 dark:bg-amber-950/20 px-4 py-3 flex items-start gap-2.5">
-          <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
-          <div className="text-sm text-foreground/90 leading-relaxed">
-            <p>I found {exact.length} exact match{exact.length !== 1 ? "es" : ""}.</p>
-            <p>I couldn't find {shortfall} more that meet all your requirements.</p>
+        <div className="rounded-lg border border-border bg-muted/30 px-4 py-3 flex items-start gap-2.5">
+          <Info className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+          <div className="text-sm text-foreground/80 leading-relaxed">
+            <p className="font-medium text-foreground mb-0.5">What's missing</p>
+            {requestedCount != null && deliveredCount != null && (
+              <p>Requested {requestedCount}, delivered {deliveredCount}.</p>
+            )}
+            <p>{shortfall} more could not be found that meet all your requirements.</p>
           </div>
         </div>
       )}
 
-      {suggestedQuestion && (
-        <div className="rounded-lg border border-border bg-muted/30 px-4 py-3 flex items-start gap-2.5">
-          <MessageCircleQuestion className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
-          <p className="text-sm text-foreground/80 leading-relaxed">
-            {suggestedQuestion}
-          </p>
-        </div>
+      {(suggestedQuestion || (shortfall != null && shortfall > 0)) && (
+        <NextActionsSection
+          suggestedQuestion={suggestedQuestion}
+          shortfall={shortfall}
+          requestedCount={requestedCount}
+          onClose={onClose}
+        />
       )}
     </div>
   );

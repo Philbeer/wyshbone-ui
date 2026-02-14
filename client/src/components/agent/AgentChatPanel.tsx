@@ -118,6 +118,18 @@ export function AgentChatPanel({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const msg = (e as CustomEvent<string>).detail;
+      if (typeof msg === "string" && msg.trim()) {
+        setInput(msg);
+        textareaRef.current?.focus();
+      }
+    };
+    window.addEventListener("wyshbone-prefill-chat", handler);
+    return () => window.removeEventListener("wyshbone-prefill-chat", handler);
+  }, []);
+
   // Auto-scroll to bottom
   useEffect(() => {
     if (scrollRef.current) {

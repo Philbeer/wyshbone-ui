@@ -1303,7 +1303,7 @@ function UserResultsModal({ clientRequestId, runId, open, onOpenChange }: { clie
           <p className="text-sm text-muted-foreground py-6 text-center">{error}</p>
         )}
         {deliverySummary && !loading && !error && (
-          <UserResultsView deliverySummary={deliverySummary} />
+          <UserResultsView deliverySummary={deliverySummary} onClose={() => onOpenChange(false)} />
         )}
       </DialogContent>
     </Dialog>
