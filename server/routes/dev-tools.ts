@@ -600,16 +600,27 @@ export function createDevToolsRouter(storage: IStorage): Router {
       if (!auth) {
         return res.status(401).json({ success: false, error: "Unauthorized" });
       }
-      if (!hasDevAccess(auth.userEmail)) {
-        return res.status(403).json({ success: false, error: "Developer access required" });
-      }
 
-      let { runId, client_request_id } = req.body;
-      if (!runId && !client_request_id) {
-        return res.status(400).json({ success: false, error: "runId or client_request_id is required" });
-      }
+      let { runId, client_request_id, latest } = req.body;
 
       const db = getDrizzleDb();
+
+      if (!runId && !client_request_id && latest === "true") {
+        try {
+          const latestResult = await db.execute(
+            sql`SELECT id, client_request_id FROM agent_runs ORDER BY created_at DESC LIMIT 1`
+          );
+          const latestRows = Array.isArray(latestResult) ? latestResult : (latestResult as any).rows ?? [];
+          if (latestRows[0]?.id) {
+            runId = latestRows[0].id;
+            client_request_id = latestRows[0].client_request_id;
+          }
+        } catch (_e) {}
+      }
+
+      if (!runId && !client_request_id) {
+        return res.status(400).json({ success: false, error: "No runs found. Run a task first." });
+      }
 
       if (!runId && client_request_id) {
         try {

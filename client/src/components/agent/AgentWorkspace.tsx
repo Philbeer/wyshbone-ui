@@ -126,10 +126,8 @@ export function AgentWorkspace({ className }: AgentWorkspaceProps) {
   }
 
   const resolvedClientRequestId = pinnedClientRequestId ?? currentClientRequestId ?? lastCompletedClientRequestId;
-  const hasRunToExplain = !!resolvedClientRequestId;
 
   const handleExplainRun = useCallback(async () => {
-    if (!resolvedClientRequestId) return;
     setExplainOpen(true);
     setExplainLoading(true);
     setExplainError(null);
@@ -138,11 +136,17 @@ export function AgentWorkspace({ className }: AgentWorkspaceProps) {
     setCopied(false);
 
     try {
+      const body: Record<string, string> = {};
+      if (resolvedClientRequestId) {
+        body.client_request_id = resolvedClientRequestId;
+      } else {
+        body.latest = "true";
+      }
       const url = addDevAuthParams(buildApiUrl("/api/dev/explain-run"));
       const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ client_request_id: resolvedClientRequestId }),
+        body: JSON.stringify(body),
       });
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
@@ -188,6 +192,17 @@ export function AgentWorkspace({ className }: AgentWorkspaceProps) {
             </p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleExplainRun}
+              disabled={explainLoading}
+              title="Generate a plain-English explanation of the last run"
+              className="border-2 border-amber-400 dark:border-amber-600 text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950 disabled:opacity-60"
+            >
+              {explainLoading ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <FileText className="w-3 h-3 mr-1" />}
+              {explainLoading ? "Explaining…" : "Explain last run"}
+            </Button>
             {IS_DEV && (
               <>
                 <Button
@@ -198,17 +213,6 @@ export function AgentWorkspace({ className }: AgentWorkspaceProps) {
                 >
                   <Play className="w-3 h-3 mr-1" />
                   {demoLoading ? "Starting…" : "Run Supervisor Demo"}
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleExplainRun}
-                  disabled={!hasRunToExplain || explainLoading}
-                  title={hasRunToExplain ? "Generate a plain-English explanation of this run" : "No run yet"}
-                  className="border-2 border-amber-400 dark:border-amber-600 text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950 disabled:opacity-60"
-                >
-                  {explainLoading ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <FileText className="w-3 h-3 mr-1" />}
-                  {explainLoading ? "Explaining…" : "Explain last run"}
                 </Button>
                 <Button
                   variant="outline"
