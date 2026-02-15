@@ -80,6 +80,50 @@ const DEFAULT_SENSOR_SCRIPT: DemoSensorScript = {
   ],
 };
 
+interface StepPreset {
+  step: number;
+  machine: "primary" | "alternate";
+  scrap_percent: number;
+  defect_signals: string[];
+  probable_cause: string;
+  trend: "rising" | "stable" | "falling";
+  achievable_scrap_floor_percent: number;
+  energy_kwh_per_good_part: number;
+}
+
+const SIMULATOR_STEP_PRESETS: StepPreset[] = [
+  {
+    step: 1,
+    machine: "primary",
+    scrap_percent: 4.2,
+    defect_signals: ["short_shot"],
+    probable_cause: "Moisture absorption in recycled resin causing incomplete fills",
+    trend: "rising",
+    achievable_scrap_floor_percent: 2.0,
+    energy_kwh_per_good_part: 1.35,
+  },
+  {
+    step: 2,
+    machine: "primary",
+    scrap_percent: 8.1,
+    defect_signals: ["short_shot", "flash"],
+    probable_cause: "High ambient temp + moisture compound effect on melt viscosity",
+    trend: "rising",
+    achievable_scrap_floor_percent: 2.0,
+    energy_kwh_per_good_part: 1.52,
+  },
+  {
+    step: 3,
+    machine: "alternate",
+    scrap_percent: 1.8,
+    defect_signals: [],
+    probable_cause: "Virgin resin on clean tool — nominal conditions",
+    trend: "stable",
+    achievable_scrap_floor_percent: 1.5,
+    energy_kwh_per_good_part: 1.10,
+  },
+];
+
 function MachinePanel({
   label,
   profile,
@@ -183,6 +227,90 @@ function SensorMachineGroup({
       >
         + Add step
       </button>
+    </div>
+  );
+}
+
+function SimulatorStatePreview({
+  sensorScript,
+  primaryProfile,
+  alternateProfile,
+}: {
+  sensorScript: DemoSensorScript;
+  primaryProfile: MachineProfile;
+  alternateProfile: MachineProfile;
+}) {
+  const resolvedSteps = SIMULATOR_STEP_PRESETS.map(preset => {
+    const machineReadings = preset.machine === "primary" ? sensorScript.primary : sensorScript.alternate;
+    const override = machineReadings.find(r => r.step === preset.step);
+    const scrapOverridden = override && override.scrap !== "";
+    const scrap = scrapOverridden ? Number(override!.scrap) : preset.scrap_percent;
+    const machineProfile = preset.machine === "primary" ? primaryProfile : alternateProfile;
+    const machineLabel = preset.machine === "primary"
+      ? `${machineProfile.machine_id} (Primary)`
+      : `${machineProfile.machine_id} (Alternate)`;
+
+    return { ...preset, scrap_percent: scrap, scrapOverridden, machineLabel };
+  });
+
+  const trendColor = (t: string) => {
+    if (t === "rising") return "text-red-600 dark:text-red-400";
+    if (t === "falling") return "text-green-600 dark:text-green-400";
+    return "text-muted-foreground";
+  };
+
+  return (
+    <div className="border border-amber-200 dark:border-amber-800 rounded-lg bg-amber-50/50 dark:bg-amber-950/20 p-3 space-y-3">
+      <div>
+        <p className="text-xs font-semibold text-foreground">Simulator state used for this run (demo mode)</p>
+        <p className="text-[10px] text-muted-foreground mt-0.5 leading-relaxed">
+          These values are fixed for this demo run. The agent reacts to them step-by-step.
+        </p>
+      </div>
+
+      {resolvedSteps.map(step => (
+        <div key={step.step} className="border border-border/40 rounded-md bg-background/80 p-2.5 space-y-1.5">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-semibold text-foreground">Step {step.step}</span>
+            <span className="text-[10px] font-medium text-indigo-600 dark:text-indigo-400">
+              Machine: {step.machineLabel}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px]">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Scrap %</span>
+              <span className={`font-mono font-medium ${step.scrapOverridden ? "text-blue-600 dark:text-blue-400" : ""}`}>
+                {step.scrap_percent}%{step.scrapOverridden ? " (set)" : ""}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Trend</span>
+              <span className={`font-medium ${trendColor(step.trend)}`}>{step.trend}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Scrap floor</span>
+              <span className="font-mono">{step.achievable_scrap_floor_percent}%</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Energy / part</span>
+              <span className="font-mono">{step.energy_kwh_per_good_part} kWh</span>
+            </div>
+            <div className="col-span-2 flex justify-between">
+              <span className="text-muted-foreground">Defect signals</span>
+              <span className="font-medium">
+                {step.defect_signals.length > 0
+                  ? step.defect_signals.join(", ")
+                  : "none"}
+              </span>
+            </div>
+            <div className="col-span-2">
+              <span className="text-muted-foreground">Probable cause: </span>
+              <span className="text-foreground/80">{step.probable_cause}</span>
+            </div>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -390,10 +518,11 @@ export default function InjectionMouldingDemo({ onRun }: { onRun: (scenario: Mou
         {running ? "Sending…" : "Run demo"}
       </Button>
 
-      <p className="text-[10px] text-muted-foreground/70 text-center leading-relaxed">
-        During the simulation, the system generates factory sensor readings (scrap rate, defects, energy use).
-        The agent observes these and decides whether to continue, adapt the plan, or stop.
-      </p>
+      <SimulatorStatePreview
+        sensorScript={sensorScript}
+        primaryProfile={primary}
+        alternateProfile={alternate}
+      />
     </div>
   );
 }
