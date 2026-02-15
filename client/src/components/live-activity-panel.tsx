@@ -1286,8 +1286,11 @@ function ResultsModal({ clientRequestId, runId, open, onOpenChange }: { clientRe
   );
 }
 
+const FACTORY_ARTEFACT_TYPES = new Set(['run_configuration', 'factory_state', 'factory_decision', 'tower_judgement']);
+
 function UserResultsModal({ clientRequestId, runId, open, onOpenChange }: { clientRequestId?: string | null; runId?: string | null; open: boolean; onOpenChange: (open: boolean) => void }) {
   const [deliverySummary, setDeliverySummary] = useState<DeliverySummary | null>(null);
+  const [factoryArtefacts, setFactoryArtefacts] = useState<Artefact[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -1301,6 +1304,7 @@ function UserResultsModal({ clientRequestId, runId, open, onOpenChange }: { clie
     setLoading(true);
     setError(null);
     setDeliverySummary(null);
+    setFactoryArtefacts(null);
 
     const fullUrl = runId
       ? `/api/afr/artefacts?runId=${encodeURIComponent(runId)}`
@@ -1313,26 +1317,33 @@ function UserResultsModal({ clientRequestId, runId, open, onOpenChange }: { clie
       })
       .then((rows: Artefact[]) => {
         const dsArtefact = rows.find(r => r.type === "delivery_summary");
-        if (!dsArtefact) {
-          setError("No results summary is available for this run yet.");
+        if (dsArtefact) {
+          const parsed = parsePayload(dsArtefact.payload_json);
+          if (parsed && typeof parsed === "object") {
+            setDeliverySummary(parsed as DeliverySummary);
+            return;
+          }
+        }
+
+        const factoryRows = rows.filter(r => FACTORY_ARTEFACT_TYPES.has(r.type));
+        if (factoryRows.length > 0) {
+          setFactoryArtefacts(factoryRows);
           return;
         }
-        const parsed = parsePayload(dsArtefact.payload_json);
-        if (parsed && typeof parsed === "object") {
-          setDeliverySummary(parsed as DeliverySummary);
-        } else {
-          setError("No results summary is available for this run yet.");
-        }
+
+        setError("No results summary is available for this run yet.");
       })
       .catch(() => setError("No results summary is available for this run yet."))
       .finally(() => setLoading(false));
   }, [open, clientRequestId, runId]);
 
+  const isFactory = factoryArtefacts && factoryArtefacts.length > 0;
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
+      <DialogContent className={cn("max-h-[80vh] overflow-y-auto", isFactory ? "max-w-2xl" : "max-w-lg")}>
         <DialogHeader>
-          <DialogTitle>Results</DialogTitle>
+          <DialogTitle>{isFactory ? "Production Results" : "Results"}</DialogTitle>
           <DialogDescription className="sr-only">Run results summary</DialogDescription>
         </DialogHeader>
         {loading && (
@@ -1345,6 +1356,16 @@ function UserResultsModal({ clientRequestId, runId, open, onOpenChange }: { clie
         )}
         {deliverySummary && !loading && !error && (
           <UserResultsView deliverySummary={deliverySummary} onClose={() => onOpenChange(false)} />
+        )}
+        {isFactory && !loading && !error && (
+          <div className="space-y-4">
+            {factoryArtefacts.some(a => a.type === 'run_configuration') && (
+              <div>
+                <RunConfigurationView payload={parsePayload(factoryArtefacts.find(a => a.type === 'run_configuration')!.payload_json)} />
+              </div>
+            )}
+            <FactoryTimelineView artefacts={factoryArtefacts.filter(a => a.type !== 'run_configuration')} />
+          </div>
         )}
       </DialogContent>
     </Dialog>
