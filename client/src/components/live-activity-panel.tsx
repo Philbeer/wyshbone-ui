@@ -1319,8 +1319,9 @@ function UserResultsModal({ clientRequestId, runId, open, onOpenChange }: { clie
         const narrativeArtefact = rows.find(r => r.type === "run_narrative");
         if (narrativeArtefact) {
           const parsed = parsePayload(narrativeArtefact.payload_json);
-          if (parsed?.markdown) {
-            setNarrative(parsed.markdown);
+          const text = parsed?.markdown || parsed?.narrative || (typeof parsed === 'string' ? parsed : null);
+          if (text) {
+            setNarrative(text);
             return;
           }
         }
@@ -1337,7 +1338,11 @@ function UserResultsModal({ clientRequestId, runId, open, onOpenChange }: { clie
         const hasFactory = rows.some(r => FACTORY_ARTEFACT_TYPES.has(r.type));
         if (hasFactory && runId) {
           try {
-            const explainRes = await fetch(`/api/dev/explain-run/${encodeURIComponent(runId)}`);
+            const explainRes = await fetch('/api/dev/explain-run', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ runId }),
+            });
             if (explainRes.ok) {
               const data = await explainRes.json();
               if (data.report_markdown) {
