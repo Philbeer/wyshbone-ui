@@ -1290,21 +1290,21 @@ const FACTORY_ARTEFACT_TYPES = new Set(['run_configuration', 'factory_state', 'f
 
 function UserResultsModal({ clientRequestId, runId, open, onOpenChange }: { clientRequestId?: string | null; runId?: string | null; open: boolean; onOpenChange: (open: boolean) => void }) {
   const [deliverySummary, setDeliverySummary] = useState<DeliverySummary | null>(null);
-  const [factoryArtefacts, setFactoryArtefacts] = useState<Artefact[] | null>(null);
+  const [narrative, setNarrative] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
     if (!clientRequestId && !runId) {
-      setError("No results summary is available for this run yet.");
+      setError("No narrative available for this run yet.");
       return;
     }
 
     setLoading(true);
     setError(null);
     setDeliverySummary(null);
-    setFactoryArtefacts(null);
+    setNarrative(null);
 
     const fullUrl = runId
       ? `/api/afr/artefacts?runId=${encodeURIComponent(runId)}`
@@ -1315,7 +1315,16 @@ function UserResultsModal({ clientRequestId, runId, open, onOpenChange }: { clie
         if (!res.ok) throw new Error("Failed to fetch results");
         return res.json();
       })
-      .then((rows: Artefact[]) => {
+      .then(async (rows: Artefact[]) => {
+        const narrativeArtefact = rows.find(r => r.type === "run_narrative");
+        if (narrativeArtefact) {
+          const parsed = parsePayload(narrativeArtefact.payload_json);
+          if (parsed?.markdown) {
+            setNarrative(parsed.markdown);
+            return;
+          }
+        }
+
         const dsArtefact = rows.find(r => r.type === "delivery_summary");
         if (dsArtefact) {
           const parsed = parsePayload(dsArtefact.payload_json);
@@ -1325,26 +1334,32 @@ function UserResultsModal({ clientRequestId, runId, open, onOpenChange }: { clie
           }
         }
 
-        const factoryRows = rows.filter(r => FACTORY_ARTEFACT_TYPES.has(r.type));
-        if (factoryRows.length > 0) {
-          setFactoryArtefacts(factoryRows);
-          return;
+        const hasFactory = rows.some(r => FACTORY_ARTEFACT_TYPES.has(r.type));
+        if (hasFactory && runId) {
+          try {
+            const explainRes = await fetch(`/api/dev/explain-run/${encodeURIComponent(runId)}`);
+            if (explainRes.ok) {
+              const data = await explainRes.json();
+              if (data.report_markdown) {
+                setNarrative(data.report_markdown);
+                return;
+              }
+            }
+          } catch {}
         }
 
-        setError("No results summary is available for this run yet.");
+        setError("No narrative available for this run yet.");
       })
-      .catch(() => setError("No results summary is available for this run yet."))
+      .catch(() => setError("No narrative available for this run yet."))
       .finally(() => setLoading(false));
   }, [open, clientRequestId, runId]);
 
-  const isFactory = factoryArtefacts && factoryArtefacts.length > 0;
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className={cn("max-h-[80vh] overflow-y-auto", isFactory ? "max-w-2xl" : "max-w-lg")}>
+      <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{isFactory ? "Production Results" : "Results"}</DialogTitle>
-          <DialogDescription className="sr-only">Run results summary</DialogDescription>
+          <DialogTitle>{narrative ? "Details" : "Results"}</DialogTitle>
+          <DialogDescription className="sr-only">Run details</DialogDescription>
         </DialogHeader>
         {loading && (
           <div className="flex items-center justify-center py-8">
@@ -1357,14 +1372,24 @@ function UserResultsModal({ clientRequestId, runId, open, onOpenChange }: { clie
         {deliverySummary && !loading && !error && (
           <UserResultsView deliverySummary={deliverySummary} onClose={() => onOpenChange(false)} />
         )}
-        {isFactory && !loading && !error && (
-          <div className="space-y-4">
-            {factoryArtefacts.some(a => a.type === 'run_configuration') && (
-              <div>
-                <RunConfigurationView payload={parsePayload(factoryArtefacts.find(a => a.type === 'run_configuration')!.payload_json)} />
-              </div>
-            )}
-            <FactoryTimelineView artefacts={factoryArtefacts.filter(a => a.type !== 'run_configuration')} />
+        {narrative && !loading && !error && (
+          <div className="prose prose-sm dark:prose-invert max-w-none">
+            {narrative.split('\n').map((line, i) => {
+              if (line.startsWith('## ')) {
+                return <h3 key={i} className="text-sm font-semibold mt-4 mb-1.5">{line.slice(3)}</h3>;
+              }
+              if (!line.trim()) return null;
+              const parts = line.split(/(\*\*[^*]+\*\*)/g);
+              return (
+                <p key={i} className="text-sm text-foreground leading-relaxed mb-1.5">
+                  {parts.map((part, j) =>
+                    part.startsWith('**') && part.endsWith('**')
+                      ? <strong key={j}>{part.slice(2, -2)}</strong>
+                      : part
+                  )}
+                </p>
+              );
+            })}
           </div>
         )}
       </DialogContent>
@@ -1547,7 +1572,7 @@ function SequenceStatusRow({ status, clientRequestId, runId, towerVerdict, tower
                 onClick={() => setShowUserResults(true)}
               >
                 <Package className="h-3 w-3" />
-                Results
+                Details
               </Button>
             </>
           )}
