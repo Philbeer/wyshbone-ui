@@ -1146,6 +1146,14 @@ export function AppSidebar({
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
+                <SidebarMenuItem>
+                  <SidebarMenuButton asChild isActive={location === "/dev/injection-moulding"} data-testid="link-dev-injection-moulding">
+                    <Link href="/dev/injection-moulding">
+                      <Factory className="h-4 w-4" />
+                      <span>Injection Moulding Demo</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
                 {(user?.role === 'admin' || ['phil@wyshbone.com', 'phil@listersbrewery.com'].includes(user?.email?.toLowerCase() || '')) && (
                   <SidebarMenuItem>
                     <SidebarMenuButton asChild isActive={location === "/admin/database-maintenance"} data-testid="link-admin-db-maintenance">
