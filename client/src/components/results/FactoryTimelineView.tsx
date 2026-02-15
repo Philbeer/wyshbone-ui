@@ -122,6 +122,37 @@ function TowerBadge({ judgement }: { judgement: TowerJudgementPayload }) {
   );
 }
 
+export function RunConfigurationView({ payload }: { payload: any }) {
+  const p = parsePayload(payload);
+  const scenario = p.scenario || {};
+  const constraints = p.constraints || {};
+  const fields = [
+    { label: 'Machines', value: scenario.machines },
+    { label: 'Resin type', value: scenario.resin_type },
+    { label: 'Tool ID', value: scenario.tool_id },
+    { label: 'Resin moisture', value: scenario.resin_moisture },
+    { label: 'Ambient temp', value: scenario.ambient_temp_c != null ? `${scenario.ambient_temp_c}°C` : undefined },
+    { label: 'Energy band', value: scenario.energy_price_band },
+    { label: 'Max scrap %', value: constraints.max_scrap_percent != null ? `${constraints.max_scrap_percent}%` : undefined },
+  ].filter(f => f.value != null);
+
+  return (
+    <div className="rounded-lg border bg-card p-3 space-y-1.5">
+      <p className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5">
+        <Wrench className="h-3 w-3" /> Run Configuration
+      </p>
+      <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+        {fields.map(f => (
+          <div key={f.label} className="flex justify-between text-xs">
+            <span className="text-muted-foreground">{f.label}</span>
+            <span className="font-medium">{f.value}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function FactoryStateView({ payload }: { payload: any }) {
   const p = parsePayload(payload);
   return <FactoryStateCard state={p} />;

@@ -19,7 +19,7 @@ import { useUser } from "@/contexts/UserContext";
 import { usePlan } from "@/contexts/PlanContext";
 import UserResultsView from "@/components/results/UserResultsView";
 import type { DeliverySummary } from "@/components/results/UserResultsView";
-import { FactoryStateView, FactoryDecisionView } from "@/components/results/FactoryTimelineView";
+import { FactoryStateView, FactoryDecisionView, RunConfigurationView } from "@/components/results/FactoryTimelineView";
 import FactoryTimelineView from "@/components/results/FactoryTimelineView";
 
 const IS_DEV = import.meta.env.DEV;
@@ -897,6 +897,8 @@ function ArtefactRenderer({ artefact }: { artefact: Artefact }) {
       return <FactoryStateView payload={artefact.payload_json} />;
     case 'factory_decision':
       return <FactoryDecisionView payload={artefact.payload_json} />;
+    case 'run_configuration':
+      return <RunConfigurationView payload={artefact.payload_json} />;
     default:
       return (
         <pre className="text-xs bg-muted/50 rounded p-3 overflow-x-auto max-h-96 whitespace-pre-wrap font-mono">
@@ -922,6 +924,7 @@ const ARTEFACT_LABELS: Record<string, { label: string; icon: string }> = {
   factory_state: { label: 'Factory State', icon: '🏭' },
   factory_decision: { label: 'Decision', icon: '⚙️' },
   factory_timeline: { label: 'Factory Timeline', icon: '🏭' },
+  run_configuration: { label: 'Run Config', icon: '📋' },
 };
 
 interface TowerEvidenceEvent {
@@ -1084,7 +1087,7 @@ function ResultsModal({ clientRequestId, runId, open, onOpenChange }: { clientRe
 
         const hasFactory = rows.some(r => FACTORY_TYPES.has(r.type));
         const byType = new Map<string, Artefact>();
-        const typeOrder = ['plan', 'run_summary', 'plan_update', 'tower_judgement', 'deep_research_result', 'leads_list', 'delivery_summary', 'factory_timeline', 'email_drafts', 'plan_result', 'chat_response'];
+        const typeOrder = ['run_configuration', 'plan', 'run_summary', 'plan_update', 'tower_judgement', 'deep_research_result', 'leads_list', 'delivery_summary', 'factory_timeline', 'email_drafts', 'plan_result', 'chat_response'];
 
         for (const row of rows) {
           if (FACTORY_TYPES.has(row.type)) continue;

@@ -1397,7 +1397,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
             console.log(`[FORK] decideChatMode=RUN but detectSupervisorIntent=false, falling through to CHAT lane`);
           } else {
           const taskType = intentResult.taskType || 'find_prospects';
-          const requestData = { ...(intentResult.requestData || { user_message: latestUserText }), ...(metadata ? { metadata } : {}) };
+          const baseRequestData = { user_message: latestUserText, ...(intentResult.requestData || {}) };
+          const requestData: Record<string, any> = { ...baseRequestData };
+          if (metadata) {
+            if (metadata.scenario) requestData.scenario = metadata.scenario;
+            if (metadata.constraints) requestData.constraints = metadata.constraints;
+            requestData.metadata = metadata;
+          }
 
           emitSse({
             type: 'status',
@@ -1429,7 +1435,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             }
           );
 
-          console.log(`[SUPERVISOR_TASK_CREATED] id=${supervisorTask.id} status=${supervisorTask.status} task_type=${supervisorTask.task_type} run_id=${supervisorTask.run_id || 'N/A'} client_request_id=${supervisorTask.client_request_id || 'N/A'}`);
+          console.log(`[SUPERVISOR_TASK_CREATED] id=${supervisorTask.id} status=${supervisorTask.status} task_type=${supervisorTask.task_type} run_id=${supervisorTask.run_id || 'N/A'} client_request_id=${supervisorTask.client_request_id || 'N/A'} has_scenario=${!!requestData.scenario} has_constraints=${!!requestData.constraints} max_scrap=${requestData.constraints?.max_scrap_percent ?? 'N/A'}`);
 
           res.write(`data: ${JSON.stringify({
             supervisorTaskId: supervisorTask.id,
@@ -1438,6 +1444,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
           if (clientRequestId) {
             await transitionRunToExecuting(clientRequestId);
+          }
+
+          if (metadata?.scenario && (agentRunId || runId)) {
+            const configPayload = {
+              title: 'Run Configuration',
+              summary: `${metadata.demo || 'demo'} — ${Object.entries(metadata.scenario).map(([k, v]) => `${k}: ${v}`).join(', ')}`,
+              scenario: metadata.scenario,
+              constraints: metadata.constraints || {},
+            };
+            try {
+              const configRunId = agentRunId || runId;
+              const ts = new Date().toISOString();
+              await storage.query(
+                sql`INSERT INTO artefacts (run_id, type, title, summary, payload_json, created_at)
+                    VALUES (${configRunId}, ${'run_configuration'}, ${configPayload.title}, ${configPayload.summary}, ${JSON.stringify(configPayload)}::jsonb, ${ts}::timestamptz)`
+              );
+              console.log(`[AFR] Persisted run_configuration artefact for runId=${configRunId}`);
+            } catch (err: any) {
+              console.error(`[AFR] Failed to persist run_configuration artefact: ${err.message}`);
+            }
           }
 
           const delegateMsg = `Task delegated to Supervisor for execution. The Supervisor will handle tool calls, Tower evaluation, and results delivery.`;
