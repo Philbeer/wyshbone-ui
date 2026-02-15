@@ -13,6 +13,7 @@ const RUN_KEYWORDS = [
   'deep dive', 'deep research', 'investigate',
   'saleshandy', 'batch', 'contacts for',
   'monitor', 'schedule', 'create a monitor',
+  'injection moulding demo', 'injection molding demo',
 ];
 
 const LOCATION_PATTERN = /\bin\s+[a-z][a-z\s]+/i;

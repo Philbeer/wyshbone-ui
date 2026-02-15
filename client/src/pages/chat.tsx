@@ -122,16 +122,26 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     queuedMessageRef.current = queuedMessage;
   }, [queuedMessage]);
 
+  const pendingMetadataRef = useRef<Record<string, any> | null>(null);
+
   useEffect(() => {
-    const handler = (e: Event) => {
-      const msg = (e as CustomEvent<string>).detail;
-      if (typeof msg === "string" && msg.trim()) {
-        setInput(msg);
+    const handlePrefill = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (typeof detail === "string" && detail.trim()) {
+        setInput(detail);
         textareaRef.current?.focus();
+      } else if (detail && typeof detail === "object") {
+        if (detail.message) setInput(detail.message);
+        if (detail.metadata) pendingMetadataRef.current = detail.metadata;
+        if (detail.autoSend && detail.message) {
+          setTimeout(() => handleSendRef.current?.(detail.message), 100);
+        } else {
+          textareaRef.current?.focus();
+        }
       }
     };
-    window.addEventListener("wyshbone-prefill-chat", handler);
-    return () => window.removeEventListener("wyshbone-prefill-chat", handler);
+    window.addEventListener("wyshbone-prefill-chat", handlePrefill);
+    return () => window.removeEventListener("wyshbone-prefill-chat", handlePrefill);
   }, []);
 
   // Helper to get stage icon and label
@@ -592,11 +602,14 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
           user: { id: user.id, email: user.email },
           defaultCountry: defaultCountry,
           conversationId: conversationId,
-          clientRequestId: clientRequestId, // AFR idempotency key
+          clientRequestId: clientRequestId,
+          ...(pendingMetadataRef.current ? { metadata: pendingMetadataRef.current } : {}),
         }),
         signal: abortControllerRef.current.signal,
         credentials: "include",
       });
+
+      pendingMetadataRef.current = null;
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ error: "Unknown error" }));

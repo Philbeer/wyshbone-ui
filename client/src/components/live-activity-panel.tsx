@@ -19,6 +19,8 @@ import { useUser } from "@/contexts/UserContext";
 import { usePlan } from "@/contexts/PlanContext";
 import UserResultsView from "@/components/results/UserResultsView";
 import type { DeliverySummary } from "@/components/results/UserResultsView";
+import { FactoryStateView, FactoryDecisionView } from "@/components/results/FactoryTimelineView";
+import FactoryTimelineView from "@/components/results/FactoryTimelineView";
 
 const IS_DEV = import.meta.env.DEV;
 
@@ -891,6 +893,10 @@ function ArtefactRenderer({ artefact }: { artefact: Artefact }) {
       return <PlanArtefactView payload={artefact.payload_json} />;
     case 'delivery_summary':
       return <DeliverySummaryView payload={artefact.payload_json} />;
+    case 'factory_state':
+      return <FactoryStateView payload={artefact.payload_json} />;
+    case 'factory_decision':
+      return <FactoryDecisionView payload={artefact.payload_json} />;
     default:
       return (
         <pre className="text-xs bg-muted/50 rounded p-3 overflow-x-auto max-h-96 whitespace-pre-wrap font-mono">
@@ -913,6 +919,9 @@ const ARTEFACT_LABELS: Record<string, { label: string; icon: string }> = {
   tower_judgement: { label: 'Tower Verdict', icon: '🧠' },
   plan: { label: 'Plan', icon: '📐' },
   delivery_summary: { label: 'Delivery Summary', icon: '📦' },
+  factory_state: { label: 'Factory State', icon: '🏭' },
+  factory_decision: { label: 'Decision', icon: '⚙️' },
+  factory_timeline: { label: 'Factory Timeline', icon: '🏭' },
 };
 
 interface TowerEvidenceEvent {
@@ -1026,8 +1035,11 @@ function EvidenceSection({ clientRequestId, runId }: { clientRequestId?: string 
   );
 }
 
+const FACTORY_TYPES = new Set(['factory_state', 'factory_decision']);
+
 function ResultsModal({ clientRequestId, runId, open, onOpenChange }: { clientRequestId?: string | null; runId?: string | null; open: boolean; onOpenChange: (open: boolean) => void }) {
   const [artefacts, setArtefacts] = useState<Artefact[]>([]);
+  const [allArtefacts, setAllArtefacts] = useState<Artefact[]>([]);
   const [activeTab, setActiveTab] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1037,6 +1049,7 @@ function ResultsModal({ clientRequestId, runId, open, onOpenChange }: { clientRe
     setLoading(true);
     setError(null);
     setArtefacts([]);
+    setAllArtefacts([]);
     setActiveTab('');
 
     const url = runId
@@ -1055,14 +1068,22 @@ function ResultsModal({ clientRequestId, runId, open, onOpenChange }: { clientRe
       .then((rows: Artefact[]) => {
         const uniqueRunIds = Array.from(new Set(rows.map(r => r.run_id)));
         console.log(`[ResultsModal] Got ${rows.length} artefact(s) — types: [${rows.map(r => r.type).join(', ')}] runIds: [${uniqueRunIds.join(', ')}]`);
+        setAllArtefacts(rows);
+
+        const hasFactory = rows.some(r => FACTORY_TYPES.has(r.type));
         const byType = new Map<string, Artefact>();
-        const typeOrder = ['plan', 'run_summary', 'plan_update', 'tower_judgement', 'deep_research_result', 'leads_list', 'delivery_summary', 'email_drafts', 'plan_result', 'chat_response'];
+        const typeOrder = ['plan', 'run_summary', 'plan_update', 'tower_judgement', 'deep_research_result', 'leads_list', 'delivery_summary', 'factory_timeline', 'email_drafts', 'plan_result', 'chat_response'];
 
         for (const row of rows) {
+          if (FACTORY_TYPES.has(row.type)) continue;
           const existing = byType.get(row.type);
           if (!existing || new Date(row.created_at) > new Date(existing.created_at)) {
             byType.set(row.type, row);
           }
+        }
+
+        if (hasFactory) {
+          byType.set('factory_timeline', { id: 'virtual_factory_timeline', run_id: rows[0]?.run_id || '', type: 'factory_timeline', title: 'Factory Timeline', summary: '', payload_json: {}, created_at: new Date().toISOString() } as Artefact);
         }
 
         const sorted = Array.from(byType.values()).sort((a, b) => {
@@ -1234,7 +1255,10 @@ function ResultsModal({ clientRequestId, runId, open, onOpenChange }: { clientRe
                 {hasTabs && activeArtefact.summary && (
                   <p className="text-xs text-muted-foreground">{activeArtefact.summary}</p>
                 )}
-                <ArtefactRenderer artefact={activeArtefact} />
+                {activeTab === 'factory_timeline'
+                  ? <FactoryTimelineView artefacts={allArtefacts.filter(a => FACTORY_TYPES.has(a.type) || a.type === 'tower_judgement')} />
+                  : <ArtefactRenderer artefact={activeArtefact} />
+                }
               </>
             )}
             <EvidenceSection clientRequestId={clientRequestId} runId={runId} />

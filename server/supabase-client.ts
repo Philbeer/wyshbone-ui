@@ -41,6 +41,8 @@ export interface SupervisorTaskData {
     business_type?: string;
     location?: string;
   };
+  demo?: string;
+  metadata?: Record<string, any>;
 }
 
 export interface SupervisorTask {

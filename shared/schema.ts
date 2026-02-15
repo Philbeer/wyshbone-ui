@@ -20,7 +20,8 @@ export const chatRequestSchema = z.object({
   }),
   defaultCountry: z.string().optional(),
   conversationId: z.string().optional(),
-  clientRequestId: z.string().optional(), // Idempotency key - prevents duplicate run creation
+  clientRequestId: z.string().optional(),
+  metadata: z.record(z.any()).optional(),
 });
 
 export type ChatRequest = z.infer<typeof chatRequestSchema>;

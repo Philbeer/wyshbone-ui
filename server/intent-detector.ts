@@ -84,6 +84,19 @@ export function detectSupervisorIntent(userMessage: string): IntentDetectionResu
     };
   }
 
+  const DEMO_KEYWORDS = ['injection moulding demo', 'injection molding demo'];
+  const hasDemoIntent = DEMO_KEYWORDS.some(kw => normalized.includes(kw));
+  if (hasDemoIntent) {
+    return {
+      requiresSupervisor: true,
+      taskType: 'find_prospects',
+      requestData: {
+        user_message: userMessage,
+        demo: 'injection_moulding',
+      },
+    };
+  }
+
   // Broad fallback: "find [N] [noun] in [location]" pattern
   const genericFindInLocation = /\bfind\s+(?:\d+\s+)?([a-z]+(?:\s+[a-z]+)?)\s+in\s+([a-z][a-z\s,]+)/i;
   const genericMatch = normalized.match(genericFindInLocation);

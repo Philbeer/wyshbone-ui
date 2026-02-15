@@ -33,6 +33,8 @@ import { cn } from "@/lib/utils";
 import { LiveActivityPanel } from "@/components/live-activity-panel";
 import { useCurrentRequest } from "@/contexts/CurrentRequestContext";
 import { buildApiUrl, addDevAuthParams } from "@/lib/queryClient";
+import InjectionMouldingDemo from "@/components/demos/InjectionMouldingDemo";
+import type { MouldingScenario } from "@/components/demos/InjectionMouldingDemo";
 
 const IS_DEV = import.meta.env.DEV;
 
@@ -270,6 +272,17 @@ export function AgentWorkspace({ className }: AgentWorkspaceProps) {
                 {" "}runId=<span className="select-all">{proofV2Ids.runId}</span>
               </div>
             )}
+            <div className="mt-3">
+              <InjectionMouldingDemo onRun={(scenario) => {
+                window.dispatchEvent(new CustomEvent("wyshbone-prefill-chat", {
+                  detail: {
+                    message: "run the injection moulding demo",
+                    metadata: { demo: "injection_moulding", scenario },
+                    autoSend: true,
+                  },
+                }));
+              }} />
+            </div>
           </CollapsibleContent>
         </Collapsible>
       </div>

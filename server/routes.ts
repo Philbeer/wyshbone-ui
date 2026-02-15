@@ -1285,9 +1285,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const validatedData = validation.data;
       user = validatedData.user;
-      const { messages, defaultCountry, conversationId: requestedConversationId, clientRequestId: _clientRequestId } = validatedData;
+      const { messages, defaultCountry, conversationId: requestedConversationId, clientRequestId: _clientRequestId, metadata } = validatedData;
       clientRequestId = _clientRequestId;
-      console.log('📝 Chat request from user:', user.id, user.email, clientRequestId ? `(crid:${clientRequestId.slice(0,8)})` : '');
+      console.log('📝 Chat request from user:', user.id, user.email, clientRequestId ? `(crid:${clientRequestId.slice(0,8)})` : '', metadata ? `metadata=${JSON.stringify(metadata).slice(0,200)}` : '');
       
       // SECURITY: Validate authenticated user matches the user in request
       const auth = await getAuthenticatedUserId(req);
@@ -1397,7 +1397,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             console.log(`[FORK] decideChatMode=RUN but detectSupervisorIntent=false, falling through to CHAT lane`);
           } else {
           const taskType = intentResult.taskType || 'find_prospects';
-          const requestData = intentResult.requestData || { user_message: latestUserText };
+          const requestData = { ...(intentResult.requestData || { user_message: latestUserText }), ...(metadata ? { metadata } : {}) };
 
           emitSse({
             type: 'status',
