@@ -1,19 +1,20 @@
 import { useLocation } from "wouter";
 import InjectionMouldingDemo from "@/components/demos/InjectionMouldingDemo";
-import type { MouldingScenario } from "@/components/demos/InjectionMouldingDemo";
+import type { MouldingScenario, FactoryPayload } from "@/components/demos/InjectionMouldingDemo";
 
 export default function InjectionMouldingPage() {
   const [, setLocation] = useLocation();
 
-  const handleRun = (scenario: MouldingScenario) => {
+  const handleRun = (scenario: MouldingScenario, factory: FactoryPayload) => {
     const detail = {
       message: "run the injection moulding demo",
       metadata: {
         demo: "injection_moulding",
         scenario,
         constraints: {
-          max_scrap_percent: Number(scenario.max_scrap_percent),
+          max_scrap_percent: Number(factory.constraints.max_scrap_percent),
         },
+        factory,
       },
       autoSend: true,
     };
