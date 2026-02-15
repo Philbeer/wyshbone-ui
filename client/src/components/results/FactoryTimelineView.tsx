@@ -1,9 +1,13 @@
 import { cn } from "@/lib/utils";
-import { Thermometer, Zap, Wrench, Droplets, AlertTriangle, CheckCircle2, XCircle } from "lucide-react";
+import { Thermometer, Zap, Wrench, Droplets, AlertTriangle, CheckCircle2, XCircle, Activity } from "lucide-react";
 
 interface FactoryStatePayload {
   step_index?: number;
   scrap_rate_now?: number;
+  scrap_floor_percent?: number;
+  drift_detected?: boolean;
+  drift_reason?: string;
+  defect_signals?: string[];
   defect_type?: string;
   energy_kwh_per_good_part?: number;
   tool_id?: string;
@@ -38,34 +42,113 @@ function parsePayload(raw: any): any {
   return raw ?? {};
 }
 
-function FactoryStateCard({ state }: { state: FactoryStatePayload }) {
+function ScrapGauge({ measured, floor }: { measured: number; floor?: number }) {
+  const gap = floor != null ? measured - floor : null;
   return (
-    <div className="rounded border bg-muted/30 px-3 py-2 space-y-1">
-      <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Factory state</p>
-      <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs">
-        {state.scrap_rate_now != null && (
-          <div className="flex items-center gap-1.5">
-            <AlertTriangle className="w-3 h-3 text-orange-500 shrink-0" />
-            <span className="text-muted-foreground">Scrap:</span>
-            <span className={cn("font-mono font-semibold", state.scrap_rate_now > 10 ? "text-red-500" : state.scrap_rate_now > 5 ? "text-orange-500" : "text-green-600")}>
-              {state.scrap_rate_now}%
+    <div className="col-span-2 rounded bg-muted/50 px-2.5 py-1.5 space-y-1">
+      <div className="flex items-center justify-between">
+        <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1">
+          <AlertTriangle className="w-3 h-3 text-orange-500" /> Scrap
+        </span>
+        {gap != null && gap > 0 && (
+          <span className="text-[10px] font-medium text-orange-500">
+            {gap.toFixed(1)}pp above floor
+          </span>
+        )}
+      </div>
+      <div className="flex items-baseline gap-3">
+        <div>
+          <span className="text-[10px] text-muted-foreground block">Measured</span>
+          <span className={cn("font-mono text-sm font-bold", measured > 10 ? "text-red-500" : measured > 5 ? "text-orange-500" : "text-green-600")}>
+            {measured}%
+          </span>
+        </div>
+        {floor != null && (
+          <div>
+            <span className="text-[10px] text-muted-foreground block">Achievable floor</span>
+            <span className="font-mono text-sm font-semibold text-muted-foreground">
+              {floor}%
             </span>
           </div>
         )}
-        {state.defect_type && (
-          <div className="flex items-center gap-1.5">
-            <XCircle className="w-3 h-3 text-red-400 shrink-0" />
-            <span className="text-muted-foreground">Defect:</span>
-            <span className="font-medium">{state.defect_type}</span>
-          </div>
+      </div>
+    </div>
+  );
+}
+
+function DriftBanner({ detected, reason }: { detected: boolean; reason?: string }) {
+  return (
+    <div className={cn(
+      "col-span-2 rounded px-2.5 py-1.5 flex items-start gap-2 text-xs",
+      detected
+        ? "bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800"
+        : "bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800"
+    )}>
+      <Activity className={cn("w-3.5 h-3.5 mt-0.5 shrink-0", detected ? "text-amber-500" : "text-green-500")} />
+      <div>
+        <span className={cn("font-semibold", detected ? "text-amber-700 dark:text-amber-300" : "text-green-700 dark:text-green-300")}>
+          Drift {detected ? "detected" : "none"}
+        </span>
+        {detected && reason && (
+          <p className="text-muted-foreground mt-0.5">{reason}</p>
         )}
-        {state.energy_kwh_per_good_part != null && (
+      </div>
+    </div>
+  );
+}
+
+function DefectSignals({ signals, legacyType }: { signals?: string[]; legacyType?: string }) {
+  const items = signals && signals.length > 0 ? signals : legacyType ? [legacyType] : [];
+  if (items.length === 0) return null;
+  return (
+    <div className="col-span-2 flex items-start gap-1.5">
+      <XCircle className="w-3 h-3 text-red-400 shrink-0 mt-0.5" />
+      <div>
+        <span className="text-[10px] text-muted-foreground block">Defect signals</span>
+        <div className="flex flex-wrap gap-1 mt-0.5">
+          {items.map((s, i) => (
+            <span key={i} className="inline-block rounded bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 text-[11px] font-medium px-1.5 py-0.5">
+              {s}
+            </span>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FactoryStateCard({ state }: { state: FactoryStatePayload }) {
+  const hasScrap = state.scrap_rate_now != null;
+  const hasDrift = state.drift_detected != null;
+  const hasDefects = (state.defect_signals && state.defect_signals.length > 0) || !!state.defect_type;
+  const hasEnergy = state.energy_kwh_per_good_part != null;
+
+  return (
+    <div className="rounded border bg-muted/30 px-3 py-2 space-y-1.5">
+      <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">World state</p>
+      <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
+        {hasScrap && (
+          <ScrapGauge measured={state.scrap_rate_now!} floor={state.scrap_floor_percent} />
+        )}
+
+        {hasDrift && (
+          <DriftBanner detected={!!state.drift_detected} reason={state.drift_reason} />
+        )}
+
+        {hasDefects && (
+          <DefectSignals signals={state.defect_signals} legacyType={state.defect_type} />
+        )}
+
+        {hasEnergy && (
           <div className="flex items-center gap-1.5">
             <Zap className="w-3 h-3 text-yellow-500 shrink-0" />
-            <span className="text-muted-foreground">Energy:</span>
-            <span className="font-mono">{state.energy_kwh_per_good_part} kWh/part</span>
+            <div>
+              <span className="text-[10px] text-muted-foreground block">Energy per part</span>
+              <span className="font-mono font-semibold">{state.energy_kwh_per_good_part} kWh</span>
+            </div>
           </div>
         )}
+
         {state.tool_id && (
           <div className="flex items-center gap-1.5">
             <Wrench className="w-3 h-3 text-blue-400 shrink-0" />
