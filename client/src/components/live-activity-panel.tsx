@@ -1291,6 +1291,7 @@ const FACTORY_ARTEFACT_TYPES = new Set(['run_configuration', 'factory_state', 'f
 function UserResultsModal({ clientRequestId, runId, open, onOpenChange }: { clientRequestId?: string | null; runId?: string | null; open: boolean; onOpenChange: (open: boolean) => void }) {
   const [deliverySummary, setDeliverySummary] = useState<DeliverySummary | null>(null);
   const [narrative, setNarrative] = useState<string | null>(null);
+  const [tldr, setTldr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -1305,6 +1306,7 @@ function UserResultsModal({ clientRequestId, runId, open, onOpenChange }: { clie
     setError(null);
     setDeliverySummary(null);
     setNarrative(null);
+    setTldr(null);
 
     const fullUrl = runId
       ? `/api/afr/artefacts?runId=${encodeURIComponent(runId)}`
@@ -1321,6 +1323,9 @@ function UserResultsModal({ clientRequestId, runId, open, onOpenChange }: { clie
           const parsed = parsePayload(narrativeArtefact.payload_json);
           const text = parsed?.markdown || parsed?.narrative || (typeof parsed === 'string' ? parsed : null);
           if (text) {
+            if (parsed?.tldr && typeof parsed.tldr === 'string') {
+              setTldr(parsed.tldr);
+            }
             setNarrative(text);
             return;
           }
@@ -1379,6 +1384,12 @@ function UserResultsModal({ clientRequestId, runId, open, onOpenChange }: { clie
         )}
         {narrative && !loading && !error && (
           <div className="prose prose-sm dark:prose-invert max-w-none">
+            {tldr && (
+              <div className="bg-muted/50 border border-border rounded-md px-3 py-2.5 mb-4">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">TL;DR</p>
+                <p className="text-sm font-medium text-foreground leading-snug">{tldr}</p>
+              </div>
+            )}
             {narrative.split('\n').map((line, i) => {
               if (line.startsWith('## ')) {
                 return <h3 key={i} className="text-sm font-semibold mt-4 mb-1.5">{line.slice(3)}</h3>;
