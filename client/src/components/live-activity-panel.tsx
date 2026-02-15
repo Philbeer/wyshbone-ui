@@ -12,7 +12,7 @@ import {
 import { 
   RefreshCw, Clock, CheckCircle2, XCircle, Loader2, AlertTriangle, 
   MessageSquare, Route, FileSearch, Wrench, ListChecks, Play, ChevronDown, ChevronUp,
-  Zap, Brain, Send, Sparkles, Film, Eye, Package, GitBranch
+  Zap, Brain, Send, Sparkles, Eye, Package, GitBranch
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUser } from "@/contexts/UserContext";
@@ -3159,21 +3159,6 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
         <div className="flex items-center justify-between gap-2 min-w-0">
           <CardTitle className="text-sm font-medium shrink-0">Live Activity</CardTitle>
           <div className="flex flex-wrap items-center gap-1.5 justify-end min-w-0">
-            {IS_DEV && (
-              <button
-                onClick={() => setDemoPlayback(prev => !prev)}
-                className={cn(
-                  "inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors cursor-pointer select-none",
-                  demoPlayback
-                    ? "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200"
-                    : "bg-gray-100 text-gray-500 dark:bg-gray-800/50 dark:text-gray-400"
-                )}
-                title={demoPlayback ? "Demo playback ON: events revealed with delay, min-visible and post-terminal holds active" : "Demo playback OFF: real-time event display"}
-              >
-                <Film className="h-3 w-3" />
-                Demo {demoPlayback ? "ON" : "OFF"}
-              </button>
-            )}
             {IS_DEV && (
               <button
                 onClick={() => {
