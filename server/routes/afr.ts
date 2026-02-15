@@ -857,15 +857,34 @@ export function createAfrRouter(_storage: typeof storage) {
       let terminalState: 'completed' | 'failed' | 'stopped' | null = null;
       let uiReady = false;
 
+      const STALE_RUN_TIMEOUT_MS = 5 * 60 * 1000;
+
       if (agentRun) {
-        // RUN RECORD EXISTS - Use authoritative status
         overallStatus = agentRun.status as typeof overallStatus;
         uiReady = agentRun.uiReady === 1;
         
-        // Terminal state comes ONLY from the run record
         if (agentRun.terminalState) {
           isTerminal = true;
           terminalState = agentRun.terminalState as 'completed' | 'failed' | 'stopped';
+        } else {
+          const updatedAt = agentRun.updatedAt ? new Date(agentRun.updatedAt).getTime() : 0;
+          const age = Date.now() - updatedAt;
+          if (age > STALE_RUN_TIMEOUT_MS && !isTerminal) {
+            console.log(`[AFR_STALE] Run ${agentRun.id} stale (${Math.round(age / 1000)}s since update). Auto-failing.`);
+            try {
+              await storage.updateAgentRun(agentRun.id, {
+                status: 'failed',
+                terminalState: 'failed',
+                error: `Supervisor did not respond within ${Math.round(STALE_RUN_TIMEOUT_MS / 60000)} minutes`,
+              });
+            } catch (e: any) {
+              console.error(`[AFR_STALE] Failed to update run: ${e.message}`);
+            }
+            overallStatus = 'failed';
+            isTerminal = true;
+            terminalState = 'failed';
+            uiReady = true;
+          }
         }
       } else {
         // BACKWARDS COMPATIBILITY: No run record (older requests)
