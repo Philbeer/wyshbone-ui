@@ -144,6 +144,154 @@ function getNextScheduledRun(): string {
 // ROUTER
 // ============================================
 
+interface ParsedArtefact {
+  type: string;
+  title: string;
+  summary: string;
+  payload: Record<string, any>;
+  created_at: string;
+}
+
+function buildFactoryExplanation(artefacts: ParsedArtefact[], agentRun: any): string {
+  const config = artefacts.find(a => a.type === 'run_configuration');
+  const states = artefacts
+    .filter(a => a.type === 'factory_state')
+    .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+  const decisions = artefacts
+    .filter(a => a.type === 'factory_decision')
+    .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+  const judgements = artefacts.filter(a => a.type === 'tower_judgement');
+
+  const terminal = agentRun?.terminal_state || agentRun?.status || 'unknown';
+  const succeeded = terminal === 'completed';
+  const stopped = terminal === 'stopped' || terminal === 'failed';
+
+  const sanitize = (text: string): string => {
+    return text
+      .replace(/\btower\b/gi, '')
+      .replace(/\bartefact(?:s)?\b/gi, '')
+      .replace(/\bsupervisor\b/gi, '')
+      .replace(/\bterminal[_\s]?state\b/gi, '')
+      .replace(/\benum\b/gi, '')
+      .replace(/\brunId\b/gi, '')
+      .replace(/\brun_id\b/gi, '')
+      .replace(/\bverdict\b/gi, 'decision')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+  };
+
+  const lines: string[] = [];
+
+  lines.push('## What happened\n');
+
+  if (config) {
+    const sc = config.payload.scenario || {};
+    const co = config.payload.constraints || {};
+    const parts: string[] = [];
+    if (sc.machines) parts.push(`${sc.machines} machines`);
+    if (sc.resin_type) parts.push(`${sc.resin_type} resin`);
+    if (sc.tool_id) parts.push(`tool ${sc.tool_id}`);
+    if (sc.ambient_temp_c != null) parts.push(`ambient temperature ${sc.ambient_temp_c}°C`);
+    if (sc.resin_moisture) parts.push(`${sc.resin_moisture} resin moisture`);
+    if (sc.energy_price_band) parts.push(`${sc.energy_price_band} energy pricing`);
+
+    lines.push(`The production run started with ${parts.length > 0 ? parts.join(', ') : 'the configured settings'}.`);
+
+    if (co.max_scrap_percent != null) {
+      lines.push(`The maximum acceptable scrap rate was set to **${co.max_scrap_percent}%**.\n`);
+    }
+  } else {
+    lines.push('A production run was started with the configured factory settings.\n');
+  }
+
+  lines.push('## During production\n');
+
+  if (states.length === 0) {
+    lines.push('No production data was recorded for this run.\n');
+  } else {
+    for (let i = 0; i < states.length; i++) {
+      const s = states[i].payload;
+      const stepLabel = states.length === 1 ? 'During production' : `At check ${i + 1}`;
+      const observations: string[] = [];
+
+      if (s.scrap_rate_now != null) {
+        observations.push(`the measured scrap rate was **${s.scrap_rate_now}%**`);
+      }
+      if (s.scrap_floor_percent != null) {
+        observations.push(`the best achievable scrap rate under current conditions was **${s.scrap_floor_percent}%**`);
+      }
+      if (s.drift_detected === true) {
+        const reason = s.drift_reason ? ` (${s.drift_reason.toLowerCase()})` : '';
+        observations.push(`conditions were drifting from the expected range${reason}`);
+      } else if (s.drift_detected === false) {
+        observations.push('conditions were stable');
+      }
+      if (s.defect_signals && s.defect_signals.length > 0) {
+        observations.push(`defect signals included ${s.defect_signals.join(', ')}`);
+      } else if (s.defect_type) {
+        observations.push(`the main defect type was ${s.defect_type}`);
+      }
+      if (s.energy_kwh_per_good_part != null) {
+        observations.push(`energy usage was ${s.energy_kwh_per_good_part} kWh per good part`);
+      }
+
+      if (observations.length > 0) {
+        lines.push(`**${stepLabel}:** ${observations.join('; ')}.\n`);
+      }
+    }
+  }
+
+  if (decisions.length > 0) {
+    lines.push('## What changed\n');
+    for (const d of decisions) {
+      const p = d.payload;
+      if (p.decision) {
+        lines.push(`The system decided to **${sanitize(p.decision.toLowerCase())}**.`);
+      }
+      if (p.reason) {
+        lines.push(`This was because ${sanitize(p.reason.toLowerCase().replace(/\.$/, ''))}.\n`);
+      }
+    }
+  }
+
+  const lastJudgement = judgements.length > 0 ? judgements[judgements.length - 1] : null;
+
+  lines.push('## Outcome\n');
+
+  const statusMap: Record<string, string> = {
+    completed: 'completed successfully',
+    stopped: 'stopped early',
+    failed: 'stopped due to an issue',
+    timeout: 'timed out',
+    pending: 'still in progress',
+    running: 'still running',
+  };
+
+  if (stopped) {
+    if (lastJudgement?.payload?.verdict === 'stop') {
+      const rawReason = lastJudgement.payload.reason || lastJudgement.payload.rationale;
+      lines.push('Production was **stopped early** because the target could not be achieved under the current conditions.');
+      if (rawReason) {
+        lines.push(`Specifically: ${sanitize(rawReason.replace(/\.$/, ''))}.\n`);
+      }
+    } else {
+      lines.push('Production was **stopped** because the target could not be achieved under the current conditions.\n');
+    }
+  } else if (succeeded) {
+    const hadChanges = decisions.length > 0;
+    if (hadChanges) {
+      lines.push('Production **completed successfully**, but conditions changed during the process and the system adjusted its approach to stay within limits.\n');
+    } else {
+      lines.push('Production **completed successfully**. Conditions remained within acceptable limits throughout.\n');
+    }
+  } else {
+    const friendlyStatus = statusMap[terminal] || 'ended';
+    lines.push(`Production ${friendlyStatus}.\n`);
+  }
+
+  return lines.join('\n');
+}
+
 export function createDevToolsRouter(storage: IStorage): Router {
   const router = Router();
 
@@ -695,6 +843,23 @@ export function createDevToolsRouter(storage: IStorage): Router {
         }
       } catch (_e) {}
 
+      const parsedArtefacts = artefacts.map((a: any) => {
+        let payload = a.payload_json;
+        if (typeof payload === 'string') {
+          try { payload = JSON.parse(payload); } catch { payload = {}; }
+        }
+        return { type: a.type as string, title: a.title, summary: a.summary, payload: payload || {}, created_at: a.created_at };
+      });
+
+      const isFactoryRun = parsedArtefacts.some(
+        (a: any) => a.type === 'run_configuration' || a.type === 'factory_state' || a.type === 'factory_decision'
+      );
+
+      if (isFactoryRun) {
+        const report = buildFactoryExplanation(parsedArtefacts, agentRun);
+        return res.json({ runId, report_markdown: report });
+      }
+
       const contextDump = {
         runId,
         agentRun: agentRun ? {
@@ -704,14 +869,12 @@ export function createDevToolsRouter(storage: IStorage): Router {
           updated_at: agentRun.updated_at,
           supervisor_run_id: agentRun.supervisor_run_id,
         } : null,
-        artefacts: artefacts.map((a: any) => ({
+        artefacts: parsedArtefacts.map((a: any) => ({
           type: a.type,
           title: a.title,
           summary: a.summary,
           created_at: a.created_at,
-          payload_preview: typeof a.payload_json === 'string'
-            ? a.payload_json.slice(0, 800)
-            : JSON.stringify(a.payload_json).slice(0, 800),
+          payload_preview: JSON.stringify(a.payload).slice(0, 800),
         })),
         events: events.map((e: any) => ({
           action: e.action_taken,
