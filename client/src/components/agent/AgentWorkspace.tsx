@@ -207,7 +207,7 @@ export function AgentWorkspace({ className }: AgentWorkspaceProps) {
             </Badge>
           </div>
         </div>
-        <Collapsible>
+        <Collapsible defaultOpen>
           <CollapsibleTrigger asChild>
             <button className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors mt-2 group/tools">
               <Wrench className="w-3 h-3" />
