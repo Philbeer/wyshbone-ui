@@ -277,7 +277,13 @@ export function AgentWorkspace({ className }: AgentWorkspaceProps) {
                 window.dispatchEvent(new CustomEvent("wyshbone-prefill-chat", {
                   detail: {
                     message: "run the injection moulding demo",
-                    metadata: { demo: "injection_moulding", scenario },
+                    metadata: {
+                      demo: "injection_moulding",
+                      scenario,
+                      constraints: {
+                        max_scrap_percent: Number(scenario.max_scrap_percent),
+                      },
+                    },
                     autoSend: true,
                   },
                 }));
