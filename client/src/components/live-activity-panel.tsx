@@ -932,7 +932,7 @@ interface TowerEvidenceEvent {
   details?: Record<string, any>;
 }
 
-function EvidenceSection({ clientRequestId, runId }: { clientRequestId?: string | null; runId?: string | null }) {
+function EvidenceSection({ clientRequestId, runId, preloadedArtefacts }: { clientRequestId?: string | null; runId?: string | null; preloadedArtefacts?: Artefact[] }) {
   const [events, setEvents] = useState<TowerEvidenceEvent[]>([]);
   const [judgementArtefact, setJudgementArtefact] = useState<Artefact | null>(null);
   const [expanded, setExpanded] = useState(false);
@@ -940,39 +940,51 @@ function EvidenceSection({ clientRequestId, runId }: { clientRequestId?: string 
   useEffect(() => {
     if (!clientRequestId && !runId) return;
 
+    const extractTowerEvents = (data: StreamResponse | null) => {
+      if (!data?.events) return;
+      const towerEvents = data.events.filter(e => {
+        const t = e.type?.toLowerCase() || '';
+        return t.startsWith('tower_') || t === 'judgement_received';
+      });
+      if (towerEvents.length > 0) {
+        setEvents(towerEvents.map(e => ({
+          id: e.id,
+          ts: e.ts,
+          type: e.type,
+          summary: e.summary || humanizeEventType(e.type),
+          details: e.details as Record<string, any>,
+        })));
+      }
+      return towerEvents.length;
+    };
+
+    if (preloadedArtefacts && preloadedArtefacts.length > 0) {
+      const tj = preloadedArtefacts.find(r => r.type === 'tower_judgement');
+      if (tj) setJudgementArtefact(tj);
+    }
+
     if (clientRequestId) {
       fetch(`/api/afr/stream?client_request_id=${encodeURIComponent(clientRequestId)}`)
         .then(res => res.ok ? res.json() : null)
-        .then((data: StreamResponse | null) => {
-          if (!data?.events) return;
-          const towerEvents = data.events.filter(e => {
-            const t = e.type?.toLowerCase() || '';
-            return t.startsWith('tower_') || t === 'judgement_received';
-          });
-          setEvents(towerEvents.map(e => ({
-            id: e.id,
-            ts: e.ts,
-            type: e.type,
-            summary: e.summary || humanizeEventType(e.type),
-            details: e.details as Record<string, any>,
-          })));
-        })
+        .then(extractTowerEvents)
         .catch(() => {});
     }
 
-    const artefactUrl = runId
-      ? `/api/afr/artefacts?runId=${encodeURIComponent(runId)}`
-      : clientRequestId
-        ? `/api/afr/artefacts?client_request_id=${encodeURIComponent(clientRequestId)}`
-        : null;
-    if (artefactUrl) {
-      fetch(artefactUrl)
-        .then(res => res.ok ? res.json() : [])
-        .then((rows: Artefact[]) => {
-          const tj = rows.find(r => r.type === 'tower_judgement');
-          if (tj) setJudgementArtefact(tj);
-        })
-        .catch(() => {});
+    if (!preloadedArtefacts?.some(r => r.type === 'tower_judgement')) {
+      const artefactUrl = runId
+        ? `/api/afr/artefacts?runId=${encodeURIComponent(runId)}`
+        : clientRequestId
+          ? `/api/afr/artefacts?client_request_id=${encodeURIComponent(clientRequestId)}`
+          : null;
+      if (artefactUrl) {
+        fetch(artefactUrl)
+          .then(res => res.ok ? res.json() : [])
+          .then((rows: Artefact[]) => {
+            const tj = rows.find(r => r.type === 'tower_judgement');
+            if (tj) setJudgementArtefact(tj);
+          })
+          .catch(() => {});
+      }
     }
   }, [clientRequestId, runId]);
 
@@ -1118,7 +1130,9 @@ function ResultsModal({ clientRequestId, runId, open, onOpenChange }: { clientRe
               ? 'No results yet.'
               : loading
                 ? 'Loading results...'
-                : `${artefacts.length} artefact${artefacts.length === 1 ? '' : 's'} from this run`}
+                : allArtefacts.length !== artefacts.length
+                  ? `${allArtefacts.length} artefact${allArtefacts.length === 1 ? '' : 's'} from this run (${artefacts.length} unique type${artefacts.length === 1 ? '' : 's'})`
+                  : `${allArtefacts.length} artefact${allArtefacts.length === 1 ? '' : 's'} from this run`}
           </DialogDescription>
         </DialogHeader>
         {loading && (
@@ -1261,7 +1275,7 @@ function ResultsModal({ clientRequestId, runId, open, onOpenChange }: { clientRe
                 }
               </>
             )}
-            <EvidenceSection clientRequestId={clientRequestId} runId={runId} />
+            <EvidenceSection clientRequestId={clientRequestId} runId={runId} preloadedArtefacts={allArtefacts} />
           </div>
         )}
       </DialogContent>
