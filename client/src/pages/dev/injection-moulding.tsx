@@ -27,7 +27,7 @@ export default function InjectionMouldingPage() {
   };
 
   return (
-    <div className="p-6 max-w-2xl mx-auto space-y-4">
+    <div className="p-6 max-w-2xl mx-auto space-y-4 h-full overflow-y-auto">
       <div>
         <h1 className="text-xl font-bold">Injection Moulding Demo</h1>
         <p className="text-sm text-muted-foreground mt-1">
