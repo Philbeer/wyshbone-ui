@@ -1321,7 +1321,7 @@ function UserResultsModal({ clientRequestId, runId, open, onOpenChange }: { clie
         const narrativeArtefact = rows.find(r => r.type === "run_narrative");
         if (narrativeArtefact) {
           const parsed = parsePayload(narrativeArtefact.payload_json);
-          const text = parsed?.markdown || parsed?.narrative || (typeof parsed === 'string' ? parsed : null);
+          const text = parsed?.full_explanation || parsed?.markdown || parsed?.narrative || (typeof parsed === 'string' ? parsed : null);
           if (text) {
             if (parsed?.tldr && typeof parsed.tldr === 'string') {
               setTldr(parsed.tldr);
@@ -1343,9 +1343,10 @@ function UserResultsModal({ clientRequestId, runId, open, onOpenChange }: { clie
         const hasFactory = rows.some(r => FACTORY_ARTEFACT_TYPES.has(r.type));
         if (hasFactory && runId) {
           try {
+            const sessionId = localStorage.getItem('wyshbone_sid');
             const explainRes = await fetch('/api/dev/explain-run', {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: { 'Content-Type': 'application/json', ...(sessionId ? { 'x-session-id': sessionId } : {}) },
               body: JSON.stringify({ runId }),
             });
             if (explainRes.ok) {
