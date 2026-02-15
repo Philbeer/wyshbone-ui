@@ -1,5 +1,5 @@
 import { cn } from "@/lib/utils";
-import { Thermometer, Zap, Wrench, Droplets, AlertTriangle, CheckCircle2, XCircle, Activity } from "lucide-react";
+import { Thermometer, Zap, Wrench, Droplets, AlertTriangle, CheckCircle2, XCircle, Activity, Cpu } from "lucide-react";
 
 interface FactoryStatePayload {
   step_index?: number;
@@ -13,6 +13,8 @@ interface FactoryStatePayload {
   tool_id?: string;
   resin_moisture?: string;
   ambient_temp?: number;
+  machine_label?: string;
+  machine_used?: string;
   [key: string]: any;
 }
 
@@ -123,9 +125,19 @@ function FactoryStateCard({ state }: { state: FactoryStatePayload }) {
   const hasDefects = (state.defect_signals && state.defect_signals.length > 0) || !!state.defect_type;
   const hasEnergy = state.energy_kwh_per_good_part != null;
 
+  const machineLabel = state.machine_label || state.machine_used;
+
   return (
     <div className="rounded border bg-muted/30 px-3 py-2 space-y-1.5">
-      <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">World state</p>
+      <div className="flex items-center justify-between">
+        <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">World state</p>
+        {machineLabel && (
+          <span className="inline-flex items-center gap-1 rounded-full bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 text-[11px] font-medium px-2 py-0.5">
+            <Cpu className="w-3 h-3" />
+            Machine: {machineLabel}
+          </span>
+        )}
+      </div>
       <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
         {hasScrap && (
           <ScrapGauge measured={state.scrap_rate_now!} floor={state.scrap_floor_percent} />
