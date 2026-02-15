@@ -1456,9 +1456,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
             try {
               const configRunId = agentRunId || runId;
               const ts = new Date().toISOString();
-              await storage.query(
-                sql`INSERT INTO artefacts (run_id, type, title, summary, payload_json, created_at)
-                    VALUES (${configRunId}, ${'run_configuration'}, ${configPayload.title}, ${configPayload.summary}, ${JSON.stringify(configPayload)}::jsonb, ${ts}::timestamptz)`
+              await sql(
+                `INSERT INTO artefacts (run_id, type, title, summary, payload_json, created_at)
+                 VALUES ($1, $2, $3, $4, $5::jsonb, $6::timestamptz)`,
+                [configRunId, 'run_configuration', configPayload.title, configPayload.summary, JSON.stringify(configPayload), ts]
               );
               console.log(`[AFR] Persisted run_configuration artefact for runId=${configRunId}`);
             } catch (err: any) {
