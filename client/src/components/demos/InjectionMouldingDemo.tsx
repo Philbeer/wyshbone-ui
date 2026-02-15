@@ -3,7 +3,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Factory, Play, Loader2 } from "lucide-react";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Factory, Play, Loader2, ChevronDown, Gauge } from "lucide-react";
 
 export interface MachineProfile {
   machine_id: string;
@@ -17,6 +18,16 @@ export interface FactoryConditions {
   energy_price_band: "offpeak" | "normal" | "peak";
 }
 
+export interface SensorReading {
+  step: number;
+  scrap: number | "";
+}
+
+export interface DemoSensorScript {
+  primary: SensorReading[];
+  alternate: SensorReading[];
+}
+
 export interface FactoryPayload {
   scenario: string;
   constraints: { max_scrap_percent: number };
@@ -24,6 +35,10 @@ export interface FactoryPayload {
   machines: {
     primary: MachineProfile;
     alternate: MachineProfile;
+  };
+  demo_sensor_script?: {
+    primary: Array<{ step: number; scrap: number }>;
+    alternate: Array<{ step: number; scrap: number }>;
   };
 }
 
@@ -53,6 +68,16 @@ const DEFAULT_CONDITIONS: FactoryConditions = {
   ambient_temp_c: 27,
   resin_moisture: "high",
   energy_price_band: "peak",
+};
+
+const DEFAULT_SENSOR_SCRIPT: DemoSensorScript = {
+  primary: [
+    { step: 1, scrap: "" },
+    { step: 2, scrap: "" },
+  ],
+  alternate: [
+    { step: 3, scrap: "" },
+  ],
 };
 
 function MachinePanel({
@@ -100,15 +125,107 @@ function MachinePanel({
   );
 }
 
+function SensorStepRow({
+  reading,
+  onChange,
+}: {
+  reading: SensorReading;
+  onChange: (updated: SensorReading) => void;
+}) {
+  return (
+    <div className="flex items-center gap-3">
+      <span className="text-[11px] text-muted-foreground w-14 shrink-0">Step {reading.step}</span>
+      <div className="flex-1 space-y-0.5">
+        <Label className="text-[10px] text-muted-foreground">Scrap %</Label>
+        <Input
+          type="number"
+          min={0}
+          max={100}
+          step={0.1}
+          placeholder="auto"
+          value={reading.scrap}
+          onChange={e => {
+            const val = e.target.value;
+            onChange({ ...reading, scrap: val === "" ? "" : parseFloat(val) });
+          }}
+          className="h-7 text-xs"
+        />
+      </div>
+    </div>
+  );
+}
+
+function SensorMachineGroup({
+  label,
+  readings,
+  onChange,
+  onAddStep,
+}: {
+  label: string;
+  readings: SensorReading[];
+  onChange: (idx: number, updated: SensorReading) => void;
+  onAddStep: () => void;
+}) {
+  return (
+    <div className="border border-border/40 rounded-md p-2.5 space-y-2 bg-muted/10">
+      <p className="text-[11px] font-medium text-foreground">{label}</p>
+      {readings.map((r, i) => (
+        <SensorStepRow
+          key={`${label}-${i}`}
+          reading={r}
+          onChange={updated => onChange(i, updated)}
+        />
+      ))}
+      <button
+        type="button"
+        onClick={onAddStep}
+        className="text-[10px] text-blue-500 hover:text-blue-600 font-medium"
+      >
+        + Add step
+      </button>
+    </div>
+  );
+}
+
 export default function InjectionMouldingDemo({ onRun }: { onRun: (scenario: MouldingScenario, factory: FactoryPayload) => void }) {
   const [primary, setPrimary] = useState<MachineProfile>({ ...DEFAULT_PRIMARY });
   const [alternate, setAlternate] = useState<MachineProfile>({ ...DEFAULT_ALTERNATE });
   const [conditions, setConditions] = useState<FactoryConditions>({ ...DEFAULT_CONDITIONS });
   const [maxScrap, setMaxScrap] = useState(7);
   const [running, setRunning] = useState(false);
+  const [sensorScript, setSensorScript] = useState<DemoSensorScript>(JSON.parse(JSON.stringify(DEFAULT_SENSOR_SCRIPT)));
+  const [sensorOpen, setSensorOpen] = useState(false);
 
   const updateCondition = <K extends keyof FactoryConditions>(key: K, value: FactoryConditions[K]) =>
     setConditions(prev => ({ ...prev, [key]: value }));
+
+  const updateSensorReading = (machine: "primary" | "alternate", idx: number, updated: SensorReading) => {
+    setSensorScript(prev => ({
+      ...prev,
+      [machine]: prev[machine].map((r, i) => (i === idx ? updated : r)),
+    }));
+  };
+
+  const addSensorStep = (machine: "primary" | "alternate") => {
+    setSensorScript(prev => {
+      const existing = prev[machine];
+      const maxStep = existing.length > 0 ? Math.max(...existing.map(r => r.step)) : 0;
+      return {
+        ...prev,
+        [machine]: [...existing, { step: maxStep + 1, scrap: "" as const }],
+      };
+    });
+  };
+
+  const buildSensorPayload = (): FactoryPayload["demo_sensor_script"] | undefined => {
+    const primaryFilled = sensorScript.primary.filter(r => r.scrap !== "");
+    const alternateFilled = sensorScript.alternate.filter(r => r.scrap !== "");
+    if (primaryFilled.length === 0 && alternateFilled.length === 0) return undefined;
+    return {
+      primary: primaryFilled.map(r => ({ step: r.step, scrap: Number(r.scrap) })),
+      alternate: alternateFilled.map(r => ({ step: r.step, scrap: Number(r.scrap) })),
+    };
+  };
 
   const handleRun = () => {
     setRunning(true);
@@ -119,6 +236,11 @@ export default function InjectionMouldingDemo({ onRun }: { onRun: (scenario: Mou
       conditions,
       machines: { primary, alternate },
     };
+
+    const sensorPayload = buildSensorPayload();
+    if (sensorPayload) {
+      factory.demo_sensor_script = sensorPayload;
+    }
 
     const legacyScenario: MouldingScenario = {
       machines: 5,
@@ -225,6 +347,38 @@ export default function InjectionMouldingDemo({ onRun }: { onRun: (scenario: Mou
       <p className="text-[10px] text-muted-foreground/70">
         The agent will monitor factory output and adapt or stop if this constraint is violated.
       </p>
+
+      <Collapsible open={sensorOpen} onOpenChange={setSensorOpen}>
+        <div className="border-t border-border/50 pt-3">
+          <CollapsibleTrigger className="flex items-center justify-between w-full group">
+            <div className="flex items-center gap-2">
+              <Gauge className="w-3.5 h-3.5 text-amber-500" />
+              <span className="text-xs font-medium text-foreground">Demo sensor controls (simulated factory readings)</span>
+            </div>
+            <ChevronDown className={`w-3.5 h-3.5 text-muted-foreground transition-transform ${sensorOpen ? "rotate-180" : ""}`} />
+          </CollapsibleTrigger>
+          <p className="text-[10px] text-muted-foreground mt-1 ml-5.5 leading-relaxed">
+            These values simulate what factory sensors report during the run. The agent does not know future readings and must react step-by-step.
+          </p>
+        </div>
+        <CollapsibleContent className="mt-3 space-y-2.5">
+          <SensorMachineGroup
+            label={`Machine 1 — ${primary.machine_id} (Primary)`}
+            readings={sensorScript.primary}
+            onChange={(idx, updated) => updateSensorReading("primary", idx, updated)}
+            onAddStep={() => addSensorStep("primary")}
+          />
+          <SensorMachineGroup
+            label={`Machine 2 — ${alternate.machine_id} (Alternate)`}
+            readings={sensorScript.alternate}
+            onChange={(idx, updated) => updateSensorReading("alternate", idx, updated)}
+            onAddStep={() => addSensorStep("alternate")}
+          />
+          <p className="text-[10px] text-muted-foreground/70 leading-relaxed">
+            Leave fields blank to use default presets. Filled values override what the simulated sensors report at each step.
+          </p>
+        </CollapsibleContent>
+      </Collapsible>
 
       <Button
         size="sm"
