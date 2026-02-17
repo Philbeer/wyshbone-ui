@@ -2173,11 +2173,11 @@ function usePacedPlaybackQueue(
   const prevKeyRef = useRef<string | null | undefined>(undefined);
   const cancelRef = useRef(0);
 
-  const timingsRef = useRef({ thinkingMs: THINKING_MS, workingMs: WORKING_MS, gapMs: EVENT_GAP_MS });
+  const timingsRef = useRef({ thinkingMs: DEMO_THINKING_MS, workingMs: DEMO_WORKING_MS, gapMs: DEMO_EVENT_GAP_MS });
   timingsRef.current = {
-    thinkingMs: isDemoMode ? DEMO_THINKING_MS : THINKING_MS,
-    workingMs: isDemoMode ? DEMO_WORKING_MS : WORKING_MS,
-    gapMs: isDemoMode ? DEMO_EVENT_GAP_MS : EVENT_GAP_MS,
+    thinkingMs: DEMO_THINKING_MS,
+    workingMs: DEMO_WORKING_MS,
+    gapMs: DEMO_EVENT_GAP_MS,
   };
 
   const kickPlayer = useCallback(() => {
@@ -2226,34 +2226,40 @@ function usePacedPlaybackQueue(
   }, [kick]);
 
   useEffect(() => {
-    if (clientRequestId !== prevKeyRef.current && prevKeyRef.current !== undefined) {
-      cancelRef.current++;
-      isPlayingRef.current = false;
-      revealedRef.current = [];
-      seenIdsRef.current = new Set();
-      queueRef.current = [];
-      phaseRef.current = null;
-      kick();
-    }
-    prevKeyRef.current = clientRequestId;
+    if (isDemoMode) {
+      if (clientRequestId !== prevKeyRef.current && prevKeyRef.current !== undefined) {
+        cancelRef.current++;
+        isPlayingRef.current = false;
+        revealedRef.current = [];
+        seenIdsRef.current = new Set();
+        queueRef.current = [];
+        phaseRef.current = null;
+        kick();
+      }
+      prevKeyRef.current = clientRequestId;
 
-    let hasNew = false;
-    for (const event of allEvents) {
-      if (!seenIdsRef.current.has(event.id)) {
-        seenIdsRef.current.add(event.id);
-        queueRef.current.push(event);
-        hasNew = true;
+      let hasNew = false;
+      for (const event of allEvents) {
+        if (!seenIdsRef.current.has(event.id)) {
+          seenIdsRef.current.add(event.id);
+          queueRef.current.push(event);
+          hasNew = true;
+        }
+      }
+
+      if (hasNew) {
+        kickPlayer();
       }
     }
-
-    if (hasNew) {
-      kickPlayer();
-    }
-  }, [allEvents, clientRequestId, kickPlayer, kick]);
+  }, [allEvents, clientRequestId, kickPlayer, kick, isDemoMode]);
 
   useEffect(() => {
     return () => { cancelRef.current++; };
   }, []);
+
+  if (!isDemoMode) {
+    return { displayEvents: allEvents, transientPhase: null };
+  }
 
   return {
     displayEvents: revealedRef.current,
