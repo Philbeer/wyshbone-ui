@@ -78,7 +78,7 @@ import { guardRoute } from './lib/assertNoExecutionInUI.js';
 // SSE HELPER FOR CHAT PROGRESS EVENTS
 // ============================================
 interface SseEvent {
-  type: 'ack' | 'status' | 'content' | 'error';
+  type: 'ack' | 'status' | 'content' | 'error' | 'run_id';
   stage?: 'classifying' | 'planning' | 'executing' | 'finalising' | 'completed' | 'failed';
   message?: string;
   ts?: number;
@@ -86,6 +86,7 @@ interface SseEvent {
   clientRequestId?: string;
   conversationId?: string;
   toolName?: string;
+  runId?: string;
 }
 
 function createSseEmitter(res: import("express").Response, startTime: number) {
@@ -1362,6 +1363,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           });
           agentRunId = afrResult.runId;
           console.log(`🔗 [RunBridge] agent_runs row created: runId=${agentRunId} crid=${clientRequestId.slice(0, 12)}...`);
+          emitSse({
+            type: 'run_id',
+            runId: agentRunId,
+            clientRequestId,
+          });
         } catch (err: any) {
           console.error('AFR log error:', err.message);
         }

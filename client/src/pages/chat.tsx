@@ -662,6 +662,14 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                 }]);
               }
               
+              // Handle run_id event (early canonical run ID from agent_runs)
+              if (parsed.type === 'run_id' && parsed.runId) {
+                console.log('🔗 Run ID received:', parsed.runId);
+                window.dispatchEvent(new CustomEvent('wyshbone:run_id', {
+                  detail: { runId: parsed.runId, clientRequestId: parsed.clientRequestId || clientRequestId },
+                }));
+              }
+              
               // Handle STATUS events (progress updates)
               if (parsed.type === 'status' && parsed.stage) {
                 console.log(`📊 Status: ${parsed.stage} - ${parsed.message}`);

@@ -2707,6 +2707,19 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
     const startedAt = Date.now();
     setCanonicalRunIdStatus('loading');
 
+    const handleRunIdEvent = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail?.runId && detail?.clientRequestId === activeClientRequestId) {
+        console.log(`[CanonicalRunId] Instant resolve from SSE: runId=${detail.runId}`);
+        setCanonicalRunId(detail.runId);
+        setCanonicalRunIdStatus('found');
+        resolved = true;
+        if (retryInterval) { clearInterval(retryInterval); retryInterval = null; }
+        fetchStream();
+      }
+    };
+    window.addEventListener('wyshbone:run_id', handleRunIdEvent);
+
     const resolve = async () => {
       if (resolved || cancelled) return;
       if (Date.now() - startedAt > 30_000) {
@@ -2745,9 +2758,10 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
 
     return () => {
       cancelled = true;
+      window.removeEventListener('wyshbone:run_id', handleRunIdEvent);
       if (retryInterval) clearInterval(retryInterval);
     };
-  }, [activeClientRequestId]);
+  }, [activeClientRequestId, fetchStream]);
 
   const effectiveRunIdForPolling = canonicalRunId;
   const hasTowerInPolled = polledArtefacts.some(a => a.type === 'tower_judgement');
@@ -2909,11 +2923,12 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
 
   useEffect(() => {
     const isActive = stream?.status && !['idle', 'completed', 'failed'].includes(stream.status) && (stream?.status as string) !== 'stopped';
-    const intervalMs = isActive ? 1500 : 10000;
+    const hasActiveRequest = !!activeClientRequestId;
+    const intervalMs = isActive || hasActiveRequest ? 1500 : 10000;
 
     const interval = setInterval(fetchStream, intervalMs);
     return () => clearInterval(interval);
-  }, [stream?.status, fetchStream]);
+  }, [stream?.status, fetchStream, activeClientRequestId]);
 
   useEffect(() => {
     const handleFocus = () => fetchStream();
