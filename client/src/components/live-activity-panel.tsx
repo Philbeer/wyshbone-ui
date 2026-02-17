@@ -24,12 +24,12 @@ import FactoryTimelineView from "@/components/results/FactoryTimelineView";
 
 const IS_DEV = import.meta.env.DEV;
 
-const MIN_VISIBLE_RUN_MS = 6000;
+const MIN_VISIBLE_RUN_MS = 500;
 const POST_TERMINAL_HOLD_MS = 60000;
 
-const THINKING_MS = 250;
-const WORKING_MS = 250;
-const EVENT_GAP_MS = 150;
+const THINKING_MS = 0;
+const WORKING_MS = 0;
+const EVENT_GAP_MS = 0;
 const DEMO_THINKING_MS = 400;
 const DEMO_WORKING_MS = 400;
 const DEMO_EVENT_GAP_MS = 250;
@@ -2480,7 +2480,7 @@ interface LiveActivityPanelProps {
 }
 
 const THINKING_THRESHOLD_MS = 200;
-const OVERLAY_DURATION_MS = 2000;
+const OVERLAY_DURATION_MS = 0;
 const TERMINAL_STABILITY_MS = 800;
 const DEBUG_TERMINAL = true;
 
