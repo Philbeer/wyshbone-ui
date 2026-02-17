@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { storage, getDrizzleDb } from "../storage";
-import { sql } from "drizzle-orm";
+import { sql, eq } from "drizzle-orm";
+import { agentActivities, deepResearchRuns as deepResearchRunsTable } from "../../shared/schema";
 import type { Run, RuleUpdate, RunBundle } from "../../client/src/types/afr";
 
 // Debug flag for AFR run lifecycle logging
@@ -761,31 +762,45 @@ export function createAfrRouter(_storage: typeof storage) {
         });
       }
 
-      let agentRun = await storage.getAgentRunByClientRequestId(clientRequestId);
+      const [agentRun, activitiesByCrid] = await Promise.all([
+        storage.getAgentRunByClientRequestId(clientRequestId),
+        storage.getActivitiesByClientRequestId(clientRequestId),
+      ]);
 
       const effectiveClientRequestId = clientRequestId;
       const activeRunId = agentRun?.id || null;
 
-      const activities = await storage.listAgentActivities(200);
+      const db = getDrizzleDb();
 
-      const relevantActivities = activities.filter(a => {
-        if (a.clientRequestId === effectiveClientRequestId) return true;
-        if (activeRunId && a.runId === activeRunId) return true;
-        const row = a as any;
-        if (activeRunId && row.agent_run_id === activeRunId) return true;
-        const meta = a.metadata as Record<string, any> | null;
-        if (meta?.clientRequestId === effectiveClientRequestId) return true;
-        return false;
-      });
-
-      console.log(`[AFR_STREAM] userId=${userId || '-'} crid=${effectiveClientRequestId || '-'} runId=${activeRunId || '-'} fetched=${activities.length} matched=${relevantActivities.length}`);
-
-      // Also fetch any deep research runs for this client_request_id
+      let relevantActivities = activitiesByCrid;
       let deepResearchRuns: any[] = [];
-      if (effectiveClientRequestId) {
-        const allRuns = await storage.listDeepResearchRunsForAfr(50);
-        deepResearchRuns = allRuns.filter(r => r.clientRequestId === effectiveClientRequestId);
+
+      const extraQueries: Promise<void>[] = [];
+
+      if (activeRunId) {
+        extraQueries.push(
+          db.select().from(agentActivities).where(eq(agentActivities.runId, activeRunId)).orderBy(agentActivities.timestamp)
+            .then(byRunId => {
+              const seenIds = new Set(activitiesByCrid.map(a => a.id));
+              for (const a of byRunId) {
+                if (!seenIds.has(a.id)) {
+                  relevantActivities.push(a);
+                }
+              }
+            })
+        );
       }
+
+      if (effectiveClientRequestId) {
+        extraQueries.push(
+          db.select().from(deepResearchRunsTable).where(eq(deepResearchRunsTable.clientRequestId, effectiveClientRequestId)).orderBy(deepResearchRunsTable.createdAt)
+            .then(rows => { deepResearchRuns = rows; })
+        );
+      }
+
+      await Promise.all(extraQueries);
+
+      console.log(`[AFR_STREAM] userId=${userId || '-'} crid=${effectiveClientRequestId || '-'} runId=${activeRunId || '-'} matched=${relevantActivities.length}`);
 
       // Build the unified event stream
       const events: StreamEvent[] = [];
