@@ -2928,13 +2928,15 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
   }, []);
 
   useEffect(() => {
+    if (confirmedTerminal) return;
+
     const isActive = stream?.status && !['idle', 'completed', 'failed'].includes(stream.status) && (stream?.status as string) !== 'stopped';
     const hasActiveRequest = !!activeClientRequestId;
     const intervalMs = isActive || hasActiveRequest ? 1500 : 10000;
 
     const interval = setInterval(fetchStream, intervalMs);
     return () => clearInterval(interval);
-  }, [stream?.status, fetchStream, activeClientRequestId]);
+  }, [stream?.status, fetchStream, activeClientRequestId, confirmedTerminal]);
 
   useEffect(() => {
     const handleFocus = () => fetchStream();
