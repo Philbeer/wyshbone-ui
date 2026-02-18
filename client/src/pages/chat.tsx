@@ -3,7 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest, authedFetch, addDevAuthParams, buildApiUrl, handleApiError } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Send, User, CheckCircle2, Search, Building2, HelpCircle, Activity } from "lucide-react";
+import { Send, User, CheckCircle2, Search, Building2, HelpCircle, Activity, Loader2 } from "lucide-react";
 import type { ChatMessage, AddNoteResponse, DeepResearchCreateRequest } from "@shared/schema";
 import wyshboneLogo from "@assets/wyshbone-logo_1759667581806.png";
 import { LocationSuggestions } from "@/components/LocationSuggestions";
@@ -22,11 +22,16 @@ import { getCurrentVerticalId } from "@/contexts/VerticalContext";
 import { WhatJustHappenedPanel } from "@/components/tower/WhatJustHappenedPanel";
 import { useResultsPanel } from "@/contexts/ResultsPanelContext";
 import { useCurrentRequest } from "@/contexts/CurrentRequestContext";
+import UserResultsView from "@/components/results/UserResultsView";
+import type { DeliverySummary } from "@/components/results/UserResultsView";
+import { resolveCanonicalStatus, STATUS_CONFIG } from "@/utils/deliveryStatus";
 
 type Message = ChatMessage & {
   id: string;
   timestamp: Date;
   source?: 'user' | 'assistant' | 'supervisor';
+  deliverySummary?: DeliverySummary | null;
+  runId?: string | null;
 };
 
 type SystemMessage = {
@@ -221,27 +226,27 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
 
     console.log('🔔 Setting up Supervisor subscription for conversation:', conversationId);
     
-    const channel = subscribeSupervisorMessages(conversationId, (supervisorMessage: SupervisorMessage) => {
+    const channel = subscribeSupervisorMessages(conversationId, async (supervisorMessage: SupervisorMessage) => {
       console.log('🤖 Received Supervisor message:', supervisorMessage);
-      
-      // Convert Supervisor message to display message format
+
+      const msgRunId = supervisorMessage.metadata?.run_id || supervisorMessage.metadata?.runId || null;
+
       const displayMessage: Message = {
         id: supervisorMessage.id,
         role: 'assistant',
         content: supervisorMessage.content,
         timestamp: new Date(supervisorMessage.created_at),
         source: 'supervisor',
+        runId: msgRunId,
       };
       
       setMessages((prev) => {
-        // Avoid duplicates
         if (prev.some(m => m.id === displayMessage.id)) {
           return prev;
         }
         return [...prev, displayMessage];
       });
 
-      // Publish event for message received from supervisor
       publishEvent("CHAT_MESSAGE_RECEIVED", {
         conversationId: supervisorMessage.conversation_id,
         messageId: supervisorMessage.id,
@@ -249,18 +254,52 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         source: "supervisor",
       });
       
-      // Clear waiting state and timeout
       setIsWaitingForSupervisor(false);
       setSupervisorTaskId(null);
       if (supervisorTimeoutRef.current) {
         clearTimeout(supervisorTimeoutRef.current);
         supervisorTimeoutRef.current = null;
       }
-      
-      // Show toast notification (auto-scroll handled by existing useEffect on messages)
+
+      const lookupId = msgRunId || inFlightRequestIdRef.current;
+      if (lookupId) {
+        try {
+          const queryParam = msgRunId ? `runId=${encodeURIComponent(msgRunId)}` : `client_request_id=${encodeURIComponent(lookupId)}`;
+          const artRes = await fetch(`/api/afr/artefacts?${queryParam}`);
+          if (artRes.ok) {
+            const rows = await artRes.json();
+            const dsRow = Array.isArray(rows) ? rows.find((r: any) => r.type === 'delivery_summary') : null;
+            if (dsRow) {
+              let parsed = dsRow.payload_json;
+              if (typeof parsed === 'string') {
+                try { parsed = JSON.parse(parsed); } catch {}
+              }
+              if (parsed && typeof parsed === 'object') {
+                const effectiveRunId = msgRunId || lookupId;
+                const resultMessage: Message = {
+                  id: `ds-${effectiveRunId}`,
+                  role: 'assistant',
+                  content: '',
+                  timestamp: new Date(),
+                  source: 'supervisor',
+                  deliverySummary: parsed as DeliverySummary,
+                  runId: effectiveRunId,
+                };
+                setMessages((prev) => {
+                  if (prev.some(m => m.id === resultMessage.id)) return prev;
+                  return [...prev, resultMessage];
+                });
+              }
+            }
+          }
+        } catch (err) {
+          console.warn('[Chat] Failed to fetch delivery_summary for lookup:', lookupId, err);
+        }
+      }
+
       toast({
-        title: "Supervisor Response",
-        description: "Your lead generation results are ready!",
+        title: "Results ready",
+        description: "Your results are now available in the chat.",
       });
     });
 
@@ -1696,6 +1735,31 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
               const chatMessage = message as Message;
               const isUser = chatMessage.role === "user";
               const isSupervisor = chatMessage.source === 'supervisor';
+
+              if (chatMessage.deliverySummary) {
+                return (
+                  <div
+                    key={chatMessage.id}
+                    className="flex gap-3 flex-row"
+                    data-testid={`message-delivery-${chatMessage.id}`}
+                  >
+                    <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0">
+                      <img src={wyshboneLogo} alt="Wyshbone" className="w-full h-full object-cover" />
+                    </div>
+                    <div className="flex flex-col items-start max-w-3xl lg:max-w-none w-full">
+                      <div className="rounded-lg px-4 py-4 bg-card border border-card-border w-full">
+                        <UserResultsView
+                          deliverySummary={chatMessage.deliverySummary}
+                          runId={chatMessage.runId}
+                        />
+                      </div>
+                      <span className="text-xs text-muted-foreground mt-1">
+                        {chatMessage.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                      </span>
+                    </div>
+                  </div>
+                );
+              }
 
               // Check if this is a monitor creation notification
               if (!isUser && chatMessage.content.startsWith('🔔 MONITOR_CREATED')) {
