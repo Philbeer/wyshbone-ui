@@ -1636,7 +1636,8 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                   return true; // Always show system messages
                 }
                 const chatMessage = message as Message;
-                return chatMessage.content.trim().length > 0; // Only show messages with content
+                if ((chatMessage as any).deliverySummary) return true;
+                return chatMessage.content.trim().length > 0;
               })
               .map((message) => {
               if ("type" in message && message.type === "system") {
