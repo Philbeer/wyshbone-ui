@@ -352,20 +352,40 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         source: "supervisor",
       });
       
-      setIsWaitingForSupervisor(false);
       setSupervisorTaskId(null);
       if (supervisorTimeoutRef.current) {
         clearTimeout(supervisorTimeoutRef.current);
         supervisorTimeoutRef.current = null;
       }
 
-      const lookupId = msgRunId || inFlightRequestIdRef.current;
+      const lookupId = msgRunId || supervisorRunIdRef.current || supervisorClientRequestIdRef.current || inFlightRequestIdRef.current;
+      console.log('[Chat] Supervisor realtime callback — lookupId:', lookupId, 'msgRunId:', msgRunId, 'runRef:', supervisorRunIdRef.current, 'cridRef:', supervisorClientRequestIdRef.current);
+
+      let foundDeliverySummary = false;
       if (lookupId) {
-        try {
-          const queryParam = msgRunId ? `runId=${encodeURIComponent(msgRunId)}` : `client_request_id=${encodeURIComponent(lookupId)}`;
-          const artRes = await fetch(`/api/afr/artefacts?${queryParam}`);
-          if (artRes.ok) {
+        const fetchWithRetry = async (attempt: number): Promise<boolean> => {
+          try {
+            const params = new URLSearchParams();
+            if (msgRunId) {
+              params.set('runId', msgRunId);
+            } else if (supervisorRunIdRef.current) {
+              params.set('runId', supervisorRunIdRef.current);
+            }
+            if (supervisorClientRequestIdRef.current) {
+              params.set('client_request_id', supervisorClientRequestIdRef.current);
+            }
+            if (!params.has('runId') && !params.has('client_request_id')) {
+              params.set('client_request_id', lookupId);
+            }
+            const url = buildApiUrl(addDevAuthParams(`/api/afr/artefacts?${params.toString()}`));
+            console.log(`[Chat] Realtime artefact fetch attempt ${attempt}:`, url);
+            const artRes = await fetch(url, { credentials: 'include' });
+            if (!artRes.ok) {
+              console.warn(`[Chat] Realtime artefact fetch attempt ${attempt} failed:`, artRes.status);
+              return false;
+            }
             const rows = await artRes.json();
+            console.log(`[Chat] Realtime artefact fetch attempt ${attempt} returned`, Array.isArray(rows) ? rows.length : 0, 'artefacts, types:', Array.isArray(rows) ? rows.map((r: any) => r.type) : []);
             const dsRow = Array.isArray(rows) ? rows.find((r: any) => r.type === 'delivery_summary') : null;
             if (dsRow) {
               let parsed = dsRow.payload_json;
@@ -373,7 +393,8 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                 try { parsed = JSON.parse(parsed); } catch {}
               }
               if (parsed && typeof parsed === 'object') {
-                const effectiveRunId = msgRunId || lookupId;
+                const effectiveRunId = msgRunId || supervisorRunIdRef.current || lookupId;
+                console.log('[Chat] delivery_summary found via realtime callback for run:', effectiveRunId);
                 const resultMessage: Message = {
                   id: `ds-${effectiveRunId}`,
                   role: 'assistant',
@@ -387,17 +408,38 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                   if (prev.some(m => m.id === resultMessage.id)) return prev;
                   return [...prev, resultMessage];
                 });
+                return true;
               }
             }
+            return false;
+          } catch (err) {
+            console.warn(`[Chat] Realtime artefact fetch attempt ${attempt} error:`, err);
+            return false;
           }
-        } catch (err) {
-          console.warn('[Chat] Failed to fetch delivery_summary for lookup:', lookupId, err);
+        };
+
+        foundDeliverySummary = await fetchWithRetry(1);
+        if (!foundDeliverySummary) {
+          await new Promise(r => setTimeout(r, 3000));
+          foundDeliverySummary = await fetchWithRetry(2);
+        }
+        if (!foundDeliverySummary) {
+          await new Promise(r => setTimeout(r, 5000));
+          foundDeliverySummary = await fetchWithRetry(3);
         }
       }
 
+      setIsWaitingForSupervisor(false);
+      supervisorRunIdRef.current = null;
+      supervisorClientRequestIdRef.current = null;
+      if (supervisorPollRef.current) {
+        clearInterval(supervisorPollRef.current);
+        supervisorPollRef.current = null;
+      }
+
       toast({
-        title: "Results ready",
-        description: "Your results are now available in the chat.",
+        title: foundDeliverySummary ? "Results ready" : "Task completed",
+        description: foundDeliverySummary ? "Your results are now available in the chat." : "The Supervisor has completed the task.",
       });
     });
 
