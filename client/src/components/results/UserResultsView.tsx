@@ -1,6 +1,7 @@
 import { MapPin, Phone, Globe, Info, CheckCircle2, CircleDot, CircleSlash } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { ConstraintsSectionInline, VerificationSectionInline } from "@/components/results/CvlArtefactViews";
 
 interface DeliveryLead {
   name?: string;
@@ -148,10 +149,11 @@ function NextActionsSection({ suggestedQuestion, shortfall, requestedCount, onCl
   );
 }
 
-export default function UserResultsView({ deliverySummary, onClose }: { deliverySummary: DeliverySummary; onClose?: () => void }) {
+export default function UserResultsView({ deliverySummary, onClose, constraintsPayload, verificationPayload, evidencePayload }: { deliverySummary: DeliverySummary; onClose?: () => void; constraintsPayload?: any; verificationPayload?: any; evidencePayload?: any }) {
   const exact = Array.isArray(deliverySummary.delivered_exact) ? deliverySummary.delivered_exact : [];
   const closest = Array.isArray(deliverySummary.delivered_closest) ? deliverySummary.delivered_closest : [];
   const shortfall = deliverySummary.shortfall ?? null;
+  const hasCvl = !!constraintsPayload;
   const requestedCount = deliverySummary.requested_count ?? null;
   const deliveredCount = deliverySummary.delivered_count ?? null;
   const suggestedQuestion = deliverySummary.suggested_next_question ?? null;
@@ -169,6 +171,20 @@ export default function UserResultsView({ deliverySummary, onClose }: { delivery
         </span>
         <p className="text-sm text-muted-foreground">{outcome.subtext}</p>
       </div>
+
+      {constraintsPayload && (
+        <ConstraintsSectionInline
+          constraintsPayload={constraintsPayload}
+          verificationPayload={verificationPayload}
+        />
+      )}
+
+      {verificationPayload && (
+        <VerificationSectionInline
+          verificationPayload={verificationPayload}
+          evidencePayload={evidencePayload}
+        />
+      )}
 
       {exact.length === 0 && closest.length === 0 && shortfall == null && (
         <p className="text-sm text-muted-foreground">No results to display.</p>
@@ -216,7 +232,7 @@ export default function UserResultsView({ deliverySummary, onClose }: { delivery
           <div className="text-sm text-foreground/80 leading-relaxed">
             <p className="font-medium text-foreground mb-0.5">What's missing</p>
             {requestedCount != null && deliveredCount != null && (
-              <p>Requested {requestedCount}, delivered {deliveredCount}.</p>
+              <p>{hasCvl ? 'Requested' : 'Target (system)'} {requestedCount}, delivered {deliveredCount}.</p>
             )}
             <p>{shortfall} more could not be found that meet all your requirements.</p>
           </div>

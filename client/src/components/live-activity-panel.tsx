@@ -21,6 +21,14 @@ import UserResultsView from "@/components/results/UserResultsView";
 import type { DeliverySummary } from "@/components/results/UserResultsView";
 import { FactoryStateView, FactoryDecisionView, RunConfigurationView } from "@/components/results/FactoryTimelineView";
 import FactoryTimelineView from "@/components/results/FactoryTimelineView";
+import {
+  ConstraintsExtractedView,
+  ConstraintCapabilityCheckView,
+  VerificationSummaryView,
+  VerificationEvidenceView,
+  LeadVerificationView,
+} from "@/components/results/CvlArtefactViews";
+import { useToast } from "@/hooks/use-toast";
 
 const IS_DEV = import.meta.env.DEV;
 
@@ -811,7 +819,7 @@ function DeliverySummaryView({ payload }: { payload: any }) {
         <div className="flex gap-4">
           {targetCount != null && (
             <div className="flex-1 rounded-lg border bg-muted/30 p-3 text-center">
-              <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Requested</p>
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Target (system)</p>
               <p className="text-2xl font-bold text-foreground mt-0.5">{targetCount}</p>
             </div>
           )}
@@ -899,6 +907,16 @@ function ArtefactRenderer({ artefact }: { artefact: Artefact }) {
       return <FactoryDecisionView payload={artefact.payload_json} />;
     case 'run_configuration':
       return <RunConfigurationView payload={artefact.payload_json} />;
+    case 'constraints_extracted':
+      return <ConstraintsExtractedView payload={artefact.payload_json} />;
+    case 'constraint_capability_check':
+      return <ConstraintCapabilityCheckView payload={artefact.payload_json} />;
+    case 'verification_summary':
+      return <VerificationSummaryView payload={artefact.payload_json} />;
+    case 'verification_evidence':
+      return <VerificationEvidenceView payload={artefact.payload_json} />;
+    case 'lead_verification':
+      return <LeadVerificationView payload={artefact.payload_json} />;
     default:
       return (
         <pre className="text-xs bg-muted/50 rounded p-3 overflow-x-auto max-h-96 whitespace-pre-wrap font-mono">
@@ -925,6 +943,11 @@ const ARTEFACT_LABELS: Record<string, { label: string; icon: string }> = {
   factory_decision: { label: 'Decision', icon: '⚙️' },
   factory_timeline: { label: 'Factory Timeline', icon: '🏭' },
   run_configuration: { label: 'Run Config', icon: '📋' },
+  constraints_extracted: { label: 'Constraints', icon: '🛡️' },
+  constraint_capability_check: { label: 'Capability Check', icon: '🔍' },
+  verification_summary: { label: 'Verification', icon: '✅' },
+  verification_evidence: { label: 'Evidence', icon: '📎' },
+  lead_verification: { label: 'Lead Checks', icon: '🔎' },
 };
 
 interface TowerEvidenceEvent {
@@ -1087,7 +1110,7 @@ function ResultsModal({ clientRequestId, runId, open, onOpenChange }: { clientRe
 
         const hasFactory = rows.some(r => FACTORY_TYPES.has(r.type));
         const byType = new Map<string, Artefact>();
-        const typeOrder = ['run_configuration', 'plan', 'run_summary', 'plan_update', 'tower_judgement', 'deep_research_result', 'leads_list', 'delivery_summary', 'factory_timeline', 'email_drafts', 'plan_result', 'chat_response'];
+        const typeOrder = ['run_configuration', 'plan', 'constraints_extracted', 'constraint_capability_check', 'run_summary', 'plan_update', 'tower_judgement', 'verification_summary', 'verification_evidence', 'lead_verification', 'deep_research_result', 'leads_list', 'delivery_summary', 'factory_timeline', 'email_drafts', 'plan_result', 'chat_response'];
 
         for (const row of rows) {
           if (FACTORY_TYPES.has(row.type)) continue;
@@ -1170,8 +1193,19 @@ function ResultsModal({ clientRequestId, runId, open, onOpenChange }: { clientRe
 
           const summaryPayload = artefacts.find(a => a.type === 'run_summary') ? parsePayload(artefacts.find(a => a.type === 'run_summary')!.payload_json) : null;
           const towerPayload = verdictArtefact ? parsePayload(verdictArtefact.payload_json) : null;
-          const effectiveTarget = targetCount ?? towerPayload?.requested ?? summaryPayload?.requested ?? null;
-          const effectiveDelivered = towerPayload?.delivered ?? summaryPayload?.delivered ?? (hasLeads ? deliveredCount : null);
+
+          const cvlConstraints = artefacts.find(a => a.type === 'constraints_extracted');
+          const cvlVerification = artefacts.find(a => a.type === 'verification_summary');
+          const cvlConstraintsParsed = cvlConstraints ? parsePayload(cvlConstraints.payload_json) : null;
+          const cvlVerificationParsed = cvlVerification ? parsePayload(cvlVerification.payload_json) : null;
+          const hasCvl = !!cvlConstraints;
+
+          const effectiveTarget = hasCvl
+            ? (cvlConstraintsParsed?.requested_count_user ?? cvlVerificationParsed?.requested_count_user ?? null)
+            : (targetCount ?? null);
+          const effectiveDelivered = hasCvl
+            ? (cvlVerificationParsed?.verified_exact_count ?? towerPayload?.delivered ?? summaryPayload?.delivered ?? (hasLeads ? deliveredCount : null))
+            : (towerPayload?.delivered ?? summaryPayload?.delivered ?? (hasLeads ? deliveredCount : null));
           
           return (
             <div className="space-y-2 mb-2">
@@ -1195,12 +1229,12 @@ function ResultsModal({ clientRequestId, runId, open, onOpenChange }: { clientRe
                 <div className="flex items-center gap-3 text-xs">
                   {effectiveTarget != null && (
                     <span className="text-muted-foreground">
-                      Target: <span className="font-semibold text-foreground">{effectiveTarget}</span>
+                      {hasCvl ? 'Requested' : 'Target (system)'}: <span className="font-semibold text-foreground">{effectiveTarget}</span>
                     </span>
                   )}
                   {effectiveDelivered != null && (
                     <span className="text-muted-foreground">
-                      Delivered: <span className={cn("font-semibold", effectiveDelivered >= (effectiveTarget ?? 0) ? "text-green-600 dark:text-green-400" : "text-amber-600 dark:text-amber-400")}>{effectiveDelivered}</span>
+                      {hasCvl ? 'Verified' : 'Delivered'}: <span className={cn("font-semibold", effectiveDelivered >= (effectiveTarget ?? 0) ? "text-green-600 dark:text-green-400" : "text-amber-600 dark:text-amber-400")}>{effectiveDelivered}</span>
                     </span>
                   )}
                   {effectiveTarget != null && effectiveDelivered != null && (
@@ -1294,6 +1328,9 @@ function UserResultsModal({ clientRequestId, runId, open, onOpenChange }: { clie
   const [tldr, setTldr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [cvlConstraints, setCvlConstraints] = useState<any>(null);
+  const [cvlVerification, setCvlVerification] = useState<any>(null);
+  const [cvlEvidence, setCvlEvidence] = useState<any>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -1307,6 +1344,9 @@ function UserResultsModal({ clientRequestId, runId, open, onOpenChange }: { clie
     setDeliverySummary(null);
     setNarrative(null);
     setTldr(null);
+    setCvlConstraints(null);
+    setCvlVerification(null);
+    setCvlEvidence(null);
 
     const fullUrl = runId
       ? `/api/afr/artefacts?runId=${encodeURIComponent(runId)}`
@@ -1318,6 +1358,13 @@ function UserResultsModal({ clientRequestId, runId, open, onOpenChange }: { clie
         return res.json();
       })
       .then(async (rows: Artefact[]) => {
+        const constraintsArt = rows.find(r => r.type === "constraints_extracted");
+        const verificationArt = rows.find(r => r.type === "verification_summary");
+        const evidenceArt = rows.find(r => r.type === "verification_evidence");
+        if (constraintsArt) setCvlConstraints(parsePayload(constraintsArt.payload_json));
+        if (verificationArt) setCvlVerification(parsePayload(verificationArt.payload_json));
+        if (evidenceArt) setCvlEvidence(parsePayload(evidenceArt.payload_json));
+
         const narrativeArtefact = rows.find(r => r.type === "run_narrative");
         if (narrativeArtefact) {
           const parsed = parsePayload(narrativeArtefact.payload_json);
@@ -1381,7 +1428,7 @@ function UserResultsModal({ clientRequestId, runId, open, onOpenChange }: { clie
           <p className="text-sm text-muted-foreground py-6 text-center">{error}</p>
         )}
         {deliverySummary && !loading && !error && (
-          <UserResultsView deliverySummary={deliverySummary} onClose={() => onOpenChange(false)} />
+          <UserResultsView deliverySummary={deliverySummary} onClose={() => onOpenChange(false)} constraintsPayload={cvlConstraints} verificationPayload={cvlVerification} evidencePayload={cvlEvidence} />
         )}
         {narrative && !loading && !error && (
           <div className="prose prose-sm dark:prose-invert max-w-none">
@@ -1414,7 +1461,36 @@ function UserResultsModal({ clientRequestId, runId, open, onOpenChange }: { clie
   );
 }
 
-function SequenceStatusRow({ status, clientRequestId, runId, towerVerdict, towerMissing, chatMode }: { status: "completed" | "failed" | "stopped" | "awaiting_judgement" | "replanning"; clientRequestId?: string | null; runId?: string | null; towerVerdict?: string | null; towerMissing?: boolean; chatMode?: boolean }) {
+function StopActionButtons() {
+  const { toast } = useToast();
+
+  const handleStopAction = (label: string, chatMessage: string) => {
+    toast({ title: "Not wired yet", description: `"${label}" will be available in a future update.` });
+    window.dispatchEvent(new CustomEvent("wyshbone-prefill-chat", { detail: chatMessage }));
+  };
+
+  return (
+    <div className="px-1 pb-2 space-y-2">
+      <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Actions</p>
+      <div className="flex flex-wrap gap-1.5">
+        <Button variant="outline" size="sm" className="h-6 text-xs px-2" onClick={() => handleStopAction("Verify via websites", "Verify these leads by checking their websites directly.")}>
+          Verify via websites
+        </Button>
+        <Button variant="outline" size="sm" className="h-6 text-xs px-2" onClick={() => handleStopAction("Broaden radius", "Broaden the search radius and try again.")}>
+          Broaden radius
+        </Button>
+        <Button variant="outline" size="sm" className="h-6 text-xs px-2" onClick={() => handleStopAction("Relax constraint", "Relax the strictest constraint and try again.")}>
+          Relax constraint
+        </Button>
+        <Button variant="outline" size="sm" className="h-6 text-xs px-2" onClick={() => handleStopAction("Return best-effort list", "Return the best-effort list as-is, even if unverified.")}>
+          Return best-effort list
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function SequenceStatusRow({ status, clientRequestId, runId, towerVerdict, towerMissing, chatMode, towerRationale }: { status: "completed" | "failed" | "stopped" | "awaiting_judgement" | "replanning"; clientRequestId?: string | null; runId?: string | null; towerVerdict?: string | null; towerMissing?: boolean; chatMode?: boolean; towerRationale?: string | null }) {
   const [showResults, setShowResults] = useState(false);
   const [showUserResults, setShowUserResults] = useState(false);
   const [elapsed, setElapsed] = useState(0);
@@ -1625,6 +1701,17 @@ function SequenceStatusRow({ status, clientRequestId, runId, towerVerdict, tower
             Could not confirm Tower verdict. Try again or check results.
           </p>
         </div>
+      )}
+      {(towerVerdict === 'stop' || towerVerdict === 'change_plan') && towerRationale && (
+        <div className="px-1 pb-1">
+          <div className="rounded-lg border border-orange-200 dark:border-orange-800/50 bg-orange-50/50 dark:bg-orange-900/10 p-2.5">
+            <p className="text-[10px] uppercase tracking-wide text-orange-600 dark:text-orange-400 font-medium mb-1">Why this was stopped</p>
+            <p className="text-xs text-foreground/80 leading-relaxed">{towerRationale}</p>
+          </div>
+        </div>
+      )}
+      {(towerVerdict === 'stop' || towerVerdict === 'change_plan' || status === 'stopped') && (
+        <StopActionButtons />
       )}
       {(clientRequestId || runId) && (
         <>
@@ -2495,6 +2582,7 @@ const TERMINAL_STATUSES = ['completed', 'failed', 'stopped'];
 
 interface TowerAwareResult {
   towerVerdict: string | null;
+  towerRationale: string | null;
   derivedStatus: OverallStatus | null;
   isLeadRun: boolean;
   towerMissing: boolean;
@@ -2502,6 +2590,7 @@ interface TowerAwareResult {
 
 function deriveTowerAwareStatus(events: StreamEvent[], serverTerminalState: 'completed' | 'failed' | 'stopped' | null, artefacts?: Array<{ type: string; payload_json?: any }>, chatMode?: boolean): TowerAwareResult {
   let lastTowerVerdict: string | null = null;
+  let lastTowerRationale: string | null = null;
   let hasRunCompleted = false;
   let hasRunStopped = false;
   let hasTowerJudgement = false;
@@ -2520,6 +2609,11 @@ function deriveTowerAwareStatus(events: StreamEvent[], serverTerminalState: 'com
       const p = towerArtefact.payload_json;
       if (p?.verdict && typeof p.verdict === 'string') {
         lastTowerVerdict = p.verdict.toLowerCase();
+      }
+      if (p?.rationale && typeof p.rationale === 'string') {
+        lastTowerRationale = p.rationale;
+      } else if (p?.reason && typeof p.reason === 'string') {
+        lastTowerRationale = p.reason;
       }
     }
   }
@@ -2548,31 +2642,31 @@ function deriveTowerAwareStatus(events: StreamEvent[], serverTerminalState: 'com
   }
 
   if (lastTowerVerdict === 'stop' || hasRunStopped) {
-    return { towerVerdict: lastTowerVerdict || 'stop', derivedStatus: 'stopped', isLeadRun, towerMissing: !hasTowerJudgement };
+    return { towerVerdict: lastTowerVerdict || 'stop', towerRationale: lastTowerRationale, derivedStatus: 'stopped', isLeadRun, towerMissing: !hasTowerJudgement };
   }
 
   if (serverTerminalState === 'stopped') {
-    return { towerVerdict: lastTowerVerdict || 'stop', derivedStatus: 'stopped', isLeadRun, towerMissing: !hasTowerJudgement };
+    return { towerVerdict: lastTowerVerdict || 'stop', towerRationale: lastTowerRationale, derivedStatus: 'stopped', isLeadRun, towerMissing: !hasTowerJudgement };
   }
 
   if (lastTowerVerdict === 'change_plan' || lastTowerVerdict === 'retry') {
-    return { towerVerdict: lastTowerVerdict, derivedStatus: 'replanning', isLeadRun, towerMissing: false };
+    return { towerVerdict: lastTowerVerdict, towerRationale: lastTowerRationale, derivedStatus: 'replanning', isLeadRun, towerMissing: false };
   }
 
   const isTerminal = serverTerminalState === 'completed' || hasRunCompleted;
 
   if (isTerminal) {
     if (hasTowerJudgement) {
-      return { towerVerdict: lastTowerVerdict, derivedStatus: 'completed', isLeadRun, towerMissing: false };
+      return { towerVerdict: lastTowerVerdict, towerRationale: lastTowerRationale, derivedStatus: 'completed', isLeadRun, towerMissing: false };
     }
-    return { towerVerdict: lastTowerVerdict, derivedStatus: 'completed', isLeadRun, towerMissing: true };
+    return { towerVerdict: lastTowerVerdict, towerRationale: lastTowerRationale, derivedStatus: 'completed', isLeadRun, towerMissing: true };
   }
 
   if (hasToolCompleted && !hasTowerJudgement && !serverTerminalState) {
-    return { towerVerdict: null, derivedStatus: 'awaiting_judgement', isLeadRun, towerMissing: true };
+    return { towerVerdict: null, towerRationale: null, derivedStatus: 'awaiting_judgement', isLeadRun, towerMissing: true };
   }
 
-  return { towerVerdict: lastTowerVerdict, derivedStatus: null, isLeadRun, towerMissing: !hasTowerJudgement };
+  return { towerVerdict: lastTowerVerdict, towerRationale: lastTowerRationale, derivedStatus: null, isLeadRun, towerMissing: !hasTowerJudgement };
 }
 
 export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: LiveActivityPanelProps) {
@@ -3326,7 +3420,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
             )}
             
             {effectiveTerminal && allRevealed && !transientPhase && (mappedStatus === 'completed' || mappedStatus === 'failed' || mappedStatus === 'stopped' || mappedStatus === 'awaiting_judgement' || mappedStatus === 'replanning') && (
-              <SequenceStatusRow status={mappedStatus as any} clientRequestId={activeClientRequestId} runId={canonicalRunId || stream?.run_id} towerVerdict={towerAware.towerVerdict} towerMissing={towerAware.towerMissing} chatMode={towerLoopChatMode} />
+              <SequenceStatusRow status={mappedStatus as any} clientRequestId={activeClientRequestId} runId={canonicalRunId || stream?.run_id} towerVerdict={towerAware.towerVerdict} towerMissing={towerAware.towerMissing} chatMode={towerLoopChatMode} towerRationale={towerAware.towerRationale} />
             )}
             {IS_DEV && activeClientRequestId && (
               <div className="mt-1 px-2 py-1 rounded bg-gray-100 dark:bg-gray-800/50 text-[10px] font-mono text-muted-foreground/70 space-y-0.5 overflow-hidden">

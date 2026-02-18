@@ -1,0 +1,112 @@
+You are working in the Wyshbone UI repo.
+
+Goal: implement Phase 1 CVL V1 display + truth UX, using the artefact contract below.
+Do not change execution logic. This is UI-only: render what’s real; do not infer; do not “improve” heuristics.
+
+Constraints (non-negotiable)
+
+Do NOT infer constraints or verification from chat text.
+
+Do NOT use the existing hardcoded /api/supervisor/request-judgement heuristic to decide truth.
+
+UI must become evidence-first, but only by rendering artefacts that exist.
+
+If CVL artefacts don’t exist yet, UI must not fake them.
+
+Implement
+1) Render new CVL artefacts if present
+
+Add render support for these artefact types (new):
+
+constraints_extracted
+
+constraint_capability_check
+
+verification_summary
+
+lead_verification
+
+verification_evidence
+
+If your artefact rendering is type-based (as in LiveActivityPanel), add the mappings and create small views.
+
+2) Add a “Constraints” section to UserResultsView / DeliverySummary display
+
+If constraints_extracted exists:
+
+show each constraint (human label)
+
+show hard/soft badge
+
+show current status if verification_summary exists (yes/no/unknown)
+
+3) Add a “Verification” section
+
+If verification_summary exists:
+
+display verified_exact_count vs requested_count_user
+
+show per-constraint status list (yes/no/unknown)
+
+show verification budget usage if present
+
+4) Evidence display rules (strict)
+
+If verification_evidence exists:
+
+show evidence snippet + source label for verified attributes (per lead where possible)
+If missing:
+
+for any attribute constraint, show “Not verified” explicitly (do not imply it)
+
+5) Fix the misleading “requested=10” assumption in UI (display-side only)
+
+The UI currently assumes requested_count is meaningful but server-side judgement is hardcoded to 10.
+Update UI displays so that:
+
+When CVL exists, requested_count shown to the user must come from constraints_extracted.requested_count_user (or verification_summary)
+
+If CVL does not exist, continue current behaviour but label it neutrally (no “Accepted” tone)
+
+6) Stop states must feel deliberate, not broken
+
+When Tower verdict is STOP or CHANGE_PLAN:
+
+show a clear explanation area (use tower_judgement rationale if present)
+
+show action buttons but do not pretend they execute unless wired
+Buttons:
+
+Verify via websites
+
+Broaden radius
+
+Relax constraint
+
+Return best-effort list (unverified)
+
+If wiring does not exist yet, buttons should trigger a clear toast: “Not wired yet” (or open a modal that explains next step).
+
+Artefact contract (Phase 1)
+
+Implement rendering based on these payloads:
+
+constraints_extracted: requested_count_user + constraints[] (id, kind, hardness, field, op, value)
+
+verification_summary: verified_exact_count + constraint_results[] (constraint_id, status)
+
+verification_evidence: evidence[] (id, lead_id, constraint_id, snippet, source_type/source_ref)
+
+lead_verification: leads[] (lead_id, constraint_checks[] with constraint_id/status/evidence_ids)
+
+Non-goals (do not touch)
+
+Do not change chat endpoints, decideChatMode, or Supervisor delegation.
+
+Do not change plan execution.
+
+Do not add tools.
+
+Do not change database schema unless required only for UI rendering (prefer none).
+
+Deliverable: PR that adds the views + integrates them into Live Activity / UserResultsView without altering execution.
