@@ -1851,47 +1851,39 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
             })
           )}
 
-          {/* Progress Stack - shows status updates during request */}
-          {progressStack.length > 0 && (
-            <div className="flex gap-3 flex-row mb-2" data-testid="progress-stack">
-              <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0">
-                <img src={wyshboneLogo} alt="Wyshbone" className="w-full h-full object-cover" />
-              </div>
-              <div className="flex flex-col items-start max-w-3xl lg:max-w-none">
-                <div className="rounded-lg px-4 py-3 bg-card border border-card-border">
-                  <div className="space-y-1">
-                    {progressStack.map((event, idx) => {
-                      const display = getStageDisplay(event.stage, event.toolName);
-                      const isLast = idx === progressStack.length - 1;
-                      const isTerminal = event.stage === 'completed' || event.stage === 'failed';
-                      return (
-                        <div 
-                          key={`${event.stage}-${idx}`} 
-                          className={`flex items-center gap-2 text-sm ${isLast && !isTerminal ? 'text-foreground' : 'text-muted-foreground'}`}
-                        >
-                          <span>{display.icon}</span>
-                          <span>{display.label}</span>
-                        </div>
-                      );
-                    })}
-                    {executedToolsSummary && executedToolsSummary.tools.length > 0 && (
-                      <div className="mt-1 pt-1 border-t border-border/50">
-                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                          <span>⚙️</span>
-                          <span>Executed tools: {executedToolsSummary.tools.join(' → ')}</span>
-                        </div>
-                        {executedToolsSummary.rejected.map((r, i) => (
-                          <div key={i} className="flex items-center gap-2 text-xs text-muted-foreground/70 ml-5">
-                            <span>Rejected: {r.tool} ({r.reason})</span>
+          {/* Progress Stack - shows only user-facing status updates during request */}
+          {(() => {
+            const INTERNAL_STAGES = new Set(['ack', 'classifying', 'planning']);
+            const visibleEvents = progressStack.filter(e => !INTERNAL_STAGES.has(e.stage));
+            if (visibleEvents.length === 0) return null;
+            return (
+              <div className="flex gap-3 flex-row mb-2" data-testid="progress-stack">
+                <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0">
+                  <img src={wyshboneLogo} alt="Wyshbone" className="w-full h-full object-cover" />
+                </div>
+                <div className="flex flex-col items-start max-w-3xl lg:max-w-none">
+                  <div className="rounded-lg px-4 py-3 bg-card border border-card-border">
+                    <div className="space-y-1">
+                      {visibleEvents.map((event, idx) => {
+                        const display = getStageDisplay(event.stage, event.toolName);
+                        const isLast = idx === visibleEvents.length - 1;
+                        const isTerminal = event.stage === 'completed' || event.stage === 'failed';
+                        return (
+                          <div 
+                            key={`${event.stage}-${idx}`} 
+                            className={`flex items-center gap-2 text-sm ${isLast && !isTerminal ? 'text-foreground' : 'text-muted-foreground'}`}
+                          >
+                            <span>{display.icon}</span>
+                            <span>{display.label}</span>
                           </div>
-                        ))}
-                      </div>
-                    )}
+                        );
+                      })}
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
 
           {/* Supervisor thinking indicator */}
           {isWaitingForSupervisor && (
