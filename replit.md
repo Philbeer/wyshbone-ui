@@ -60,6 +60,15 @@ The user interface adheres to Material Design principles, featuring a dark mode,
 - Supervisor Client handles job delegation, status, and cancellation via `SUPERVISOR_BASE_URL`.
 - AFR events track job delegation.
 
+**Supervisor Completion & Delivery Pipeline (Feb 2026):**
+- **Server-side completion poller** (`server/lib/supervisor-completion-handler.ts`): Polls Supabase `supervisor_tasks` every 8s for completed tasks. De-duplicates via in-memory set and artefact existence check. Fetches leads from `artefacts.leads_list` or supervisor messages, evaluates constraints, persists `verification_summary`, `tower_judgement`, and `delivery_summary` artefacts.
+- **Delivery evaluator** (`server/lib/delivery-evaluator.ts`): Parses constraints from user messages (business_type, location, count, amenities). Tags each constraint as hard/soft and verifiable/unverifiable. Google Places can verify business_type and location but NOT amenities (beer garden, outdoor seating, etc.). Unverifiable hard constraints → STOP verdict with zero verified_exact_count. Produces truthful delivery_summary with PASS/PARTIAL/STOP.
+- **Artefact persister** (`server/lib/artefact-persister.ts`): Writes artefacts to Supabase `artefacts` table with 3-attempt retry and exponential backoff.
+- **Webhook endpoint** (`POST /api/supervisor/supervisor-completed`): Push path for Supervisor to notify UI server of task completion. Mirrors poller logic.
+- **Manual test endpoint** (`POST /api/supervisor/evaluate-run`): Accepts runId, userMessage, leads, produces and persists evaluation artefacts.
+- **Client-side polling** (`client/src/pages/chat.tsx`): When `isWaitingForSupervisor=true`, polls `/api/afr/artefacts` every 5s for `delivery_summary`. Also fetches on SSE `completed` event. Renders `UserResultsView` inline in chat with canonical status badge (PASS/PARTIAL/STOP), delivered/requested counts, lead cards, stop reason, and feedback buttons.
+- **Canonical delivery status** (`client/src/utils/deliveryStatus.ts`): Resolves status from `delivery_summary.status` field. NEVER infers PASS from raw counts. Missing status → "Status unavailable".
+
 **AFR Artefact Ingestion & Retrieval Contract:**
 - **POST `/api/afr/artefacts`**: Persists an artefact for a run, with required `runId` and `type`.
 - **GET `/api/afr/artefacts`**: Retrieves artefacts for a run, supporting lookup by `runId` or `client_request_id`.
