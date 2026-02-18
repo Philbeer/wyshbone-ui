@@ -102,6 +102,8 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
   const [supervisorTaskId, setSupervisorTaskId] = useState<string | null>(null);
   const [isWaitingForSupervisor, setIsWaitingForSupervisor] = useState(false);
   const supervisorTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const supervisorRunIdRef = useRef<string | null>(null);
+  const supervisorPollRef = useRef<NodeJS.Timeout | null>(null);
 
   // Progress stack for chat status events (Part 2 implementation)
   type ProgressStage = 'ack' | 'classifying' | 'planning' | 'executing' | 'finalising' | 'completed' | 'failed';
@@ -219,6 +221,84 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
       console.log('✅ Demo mode clean slate applied - fresh "first time" experience ready');
     }
   }, [user.id, user.email, queryClient]);
+
+  // Poll for delivery_summary when waiting for Supervisor completion
+  useEffect(() => {
+    if (!isWaitingForSupervisor) {
+      if (supervisorPollRef.current) {
+        clearInterval(supervisorPollRef.current);
+        supervisorPollRef.current = null;
+      }
+      return;
+    }
+
+    const pollForDeliverySummary = async () => {
+      const runId = supervisorRunIdRef.current;
+      if (!runId) return;
+
+      try {
+        const res = await fetch(`/api/afr/artefacts?runId=${encodeURIComponent(runId)}`);
+        if (!res.ok) return;
+        const rows = await res.json();
+        const dsRow = Array.isArray(rows) ? rows.find((r: any) => r.type === 'delivery_summary') : null;
+        if (!dsRow) return;
+
+        let parsed = dsRow.payload_json;
+        if (typeof parsed === 'string') {
+          try { parsed = JSON.parse(parsed); } catch { return; }
+        }
+        if (!parsed || typeof parsed !== 'object') return;
+
+        console.log('[Chat] delivery_summary found for run:', runId);
+
+        const resultMessage: Message = {
+          id: `ds-${runId}`,
+          role: 'assistant',
+          content: '',
+          timestamp: new Date(),
+          source: 'supervisor',
+          deliverySummary: parsed as DeliverySummary,
+          runId,
+        };
+        setMessages((prev) => {
+          if (prev.some(m => m.id === resultMessage.id)) return prev;
+          return [...prev, resultMessage];
+        });
+
+        setIsWaitingForSupervisor(false);
+        setSupervisorTaskId(null);
+        supervisorRunIdRef.current = null;
+        if (supervisorTimeoutRef.current) {
+          clearTimeout(supervisorTimeoutRef.current);
+          supervisorTimeoutRef.current = null;
+        }
+        if (supervisorPollRef.current) {
+          clearInterval(supervisorPollRef.current);
+          supervisorPollRef.current = null;
+        }
+
+        toast({
+          title: "Results ready",
+          description: "Your results are now available in the chat.",
+        });
+      } catch (err) {
+        console.warn('[Chat] Poll for delivery_summary failed:', err);
+      }
+    };
+
+    const initialDelay = setTimeout(() => {
+      pollForDeliverySummary();
+      supervisorPollRef.current = setInterval(pollForDeliverySummary, 5000);
+    }, 3000);
+
+    return () => {
+      clearTimeout(initialDelay);
+      if (supervisorPollRef.current) {
+        clearInterval(supervisorPollRef.current);
+        supervisorPollRef.current = null;
+      }
+    };
+  }, [isWaitingForSupervisor, toast]);
 
   // Subscribe to Supervisor responses via Supabase realtime
   useEffect(() => {
@@ -704,6 +784,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
               // Handle run_id event (early canonical run ID from agent_runs)
               if (parsed.type === 'run_id' && parsed.runId) {
                 console.log('🔗 Run ID received:', parsed.runId);
+                supervisorRunIdRef.current = parsed.runId;
                 window.dispatchEvent(new CustomEvent('wyshbone:run_id', {
                   detail: { runId: parsed.runId, clientRequestId: parsed.clientRequestId || clientRequestId },
                 }));
