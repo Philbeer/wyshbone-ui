@@ -1479,6 +1479,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
           res.write(`data: ${JSON.stringify({ type: 'message', role: 'assistant', content: delegateMsg })}\n\n`);
 
+          emitSse({
+            type: 'status',
+            stage: 'completed',
+            message: 'Delegated to Supervisor',
+            clientRequestId: clientRequestId || undefined,
+            conversationId,
+          });
+
           console.log(`[CHAT_ROUTE=RUN_LANE] crid=${clientRequestId || 'none'} run_id=${agentRunId || runId} taskId=${supervisorTask.id}`);
           res.write(`data: [DONE]\n\n`);
           res.end();

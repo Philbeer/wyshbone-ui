@@ -103,6 +103,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
   const [isWaitingForSupervisor, setIsWaitingForSupervisor] = useState(false);
   const supervisorTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const supervisorRunIdRef = useRef<string | null>(null);
+  const supervisorClientRequestIdRef = useRef<string | null>(null);
   const supervisorPollRef = useRef<NodeJS.Timeout | null>(null);
 
   // Progress stack for chat status events (Part 2 implementation)
@@ -232,14 +233,30 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
       return;
     }
 
+    console.log('[Chat] Polling activated — isWaitingForSupervisor=true, runId=', supervisorRunIdRef.current, 'crid=', supervisorClientRequestIdRef.current);
+
     const pollForDeliverySummary = async () => {
       const runId = supervisorRunIdRef.current;
-      if (!runId) return;
+      const crid = supervisorClientRequestIdRef.current;
+      if (!runId && !crid) {
+        console.warn('[Chat] Poll skipped — no runId or clientRequestId available');
+        return;
+      }
 
       try {
-        const res = await fetch(`/api/afr/artefacts?runId=${encodeURIComponent(runId)}`);
-        if (!res.ok) return;
+        const params = new URLSearchParams();
+        if (runId) params.set('runId', runId);
+        if (crid) params.set('client_request_id', crid);
+        const url = buildApiUrl(addDevAuthParams(`/api/afr/artefacts?${params.toString()}`));
+        console.log('[Chat] Polling artefacts:', url);
+
+        const res = await fetch(url, { credentials: 'include' });
+        if (!res.ok) {
+          console.warn('[Chat] Poll response not ok:', res.status);
+          return;
+        }
         const rows = await res.json();
+        console.log('[Chat] Poll returned', Array.isArray(rows) ? rows.length : 0, 'artefacts, types:', Array.isArray(rows) ? rows.map((r: any) => r.type) : []);
         const dsRow = Array.isArray(rows) ? rows.find((r: any) => r.type === 'delivery_summary') : null;
         if (!dsRow) return;
 
@@ -249,16 +266,16 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         }
         if (!parsed || typeof parsed !== 'object') return;
 
-        console.log('[Chat] delivery_summary found for run:', runId);
+        console.log('[Chat] delivery_summary found for run:', runId || crid);
 
         const resultMessage: Message = {
-          id: `ds-${runId}`,
+          id: `ds-${runId || crid}`,
           role: 'assistant',
           content: '',
           timestamp: new Date(),
           source: 'supervisor',
           deliverySummary: parsed as DeliverySummary,
-          runId,
+          runId: runId || undefined,
         };
         setMessages((prev) => {
           if (prev.some(m => m.id === resultMessage.id)) return prev;
@@ -268,6 +285,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         setIsWaitingForSupervisor(false);
         setSupervisorTaskId(null);
         supervisorRunIdRef.current = null;
+        supervisorClientRequestIdRef.current = null;
         if (supervisorTimeoutRef.current) {
           clearTimeout(supervisorTimeoutRef.current);
           supervisorTimeoutRef.current = null;
@@ -839,8 +857,9 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
               
               // Handle Supervisor task creation
               if (parsed.supervisorTaskId) {
-                console.log('🤖 Supervisor task created:', parsed.supervisorTaskId);
+                console.log('🤖 Supervisor task created:', parsed.supervisorTaskId, 'runId=', supervisorRunIdRef.current, 'crid=', clientRequestId);
                 setSupervisorTaskId(parsed.supervisorTaskId);
+                supervisorClientRequestIdRef.current = clientRequestId;
                 setIsWaitingForSupervisor(true);
                 
                 // Set timeout watchdog (clear if Supervisor responds within 2 minutes)
