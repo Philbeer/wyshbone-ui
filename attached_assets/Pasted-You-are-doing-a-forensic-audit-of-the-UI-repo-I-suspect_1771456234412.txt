@@ -1,0 +1,87 @@
+You are doing a forensic audit of the UI repo. I suspect recent changes added unwanted functionality. I need a full, detailed report. Do NOT implement anything. Read only, analyze only.
+
+Objectives
+
+Produce a precise list of what has changed recently (especially anything added today):
+
+Files modified, created, deleted
+
+For each file: what changed and why it matters
+
+Identify any “scope creep” beyond removing the legacy progress block ("OK, working / Classifying intent / Planning")
+
+Explain the current end-to-end user flow in detail:
+
+When user hits Enter in chat, what network calls happen
+
+How the UI delegates to Supervisor
+
+How run_id / client_request_id is tracked in UI
+
+How Live Activity / AFR gets populated and displayed
+
+Where and how delivery_summary is fetched and rendered (UserResultsModal, UserResultsView, etc.)
+
+Where Tower verdict and CVL artefacts show up (if they do)
+
+Identify any new code that:
+
+Polls /api/afr/artefacts from the chat page
+
+Injects structured result views into chat messages (deliverySummary field, rendering UserResultsView inline)
+
+Adds demo buttons, demo panels, or demo-only modes
+
+Adds fake progress narration
+
+Confirm database safety:
+
+UI must not write to any local Replit DB
+
+UI should only talk to backend APIs and Supabase realtime where expected
+
+List any Supabase keys / env usage on the frontend and what they do
+
+Required outputs (be extremely detailed)
+
+A) Git / diff report:
+
+Current branch name
+
+Last 10 commits with messages
+
+git status
+
+For each changed file, summarize changes
+
+If there are uncommitted changes, list them
+
+B) Flow diagram (text) for the agent loop as the UI sees it:
+User Chat -> /api/chat -> delegation -> Supervisor realtime message -> AFR artefacts -> Results view
+Include exact file names and key functions.
+
+C) Risk list:
+
+Anything that could cause “lying results”
+
+Anything that could cause chat to show internal steps (“OK, working”, “Planning”, etc.)
+
+Anything that could cause stale data or mismatched run correlation
+
+D) Recommendation:
+
+If scope creep was added, tell me exactly what to revert and why
+
+Provide exact rollback steps (git commands) for reverting ONLY the unwanted changes while keeping the truth closure results UI intact
+
+Constraints
+
+DO NOT change code
+
+DO NOT propose new features
+
+Only analyze current state and recent diffs
+
+Be concrete and specific
+
+Return the report in markdown with headings and bullet points.
