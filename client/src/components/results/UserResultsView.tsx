@@ -1,7 +1,12 @@
-import { MapPin, Phone, Globe, Info, CheckCircle2, CircleDot, CircleSlash } from "lucide-react";
+import { useState } from "react";
+import { MapPin, Phone, Globe, Info, CheckCircle2, CircleDot, OctagonX, HelpCircle, ThumbsUp, RotateCcw, X, Download, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { ConstraintsSectionInline, VerificationSectionInline } from "@/components/results/CvlArtefactViews";
+import { resolveCanonicalStatus, STATUS_CONFIG, type CanonicalStatus, type StopReason } from "@/utils/deliveryStatus";
+import { acceptResult, retryGoal, abandonGoal, exportData } from "@/api/feedbackClient";
+import { WhatWasLearnedPanel } from "@/components/results/WhatWasLearnedPanel";
+import type { RuleUpdate } from "@/types/afr";
 
 interface DeliveryLead {
   name?: string;
@@ -13,38 +18,23 @@ interface DeliveryLead {
 }
 
 export interface DeliverySummary {
+  status?: string | null;
+  stop_reason?: StopReason | { message?: string; code?: string } | string | null;
   delivered_exact?: DeliveryLead[];
   delivered_closest?: DeliveryLead[];
   shortfall?: number;
   requested_count?: number;
   delivered_count?: number;
+  verified_exact_count?: number;
   suggested_next_question?: string | null;
   relaxations?: string[];
 }
 
-type OutcomeKind = "complete" | "partial" | "no_exact" | "no_matches";
-
-function deriveOutcome(shortfall: number | null, hasExact: boolean, hasClosest: boolean): { kind: OutcomeKind; label: string; subtext: string } {
-  if (shortfall === 0) {
-    return { kind: "complete", label: "Complete", subtext: "You got everything you asked for." };
-  }
-  if (shortfall != null && shortfall > 0 && hasExact) {
-    return { kind: "partial", label: "Partial", subtext: "Some exact matches were found." };
-  }
-  if (!hasExact && hasClosest) {
-    return { kind: "no_exact", label: "No exact matches", subtext: "Closest alternatives are available." };
-  }
-  if (!hasExact && !hasClosest) {
-    return { kind: "no_matches", label: "No matches", subtext: "Nothing matched your requirements." };
-  }
-  return { kind: "partial", label: "Partial", subtext: "Some results were found." };
-}
-
-const OUTCOME_STYLES: Record<OutcomeKind, { badge: string; icon: typeof CheckCircle2 }> = {
-  complete: { badge: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200", icon: CheckCircle2 },
-  partial: { badge: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-200", icon: CircleDot },
-  no_exact: { badge: "bg-gray-100 text-gray-700 dark:bg-gray-800/50 dark:text-gray-300", icon: CircleSlash },
-  no_matches: { badge: "bg-gray-100 text-gray-600 dark:bg-gray-800/50 dark:text-gray-400", icon: CircleSlash },
+const STATUS_ICONS: Record<CanonicalStatus, typeof CheckCircle2> = {
+  PASS: CheckCircle2,
+  PARTIAL: CircleDot,
+  STOP: OctagonX,
+  UNAVAILABLE: HelpCircle,
 };
 
 function prefillChat(message: string) {
@@ -61,14 +51,12 @@ function LeadCard({ lead, showViolations }: { lead: DeliveryLead; showViolations
       {lead.name && (
         <p className="text-sm font-semibold text-foreground leading-tight">{lead.name}</p>
       )}
-
       {lead.location && (
         <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <MapPin className="h-3 w-3 shrink-0" />
           <span>{lead.location}</span>
         </div>
       )}
-
       <div className="flex flex-wrap gap-x-4 gap-y-1">
         {lead.phone && (
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -79,18 +67,12 @@ function LeadCard({ lead, showViolations }: { lead: DeliveryLead; showViolations
         {lead.website && (
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground min-w-0">
             <Globe className="h-3 w-3 shrink-0" />
-            <a
-              href={lead.website}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-blue-500 hover:underline truncate max-w-[220px]"
-            >
+            <a href={lead.website} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline truncate max-w-[220px]">
               {lead.website}
             </a>
           </div>
         )}
       </div>
-
       {violations && (
         <p className="text-[11px] text-muted-foreground/50 leading-snug pt-0.5">
           {violations.join(" · ")}
@@ -103,7 +85,6 @@ function LeadCard({ lead, showViolations }: { lead: DeliveryLead; showViolations
 function NextActionsSection({ suggestedQuestion, shortfall, requestedCount, onClose }: { suggestedQuestion: string | null; shortfall: number | null; requestedCount: number | null; onClose?: () => void }) {
   const target = requestedCount ?? "the original number";
   const q = (suggestedQuestion || "").toLowerCase();
-
   const actions: Array<{ label: string; message: string; variant?: "default" | "outline" }> = [];
 
   if (q.includes("nearby")) {
@@ -134,13 +115,7 @@ function NextActionsSection({ suggestedQuestion, shortfall, requestedCount, onCl
       <h3 className="text-sm font-semibold text-foreground">Next actions</h3>
       <div className="flex flex-wrap gap-2">
         {actions.map((action, i) => (
-          <Button
-            key={i}
-            variant={action.variant || "outline"}
-            size="sm"
-            className="text-xs"
-            onClick={() => handleClick(action.message)}
-          >
+          <Button key={i} variant={action.variant || "outline"} size="sm" className="text-xs" onClick={() => handleClick(action.message)}>
             {action.label}
           </Button>
         ))}
@@ -149,7 +124,76 @@ function NextActionsSection({ suggestedQuestion, shortfall, requestedCount, onCl
   );
 }
 
-export default function UserResultsView({ deliverySummary, onClose, constraintsPayload, verificationPayload, evidencePayload }: { deliverySummary: DeliverySummary; onClose?: () => void; constraintsPayload?: any; verificationPayload?: any; evidencePayload?: any }) {
+function FeedbackButtons({ goalId, runId }: { goalId?: string | null; runId?: string | null }) {
+  const [pending, setPending] = useState<string | null>(null);
+  const [done, setDone] = useState<string | null>(null);
+
+  const handle = async (action: string, fn: () => Promise<{ ok: boolean; error?: string }>) => {
+    setPending(action);
+    const result = await fn();
+    setPending(null);
+    if (result.ok) setDone(action);
+  };
+
+  if (done) {
+    const labels: Record<string, string> = {
+      accept: "Result accepted",
+      retry: "Retrying...",
+      abandon: "Goal abandoned",
+      export: "Exported",
+    };
+    return (
+      <div className="flex items-center gap-2 text-xs text-muted-foreground pt-2">
+        <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
+        {labels[done] || "Done"}
+      </div>
+    );
+  }
+
+  return (
+    <section className="pt-3 border-t space-y-2">
+      <h3 className="text-sm font-semibold text-foreground">Your feedback</h3>
+      <div className="flex flex-wrap gap-2">
+        <Button variant="default" size="sm" className="text-xs" disabled={!!pending} onClick={() => handle("accept", () => acceptResult(goalId ?? null, runId ?? null))}>
+          {pending === "accept" ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <ThumbsUp className="h-3 w-3 mr-1" />}
+          Accept
+        </Button>
+        <Button variant="outline" size="sm" className="text-xs" disabled={!!pending} onClick={() => handle("retry", () => retryGoal(goalId ?? null, runId ?? null))}>
+          {pending === "retry" ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <RotateCcw className="h-3 w-3 mr-1" />}
+          Retry
+        </Button>
+        <Button variant="outline" size="sm" className="text-xs" disabled={!!pending} onClick={() => handle("abandon", () => abandonGoal(goalId ?? null, runId ?? null))}>
+          {pending === "abandon" ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <X className="h-3 w-3 mr-1" />}
+          Abandon
+        </Button>
+        <Button variant="outline" size="sm" className="text-xs" disabled={!!pending} onClick={() => handle("export", () => exportData(goalId ?? null, runId ?? null))}>
+          {pending === "export" ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Download className="h-3 w-3 mr-1" />}
+          Export
+        </Button>
+      </div>
+    </section>
+  );
+}
+
+export default function UserResultsView({
+  deliverySummary,
+  onClose,
+  constraintsPayload,
+  verificationPayload,
+  evidencePayload,
+  ruleUpdates,
+  goalId,
+  runId,
+}: {
+  deliverySummary: DeliverySummary;
+  onClose?: () => void;
+  constraintsPayload?: any;
+  verificationPayload?: any;
+  evidencePayload?: any;
+  ruleUpdates?: RuleUpdate[];
+  goalId?: string | null;
+  runId?: string | null;
+}) {
   const exact = Array.isArray(deliverySummary.delivered_exact) ? deliverySummary.delivered_exact : [];
   const closest = Array.isArray(deliverySummary.delivered_closest) ? deliverySummary.delivered_closest : [];
   const shortfall = deliverySummary.shortfall ?? null;
@@ -158,47 +202,67 @@ export default function UserResultsView({ deliverySummary, onClose, constraintsP
   const deliveredCount = deliverySummary.delivered_count ?? null;
   const suggestedQuestion = deliverySummary.suggested_next_question ?? null;
 
-  const outcome = deriveOutcome(shortfall, exact.length > 0, closest.length > 0);
-  const style = OUTCOME_STYLES[outcome.kind];
-  const OutcomeIcon = style.icon;
+  const canonical = resolveCanonicalStatus({
+    status: deliverySummary.status,
+    stop_reason: deliverySummary.stop_reason,
+    delivered_count: deliveredCount,
+    requested_count: requestedCount,
+    verified_exact_count: deliverySummary.verified_exact_count,
+  });
+
+  const config = STATUS_CONFIG[canonical.status];
+  const StatusIcon = STATUS_ICONS[canonical.status];
 
   return (
     <div className="space-y-5">
       <div className="flex items-center gap-3">
-        <span className={cn("inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold", style.badge)}>
-          <OutcomeIcon className="h-3.5 w-3.5" />
-          {outcome.label}
+        <span className={cn("inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold", config.badge)}>
+          <StatusIcon className="h-3.5 w-3.5" />
+          {config.label}
         </span>
-        <p className="text-sm text-muted-foreground">{outcome.subtext}</p>
+        <p className="text-sm text-muted-foreground">{config.description}</p>
       </div>
 
+      {canonical.status === "STOP" && canonical.stop_reason?.message && (
+        <div className="rounded-lg border border-red-200 dark:border-red-900/50 bg-red-50/50 dark:bg-red-900/10 px-4 py-3 flex items-start gap-2.5">
+          <OctagonX className="h-4 w-4 text-red-500 mt-0.5 shrink-0" />
+          <div className="text-sm text-foreground/80 leading-relaxed">
+            <p className="font-medium text-foreground mb-0.5">Why it stopped</p>
+            <p>{canonical.stop_reason.message}</p>
+          </div>
+        </div>
+      )}
+
+      {requestedCount != null && deliveredCount != null && (
+        <div className="flex gap-4">
+          <div className="flex-1 rounded-lg border bg-muted/30 p-2.5 text-center">
+            <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Delivered</p>
+            <p className="text-xl font-bold text-foreground mt-0.5">{deliveredCount}</p>
+          </div>
+          <div className="flex-1 rounded-lg border bg-muted/30 p-2.5 text-center">
+            <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Requested</p>
+            <p className="text-xl font-bold text-foreground mt-0.5">{requestedCount}</p>
+          </div>
+        </div>
+      )}
+
       {constraintsPayload && (
-        <ConstraintsSectionInline
-          constraintsPayload={constraintsPayload}
-          verificationPayload={verificationPayload}
-        />
+        <ConstraintsSectionInline constraintsPayload={constraintsPayload} verificationPayload={verificationPayload} />
       )}
 
       {verificationPayload && (
-        <VerificationSectionInline
-          verificationPayload={verificationPayload}
-          evidencePayload={evidencePayload}
-        />
+        <VerificationSectionInline verificationPayload={verificationPayload} evidencePayload={evidencePayload} />
       )}
 
-      {exact.length === 0 && closest.length === 0 && shortfall == null && (
+      {exact.length === 0 && closest.length === 0 && shortfall == null && canonical.status !== "STOP" && (
         <p className="text-sm text-muted-foreground">No results to display.</p>
       )}
 
       {exact.length > 0 && (
         <section className="space-y-2">
           <div>
-            <h3 className="text-sm font-semibold text-foreground">
-              Exact matches
-            </h3>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              These meet all your stated requirements.
-            </p>
+            <h3 className="text-sm font-semibold text-foreground">Exact matches</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">These meet all your stated requirements.</p>
           </div>
           <div className="space-y-2">
             {exact.map((lead, i) => (
@@ -211,12 +275,8 @@ export default function UserResultsView({ deliverySummary, onClose, constraintsP
       {closest.length > 0 && (
         <section className="space-y-2">
           <div>
-            <h3 className="text-sm font-semibold text-foreground">
-              Closest matches
-            </h3>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              These are the nearest alternatives once soft constraints were relaxed.
-            </p>
+            <h3 className="text-sm font-semibold text-foreground">Closest matches</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">These are the nearest alternatives once soft constraints were relaxed.</p>
           </div>
           <div className="space-y-2">
             {closest.map((lead, i) => (
@@ -226,7 +286,7 @@ export default function UserResultsView({ deliverySummary, onClose, constraintsP
         </section>
       )}
 
-      {shortfall != null && shortfall > 0 && (
+      {shortfall != null && shortfall > 0 && canonical.status !== "STOP" && (
         <div className="rounded-lg border border-border bg-muted/30 px-4 py-3 flex items-start gap-2.5">
           <Info className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
           <div className="text-sm text-foreground/80 leading-relaxed">
@@ -239,14 +299,15 @@ export default function UserResultsView({ deliverySummary, onClose, constraintsP
         </div>
       )}
 
-      {(suggestedQuestion || (shortfall != null && shortfall > 0)) && (
-        <NextActionsSection
-          suggestedQuestion={suggestedQuestion}
-          shortfall={shortfall}
-          requestedCount={requestedCount}
-          onClose={onClose}
-        />
+      {ruleUpdates && ruleUpdates.length > 0 && (
+        <WhatWasLearnedPanel ruleUpdates={ruleUpdates} />
       )}
+
+      {canonical.status !== "STOP" && (suggestedQuestion || (shortfall != null && shortfall > 0)) && (
+        <NextActionsSection suggestedQuestion={suggestedQuestion} shortfall={shortfall} requestedCount={requestedCount} onClose={onClose} />
+      )}
+
+      <FeedbackButtons goalId={goalId} runId={runId} />
     </div>
   );
 }

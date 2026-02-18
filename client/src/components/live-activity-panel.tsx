@@ -1331,6 +1331,8 @@ function UserResultsModal({ clientRequestId, runId, open, onOpenChange }: { clie
   const [cvlConstraints, setCvlConstraints] = useState<any>(null);
   const [cvlVerification, setCvlVerification] = useState<any>(null);
   const [cvlEvidence, setCvlEvidence] = useState<any>(null);
+  const [ruleUpdates, setRuleUpdates] = useState<any[]>([]);
+  const [resolvedRunId, setResolvedRunId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -1347,10 +1349,24 @@ function UserResultsModal({ clientRequestId, runId, open, onOpenChange }: { clie
     setCvlConstraints(null);
     setCvlVerification(null);
     setCvlEvidence(null);
+    setRuleUpdates([]);
+    setResolvedRunId(runId || null);
 
     const fullUrl = runId
       ? `/api/afr/artefacts?runId=${encodeURIComponent(runId)}`
       : `/api/afr/artefacts?client_request_id=${encodeURIComponent(clientRequestId!)}`;
+
+    const fetchBundle = async (rid: string) => {
+      try {
+        const res = await fetch(`/api/afr/runs/${encodeURIComponent(rid)}`);
+        if (res.ok) {
+          const bundle = await res.json();
+          if (Array.isArray(bundle.related_rule_updates)) {
+            setRuleUpdates(bundle.related_rule_updates);
+          }
+        }
+      } catch {}
+    };
 
     fetch(fullUrl)
       .then(res => {
@@ -1364,6 +1380,12 @@ function UserResultsModal({ clientRequestId, runId, open, onOpenChange }: { clie
         if (constraintsArt) setCvlConstraints(parsePayload(constraintsArt.payload_json));
         if (verificationArt) setCvlVerification(parsePayload(verificationArt.payload_json));
         if (evidenceArt) setCvlEvidence(parsePayload(evidenceArt.payload_json));
+
+        const effectiveRunId = runId || (rows.length > 0 ? rows[0].run_id : null);
+        if (effectiveRunId) {
+          setResolvedRunId(effectiveRunId);
+          fetchBundle(effectiveRunId);
+        }
 
         const narrativeArtefact = rows.find(r => r.type === "run_narrative");
         if (narrativeArtefact) {
@@ -1428,7 +1450,7 @@ function UserResultsModal({ clientRequestId, runId, open, onOpenChange }: { clie
           <p className="text-sm text-muted-foreground py-6 text-center">{error}</p>
         )}
         {deliverySummary && !loading && !error && (
-          <UserResultsView deliverySummary={deliverySummary} onClose={() => onOpenChange(false)} constraintsPayload={cvlConstraints} verificationPayload={cvlVerification} evidencePayload={cvlEvidence} />
+          <UserResultsView deliverySummary={deliverySummary} onClose={() => onOpenChange(false)} constraintsPayload={cvlConstraints} verificationPayload={cvlVerification} evidencePayload={cvlEvidence} ruleUpdates={ruleUpdates} runId={resolvedRunId} />
         )}
         {narrative && !loading && !error && (
           <div className="prose prose-sm dark:prose-invert max-w-none">
