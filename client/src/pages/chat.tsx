@@ -66,7 +66,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
   const { trigger: triggerSidebarFlash } = useSidebarFlash();
   const { goal, hasGoal, isLoading: isLoadingGoal } = useUserGoal();
   const { openResults } = useResultsPanel();
-  const { setCurrentClientRequestId, setPinnedClientRequestId, setLastCompletedClientRequestId } = useCurrentRequest();
+  const { setCurrentClientRequestId, setPinnedClientRequestId, setLastCompletedClientRequestId, addRecentRun, userPinned, clearRecentRuns } = useCurrentRequest();
   const queryClient = useQueryClient();
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
   const [input, setInput] = useState("");
@@ -219,6 +219,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
       setChatMode('standard');
       hasLoadedHistoryRef.current = false;
       hasShownGreetingRef.current = false;
+      clearRecentRuns();
 
       console.log('✅ Demo mode clean slate applied - fresh "first time" experience ready');
     }
@@ -718,6 +719,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         setInput("");
         setIsStreaming(false);
         setShowLocationSuggestions(false);
+        clearRecentRuns();
         setConversationId(newConversationId);
         
         console.log(`🆕 Started new chat with ID: ${newConversationId}`);
@@ -739,6 +741,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         setIsStreaming(false);
         setInput("");
         setShowLocationSuggestions(false);
+        clearRecentRuns();
         
         // Update conversationId
         setConversationId(newConversationId);
@@ -791,9 +794,13 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     setExecutedToolsSummary(null);
     setActiveClientRequestId(clientRequestId);
     
-    // Immediately notify LiveActivityPanel of new request (before any server events)
     setCurrentClientRequestId(clientRequestId);
-    setPinnedClientRequestId(clientRequestId);
+    const lastUserMsg = conversationMessages.filter(m => m.role === 'user').pop();
+    const runLabel = lastUserMsg?.content ? (lastUserMsg.content.length > 25 ? lastUserMsg.content.slice(0, 25) + '…' : lastUserMsg.content) : undefined;
+    addRecentRun(clientRequestId, runLabel);
+    if (!userPinned) {
+      setPinnedClientRequestId(clientRequestId);
+    }
     setLastCompletedClientRequestId(null);
     
     // Create assistant message with empty content

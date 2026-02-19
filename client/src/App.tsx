@@ -758,7 +758,7 @@ function DevInfoBadge() {
  */
 function RightPanelContent() {
   const { isOpen, currentResult } = useResultsPanel();
-  const { currentClientRequestId, setCurrentClientRequestId, pinnedClientRequestId, setPinnedClientRequestId, lastCompletedClientRequestId } = useCurrentRequest();
+  const { currentClientRequestId, setCurrentClientRequestId, pinnedClientRequestId, setPinnedClientRequestId, lastCompletedClientRequestId, recentRuns, setUserPinned } = useCurrentRequest();
   const [demoLoading, setDemoLoading] = useState(false);
   const [demoStatus, setDemoStatus] = useState<string | null>(null);
 
@@ -962,6 +962,33 @@ function RightPanelContent() {
             </div>
           )}
         </>
+      )}
+      {recentRuns.length > 1 && (
+        <div className="flex items-center gap-2 shrink-0">
+          <span className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Viewing:</span>
+          <div className="flex gap-1 flex-wrap">
+            {recentRuns.map((run) => {
+              const isActive = resolvedId === run.crid;
+              return (
+                <button
+                  key={run.crid}
+                  onClick={() => {
+                    setPinnedClientRequestId(run.crid);
+                    setUserPinned(true);
+                  }}
+                  className={`text-[11px] px-2 py-0.5 rounded-full border transition-colors ${
+                    isActive
+                      ? 'bg-primary text-primary-foreground border-primary font-semibold'
+                      : 'bg-muted/50 text-muted-foreground border-border hover:bg-muted hover:text-foreground'
+                  }`}
+                  title={`Switch to ${run.label} (${run.crid.slice(0, 8)}…)`}
+                >
+                  {run.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
       )}
       {(() => {
         return <LiveActivityPanel key={resolvedId ?? 'none'} activeClientRequestId={resolvedId} />;
