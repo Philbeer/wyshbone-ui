@@ -1,0 +1,97 @@
+Goal: Fix ONE UI issue only.
+
+Issue (from Claude Chrome QA):
+When two runs are started back-to-back in the same conversation, the Live Activity panel’s displayed run_id / pollingWith gets overwritten by the second run. This is a UI display bug only (backend data is clean), but it confuses demos because the operator thinks the first run “became” the second run.
+
+Scope (strict):
+
+Wyshbone-UI / Cockpit repo only.
+
+UI display/state fix only.
+
+Do NOT change Supervisor, Tower, or Supabase schemas.
+
+Do NOT add background workers, completion handlers, or new polling loops.
+
+Do NOT touch demo/proof buttons in this task.
+
+Minimal, surgical changes.
+
+What “correct” looks like:
+
+Live Activity must track activity per run, not “latest run wins”.
+
+If a second run starts, Live Activity should either:
+A) switch to the new run but clearly label it (e.g. “Viewing Run B”), OR
+B) keep showing Run A until the user explicitly switches, OR
+C) show a simple list of recent runs and let the user select.
+Pick the smallest change that makes it not misleading.
+
+Investigation steps:
+
+Reproduce:
+
+In one chat thread, send:
+A) “Find 3 pubs in Arundel”
+Immediately followed by:
+B) “Find 3 pubs in Chichester”
+
+Observe Live Activity shows run B for both contexts.
+
+Find where Live Activity’s “current run id” is sourced:
+
+Search for variables like: streamRunId, pollingWith, selectedRunId, activeRunId, client_request_id.
+
+Identify if it is reading from a single global ref (e.g. supervisorRunIdRef.current) or shared store that gets overwritten.
+
+Patch strategy (implement one of these, prefer simplest):
+Option 1 (preferred minimal fix):
+
+Store “activeRunId for Live Activity” as its own state that is set ONLY when:
+
+the user opens Live Activity for a specific run, OR
+
+a run starts AND Live Activity is currently not pinned to a run.
+
+Add a “Pin to this run” toggle (default ON when a run starts).
+
+If pinned, ignore later run updates until unpinned.
+
+Option 2:
+
+Maintain a small run list (last 3 runIds) and a dropdown selector in Live Activity.
+
+Auto-select newest run when it starts, but do not overwrite if the user has manually selected another run.
+
+Rules:
+
+No new backend endpoints.
+
+Keep polling behaviour unchanged except using the correct selected runId.
+
+If you add UI controls, keep them small and obvious.
+
+Acceptance tests:
+A) Back-to-back runs:
+
+Start run A then run B quickly.
+
+Live Activity must not mislabel run A as run B.
+
+User can clearly see which run is being viewed.
+
+B) Regression:
+
+Normal single run still streams correctly.
+
+No broken polling.
+
+No cross-run event mixing in the display.
+
+Deliverables:
+
+Root cause in 1–2 sentences.
+
+Full file rewrites for only the files changed.
+
+Quick “how to verify” steps.

@@ -105,6 +105,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
   const supervisorRunIdRef = useRef<string | null>(null);
   const supervisorClientRequestIdRef = useRef<string | null>(null);
   const supervisorPollRef = useRef<NodeJS.Timeout | null>(null);
+  const inFlightSupervisorRunsRef = useRef<Map<string, { runId: string | null; crid: string }>>(new Map());
 
   // Progress stack for chat status events (Part 2 implementation)
   type ProgressStage = 'ack' | 'classifying' | 'planning' | 'executing' | 'finalising' | 'completed' | 'failed';
@@ -224,6 +225,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
   }, [user.id, user.email, queryClient]);
 
   // Poll for delivery_summary when waiting for Supervisor completion
+  // Iterates over ALL in-flight runs so back-to-back requests each get their results
   useEffect(() => {
     if (!isWaitingForSupervisor) {
       if (supervisorPollRef.current) {
@@ -233,80 +235,101 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
       return;
     }
 
-    console.log('[Chat] Polling activated — isWaitingForSupervisor=true, runId=', supervisorRunIdRef.current, 'crid=', supervisorClientRequestIdRef.current);
+    const runsMap = inFlightSupervisorRunsRef.current;
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[Chat] Polling activated — isWaitingForSupervisor=true, inFlightRuns:', Array.from(runsMap.keys()));
+    }
 
-    const pollForDeliverySummary = async () => {
-      const runId = supervisorRunIdRef.current;
-      const crid = supervisorClientRequestIdRef.current;
-      if (!runId && !crid) {
-        console.warn('[Chat] Poll skipped — no runId or clientRequestId available');
-        return;
-      }
-
-      try {
-        const params = new URLSearchParams();
-        if (runId) params.set('runId', runId);
-        if (crid) params.set('client_request_id', crid);
-        const url = buildApiUrl(addDevAuthParams(`/api/afr/artefacts?${params.toString()}`));
-        console.log('[Chat] Polling artefacts:', url);
-
-        const res = await fetch(url, { credentials: 'include' });
-        if (!res.ok) {
-          console.warn('[Chat] Poll response not ok:', res.status);
+    const pollForAllRuns = async () => {
+      const entries = Array.from(runsMap.entries());
+      if (entries.length === 0) {
+        const fallbackRunId = supervisorRunIdRef.current;
+        const fallbackCrid = supervisorClientRequestIdRef.current;
+        if (fallbackRunId || fallbackCrid) {
+          entries.push([fallbackCrid || fallbackRunId || 'fallback', { runId: fallbackRunId, crid: fallbackCrid || '' }]);
+        } else {
           return;
         }
-        const rows = await res.json();
-        console.log('[Chat] Poll returned', Array.isArray(rows) ? rows.length : 0, 'artefacts, types:', Array.isArray(rows) ? rows.map((r: any) => r.type) : []);
-        const dsRow = Array.isArray(rows) ? rows.find((r: any) => r.type === 'delivery_summary') : null;
-        if (!dsRow) return;
+      }
 
-        let parsed = dsRow.payload_json;
-        if (typeof parsed === 'string') {
-          try { parsed = JSON.parse(parsed); } catch { return; }
+      for (const [key, run] of entries) {
+        const { runId, crid } = run;
+        if (!runId && !crid) continue;
+
+        try {
+          const params = new URLSearchParams();
+          if (runId) params.set('runId', runId);
+          if (crid) params.set('client_request_id', crid);
+          const url = buildApiUrl(addDevAuthParams(`/api/afr/artefacts?${params.toString()}`));
+
+          const res = await fetch(url, { credentials: 'include' });
+          if (!res.ok) continue;
+          const rows = await res.json();
+          const dsRow = Array.isArray(rows) ? rows.find((r: any) => r.type === 'delivery_summary') : null;
+          if (!dsRow) continue;
+
+          let parsed = dsRow.payload_json;
+          if (typeof parsed === 'string') {
+            try { parsed = JSON.parse(parsed); } catch { continue; }
+          }
+          if (!parsed || typeof parsed !== 'object') continue;
+
+          const effectiveId = runId || crid;
+          if (process.env.NODE_ENV === 'development') {
+            console.log(`[Chat] delivery_summary found for run: ${effectiveId}`);
+          }
+
+          const resultMessage: Message = {
+            id: `ds-${effectiveId}`,
+            role: 'assistant',
+            content: '',
+            timestamp: new Date(),
+            source: 'supervisor',
+            deliverySummary: parsed as DeliverySummary,
+            runId: runId || undefined,
+          };
+          setMessages((prev) => {
+            const existingIdx = prev.findIndex(m => m.id === resultMessage.id);
+            if (existingIdx >= 0) {
+              const updated = [...prev];
+              updated[existingIdx] = resultMessage;
+              return updated;
+            }
+            return [...prev, resultMessage];
+          });
+
+          runsMap.delete(key);
+
+          if (runsMap.size === 0) {
+            setIsWaitingForSupervisor(false);
+            setSupervisorTaskId(null);
+            supervisorRunIdRef.current = null;
+            supervisorClientRequestIdRef.current = null;
+            if (supervisorTimeoutRef.current) {
+              clearTimeout(supervisorTimeoutRef.current);
+              supervisorTimeoutRef.current = null;
+            }
+            if (supervisorPollRef.current) {
+              clearInterval(supervisorPollRef.current);
+              supervisorPollRef.current = null;
+            }
+          }
+
+          toast({
+            title: "Results ready",
+            description: "Your results are now available in the chat.",
+          });
+        } catch (err) {
+          if (process.env.NODE_ENV === 'development') {
+            console.warn(`[Chat] Poll for run ${key} failed:`, err);
+          }
         }
-        if (!parsed || typeof parsed !== 'object') return;
-
-        console.log('[Chat] delivery_summary found for run:', runId || crid);
-
-        const resultMessage: Message = {
-          id: `ds-${runId || crid}`,
-          role: 'assistant',
-          content: '',
-          timestamp: new Date(),
-          source: 'supervisor',
-          deliverySummary: parsed as DeliverySummary,
-          runId: runId || undefined,
-        };
-        setMessages((prev) => {
-          if (prev.some(m => m.id === resultMessage.id)) return prev;
-          return [...prev, resultMessage];
-        });
-
-        setIsWaitingForSupervisor(false);
-        setSupervisorTaskId(null);
-        supervisorRunIdRef.current = null;
-        supervisorClientRequestIdRef.current = null;
-        if (supervisorTimeoutRef.current) {
-          clearTimeout(supervisorTimeoutRef.current);
-          supervisorTimeoutRef.current = null;
-        }
-        if (supervisorPollRef.current) {
-          clearInterval(supervisorPollRef.current);
-          supervisorPollRef.current = null;
-        }
-
-        toast({
-          title: "Results ready",
-          description: "Your results are now available in the chat.",
-        });
-      } catch (err) {
-        console.warn('[Chat] Poll for delivery_summary failed:', err);
       }
     };
 
     const initialDelay = setTimeout(() => {
-      pollForDeliverySummary();
-      supervisorPollRef.current = setInterval(pollForDeliverySummary, 5000);
+      pollForAllRuns();
+      supervisorPollRef.current = setInterval(pollForAllRuns, 5000);
     }, 3000);
 
     return () => {
@@ -405,7 +428,12 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                   runId: effectiveRunId,
                 };
                 setMessages((prev) => {
-                  if (prev.some(m => m.id === resultMessage.id)) return prev;
+                  const existingIdx = prev.findIndex(m => m.id === resultMessage.id);
+                  if (existingIdx >= 0) {
+                    const updated = [...prev];
+                    updated[existingIdx] = resultMessage;
+                    return updated;
+                  }
                   return [...prev, resultMessage];
                 });
                 return true;
@@ -429,12 +457,26 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         }
       }
 
-      setIsWaitingForSupervisor(false);
-      supervisorRunIdRef.current = null;
-      supervisorClientRequestIdRef.current = null;
-      if (supervisorPollRef.current) {
-        clearInterval(supervisorPollRef.current);
-        supervisorPollRef.current = null;
+      const completedRunKey = msgRunId || supervisorRunIdRef.current || supervisorClientRequestIdRef.current;
+      if (completedRunKey) {
+        const runsMap = inFlightSupervisorRunsRef.current;
+        const mapEntries = Array.from(runsMap.entries());
+        for (const [key, run] of mapEntries) {
+          if (run.runId === completedRunKey || run.crid === completedRunKey || key === completedRunKey) {
+            runsMap.delete(key);
+            break;
+          }
+        }
+      }
+
+      if (inFlightSupervisorRunsRef.current.size === 0) {
+        setIsWaitingForSupervisor(false);
+        supervisorRunIdRef.current = null;
+        supervisorClientRequestIdRef.current = null;
+        if (supervisorPollRef.current) {
+          clearInterval(supervisorPollRef.current);
+          supervisorPollRef.current = null;
+        }
       }
 
       toast({
@@ -900,6 +942,10 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
               // Handle Supervisor task creation
               if (parsed.supervisorTaskId) {
                 console.log('🤖 Supervisor task created:', parsed.supervisorTaskId, 'runId=', supervisorRunIdRef.current, 'crid=', clientRequestId);
+                inFlightSupervisorRunsRef.current.set(clientRequestId, {
+                  runId: supervisorRunIdRef.current,
+                  crid: clientRequestId,
+                });
                 setSupervisorTaskId(parsed.supervisorTaskId);
                 supervisorClientRequestIdRef.current = clientRequestId;
                 setIsWaitingForSupervisor(true);
@@ -910,8 +956,11 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                 }
                 supervisorTimeoutRef.current = setTimeout(() => {
                   console.warn('⏱️ Supervisor response timeout - clearing waiting state');
+                  inFlightSupervisorRunsRef.current.clear();
                   setIsWaitingForSupervisor(false);
                   setSupervisorTaskId(null);
+                  supervisorRunIdRef.current = null;
+                  supervisorClientRequestIdRef.current = null;
                   toast({
                     title: "Timeout",
                     description: "Supervisor is taking longer than expected. The results will appear when ready.",
@@ -1449,13 +1498,17 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
 
     // Handle intent-based context management
     if (intent === 'NEW_REPLACE') {
-      // Clear old context, start fresh
       console.log('🔄 NEW_REPLACE: Clearing old context and starting fresh');
-      setMessages([userMessage]);  // Only keep new message
+      setMessages((prev) => {
+        const dsMessages = prev.filter(m => m.id.startsWith('ds-'));
+        return [userMessage, ...dsMessages];
+      });
     } else if (intent === 'NEW_UNRELATED') {
-      // Could implement multi-threading here, for now start fresh
       console.log('🆕 NEW_UNRELATED: Starting new thread');
-      setMessages([userMessage]);
+      setMessages((prev) => {
+        const dsMessages = prev.filter(m => m.id.startsWith('ds-'));
+        return [userMessage, ...dsMessages];
+      });
     } else {
       // CONTINUE or MODIFY: Keep existing context
       setMessages((prev) => [...prev, userMessage]);
