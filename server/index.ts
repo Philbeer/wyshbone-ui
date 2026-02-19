@@ -344,15 +344,6 @@ app.use((req, res, next) => {
       }
     }
     
-    if (supervisorConfigured) {
-      try {
-        const { startCompletionPoller } = await import('./lib/supervisor-completion-handler');
-        startCompletionPoller();
-        console.log('   ✅ Supervisor completion poller: started');
-      } catch (err: any) {
-        console.warn(`   ⚠️  Supervisor completion poller failed to start: ${err.message}`);
-      }
-    }
     console.log('='.repeat(80) + '\n');
     
     // Print region service documentation

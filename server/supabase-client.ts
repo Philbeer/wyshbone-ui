@@ -184,11 +184,6 @@ export function isSupabaseConfigured(): boolean {
   return supabase !== null;
 }
 
-export function getSupabaseClient() {
-  initializeSupabase();
-  return supabase;
-}
-
 // ============================================
 // Lead Persistence (for plan execution)
 // ============================================

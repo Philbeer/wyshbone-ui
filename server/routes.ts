@@ -61,7 +61,6 @@ import { agentActivitiesRouter } from "./routes/agent-activities";
 import { createAfrRouter } from "./routes/afr";
 import { createProofRouter } from "./routes/proof";
 import { createSupervisorRouter } from "./routes/supervisor";
-import { createCompletionWebhookRouter } from "./lib/supervisor-completion-handler";
 import { hashPassword, verifyPassword, generateId, canCreateMonitor, canCreateDeepResearch, TIER_LIMITS } from "./auth";
 import { signupRequestSchema, loginRequestSchema, updateProfileRequestSchema } from "@shared/schema";
 import { buildSessionContext, generatePersonalizedOpening, type SessionContext } from "./lib/context";
@@ -4217,10 +4216,8 @@ ${run.outputText}`;
 
   // Register Supervisor routes - Tower judgement request
   app.use("/api/supervisor", createSupervisorRouter());
-  app.use("/api/supervisor", createCompletionWebhookRouter());
   console.log('✅ Supervisor routes mounted at /api/supervisor');
   console.log(`[ROUTES] Supervisor execution enabled: ${process.env.SUPERVISOR_EXECUTION_ENABLED === 'true'}`);
-  console.log('✅ Supervisor completion webhook mounted at /api/supervisor/supervisor-completed');
 
   // Register Route Planner routes
   app.use("/api", routePlannerRoutes);
