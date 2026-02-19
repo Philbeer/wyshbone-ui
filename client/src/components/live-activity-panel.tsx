@@ -12,7 +12,7 @@ import {
 import { 
   RefreshCw, Clock, CheckCircle2, XCircle, Loader2, AlertTriangle, 
   MessageSquare, Route, FileSearch, Wrench, ListChecks, Play, ChevronDown, ChevronUp,
-  Zap, Brain, Send, Sparkles, Eye, Package, GitBranch
+  Zap, Brain, Send, Sparkles, Eye, Package, GitBranch, Globe
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUser } from "@/contexts/UserContext";
@@ -881,6 +881,348 @@ function DeliverySummaryView({ payload }: { payload: any }) {
   );
 }
 
+function WebSearchResultsView({ payload }: { payload: any }) {
+  const parsed = parsePayload(payload);
+  const results: any[] = Array.isArray(parsed)
+    ? parsed
+    : Array.isArray(parsed?.results)
+      ? parsed.results
+      : Array.isArray(parsed?.items)
+        ? parsed.items
+        : [];
+
+  if (results.length === 0) {
+    return <p className="text-sm text-muted-foreground py-4 text-center">Not available</p>;
+  }
+
+  return (
+    <div className="space-y-2 max-h-96 overflow-y-auto">
+      {results.map((r, i) => (
+        <div key={i} className="rounded border p-2.5 space-y-1">
+          <div className="flex items-start gap-2">
+            <Globe className="h-3.5 w-3.5 text-blue-500 mt-0.5 shrink-0" />
+            <div className="min-w-0 flex-1">
+              {(r.url || r.link) ? (
+                <a
+                  href={r.url || r.link}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs font-medium text-blue-600 dark:text-blue-400 hover:underline leading-tight block"
+                >
+                  {r.title || r.url || r.link}
+                </a>
+              ) : (
+                <p className="text-xs font-medium text-foreground leading-tight">{r.title || 'Untitled'}</p>
+              )}
+              {r.snippet && (
+                <p className="text-[11px] text-muted-foreground leading-relaxed mt-0.5">{r.snippet}</p>
+              )}
+              {r.description && !r.snippet && (
+                <p className="text-[11px] text-muted-foreground leading-relaxed mt-0.5">{r.description}</p>
+              )}
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function WebVisitPageCard({ page }: { page: any }) {
+  const [expanded, setExpanded] = useState(false);
+  const content = page.content || page.text || page.body || page.extracted_text || '';
+  const hasContent = content.length > 0;
+
+  return (
+    <div className="rounded border overflow-hidden">
+      <div className="flex items-center gap-2 p-2.5 bg-muted/30">
+        <FileSearch className="h-3.5 w-3.5 text-indigo-500 shrink-0" />
+        <div className="min-w-0 flex-1">
+          {(page.url || page.link) ? (
+            <a
+              href={page.url || page.link}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs font-medium text-blue-600 dark:text-blue-400 hover:underline truncate block"
+            >
+              {page.title || (page.url || page.link || '').replace(/^https?:\/\/(www\.)?/, '').slice(0, 60)}
+            </a>
+          ) : (
+            <p className="text-xs font-medium text-foreground">{page.title || 'Page visit'}</p>
+          )}
+          {page.status_code && (
+            <span className={cn(
+              "inline-block text-[10px] font-mono px-1 rounded mt-0.5",
+              page.status_code >= 200 && page.status_code < 300
+                ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300"
+                : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300"
+            )}>
+              {page.status_code}
+            </span>
+          )}
+        </div>
+        {hasContent && (
+          <button
+            onClick={() => setExpanded(!expanded)}
+            className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-0.5"
+          >
+            {expanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+          </button>
+        )}
+      </div>
+      {expanded && hasContent && (
+        <div className="border-t p-2.5">
+          <pre className="text-[11px] text-muted-foreground whitespace-pre-wrap max-h-48 overflow-y-auto font-mono leading-relaxed">
+            {content.slice(0, 3000)}{content.length > 3000 ? '\n\n… truncated' : ''}
+          </pre>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function WebVisitPagesView({ payload }: { payload: any }) {
+  const parsed = parsePayload(payload);
+  const pages: any[] = Array.isArray(parsed)
+    ? parsed
+    : Array.isArray(parsed?.pages)
+      ? parsed.pages
+      : Array.isArray(parsed?.visits)
+        ? parsed.visits
+        : parsed?.url ? [parsed] : [];
+
+  if (pages.length === 0) {
+    return <p className="text-sm text-muted-foreground py-4 text-center">Not available</p>;
+  }
+
+  return (
+    <div className="space-y-2 max-h-96 overflow-y-auto">
+      {pages.map((page, i) => <WebVisitPageCard key={i} page={page} />)}
+    </div>
+  );
+}
+
+function ContactExtractView({ payload }: { payload: any }) {
+  const parsed = parsePayload(payload);
+  const contacts: any[] = Array.isArray(parsed)
+    ? parsed
+    : Array.isArray(parsed?.contacts)
+      ? parsed.contacts
+      : Array.isArray(parsed?.results)
+        ? parsed.results
+        : parsed?.email || parsed?.name ? [parsed] : [];
+
+  if (contacts.length === 0) {
+    return <p className="text-sm text-muted-foreground py-4 text-center">Not available</p>;
+  }
+
+  return (
+    <div className="overflow-x-auto rounded border max-h-96 overflow-y-auto">
+      <table className="w-full text-xs">
+        <thead className="bg-muted/60 sticky top-0">
+          <tr>
+            <th className="text-left px-2 py-1.5 font-medium">Name</th>
+            <th className="text-left px-2 py-1.5 font-medium">Email</th>
+            <th className="text-left px-2 py-1.5 font-medium">Role</th>
+            <th className="text-left px-2 py-1.5 font-medium">Source</th>
+            <th className="text-left px-2 py-1.5 font-medium">Confidence</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y">
+          {contacts.map((c, i) => (
+            <tr key={i} className="hover:bg-muted/20">
+              <td className="px-2 py-1.5 font-medium">{c.name || c.full_name || c.first_name ? `${c.first_name || ''} ${c.last_name || ''}`.trim() : '-'}</td>
+              <td className="px-2 py-1.5 text-muted-foreground font-mono text-[11px]">{c.email || c.email_address || '-'}</td>
+              <td className="px-2 py-1.5 text-muted-foreground">{c.role || c.title || c.position || '-'}</td>
+              <td className="px-2 py-1.5 text-muted-foreground">{c.source || c.provider || '-'}</td>
+              <td className="px-2 py-1.5 text-center">
+                {(c.confidence != null || c.score != null) ? (
+                  <span className={cn(
+                    "inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold",
+                    (c.confidence === 'high' || (c.score && c.score >= 0.8))
+                      ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300"
+                      : (c.confidence === 'low' || (c.score && c.score < 0.5))
+                        ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300"
+                        : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
+                  )}>
+                    {c.confidence || (c.score != null ? `${Math.round(c.score * 100)}%` : '-')}
+                  </span>
+                ) : '-'}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function LeadPackCard({ lead }: { lead: any }) {
+  const [expanded, setExpanded] = useState(false);
+  const name = lead.name || lead.business_name || lead.title || 'Unknown';
+  const loc = lead.location || lead.address || lead.city || lead.postcode || null;
+  const contacts: any[] = Array.isArray(lead.contacts) ? lead.contacts : [];
+  const notes = lead.notes || lead.summary || lead.research_summary || null;
+  const hasDetail = contacts.length > 0 || notes || lead.website || lead.phone;
+
+  return (
+    <div className="rounded border overflow-hidden">
+      <button
+        onClick={() => hasDetail && setExpanded(!expanded)}
+        className={cn(
+          "w-full flex items-center gap-2 p-2.5 text-left",
+          hasDetail ? "hover:bg-muted/20 cursor-pointer" : "cursor-default"
+        )}
+      >
+        <Package className="h-3.5 w-3.5 text-primary shrink-0" />
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-medium text-foreground">{name}</p>
+          {loc && <p className="text-[11px] text-muted-foreground">{loc}</p>}
+        </div>
+        {lead.score != null && (
+          <span className="inline-block bg-primary/10 text-primary rounded px-1.5 py-0.5 font-mono text-[10px] shrink-0">
+            {lead.score}
+          </span>
+        )}
+        {hasDetail && (
+          expanded ? <ChevronUp className="h-3 w-3 text-muted-foreground shrink-0" /> : <ChevronDown className="h-3 w-3 text-muted-foreground shrink-0" />
+        )}
+      </button>
+      {expanded && (
+        <div className="border-t p-2.5 space-y-2 bg-muted/10">
+          {(lead.phone || lead.phone_number) && (
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <span className="font-medium">Phone:</span>
+              <span className="font-mono">{lead.phone || lead.phone_number}</span>
+            </div>
+          )}
+          {(lead.website || lead.url) && (
+            <div className="flex items-center gap-1.5 text-xs">
+              <span className="font-medium text-muted-foreground">Website:</span>
+              <a href={lead.website || lead.url} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline truncate">
+                {(lead.website || lead.url || '').replace(/^https?:\/\/(www\.)?/, '').slice(0, 50)}
+              </a>
+            </div>
+          )}
+          {lead.email && (
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <span className="font-medium">Email:</span>
+              <span className="font-mono text-[11px]">{lead.email}</span>
+            </div>
+          )}
+          {contacts.length > 0 && (
+            <div>
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium mb-1">Contacts ({contacts.length})</p>
+              <div className="rounded border divide-y">
+                {contacts.map((c: any, ci: number) => (
+                  <div key={ci} className="px-2 py-1.5 text-xs flex items-center gap-3">
+                    <span className="font-medium">{c.name || c.full_name || '-'}</span>
+                    {c.email && <span className="font-mono text-[11px] text-muted-foreground">{c.email}</span>}
+                    {(c.role || c.title) && <span className="text-muted-foreground">{c.role || c.title}</span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {notes && (
+            <div>
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium mb-1">Notes</p>
+              <p className="text-[11px] text-muted-foreground leading-relaxed">{notes}</p>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LeadPackView({ payload }: { payload: any }) {
+  const parsed = parsePayload(payload);
+  const leads: any[] = Array.isArray(parsed)
+    ? parsed
+    : Array.isArray(parsed?.leads)
+      ? parsed.leads
+      : Array.isArray(parsed?.pack)
+        ? parsed.pack
+        : parsed?.name || parsed?.business_name ? [parsed] : [];
+
+  if (leads.length === 0) {
+    return <p className="text-sm text-muted-foreground py-4 text-center">Not available</p>;
+  }
+
+  return (
+    <div className="space-y-2 max-h-96 overflow-y-auto">
+      {leads.map((lead, i) => <LeadPackCard key={i} lead={lead} />)}
+    </div>
+  );
+}
+
+function AskLeadQuestionResultView({ payload }: { payload: any }) {
+  const parsed = parsePayload(payload);
+
+  const question = parsed?.question || parsed?.query || null;
+  const answer = parsed?.answer || parsed?.result || parsed?.response || null;
+  const leadName = parsed?.lead_name || parsed?.business_name || parsed?.name || null;
+  const sources: any[] = Array.isArray(parsed?.sources) ? parsed.sources : [];
+  const confidence = parsed?.confidence || parsed?.score || null;
+
+  if (!answer && !question) {
+    return <p className="text-sm text-muted-foreground py-4 text-center">Not available</p>;
+  }
+
+  return (
+    <div className="space-y-3">
+      {leadName && (
+        <div className="flex items-center gap-2">
+          <Package className="h-3.5 w-3.5 text-primary shrink-0" />
+          <span className="text-xs font-semibold text-foreground">{leadName}</span>
+          {confidence && (
+            <span className={cn(
+              "inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold",
+              confidence === 'high' ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300"
+                : confidence === 'low' ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300"
+                : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
+            )}>
+              {typeof confidence === 'number' ? `${Math.round(confidence * 100)}%` : confidence}
+            </span>
+          )}
+        </div>
+      )}
+      {question && (
+        <div className="rounded-lg border border-blue-200 dark:border-blue-800/50 bg-blue-50/50 dark:bg-blue-900/10 p-2.5">
+          <p className="text-[10px] uppercase tracking-wide text-blue-600 dark:text-blue-400 font-medium mb-1">Question</p>
+          <p className="text-xs text-foreground/90 leading-relaxed">{question}</p>
+        </div>
+      )}
+      {answer && (
+        <div className="rounded-lg border bg-muted/20 p-2.5">
+          <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium mb-1">Answer</p>
+          <p className="text-xs text-foreground leading-relaxed whitespace-pre-wrap">{answer}</p>
+        </div>
+      )}
+      {sources.length > 0 && (
+        <div>
+          <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium mb-1">Sources ({sources.length})</p>
+          <div className="space-y-1">
+            {sources.map((s, i) => (
+              <div key={i} className="flex items-start gap-1.5 text-[11px]">
+                <Globe className="h-3 w-3 text-blue-500 mt-0.5 shrink-0" />
+                {(s.url || s.link) ? (
+                  <a href={s.url || s.link} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline truncate">
+                    {s.title || (s.url || s.link || '').replace(/^https?:\/\/(www\.)?/, '').slice(0, 60)}
+                  </a>
+                ) : (
+                  <span className="text-muted-foreground">{s.title || s.text || JSON.stringify(s)}</span>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ArtefactRenderer({ artefact }: { artefact: Artefact }) {
   switch (artefact.type) {
     case 'leads_list':
@@ -917,6 +1259,16 @@ function ArtefactRenderer({ artefact }: { artefact: Artefact }) {
       return <VerificationEvidenceView payload={artefact.payload_json} />;
     case 'lead_verification':
       return <LeadVerificationView payload={artefact.payload_json} />;
+    case 'web_search_results':
+      return <WebSearchResultsView payload={artefact.payload_json} />;
+    case 'web_visit_pages':
+      return <WebVisitPagesView payload={artefact.payload_json} />;
+    case 'contact_extract':
+      return <ContactExtractView payload={artefact.payload_json} />;
+    case 'lead_pack':
+      return <LeadPackView payload={artefact.payload_json} />;
+    case 'ask_lead_question_result':
+      return <AskLeadQuestionResultView payload={artefact.payload_json} />;
     default:
       return (
         <pre className="text-xs bg-muted/50 rounded p-3 overflow-x-auto max-h-96 whitespace-pre-wrap font-mono">
@@ -948,6 +1300,11 @@ const ARTEFACT_LABELS: Record<string, { label: string; icon: string }> = {
   verification_summary: { label: 'Verification', icon: '✅' },
   verification_evidence: { label: 'Evidence', icon: '📎' },
   lead_verification: { label: 'Lead Checks', icon: '🔎' },
+  web_search_results: { label: 'Web Search', icon: '🌐' },
+  web_visit_pages: { label: 'Page Visits', icon: '📄' },
+  contact_extract: { label: 'Contacts', icon: '👤' },
+  lead_pack: { label: 'Lead Pack', icon: '📦' },
+  ask_lead_question_result: { label: 'Lead Q&A', icon: '❓' },
 };
 
 interface TowerEvidenceEvent {
@@ -1110,7 +1467,7 @@ function ResultsModal({ clientRequestId, runId, open, onOpenChange }: { clientRe
 
         const hasFactory = rows.some(r => FACTORY_TYPES.has(r.type));
         const byType = new Map<string, Artefact>();
-        const typeOrder = ['run_configuration', 'plan', 'constraints_extracted', 'constraint_capability_check', 'run_summary', 'plan_update', 'tower_judgement', 'verification_summary', 'verification_evidence', 'lead_verification', 'deep_research_result', 'leads_list', 'delivery_summary', 'factory_timeline', 'email_drafts', 'plan_result', 'chat_response'];
+        const typeOrder = ['run_configuration', 'plan', 'constraints_extracted', 'constraint_capability_check', 'run_summary', 'plan_update', 'tower_judgement', 'verification_summary', 'verification_evidence', 'lead_verification', 'web_search_results', 'web_visit_pages', 'contact_extract', 'deep_research_result', 'leads_list', 'lead_pack', 'ask_lead_question_result', 'delivery_summary', 'factory_timeline', 'email_drafts', 'plan_result', 'chat_response'];
 
         for (const row of rows) {
           if (FACTORY_TYPES.has(row.type)) continue;
