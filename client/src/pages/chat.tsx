@@ -38,6 +38,7 @@ type Message = ChatMessage & {
   source?: 'user' | 'assistant' | 'supervisor';
   deliverySummary?: DeliverySummary | null;
   runId?: string | null;
+  hidden?: boolean;
 };
 
 type SystemMessage = {
@@ -84,6 +85,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
   });
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const deliverySummaryRunIdsRef = useRef<Set<string>>(new Set());
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const hasLoadedHistoryRef = useRef(false);
@@ -282,6 +284,8 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
             console.log(`[Chat] delivery_summary found for run: ${effectiveId}`);
           }
 
+          if (effectiveId) deliverySummaryRunIdsRef.current.add(effectiveId);
+
           const resultMessage: Message = {
             id: `ds-${effectiveId}`,
             role: 'assistant',
@@ -355,21 +359,49 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
 
       const msgRunId = supervisorMessage.metadata?.run_id || supervisorMessage.metadata?.runId || null;
 
-      const displayMessage: Message = {
-        id: supervisorMessage.id,
-        role: 'assistant',
-        content: supervisorMessage.content,
-        timestamp: new Date(supervisorMessage.created_at),
-        source: 'supervisor',
-        runId: msgRunId,
-      };
-      
-      setMessages((prev) => {
-        if (prev.some(m => m.id === displayMessage.id)) {
-          return prev;
-        }
-        return [...prev, displayMessage];
-      });
+      const effectiveRunKey = msgRunId || supervisorRunIdRef.current || supervisorClientRequestIdRef.current;
+
+      const runIsInFlight = effectiveRunKey
+        ? Array.from(inFlightSupervisorRunsRef.current.values()).some(
+            r => r.runId === effectiveRunKey || r.crid === effectiveRunKey
+          )
+        : false;
+      const hasDeliverySummary = effectiveRunKey
+        ? deliverySummaryRunIdsRef.current.has(effectiveRunKey)
+        : false;
+
+      if (runIsInFlight || hasDeliverySummary) {
+        console.log(`🛡️ Supervisor bubble suppressed (inFlight=${runIsInFlight}, hasDS=${hasDeliverySummary}, runKey=${effectiveRunKey}): "${supervisorMessage.content.slice(0, 80)}…"`);
+        setMessages((prev) => {
+          if (prev.some(m => m.id === `debug-${supervisorMessage.id}`)) return prev;
+          const debugNote: Message = {
+            id: `debug-${supervisorMessage.id}`,
+            role: 'assistant',
+            content: supervisorMessage.content,
+            timestamp: new Date(supervisorMessage.created_at),
+            source: 'supervisor',
+            runId: msgRunId,
+            hidden: true,
+          };
+          return [...prev, debugNote];
+        });
+      } else {
+        const displayMessage: Message = {
+          id: supervisorMessage.id,
+          role: 'assistant',
+          content: supervisorMessage.content,
+          timestamp: new Date(supervisorMessage.created_at),
+          source: 'supervisor',
+          runId: msgRunId,
+        };
+
+        setMessages((prev) => {
+          if (prev.some(m => m.id === displayMessage.id)) {
+            return prev;
+          }
+          return [...prev, displayMessage];
+        });
+      }
 
       publishEvent("CHAT_MESSAGE_RECEIVED", {
         conversationId: supervisorMessage.conversation_id,
@@ -421,6 +453,9 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
               if (parsed && typeof parsed === 'object') {
                 const effectiveRunId = msgRunId || supervisorRunIdRef.current || lookupId;
                 console.log('[Chat] delivery_summary found via realtime callback for run:', effectiveRunId);
+
+                if (effectiveRunId) deliverySummaryRunIdsRef.current.add(effectiveRunId);
+
                 const resultMessage: Message = {
                   id: `ds-${effectiveRunId}`,
                   role: 'assistant',
@@ -578,6 +613,15 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
             timestamp: new Date(msg.createdAt),
           }));
           if (historicalMessages.length > 0) {
+            historicalMessages.forEach((m) => {
+              if (m.id?.startsWith('ds-')) {
+                const runKey = m.id.slice(3);
+                if (runKey) deliverySummaryRunIdsRef.current.add(runKey);
+              }
+              if (m.deliverySummary && m.runId) {
+                deliverySummaryRunIdsRef.current.add(m.runId);
+              }
+            });
             setMessages(historicalMessages);
             console.log(`📜 Loaded ${historicalMessages.length} messages from conversation ${storedConversationId}`);
           }
@@ -1466,11 +1510,11 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
           ) : (
             messages
               .filter((message) => {
-                // Filter out empty messages (they'll be shown as thinking dots instead)
                 if ("type" in message && message.type === "system") {
-                  return true; // Always show system messages
+                  return true;
                 }
                 const chatMessage = message as Message;
+                if (chatMessage.hidden) return false;
                 if ((chatMessage as any).deliverySummary) return true;
                 return chatMessage.content.trim().length > 0;
               })

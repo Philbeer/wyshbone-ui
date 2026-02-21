@@ -11,13 +11,11 @@ CRITICAL DATABASE RULE: ALL database connections MUST use `SUPABASE_DATABASE_URL
 ## System Architecture
 The application features a Node.js/Express backend and a React frontend, built with TypeScript, Tailwind CSS, and shadcn/ui, with TanStack Query managing API state. Core AI interactions utilize OpenAI's GPT models. The system supports multi-tenant user isolation with session-based authentication and robust data security.
 
-**2-Lane Chat Architecture (Feb 2026 refactor):**
+**2-Lane Chat Architecture:**
 - **CHAT Lane:** GPT-5 streaming with tool calling for conversational responses. All messages POST to `/api/chat`.
-- **RUN Lane:** Supervisor delegation for lead-finding, deep research, and batch tasks. Creates `supervisor_tasks` row and returns immediately.
-- **Routing:** `server/lib/decideChatMode.ts` uses keyword matching to fork CHAT vs RUN. `detectSupervisorIntent()` gates actual task enqueue — if intent doesn't require supervisor, falls through to CHAT lane.
-- **Client-side:** No pre-routing interception. UI always POSTs to `/api/chat`; server decides the lane. Client `classifyIntent()` remains for UX/history handling only (NEW_REPLACE/CONTINUE/MODIFY/NEW_UNRELATED).
-- **MEGA Mode:** REMOVED (Feb 2026 tech debt cleanup). The UI toggle has been removed; `chatMode` is hard-wired to `"standard"`. The server-side `/api/agent/chat` endpoint and `agent-kernel.ts` still exist but are unreachable from the UI. `AgentChatPanel` is deprecated and hidden behind `window.WYSHBONE_DEV_LANE` flag (default off).
-- **Dev Lane Indicator:** When `VITE_DEV_LANE=1` (or `window.WYSHBONE_DEV_LANE = true` in console), the chat input area shows a badge: "RUN (Supervisor)" when SSE includes `supervisorTaskId`, or "CHAT (Direct)" when content chunks stream without it. Production UI stays clean.
+- **RUN Lane:** Supervisor delegation for lead-finding, deep research, and batch tasks.
+- **Routing:** `server/lib/decideChatMode.ts` uses keyword matching to fork CHAT vs RUN. `detectSupervisorIntent()` gates actual task enqueue.
+- **Client-side:** UI always POSTs to `/api/chat`; server decides the lane.
 - **Shared Infrastructure:** Both lanes use a unified execution layer and PostgreSQL for conversation history.
 
 **UI/UX Decisions:**
@@ -33,13 +31,13 @@ The user interface adheres to Material Design principles, featuring a dark mode,
 - **Deep Research Context Extraction & Auto-Summarize:** Server-side prompt enhancement extracts and validates topics, and GPT-4o automatically summarizes research reports.
 - **Persistent Memory System:** Database-backed conversation history and knowledge accumulation.
 - **Scheduled Monitors:** Agentic monitoring system for recurring tasks with flexible scheduling, email notifications, and "Smart Summary Mode."
-- **Xero OAuth Integration:** Direct OAuth 2.0 integration for secure Xero accounting connections with server-side state binding.
+- **Xero OAuth Integration:** Direct OAuth 2.0 integration for secure Xero accounting connections.
 - **Batch Contact Discovery Pipeline:** Cost-optimized contact finding using multiple external services.
 - **Stripe Subscription System:** Freemium model with paid tiers, managing user subscriptions and usage limits.
-- **Agent Flight Recorder (AFR) & Live Activity Panel:** User-facing system showing real-time decision paths and execution progress via correlation IDs, idempotent run creation, transparent router decision logging, and a unified timeline of events. Includes run lifecycle management with `agent_runs` database table for authoritative status tracking and user attribution for security. The "View results" button on completed/stopped/awaiting runs opens a ResultsModal that fetches artefacts from the `artefacts` table. Supports tabbed display of multiple artefact types (leads_list, tower_judgement, run_summary, plan_update, deep_research_result, chat_response, email_drafts, plan_result, delivery_summary). The `delivery_summary` artefact renders exact matches, closest matches, shortfall banner, and suggested next question — all from payload data only, with no UI-side inference or computation. Tower-aware status derivation: for lead-finding runs (SEARCH_PLACES, BATCH_CONTACT_FINDER), "Completed" only appears when Tower verdict is ACCEPT; otherwise shows "Awaiting judgement" with a warning banner. ResultsModal header shows Tower verdict badge, Plan version indicator, and target vs delivered counts with percentage. Artefacts are persisted on plan completion.
-- **User Results View (`UserResultsView`):** Standalone, user-facing component (`client/src/components/results/UserResultsView.tsx`) that renders run outcomes from a single `delivery_summary` object. Uses canonical delivery status (PASS/PARTIAL/STOP) from `delivery_summary.status` — NEVER computes success from raw lead counts. If status is missing, shows "Status unavailable" rather than inferring PASS. Status resolution logic lives in `client/src/utils/deliveryStatus.ts`. Shows status badge, delivered vs requested counts, exact/closest matches, stop reason (for STOP), CVL verification sections, and "What was learned" panel (from RunBundle.related_rule_updates). Includes user feedback buttons (Accept/Retry/Abandon/Export) that call `POST /api/feedback/{action}` endpoints via `client/src/api/feedbackClient.ts`. Reusable in chat, modal, or page context.
-- **What Was Learned Panel (`WhatWasLearnedPanel`):** Component (`client/src/components/results/WhatWasLearnedPanel.tsx`) displaying insights from `RuleUpdate` data (rule_text, confidence, evidence_run_ids). Uses user-facing language — "What was learned" not "Rules" or "Beliefs". Shows up to 3 active insights per run.
-- **CVL V1 Artefact Renderers (Phase 1):** Five new artefact types rendered in LiveActivityPanel: `constraints_extracted` (shows constraint list with hard/soft badges), `constraint_capability_check` (capability assessment), `verification_summary` (verified vs requested counts, per-constraint status), `verification_evidence` (evidence snippets with source labels), `lead_verification` (per-lead constraint checks). All renderers in `client/src/components/results/CvlArtefactViews.tsx`. Evidence display is strict: shows "Not verified" explicitly when evidence is absent. The "requested count" display uses neutral "Target (system)" label when no CVL data exists, and "Requested" only when CVL `constraints_extracted.requested_count_user` is present. Stop-state action buttons (Verify via websites, Broaden radius, Relax constraint, Return best-effort list) appear for stop/change_plan verdicts with "Not wired yet" toast and chat prefill. Tower rationale is displayed when verdict is stop or change_plan.
+- **Agent Flight Recorder (AFR) & Live Activity Panel:** User-facing system showing real-time decision paths and execution progress via correlation IDs, idempotent run creation, transparent router decision logging, and a unified timeline of events. Includes run lifecycle management and artefact display (leads_list, tower_judgement, run_summary, plan_update, deep_research_result, chat_response, email_drafts, plan_result, delivery_summary).
+- **User Results View (`UserResultsView`):** Standalone component rendering run outcomes from a single `delivery_summary` object, displaying canonical delivery status (PASS/PARTIAL/STOP), counts, and feedback buttons.
+- **What Was Learned Panel (`WhatWasLearnedPanel`):** Component displaying insights from `RuleUpdate` data in user-facing language.
+- **CVL V1 Artefact Renderers:** Five new artefact types rendered in LiveActivityPanel: `constraints_extracted`, `constraint_capability_check`, `verification_summary`, `verification_evidence`, `lead_verification`.
 - **Tower Analytics Integration:** Comprehensive logging for all chat interactions using a unified runId system.
 - **Hacker News Discovery:** Feature for finding relevant Hacker News discussions, offering AI-powered draft reply generation and relevance scoring.
 - **Delivery Management System:** Mobile-first Driver UI with role-based access control.
@@ -50,27 +48,23 @@ The user interface adheres to Material Design principles, featuring a dark mode,
 - Uses Supabase PostgreSQL exclusively via `SUPABASE_DATABASE_URL`.
 - The server crashes if `SUPABASE_DATABASE_URL` is missing.
 - `runStartupMigrations()` handles schema drift.
-- Org-related tables use TEXT ids (UUIDs) and BIGINT timestamps.
 
-**Thin Client Architecture (Hard Rule — Feb 2026):**
-- **HARD RULE:** UI server must NEVER execute leadgen tools (Google Places, deep research, region jobs, batch contacts). The ONLY execution path is creating a `supervisor_tasks` row in Supabase.
-- **`assertNoExecutionInUI()` guardrail:** All legacy execution endpoints (`/api/search`, `/api/places/*`, `/api/prospects/*`, `/api/tool/bubble_run_batch`, `/api/debug/demo-plan-run`, `/api/plan/start`, `/api/plan/create-test`, `/api/deep-research` POST, `/api/tools/execute`) return 501 with explicit "UI execution path forbidden" error if hit.
-- **CHAT lane:** Pure GPT-5 streaming with no tools — no tool definitions, no tool-call processing, no artefact creation.
+**Thin Client Architecture:**
+- **HARD RULE:** UI server must NEVER execute leadgen tools. The ONLY execution path is creating a `supervisor_tasks` row in Supabase.
+- **`assertNoExecutionInUI()` guardrail:** All legacy execution endpoints return 501.
+- **CHAT lane:** Pure GPT-5 streaming with no tools.
 - **RUN lane:** Inserts `supervisor_tasks` row and returns immediately. Supervisor backend handles the full agent loop.
-- Background workers, cron jobs, and long-running execution are disabled by default.
-- Supervisor Client handles job delegation, status, and cancellation via `SUPERVISOR_BASE_URL`.
-- AFR events track job delegation.
 
-**Supervisor Completion & Delivery Pipeline (Feb 2026):**
+**Supervisor Completion & Delivery Pipeline:**
 - **Supervisor writes artefacts directly.** The UI server does NOT run a completion poller or evaluate Supervisor results. All `delivery_summary`, `verification_summary`, `tower_judgement`, and other artefacts are written by the Supervisor service itself.
-- **Removed (Feb 2026):** `server/lib/supervisor-completion-handler.ts`, `server/lib/delivery-evaluator.ts`, `server/lib/artefact-persister.ts` — these were redundant server-side completion handler/evaluator/persister systems. The webhook endpoint `POST /api/supervisor/supervisor-completed` and the background completion poller were also removed.
-- **Client-side polling** (`client/src/pages/chat.tsx`): When `isWaitingForSupervisor=true`, polls `/api/afr/artefacts` every 5s for `delivery_summary`. Also fetches on SSE `completed` event. Renders `UserResultsView` inline in chat with canonical status badge (PASS/PARTIAL/STOP), delivered/requested counts, lead cards, stop reason, and feedback buttons.
-- **Concurrent run tracking (Feb 2026):** `inFlightSupervisorRunsRef` is a `Map<string, {runId, crid}>` that tracks ALL in-flight supervisor runs. Polling iterates over all map entries so back-to-back RUN-lane requests each get their delivery_summary rendered independently. Completion of one run removes only that entry from the map; `isWaitingForSupervisor=false` only fires when the map is empty. ds-* delivery summary messages use upsert logic and are preserved during intent-based message clearing (NEW_REPLACE/NEW_UNRELATED). Timeout watchdog clears the entire map to prevent infinite polling.
-- **Canonical delivery status** (`client/src/utils/deliveryStatus.ts`): Resolves status from `delivery_summary.status` field. NEVER infers PASS from raw counts. Missing status → "Status unavailable".
+- **Client-side polling:** When `isWaitingForSupervisor=true`, polls `/api/afr/artefacts` for `delivery_summary`. Renders `UserResultsView` inline in chat.
+- **Concurrent run tracking:** `inFlightSupervisorRunsRef` tracks all in-flight supervisor runs to ensure independent rendering of delivery summaries.
+- **Canonical delivery status:** Resolves status from `delivery_summary.status` field, never infers PASS from raw counts.
+- **Supervisor Bubble Suppression Guard:** Prevents contradictory free-text chat bubbles from appearing alongside delivery_summary results by suppressing supervisor free-text bubbles when a delivery_summary is present or expected.
 
 **AFR Artefact Ingestion & Retrieval Contract:**
-- **POST `/api/afr/artefacts`**: Persists an artefact for a run, with required `runId` and `type`.
-- **GET `/api/afr/artefacts`**: Retrieves artefacts for a run, supporting lookup by `runId` or `client_request_id`.
+- **POST `/api/afr/artefacts`**: Persists an artefact.
+- **GET `/api/afr/artefacts`**: Retrieves artefacts.
 - **POST `/api/afr/run-bridge`**: Links a Supervisor run to the canonical UI `runId`.
 
 **Data Ownership & Persistence Guardrails:**
