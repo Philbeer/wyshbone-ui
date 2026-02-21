@@ -30,6 +30,7 @@ import { useResultsPanel } from "@/contexts/ResultsPanelContext";
 import { useCurrentRequest } from "@/contexts/CurrentRequestContext";
 import UserResultsView from "@/components/results/UserResultsView";
 import type { DeliverySummary } from "@/components/results/UserResultsView";
+import RunResultBubble from "@/components/results/RunResultBubble";
 import { resolveCanonicalStatus, STATUS_CONFIG } from "@/utils/deliveryStatus";
 
 type Message = ChatMessage & {
@@ -1770,10 +1771,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                     </div>
                     <div className="flex flex-col items-start max-w-3xl lg:max-w-none w-full">
                       <div className="rounded-lg px-4 py-4 bg-card border border-card-border w-full">
-                        <UserResultsView
-                          deliverySummary={chatMessage.deliverySummary}
-                          runId={chatMessage.runId}
-                        />
+                        <RunResultBubble deliverySummary={chatMessage.deliverySummary} />
                       </div>
                       <span className="text-xs text-muted-foreground mt-1">
                         {chatMessage.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}

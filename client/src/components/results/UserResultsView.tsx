@@ -8,7 +8,7 @@ import { acceptResult, retryGoal, abandonGoal, exportData } from "@/api/feedback
 import { WhatWasLearnedPanel } from "@/components/results/WhatWasLearnedPanel";
 import type { RuleUpdate } from "@/types/afr";
 
-interface DeliveryLead {
+export interface DeliveryLead {
   name?: string;
   location?: string;
   phone?: string;
@@ -201,6 +201,8 @@ export default function UserResultsView({
   const requestedCount = deliverySummary.requested_count ?? null;
   const deliveredCount = deliverySummary.delivered_count ?? null;
   const suggestedQuestion = deliverySummary.suggested_next_question ?? null;
+  const verifiedExactCount = deliverySummary.verified_exact_count ?? 0;
+  const hasVerifiedExact = verifiedExactCount > 0;
 
   const canonical = resolveCanonicalStatus({
     status: deliverySummary.status,
@@ -258,15 +260,29 @@ export default function UserResultsView({
         <p className="text-sm text-muted-foreground">No results to display.</p>
       )}
 
-      {exact.length > 0 && (
+      {exact.length > 0 && hasVerifiedExact && (
         <section className="space-y-2">
           <div>
-            <h3 className="text-sm font-semibold text-foreground">Exact matches</h3>
+            <h3 className="text-sm font-semibold text-foreground">Matches</h3>
             <p className="text-xs text-muted-foreground mt-0.5">These meet all your stated requirements.</p>
           </div>
           <div className="space-y-2">
             {exact.map((lead, i) => (
               <LeadCard key={i} lead={lead} />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {exact.length > 0 && !hasVerifiedExact && (
+        <section className="space-y-2">
+          <div>
+            <h3 className="text-sm font-semibold text-foreground">Candidates (not fully verified)</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">These were found but could not be fully verified against all requirements.</p>
+          </div>
+          <div className="space-y-2">
+            {exact.map((lead, i) => (
+              <LeadCard key={i} lead={lead} showViolations />
             ))}
           </div>
         </section>
