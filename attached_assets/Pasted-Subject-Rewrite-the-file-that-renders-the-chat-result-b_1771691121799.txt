@@ -1,0 +1,68 @@
+Subject
+
+Rewrite the file that renders the chat “result bubble” for Supervisor/Tower runs (the component that currently shows lines like “I found 0, but not enough to reach 30” and the “Exact matches” section).
+
+Goal:
+Make the chat bubble natural, truthful, and consistent with the Details popup by rendering from delivery_summary + verification_summary, and never inventing a requested count.
+
+Requirements:
+
+Determine requested count:
+
+If artefact constraints_extracted has requested_count_user = "any" (or null/undefined), treat as NO TARGET COUNT.
+
+Only show “X of Y” or “shortfall” language if the user explicitly requested a number.
+
+Never display a default like 30 when the user did not ask for a number.
+
+Determine what to show in the bubble:
+
+Use delivery_summary.status and verification_summary.verified_exact to drive the headline.
+
+If verified_exact > 0:
+Headline: “I found {verified_exact} result(s) that match.”
+List the verified leads with name + address (and website/phone if present).
+
+If verified_exact == 0 but leads_list has candidates:
+Headline: “I found {candidate_count} possible result(s), but I could not confirm {reason}.”
+Section title must be “Candidates (not confirmed)” (never “Exact matches”).
+Clearly show each candidate with a badge like “Not confirmed: {attribute}”.
+
+If no candidates and no verified:
+Headline: “I couldn’t find any matches for that.”
+Show 2-3 next actions as buttons.
+
+Fix the specific bug shown in AFR:
+
+In the “kings arms” case, the bubble must NOT say “I found 0”.
+
+It must say it found 1 (because verification_summary shows verified_exact=1 and leads_list has 1).
+
+Follow-up buttons must be deterministic:
+
+When rendering next-action buttons (Widen search area, Check websites, Remove requirement, Return best-effort list),
+do NOT just inject plain text into the chat input.
+
+Instead, send the chat request with structured metadata including:
+parent_run_id (or streamRunId if that is what the UI has),
+action_type,
+action_payload.
+
+The backend endpoint can remain the same, but the UI must include this metadata on the message payload.
+
+If you cannot find an existing place to attach metadata, add a minimal optional field on the request body like:
+{ text, client_request_id, follow_up: { parent_run_id, action_type, action_payload } }
+
+Keep dev tooling intact:
+
+Do not change the Details popup logic.
+
+Only fix the chat bubble rendering + button behaviour.
+
+No refactors outside this component and its direct helpers.
+
+Deliverable:
+
+Provide the full rewritten file(s) needed to implement this.
+
+Ensure TypeScript compiles.

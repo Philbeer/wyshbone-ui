@@ -30,6 +30,7 @@ import { useResultsPanel } from "@/contexts/ResultsPanelContext";
 import { useCurrentRequest } from "@/contexts/CurrentRequestContext";
 import UserResultsView from "@/components/results/UserResultsView";
 import type { DeliverySummary } from "@/components/results/UserResultsView";
+import type { VerificationSummaryPayload, ConstraintsExtractedPayload } from "@/components/results/CvlArtefactViews";
 import RunResultBubble from "@/components/results/RunResultBubble";
 import { resolveCanonicalStatus, STATUS_CONFIG } from "@/utils/deliveryStatus";
 
@@ -38,6 +39,8 @@ type Message = ChatMessage & {
   timestamp: Date;
   source?: 'user' | 'assistant' | 'supervisor';
   deliverySummary?: DeliverySummary | null;
+  verificationSummary?: VerificationSummaryPayload | null;
+  constraintsExtracted?: ConstraintsExtractedPayload | null;
   runId?: string | null;
   hidden?: boolean;
 };
@@ -230,6 +233,28 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     }
   }, [user.id, user.email, queryClient]);
 
+  function parseSiblingArtefacts(rows: any[]): {
+    vs: VerificationSummaryPayload | null;
+    ce: ConstraintsExtractedPayload | null;
+  } {
+    let vs: VerificationSummaryPayload | null = null;
+    let ce: ConstraintsExtractedPayload | null = null;
+    if (!Array.isArray(rows)) return { vs, ce };
+    for (const row of rows) {
+      if (row.type === 'verification_summary') {
+        let p = row.payload_json;
+        if (typeof p === 'string') { try { p = JSON.parse(p); } catch { p = null; } }
+        if (p && typeof p === 'object') vs = p as VerificationSummaryPayload;
+      }
+      if (row.type === 'constraints_extracted') {
+        let p = row.payload_json;
+        if (typeof p === 'string') { try { p = JSON.parse(p); } catch { p = null; } }
+        if (p && typeof p === 'object') ce = p as ConstraintsExtractedPayload;
+      }
+    }
+    return { vs, ce };
+  }
+
   // Poll for delivery_summary when waiting for Supervisor completion
   // Iterates over ALL in-flight runs so back-to-back requests each get their results
   useEffect(() => {
@@ -280,6 +305,8 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
           }
           if (!parsed || typeof parsed !== 'object') continue;
 
+          const { vs, ce } = parseSiblingArtefacts(rows);
+
           const effectiveId = runId || crid;
           if (process.env.NODE_ENV === 'development') {
             console.log(`[Chat] delivery_summary found for run: ${effectiveId}`);
@@ -294,6 +321,8 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
             timestamp: new Date(),
             source: 'supervisor',
             deliverySummary: parsed as DeliverySummary,
+            verificationSummary: vs,
+            constraintsExtracted: ce,
             runId: runId || undefined,
           };
           setMessages((prev) => {
@@ -452,6 +481,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                 try { parsed = JSON.parse(parsed); } catch {}
               }
               if (parsed && typeof parsed === 'object') {
+                const { vs, ce } = parseSiblingArtefacts(rows);
                 const effectiveRunId = msgRunId || supervisorRunIdRef.current || lookupId;
                 console.log('[Chat] delivery_summary found via realtime callback for run:', effectiveRunId);
 
@@ -464,6 +494,8 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                   timestamp: new Date(),
                   source: 'supervisor',
                   deliverySummary: parsed as DeliverySummary,
+                  verificationSummary: vs,
+                  constraintsExtracted: ce,
                   runId: effectiveRunId,
                 };
                 setMessages((prev) => {
@@ -879,6 +911,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
           conversationId: conversationId,
           clientRequestId: clientRequestId,
           ...(pendingMetadataRef.current ? { metadata: pendingMetadataRef.current } : {}),
+          ...(pendingMetadataRef.current?.follow_up ? { follow_up: pendingMetadataRef.current.follow_up } : {}),
         }),
         signal: abortControllerRef.current.signal,
         credentials: "include",
@@ -1771,7 +1804,12 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                     </div>
                     <div className="flex flex-col items-start max-w-3xl lg:max-w-none w-full">
                       <div className="rounded-lg px-4 py-4 bg-card border border-card-border w-full">
-                        <RunResultBubble deliverySummary={chatMessage.deliverySummary} />
+                        <RunResultBubble
+                          deliverySummary={chatMessage.deliverySummary}
+                          verificationSummary={chatMessage.verificationSummary}
+                          constraintsExtracted={chatMessage.constraintsExtracted}
+                          runId={chatMessage.runId}
+                        />
                       </div>
                       <span className="text-xs text-muted-foreground mt-1">
                         {chatMessage.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
