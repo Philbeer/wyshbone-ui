@@ -1,9 +1,10 @@
 /**
- * AgentChatPanel - Claude AI chat via backend API
+ * @deprecated AgentChatPanel - Claude AI chat via backend /api/agent/chat
  * 
- * This uses the backend /api/agent/chat endpoint which handles Claude
- * authentication server-side. This is more secure than calling Claude
- * directly from the browser.
+ * DEPRECATED (Feb 2026): This panel uses the legacy MEGA/Claude agent endpoint.
+ * The primary chat is now ChatPage (GPT-5 streaming via /api/chat).
+ * This component is hidden behind WYSHBONE_DEV_LANE flag (default off).
+ * Kept for dev/testing only. Do not add new features here.
  */
 
 import { useState, useRef, useEffect, useCallback } from "react";

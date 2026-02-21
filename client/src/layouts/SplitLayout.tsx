@@ -10,7 +10,6 @@
 
 import { ReactNode } from "react";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { AgentChatPanel } from "@/components/agent/AgentChatPanel";
 import { cn } from "@/lib/utils";
 
 interface SplitLayoutProps {
@@ -28,9 +27,12 @@ export function SplitLayout({ children, className }: SplitLayoutProps) {
 
   return (
     <div className={cn("flex h-full w-full overflow-hidden", className)}>
-      {/* Left Panel - Agent Chat (40%) */}
+      {/* Left Panel - deprecated AgentChatPanel (hidden unless dev flag set) */}
       <div className="w-[40%] min-w-[320px] max-w-[500px] border-r border-border flex flex-col bg-sidebar">
-        <AgentChatPanel />
+        <div className="flex flex-col h-full items-center justify-center p-6 text-muted-foreground text-center gap-2">
+          <span className="text-sm font-medium">Agent Panel (deprecated)</span>
+          <span className="text-xs">This layout is no longer active.</span>
+        </div>
       </div>
 
       {/* Right Panel - Contextual Workspace (60%) */}

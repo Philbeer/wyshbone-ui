@@ -1109,10 +1109,16 @@ function AgentFirstAppLayout({
       <div className="h-screen w-full overflow-hidden">
         <DesktopSplitLayout
           leftPanel={
-            /* Left panel: Direct Claude API chat with tool support */
-            <AgentChatPanel 
-              defaultCountry={defaultCountry}
-            />
+            window.WYSHBONE_DEV_LANE ? (
+              <AgentChatPanel 
+                defaultCountry={defaultCountry}
+              />
+            ) : (
+              <div className="flex flex-col h-full items-center justify-center p-6 bg-sidebar text-muted-foreground text-center gap-2">
+                <span className="text-sm font-medium">Agent Panel (deprecated)</span>
+                <span className="text-xs">Enable via console: window.WYSHBONE_DEV_LANE = true</span>
+              </div>
+            )
           }
         >
           {/* Right panel content - routes */}

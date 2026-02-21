@@ -11,7 +11,6 @@
 
 import { ReactNode } from "react";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { AgentChatPanel } from "@/components/agent/AgentChatPanel";
 import { MobileLayout } from "./MobileLayout";
 import { cn } from "@/lib/utils";
 
@@ -40,9 +39,12 @@ export function AgentFirstLayout({
   // Desktop Split-Screen Layout
   return (
     <div className={cn("agent-split-layout", className)}>
-      {/* Left Panel - Agent Chat (40%) */}
+      {/* Left Panel - deprecated AgentChatPanel (hidden unless dev flag set) */}
       <div className="agent-left-panel">
-        <AgentChatPanel onSendMessage={onSendMessage} />
+        <div className="flex flex-col h-full items-center justify-center p-6 text-muted-foreground text-center gap-2">
+          <span className="text-sm font-medium">Agent Panel (deprecated)</span>
+          <span className="text-xs">This layout is no longer active.</span>
+        </div>
       </div>
 
       {/* Right Panel - Contextual Workspace (60%) */}

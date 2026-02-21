@@ -16,8 +16,9 @@ The application features a Node.js/Express backend and a React frontend, built w
 - **RUN Lane:** Supervisor delegation for lead-finding, deep research, and batch tasks. Creates `supervisor_tasks` row and returns immediately.
 - **Routing:** `server/lib/decideChatMode.ts` uses keyword matching to fork CHAT vs RUN. `detectSupervisorIntent()` gates actual task enqueue — if intent doesn't require supervisor, falls through to CHAT lane.
 - **Client-side:** No pre-routing interception. UI always POSTs to `/api/chat`; server decides the lane. Client `classifyIntent()` remains for UX/history handling only (NEW_REPLACE/CONTINUE/MODIFY/NEW_UNRELATED).
-- **MEGA Mode:** GPT-4o planner-executor pattern for complex multi-step tasks with intelligent delegation.
-- **Shared Infrastructure:** Both modes use a unified execution layer and PostgreSQL for conversation history.
+- **MEGA Mode:** REMOVED (Feb 2026 tech debt cleanup). The UI toggle has been removed; `chatMode` is hard-wired to `"standard"`. The server-side `/api/agent/chat` endpoint and `agent-kernel.ts` still exist but are unreachable from the UI. `AgentChatPanel` is deprecated and hidden behind `window.WYSHBONE_DEV_LANE` flag (default off).
+- **Dev Lane Indicator:** When `VITE_DEV_LANE=1` (or `window.WYSHBONE_DEV_LANE = true` in console), the chat input area shows a badge: "RUN (Supervisor)" when SSE includes `supervisorTaskId`, or "CHAT (Direct)" when content chunks stream without it. Production UI stays clean.
+- **Shared Infrastructure:** Both lanes use a unified execution layer and PostgreSQL for conversation history.
 
 **UI/UX Decisions:**
 The user interface adheres to Material Design principles, featuring a dark mode, Inter font, consistent spacing, real-time chat, auto-expanding input, theme toggle, and a collapsible sidebar with a default UK country selector. Accessibility (WCAG AA) is a key consideration.

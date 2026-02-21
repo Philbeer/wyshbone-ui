@@ -7,6 +7,10 @@ import { initClientErrorReporting } from "@/utils/clientErrorReporter";
 // Initialize client error reporting FIRST (before anything can fail)
 initClientErrorReporting();
 
+// Dev-only lane indicator flag (set via env or console)
+// In development: set VITE_DEV_LANE=1 or run `window.WYSHBONE_DEV_LANE = true` in console
+(window as any).WYSHBONE_DEV_LANE = import.meta.env.VITE_DEV_LANE === "1" || false;
+
 // ----- BOOTSTRAP: Session Reset & Validation -----
 // This runs BEFORE React renders to ensure clean session state
 const params = new URLSearchParams(window.location.search);

@@ -1,3 +1,9 @@
+declare global {
+  interface Window {
+    WYSHBONE_DEV_LANE?: boolean;
+  }
+}
+
 import { useState, useRef, useEffect } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest, authedFetch, addDevAuthParams, buildApiUrl, handleApiError } from "@/lib/queryClient";
@@ -92,11 +98,11 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
   // UI-18: "What just happened?" Tower log viewer
   const [isWhatJustHappenedOpen, setWhatJustHappenedOpen] = useState(false);
   
-  // MEGA Agent mode toggle
-  const [chatMode, setChatMode] = useState<"standard" | "mega">(() => {
-    return (localStorage.getItem('chatMode') as "standard" | "mega") || "standard";
-  });
-  const [megaChips, setMegaChips] = useState<string[]>([]);
+  // MEGA mode removed (tech debt cleanup). Always use Standard.
+  const chatMode = "standard" as const;
+  
+  // Dev-only lane indicator state
+  const [lastLane, setLastLane] = useState<"run" | "chat" | null>(null);
   
   // Supervisor integration
   const [supervisorTaskId, setSupervisorTaskId] = useState<string | null>(null);
@@ -182,10 +188,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     }
   };
 
-  // Persist chat mode to localStorage
-  useEffect(() => {
-    localStorage.setItem('chatMode', chatMode);
-  }, [chatMode]);
+  // chatMode persistence removed (always Standard)
 
   // Demo mode clean slate: Clear all state on EVERY page load for demo users
   useEffect(() => {
@@ -216,7 +219,6 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
       // Reset component state
       setMessages([]);
       setConversationId(undefined);
-      setChatMode('standard');
       hasLoadedHistoryRef.current = false;
       hasShownGreetingRef.current = false;
       clearRecentRuns();
@@ -848,6 +850,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
       const reader = response.body?.getReader();
       const decoder = new TextDecoder();
       let accumulatedContent = "";
+      let streamHasSupervisorTask = false;
 
       if (!reader) {
         throw new Error("Failed to get response reader");
@@ -948,6 +951,8 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
               
               // Handle Supervisor task creation
               if (parsed.supervisorTaskId) {
+                streamHasSupervisorTask = true;
+                setLastLane("run");
                 console.log('🤖 Supervisor task created:', parsed.supervisorTaskId, 'runId=', supervisorRunIdRef.current, 'crid=', clientRequestId);
                 inFlightSupervisorRunsRef.current.set(clientRequestId, {
                   runId: supervisorRunIdRef.current,
@@ -983,6 +988,9 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
               }
               
               if (parsed.content) {
+                if (!streamHasSupervisorTask) {
+                  setLastLane("chat");
+                }
                 accumulatedContent += parsed.content;
                 
                 // Update message in real-time
@@ -1188,236 +1196,9 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     },
   });
 
-  // Send message to MEGA Agent
-  const sendMegaMessage = async (messageContent: string) => {
-    setIsStreaming(true);
-    setMegaChips([]); // Clear previous chips
-    
-    try {
-      // Show a warning for slow responses
-      const slowWarningTimeout = setTimeout(() => {
-        toast({
-          title: "Still thinking...",
-          description: "MEGA is processing your request. This usually takes 5-15 seconds.",
-        });
-      }, 10000);
+  // MEGA sendMegaMessage removed (tech debt cleanup - MEGA mode is defunct).
+  // All messages now go through Standard streaming via handleSend -> streamChatResponse.
 
-      // Ensure we have a conversationId - create one if needed
-      const currentConversationId = conversationId || crypto.randomUUID();
-      if (!conversationId) {
-        setConversationId(currentConversationId);
-        localStorage.setItem('currentConversationId', currentConversationId);
-      }
-
-      const megaSessionId = localStorage.getItem('wyshbone_sid');
-      const response = await fetch(buildApiUrl(addDevAuthParams("/agent/chat")), {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(megaSessionId ? { "x-session-id": megaSessionId } : {}),
-        },
-        body: JSON.stringify({
-          text: messageContent,
-          conversationId: currentConversationId,
-        }),
-        credentials: "include",
-      });
-
-      clearTimeout(slowWarningTimeout);
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ error: "Unknown error" }));
-        throw new Error(errorData.error || "MEGA agent request failed");
-      }
-
-      const data = await response.json();
-
-      // Check if MEGA wants to delegate to Standard mode
-      if (data.delegateToStandard) {
-        console.log("🔄 MEGA delegated to Standard - switching to streaming mode");
-        
-        // Add MEGA's transition message
-        const transitionMessage: Message = {
-          id: crypto.randomUUID(),
-          role: "assistant",
-          content: data.natural || "Switching to Standard mode for better handling of this request...",
-          timestamp: new Date(),
-        };
-        setMessages((prev) => [...prev, transitionMessage]);
-        
-        // Switch to Standard mode and re-submit using the existing handleSend function
-        setChatMode("standard");
-        
-        // Re-submit after a brief delay to allow mode switch
-        setTimeout(() => {
-          handleSend(messageContent);
-        }, 500);
-        
-        return;
-      }
-
-      // Add assistant response
-      const assistantMessage: Message = {
-        id: crypto.randomUUID(),
-        role: "assistant",
-        content: data.natural || "No response",
-        timestamp: new Date(),
-      };
-      setMessages((prev) => [...prev, assistantMessage]);
-
-      // Handle tool execution results (SEARCH_PLACES, DEEP_RESEARCH, etc.)
-      if (data.auto_action_result?.ok && data.auto_action_result?.data) {
-        const result = data.auto_action_result.data;
-        
-        // Handle SEARCH_PLACES results
-        if (result.places && Array.isArray(result.places)) {
-          const systemMessage: SystemMessage = {
-            id: crypto.randomUUID(),
-            type: "system",
-            content: `✅ Found ${result.places.length} places. Click "View Results" to see full details.`,
-            timestamp: new Date(),
-            searchResults: result.places.slice(0, 5), // Show preview of 5
-          };
-          setMessages((prev) => [...prev, systemMessage]);
-          
-          // Open results in right panel
-          openResults('quick_search', {
-            places: result.places,
-            count: result.places.length,
-            query: result.query || '',
-            location: result.location || '',
-            country: result.country || defaultCountry,
-          }, `${result.places.length} businesses found`);
-        }
-        
-        // Handle DEEP_RESEARCH results
-        if (result.run && result.run.id) {
-          if (addRun) {
-            addRun({
-              id: result.run.id,
-              label: result.run.label || "Deep Research",
-              startedAt: new Date().toISOString(),
-              status: result.run.status || "running",
-              runType: "deep_research",
-              outputPreview: result.run.outputPreview,
-            });
-          }
-          const systemMessage: SystemMessage = {
-            id: crypto.randomUUID(),
-            type: "system",
-            content: `🔬 Deep research started! Research is running in the background. View progress in the Results panel.`,
-            timestamp: new Date(),
-          };
-          setMessages((prev) => [...prev, systemMessage]);
-          
-          // Open results in right panel
-          openResults('deep_research', {
-            run: {
-              id: result.run.id,
-              label: result.run.label || result.topic,
-              status: result.run.status || 'running',
-            },
-            topic: result.topic || result.run.label || 'Research',
-          }, result.run.label || 'Deep Research');
-          
-          triggerSidebarFlash('deepResearch');
-        }
-        
-        // Handle BATCH_CONTACT_FINDER results
-        if (result.job && result.job.id) {
-          const systemMessage: SystemMessage = {
-            id: crypto.randomUUID(),
-            type: "system",
-            content: `📧 Email finder started! Finding contacts in the background. View progress in the Results panel.`,
-            timestamp: new Date(),
-          };
-          setMessages((prev) => [...prev, systemMessage]);
-          
-          // Open results in right panel
-          openResults('email_finder', {
-            batchId: result.job.id,
-            status: 'running',
-            viewUrl: `/batch/${result.job.id}`,
-          }, 'Email Finder');
-          
-          triggerSidebarFlash('emailFinder');
-        }
-        
-        // Handle SCHEDULED_MONITOR results
-        if (result.id && result.schedule && result.monitorType) {
-          const systemMessage: SystemMessage = {
-            id: crypto.randomUUID(),
-            type: "system",
-            content: `⏰ Monitor "${result.label}" created! Scheduled to run ${result.schedule}. View it in the Results panel.`,
-            timestamp: new Date(),
-          };
-          setMessages((prev) => [...prev, systemMessage]);
-
-          // Open results in right panel
-          openResults('scheduled_monitor', {
-            monitor: result,
-            id: result.id,
-            label: result.label,
-            schedule: result.schedule,
-            status: result.status,
-          }, `Monitor: ${result.label}`);
-        }
-
-        // Handle GET_NUDGES results
-        if (result.nudges !== undefined) {
-          const nudgesCount = Array.isArray(result.nudges) ? result.nudges.length : 0;
-          const systemMessage: SystemMessage = {
-            id: crypto.randomUUID(),
-            type: "system",
-            content: nudgesCount > 0
-              ? `👉 Found ${nudgesCount} nudge${nudgesCount === 1 ? '' : 's'}. View in the Results panel.`
-              : `📭 No pending nudges at the moment.`,
-            timestamp: new Date(),
-          };
-          setMessages((prev) => [...prev, systemMessage]);
-
-          // Open results in right panel
-          openResults('nudges', {
-            nudges: result.nudges || [],
-            count: nudgesCount,
-            message: result.message,
-          }, `Nudges (${nudgesCount})`);
-        }
-
-        // Handle DRAFT_EMAIL results
-        if (result.draft) {
-          const systemMessage: SystemMessage = {
-            id: crypto.randomUUID(),
-            type: "system",
-            content: `✉️ Email draft:\n\n${result.draft}`,
-            timestamp: new Date(),
-          };
-          setMessages((prev) => [...prev, systemMessage]);
-        }
-      }
-
-      // Store follow-up chips
-      if (data.plan?.follow_ups) {
-        setMegaChips(data.plan.follow_ups);
-      }
-
-      // Show clarity questions if any
-      if (data.plan?.clarity_questions && data.plan.clarity_questions.length > 0) {
-        toast({
-          title: "Questions",
-          description: data.plan.clarity_questions.join("\n"),
-        });
-      }
-    } catch (error: any) {
-      toast({
-        title: "MEGA Agent Error",
-        description: error.message || "Failed to send message. Try switching to Standard mode.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsStreaming(false);
-    }
-  };
 
   // Intent classification: Determines if user wants to start fresh or continue
   const classifyIntent = (newMessage: string, history: Message[]): 'NEW_REPLACE' | 'CONTINUE' | 'MODIFY' | 'NEW_UNRELATED' => {
@@ -1530,12 +1311,6 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
       content: messageContent,
       mode: chatMode,
     });
-
-    // Route to MEGA agent if in MEGA mode
-    if (chatMode === "mega") {
-      await sendMegaMessage(messageContent);
-      return;
-    }
 
     // Build conversation history based on intent
     let conversationHistory: ChatMessage[];
@@ -2204,32 +1979,25 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
       {/* Input Area */}
       <div className="border-t border-border bg-background py-6">
         <div className="w-full relative px-6">
-          {/* Chat Mode Toggle and Functions Panel Toggle */}
+          {/* Action bar (MEGA toggle removed) */}
           <div className="mb-3 flex items-center justify-between gap-2 flex-wrap">
             <div className="flex items-center gap-2">
-              <Button
-                variant={chatMode === "standard" ? "default" : "outline"}
-                size="sm"
-                onClick={() => setChatMode("standard")}
-                data-testid="button-mode-standard"
-              >
-                Standard
-              </Button>
-              <Button
-                variant={chatMode === "mega" ? "default" : "outline"}
-                size="sm"
-                onClick={() => setChatMode("mega")}
-                data-testid="button-mode-mega"
-              >
-                🚀 MEGA
-              </Button>
-              <span className="text-xs text-muted-foreground ml-2">
-                {chatMode === "mega" ? "Takes action immediately, suggests next steps" : "Conversational, can search the web"}
-              </span>
+              {lastLane && window.WYSHBONE_DEV_LANE && (
+                <span
+                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold select-none ${
+                    lastLane === "run"
+                      ? "bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-200"
+                      : "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-200"
+                  }`}
+                  title={lastLane === "run" ? "Last message used Supervisor (RUN lane)" : "Last message used direct GPT streaming (CHAT lane)"}
+                  data-testid="lane-indicator"
+                >
+                  {lastLane === "run" ? "RUN (Supervisor)" : "CHAT (Direct)"}
+                </span>
+              )}
             </div>
             
             <div className="flex items-center gap-2">
-              {/* UI-18: What just happened? button - shows recent Tower activity */}
               <Button
                 variant="ghost"
                 size="sm"
@@ -2242,7 +2010,6 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                 <span className="hidden sm:inline">Activity log</span>
               </Button>
               
-              {/* Quick Actions Panel Toggle - only show when panel is hidden */}
               {!showFunctionsPanel && (
                 <Button
                   variant="outline"
@@ -2258,27 +2025,6 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
               )}
             </div>
           </div>
-
-          {/* MEGA Chips (Follow-up suggestions) */}
-          {chatMode === "mega" && megaChips.length > 0 && (
-            <div className="mb-3 flex flex-wrap gap-2">
-              {megaChips.map((chip, idx) => (
-                <Button
-                  key={idx}
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => {
-                    setInput(chip);
-                    handleSend(chip);
-                  }}
-                  className="text-xs"
-                  data-testid={`chip-${idx}`}
-                >
-                  💡 {chip}
-                </Button>
-              ))}
-            </div>
-          )}
 
           {/* Location Suggestions */}
           {showLocationSuggestions && (
