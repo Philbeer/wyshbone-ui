@@ -7,9 +7,16 @@ import type { DeliverySummary, DeliveryLead } from "@/components/results/UserRes
 import type { VerificationSummaryPayload, ConstraintsExtractedPayload } from "@/components/results/CvlArtefactViews";
 import { emitTelemetry, type TelemetryEventType } from "@/api/telemetryClient";
 
-export interface PolicyLine {
-  text: string;
-  why?: string | null;
+export interface AppliedPolicy {
+  policy_id?: string;
+  rule_text?: string;
+  source?: string;
+  [key: string]: any;
+}
+
+export interface PolicySnapshot {
+  why_short: string;
+  applied_policies?: AppliedPolicy[];
 }
 
 export interface RunResultBubbleProps {
@@ -17,7 +24,7 @@ export interface RunResultBubbleProps {
   verificationSummary?: VerificationSummaryPayload | null;
   constraintsExtracted?: ConstraintsExtractedPayload | null;
   runId?: string | null;
-  policiesApplied?: PolicyLine[];
+  policySnapshot?: PolicySnapshot | null;
 }
 
 function dispatchFollowUp(params: {
@@ -301,37 +308,49 @@ function NextActionButtons({
   );
 }
 
-function LearningSection({ policies }: { policies: PolicyLine[] }) {
-  const [expanded, setExpanded] = useState<number | null>(null);
-  if (!policies || policies.length === 0) return null;
+function LearningSection({ snapshot }: { snapshot: PolicySnapshot }) {
+  const [detailsOpen, setDetailsOpen] = useState(false);
 
-  const shown = policies.slice(0, 3);
+  const lines = snapshot.why_short
+    .split('\n')
+    .map(l => l.trim())
+    .filter(Boolean)
+    .slice(0, 3);
+
+  if (lines.length === 0) return null;
+
+  const hasDetails = Array.isArray(snapshot.applied_policies) && snapshot.applied_policies.length > 0;
 
   return (
     <div className="space-y-1.5 pt-1">
       <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
         <BookOpen className="h-3 w-3" />
-        Policies applied
+        Learning
       </h4>
-      <div className="space-y-1">
-        {shown.map((p, i) => (
-          <div key={i} className="text-xs text-foreground/80 leading-snug">
-            <span>{p.text}</span>
-            {p.why && (
-              <button
-                className="ml-1.5 inline-flex items-center gap-0.5 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
-                onClick={() => setExpanded(expanded === i ? null : i)}
-              >
-                {expanded === i ? <ChevronDown className="h-2.5 w-2.5" /> : <ChevronRight className="h-2.5 w-2.5" />}
-                Why
-              </button>
-            )}
-            {expanded === i && p.why && (
-              <p className="text-[11px] text-muted-foreground mt-0.5 ml-3 leading-snug">{p.why}</p>
-            )}
-          </div>
+      <div className="space-y-0.5">
+        {lines.map((line, i) => (
+          <p key={i} className="text-xs text-foreground/80 leading-snug">{line}</p>
         ))}
       </div>
+      {hasDetails && (
+        <button
+          className="inline-flex items-center gap-0.5 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+          onClick={() => setDetailsOpen(!detailsOpen)}
+        >
+          {detailsOpen ? <ChevronDown className="h-2.5 w-2.5" /> : <ChevronRight className="h-2.5 w-2.5" />}
+          Details
+        </button>
+      )}
+      {detailsOpen && snapshot.applied_policies && (
+        <div className="ml-3 space-y-1 border-l border-border pl-2">
+          {snapshot.applied_policies.map((ap, i) => (
+            <div key={i} className="text-[11px] text-muted-foreground leading-snug">
+              {ap.rule_text || ap.policy_id || `Policy ${i + 1}`}
+              {ap.source && <span className="ml-1 opacity-60">({ap.source})</span>}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -341,7 +360,7 @@ export default function RunResultBubble({
   verificationSummary,
   constraintsExtracted,
   runId,
-  policiesApplied,
+  policySnapshot,
 }: RunResultBubbleProps) {
   const verifiedExact = resolveVerifiedCount(deliverySummary, verificationSummary);
   const target = resolveHasTargetCount(deliverySummary, constraintsExtracted);
@@ -420,8 +439,8 @@ export default function RunResultBubble({
         </div>
       )}
 
-      {policiesApplied && policiesApplied.length > 0 && (
-        <LearningSection policies={policiesApplied} />
+      {policySnapshot && policySnapshot.why_short && (
+        <LearningSection snapshot={policySnapshot} />
       )}
 
       <NextActionButtons ds={deliverySummary} canonical={canonical} runId={runId} />
