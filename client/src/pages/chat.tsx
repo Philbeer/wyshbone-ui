@@ -243,6 +243,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     let vs: VerificationSummaryPayload | null = null;
     let ce: ConstraintsExtractedPayload | null = null;
     let policySnapshot: PolicySnapshot | null = null;
+    let fallbackRules: string[] | null = null;
     if (!Array.isArray(rows)) return { vs, ce, policySnapshot };
     for (const row of rows) {
       if (row.type === 'verification_summary') {
@@ -255,11 +256,11 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         if (typeof p === 'string') { try { p = JSON.parse(p); } catch { p = null; } }
         if (p && typeof p === 'object') ce = p as ConstraintsExtractedPayload;
       }
-      if (row.type === 'policy_applications' && !policySnapshot) {
+      if ((row.type === 'policy_applications' || row.type === 'policy_application_snapshot') && !policySnapshot) {
         let p = row.payload_json;
         if (typeof p === 'string') { try { p = JSON.parse(p); } catch { p = null; } }
         if (p && typeof p === 'object') {
-          const paj = (p as any).policies_applied_json;
+          const paj = (p as any).policies_applied_json ?? p;
           if (paj && typeof paj === 'object' && typeof paj.why_short === 'string') {
             policySnapshot = {
               why_short: paj.why_short,
@@ -268,6 +269,19 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
           }
         }
       }
+      if (row.type === 'plan_update' && !fallbackRules) {
+        let p = row.payload_json;
+        if (typeof p === 'string') { try { p = JSON.parse(p); } catch { p = null; } }
+        if (p && typeof p === 'object' && Array.isArray((p as any).rules_applied)) {
+          fallbackRules = (p as any).rules_applied;
+        }
+      }
+    }
+    if (!policySnapshot && fallbackRules && fallbackRules.length > 0) {
+      policySnapshot = {
+        why_short: fallbackRules.slice(0, 3).join('\n'),
+        applied_policies: fallbackRules.map(r => ({ rule_text: r, source: 'plan' })),
+      };
     }
     return { vs, ce, policySnapshot };
   }

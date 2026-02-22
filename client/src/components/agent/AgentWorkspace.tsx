@@ -12,6 +12,8 @@ import {
   Check,
   X,
   ChevronDown,
+  ChevronRight,
+  BookOpen,
   Wrench
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -34,10 +36,45 @@ import { LiveActivityPanel } from "@/components/live-activity-panel";
 import { useCurrentRequest } from "@/contexts/CurrentRequestContext";
 import { buildApiUrl, addDevAuthParams } from "@/lib/queryClient";
 import { isDemoMode } from "@/hooks/useDemoMode";
+import type { PolicySnapshot } from "@/components/results/RunResultBubble";
 import InjectionMouldingDemo from "@/components/demos/InjectionMouldingDemo";
 import type { MouldingScenario, FactoryPayload } from "@/components/demos/InjectionMouldingDemo";
 
 const IS_DEV = import.meta.env.DEV;
+
+function extractPolicySnapshot(rows: any[]): PolicySnapshot | null {
+  let snapshot: PolicySnapshot | null = null;
+  let fallbackRules: string[] | null = null;
+  for (const row of rows) {
+    if ((row.type === 'policy_applications' || row.type === 'policy_application_snapshot') && !snapshot) {
+      let p = row.payload_json;
+      if (typeof p === 'string') { try { p = JSON.parse(p); } catch { p = null; } }
+      if (p && typeof p === 'object') {
+        const paj = (p as any).policies_applied_json ?? p;
+        if (paj && typeof paj === 'object' && typeof paj.why_short === 'string') {
+          snapshot = {
+            why_short: paj.why_short,
+            applied_policies: Array.isArray(paj.applied_policies) ? paj.applied_policies : undefined,
+          };
+        }
+      }
+    }
+    if (row.type === 'plan_update' && !fallbackRules) {
+      let p = row.payload_json;
+      if (typeof p === 'string') { try { p = JSON.parse(p); } catch { p = null; } }
+      if (p && typeof p === 'object' && Array.isArray((p as any).rules_applied)) {
+        fallbackRules = (p as any).rules_applied;
+      }
+    }
+  }
+  if (!snapshot && fallbackRules && fallbackRules.length > 0) {
+    snapshot = {
+      why_short: fallbackRules.slice(0, 3).join('\n'),
+      applied_policies: fallbackRules.map(r => ({ rule_text: r, source: 'plan' })),
+    };
+  }
+  return snapshot;
+}
 
 interface AgentWorkspaceProps {
   className?: string;
@@ -56,6 +93,7 @@ export function AgentWorkspace({ className }: AgentWorkspaceProps) {
   const [explainError, setExplainError] = useState<string | null>(null);
   const [explainReport, setExplainReport] = useState<string | null>(null);
   const [explainRunId, setExplainRunId] = useState<string | null>(null);
+  const [explainPolicySnapshot, setExplainPolicySnapshot] = useState<PolicySnapshot | null>(null);
   const [copied, setCopied] = useState(false);
 
   async function handleRunSupervisorDemo() {
@@ -143,6 +181,7 @@ export function AgentWorkspace({ className }: AgentWorkspaceProps) {
     setExplainError(null);
     setExplainReport(null);
     setExplainRunId(null);
+    setExplainPolicySnapshot(null);
     setCopied(false);
 
     try {
@@ -163,8 +202,22 @@ export function AgentWorkspace({ className }: AgentWorkspaceProps) {
         throw new Error(errData.error || errData.message || `Server responded ${res.status}`);
       }
       const data = await res.json();
-      setExplainRunId(data.runId || null);
+      const runId = data.runId || null;
+      setExplainRunId(runId);
       setExplainReport(data.report_markdown || "No report generated.");
+
+      if (runId) {
+        try {
+          const artefactUrl = addDevAuthParams(buildApiUrl(`/api/afr/artefacts?runId=${runId}`));
+          const artefactRes = await fetch(artefactUrl);
+          if (artefactRes.ok) {
+            const rows: any[] = await artefactRes.json();
+            const snapshot = extractPolicySnapshot(rows);
+            setExplainPolicySnapshot(snapshot);
+          }
+        } catch {
+        }
+      }
     } catch (err: any) {
       setExplainError(err.message || "Failed to generate explanation");
     } finally {
@@ -384,6 +437,7 @@ export function AgentWorkspace({ className }: AgentWorkspaceProps) {
         runId={explainRunId}
         onCopy={handleCopy}
         copied={copied}
+        policySnapshot={explainPolicySnapshot}
       />
     </div>
   );
@@ -398,6 +452,7 @@ function ExplainRunModal({
   runId,
   onCopy,
   copied,
+  policySnapshot,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -407,7 +462,15 @@ function ExplainRunModal({
   runId: string | null;
   onCopy: () => void;
   copied: boolean;
+  policySnapshot?: PolicySnapshot | null;
 }) {
+  const [detailsOpen, setDetailsOpen] = useState(false);
+
+  const policyLines = policySnapshot?.why_short
+    ? policySnapshot.why_short.split('\n').map(l => l.trim()).filter(Boolean).slice(0, 3)
+    : [];
+  const hasDetails = Array.isArray(policySnapshot?.applied_policies) && policySnapshot!.applied_policies!.length > 0;
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
@@ -453,6 +516,39 @@ function ExplainRunModal({
               </Button>
             </div>
             <MarkdownReport content={report} />
+          </div>
+        )}
+
+        {policyLines.length > 0 && !loading && (
+          <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/30 p-3 space-y-1.5">
+            <h4 className="text-xs font-semibold text-amber-700 dark:text-amber-300 uppercase tracking-wide flex items-center gap-1.5">
+              <BookOpen className="h-3 w-3" />
+              Learning
+            </h4>
+            <div className="space-y-0.5">
+              {policyLines.map((line, i) => (
+                <p key={i} className="text-xs text-foreground/80 leading-snug">{line}</p>
+              ))}
+            </div>
+            {hasDetails && (
+              <button
+                className="inline-flex items-center gap-0.5 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+                onClick={() => setDetailsOpen(!detailsOpen)}
+              >
+                {detailsOpen ? <ChevronDown className="h-2.5 w-2.5" /> : <ChevronRight className="h-2.5 w-2.5" />}
+                Details
+              </button>
+            )}
+            {detailsOpen && policySnapshot?.applied_policies && (
+              <div className="ml-3 space-y-1 border-l border-amber-300 dark:border-amber-700 pl-2">
+                {policySnapshot.applied_policies.map((ap, i) => (
+                  <div key={i} className="text-[11px] text-muted-foreground leading-snug">
+                    {ap.rule_text || ap.policy_id || `Policy ${i + 1}`}
+                    {ap.source && <span className="ml-1 opacity-60">({ap.source})</span>}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </DialogContent>
