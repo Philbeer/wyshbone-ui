@@ -112,6 +112,9 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
   // Dev-only lane indicator state
   const [lastLane, setLastLane] = useState<"run" | "chat" | null>(null);
   
+  // Dev-only debug panel state
+  const [showDebugPanel, setShowDebugPanel] = useState(false);
+  
   // Supervisor integration
   const [supervisorTaskId, setSupervisorTaskId] = useState<string | null>(null);
   const [isWaitingForSupervisor, setIsWaitingForSupervisor] = useState(false);
@@ -2161,6 +2164,40 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
           <div ref={messagesEndRef} />
         </div>
       </div>
+
+      {process.env.NODE_ENV === 'development' && (
+        <div className="border-t border-dashed border-yellow-500/40 bg-yellow-50/5">
+          <button
+            onClick={() => setShowDebugPanel(p => !p)}
+            className="w-full text-left px-4 py-1 text-[10px] font-mono text-yellow-600 dark:text-yellow-400 hover:bg-yellow-500/10"
+          >
+            {showDebugPanel ? '▼' : '▶'} Debug: {messages.length} messages | {messages.filter(m => 'deliverySummary' in m && (m as Message).deliverySummary).length} result bubbles | convId: {conversationId?.slice(0, 8) || 'none'}
+          </button>
+          {showDebugPanel && (
+            <div className="px-4 pb-2 text-[10px] font-mono text-yellow-600/80 dark:text-yellow-400/80 max-h-48 overflow-y-auto space-y-0.5">
+              {messages.length === 0 && <div>No messages loaded</div>}
+              {messages.slice(-10).map((msg, i) => {
+                const m = msg as Message;
+                const hasDS = !!m.deliverySummary;
+                const hasMeta = hasDS ? 'structured_result' : (m as any).type === 'system' ? 'system' : 'text';
+                const status = hasDS ? `DS:${(m.deliverySummary as any)?.status || '?'}` : '';
+                const runRef = m.runId ? `run:${m.runId.slice(0, 8)}` : '';
+                const dbFlag = m.id?.startsWith('ds-') ? '💾persisted' : '';
+                return (
+                  <div key={m.id || i} className={`${hasDS ? 'text-green-500' : ''}`}>
+                    [{messages.length - 10 + i < 0 ? '' : ''}{m.role || (msg as SystemMessage).type}] id={m.id?.slice(0, 12)}.. type={hasMeta} {status} {runRef} {dbFlag}
+                  </div>
+                );
+              })}
+              <div className="mt-1 border-t border-yellow-500/20 pt-1">
+                deliverySummaryRunIds: [{Array.from(deliverySummaryRunIdsRef.current).map(id => id.slice(0, 8)).join(', ')}]
+                {' | '}waiting={String(isWaitingForSupervisor)}
+                {' | '}inFlight={inFlightSupervisorRunsRef.current.size}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Input Area */}
       <div className="border-t border-border bg-background py-6">
