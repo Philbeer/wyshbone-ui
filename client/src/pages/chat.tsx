@@ -761,7 +761,8 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
               }
             });
             setMessages(historicalMessages);
-            console.log(`📜 Loaded ${historicalMessages.length} messages from conversation ${storedConversationId}`);
+            const dsCount = historicalMessages.filter(m => m.deliverySummary).length;
+            console.log(`📜 Loaded ${historicalMessages.length} messages (${dsCount} with deliverySummary) from conversation ${storedConversationId}`);
           }
         }
       } catch (error) {
@@ -955,9 +956,20 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
               }
               return base;
             });
+            deliverySummaryRunIdsRef.current = new Set();
+            loadedMessages.forEach((m: any) => {
+              if (m.id?.startsWith('ds-')) {
+                const runKey = m.id.slice(3);
+                if (runKey) deliverySummaryRunIdsRef.current.add(runKey);
+              }
+              if (m.deliverySummary && m.runId) {
+                deliverySummaryRunIdsRef.current.add(m.runId);
+              }
+            });
             setMessages(loadedMessages);
             hasLoadedHistoryRef.current = true;
-            console.log(`📜 Loaded ${loadedMessages.length} messages from conversation ${newConversationId}`);
+            const dsCount = loadedMessages.filter((m: any) => m.deliverySummary).length;
+            console.log(`📜 Loaded ${loadedMessages.length} messages (${dsCount} with deliverySummary) from conversation ${newConversationId}`);
           } else {
             console.error("Failed to load conversation history");
           }
@@ -2189,6 +2201,16 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                   </div>
                 );
               })}
+              {(() => {
+                const latestResultMsg = [...messages].reverse().find(m => (m as Message).id?.startsWith('ds-') || (m as Message).deliverySummary);
+                const hasDS = latestResultMsg ? !!(latestResultMsg as Message).deliverySummary : false;
+                return (
+                  <div className={`font-bold ${hasDS ? 'text-green-500' : 'text-red-400'}`}>
+                    Latest result message has deliverySummary in metadata: {hasDS ? 'YES' : 'NO'}
+                    {latestResultMsg ? ` (id: ${(latestResultMsg as Message).id?.slice(0, 16)})` : ' (no result messages found)'}
+                  </div>
+                );
+              })()}
               <div className="mt-1 border-t border-yellow-500/20 pt-1">
                 deliverySummaryRunIds: [{Array.from(deliverySummaryRunIdsRef.current).map(id => id.slice(0, 8)).join(', ')}]
                 {' | '}waiting={String(isWaitingForSupervisor)}
