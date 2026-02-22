@@ -1975,8 +1975,8 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
 
           {/* Progress Stack - shows only user-facing status updates during request */}
           {(() => {
-            const INTERNAL_STAGES = new Set(['ack', 'classifying', 'planning']);
-            const visibleEvents = progressStack.filter(e => !INTERNAL_STAGES.has(e.stage));
+            const HIDDEN_STAGES = new Set(['ack', 'classifying', 'planning', 'completed']);
+            const visibleEvents = progressStack.filter(e => !HIDDEN_STAGES.has(e.stage));
             if (visibleEvents.length === 0) return null;
             return (
               <div className="flex gap-3 flex-row mb-2" data-testid="progress-stack">
@@ -2010,24 +2010,15 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
           {/* Supervisor thinking indicator */}
           {isWaitingForSupervisor && (
             <div className="flex gap-3 flex-row" data-testid="supervisor-loading">
-              <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 bg-gradient-to-br from-blue-500 to-blue-600">
-                <Building2 className="w-4 h-4 text-white" />
+              <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0">
+                <img src={wyshboneLogo} alt="Wyshbone" className="w-full h-full object-cover" />
               </div>
               <div className="flex flex-col items-start max-w-3xl lg:max-w-none">
-                <div className="mb-1">
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium bg-gradient-to-r from-blue-500 to-blue-600 text-white">
-                    <Building2 className="w-3 h-3" />
-                    Supervisor
-                  </span>
-                </div>
-                <div className="rounded-lg px-4 py-3 bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-950 dark:to-blue-900 border border-blue-200 dark:border-blue-800">
-                  <div className="flex items-center gap-2">
-                    <div className="flex space-x-1">
-                      <div className="w-2 h-2 rounded-full bg-blue-600 dark:bg-blue-400 animate-bounce" style={{ animationDelay: '0ms' }}></div>
-                      <div className="w-2 h-2 rounded-full bg-blue-600 dark:bg-blue-400 animate-bounce" style={{ animationDelay: '150ms' }}></div>
-                      <div className="w-2 h-2 rounded-full bg-blue-600 dark:bg-blue-400 animate-bounce" style={{ animationDelay: '300ms' }}></div>
-                    </div>
-                    <span className="text-sm text-blue-700 dark:text-blue-300">Searching for leads...</span>
+                <div className="rounded-lg px-4 py-3 bg-card border border-card-border">
+                  <div className="flex gap-1">
+                    <span className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
+                    <span className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
+                    <span className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
                   </div>
                 </div>
               </div>

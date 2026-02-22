@@ -33,6 +33,7 @@ import { cn } from "@/lib/utils";
 import { LiveActivityPanel } from "@/components/live-activity-panel";
 import { useCurrentRequest } from "@/contexts/CurrentRequestContext";
 import { buildApiUrl, addDevAuthParams } from "@/lib/queryClient";
+import { isDemoMode } from "@/hooks/useDemoMode";
 import InjectionMouldingDemo from "@/components/demos/InjectionMouldingDemo";
 import type { MouldingScenario, FactoryPayload } from "@/components/demos/InjectionMouldingDemo";
 
@@ -228,7 +229,7 @@ export function AgentWorkspace({ className }: AgentWorkspaceProps) {
                 {explainLoading ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <FileText className="w-3 h-3 mr-1" />}
                 {explainLoading ? "Explaining…" : "Explain last run"}
               </Button>
-              {IS_DEV && (
+              {IS_DEV && isDemoMode() && (
                 <>
                   <Button
                     variant="outline"
@@ -262,34 +263,36 @@ export function AgentWorkspace({ className }: AgentWorkspaceProps) {
                 </>
               )}
             </div>
-            {demoStatus && (
+            {IS_DEV && isDemoMode() && demoStatus && (
               <p className="text-xs text-muted-foreground mt-2">{demoStatus}</p>
             )}
-            {proofV2Ids && (
+            {IS_DEV && isDemoMode() && proofV2Ids && (
               <div className="mt-2 text-[10px] font-mono bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded px-2 py-1">
                 <span className="text-emerald-700 dark:text-emerald-300 font-semibold">v2 IDs</span>
                 {" "}crid=<span className="select-all">{proofV2Ids.crid}</span>
                 {" "}runId=<span className="select-all">{proofV2Ids.runId}</span>
               </div>
             )}
-            <div className="mt-3">
-              <InjectionMouldingDemo onRun={(scenario, factory) => {
-                window.dispatchEvent(new CustomEvent("wyshbone-prefill-chat", {
-                  detail: {
-                    message: "run the injection moulding demo",
-                    metadata: {
-                      demo: "injection_moulding",
-                      scenario,
-                      constraints: {
-                        max_scrap_percent: Number(factory.constraints.max_scrap_percent),
+            {IS_DEV && isDemoMode() && (
+              <div className="mt-3">
+                <InjectionMouldingDemo onRun={(scenario, factory) => {
+                  window.dispatchEvent(new CustomEvent("wyshbone-prefill-chat", {
+                    detail: {
+                      message: "run the injection moulding demo",
+                      metadata: {
+                        demo: "injection_moulding",
+                        scenario,
+                        constraints: {
+                          max_scrap_percent: Number(factory.constraints.max_scrap_percent),
+                        },
+                        factory,
                       },
-                      factory,
+                      autoSend: true,
                     },
-                    autoSend: true,
-                  },
-                }));
-              }} />
-            </div>
+                  }));
+                }} />
+              </div>
+            )}
           </CollapsibleContent>
         </Collapsible>
       </div>

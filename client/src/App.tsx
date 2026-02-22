@@ -41,6 +41,7 @@ import { OnboardingTour } from "@/components/onboarding/OnboardingTour";
 import { DemoModeProvider } from "@/contexts/DemoModeContext";
 import { OnboardingWizardProvider, useOnboardingWizard } from "@/contexts/OnboardingWizardContext";
 import { DemoModeBanner } from "@/components/DemoModeBanner";
+import { isDemoMode } from "@/hooks/useDemoMode";
 import { DevBanner } from "@/components/DevBanner";
 import { AgentChatPanel } from "@/components/agent/AgentChatPanel";
 import { LiveActivityPanel } from "@/components/live-activity-panel";
@@ -918,7 +919,7 @@ function RightPanelContent() {
           {explainLoading ? "Explaining…" : "Explain last run"}
         </Button>
       </div>
-      {import.meta.env.DEV && (
+      {import.meta.env.DEV && isDemoMode() && (
         <>
           <div className="flex items-center gap-2 flex-wrap shrink-0">
             <Button
