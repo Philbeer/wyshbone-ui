@@ -290,6 +290,7 @@ export const messages = pgTable("messages", {
   conversationId: text("conversation_id").notNull(),
   role: text("role").notNull(),
   content: text("content").notNull(),
+  metadata: jsonb("metadata"),
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
 }, (table) => ({
   conversationIdIdx: index("messages_conversation_id_idx").on(table.conversationId, table.createdAt),

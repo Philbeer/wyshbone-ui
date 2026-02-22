@@ -120,6 +120,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
   const supervisorClientRequestIdRef = useRef<string | null>(null);
   const supervisorPollRef = useRef<NodeJS.Timeout | null>(null);
   const inFlightSupervisorRunsRef = useRef<Map<string, { runId: string | null; crid: string }>>(new Map());
+  const pendingResultPersistsRef = useRef<Array<{ payload: any; ts: number }>>([]);
 
   // Progress stack for chat status events (Part 2 implementation)
   type ProgressStage = 'ack' | 'classifying' | 'planning' | 'executing' | 'finalising' | 'completed' | 'failed';
@@ -286,6 +287,43 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     return { vs, ce, policySnapshot };
   }
 
+  function persistStructuredResult(payload: any) {
+    const cid = conversationId;
+    if (!cid) {
+      pendingResultPersistsRef.current.push({ payload, ts: Date.now() });
+      return;
+    }
+    try {
+      const persistUrl = addDevAuthParams(buildApiUrl(`/api/conversations/${cid}/result-message`));
+      void fetch(persistUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(payload),
+      }).catch(() => {});
+    } catch {}
+  }
+
+  useEffect(() => {
+    if (!conversationId) return;
+    const pending = pendingResultPersistsRef.current;
+    if (pending.length === 0) return;
+    const now = Date.now();
+    const items = pending.splice(0, pending.length);
+    for (const item of items) {
+      if (now - item.ts > 60_000) continue;
+      try {
+        const persistUrl = addDevAuthParams(buildApiUrl(`/api/conversations/${conversationId}/result-message`));
+        void fetch(persistUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify(item.payload),
+        }).catch(() => {});
+      } catch {}
+    }
+  }, [conversationId]);
+
   // Poll for delivery_summary when waiting for Supervisor completion
   // Iterates over ALL in-flight runs so back-to-back requests each get their results
   useEffect(() => {
@@ -365,6 +403,15 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
               return updated;
             }
             return [...prev, resultMessage];
+          });
+
+          persistStructuredResult({
+            messageId: resultMessage.id,
+            runId: runId || null,
+            deliverySummary: parsed,
+            verificationSummary: vs || null,
+            constraintsExtracted: ce || null,
+            policySnapshot: policySnapshot || null,
           });
 
           runsMap.delete(key);
@@ -540,6 +587,16 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                   }
                   return [...prev, resultMessage];
                 });
+
+                persistStructuredResult({
+                  messageId: resultMessage.id,
+                  runId: effectiveRunId || null,
+                  deliverySummary: parsed,
+                  verificationSummary: vs || null,
+                  constraintsExtracted: ce || null,
+                  policySnapshot: policySnapshot || null,
+                });
+
                 return true;
               }
             }
@@ -672,12 +729,24 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         const response = await authedFetch(`/api/debug/conversations/${storedConversationId}/messages`);
         if (response.ok) {
           const data = await response.json();
-          const historicalMessages: Message[] = data.messages.map((msg: any) => ({
-            id: msg.id,
-            role: msg.role,
-            content: msg.content,
-            timestamp: new Date(msg.createdAt),
-          }));
+          const historicalMessages: Message[] = data.messages.map((msg: any) => {
+            const base: Message = {
+              id: msg.id,
+              role: msg.role,
+              content: msg.content,
+              timestamp: new Date(msg.createdAt),
+            };
+            const meta = msg.metadata;
+            if (meta && typeof meta === 'object' && meta.type === 'structured_result' && meta.deliverySummary) {
+              base.source = 'supervisor';
+              base.deliverySummary = meta.deliverySummary;
+              base.verificationSummary = meta.verificationSummary || null;
+              base.constraintsExtracted = meta.constraintsExtracted || null;
+              base.policySnapshot = meta.policySnapshot || null;
+              base.runId = meta.runId || null;
+            }
+            return base;
+          });
           if (historicalMessages.length > 0) {
             historicalMessages.forEach((m) => {
               if (m.id?.startsWith('ds-')) {
@@ -865,12 +934,24 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
           const response = await authedFetch(`/api/conversations/${newConversationId}/messages`);
           if (response.ok) {
             const messages = await response.json();
-            const loadedMessages: DisplayMessage[] = messages.map((msg: any) => ({
-              id: msg.id,
-              role: msg.role as "user" | "assistant" | "system",
-              content: msg.content,
-              timestamp: new Date(msg.createdAt),
-            }));
+            const loadedMessages: DisplayMessage[] = messages.map((msg: any) => {
+              const base: any = {
+                id: msg.id,
+                role: msg.role as "user" | "assistant" | "system",
+                content: msg.content,
+                timestamp: new Date(msg.createdAt),
+              };
+              const meta = msg.metadata;
+              if (meta && typeof meta === 'object' && meta.type === 'structured_result' && meta.deliverySummary) {
+                base.source = 'supervisor';
+                base.deliverySummary = meta.deliverySummary;
+                base.verificationSummary = meta.verificationSummary || null;
+                base.constraintsExtracted = meta.constraintsExtracted || null;
+                base.policySnapshot = meta.policySnapshot || null;
+                base.runId = meta.runId || null;
+              }
+              return base;
+            });
             setMessages(loadedMessages);
             hasLoadedHistoryRef.current = true;
             console.log(`📜 Loaded ${loadedMessages.length} messages from conversation ${newConversationId}`);

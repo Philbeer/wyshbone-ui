@@ -1677,7 +1677,12 @@ export async function runStartupMigrations(): Promise<void> {
       CREATE INDEX IF NOT EXISTS telemetry_events_event_type_idx ON public.telemetry_events(event_type);
     `;
 
-    console.log('✅ Startup migrations completed - org system, oauth_states, AFR correlation, supervisor_tasks linking, and telemetry_events ensured');
+    await queryClient`
+      ALTER TABLE public.messages
+      ADD COLUMN IF NOT EXISTS metadata JSONB;
+    `;
+
+    console.log('✅ Startup migrations completed - org system, oauth_states, AFR correlation, supervisor_tasks linking, telemetry_events, and messages metadata ensured');
   } catch (error: any) {
     // Only log if it's not a "column already exists" error
     if (error?.code !== '42701') { // 42701 = duplicate_column

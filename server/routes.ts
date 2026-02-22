@@ -8,6 +8,7 @@ import {
   maybeSummarize,
   getOrCreateConversation,
   saveMessage,
+  saveStructuredResultMessage,
   loadConversationHistory,
   extractAndSaveFacts,
   buildContextWithFacts,
@@ -1915,6 +1916,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(messages);
     } catch (error: any) {
       console.error("Error fetching messages:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/conversations/:id/result-message", async (req, res) => {
+    try {
+      const auth = await getAuthenticatedUserId(req);
+      if (!auth) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+
+      const { id: conversationId } = req.params;
+      const { messageId, runId, deliverySummary, verificationSummary, constraintsExtracted, policySnapshot } = req.body;
+
+      if (!messageId || !deliverySummary) {
+        return res.status(400).json({ error: "messageId and deliverySummary are required" });
+      }
+
+      const conversation = await storage.getConversation(conversationId);
+      if (!conversation) {
+        return res.status(404).json({ error: "Conversation not found" });
+      }
+      if (conversation.userId !== auth.userId) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+
+      const metadata = {
+        type: 'structured_result',
+        runId: runId || null,
+        deliverySummary,
+        verificationSummary: verificationSummary || null,
+        constraintsExtracted: constraintsExtracted || null,
+        policySnapshot: policySnapshot || null,
+      };
+
+      await saveStructuredResultMessage(conversationId, messageId, metadata);
+      res.json({ ok: true });
+    } catch (error: any) {
+      if (error?.message?.includes('duplicate key') || error?.code === '23505') {
+        return res.json({ ok: true, deduplicated: true });
+      }
+      console.error("Error saving structured result:", error);
       res.status(500).json({ error: error.message });
     }
   });

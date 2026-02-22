@@ -280,13 +280,30 @@ export async function updateConversationLabel(
 export async function saveMessage(
   conversationId: string,
   role: "user" | "assistant" | "system",
-  content: string
+  content: string,
+  metadata?: Record<string, any> | null
 ): Promise<void> {
   await storage.createMessage({
     id: randomUUID(),
     conversationId,
     role,
     content,
+    metadata: metadata || null,
+    createdAt: Date.now(),
+  });
+}
+
+export async function saveStructuredResultMessage(
+  conversationId: string,
+  messageId: string,
+  metadata: Record<string, any>
+): Promise<void> {
+  await storage.createMessage({
+    id: messageId,
+    conversationId,
+    role: "assistant",
+    content: "",
+    metadata,
     createdAt: Date.now(),
   });
 }
