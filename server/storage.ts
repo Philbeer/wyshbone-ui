@@ -1677,18 +1677,24 @@ export async function runStartupMigrations(): Promise<void> {
       CREATE INDEX IF NOT EXISTS telemetry_events_event_type_idx ON public.telemetry_events(event_type);
     `;
 
+    console.log('✅ Startup migrations completed - org system, oauth_states, AFR correlation, supervisor_tasks linking, telemetry_events ensured');
+  } catch (error: any) {
+    if (error?.code !== '42701') {
+      console.error('⚠️ Startup migration error (non-fatal):', error?.message || error);
+    } else {
+      console.log('✅ Startup migrations completed - columns already exist');
+    }
+  }
+
+  try {
     await queryClient`
       ALTER TABLE public.messages
       ADD COLUMN IF NOT EXISTS metadata JSONB;
     `;
-
-    console.log('✅ Startup migrations completed - org system, oauth_states, AFR correlation, supervisor_tasks linking, telemetry_events, and messages metadata ensured');
+    console.log('✅ Messages metadata column ensured');
   } catch (error: any) {
-    // Only log if it's not a "column already exists" error
-    if (error?.code !== '42701') { // 42701 = duplicate_column
-      console.error('⚠️ Startup migration error (non-fatal):', error?.message || error);
-    } else {
-      console.log('✅ Startup migrations completed - columns already exist');
+    if (error?.code !== '42701') {
+      console.error('⚠️ Messages metadata migration error (non-fatal):', error?.message || error);
     }
   }
 }
