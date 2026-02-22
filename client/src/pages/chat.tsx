@@ -34,6 +34,8 @@ import type { VerificationSummaryPayload, ConstraintsExtractedPayload } from "@/
 import RunResultBubble from "@/components/results/RunResultBubble";
 import { resolveCanonicalStatus, STATUS_CONFIG } from "@/utils/deliveryStatus";
 
+type PolicyLine = { text: string; why?: string | null };
+
 type Message = ChatMessage & {
   id: string;
   timestamp: Date;
@@ -41,6 +43,7 @@ type Message = ChatMessage & {
   deliverySummary?: DeliverySummary | null;
   verificationSummary?: VerificationSummaryPayload | null;
   constraintsExtracted?: ConstraintsExtractedPayload | null;
+  policiesApplied?: PolicyLine[];
   runId?: string | null;
   hidden?: boolean;
 };
@@ -236,10 +239,12 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
   function parseSiblingArtefacts(rows: any[]): {
     vs: VerificationSummaryPayload | null;
     ce: ConstraintsExtractedPayload | null;
+    policies: PolicyLine[];
   } {
     let vs: VerificationSummaryPayload | null = null;
     let ce: ConstraintsExtractedPayload | null = null;
-    if (!Array.isArray(rows)) return { vs, ce };
+    let policies: PolicyLine[] = [];
+    if (!Array.isArray(rows)) return { vs, ce, policies };
     for (const row of rows) {
       if (row.type === 'verification_summary') {
         let p = row.payload_json;
@@ -251,8 +256,22 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         if (typeof p === 'string') { try { p = JSON.parse(p); } catch { p = null; } }
         if (p && typeof p === 'object') ce = p as ConstraintsExtractedPayload;
       }
+      if (policies.length < 3 && (row.type === 'decision_log' || row.type === 'policy_applications')) {
+        let p = row.payload_json;
+        if (typeof p === 'string') { try { p = JSON.parse(p); } catch { p = null; } }
+        if (p && typeof p === 'object') {
+          const items = Array.isArray((p as any).policies) ? (p as any).policies : Array.isArray(p) ? p : [];
+          for (const item of items) {
+            if (policies.length >= 3) break;
+            policies.push({
+              text: item.text || item.rule_text || item.description || String(item),
+              why: item.why || item.reason || null,
+            });
+          }
+        }
+      }
     }
-    return { vs, ce };
+    return { vs, ce, policies };
   }
 
   // Poll for delivery_summary when waiting for Supervisor completion
@@ -305,7 +324,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
           }
           if (!parsed || typeof parsed !== 'object') continue;
 
-          const { vs, ce } = parseSiblingArtefacts(rows);
+          const { vs, ce, policies } = parseSiblingArtefacts(rows);
 
           const effectiveId = runId || crid;
           if (process.env.NODE_ENV === 'development') {
@@ -323,6 +342,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
             deliverySummary: parsed as DeliverySummary,
             verificationSummary: vs,
             constraintsExtracted: ce,
+            policiesApplied: policies.length > 0 ? policies : undefined,
             runId: runId || undefined,
           };
           setMessages((prev) => {
@@ -481,7 +501,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                 try { parsed = JSON.parse(parsed); } catch {}
               }
               if (parsed && typeof parsed === 'object') {
-                const { vs, ce } = parseSiblingArtefacts(rows);
+                const { vs, ce, policies } = parseSiblingArtefacts(rows);
                 const effectiveRunId = msgRunId || supervisorRunIdRef.current || lookupId;
                 console.log('[Chat] delivery_summary found via realtime callback for run:', effectiveRunId);
 
@@ -496,6 +516,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                   deliverySummary: parsed as DeliverySummary,
                   verificationSummary: vs,
                   constraintsExtracted: ce,
+                  policiesApplied: policies.length > 0 ? policies : undefined,
                   runId: effectiveRunId,
                 };
                 setMessages((prev) => {
@@ -1809,6 +1830,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                           verificationSummary={chatMessage.verificationSummary}
                           constraintsExtracted={chatMessage.constraintsExtracted}
                           runId={chatMessage.runId}
+                          policiesApplied={chatMessage.policiesApplied}
                         />
                       </div>
                       <span className="text-xs text-muted-foreground mt-1">

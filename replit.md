@@ -38,6 +38,7 @@ The user interface adheres to Material Design principles, featuring a dark mode,
 - **User Results View (`UserResultsView`):** Standalone component rendering run outcomes from a single `delivery_summary` object, displaying canonical delivery status (PASS/PARTIAL/STOP), counts, and feedback buttons.
 - **What Was Learned Panel (`WhatWasLearnedPanel`):** Component displaying insights from `RuleUpdate` data in user-facing language.
 - **CVL V1 Artefact Renderers:** Five new artefact types rendered in LiveActivityPanel: `constraints_extracted`, `constraint_capability_check`, `verification_summary`, `verification_evidence`, `lead_verification`.
+- **Learning Layer v1 (Telemetry + Policies UI):** Fire-and-forget telemetry system (`POST /api/telemetry`) emitting user interaction events (accept_results, retry_same_constraints, widen_area_clicked, best_effort_clicked, export_csv, copy_contact, mark_wrong) linked to run_id. Results view displays applied policies in a "Learning" section (1-3 lines) with expandable "Why" detail, sourced from `decision_log`/`policy_applications` artefacts.
 - **Tower Analytics Integration:** Comprehensive logging for all chat interactions using a unified runId system.
 - **Hacker News Discovery:** Feature for finding relevant Hacker News discussions, offering AI-powered draft reply generation and relevance scoring.
 - **Delivery Management System:** Mobile-first Driver UI with role-based access control.

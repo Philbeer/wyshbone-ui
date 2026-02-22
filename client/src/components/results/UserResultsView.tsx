@@ -1,10 +1,11 @@
 import { useState } from "react";
-import { MapPin, Phone, Globe, Info, CheckCircle2, CircleDot, OctagonX, HelpCircle, ThumbsUp, RotateCcw, X, Download, Loader2 } from "lucide-react";
+import { MapPin, Phone, Globe, Info, CheckCircle2, CircleDot, OctagonX, HelpCircle, ThumbsUp, RotateCcw, X, Download, Loader2, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { ConstraintsSectionInline, VerificationSectionInline } from "@/components/results/CvlArtefactViews";
 import { resolveCanonicalStatus, STATUS_CONFIG, type CanonicalStatus, type StopReason } from "@/utils/deliveryStatus";
 import { acceptResult, retryGoal, abandonGoal, exportData } from "@/api/feedbackClient";
+import { emitTelemetry, type TelemetryEventType } from "@/api/telemetryClient";
 import { WhatWasLearnedPanel } from "@/components/results/WhatWasLearnedPanel";
 import type { RuleUpdate } from "@/types/afr";
 
@@ -127,12 +128,29 @@ function NextActionsSection({ suggestedQuestion, shortfall, requestedCount, onCl
 function FeedbackButtons({ goalId, runId }: { goalId?: string | null; runId?: string | null }) {
   const [pending, setPending] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
+  const [showMarkWrong, setShowMarkWrong] = useState(false);
+  const [wrongReason, setWrongReason] = useState("");
+
+  const FEEDBACK_TELEMETRY: Record<string, TelemetryEventType> = {
+    accept: "accept_results",
+    retry: "retry_same_constraints",
+    export: "export_csv",
+  };
 
   const handle = async (action: string, fn: () => Promise<{ ok: boolean; error?: string }>) => {
     setPending(action);
+    const tel = FEEDBACK_TELEMETRY[action];
+    if (tel && runId) emitTelemetry(runId, tel);
     const result = await fn();
     setPending(null);
     if (result.ok) setDone(action);
+  };
+
+  const handleMarkWrong = () => {
+    if (runId) emitTelemetry(runId, "mark_wrong", { reason: wrongReason || "unspecified" });
+    setShowMarkWrong(false);
+    setWrongReason("");
+    setDone("mark_wrong");
   };
 
   if (done) {
@@ -141,6 +159,7 @@ function FeedbackButtons({ goalId, runId }: { goalId?: string | null; runId?: st
       retry: "Retrying...",
       abandon: "Goal abandoned",
       export: "Exported",
+      mark_wrong: "Marked as wrong",
     };
     return (
       <div className="flex items-center gap-2 text-xs text-muted-foreground pt-2">
@@ -170,7 +189,25 @@ function FeedbackButtons({ goalId, runId }: { goalId?: string | null; runId?: st
           {pending === "export" ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Download className="h-3 w-3 mr-1" />}
           Export
         </Button>
+        <Button variant="outline" size="sm" className="text-xs" disabled={!!pending} onClick={() => setShowMarkWrong(!showMarkWrong)}>
+          <AlertTriangle className="h-3 w-3 mr-1" />
+          Mark wrong
+        </Button>
       </div>
+      {showMarkWrong && (
+        <div className="flex items-center gap-2 pt-1">
+          <input
+            type="text"
+            value={wrongReason}
+            onChange={(e) => setWrongReason(e.target.value)}
+            placeholder="Brief reason (optional)"
+            className="flex-1 text-xs border rounded px-2 py-1 bg-background text-foreground placeholder:text-muted-foreground"
+          />
+          <Button variant="default" size="sm" className="text-xs h-7" onClick={handleMarkWrong}>
+            Submit
+          </Button>
+        </div>
+      )}
     </section>
   );
 }

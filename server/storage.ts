@@ -1659,7 +1659,25 @@ export async function runStartupMigrations(): Promise<void> {
       ADD COLUMN IF NOT EXISTS client_request_id TEXT;
     `;
     
-    console.log('✅ Startup migrations completed - org system, oauth_states, AFR correlation, and supervisor_tasks linking columns ensured');
+    await queryClient`
+      CREATE TABLE IF NOT EXISTS public.telemetry_events (
+        id SERIAL PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        event_type TEXT NOT NULL,
+        user_id TEXT,
+        session_id TEXT,
+        payload JSONB,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `;
+    await queryClient`
+      CREATE INDEX IF NOT EXISTS telemetry_events_run_id_idx ON public.telemetry_events(run_id);
+    `;
+    await queryClient`
+      CREATE INDEX IF NOT EXISTS telemetry_events_event_type_idx ON public.telemetry_events(event_type);
+    `;
+
+    console.log('✅ Startup migrations completed - org system, oauth_states, AFR correlation, supervisor_tasks linking, and telemetry_events ensured');
   } catch (error: any) {
     // Only log if it's not a "column already exists" error
     if (error?.code !== '42701') { // 42701 = duplicate_column

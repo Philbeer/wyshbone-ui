@@ -1,15 +1,23 @@
-import { MapPin, Phone, Globe, CheckCircle2, CircleDot, OctagonX, HelpCircle, AlertTriangle } from "lucide-react";
+import { useState } from "react";
+import { MapPin, Phone, Globe, CheckCircle2, CircleDot, OctagonX, HelpCircle, AlertTriangle, ChevronDown, ChevronRight, BookOpen, Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { resolveCanonicalStatus, type CanonicalStatus } from "@/utils/deliveryStatus";
 import type { DeliverySummary, DeliveryLead } from "@/components/results/UserResultsView";
 import type { VerificationSummaryPayload, ConstraintsExtractedPayload } from "@/components/results/CvlArtefactViews";
+import { emitTelemetry, type TelemetryEventType } from "@/api/telemetryClient";
+
+export interface PolicyLine {
+  text: string;
+  why?: string | null;
+}
 
 export interface RunResultBubbleProps {
   deliverySummary: DeliverySummary;
   verificationSummary?: VerificationSummaryPayload | null;
   constraintsExtracted?: ConstraintsExtractedPayload | null;
   runId?: string | null;
+  policiesApplied?: PolicyLine[];
 }
 
 function dispatchFollowUp(params: {
@@ -162,19 +170,28 @@ function LeadBadge({ isVerified, unverifiableAttr }: { isVerified: boolean; unve
   );
 }
 
-function LeadRow({ lead, isVerified, unverifiableAttr }: { lead: DeliveryLead; isVerified: boolean; unverifiableAttr: string | null }) {
+function LeadRow({ lead, isVerified, unverifiableAttr, runId }: { lead: DeliveryLead; isVerified: boolean; unverifiableAttr: string | null; runId?: string | null }) {
   const area = lead.location || "";
   const placeId = (lead as any).place_id || (lead as any).placeId;
   const mapsLink = placeId
     ? `https://www.google.com/maps/place/?q=place_id:${placeId}`
     : null;
 
+  const handleCopy = () => {
+    const parts = [lead.name, area, lead.phone, lead.website].filter(Boolean);
+    navigator.clipboard.writeText(parts.join(" | ")).catch(() => {});
+    if (runId) emitTelemetry(runId, "copy_contact", { leadName: lead.name });
+  };
+
   return (
-    <div className="flex items-start gap-3 py-2.5 border-b border-border/50 last:border-0">
+    <div className="flex items-start gap-3 py-2.5 border-b border-border/50 last:border-0 group">
       <div className="flex-1 min-w-0 space-y-1">
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-sm font-semibold text-foreground truncate">{lead.name || "Unknown"}</span>
           <LeadBadge isVerified={isVerified} unverifiableAttr={isVerified ? null : unverifiableAttr} />
+          <button onClick={handleCopy} className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded hover:bg-muted" title="Copy contact">
+            <Copy className="h-3 w-3 text-muted-foreground" />
+          </button>
         </div>
         {area && (
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -253,6 +270,11 @@ function NextActionButtons({
 
   if (actions.length === 0) return null;
 
+  const ACTION_TELEMETRY: Record<string, TelemetryEventType> = {
+    widen_search: "widen_area_clicked",
+    return_best_effort: "best_effort_clicked",
+  };
+
   return (
     <div className="flex flex-wrap gap-2 pt-2">
       {actions.map((a, i) => (
@@ -261,18 +283,55 @@ function NextActionButtons({
           variant="outline"
           size="sm"
           className="text-xs h-7"
-          onClick={() =>
+          onClick={() => {
+            const tel = ACTION_TELEMETRY[a.actionType];
+            if (tel && runId) emitTelemetry(runId, tel, { actionType: a.actionType });
             dispatchFollowUp({
               message: a.message,
               parentRunId: runId,
               actionType: a.actionType,
               actionPayload: a.actionPayload,
-            })
-          }
+            });
+          }}
         >
           {a.label}
         </Button>
       ))}
+    </div>
+  );
+}
+
+function LearningSection({ policies }: { policies: PolicyLine[] }) {
+  const [expanded, setExpanded] = useState<number | null>(null);
+  if (!policies || policies.length === 0) return null;
+
+  const shown = policies.slice(0, 3);
+
+  return (
+    <div className="space-y-1.5 pt-1">
+      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+        <BookOpen className="h-3 w-3" />
+        Policies applied
+      </h4>
+      <div className="space-y-1">
+        {shown.map((p, i) => (
+          <div key={i} className="text-xs text-foreground/80 leading-snug">
+            <span>{p.text}</span>
+            {p.why && (
+              <button
+                className="ml-1.5 inline-flex items-center gap-0.5 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+                onClick={() => setExpanded(expanded === i ? null : i)}
+              >
+                {expanded === i ? <ChevronDown className="h-2.5 w-2.5" /> : <ChevronRight className="h-2.5 w-2.5" />}
+                Why
+              </button>
+            )}
+            {expanded === i && p.why && (
+              <p className="text-[11px] text-muted-foreground mt-0.5 ml-3 leading-snug">{p.why}</p>
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -282,6 +341,7 @@ export default function RunResultBubble({
   verificationSummary,
   constraintsExtracted,
   runId,
+  policiesApplied,
 }: RunResultBubbleProps) {
   const verifiedExact = resolveVerifiedCount(deliverySummary, verificationSummary);
   const target = resolveHasTargetCount(deliverySummary, constraintsExtracted);
@@ -321,7 +381,7 @@ export default function RunResultBubble({
           <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Matches</h4>
           <div>
             {exact.map((lead, i) => (
-              <LeadRow key={i} lead={lead} isVerified={true} unverifiableAttr={null} />
+              <LeadRow key={i} lead={lead} isVerified={true} unverifiableAttr={null} runId={runId} />
             ))}
           </div>
         </div>
@@ -332,7 +392,7 @@ export default function RunResultBubble({
           <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Matches</h4>
           <div>
             {allLeads.slice(0, verifiedExact).map((lead, i) => (
-              <LeadRow key={i} lead={lead} isVerified={true} unverifiableAttr={null} />
+              <LeadRow key={i} lead={lead} isVerified={true} unverifiableAttr={null} runId={runId} />
             ))}
           </div>
         </div>
@@ -343,7 +403,7 @@ export default function RunResultBubble({
           <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Candidates (not confirmed)</h4>
           <div>
             {closest.map((lead, i) => (
-              <LeadRow key={i} lead={lead} isVerified={false} unverifiableAttr={unverifiableAttr} />
+              <LeadRow key={i} lead={lead} isVerified={false} unverifiableAttr={unverifiableAttr} runId={runId} />
             ))}
           </div>
         </div>
@@ -354,10 +414,14 @@ export default function RunResultBubble({
           <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Candidates (not confirmed)</h4>
           <div>
             {exact.map((lead, i) => (
-              <LeadRow key={i} lead={lead} isVerified={false} unverifiableAttr={unverifiableAttr} />
+              <LeadRow key={i} lead={lead} isVerified={false} unverifiableAttr={unverifiableAttr} runId={runId} />
             ))}
           </div>
         </div>
+      )}
+
+      {policiesApplied && policiesApplied.length > 0 && (
+        <LearningSection policies={policiesApplied} />
       )}
 
       <NextActionButtons ds={deliverySummary} canonical={canonical} runId={runId} />

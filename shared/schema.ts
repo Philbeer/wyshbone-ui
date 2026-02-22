@@ -2737,3 +2737,16 @@ export const entityReviewQueueRelations = relations(entityReviewQueue, ({ one })
     references: [pubsMaster.id],
   }),
 }));
+
+export const telemetryEvents = pgTable("telemetry_events", {
+  id: serial("id").primaryKey(),
+  runId: text("run_id").notNull(),
+  eventType: text("event_type").notNull(),
+  userId: text("user_id"),
+  sessionId: text("session_id"),
+  payload: jsonb("payload"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  index("telemetry_events_run_id_idx").on(table.runId),
+  index("telemetry_events_event_type_idx").on(table.eventType),
+]);

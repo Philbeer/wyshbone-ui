@@ -59,6 +59,7 @@ import { adminRoutes } from "./routes/admin";
 import { orgRoutes } from "./routes/org";
 import { agentActivitiesRouter } from "./routes/agent-activities";
 import { createAfrRouter } from "./routes/afr";
+import { createTelemetryRouter } from "./routes/telemetry";
 import { createProofRouter } from "./routes/proof";
 import { createSupervisorRouter } from "./routes/supervisor";
 import { hashPassword, verifyPassword, generateId, canCreateMonitor, canCreateDeepResearch, TIER_LIMITS } from "./auth";
@@ -4210,6 +4211,8 @@ ${run.outputText}`;
 
   // Register AFR (Agent Flight Recorder) routes - dev inspector API
   app.use("/api/afr", createAfrRouter(storage));
+
+  app.use("/api/telemetry", createTelemetryRouter());
 
   // Register Proof routes - Tower loop proof endpoint
   app.use("/api/proof", createProofRouter(storage));
