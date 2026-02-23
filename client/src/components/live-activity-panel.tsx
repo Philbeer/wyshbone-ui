@@ -3577,8 +3577,6 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
 
   const mappedStatus: OverallStatus = (() => {
     if (userVisibleComplete) {
-      if (towerAware.derivedStatus) return towerAware.derivedStatus;
-      if (stream?.terminal_state) return stream.terminal_state;
       return 'completed';
     }
 
