@@ -14,9 +14,13 @@ export interface AppliedPolicy {
   [key: string]: any;
 }
 
+export const DEFAULT_MAX_REPLANS = 3;
+
 export interface PolicySnapshot {
   why_short: string;
   applied_policies?: AppliedPolicy[];
+  max_replans?: number | null;
+  max_replans_evidence?: string | null;
 }
 
 export interface RunResultBubbleProps {
@@ -311,15 +315,20 @@ function NextActionButtons({
 function LearningSection({ snapshot }: { snapshot: PolicySnapshot }) {
   const [detailsOpen, setDetailsOpen] = useState(false);
 
-  const lines = snapshot.why_short
+  const lines = (snapshot.why_short || '')
     .split('\n')
     .map(l => l.trim())
     .filter(Boolean)
     .slice(0, 3);
 
-  if (lines.length === 0) return null;
+  const showMaxReplans =
+    snapshot.max_replans != null && snapshot.max_replans !== DEFAULT_MAX_REPLANS;
 
-  const hasDetails = Array.isArray(snapshot.applied_policies) && snapshot.applied_policies.length > 0;
+  if (lines.length === 0 && !showMaxReplans) return null;
+
+  const hasDetails =
+    (Array.isArray(snapshot.applied_policies) && snapshot.applied_policies.length > 0) ||
+    !!snapshot.max_replans_evidence;
 
   return (
     <div className="space-y-1.5 pt-1">
@@ -331,6 +340,11 @@ function LearningSection({ snapshot }: { snapshot: PolicySnapshot }) {
         {lines.map((line, i) => (
           <p key={i} className="text-xs text-foreground/80 leading-snug">{line}</p>
         ))}
+        {showMaxReplans && (
+          <p className="text-xs text-foreground/80 leading-snug">
+            Max replans: {snapshot.max_replans} <span className="text-amber-600 dark:text-amber-400 font-medium">(learned)</span>
+          </p>
+        )}
       </div>
       {hasDetails && (
         <button
@@ -341,14 +355,19 @@ function LearningSection({ snapshot }: { snapshot: PolicySnapshot }) {
           Details
         </button>
       )}
-      {detailsOpen && snapshot.applied_policies && (
+      {detailsOpen && (
         <div className="ml-3 space-y-1 border-l border-border pl-2">
-          {snapshot.applied_policies.map((ap, i) => (
+          {snapshot.applied_policies?.map((ap, i) => (
             <div key={i} className="text-[11px] text-muted-foreground leading-snug">
               {ap.rule_text || ap.policy_id || `Policy ${i + 1}`}
               {ap.source && <span className="ml-1 opacity-60">({ap.source})</span>}
             </div>
           ))}
+          {snapshot.max_replans_evidence && (
+            <div className="text-[11px] text-muted-foreground leading-snug">
+              {snapshot.max_replans_evidence}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -439,7 +458,7 @@ export default function RunResultBubble({
         </div>
       )}
 
-      {policySnapshot && policySnapshot.why_short && (
+      {policySnapshot && (policySnapshot.why_short || (policySnapshot.max_replans != null && policySnapshot.max_replans !== DEFAULT_MAX_REPLANS)) && (
         <LearningSection snapshot={policySnapshot} />
       )}
 

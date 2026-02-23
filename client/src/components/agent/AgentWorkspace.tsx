@@ -37,6 +37,7 @@ import { useCurrentRequest } from "@/contexts/CurrentRequestContext";
 import { buildApiUrl, addDevAuthParams } from "@/lib/queryClient";
 import { isDemoMode } from "@/hooks/useDemoMode";
 import type { PolicySnapshot } from "@/components/results/RunResultBubble";
+import { DEFAULT_MAX_REPLANS } from "@/components/results/RunResultBubble";
 import InjectionMouldingDemo from "@/components/demos/InjectionMouldingDemo";
 import type { MouldingScenario, FactoryPayload } from "@/components/demos/InjectionMouldingDemo";
 
@@ -469,7 +470,11 @@ function ExplainRunModal({
   const policyLines = policySnapshot?.why_short
     ? policySnapshot.why_short.split('\n').map(l => l.trim()).filter(Boolean).slice(0, 3)
     : [];
-  const hasDetails = Array.isArray(policySnapshot?.applied_policies) && policySnapshot!.applied_policies!.length > 0;
+  const showMaxReplans =
+    policySnapshot?.max_replans != null && policySnapshot.max_replans !== DEFAULT_MAX_REPLANS;
+  const hasDetails =
+    (Array.isArray(policySnapshot?.applied_policies) && policySnapshot!.applied_policies!.length > 0) ||
+    !!policySnapshot?.max_replans_evidence;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -519,7 +524,7 @@ function ExplainRunModal({
           </div>
         )}
 
-        {policyLines.length > 0 && !loading && (
+        {(policyLines.length > 0 || showMaxReplans) && !loading && (
           <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/30 p-3 space-y-1.5">
             <h4 className="text-xs font-semibold text-amber-700 dark:text-amber-300 uppercase tracking-wide flex items-center gap-1.5">
               <BookOpen className="h-3 w-3" />
@@ -529,6 +534,11 @@ function ExplainRunModal({
               {policyLines.map((line, i) => (
                 <p key={i} className="text-xs text-foreground/80 leading-snug">{line}</p>
               ))}
+              {showMaxReplans && (
+                <p className="text-xs text-foreground/80 leading-snug">
+                  Max replans: {policySnapshot!.max_replans} <span className="text-amber-600 dark:text-amber-400 font-medium">(learned)</span>
+                </p>
+              )}
             </div>
             {hasDetails && (
               <button
@@ -539,14 +549,19 @@ function ExplainRunModal({
                 Details
               </button>
             )}
-            {detailsOpen && policySnapshot?.applied_policies && (
+            {detailsOpen && (
               <div className="ml-3 space-y-1 border-l border-amber-300 dark:border-amber-700 pl-2">
-                {policySnapshot.applied_policies.map((ap, i) => (
+                {policySnapshot?.applied_policies?.map((ap, i) => (
                   <div key={i} className="text-[11px] text-muted-foreground leading-snug">
                     {ap.rule_text || ap.policy_id || `Policy ${i + 1}`}
                     {ap.source && <span className="ml-1 opacity-60">({ap.source})</span>}
                   </div>
                 ))}
+                {policySnapshot?.max_replans_evidence && (
+                  <div className="text-[11px] text-muted-foreground leading-snug">
+                    {policySnapshot.max_replans_evidence}
+                  </div>
+                )}
               </div>
             )}
           </div>

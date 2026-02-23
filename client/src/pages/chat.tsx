@@ -266,9 +266,12 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         if (p && typeof p === 'object') {
           const paj = (p as any).policies_applied_json ?? p;
           if (paj && typeof paj === 'object' && typeof paj.why_short === 'string') {
+            const stopPolicy = (p as any).stop_policy_v1 ?? (paj as any).stop_policy_v1;
             policySnapshot = {
               why_short: paj.why_short,
               applied_policies: Array.isArray(paj.applied_policies) ? paj.applied_policies : undefined,
+              max_replans: stopPolicy?.max_replans ?? null,
+              max_replans_evidence: stopPolicy?.evidence ?? paj.why_short_max_replans ?? null,
             };
           }
         }
