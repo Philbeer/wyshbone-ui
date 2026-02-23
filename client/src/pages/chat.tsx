@@ -379,9 +379,9 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
           if (!dsRow) {
             const leadsRows = Array.isArray(rows) ? rows.filter((r: any) => r.type === 'leads_list') : [];
             const artefactTypes = Array.isArray(rows) ? rows.map((r: any) => r.type) : [];
-            const runIsTerminal = artefactTypes.includes('tower_judgement') ||
-              artefactTypes.includes('run_summary') ||
-              artefactTypes.includes('delivery_summary');
+            const runIsTerminal = artefactTypes.includes('run_summary') ||
+              artefactTypes.includes('outcome_log') ||
+              artefactTypes.includes('policy_application_snapshot');
 
             if (leadsRows.length > 0) {
               const provisionalLeads: DeliveryLead[] = [];
@@ -402,11 +402,13 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
 
                 if (runIsTerminal) {
                   console.log(`[Chat] Run ${effectiveId} is terminal with ${provisionalLeads.length} leads but no delivery_summary — synthesising final result`);
+                  const hasVs = provVs && typeof provVs === 'object' && (provVs as any).verified_exact_count > 0;
                   const synthesisedDs: DeliverySummary = {
-                    status: provisionalLeads.length > 0 ? 'PASS' : 'STOP',
-                    delivered_exact: provisionalLeads,
-                    delivered_closest: [],
+                    status: hasVs ? 'PASS' : 'STOP',
+                    delivered_exact: hasVs ? provisionalLeads : [],
+                    delivered_closest: hasVs ? [] : provisionalLeads,
                     delivered_count: provisionalLeads.length,
+                    stop_reason: hasVs ? undefined : 'no_delivery_summary',
                   };
 
                   if (effectiveId) deliverySummaryRunIdsRef.current.add(effectiveId);

@@ -3556,7 +3556,24 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
   }, [allEvents, stream?.terminal_state, towerLoopChatMode, polledArtefacts]);
 
   const backendStillRunning = !!(activeClientRequestId && !effectiveTerminal);
-  const isFinalising = userVisibleComplete && backendStillRunning;
+  const [artefactsSaved, setArtefactsSaved] = useState(false);
+
+  useEffect(() => {
+    if (!userVisibleComplete) {
+      setArtefactsSaved(false);
+      return;
+    }
+    if (effectiveTerminal) {
+      setArtefactsSaved(true);
+      return;
+    }
+    const timer = setTimeout(() => {
+      setArtefactsSaved(true);
+    }, 8000);
+    return () => clearTimeout(timer);
+  }, [userVisibleComplete, effectiveTerminal]);
+
+  const isFinalising = userVisibleComplete && backendStillRunning && !artefactsSaved;
 
   const mappedStatus: OverallStatus = (() => {
     if (userVisibleComplete) {
@@ -3842,8 +3859,15 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
 
             {isFinalising && !isWorking && (
               <div className="flex items-center gap-2 py-2 px-1 text-muted-foreground/60">
-                <Package className="h-3 w-3" />
-                <span className="text-[11px]">Finalising run: saving artefacts to database…</span>
+                <Loader2 className="h-3 w-3 animate-spin" />
+                <span className="text-[11px]">Saving artefacts to database…</span>
+              </div>
+            )}
+
+            {userVisibleComplete && artefactsSaved && !isWorking && (
+              <div className="flex items-center gap-2 py-2 px-1 text-green-600 dark:text-green-400">
+                <CheckCircle2 className="h-3.5 w-3.5" />
+                <span className="text-[11px] font-medium">Run complete — artefacts saved</span>
               </div>
             )}
             
