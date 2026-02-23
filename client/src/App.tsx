@@ -991,9 +991,11 @@ function RightPanelContent() {
           </div>
         </div>
       )}
-      {(() => {
-        return <LiveActivityPanel key={resolvedId ?? 'none'} activeClientRequestId={resolvedId} />;
-      })()}
+      <div className="flex-1 min-h-0 flex flex-col">
+        {(() => {
+          return <LiveActivityPanel key={resolvedId ?? 'none'} activeClientRequestId={resolvedId} />;
+        })()}
+      </div>
 
       <Dialog open={explainOpen} onOpenChange={setExplainOpen}>
         <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
