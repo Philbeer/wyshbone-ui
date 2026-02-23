@@ -378,6 +378,11 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
 
           if (!dsRow) {
             const leadsRows = Array.isArray(rows) ? rows.filter((r: any) => r.type === 'leads_list') : [];
+            const artefactTypes = Array.isArray(rows) ? rows.map((r: any) => r.type) : [];
+            const runIsTerminal = artefactTypes.includes('tower_judgement') ||
+              artefactTypes.includes('run_summary') ||
+              artefactTypes.includes('delivery_summary');
+
             if (leadsRows.length > 0) {
               const provisionalLeads: DeliveryLead[] = [];
               for (const lr of leadsRows) {
@@ -393,36 +398,107 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                 }
               }
               if (provisionalLeads.length > 0) {
-                const { vs: provVs, ce: provCe } = parseSiblingArtefacts(rows);
-                const provisionalDs: DeliverySummary = {
-                  status: null,
-                  delivered_exact: provisionalLeads,
-                  delivered_closest: [],
-                  delivered_count: provisionalLeads.length,
-                };
-                const provMsg: Message = {
-                  id: `ds-${effectiveId}`,
-                  role: 'assistant',
-                  content: '',
-                  timestamp: new Date(),
-                  source: 'supervisor',
-                  deliverySummary: provisionalDs,
-                  verificationSummary: provVs,
-                  constraintsExtracted: provCe,
-                  runId: runId || undefined,
-                  provisional: true,
-                };
-                setMessages((prev) => {
-                  const existingIdx = prev.findIndex(m => m.id === provMsg.id);
-                  if (existingIdx >= 0) {
-                    const updated = [...prev];
-                    updated[existingIdx] = provMsg;
-                    return updated;
+                const { vs: provVs, ce: provCe, policySnapshot: provPs } = parseSiblingArtefacts(rows);
+
+                if (runIsTerminal) {
+                  console.log(`[Chat] Run ${effectiveId} is terminal with ${provisionalLeads.length} leads but no delivery_summary — synthesising final result`);
+                  const synthesisedDs: DeliverySummary = {
+                    status: provisionalLeads.length > 0 ? 'PASS' : 'STOP',
+                    delivered_exact: provisionalLeads,
+                    delivered_closest: [],
+                    delivered_count: provisionalLeads.length,
+                  };
+
+                  if (effectiveId) deliverySummaryRunIdsRef.current.add(effectiveId);
+
+                  window.dispatchEvent(new CustomEvent('wyshbone:results_final', {
+                    detail: { clientRequestId: crid, runId: runId || null },
+                  }));
+
+                  const finalMsg: Message = {
+                    id: `ds-${effectiveId}`,
+                    role: 'assistant',
+                    content: '',
+                    timestamp: new Date(),
+                    source: 'supervisor',
+                    deliverySummary: synthesisedDs,
+                    verificationSummary: provVs,
+                    constraintsExtracted: provCe,
+                    policySnapshot: provPs || undefined,
+                    runId: runId || undefined,
+                    provisional: false,
+                  };
+                  setMessages((prev) => {
+                    const existingIdx = prev.findIndex(m => m.id === finalMsg.id);
+                    if (existingIdx >= 0) {
+                      const updated = [...prev];
+                      updated[existingIdx] = finalMsg;
+                      return updated;
+                    }
+                    return [...prev, finalMsg];
+                  });
+
+                  persistStructuredResult({
+                    messageId: finalMsg.id,
+                    runId: runId || null,
+                    deliverySummary: synthesisedDs,
+                    verificationSummary: provVs || null,
+                    constraintsExtracted: provCe || null,
+                    policySnapshot: provPs || null,
+                  });
+
+                  runsMap.delete(key);
+
+                  if (runsMap.size === 0) {
+                    setIsWaitingForSupervisor(false);
+                    setSupervisorTaskId(null);
+                    supervisorRunIdRef.current = null;
+                    supervisorClientRequestIdRef.current = null;
+                    if (supervisorTimeoutRef.current) {
+                      clearTimeout(supervisorTimeoutRef.current);
+                      supervisorTimeoutRef.current = null;
+                    }
+                    if (supervisorPollRef.current) {
+                      clearInterval(supervisorPollRef.current);
+                      supervisorPollRef.current = null;
+                    }
                   }
-                  return [...prev, provMsg];
-                });
-                if (process.env.NODE_ENV === 'development') {
-                  console.log(`[Chat] Provisional bubble for run ${effectiveId}: ${provisionalLeads.length} leads`);
+
+                  toast({
+                    title: "Results ready",
+                    description: "Your results are now available in the chat.",
+                  });
+                } else {
+                  const provisionalDs: DeliverySummary = {
+                    status: null,
+                    delivered_exact: provisionalLeads,
+                    delivered_closest: [],
+                    delivered_count: provisionalLeads.length,
+                  };
+                  const provMsg: Message = {
+                    id: `ds-${effectiveId}`,
+                    role: 'assistant',
+                    content: '',
+                    timestamp: new Date(),
+                    source: 'supervisor',
+                    deliverySummary: provisionalDs,
+                    verificationSummary: provVs,
+                    constraintsExtracted: provCe,
+                    runId: runId || undefined,
+                    provisional: true,
+                  };
+                  setMessages((prev) => {
+                    const existingIdx = prev.findIndex(m => m.id === provMsg.id);
+                    if (existingIdx >= 0) {
+                      const updated = [...prev];
+                      updated[existingIdx] = provMsg;
+                      return updated;
+                    }
+                    return [...prev, provMsg];
+                  });
+                  if (process.env.NODE_ENV === 'development') {
+                    console.log(`[Chat] Provisional bubble for run ${effectiveId}: ${provisionalLeads.length} leads`);
+                  }
                 }
               }
             }
@@ -631,6 +707,10 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
 
                 if (effectiveRunId) deliverySummaryRunIdsRef.current.add(effectiveRunId);
 
+                window.dispatchEvent(new CustomEvent('wyshbone:results_final', {
+                  detail: { clientRequestId: supervisorClientRequestIdRef.current, runId: effectiveRunId },
+                }));
+
                 const resultMessage: Message = {
                   id: `ds-${effectiveRunId}`,
                   role: 'assistant',
@@ -642,6 +722,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                   constraintsExtracted: ce,
                   policySnapshot: policySnapshot || undefined,
                   runId: effectiveRunId,
+                  provisional: false,
                 };
                 setMessages((prev) => {
                   const existingIdx = prev.findIndex(m => m.id === resultMessage.id);
