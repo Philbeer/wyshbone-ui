@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { MapPin, Phone, Globe, CheckCircle2, CircleDot, OctagonX, HelpCircle, AlertTriangle, ChevronDown, ChevronRight, BookOpen, Copy } from "lucide-react";
+import { MapPin, Phone, Globe, CheckCircle2, CircleDot, OctagonX, HelpCircle, AlertTriangle, ChevronDown, ChevronRight, BookOpen, Copy, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { resolveCanonicalStatus, type CanonicalStatus } from "@/utils/deliveryStatus";
@@ -29,6 +29,7 @@ export interface RunResultBubbleProps {
   constraintsExtracted?: ConstraintsExtractedPayload | null;
   runId?: string | null;
   policySnapshot?: PolicySnapshot | null;
+  provisional?: boolean;
 }
 
 function dispatchFollowUp(params: {
@@ -380,6 +381,7 @@ export default function RunResultBubble({
   constraintsExtracted,
   runId,
   policySnapshot,
+  provisional = false,
 }: RunResultBubbleProps) {
   const verifiedExact = resolveVerifiedCount(deliverySummary, verificationSummary);
   const target = resolveHasTargetCount(deliverySummary, constraintsExtracted);
@@ -409,12 +411,36 @@ export default function RunResultBubble({
 
   return (
     <div className="space-y-3">
-      <div className="flex items-start gap-2">
-        <StatusIcon className={cn("h-4 w-4 mt-0.5 shrink-0", statusColor)} />
-        <p className="text-sm text-foreground leading-relaxed">{summaryText}</p>
-      </div>
+      {provisional && (
+        <div className="flex items-center gap-2 rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 px-3 py-2">
+          <Loader2 className="h-3.5 w-3.5 animate-spin text-amber-600 dark:text-amber-400 shrink-0" />
+          <p className="text-xs text-amber-700 dark:text-amber-300 font-medium">
+            Checking requirements… results may change
+          </p>
+        </div>
+      )}
 
-      {showExact && (
+      {!provisional && (
+        <div className="flex items-start gap-2">
+          <StatusIcon className={cn("h-4 w-4 mt-0.5 shrink-0", statusColor)} />
+          <p className="text-sm text-foreground leading-relaxed">{summaryText}</p>
+        </div>
+      )}
+
+      {provisional && allLeads.length > 0 && (
+        <div className="space-y-0.5">
+          <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+            Candidates ({allLeads.length} found so far)
+          </h4>
+          <div>
+            {allLeads.map((lead, i) => (
+              <LeadRow key={i} lead={lead} isVerified={false} unverifiableAttr={null} runId={runId} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {!provisional && showExact && (
         <div className="space-y-0.5">
           <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Matches</h4>
           <div>
@@ -425,7 +451,7 @@ export default function RunResultBubble({
         </div>
       )}
 
-      {showVerifiedFromAll && (
+      {!provisional && showVerifiedFromAll && (
         <div className="space-y-0.5">
           <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Matches</h4>
           <div>
@@ -436,7 +462,7 @@ export default function RunResultBubble({
         </div>
       )}
 
-      {showCandidates && (
+      {!provisional && showCandidates && (
         <div className="space-y-0.5">
           <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Candidates (not confirmed)</h4>
           <div>
@@ -447,7 +473,7 @@ export default function RunResultBubble({
         </div>
       )}
 
-      {showExactAsCandidates && (
+      {!provisional && showExactAsCandidates && (
         <div className="space-y-0.5">
           <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Candidates (not confirmed)</h4>
           <div>
@@ -458,11 +484,11 @@ export default function RunResultBubble({
         </div>
       )}
 
-      {policySnapshot && (policySnapshot.why_short || (policySnapshot.max_replans != null && policySnapshot.max_replans !== DEFAULT_MAX_REPLANS)) && (
+      {!provisional && policySnapshot && (policySnapshot.why_short || (policySnapshot.max_replans != null && policySnapshot.max_replans !== DEFAULT_MAX_REPLANS)) && (
         <LearningSection snapshot={policySnapshot} />
       )}
 
-      <NextActionButtons ds={deliverySummary} canonical={canonical} runId={runId} />
+      {!provisional && <NextActionButtons ds={deliverySummary} canonical={canonical} runId={runId} />}
     </div>
   );
 }

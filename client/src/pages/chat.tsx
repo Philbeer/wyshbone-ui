@@ -29,7 +29,7 @@ import { WhatJustHappenedPanel } from "@/components/tower/WhatJustHappenedPanel"
 import { useResultsPanel } from "@/contexts/ResultsPanelContext";
 import { useCurrentRequest } from "@/contexts/CurrentRequestContext";
 import UserResultsView from "@/components/results/UserResultsView";
-import type { DeliverySummary } from "@/components/results/UserResultsView";
+import type { DeliverySummary, DeliveryLead } from "@/components/results/UserResultsView";
 import type { VerificationSummaryPayload, ConstraintsExtractedPayload } from "@/components/results/CvlArtefactViews";
 import RunResultBubble from "@/components/results/RunResultBubble";
 import type { PolicySnapshot } from "@/components/results/RunResultBubble";
@@ -45,6 +45,7 @@ type Message = ChatMessage & {
   policySnapshot?: PolicySnapshot | null;
   runId?: string | null;
   hidden?: boolean;
+  provisional?: boolean;
 };
 
 type SystemMessage = {
@@ -372,7 +373,61 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
           if (!res.ok) continue;
           const rows = await res.json();
           const dsRow = Array.isArray(rows) ? rows.find((r: any) => r.type === 'delivery_summary') : null;
-          if (!dsRow) continue;
+
+          const effectiveId = runId || crid;
+
+          if (!dsRow) {
+            const leadsRows = Array.isArray(rows) ? rows.filter((r: any) => r.type === 'leads_list') : [];
+            if (leadsRows.length > 0) {
+              const provisionalLeads: DeliveryLead[] = [];
+              for (const lr of leadsRows) {
+                let lp = lr.payload_json;
+                if (typeof lp === 'string') { try { lp = JSON.parse(lp); } catch { continue; } }
+                if (lp && typeof lp === 'object') {
+                  const items = Array.isArray(lp) ? lp : Array.isArray(lp.leads) ? lp.leads : Array.isArray(lp.results) ? lp.results : [];
+                  for (const item of items) {
+                    if (item && typeof item === 'object' && (item.name || item.location)) {
+                      provisionalLeads.push(item as DeliveryLead);
+                    }
+                  }
+                }
+              }
+              if (provisionalLeads.length > 0) {
+                const { vs: provVs, ce: provCe } = parseSiblingArtefacts(rows);
+                const provisionalDs: DeliverySummary = {
+                  status: null,
+                  delivered_exact: provisionalLeads,
+                  delivered_closest: [],
+                  delivered_count: provisionalLeads.length,
+                };
+                const provMsg: Message = {
+                  id: `ds-${effectiveId}`,
+                  role: 'assistant',
+                  content: '',
+                  timestamp: new Date(),
+                  source: 'supervisor',
+                  deliverySummary: provisionalDs,
+                  verificationSummary: provVs,
+                  constraintsExtracted: provCe,
+                  runId: runId || undefined,
+                  provisional: true,
+                };
+                setMessages((prev) => {
+                  const existingIdx = prev.findIndex(m => m.id === provMsg.id);
+                  if (existingIdx >= 0) {
+                    const updated = [...prev];
+                    updated[existingIdx] = provMsg;
+                    return updated;
+                  }
+                  return [...prev, provMsg];
+                });
+                if (process.env.NODE_ENV === 'development') {
+                  console.log(`[Chat] Provisional bubble for run ${effectiveId}: ${provisionalLeads.length} leads`);
+                }
+              }
+            }
+            continue;
+          }
 
           let parsed = dsRow.payload_json;
           if (typeof parsed === 'string') {
@@ -382,7 +437,6 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
 
           const { vs, ce, policySnapshot } = parseSiblingArtefacts(rows);
 
-          const effectiveId = runId || crid;
           if (process.env.NODE_ENV === 'development') {
             console.log(`[Chat] delivery_summary found for run: ${effectiveId}`);
           }
@@ -400,6 +454,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
             constraintsExtracted: ce,
             policySnapshot: policySnapshot || undefined,
             runId: runId || undefined,
+            provisional: false,
           };
           setMessages((prev) => {
             const existingIdx = prev.findIndex(m => m.id === resultMessage.id);
@@ -1942,6 +1997,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                           constraintsExtracted={chatMessage.constraintsExtracted}
                           runId={chatMessage.runId}
                           policySnapshot={chatMessage.policySnapshot}
+                          provisional={chatMessage.provisional}
                         />
                       </div>
                       <span className="text-xs text-muted-foreground mt-1">
