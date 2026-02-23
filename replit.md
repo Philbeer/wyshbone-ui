@@ -5,17 +5,15 @@ The Wyshbone Chat Agent is an AI-powered assistant designed to enhance business 
 
 ## User Preferences
 I want the agent to focus on practical, UK-focused responses. I want to ensure that any contact information discovered is public and verifiable, with no guessing of private details. I prefer a workflow that prioritizes Wyshbone Global Database as the authoritative source for business discovery. The agent should be able to intelligently decide when to search for new venues versus using cached information and support conversational queries without triggering unnecessary searches. I want the agent to auto-detect and execute Bubble batch workflows based on natural language commands. CRITICAL: The AI must ALWAYS ask for confirmation when making assumptions or combining current input with historical facts/context - chat history and facts serve as background reference, not primary drivers.
-
 CRITICAL DATABASE RULE: ALL database connections MUST use `SUPABASE_DATABASE_URL` directly. NO fallback patterns—Replit's runtime auto-provides `DATABASE_URL` for its built-in Postgres, which conflicts with Supabase. Using `SUPABASE_DATABASE_URL` exclusively avoids this runtime conflict. The app crashes on startup if `SUPABASE_DATABASE_URL` is not set or empty.
 
 ## System Architecture
 The application features a Node.js/Express backend and a React frontend, built with TypeScript, Tailwind CSS, and shadcn/ui, with TanStack Query managing API state. Core AI interactions utilize OpenAI's GPT models. The system supports multi-tenant user isolation with session-based authentication and robust data security.
 
 **2-Lane Chat Architecture:**
-- **CHAT Lane:** GPT-5 streaming with tool calling for conversational responses. All messages POST to `/api/chat`.
+- **CHAT Lane:** GPT-5 streaming with tool calling for conversational responses.
 - **RUN Lane:** Supervisor delegation for lead-finding, deep research, and batch tasks.
-- **Routing:** `server/lib/decideChatMode.ts` uses keyword matching to fork CHAT vs RUN. `detectSupervisorIntent()` gates actual task enqueue.
-- **Client-side:** UI always POSTs to `/api/chat`; server decides the lane.
+- **Routing:** Uses keyword matching to fork CHAT vs RUN; client-side UI always POSTs to `/api/chat`, server decides the lane.
 - **Shared Infrastructure:** Both lanes use a unified execution layer and PostgreSQL for conversation history.
 
 **UI/UX Decisions:**
@@ -28,19 +26,19 @@ The user interface adheres to Material Design principles, featuring a dark mode,
 - **Job Management & Worldwide Location Coverage:** Background job system for global searches, intelligent location resolution, and natural language job creation.
 - **Streaming Responses:** Uses Server-Sent Events (SSE) for real-time AI responses.
 - **Conversational Planning:** GPT-based planner decides whether to search, use cache, or respond.
-- **Deep Research Context Extraction & Auto-Summarize:** Server-side prompt enhancement extracts and validates topics, and GPT-4o automatically summarizes research reports.
+- **Deep Research Context Extraction & Auto-Summarize:** Server-side prompt enhancement and GPT-4o summarization for research reports.
 - **Persistent Memory System:** Database-backed conversation history and knowledge accumulation.
 - **Scheduled Monitors:** Agentic monitoring system for recurring tasks with flexible scheduling, email notifications, and "Smart Summary Mode."
 - **Xero OAuth Integration:** Direct OAuth 2.0 integration for secure Xero accounting connections.
 - **Batch Contact Discovery Pipeline:** Cost-optimized contact finding using multiple external services.
 - **Stripe Subscription System:** Freemium model with paid tiers, managing user subscriptions and usage limits.
-- **Agent Flight Recorder (AFR) & Live Activity Panel:** User-facing system showing real-time decision paths and execution progress via correlation IDs, idempotent run creation, transparent router decision logging, and a unified timeline of events. Includes run lifecycle management and artefact display (leads_list, tower_judgement, run_summary, plan_update, deep_research_result, chat_response, email_drafts, plan_result, delivery_summary). **Activity Panel Truth Boundary:** Two-phase completion model — when the chat results bubble transitions from provisional to final (`wyshbone:results_final` CustomEvent), the Activity Panel immediately shows "Completed" status badge (no more "Executing/Thinking"), while a subtle "Finalising run: saving artefacts to database…" footer appears if the backend is still active. The footer disappears when the run fully completes. `userVisibleComplete` derived state drives this; `isFinalising = userVisibleComplete && backendStillRunning`.
-- **User Results View (`UserResultsView`):** Standalone component rendering run outcomes from a single `delivery_summary` object, displaying canonical delivery status (PASS/PARTIAL/STOP), counts, and feedback buttons.
-- **What Was Learned Panel (`WhatWasLearnedPanel`):** Component displaying insights from `RuleUpdate` data in user-facing language.
+- **Agent Flight Recorder (AFR) & Live Activity Panel:** User-facing system showing real-time decision paths and execution progress via correlation IDs, idempotent run creation, transparent router decision logging, and a unified timeline of events.
+- **User Results View (`UserResultsView`):** Standalone component rendering run outcomes from `delivery_summary` objects.
+- **What Was Learned Panel (`WhatWasLearnedPanel`):** Component displaying insights from `RuleUpdate` data.
 - **CVL V1 Artefact Renderers:** Five new artefact types rendered in LiveActivityPanel: `constraints_extracted`, `constraint_capability_check`, `verification_summary`, `verification_evidence`, `lead_verification`.
-- **Learning Layer v1 (Telemetry + Policies UI):** Fire-and-forget telemetry system (`POST /api/telemetry`) emitting user interaction events (accept_results, retry_same_constraints, widen_area_clicked, best_effort_clicked, export_csv, copy_contact, mark_wrong) linked to run_id. Results view displays applied policies in a "Learning" section (1-3 lines) with expandable "Why" detail, sourced from `decision_log`/`policy_applications` artefacts. **Canonical display source:** `policy_applications.policies_applied_json` only — `decision_log` is no longer parsed for rendering. Learning section shows `why_short` lines (up to 3) with optional expandable "Details" view listing `applied_policies`. Learning section also appears in ExplainRunModal via artefact fetch, with fallback to `plan_update.rules_applied` when canonical artefacts are absent.
-- **RunResultBubble Durability:** Structured results (delivery_summary, verification_summary, constraints_extracted, policy_snapshot) are persisted to the messages table via a JSONB `metadata` column. On page reload, messages with `metadata.type === 'structured_result'` are hydrated back into RunResultBubble components. Persistence uses a `persistStructuredResult()` helper with a pending-buffer that flushes when `conversationId` becomes available, ensuring no data loss even if the conversation ID isn't set when results arrive. Server deduplicates by `messageId`.
-- **Tower Analytics Integration:** Comprehensive logging for all chat interactions using a unified runId system.
+- **Learning Layer v1 (Telemetry + Policies UI):** Fire-and-forget telemetry system for user interaction events linked to `run_id`.
+- **RunResultBubble Durability:** Structured results are persisted to the messages table via a JSONB `metadata` column for hydration on page reload.
+- **Tower Analytics Integration:** Comprehensive logging for all chat interactions using a unified `runId` system.
 - **Hacker News Discovery:** Feature for finding relevant Hacker News discussions, offering AI-powered draft reply generation and relevance scoring.
 - **Delivery Management System:** Mobile-first Driver UI with role-based access control.
 - **Multi-Tenant Organisation System:** Production-grade organisation-based roles system with invite flow and server-side org isolation.
@@ -52,21 +50,22 @@ The user interface adheres to Material Design principles, featuring a dark mode,
 - `runStartupMigrations()` handles schema drift.
 
 **Thin Client Architecture:**
-- **HARD RULE:** UI server must NEVER execute leadgen tools. The ONLY execution path is creating a `supervisor_tasks` row in Supabase.
-- **`assertNoExecutionInUI()` guardrail:** All legacy execution endpoints return 501.
-- **CHAT lane:** Pure GPT-5 streaming with no tools.
-- **RUN lane:** Inserts `supervisor_tasks` row and returns immediately. Supervisor backend handles the full agent loop.
+- The UI server must NEVER execute leadgen tools. The ONLY execution path is creating a `supervisor_tasks` row in Supabase.
+- All legacy execution endpoints return 501.
+- CHAT lane is pure GPT-5 streaming with no tools.
+- RUN lane inserts `supervisor_tasks` row and returns immediately; Supervisor backend handles the full agent loop.
 
 **Supervisor Completion & Delivery Pipeline:**
-- **Supervisor writes artefacts directly.** The UI server does NOT run a completion poller or evaluate Supervisor results. All `delivery_summary`, `verification_summary`, `tower_judgement`, and other artefacts are written by the Supervisor service itself.
-- **Client-side polling:** When `isWaitingForSupervisor=true`, polls `/api/afr/artefacts` for `delivery_summary`. Renders `UserResultsView` inline in chat.
-- **Concurrent run tracking:** `inFlightSupervisorRunsRef` tracks all in-flight supervisor runs to ensure independent rendering of delivery summaries.
-- **Canonical delivery status:** Resolves status from `delivery_summary.status` field, never infers PASS from raw counts.
-- **RunResultBubble (Feb 2026):** Rich result bubble (`client/src/components/results/RunResultBubble.tsx`) rendered inline in chat for RUN lane delivery_summary artefacts. Deterministic templates (no LLM) driven by `delivery_summary` + `verification_summary` + `constraints_extracted` artefacts. Verified count from `verification_summary.verified_exact_count` (fallback to `delivery_summary.verified_exact_count ?? 0`). Target count from `constraints_extracted.requested_count_user` — if "any"/null/undefined, NO TARGET COUNT shown (no "X of Y" or shortfall language). PASS: "I found N results that match"; PARTIAL: shortfall only if target count exists; STOP with verified>0: "I found N results that match"; STOP with candidates: "I found N possible results, but couldn't confirm {attr}"; STOP with none: "couldn't find any matches". Lead rows show name, area, website, Google Maps link, phone (verified only). Badges: "Verified match" (verified_exact_count > 0), "Candidate", or "Not confirmed: {attr}". Section labels: "Matches" for verified, "Candidates (not confirmed)" for unverified — never "Exact matches". Next action buttons dispatch structured metadata `{ follow_up: { parent_run_id, action_type, action_payload } }` on the chat request body, not plain text injection.
-- **Two-State Results Bubble (Provisional → Final):** RunResultBubble has a `provisional` prop. When `true`: shows amber "Checking requirements… results may change" banner with spinner, shows all leads as provisional candidates, hides status badge/summary/learning/next-action buttons. When `false`/undefined: standard final rendering. Provisional bubbles are emitted during supervisor polling when `leads_list` artefacts exist but no `delivery_summary` yet. Same message ID (`ds-{runId}`) ensures in-place transition from provisional to final — no duplicate messages. Provisional results are NOT persisted to the database; only final delivery_summary results are persisted. The `DEFAULT_MAX_REPLANS` constant (3) and `PolicySnapshot.max_replans`/`max_replans_evidence` fields support displaying learned stop-policy changes in the Learning section.
-- **Terminal Run Fallback:** When the polling loop finds `leads_list` but no `delivery_summary`, it checks for truly terminal artefacts (`run_summary`, `outcome_log`, `policy_application_snapshot`) — NOT `tower_judgement` (which appears multiple times during normal execution). If terminal, synthesises a final delivery with unverified leads in `delivered_closest` (STOP status) so they render as "Candidates (not confirmed)".
-- **Activity Panel Completion Lifecycle:** `wyshbone:results_final` CustomEvent sets `userVisibleComplete=true`, which immediately shows "Completed" status. `artefactsSaved` state becomes true when `effectiveTerminal=true` or after 8s timeout. Three-phase footer: (1) "Saving artefacts to database…" spinner while `isFinalising`, (2) green tick "Run complete — artefacts saved" when `artefactsSaved=true`, (3) nothing when no active run.
-- **Supervisor Bubble Suppression Guard:** Prevents contradictory free-text chat bubbles from appearing alongside delivery_summary results by suppressing supervisor free-text bubbles when a delivery_summary is present or expected.
+- Supervisor writes artefacts directly; the UI server does not run a completion poller.
+- Client-side polls `/api/afr/artefacts` for `delivery_summary` when `isWaitingForSupervisor=true`.
+- Rich result bubble (`RunResultBubble`) rendered inline in chat for RUN lane `delivery_summary` artefacts.
+- Two-State Results Bubble: `RunResultBubble` has a `provisional` prop for provisional rendering before final `delivery_summary`.
+- Terminal Run Fallback: Handles terminal conditions by synthesizing a final delivery.
+- Stale Poll Detection: Tracks consecutive polls where artefact count doesn't change to determine run termination.
+- Timeout Provisional Finalisation: Converts stuck provisional bubbles to STOP status.
+- Activity Panel Completion Lifecycle: `wyshbone:results_final` CustomEvent sets `userVisibleComplete=true` for immediate "Completed" status.
+- Late Event Suppression: Freezes Activity Panel event list when `userVisibleComplete=true`.
+- Supervisor Bubble Suppression Guard: Prevents contradictory free-text chat bubbles from appearing with `delivery_summary` results.
 
 **AFR Artefact Ingestion & Retrieval Contract:**
 - **POST `/api/afr/artefacts`**: Persists an artefact.

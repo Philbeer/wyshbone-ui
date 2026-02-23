@@ -1,0 +1,104 @@
+Prompt for UI Replit (diagnose and explain, then propose fix)
+
+You are working in Wyshbone UI.
+
+Context
+
+We introduced “provisional results”:
+
+When leads_list exists but no delivery_summary yet, UI shows a provisional results bubble with banner “Checking requirements… results may change”.
+
+When verification completes, UI should update the same bubble in place to final “Verified / Not verified” view.
+
+We also want a two-phase completion model:
+
+Phase 1 (user-visible completion): stop the Activity Panel, show Completed. User can start a new run.
+
+Phase 2 (background finalisation): show only a small footer like “Finalising run: saving artefacts…” with no spinner.
+
+Current failure
+
+Now the run gets stuck:
+
+Results bubble stays in provisional “Checking requirements…” forever.
+
+Activity Panel stays “Executing”.
+
+It looks like the system found candidates (leads_list exists), but never transitions to final (delivery_summary or terminal stop) or the UI fails to detect it.
+
+Also, previously when we “fake complete” Phase 1, when the real run finishes later the Activity Panel bursts out extra events and shows the old “done” view. That must not happen.
+
+What I need from you first (no code yet)
+
+Give me a clear, step-by-step explanation of the CURRENT UI state machine for one run:
+
+What events/artefacts/messages cause the provisional bubble to appear
+
+What exact condition flips it to final
+
+What exact condition ends the Activity Panel for Phase 1
+
+What exact condition ends Phase 2 footer
+
+For the stuck run scenario, list the top 5 plausible causes, grounded in code:
+
+Example: delivery_summary never arrives and we have no fallback to “terminal stop” conditions
+
+Example: wrong run_id correlation, message id mismatch, findIndex never hits, polling stops, stale closure, etc.
+For each cause: point to the file and the specific logic.
+
+Add temporary debug logging (console only) to prove what’s happening for one run:
+
+log when leads_list seen, log when delivery_summary seen
+
+log current run_id, conversation_id, message_id, “provisional=true/false”
+
+log why we think run is still executing (which condition is true)
+
+Then propose and implement the fix (production-grade)
+
+We need a robust terminal detection for Phase 1 that does NOT require delivery_summary in all cases.
+
+Phase 1 should complete when user-truth cannot change anymore, meaning:
+
+Either delivery_summary has arrived for that run, OR
+
+A terminal stop is known (Tower STOP, or supervisor terminal state), OR
+
+We can deterministically synthesize a final user result from known artefacts (only if truly terminal).
+
+If the backend does not emit delivery_summary on STOP runs, UI must still finalise the bubble (as “Stopped / Not verifiable” etc) instead of staying provisional forever.
+
+Phase 2 should show only the footer while background finalisation continues.
+
+No spinner. No “executing”. No expanding event list after Phase 1.
+
+Critical requirement
+
+Once Phase 1 is completed for a run, the Activity Panel must not “burst out” late events and revert to the old done view. Late events must be routed only to the small footer dev status, not the main panel.
+
+Deliverables
+
+A short written explanation of the bug you found (what was missing or wrong).
+
+The code change implementing:
+
+reliable provisional -> final transition
+
+two-phase completion
+
+suppression of late activity panel expansion after Phase 1
+
+A checklist of manual tests I can run in the browser, including:
+
+A normal PASS run where delivery_summary arrives
+
+A STOP run (hard unverifiable constraint like live music) where delivery_summary might not arrive
+
+Back-to-back runs (two inputs quickly)
+
+Verify that Phase 1 completes quickly and Phase 2 footer clears later
+
+Verify that no late event burst happens after Phase 1
+
+Do not refactor unrelated code. Keep the change minimal and robust.
