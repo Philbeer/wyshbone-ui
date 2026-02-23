@@ -3100,14 +3100,16 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
   const idsMatch = !!(activeClientRequestId && streamRequestId && activeClientRequestId === streamRequestId);
 
   const rawEvents = useMemo(() => stream?.events || [], [stream?.events]);
+  const rawEventsRef = useRef<StreamEvent[]>(rawEvents);
+  rawEventsRef.current = rawEvents;
   const allEvents = rawEvents;
   const frozenDisplayEvents = useMemo(() => {
-    if (userVisibleComplete && frozenEventIdsRef.current != null) {
+    if (userVisibleComplete && frozenEventIdsRef.current != null && frozenEventIdsRef.current.length > 0) {
       const idOrder = frozenEventIdsRef.current;
       const idSet = new Set(idOrder);
       const matched = rawEvents.filter((e: any) => idSet.has(e.id));
       matched.sort((a: any, b: any) => idOrder.indexOf(a.id) - idOrder.indexOf(b.id));
-      return matched;
+      return matched.length > 0 ? matched : rawEvents;
     }
     return rawEvents;
   }, [rawEvents, userVisibleComplete]);
@@ -3277,7 +3279,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
       if (detail?.clientRequestId === activeClientRequestId) {
         if (IS_DEV) console.log('[LiveActivityPanel] User-visible results final for crid:', activeClientRequestId.slice(0, 12));
         setUserVisibleComplete(true);
-        frozenEventIdsRef.current = (stream?.events || []).map((ev: any) => ev.id);
+        frozenEventIdsRef.current = rawEventsRef.current.map((ev) => ev.id);
       }
     };
     window.addEventListener('wyshbone:results_final', handler);

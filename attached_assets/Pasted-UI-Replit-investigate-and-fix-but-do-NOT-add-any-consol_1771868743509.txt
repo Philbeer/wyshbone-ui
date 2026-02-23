@@ -1,0 +1,63 @@
+UI Replit: investigate and fix, but do NOT add any console logs or temp debug code.
+
+We have a reproducible bug:
+
+Chat bubble updates to the final verified results (results_final moment).
+
+At that exact moment, Live Activity panel goes blank and shows “Waiting for first agent action…”, even though the run clearly has events in AFR and the panel was showing “Completed” just before.
+
+What I need from you
+A) Report (facts only)
+
+Exact empty-state condition
+Paste the exact JSX condition that renders:
+“Waiting for first agent action…”
+(the if (...) return <EmptyState> or equivalent), plus the variables it depends on.
+
+What changes at the results_final moment
+Based on the code flow (no new logging):
+Explain exactly which state/derived value is most likely flipping at that moment, from these candidates:
+
+activeClientRequestId becoming null or changing
+
+stream becoming undefined temporarily
+
+rawEvents / stream.events becoming [] temporarily
+
+displayEvents becoming [] because usePacedPlaybackQueue(...) resets when activeClientRequestId changes
+
+effectiveDemoPlayback being enabled accidentally
+
+freeze latch resetting because the useEffect dependency list causes a rerun with stale activeClientRequestId
+
+Tell me which one is happening and why, referencing the exact code lines/blocks you used to conclude it (paste them).
+
+B) Fix (minimal, production-grade)
+
+Implement the smallest safe fix so that:
+
+When results_final happens for the current activeClientRequestId, the Activity panel must not ever fall back to the empty state.
+
+The panel must keep rendering the frozen list (whatever the freeze mechanism is: IDs snapshot or count latch).
+
+Even if stream briefly returns empty/undefined on a poll tick, the UI should keep showing the last known events for that run (no blank flash).
+
+Constraints:
+
+Do not change backend.
+
+No extra logging / dev tools.
+
+Keep behaviour per-run: new run resets cleanly.
+
+C) Paste back exactly
+
+File(s) changed
+
+The exact diff snippets (before/after) for:
+
+empty-state condition
+
+the freeze derivation
+
+any “last known events” latch you add (if you add one)
