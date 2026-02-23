@@ -125,8 +125,6 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
   const supervisorPollRef = useRef<NodeJS.Timeout | null>(null);
   const inFlightSupervisorRunsRef = useRef<Map<string, { runId: string | null; crid: string }>>(new Map());
   const pendingResultPersistsRef = useRef<Array<{ payload: any; ts: number }>>([]);
-  const stalePollCountRef = useRef<Map<string, { count: number; lastArtefactCount: number }>>(new Map());
-  const STALE_POLL_THRESHOLD = 6;
 
   // Progress stack for chat status events (Part 2 implementation)
   type ProgressStage = 'ack' | 'classifying' | 'planning' | 'executing' | 'finalising' | 'completed' | 'failed';
@@ -383,30 +381,13 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
             const artefactTypes = Array.isArray(rows) ? rows.map((r: any) => r.type) : [];
             const artefactCount = Array.isArray(rows) ? rows.length : 0;
 
-            const stalePollKey = effectiveId || key;
-            const prev = stalePollCountRef.current.get(stalePollKey);
-            if (prev && prev.lastArtefactCount === artefactCount) {
-              prev.count += 1;
-            } else {
-              stalePollCountRef.current.set(stalePollKey, { count: 0, lastArtefactCount: artefactCount });
-            }
-            const staleCount = stalePollCountRef.current.get(stalePollKey)?.count ?? 0;
-
-            const hasTowerStop = rows.some?.((r: any) => {
-              if (r.type !== 'tower_judgement') return false;
-              let p = r.payload_json;
-              if (typeof p === 'string') { try { p = JSON.parse(p); } catch { return false; } }
-              const verdict = p?.verdict || p?.decision || p?.action || '';
-              return typeof verdict === 'string' && /stop|fail|abort/i.test(verdict);
-            }) ?? false;
-
-            const runIsTerminal = artefactTypes.includes('run_summary') ||
+            const hasMissionTerminal = artefactTypes.includes('run_summary') ||
               artefactTypes.includes('outcome_log') ||
-              artefactTypes.includes('policy_application_snapshot') ||
-              (hasTowerStop && staleCount >= 2) ||
-              (staleCount >= STALE_POLL_THRESHOLD && artefactCount > 0);
+              artefactTypes.includes('policy_application_snapshot');
 
-            console.log(`[Chat][Poll] run=${(effectiveId || '').slice(0, 12)} artefacts=${artefactCount} types=[${artefactTypes.join(',')}] leads=${leadsRows.length} stale=${staleCount} towerStop=${hasTowerStop} terminal=${runIsTerminal}`);
+            const runIsTerminal = hasMissionTerminal;
+
+            console.log(`[Chat][Poll] run=${(effectiveId || '').slice(0, 12)} artefacts=${artefactCount} types=[${artefactTypes.join(',')}] leads=${leadsRows.length} hasDS=false hasMissionTerminal=${hasMissionTerminal} terminal=${runIsTerminal} reason=${hasMissionTerminal ? artefactTypes.filter(t => ['run_summary','outcome_log','policy_application_snapshot'].includes(t)).join('+') : 'none'}`);
 
             if (leadsRows.length > 0) {
               const provisionalLeads: DeliveryLead[] = [];
@@ -491,8 +472,6 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                     }
                   }
 
-                  stalePollCountRef.current.delete(stalePollKey);
-
                   toast({
                     title: "Results ready",
                     description: "Your results are now available in the chat.",
@@ -530,82 +509,9 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                   }
                 }
               }
-            } else if (runIsTerminal) {
-              console.log(`[Chat] Run ${effectiveId} is terminal with NO leads and no delivery_summary — synthesising empty STOP result`);
-              const { vs: provVs, ce: provCe, policySnapshot: provPs } = parseSiblingArtefacts(rows);
-              const synthesisedDs: DeliverySummary = {
-                status: 'STOP',
-                delivered_exact: [],
-                delivered_closest: [],
-                delivered_count: 0,
-                stop_reason: 'no_results_found',
-              };
-
-              if (effectiveId) deliverySummaryRunIdsRef.current.add(effectiveId);
-
-              window.dispatchEvent(new CustomEvent('wyshbone:results_final', {
-                detail: { clientRequestId: crid, runId: runId || null },
-              }));
-
-              const finalMsg: Message = {
-                id: `ds-${effectiveId}`,
-                role: 'assistant',
-                content: '',
-                timestamp: new Date(),
-                source: 'supervisor',
-                deliverySummary: synthesisedDs,
-                verificationSummary: provVs,
-                constraintsExtracted: provCe,
-                policySnapshot: provPs || undefined,
-                runId: runId || undefined,
-                provisional: false,
-              };
-              setMessages((prev) => {
-                const existingIdx = prev.findIndex(m => m.id === finalMsg.id);
-                if (existingIdx >= 0) {
-                  const updated = [...prev];
-                  updated[existingIdx] = finalMsg;
-                  return updated;
-                }
-                return [...prev, finalMsg];
-              });
-
-              persistStructuredResult({
-                messageId: finalMsg.id,
-                runId: runId || null,
-                deliverySummary: synthesisedDs,
-                verificationSummary: provVs || null,
-                constraintsExtracted: provCe || null,
-                policySnapshot: provPs || null,
-              });
-
-              stalePollCountRef.current.delete(stalePollKey);
-              runsMap.delete(key);
-
-              if (runsMap.size === 0) {
-                setIsWaitingForSupervisor(false);
-                setSupervisorTaskId(null);
-                supervisorRunIdRef.current = null;
-                supervisorClientRequestIdRef.current = null;
-                if (supervisorTimeoutRef.current) {
-                  clearTimeout(supervisorTimeoutRef.current);
-                  supervisorTimeoutRef.current = null;
-                }
-                if (supervisorPollRef.current) {
-                  clearInterval(supervisorPollRef.current);
-                  supervisorPollRef.current = null;
-                }
-              }
-
-              toast({
-                title: "Run stopped",
-                description: "The run ended without finding matches.",
-              });
             }
             continue;
           }
-
-          stalePollCountRef.current.delete(effectiveId || key);
 
           let parsed = dsRow.payload_json;
           if (typeof parsed === 'string') {
@@ -1419,44 +1325,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                   clearTimeout(supervisorTimeoutRef.current);
                 }
                 supervisorTimeoutRef.current = setTimeout(() => {
-                  console.warn('⏱️ Supervisor response timeout - finalising any provisional bubbles');
-                  const stuckRuns = Array.from(inFlightSupervisorRunsRef.current.entries());
-                  for (const [, run] of stuckRuns) {
-                    const eid = run.runId || run.crid;
-                    if (!eid) continue;
-                    setMessages((prev) => {
-                      const msgId = `ds-${eid}`;
-                      const idx = prev.findIndex(m => m.id === msgId && (m as Message).provisional);
-                      if (idx < 0) return prev;
-                      console.log(`[Chat] Timeout: finalising stuck provisional bubble ${msgId}`);
-                      const msg = prev[idx] as Message;
-                      const allLeads = [
-                        ...(msg.deliverySummary?.delivered_exact || []),
-                        ...(msg.deliverySummary?.delivered_closest || []),
-                      ];
-                      const timeoutDs: DeliverySummary = {
-                        status: 'STOP',
-                        delivered_exact: [],
-                        delivered_closest: allLeads,
-                        delivered_count: allLeads.length,
-                        stop_reason: 'timeout',
-                      };
-                      const updated = [...prev];
-                      updated[idx] = {
-                        ...msg,
-                        deliverySummary: timeoutDs,
-                        provisional: false,
-                      };
-
-                      if (eid) deliverySummaryRunIdsRef.current.add(eid);
-                      window.dispatchEvent(new CustomEvent('wyshbone:results_final', {
-                        detail: { clientRequestId: run.crid, runId: run.runId || null },
-                      }));
-
-                      return updated;
-                    });
-                  }
-                  stalePollCountRef.current.clear();
+                  console.warn('⏱️ Supervisor response timeout — clearing waiting state (polling continues via delivery_summary)');
                   inFlightSupervisorRunsRef.current.clear();
                   setIsWaitingForSupervisor(false);
                   setSupervisorTaskId(null);

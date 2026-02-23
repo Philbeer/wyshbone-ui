@@ -60,9 +60,7 @@ The user interface adheres to Material Design principles, featuring a dark mode,
 - Client-side polls `/api/afr/artefacts` for `delivery_summary` when `isWaitingForSupervisor=true`.
 - Rich result bubble (`RunResultBubble`) rendered inline in chat for RUN lane `delivery_summary` artefacts.
 - Two-State Results Bubble: `RunResultBubble` has a `provisional` prop for provisional rendering before final `delivery_summary`.
-- Terminal Run Fallback: Handles terminal conditions by synthesizing a final delivery.
-- Stale Poll Detection: Tracks consecutive polls where artefact count doesn't change to determine run termination.
-- Timeout Provisional Finalisation: Converts stuck provisional bubbles to STOP status.
+- Terminal Run Fallback: When polling finds leads but no delivery_summary, only mission-level artefacts (`run_summary`, `outcome_log`, `policy_application_snapshot`) count as terminal. Step-level `tower_judgement` FAIL/STOP (e.g. captcha) is NOT terminal. No time-based finalisation — provisional bubbles wait for delivery_summary or mission-terminal artefact.
 - Activity Panel Completion Lifecycle: `wyshbone:results_final` CustomEvent sets `userVisibleComplete=true` for immediate "Completed" status.
 - Late Event Suppression: Freezes Activity Panel event list when `userVisibleComplete=true`.
 - Supervisor Bubble Suppression Guard: Prevents contradictory free-text chat bubbles from appearing with `delivery_summary` results.
