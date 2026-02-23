@@ -6,9 +6,9 @@ import { apiRequest, handleApiError } from "@/lib/queryClient";
 import { publishEvent } from "@/lib/events";
 import { getCurrentVerticalId } from "@/contexts/VerticalContext";
 
+// FAST DEV MODE: Use fast polling in development
 const IS_DEV = import.meta.env.MODE === 'development';
-const PLAN_POLL_ACTIVE = IS_DEV ? 500 : 5000;
-const PLAN_POLL_IDLE = IS_DEV ? 5000 : 30000;
+const PLAN_POLL_INTERVAL = IS_DEV ? 500 : 5000; // 500ms in dev, 5s in prod
 
 export interface LeadGenStep {
   id: string;
@@ -49,15 +49,11 @@ export function PlanProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const { setCurrentClientRequestId, setPinnedClientRequestId } = useCurrentRequest();
 
+  // Fetch current plan from backend - expose raw data, no overrides
   const { data: plan, isLoading, error } = useQuery<LeadGenPlan | null>({
     queryKey: ["/api/plan"],
     enabled: !!user,
-    refetchInterval: (query) => {
-      const p = query.state.data;
-      if (p?.status === 'executing' || p?.status === 'approved') return PLAN_POLL_ACTIVE;
-      if (p?.status === 'pending_approval') return PLAN_POLL_ACTIVE;
-      return PLAN_POLL_IDLE;
-    },
+    refetchInterval: PLAN_POLL_INTERVAL, // Fast in dev, slow in prod
     staleTime: IS_DEV ? 200 : 3000,
   });
 

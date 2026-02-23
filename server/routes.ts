@@ -2414,23 +2414,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Get plan for this user (by userId, not sessionId)
       try {
-        const { getPlanByUserId, updatePlanStatus } = await import('./leadgen-plan.js');
+        const { getPlanByUserId } = await import('./leadgen-plan.js');
         const plan = await getPlanByUserId(auth.userId);
 
         if (plan) {
-          if (plan.status === 'executing' && Array.isArray(plan.steps) && plan.steps.length > 0) {
-            const hasRunningStep = plan.steps.some((s: any) => s.stepStatus === 'running');
-            const allStepsTerminal = plan.steps.every((s: any) => s.stepStatus === 'completed' || s.stepStatus === 'failed');
-            const planAgeMs = Date.now() - new Date(plan.createdAt).getTime();
-            const isStale = !hasRunningStep && planAgeMs > 5 * 60 * 1000;
-            if (allStepsTerminal || isStale) {
-              const hasFailed = plan.steps.some((s: any) => s.stepStatus === 'failed');
-              const healedStatus = hasFailed ? 'failed' : 'completed';
-              console.log(`🩹 [PLAN] Auto-healing stale plan ${plan.id}: executing → ${healedStatus} (allTerminal=${allStepsTerminal}, stale=${isStale}, age=${Math.round(planAgeMs/1000)}s)`);
-              await updatePlanStatus(plan.id, healedStatus);
-              plan.status = healedStatus;
-            }
-          }
           console.log(`✅ Returning plan: ${plan.id}, status: ${plan.status}, goal: "${plan.goal}"`);
         } else {
           console.log(`ℹ️ No active plan found for user ${auth.userId}`);
