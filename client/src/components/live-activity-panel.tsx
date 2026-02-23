@@ -2954,7 +2954,7 @@ interface LiveActivityPanelProps {
 const THINKING_THRESHOLD_MS = 200;
 const OVERLAY_DURATION_MS = 0;
 const TERMINAL_STABILITY_MS = 800;
-const DEBUG_TERMINAL = true;
+const DEBUG_TERMINAL = false;
 
 const ACTIVE_STATUSES = ['routing', 'planning', 'executing', 'deep_research', 'running', 'in_progress', 'awaiting_judgement', 'replanning'];
 const TERMINAL_STATUSES = ['completed', 'failed', 'stopped'];
@@ -3093,6 +3093,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
   const autoScrollTimerRef = useRef<number | null>(null);
   const lastAutoScrollRef = useRef(0);
   const fetchAbortRef = useRef<AbortController | null>(null);
+  const fetchInFlightRef = useRef(false);
   
   const streamRequestId = stream?.client_request_id;
   const idsMatch = !!(activeClientRequestId && streamRequestId && activeClientRequestId === streamRequestId);
@@ -3110,29 +3111,31 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
   const allRevealed = displayEvents.length >= frozenDisplayEvents.length;
 
   const fetchStream = useCallback(async () => {
-    if (fetchAbortRef.current) {
-      fetchAbortRef.current.abort();
+    if (!activeClientRequestId) {
+      setStream(null);
+      setLoading(false);
+      return;
     }
+
+    if (fetchInFlightRef.current) {
+      return;
+    }
+    fetchInFlightRef.current = true;
+
     const controller = new AbortController();
     fetchAbortRef.current = controller;
 
     try {
-      if (!activeClientRequestId) {
-        setStream(null);
-        setLoading(false);
-        return;
-      }
-
       const params = new URLSearchParams();
       params.set('client_request_id', activeClientRequestId);
       
-      const response = await fetch(`/api/afr/stream?${params.toString()}`, { signal: controller.signal });
+      params.set('_t', String(Date.now()));
+      const response = await fetch(`/api/afr/stream?${params.toString()}`, { signal: controller.signal, cache: 'no-store' });
       if (!response.ok) {
         throw new Error("Failed to fetch activity stream");
       }
       
       const data: StreamResponse = await response.json();
-
       if (controller.signal.aborted) return;
 
       if (activeClientRequestId && data.client_request_id && data.client_request_id !== activeClientRequestId) {
@@ -3170,10 +3173,14 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
       prevEventCount.current = data.event_count;
 
     } catch (err: any) {
-      if (err?.name === 'AbortError') return;
+      if (err?.name === 'AbortError') {
+        fetchInFlightRef.current = false;
+        return;
+      }
       console.error("[LiveActivityPanel] Fetch error:", err);
       setError("Could not load activity stream.");
     } finally {
+      fetchInFlightRef.current = false;
       setLoading(false);
     }
   }, [user?.id, activeClientRequestId, autoScroll]);
@@ -3363,6 +3370,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
         fetchAbortRef.current.abort();
         fetchAbortRef.current = null;
       }
+      fetchInFlightRef.current = false;
       
       setConfirmedTerminal(false);
       setShowThinking(false);

@@ -952,6 +952,10 @@ export function createAfrRouter(_storage: typeof storage) {
         });
       }
 
+      res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+      res.set('Pragma', 'no-cache');
+      res.set('Expires', '0');
+      res.removeHeader('ETag');
       res.json({
         client_request_id: effectiveClientRequestId || null,
         title: requestTitle,
