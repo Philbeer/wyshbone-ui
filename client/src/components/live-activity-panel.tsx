@@ -3071,6 +3071,10 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
   const [polledArtefacts, setPolledArtefacts] = useState<Array<{ type: string; payload_json?: any }>>([]);
   const [userVisibleComplete, setUserVisibleComplete] = useState(false);
   const frozenEventCountRef = useRef<number | null>(null);
+  const frozenRunIdRef = useRef<string | null>(null);
+  const [finalisationStatus, setFinalisationStatus] = useState<'idle' | 'finalising' | 'finalised'>('idle');
+  const [finalisationHidden, setFinalisationHidden] = useState(false);
+  const finalisationHideTimerRef = useRef<NodeJS.Timeout | null>(null);
   const [canonicalRunId, setCanonicalRunId] = useState<string | null>(null);
   const [canonicalRunIdStatus, setCanonicalRunIdStatus] = useState<'idle' | 'loading' | 'found' | 'not_found' | 'error'>('idle');
   const artefactPollRef = useRef<NodeJS.Timeout | null>(null);
@@ -3251,17 +3255,27 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
   }, [activeClientRequestId, fetchStream]);
 
   useEffect(() => {
+    setUserVisibleComplete(false);
+    frozenEventCountRef.current = null;
+    frozenRunIdRef.current = null;
+    setFinalisationStatus('idle');
+    setFinalisationHidden(false);
+    if (finalisationHideTimerRef.current) {
+      clearTimeout(finalisationHideTimerRef.current);
+      finalisationHideTimerRef.current = null;
+    }
+
     if (!activeClientRequestId) {
-      setUserVisibleComplete(false);
-      frozenEventCountRef.current = null;
       return;
     }
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail;
       if (detail?.clientRequestId === activeClientRequestId) {
-        if (IS_DEV) console.log('[LiveActivityPanel] User-visible results final for crid:', activeClientRequestId.slice(0, 12));
+        if (IS_DEV) console.log('[LiveActivityPanel] Phase 1 complete (userVisibleComplete) for crid:', activeClientRequestId.slice(0, 12));
         setUserVisibleComplete(true);
         frozenEventCountRef.current = stream?.event_count ?? null;
+        frozenRunIdRef.current = activeClientRequestId;
+        setFinalisationStatus('finalising');
       }
     };
     window.addEventListener('wyshbone:results_final', handler);
@@ -3368,6 +3382,16 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
       terminalEventCountRef.current = null;
       prevEventCount.current = 0;
       
+      setUserVisibleComplete(false);
+      frozenEventCountRef.current = null;
+      frozenRunIdRef.current = null;
+      setFinalisationStatus('idle');
+      setFinalisationHidden(false);
+      if (finalisationHideTimerRef.current) {
+        clearTimeout(finalisationHideTimerRef.current);
+        finalisationHideTimerRef.current = null;
+      }
+      
       setStream(null);
       setPolledArtefacts([]);
       
@@ -3422,6 +3446,10 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
       if (fetchAbortRef.current) {
         fetchAbortRef.current.abort();
         fetchAbortRef.current = null;
+      }
+      if (finalisationHideTimerRef.current) {
+        clearTimeout(finalisationHideTimerRef.current);
+        finalisationHideTimerRef.current = null;
       }
     };
   }, []);
@@ -3564,25 +3592,52 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
     return deriveTowerAwareStatus(allEvents, stream?.terminal_state as any || null, polledArtefacts.length > 0 ? polledArtefacts : undefined, towerLoopChatMode);
   }, [allEvents, stream?.terminal_state, towerLoopChatMode, polledArtefacts]);
 
-  const backendStillRunning = !!(activeClientRequestId && !effectiveTerminal);
-  const [artefactsSaved, setArtefactsSaved] = useState(false);
+  const hasTerminalArtefact = useMemo(() => {
+    const types = new Set(['run_summary', 'outcome_log', 'policy_application_snapshot', 'delivery_summary']);
+    return polledArtefacts.some(a => types.has(a.type));
+  }, [polledArtefacts]);
+  const hasTerminalEvent = useMemo(() => {
+    return rawEvents.some(e =>
+      e.type === 'run_completed' || e.type === 'mission_completed' || e.type === 'finalization_completed'
+    );
+  }, [rawEvents]);
 
   useEffect(() => {
-    if (!userVisibleComplete) {
-      setArtefactsSaved(false);
-      return;
-    }
-    if (effectiveTerminal) {
-      setArtefactsSaved(true);
-      return;
-    }
-    const timer = setTimeout(() => {
-      setArtefactsSaved(true);
-    }, 8000);
-    return () => clearTimeout(timer);
-  }, [userVisibleComplete, effectiveTerminal]);
+    if (!userVisibleComplete || finalisationStatus !== 'finalising') return;
 
-  const isFinalising = userVisibleComplete && backendStillRunning && !artefactsSaved;
+    const isPhase2Done = effectiveTerminal || hasTerminalArtefact || hasTerminalEvent;
+    if (isPhase2Done) {
+      if (IS_DEV) console.log('[Phase2] Finalised — signal:', { effectiveTerminal, hasTerminalArtefact, hasTerminalEvent });
+      setFinalisationStatus('finalised');
+      setFinalisationHidden(false);
+      if (finalisationHideTimerRef.current) {
+        clearTimeout(finalisationHideTimerRef.current);
+        finalisationHideTimerRef.current = null;
+      }
+    }
+  }, [userVisibleComplete, finalisationStatus, effectiveTerminal, hasTerminalArtefact, hasTerminalEvent]);
+
+  const FINALISATION_HIDE_TIMEOUT_MS = 5 * 60 * 1000;
+  useEffect(() => {
+    if (finalisationStatus !== 'finalising') {
+      if (finalisationHideTimerRef.current) {
+        clearTimeout(finalisationHideTimerRef.current);
+        finalisationHideTimerRef.current = null;
+      }
+      return;
+    }
+    if (IS_DEV) return;
+    finalisationHideTimerRef.current = setTimeout(() => {
+      setFinalisationHidden(true);
+      finalisationHideTimerRef.current = null;
+    }, FINALISATION_HIDE_TIMEOUT_MS);
+    return () => {
+      if (finalisationHideTimerRef.current) {
+        clearTimeout(finalisationHideTimerRef.current);
+        finalisationHideTimerRef.current = null;
+      }
+    };
+  }, [finalisationStatus]);
 
   const mappedStatus: OverallStatus = (() => {
     if (userVisibleComplete) {
@@ -3671,11 +3726,12 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
         showThinking,
         showOverlay,
         userVisibleComplete,
-        isFinalising,
+        finalisationStatus,
+        finalisationHidden,
         eventCount: stream?.event_count || 0,
       });
     }
-  }, [stream?.is_terminal, stream?.terminal_state, stream?.ui_ready, stream?.run_id, stream?.event_count, confirmedTerminal, effectiveTerminal, minVisibleHold, postTerminalHold, demoPlayback, displayEvents.length, allEvents.length, mappedStatus, activeClientRequestId, idsMatch, isWorking, showThinking, showOverlay, userVisibleComplete, isFinalising, streamRequestId]);
+  }, [stream?.is_terminal, stream?.terminal_state, stream?.ui_ready, stream?.run_id, stream?.event_count, confirmedTerminal, effectiveTerminal, minVisibleHold, postTerminalHold, demoPlayback, displayEvents.length, allEvents.length, mappedStatus, activeClientRequestId, idsMatch, isWorking, showThinking, showOverlay, userVisibleComplete, finalisationStatus, finalisationHidden, streamRequestId]);
 
   if (loading) {
     return (
@@ -3866,17 +3922,17 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
               <ThinkingIndicator variant="footer" />
             )}
 
-            {isFinalising && !isWorking && (
+            {finalisationStatus === 'finalising' && !isWorking && !finalisationHidden && (
               <div className="flex items-center gap-2 py-2 px-1 text-muted-foreground/60">
                 <Loader2 className="h-3 w-3 animate-spin" />
-                <span className="text-[11px]">Saving artefacts to database…</span>
+                <span className="text-[11px]">Finalising run: saving artefacts to database…</span>
               </div>
             )}
 
-            {userVisibleComplete && artefactsSaved && !isWorking && (
+            {finalisationStatus === 'finalised' && !isWorking && (
               <div className="flex items-center gap-2 py-2 px-1 text-green-600 dark:text-green-400">
                 <CheckCircle2 className="h-3.5 w-3.5" />
-                <span className="text-[11px] font-medium">Run complete — artefacts saved</span>
+                <span className="text-[11px] font-medium">Run complete: artefacts saved</span>
               </div>
             )}
             

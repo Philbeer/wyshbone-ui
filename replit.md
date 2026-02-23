@@ -61,8 +61,11 @@ The user interface adheres to Material Design principles, featuring a dark mode,
 - Rich result bubble (`RunResultBubble`) rendered inline in chat for RUN lane `delivery_summary` artefacts.
 - Two-State Results Bubble: `RunResultBubble` has a `provisional` prop for provisional rendering before final `delivery_summary`.
 - Terminal Run Fallback: When polling finds leads but no delivery_summary, only mission-level artefacts (`run_summary`, `outcome_log`, `policy_application_snapshot`) count as terminal. Step-level `tower_judgement` FAIL/STOP (e.g. captcha) is NOT terminal. No time-based finalisation — provisional bubbles wait for delivery_summary or mission-terminal artefact.
-- Activity Panel Completion Lifecycle: `wyshbone:results_final` CustomEvent sets `userVisibleComplete=true` for immediate "Completed" status.
-- Late Event Suppression: Freezes Activity Panel event list when `userVisibleComplete=true`.
+- Activity Panel Two-Phase Completion Lifecycle:
+  - **Phase 1 (User-Complete):** `wyshbone:results_final` CustomEvent sets `userVisibleComplete=true`, freezes event list via `frozenEventCountRef`/`frozenRunIdRef`, shows "Completed" status immediately, sets `finalisationStatus='finalising'`.
+  - **Phase 2 (System-Complete):** `finalisationStatus` flips to `'finalised'` ONLY on a real terminal signal: `effectiveTerminal` (stream `is_terminal` + 800ms stability), OR polled artefacts contain mission-terminal types (`run_summary`, `outcome_log`, `policy_application_snapshot`, `delivery_summary`), OR AFR events include `run_completed`/`mission_completed`/`finalization_completed`. NO timer fallback — green tick never shown early.
+  - **Footer:** While finalising: "Finalising run: saving artefacts to database…" with spinner. When finalised: green tick + "Run complete: artefacts saved". Auto-hides after 5 minutes for non-dev users if no Phase 2 signal.
+- Late Event Suppression: Freezes Activity Panel event list when `userVisibleComplete=true`. Per-run freeze latch (`frozenRunIdRef`) ensures new runs clear old freeze state.
 - Supervisor Bubble Suppression Guard: Prevents contradictory free-text chat bubbles from appearing with `delivery_summary` results.
 
 **AFR Artefact Ingestion & Retrieval Contract:**
