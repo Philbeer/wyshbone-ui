@@ -63,6 +63,8 @@ The user interface adheres to Material Design principles, featuring a dark mode,
 - Terminal Run Fallback: When polling finds leads but no delivery_summary, only mission-level artefacts (`run_summary`, `outcome_log`, `policy_application_snapshot`) count as terminal. Step-level `tower_judgement` FAIL/STOP (e.g. captcha) is NOT terminal. No time-based finalisation — provisional bubbles wait for delivery_summary or mission-terminal artefact.
 - Activity Panel Completion Lifecycle: `wyshbone:results_final` CustomEvent sets `userVisibleComplete=true` for immediate "Completed" status.
 - Late Event Suppression: Freeze is a **rendering-only** concern. All events are always ingested into `allEvents`/`rawEvents` for state derivation (terminal detection, tower-aware status, mapped status). Only the `frozenDisplayEvents` array (fed to `usePacedPlaybackQueue` for rendering) is truncated after Phase 1. Phase 2 ("artefacts saved" tick) requires `effectiveTerminal` — no timeout fallback.
+- Stale Plan Auto-Heal: GET `/api/plan` auto-detects plans stuck at `executing` status. If all steps are terminal (completed/failed), or if no step is `running` and the plan is older than 5 minutes, the plan is auto-healed to `completed`/`failed`.
+- Conditional Plan Polling: PlanContext uses `PLAN_POLL_ACTIVE` (500ms dev / 5s prod) for `executing`/`approved`/`pending_approval` plans; `PLAN_POLL_IDLE` (5s dev / 30s prod) for terminal/idle plans, preventing unnecessary polling load.
 - Supervisor Bubble Suppression Guard: Prevents contradictory free-text chat bubbles from appearing with `delivery_summary` results.
 
 **AFR Artefact Ingestion & Retrieval Contract:**
