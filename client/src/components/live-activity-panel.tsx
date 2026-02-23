@@ -3573,23 +3573,12 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
     return deriveTowerAwareStatus(allEvents, stream?.terminal_state as any || null, polledArtefacts.length > 0 ? polledArtefacts : undefined, towerLoopChatMode);
   }, [allEvents, stream?.terminal_state, towerLoopChatMode, polledArtefacts]);
 
-  const backendStillRunning = !!(activeClientRequestId && !effectiveTerminal);
-  const [artefactsSaved, setArtefactsSaved] = useState(false);
-
-  useEffect(() => {
-    if (!userVisibleComplete) {
-      setArtefactsSaved(false);
-      return;
-    }
-    if (effectiveTerminal) {
-      setArtefactsSaved(true);
-    }
-  }, [userVisibleComplete, effectiveTerminal]);
-
-  const isFinalising = userVisibleComplete && backendStillRunning && !artefactsSaved;
+  const isFinalising = false;
 
   const mappedStatus: OverallStatus = (() => {
     if (userVisibleComplete) {
+      if (towerAware.derivedStatus) return towerAware.derivedStatus;
+      if (stream?.terminal_state) return stream.terminal_state;
       return 'completed';
     }
 
@@ -3870,19 +3859,6 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
               <ThinkingIndicator variant="footer" />
             )}
 
-            {isFinalising && !isWorking && (
-              <div className="flex items-center gap-2 py-2 px-1 text-muted-foreground/60">
-                <Loader2 className="h-3 w-3 animate-spin" />
-                <span className="text-[11px]">Saving artefacts to database…</span>
-              </div>
-            )}
-
-            {userVisibleComplete && artefactsSaved && !isWorking && (
-              <div className="flex items-center gap-2 py-2 px-1 text-green-600 dark:text-green-400">
-                <CheckCircle2 className="h-3.5 w-3.5" />
-                <span className="text-[11px] font-medium">Run complete — artefacts saved</span>
-              </div>
-            )}
             
             <div ref={bottomRef} className="h-10 shrink-0" />
             </div>

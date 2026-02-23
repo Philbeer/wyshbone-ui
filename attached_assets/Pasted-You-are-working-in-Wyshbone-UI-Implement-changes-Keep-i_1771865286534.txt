@@ -1,0 +1,99 @@
+You are working in Wyshbone UI. Implement changes. Keep it minimal.
+
+Goal
+
+When the RUN lane is used (Supervisor task), the user experience must be:
+
+No “final answer” text from SSE.
+
+Only one final user-facing bubble, built from AFR artefacts (delivery_summary).
+
+Activity Panel must freeze the visible event list the moment delivery_summary bubble appears.
+
+Late events must be allowed to continue arriving (for DB truth), but must not change what the user sees.
+
+Facts from current code (do not debate)
+
+RUN lane results bubble is already composed from AFR artefacts: delivery_summary -> Message { deliverySummary } -> RunResultBubble.
+
+Late burst occurs because the Activity Panel continues to ingest new events and parts of the UI re-render from “allEvents” or terminal status after results_final.
+
+1) Suppress SSE “content” for RUN lane completely
+
+In ChatPage SSE handling:
+
+When supervisorTaskId is received, set a boolean isRunLane = true for this send.
+
+While isRunLane === true, ignore ALL content SSE events (do not append tokens to any assistant message).
+
+Also: do not create the empty placeholder assistant message for RUN lane. The first assistant output should be the RunResultBubble created from AFR delivery_summary.
+
+Acceptance:
+
+If a request routes to Supervisor, the user sees only “…” until the delivery_summary bubble appears.
+
+No “done” or free text appears from SSE for RUN lane.
+
+2) Freeze Activity Panel on the REAL trigger: wyshbone:results_final for that run
+
+In LiveActivityPanel (or wherever the panel state lives):
+
+Listen for wyshbone:results_final.
+
+When it fires for the active request/run:
+
+set userCompleteAt = now()
+
+set activityFrozen = true
+
+store frozenRunId
+
+store either:
+
+frozenEventIds (preferred), OR
+
+frozenEventCount (only if events are strictly append-only ordered)
+
+Rendering rule:
+
+If activityFrozen === true and the panel is showing frozenRunId:
+
+render ONLY the frozen events (by id list or by count snapshot)
+
+do NOT show new rows that arrive after freeze
+
+do NOT let late events re-enable buttons or change the visible status label
+
+Important:
+
+You may still ingest late events into internal state for correctness, but the visible list must not change.
+
+Acceptance:
+
+After results bubble appears, no burst of events appears later.
+
+3) Stop “Phase 2” UI work for now (hide it)
+
+We are rolling back to the simpler behaviour:
+
+As soon as results_final happens, Activity Panel header shows “Completed”.
+
+Do not show “saving artefacts”, do not show green tick, do not attempt Phase 2 status yet.
+
+Phase 2 continues in the background with no user-facing UI.
+
+Acceptance:
+
+The “almost working” UX is restored, but with no burst and no lying.
+
+4) Report back
+
+Tell me:
+
+Which files changed
+
+Exact boolean/condition you used to detect RUN lane
+
+Where you latch/freeze the activity panel, and what snapshot method you used (ids vs count)
+
+Confirm no backend changes

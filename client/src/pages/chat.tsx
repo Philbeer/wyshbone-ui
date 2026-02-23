@@ -419,6 +419,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
 
                   if (effectiveId) deliverySummaryRunIdsRef.current.add(effectiveId);
 
+                  console.log('[wyshbone:results_final] dispatching (provisional path)', { clientRequestId: crid, runId: runId || null });
                   window.dispatchEvent(new CustomEvent('wyshbone:results_final', {
                     detail: { clientRequestId: crid, runId: runId || null },
                   }));
@@ -527,6 +528,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
 
           if (effectiveId) deliverySummaryRunIdsRef.current.add(effectiveId);
 
+          console.log('[wyshbone:results_final] dispatching (artefact poll path)', { clientRequestId: crid, runId: runId || null });
           window.dispatchEvent(new CustomEvent('wyshbone:results_final', {
             detail: { clientRequestId: crid, runId: runId || null },
           }));
@@ -715,6 +717,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
 
                 if (effectiveRunId) deliverySummaryRunIdsRef.current.add(effectiveRunId);
 
+                console.log('[wyshbone:results_final] dispatching (realtime callback path)', { clientRequestId: supervisorClientRequestIdRef.current, runId: effectiveRunId });
                 window.dispatchEvent(new CustomEvent('wyshbone:results_final', {
                   detail: { clientRequestId: supervisorClientRequestIdRef.current, runId: effectiveRunId },
                 }));
@@ -1162,15 +1165,8 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     }
     setLastCompletedClientRequestId(null);
     
-    // Create assistant message with empty content
     const assistantMessageId = crypto.randomUUID();
-    const assistantMessage: Message = {
-      id: assistantMessageId,
-      role: "assistant",
-      content: "",
-      timestamp: new Date(),
-    };
-    setMessages((prev) => [...prev, assistantMessage]);
+    let isRunLane = false;
 
     try {
       // Create abort controller for this request
@@ -1307,9 +1303,9 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                 }
               }
               
-              // Handle Supervisor task creation
               if (parsed.supervisorTaskId) {
                 streamHasSupervisorTask = true;
+                isRunLane = true;
                 setLastLane("run");
                 console.log('🤖 Supervisor task created:', parsed.supervisorTaskId, 'runId=', supervisorRunIdRef.current, 'crid=', clientRequestId);
                 inFlightSupervisorRunsRef.current.set(clientRequestId, {
@@ -1345,20 +1341,22 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                 triggerSidebarFlash('emailFinder');
               }
               
-              if (parsed.content) {
+              if (parsed.content && !isRunLane) {
                 if (!streamHasSupervisorTask) {
                   setLastLane("chat");
                 }
                 accumulatedContent += parsed.content;
-                
-                // Update message in real-time
-                setMessages((prev) =>
-                  prev.map((msg) =>
+                setMessages((prev) => {
+                  const exists = prev.some(m => m.id === assistantMessageId);
+                  if (!exists) {
+                    return [...prev, { id: assistantMessageId, role: 'assistant' as const, content: accumulatedContent, timestamp: new Date() }];
+                  }
+                  return prev.map((msg) =>
                     msg.id === assistantMessageId
                       ? { ...msg, content: accumulatedContent }
                       : msg
-                  )
-                );
+                  );
+                });
               }
               if (parsed.error) {
                 throw new Error(parsed.error);
