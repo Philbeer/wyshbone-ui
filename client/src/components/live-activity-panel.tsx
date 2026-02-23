@@ -3070,7 +3070,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
   const [postTerminalHold, setPostTerminalHold] = useState(false);
   const [polledArtefacts, setPolledArtefacts] = useState<Array<{ type: string; payload_json?: any }>>([]);
   const [userVisibleComplete, setUserVisibleComplete] = useState(false);
-  const frozenEventCountRef = useRef<number | null>(null);
+  const frozenEventIdsRef = useRef<string[] | null>(null);
   const [canonicalRunId, setCanonicalRunId] = useState<string | null>(null);
   const [canonicalRunIdStatus, setCanonicalRunIdStatus] = useState<'idle' | 'loading' | 'found' | 'not_found' | 'error'>('idle');
   const artefactPollRef = useRef<NodeJS.Timeout | null>(null);
@@ -3101,8 +3101,12 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
   const rawEvents = useMemo(() => stream?.events || [], [stream?.events]);
   const allEvents = rawEvents;
   const frozenDisplayEvents = useMemo(() => {
-    if (userVisibleComplete && frozenEventCountRef.current != null) {
-      return rawEvents.slice(0, frozenEventCountRef.current);
+    if (userVisibleComplete && frozenEventIdsRef.current != null) {
+      const idOrder = frozenEventIdsRef.current;
+      const idSet = new Set(idOrder);
+      const matched = rawEvents.filter((e: any) => idSet.has(e.id));
+      matched.sort((a: any, b: any) => idOrder.indexOf(a.id) - idOrder.indexOf(b.id));
+      return matched;
     }
     return rawEvents;
   }, [rawEvents, userVisibleComplete]);
@@ -3261,7 +3265,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
   useEffect(() => {
     if (!activeClientRequestId) {
       setUserVisibleComplete(false);
-      frozenEventCountRef.current = null;
+      frozenEventIdsRef.current = null;
       return;
     }
     const handler = (e: Event) => {
@@ -3269,7 +3273,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
       if (detail?.clientRequestId === activeClientRequestId) {
         if (IS_DEV) console.log('[LiveActivityPanel] User-visible results final for crid:', activeClientRequestId.slice(0, 12));
         setUserVisibleComplete(true);
-        frozenEventCountRef.current = stream?.event_count ?? null;
+        frozenEventIdsRef.current = (stream?.events || []).map((ev: any) => ev.id);
       }
     };
     window.addEventListener('wyshbone:results_final', handler);
