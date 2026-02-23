@@ -3069,6 +3069,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
   const [minVisibleHold, setMinVisibleHold] = useState(false);
   const [postTerminalHold, setPostTerminalHold] = useState(false);
   const [polledArtefacts, setPolledArtefacts] = useState<Array<{ type: string; payload_json?: any }>>([]);
+  const [userVisibleComplete, setUserVisibleComplete] = useState(false);
   const [canonicalRunId, setCanonicalRunId] = useState<string | null>(null);
   const [canonicalRunIdStatus, setCanonicalRunIdStatus] = useState<'idle' | 'loading' | 'found' | 'not_found' | 'error'>('idle');
   const artefactPollRef = useRef<NodeJS.Timeout | null>(null);
@@ -3241,6 +3242,22 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
       if (retryInterval) clearInterval(retryInterval);
     };
   }, [activeClientRequestId, fetchStream]);
+
+  useEffect(() => {
+    if (!activeClientRequestId) {
+      setUserVisibleComplete(false);
+      return;
+    }
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail?.clientRequestId === activeClientRequestId) {
+        if (IS_DEV) console.log('[LiveActivityPanel] User-visible results final for crid:', activeClientRequestId.slice(0, 12));
+        setUserVisibleComplete(true);
+      }
+    };
+    window.addEventListener('wyshbone:results_final', handler);
+    return () => window.removeEventListener('wyshbone:results_final', handler);
+  }, [activeClientRequestId]);
 
   const effectiveRunIdForPolling = canonicalRunId;
   const hasTowerInPolled = polledArtefacts.some(a => a.type === 'tower_judgement');
@@ -3495,7 +3512,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
     }
     
     const hasActiveRequest = !!activeClientRequestId;
-    const isRunActive = hasActiveRequest && !confirmedTerminal && !showOverlay;
+    const isRunActive = hasActiveRequest && !confirmedTerminal && !showOverlay && !userVisibleComplete;
     
     if (!isRunActive) {
       setShowThinking(false);
@@ -3513,7 +3530,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
         thinkingTimerRef.current = null;
       }
     };
-  }, [activeClientRequestId, confirmedTerminal, showOverlay, stream?.event_count]);
+  }, [activeClientRequestId, confirmedTerminal, showOverlay, userVisibleComplete, stream?.event_count]);
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const target = e.currentTarget;
@@ -3538,7 +3555,14 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
     return deriveTowerAwareStatus(allEvents, stream?.terminal_state as any || null, polledArtefacts.length > 0 ? polledArtefacts : undefined, towerLoopChatMode);
   }, [allEvents, stream?.terminal_state, towerLoopChatMode, polledArtefacts]);
 
+  const backendStillRunning = !!(activeClientRequestId && !effectiveTerminal);
+  const isFinalising = userVisibleComplete && backendStillRunning;
+
   const mappedStatus: OverallStatus = (() => {
+    if (userVisibleComplete) {
+      return 'completed';
+    }
+
     if (activeClientRequestId && !idsMatch) {
       return 'executing';
     }
@@ -3585,7 +3609,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
     return 'idle';
   })();
   
-  const isWorking = !showOverlay && (
+  const isWorking = !showOverlay && !userVisibleComplete && (
     (activeClientRequestId && !effectiveTerminal) ||
     (mappedStatus !== 'idle' && mappedStatus !== 'completed' && mappedStatus !== 'failed' && mappedStatus !== 'stopped' && mappedStatus !== 'finalizing')
   );
@@ -3620,10 +3644,12 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
         isWorking,
         showThinking,
         showOverlay,
+        userVisibleComplete,
+        isFinalising,
         eventCount: stream?.event_count || 0,
       });
     }
-  }, [stream?.is_terminal, stream?.terminal_state, stream?.ui_ready, stream?.run_id, stream?.event_count, confirmedTerminal, effectiveTerminal, minVisibleHold, postTerminalHold, demoPlayback, displayEvents.length, allEvents.length, mappedStatus, activeClientRequestId, idsMatch, isWorking, showThinking, showOverlay, streamRequestId]);
+  }, [stream?.is_terminal, stream?.terminal_state, stream?.ui_ready, stream?.run_id, stream?.event_count, confirmedTerminal, effectiveTerminal, minVisibleHold, postTerminalHold, demoPlayback, displayEvents.length, allEvents.length, mappedStatus, activeClientRequestId, idsMatch, isWorking, showThinking, showOverlay, userVisibleComplete, isFinalising, streamRequestId]);
 
   if (loading) {
     return (
@@ -3812,6 +3838,13 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
             
             {isWorking && (
               <ThinkingIndicator variant="footer" />
+            )}
+
+            {isFinalising && !isWorking && (
+              <div className="flex items-center gap-2 py-2 px-1 text-muted-foreground/60">
+                <Package className="h-3 w-3" />
+                <span className="text-[11px]">Finalising run: saving artefacts to database…</span>
+              </div>
             )}
             
             <div ref={bottomRef} className="h-10 shrink-0" />

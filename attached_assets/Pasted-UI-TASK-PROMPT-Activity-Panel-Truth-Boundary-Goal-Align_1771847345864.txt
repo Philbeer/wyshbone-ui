@@ -1,0 +1,135 @@
+UI TASK PROMPT — Activity Panel Truth Boundary
+
+Goal
+Align the Activity Panel lifecycle with user-visible completion, not backend housekeeping, while still exposing background finalisation for development/debug purposes.
+
+Problem (current behaviour)
+
+The chat results bubble becomes final (verified / not verified, no longer provisional).
+
+However, the Activity Panel continues to show “Executing / Working” for several minutes.
+
+This gives the false impression the agent is still thinking, when:
+
+User-visible results are already final
+
+Remaining work is backend-only (artefact persistence, learning writes, audit logs)
+
+This is misleading UX, not a backend bug.
+
+Required Behaviour (new contract)
+
+We define two completion phases:
+
+1️⃣ User-Visible Completion (PRIMARY)
+
+Triggered when:
+
+The results bubble transitions out of provisional
+
+Verification that can change user-visible results has completed
+
+Results are now final and will not change
+
+At this moment:
+
+Activity Panel must stop showing “Executing / Thinking”
+
+Activity Panel must switch to a Completed state
+
+User input must already be enabled (no blocking)
+
+2️⃣ Background Finalisation (SECONDARY, DEV-FACING)
+
+After user-visible completion:
+
+Backend may still be:
+
+Persisting artefacts
+
+Writing learning snapshots
+
+Saving policy / belief updates
+
+This work must not block UX
+
+During this phase:
+
+Activity Panel shows a small, non-blocking footer/status, e.g.:
+
+“Finalising run: saving artefacts to database…”
+
+No spinners, no “thinking”, no execution language
+
+This footer disappears when the run fully completes (current natural end)
+
+Implementation Instructions (UI ONLY)
+
+Do NOT change backend behaviour.
+This is a pure UI state alignment task.
+
+A. Define a new UI state
+
+Introduce a derived UI state, e.g.:
+
+userVisibleComplete = true when:
+
+Results bubble is final (provisional === false)
+
+Verification affecting results has completed
+
+B. Activity Panel logic
+
+When userVisibleComplete === true:
+
+Stop the main Activity Panel timeline
+
+Show status: Completed
+
+Do NOT show “Executing / Thinking”
+
+If the run is still technically active in the backend:
+
+Show a minimal footer only:
+
+“Finalising run (saving artefacts…)”
+
+Optional subtle progress indicator (no spinner required)
+
+C. Final termination
+
+When the run fully completes (current behaviour):
+
+Remove the footer
+
+Activity Panel ends exactly as it does today
+
+Explicit Constraints
+
+❌ Do NOT delay the chat bubble
+
+❌ Do NOT fake progress
+
+❌ Do NOT hide errors
+
+❌ Do NOT block new runs while background finalisation happens
+
+❌ Do NOT merge phases back together
+
+✅ Keep Activity Panel useful for developers
+
+✅ Make UX truthful for users
+
+✅ Preserve async agent behaviour
+
+Acceptance Criteria
+
+The moment the results bubble is final, the Activity Panel no longer appears “busy”
+
+Users can immediately start a new run
+
+Developers can still see that artefacts are being saved
+
+No backend changes required
+
+No regressions in run history or AFR

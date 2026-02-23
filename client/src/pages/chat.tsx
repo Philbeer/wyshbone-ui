@@ -443,6 +443,10 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
 
           if (effectiveId) deliverySummaryRunIdsRef.current.add(effectiveId);
 
+          window.dispatchEvent(new CustomEvent('wyshbone:results_final', {
+            detail: { clientRequestId: crid, runId: runId || null },
+          }));
+
           const resultMessage: Message = {
             id: `ds-${effectiveId}`,
             role: 'assistant',
