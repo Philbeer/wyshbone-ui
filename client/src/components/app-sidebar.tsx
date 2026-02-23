@@ -627,7 +627,6 @@ export function AppSidebar({
   const { labels } = useVerticalLabels();
   const [showArchived, setShowArchived] = useState(false);
   const [localRuns, setLocalRuns] = useState<RunItem[]>(runs);
-  const [showPreviousChats, setShowPreviousChats] = useState(false);
   const [showScheduledMonitors, setShowScheduledMonitors] = useState(false);
   const [showIntegrations, setShowIntegrations] = useState(false);
   const [newRunIds, setNewRunIds] = useState<Set<string>>(new Set());
@@ -925,41 +924,6 @@ export function AppSidebar({
                   <FilePlus className="h-4 w-4" />
                   <span>New Chat</span>
                 </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <Collapsible open={showPreviousChats} onOpenChange={setShowPreviousChats}>
-                  <CollapsibleTrigger asChild>
-                    <SidebarMenuButton data-testid="button-toggle-previous-chats">
-                      {showPreviousChats ? (
-                        <ChevronDown className="h-4 w-4" />
-                      ) : (
-                        <ChevronRight className="h-4 w-4" />
-                      )}
-                      <span>{showPreviousChats ? "Hide previous chats" : "Previous Chats"}</span>
-                    </SidebarMenuButton>
-                  </CollapsibleTrigger>
-                  <CollapsibleContent className="mt-2">
-                    {conversations.length === 0 ? (
-                      <p className="text-xs text-muted-foreground px-3 py-2">No previous chats</p>
-                    ) : (
-                      <div className="max-h-[400px] overflow-y-auto px-3 space-y-1">
-                        {conversations.map((conversation) => (
-                          <button
-                            key={conversation.id}
-                            onClick={() => {
-                              // Use the callback to load conversation
-                              onSelectConversation?.(conversation.id);
-                            }}
-                            className="w-full text-left px-3 py-2 rounded-md text-sm hover-elevate active-elevate-2 border border-border truncate"
-                            data-testid={`button-conversation-${conversation.id}`}
-                          >
-                            {conversation.label}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </CollapsibleContent>
-                </Collapsible>
               </SidebarMenuItem>
               <SidebarMenuItem>
                 <SidebarMenuButton asChild isActive={location === "/debug"} data-testid="link-debug">
