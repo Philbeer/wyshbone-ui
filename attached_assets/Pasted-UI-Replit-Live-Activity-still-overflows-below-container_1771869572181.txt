@@ -1,0 +1,58 @@
+UI Replit: Live Activity still overflows below container (fix properly, no hacks, UI only)
+
+Problem:
+Even with overflow-y-auto, the Live Activity content still grows below the bottom of the right sidebar, especially at run completion. That means the panel (or its parent) is missing the correct min-h-0 / overflow-hidden / flex constraints.
+
+Fix approach:
+We must enforce a hard height boundary and make the event list the only scroll region.
+
+Do this in 2 places:
+
+1) Right sidebar container (parent)
+
+Find the JSX that renders the right rail (the column that contains “Explain last run” + Live Activity).
+Make sure the right rail is height-bounded to the viewport and does not allow children to overflow.
+
+It must end up like:
+
+right rail wrapper: className="h-screen flex flex-col overflow-hidden" (or equivalent if it already uses h-[calc(100vh-...)] etc)
+
+the section that contains Live Activity must have: className="flex-1 min-h-0 overflow-hidden"
+
+This is critical. Without min-h-0, the child scroll area will not scroll and will instead expand.
+
+2) Live Activity panel internal layout
+
+In client/src/components/live-activity-panel.tsx:
+
+Outer panel wrapper must be: className="h-full min-h-0 flex flex-col overflow-hidden"
+
+Header area: className="shrink-0"
+
+Event list wrapper (the list of events): className="flex-1 min-h-0 overflow-y-auto"
+
+Footer/buttons area (if present): className="shrink-0"
+
+Remove any padding/spacing that is applied to the outer wrapper that can push content beyond the bottom. Padding is fine inside the scroll region, not on the outer bounded wrapper.
+
+Acceptance test
+
+Run with lots of events.
+
+The right sidebar height stays fixed.
+
+Live Activity header stays visible.
+
+The event list scrolls internally.
+
+Nothing ever renders below the bottom edge of the right sidebar, including when the run finishes.
+
+Report back (must paste code)
+
+Paste the exact JSX blocks after changes:
+
+the right rail container JSX (the wrapper that contains Live Activity)
+
+the Live Activity panel wrapper + event list wrapper JSX
+
+No backend changes. No debug consoles.

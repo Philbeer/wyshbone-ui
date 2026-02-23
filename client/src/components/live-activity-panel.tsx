@@ -3680,7 +3680,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
 
   if (loading) {
     return (
-      <Card className="flex flex-col flex-1 min-h-0">
+      <Card className="flex flex-col flex-1 min-h-0 overflow-hidden">
         <CardHeader className="pb-2 shrink-0">
           <CardTitle className="text-sm font-medium flex items-center gap-2">
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -3696,7 +3696,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
 
   if (error) {
     return (
-      <Card className="flex flex-col flex-1 min-h-0">
+      <Card className="flex flex-col flex-1 min-h-0 overflow-hidden">
         <CardHeader className="pb-2 shrink-0">
           <CardTitle className="text-sm font-medium">Live Activity</CardTitle>
         </CardHeader>
@@ -3715,7 +3715,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
   const hasEvents = events.length > 0;
 
   return (
-    <Card className="flex flex-col flex-1 min-h-0">
+    <Card className="flex flex-col flex-1 min-h-0 overflow-hidden">
       <CardHeader className="pb-2 shrink-0">
         <div className="flex items-center justify-between gap-2 min-w-0">
           <CardTitle className="text-sm font-medium shrink-0">Live Activity</CardTitle>
