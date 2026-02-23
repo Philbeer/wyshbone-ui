@@ -62,7 +62,7 @@ The user interface adheres to Material Design principles, featuring a dark mode,
 - Two-State Results Bubble: `RunResultBubble` has a `provisional` prop for provisional rendering before final `delivery_summary`.
 - Terminal Run Fallback: When polling finds leads but no delivery_summary, only mission-level artefacts (`run_summary`, `outcome_log`, `policy_application_snapshot`) count as terminal. Step-level `tower_judgement` FAIL/STOP (e.g. captcha) is NOT terminal. No time-based finalisation — provisional bubbles wait for delivery_summary or mission-terminal artefact.
 - Activity Panel Completion Lifecycle: `wyshbone:results_final` CustomEvent sets `userVisibleComplete=true` for immediate "Completed" status.
-- Late Event Suppression: Freezes Activity Panel event list when `userVisibleComplete=true`.
+- Late Event Suppression: Freeze is a **rendering-only** concern. All events are always ingested into `allEvents`/`rawEvents` for state derivation (terminal detection, tower-aware status, mapped status). Only the `frozenDisplayEvents` array (fed to `usePacedPlaybackQueue` for rendering) is truncated after Phase 1. Phase 2 ("artefacts saved" tick) requires `effectiveTerminal` — no timeout fallback.
 - Supervisor Bubble Suppression Guard: Prevents contradictory free-text chat bubbles from appearing with `delivery_summary` results.
 
 **AFR Artefact Ingestion & Retrieval Contract:**

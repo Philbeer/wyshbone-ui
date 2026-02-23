@@ -3098,15 +3098,16 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
   const idsMatch = !!(activeClientRequestId && streamRequestId && activeClientRequestId === streamRequestId);
 
   const rawEvents = useMemo(() => stream?.events || [], [stream?.events]);
-  const allEvents = useMemo(() => {
+  const allEvents = rawEvents;
+  const frozenDisplayEvents = useMemo(() => {
     if (userVisibleComplete && frozenEventCountRef.current != null) {
       return rawEvents.slice(0, frozenEventCountRef.current);
     }
     return rawEvents;
   }, [rawEvents, userVisibleComplete]);
   const effectiveDemoPlayback = demoPlayback && !activeClientRequestId;
-  const { displayEvents, transientPhase } = usePacedPlaybackQueue(allEvents, effectiveDemoPlayback, activeClientRequestId);
-  const allRevealed = displayEvents.length >= allEvents.length;
+  const { displayEvents, transientPhase } = usePacedPlaybackQueue(frozenDisplayEvents, effectiveDemoPlayback, activeClientRequestId);
+  const allRevealed = displayEvents.length >= frozenDisplayEvents.length;
 
   const fetchStream = useCallback(async () => {
     if (fetchAbortRef.current) {
@@ -3574,12 +3575,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
     }
     if (effectiveTerminal) {
       setArtefactsSaved(true);
-      return;
     }
-    const timer = setTimeout(() => {
-      setArtefactsSaved(true);
-    }, 8000);
-    return () => clearTimeout(timer);
   }, [userVisibleComplete, effectiveTerminal]);
 
   const isFinalising = userVisibleComplete && backendStillRunning && !artefactsSaved;
