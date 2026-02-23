@@ -3071,6 +3071,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
   const [polledArtefacts, setPolledArtefacts] = useState<Array<{ type: string; payload_json?: any }>>([]);
   const [userVisibleComplete, setUserVisibleComplete] = useState(false);
   const frozenEventIdsRef = useRef<string[] | null>(null);
+  const prevClientRequestIdRef = useRef<string | null | undefined>(null);
   const [canonicalRunId, setCanonicalRunId] = useState<string | null>(null);
   const [canonicalRunIdStatus, setCanonicalRunIdStatus] = useState<'idle' | 'loading' | 'found' | 'not_found' | 'error'>('idle');
   const artefactPollRef = useRef<NodeJS.Timeout | null>(null);
@@ -3263,9 +3264,12 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
   }, [activeClientRequestId, fetchStream]);
 
   useEffect(() => {
-    if (!activeClientRequestId) {
+    if (activeClientRequestId !== prevClientRequestIdRef.current) {
       setUserVisibleComplete(false);
       frozenEventIdsRef.current = null;
+      prevClientRequestIdRef.current = activeClientRequestId;
+    }
+    if (!activeClientRequestId) {
       return;
     }
     const handler = (e: Event) => {
