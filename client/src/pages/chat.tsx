@@ -1707,13 +1707,13 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
       console.log('🔄 NEW_REPLACE: Clearing old context and starting fresh');
       setMessages((prev) => {
         const dsMessages = prev.filter(m => m.id.startsWith('ds-'));
-        return [userMessage, ...dsMessages];
+        return [...dsMessages, userMessage];
       });
     } else if (intent === 'NEW_UNRELATED') {
       console.log('🆕 NEW_UNRELATED: Starting new thread');
       setMessages((prev) => {
         const dsMessages = prev.filter(m => m.id.startsWith('ds-'));
-        return [userMessage, ...dsMessages];
+        return [...dsMessages, userMessage];
       });
     } else {
       // CONTINUE or MODIFY: Keep existing context
