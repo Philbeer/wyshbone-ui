@@ -76,6 +76,14 @@ The user interface adheres to Material Design principles, featuring a dark mode,
 **Data Ownership & Persistence Guardrails:**
 The UI never owns persistence. All artefacts, runs, judgements, and business data come from Supabase via the backend. The frontend is a read/display layer only; it does not write directly to any database. All data mutations flow through backend API endpoints to Supabase PostgreSQL. `SUPABASE_DATABASE_URL` is the single source of truth for database connectivity.
 
+## Recent Changes (Feb 2026)
+- **Recovery Pipeline Fix:** Rewrote orphaned run recovery to use `/api/afr/runs` endpoint (instead of `/api/afr/activities`) — fixes status field mismatch (`completed` vs `success`) and enables proper `client_request_id` correlation.
+- **AFR Terminal Inference:** Server-side `/api/afr/stream` now infers `is_terminal: true` when `status === 'completed'/'failed'` even if `terminalState` is null, fixing Activity Panel terminal detection.
+- **Unified `finalizeRunUI()`:** Consolidated three delivery detection paths (polling, realtime, recovery) into a single idempotent function for creating/updating result bubbles.
+- **Activity Panel Bridge:** Added `wyshbone:activity_terminal` CustomEvent dispatch for coordinating Activity Panel completion state.
+- **Duplicate Key Handling:** Fixed DrizzleQueryError handling in result-message endpoint — now correctly detects `error.cause.code === '23505'` for Postgres duplicate key errors wrapped by Drizzle ORM.
+- **Removed Stale Timeout:** Removed destructive 2-minute stale timeout that was killing supervisor tracking state before runs could complete.
+
 ## External Dependencies
 - **OpenAI GPT-5:** AI chat responses, prospect enrichment, web search, AI-generated personal lines.
 - **Wyshbone Global Database (Google Places API):** Business discovery and location-based searches.

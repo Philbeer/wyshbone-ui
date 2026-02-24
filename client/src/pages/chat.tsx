@@ -335,7 +335,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
       const params = new URLSearchParams();
       if (effectiveRunId) params.set('runId', effectiveRunId);
       if (effectiveCrid) params.set('client_request_id', effectiveCrid);
-      const url = buildApiUrl(addDevAuthParams(`/api/afr/artefacts?${params.toString()}`));
+      const url = addDevAuthParams(buildApiUrl(`/api/afr/artefacts?${params.toString()}`));
       const res = await fetch(url, { credentials: 'include' });
       if (!res.ok) {
         console.warn(`[Chat][finalizeRunUI] Artefact fetch failed: ${res.status} (source=${source})`);
@@ -834,32 +834,44 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
 
     const recoverOrphanedRuns = async () => {
       try {
-        const url = addDevAuthParams(buildApiUrl(`/api/afr/activities?limit=30`));
-        const res = await fetch(url, { credentials: 'include' });
-        if (!res.ok) return;
-        const data = await res.json();
-        const activities = Array.isArray(data.activities) ? data.activities : [];
+        const runsUrl = addDevAuthParams(buildApiUrl(`/api/afr/runs?limit=20`));
+        const runsRes = await fetch(runsUrl, { credentials: 'include' });
+        if (!runsRes.ok) {
+          console.warn('[Chat][Recovery] Failed to fetch runs:', runsRes.status);
+          return;
+        }
+        const runs = await runsRes.json();
+        if (!Array.isArray(runs)) return;
 
-        const convActivities = activities.filter(
-          (a: any) => a.conversationId === conversationId && a.runId && a.status === 'completed'
+        const completedRuns = runs.filter(
+          (r: any) => (r.status === 'completed' || r.status === 'success') && r.id && r.client_request_id
         );
 
-        const orphaned = convActivities.filter(
-          (a: any) => !deliverySummaryRunIdsRef.current.has(a.runId) && !deliverySummaryRunIdsRef.current.has(a.clientRequestId)
-        );
+        if (completedRuns.length === 0) {
+          console.log('[Chat][Recovery] No completed runs found');
+          return;
+        }
 
-        if (orphaned.length === 0) return;
-        console.log(`[Chat][Recovery] Found ${orphaned.length} orphaned completed runs for conversation ${conversationId}`);
+        const orphaned = completedRuns
+          .filter((r: any) => !deliverySummaryRunIdsRef.current.has(r.id) && !deliverySummaryRunIdsRef.current.has(r.client_request_id))
+          .slice(0, 3);
 
-        for (const act of orphaned) {
+        if (orphaned.length === 0) {
+          console.log('[Chat][Recovery] All completed runs already have bubbles');
+          return;
+        }
+
+        console.log(`[Chat][Recovery] Found ${orphaned.length} orphaned completed runs (capped at 3), attempting recovery`);
+
+        for (const run of orphaned) {
           try {
             await finalizeRunUIRef.current?.({
-              runId: act.runId,
-              crid: act.clientRequestId || null,
+              runId: run.id,
+              crid: run.client_request_id || null,
               source: 'recovery',
             });
           } catch (err) {
-            console.warn(`[Chat][Recovery] Error recovering run ${act.runId}:`, err);
+            console.warn(`[Chat][Recovery] Error recovering run ${run.id}:`, err);
           }
         }
       } catch (err) {

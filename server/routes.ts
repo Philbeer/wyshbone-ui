@@ -1954,7 +1954,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await saveStructuredResultMessage(conversationId, messageId, metadata);
       res.json({ ok: true });
     } catch (error: any) {
-      if (error?.message?.includes('duplicate key') || error?.code === '23505') {
+      const isDupe = error?.code === '23505' 
+        || error?.cause?.code === '23505' 
+        || error?.message?.includes('duplicate key')
+        || error?.message?.includes('unique constraint')
+        || error?.cause?.message?.includes('duplicate key');
+      if (isDupe) {
         return res.json({ ok: true, deduplicated: true });
       }
       console.error("Error saving structured result:", error);

@@ -881,6 +881,11 @@ export function createAfrRouter(_storage: typeof storage) {
         if (agentRun.terminalState) {
           isTerminal = true;
           terminalState = agentRun.terminalState as 'completed' | 'failed' | 'stopped';
+        } else if (agentRun.status === 'completed' || agentRun.status === 'failed') {
+          isTerminal = true;
+          terminalState = agentRun.status === 'completed' ? 'completed' : 'failed';
+          uiReady = true;
+          console.log(`[AFR_STREAM] Run ${agentRun.id} has status=${agentRun.status} but no terminalState — inferring terminal=${terminalState}`);
         } else {
           const updatedAt = agentRun.updatedAt ? new Date(agentRun.updatedAt).getTime() : 0;
           const age = Date.now() - updatedAt;
