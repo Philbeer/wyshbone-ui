@@ -571,9 +571,28 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     }
 
     const runsMap = inFlightSupervisorRunsRef.current;
-    console.log('[Chat][Poll] Polling activated — isWaitingForSupervisor=true, inFlightRuns:', Array.from(runsMap.keys()));
+    console.log('[Chat][AFR-Poll] Phase 1 activated — polling /api/afr/stream, inFlightRuns:', Array.from(runsMap.keys()));
 
-    const pollForAllRuns = async () => {
+    let stopped = false;
+    const terminalDetected = new Set<string>();
+
+    async function fetchArtefactsWithRetry(runId: string | null, crid: string | null, maxRetries: number = 10): Promise<boolean> {
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        if (stopped) return false;
+        const success = await finalizeRunUIRef.current?.({ runId, crid, source: `afr-poll-retry-${attempt}` });
+        const effectiveKey = runId || crid;
+        if (effectiveKey && deliverySummaryRunIdsRef.current.has(effectiveKey)) {
+          console.log(`[Chat][AFR-Poll] Phase 2 success: artefacts finalized for ${effectiveKey} on attempt ${attempt}`);
+          return true;
+        }
+        if (attempt < maxRetries) {
+          await new Promise(r => setTimeout(r, 500));
+        }
+      }
+      return false;
+    }
+
+    const pollStream = async () => {
       const entries = Array.from(runsMap.entries());
       if (entries.length === 0) {
         const fallbackRunId = supervisorRunIdRef.current;
@@ -585,19 +604,68 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         }
       }
 
-      for (const [, run] of entries) {
+      for (const [key, run] of entries) {
         const { runId, crid } = run;
         if (!runId && !crid) continue;
-        await finalizeRunUIRef.current?.({ runId, crid, source: 'poll' });
+        const effectiveKey = runId || crid || key;
+
+        if (deliverySummaryRunIdsRef.current.has(effectiveKey)) continue;
+        if (terminalDetected.has(effectiveKey)) continue;
+
+        try {
+          const params = new URLSearchParams();
+          if (crid) params.set('client_request_id', crid);
+          if (runId) params.set('runId', runId);
+          const streamUrl = addDevAuthParams(buildApiUrl(`/api/afr/stream?${params.toString()}`));
+          const res = await fetch(streamUrl, { credentials: 'include', cache: 'no-store' });
+          if (!res.ok) continue;
+          const data = await res.json();
+
+          const isTerminal = data.is_terminal === true;
+          const status = data.status;
+          const terminalState = data.terminal_state;
+
+          if (isTerminal || status === 'completed' || status === 'failed' || 
+              terminalState === 'PASS' || terminalState === 'FAIL' || terminalState === 'STOP') {
+            console.log(`[Chat][AFR-Poll] Phase 1 terminal detected for ${effectiveKey}: status=${status}, terminal_state=${terminalState}, is_terminal=${isTerminal}`);
+            terminalDetected.add(effectiveKey);
+
+            const finalized = await fetchArtefactsWithRetry(runId, crid);
+            if (!finalized) {
+              console.warn(`[Chat][AFR-Poll] Phase 2 exhausted retries for ${effectiveKey}. Showing error bubble.`);
+              const errorMsg: Message = {
+                id: `ds-${effectiveKey}`,
+                role: 'assistant',
+                content: '',
+                timestamp: new Date(),
+                source: 'supervisor',
+                deliverySummary: {
+                  status: 'FAIL',
+                  delivered_exact: [],
+                  delivered_closest: [],
+                  delivered_count: 0,
+                  stop_reason: 'artefacts_unavailable',
+                } as DeliverySummary,
+                provisional: false,
+              };
+              upsertResultMessage(errorMsg);
+              deliverySummaryRunIdsRef.current.add(effectiveKey);
+              cleanupRunState(effectiveKey);
+            }
+          }
+        } catch (err) {
+          console.warn(`[Chat][AFR-Poll] Stream poll error for ${effectiveKey}:`, err);
+        }
       }
     };
 
     const initialDelay = setTimeout(() => {
-      pollForAllRuns();
-      supervisorPollRef.current = setInterval(pollForAllRuns, 5000);
-    }, 3000);
+      pollStream();
+      supervisorPollRef.current = setInterval(pollStream, 1500);
+    }, 1500);
 
     return () => {
+      stopped = true;
       clearTimeout(initialDelay);
       if (supervisorPollRef.current) {
         clearInterval(supervisorPollRef.current);
@@ -680,27 +748,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         supervisorTimeoutRef.current = null;
       }
 
-      const realtimeRunId = msgRunId || supervisorRunIdRef.current || null;
-      const realtimeCrid = supervisorClientRequestIdRef.current || null;
-      console.log('[Chat][Realtime] Supervisor message received — attempting finalizeRunUI, runId:', realtimeRunId, 'crid:', realtimeCrid);
-
-      const tryFinalize = async (attempt: number) => {
-        await finalizeRunUIRef.current?.({ runId: realtimeRunId, crid: realtimeCrid, source: `realtime-attempt-${attempt}` });
-      };
-
-      await tryFinalize(1);
-      const key1 = realtimeRunId || realtimeCrid;
-      if (key1 && !deliverySummaryRunIdsRef.current.has(key1)) {
-        await new Promise(r => setTimeout(r, 3000));
-        await tryFinalize(2);
-      }
-      if (key1 && !deliverySummaryRunIdsRef.current.has(key1)) {
-        await new Promise(r => setTimeout(r, 5000));
-        await tryFinalize(3);
-      }
-      if (key1 && !deliverySummaryRunIdsRef.current.has(key1)) {
-        console.log('[Chat][Realtime] Did NOT finalize after 3 attempts — leaving poll active for run:', key1);
-      }
+      console.log('[Chat][Realtime] Supervisor message received — AFR poller handles finalization, not realtime');
     });
 
     // Cleanup subscription on unmount or conversation change
@@ -896,6 +944,29 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     };
     window.addEventListener('wyshbone:activity_terminal', handler);
     return () => window.removeEventListener('wyshbone:activity_terminal', handler);
+  }, []);
+
+  useEffect(() => {
+    const handler = async (e: Event) => {
+      const detail = (e as CustomEvent).detail || {};
+      const retryRunId = detail.runId || supervisorRunIdRef.current;
+      const retryCrid = supervisorClientRequestIdRef.current;
+      console.log('[Chat][Retry] wyshbone:retry_artefacts received, runId:', retryRunId, 'crid:', retryCrid);
+      if (retryRunId) deliverySummaryRunIdsRef.current.delete(retryRunId);
+      if (retryCrid) deliverySummaryRunIdsRef.current.delete(retryCrid);
+      for (let attempt = 1; attempt <= 10; attempt++) {
+        await finalizeRunUIRef.current?.({ runId: retryRunId, crid: retryCrid, source: `retry-click-${attempt}` });
+        const effectiveKey = retryRunId || retryCrid;
+        if (effectiveKey && deliverySummaryRunIdsRef.current.has(effectiveKey)) {
+          console.log(`[Chat][Retry] Success on attempt ${attempt}`);
+          return;
+        }
+        await new Promise(r => setTimeout(r, 500));
+      }
+      console.warn('[Chat][Retry] All 10 retry attempts exhausted');
+    };
+    window.addEventListener('wyshbone:retry_artefacts', handler);
+    return () => window.removeEventListener('wyshbone:retry_artefacts', handler);
   }, []);
 
   // Persist conversationId to localStorage
@@ -1284,6 +1355,27 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                 setSupervisorTaskId(parsed.supervisorTaskId);
                 supervisorClientRequestIdRef.current = clientRequestId;
                 setIsWaitingForSupervisor(true);
+
+                const provisionalKey = supervisorRunIdRef.current || clientRequestId;
+                if (!deliverySummaryRunIdsRef.current.has(provisionalKey)) {
+                  const provisionalBubble: Message = {
+                    id: `ds-${provisionalKey}`,
+                    role: 'assistant',
+                    content: '',
+                    timestamp: new Date(),
+                    source: 'supervisor',
+                    deliverySummary: {
+                      status: 'UNAVAILABLE',
+                      delivered_exact: [],
+                      delivered_closest: [],
+                      delivered_count: 0,
+                    } as DeliverySummary,
+                    runId: supervisorRunIdRef.current || undefined,
+                    provisional: true,
+                  };
+                  upsertResultMessage(provisionalBubble);
+                  console.log(`[Chat][AFR-Poll] Provisional bubble inserted for ${provisionalKey}`);
+                }
               }
               
               // Handle batch job ID

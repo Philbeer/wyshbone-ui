@@ -1,0 +1,78 @@
+Goal (non negotiable): When a RUN finishes (terminal) the chat must render the final results bubble using AFR only. Do not use Supabase realtime, do not depend on messages table inserts, do not touch Supervisor, Tower, or the Activity Panel.
+
+What is broken right now
+
+The chat shows “Results are being processed.” and then never updates, even though the right panel shows “Completed” and “View details”. That proves AFR has the completed artefacts, but the chat is not fetching and rendering them.
+
+Required fix: Chat bubble must finalize from AFR, not Supabase
+1) Add an AFR-driven “result finalizer” in the chat page
+
+When the user sends a RUN request and we receive client_request_id (CRID) and/or run_id from the SSE response:
+
+Immediately show a provisional result bubble (or keep the current “Results are being processed” bubble).
+
+Start a poll loop that queries AFR, not Supabase:
+
+Poll endpoint: /api/afr/stream?client_request_id=... (or whatever the chat already uses to show Live Activity, but called from chat code).
+
+Poll interval: 1000ms to 2000ms.
+
+NO hard 2-minute timeout. Runs can take 5+ minutes.
+
+Terminal detection rule: If the AFR stream indicates the run is terminal (PASS/FAIL/STOP/COMPLETED or “sequence complete”), then finalize.
+
+2) On terminal, fetch the artefacts from AFR and build the bubble
+
+On terminal:
+
+Fetch: /api/afr/artefacts?client_request_id=... (and run_id if required)
+
+Find artefacts in this priority order:
+
+delivery_summary (primary truth for what to show)
+
+verification_summary, constraints_extracted, policy_application_snapshot (optional enrich)
+
+If delivery_summary is missing for any reason, fallback to leads_list + tower_judgement and synthesize a minimal summary so the user still sees something.
+
+Then update the existing provisional bubble into the final <RunResultBubble> state.
+
+Important: This update must happen even if there are no Supabase messages, no realtime, no DB persistence. AFR is the source of truth.
+
+3) Idempotency and race safety
+
+If chat already finalized this CRID/runId once, do nothing.
+
+If artefacts are not yet present immediately at terminal (rare race), retry artefact fetch up to 10 times with a short delay (eg 500ms). Then show a clear error in the bubble: “Run finished but results not available yet. Click retry.” (and implement retry to call the artefact fetch again).
+
+4) Do not touch Activity Panel code
+
+Do not refactor or “bridge” from Activity Panel. The chat bubble should independently poll AFR.
+
+5) Acceptance tests (must pass)
+
+Run: “Find 5 pubs in Arundel with live music”
+
+Chat must end with a results bubble showing final status and list, not stuck on “processing”.
+
+Run with STOP (hard unverifiable)
+
+Chat must show STOP bubble with stop reason from artefacts, not stuck.
+
+Run that takes longer than 2 minutes
+
+Chat must still finalize correctly.
+
+Refresh the page after completion
+
+Chat should still be able to finalize from AFR when reopened (optional, but if easy, do it by re-running “orphaned CRID checks” via AFR, not Supabase).
+
+6) Deliverables
+
+Implement the above in UI only.
+
+Tell me exactly what files changed.
+
+Provide a short “how to test” checklist.
+
+Do not propose changes to Supervisor/Tower/Activity Panel.

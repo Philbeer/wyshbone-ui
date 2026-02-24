@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { MapPin, Phone, Globe, CheckCircle2, CircleDot, OctagonX, HelpCircle, AlertTriangle, ChevronDown, ChevronRight, BookOpen, Copy, Loader2 } from "lucide-react";
+import { useState, useCallback } from "react";
+import { MapPin, Phone, Globe, CheckCircle2, CircleDot, OctagonX, HelpCircle, AlertTriangle, ChevronDown, ChevronRight, BookOpen, Copy, Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { resolveCanonicalStatus, type CanonicalStatus } from "@/utils/deliveryStatus";
@@ -375,6 +375,42 @@ function LearningSection({ snapshot }: { snapshot: PolicySnapshot }) {
   );
 }
 
+function ArtefactsRetryBlock({ runId }: { runId?: string | null }) {
+  const [retrying, setRetrying] = useState(false);
+
+  const handleRetry = useCallback(() => {
+    setRetrying(true);
+    window.dispatchEvent(new CustomEvent('wyshbone:retry_artefacts', {
+      detail: { runId },
+    }));
+    setTimeout(() => setRetrying(false), 8000);
+  }, [runId]);
+
+  return (
+    <div className="flex flex-col items-start gap-2 rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 px-3 py-2">
+      <div className="flex items-center gap-2">
+        <AlertTriangle className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+        <p className="text-xs text-amber-700 dark:text-amber-300 font-medium">
+          Run finished but results not available yet.
+        </p>
+      </div>
+      <Button
+        variant="outline"
+        size="sm"
+        className="h-7 text-xs gap-1.5"
+        onClick={handleRetry}
+        disabled={retrying}
+      >
+        {retrying ? (
+          <><Loader2 className="h-3 w-3 animate-spin" /> Retrying...</>
+        ) : (
+          <><RefreshCw className="h-3 w-3" /> Click retry</>
+        )}
+      </Button>
+    </div>
+  );
+}
+
 export default function RunResultBubble({
   deliverySummary,
   verificationSummary,
@@ -420,7 +456,11 @@ export default function RunResultBubble({
         </div>
       )}
 
-      {!provisional && (
+      {!provisional && deliverySummary.stop_reason === 'artefacts_unavailable' && (
+        <ArtefactsRetryBlock runId={runId} />
+      )}
+
+      {!provisional && deliverySummary.stop_reason !== 'artefacts_unavailable' && (
         <div className="flex items-start gap-2">
           <StatusIcon className={cn("h-4 w-4 mt-0.5 shrink-0", statusColor)} />
           <p className="text-sm text-foreground leading-relaxed">{summaryText}</p>
