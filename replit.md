@@ -85,6 +85,7 @@ The UI never owns persistence. All artefacts, runs, judgements, and business dat
 - **Removed Stale Timeout:** Removed destructive 2-minute stale timeout that was killing supervisor tracking state before runs could complete.
 - **Conversation-Scoped Recovery:** `/api/afr/runs` endpoint now supports `conversation_id` and `user_id` query parameters. Client recovery passes current `conversationId` to prevent cross-conversation contamination. User scoping is enforced unless `all=true` is specified.
 - **Reduced Dev Polling:** Plan polling reduced from 500ms to 2s, execution polling from 300ms to 1.5s in development mode to reduce log noise.
+- **Post-Terminal Catch-Up Polling:** Fixed Activity Panel stalling by adding an 8-second catch-up polling window after terminal detection. When the Supervisor marks a run as completed before all activities are persisted, the panel now continues polling at 2s intervals to catch late-arriving events. Frozen display events use ID-based comparison and bypass freezing during catch-up to ensure all events render.
 
 ## External Dependencies
 - **OpenAI GPT-5:** AI chat responses, prospect enrichment, web search, AI-generated personal lines.
