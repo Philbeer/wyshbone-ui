@@ -86,6 +86,7 @@ The UI never owns persistence. All artefacts, runs, judgements, and business dat
 - **Conversation-Scoped Recovery:** `/api/afr/runs` endpoint now supports `conversation_id` and `user_id` query parameters. Client recovery passes current `conversationId` to prevent cross-conversation contamination. User scoping is enforced unless `all=true` is specified.
 - **Reduced Dev Polling:** Plan polling reduced from 500ms to 2s, execution polling from 300ms to 1.5s in development mode to reduce log noise.
 - **Post-Terminal Catch-Up Polling:** Fixed Activity Panel stalling by adding an 8-second catch-up polling window after terminal detection. When the Supervisor marks a run as completed before all activities are persisted, the panel now continues polling at 2s intervals to catch late-arriving events. Frozen display events use ID-based comparison and bypass freezing during catch-up to ensure all events render.
+- **FinalizeWithRetry System:** Replaced one-shot `finalizeRunUI` with exponential backoff retry (0s, 2s, 5s, 10s, 20s delays). All detection paths (polling, realtime, Activity Panel bridge) now use unified `finalizeWithRetry()`. Messages table fallback hydrates RunResultBubble from persisted metadata when AFR artefacts are unavailable. Cleanup only happens after confirming bubble insertion. Safe timestamp coercion via `safeDate()` utility prevents Invalid Date errors.
 
 ## External Dependencies
 - **OpenAI GPT-5:** AI chat responses, prospect enrichment, web search, AI-generated personal lines.

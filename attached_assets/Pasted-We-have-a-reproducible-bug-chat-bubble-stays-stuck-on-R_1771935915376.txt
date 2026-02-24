@@ -1,0 +1,71 @@
+We have a reproducible bug: chat bubble stays stuck on “Results are being processed” even though the run completes, Activity Panel shows Completed PASS, and delivery_summary exists in AFR artefacts.
+
+You already investigated and reported. Now implement a minimal, surgical fix. Do not redesign UI. Do not change backend logic. Goal is purely: when a run is terminal and delivery_summary exists, the chat must show the final RunResultBubble reliably in the same session, without refresh.
+
+Constraints:
+
+Keep changes small and local to the chat UI pipeline.
+
+Add targeted logging only where necessary.
+
+Add a simple local test procedure at the end.
+
+Deliverable:
+
+A short diff and a clear explanation of the exact root cause you fixed.
+
+Fix requirements (do all):
+
+Fix created_at type handling (high priority)
+
+Audit all client-side message sorting and hydration.
+
+Ensure any message created_at that is a number (epoch ms) is converted to a valid ISO string or Date before sorting/comparing.
+
+Ensure the final supervisor “run complete” message cannot be dropped or mis-ordered due to timestamp type mismatch.
+
+Make finalizeRunUI robust to the “terminal before artefacts available” race
+
+If Activity Panel fires a terminal event and finalizeRunUI finds no delivery_summary yet, do NOT just return and give up.
+
+Instead retry finalizeRunUI for that run with short backoff (example: 0s, 2s, 5s, 10s, 20s, max 60s total).
+
+Stop retrying once delivery_summary is found and bubble is upserted, or after max retry time.
+
+Remove the “one way gate” failure mode
+
+If finalizeRunUI succeeds, cleanup is fine.
+
+But do not clear the run tracking state in a way that prevents later finalize attempts if the bubble was not actually inserted into the messages array.
+
+Add a guard: only cleanup after you confirm upsertResultMessage actually inserted/updated the structured result message.
+
+Ensure the chat bubble can render results from either source
+
+Primary source: delivery_summary from /api/afr/artefacts.
+
+Secondary fallback: if the supervisor has already inserted a messages row with metadata.deliverySummary and/or metadata.type=structured_result, then hydrate and render it as a RunResultBubble even if AFR polling fails.
+
+This should work without page refresh.
+
+Add a single “bridge” so Chat and Activity Panel can’t drift
+
+If Activity Panel reaches terminal state for a run, that must always trigger the same finalize logic used by chat.
+
+Ensure the custom event contains enough identifiers (runId and/or CRID) and chat uses them even if local refs were cleared.
+
+Provide a concrete test
+
+Run: “Find 5 pubs in Arundel with live music”
+
+Expected:
+
+chat shows processing immediately
+
+within 0 to 60 seconds of completion, chat replaces processing with final RunResultBubble showing PASS and the 5 verified exact
+
+no refresh required
+
+repeat twice back-to-back to confirm no regression
+
+Start by reproducing locally, then implement the smallest fix that satisfies all requirements.

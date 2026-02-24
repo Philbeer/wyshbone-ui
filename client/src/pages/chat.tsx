@@ -64,6 +64,16 @@ type SystemMessage = {
 
 type DisplayMessage = Message | SystemMessage;
 
+function safeDate(value: any): Date {
+  if (value instanceof Date && !isNaN(value.getTime())) return value;
+  if (typeof value === 'number' && value > 0) return new Date(value);
+  if (typeof value === 'string') {
+    const d = new Date(value);
+    if (!isNaN(d.getTime())) return d;
+  }
+  return new Date();
+}
+
 interface ChatPageProps {
   defaultCountry?: string;
   onInjectSystemMessage?: (fn: (msg: string) => void) => void;
@@ -325,7 +335,6 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     }
 
     if (deliverySummaryRunIdsRef.current.has(effectiveKey)) {
-      console.log(`[Chat][finalizeRunUI] Already finalized run=${effectiveKey} (source=${source}), skipping`);
       return;
     }
 
@@ -406,9 +415,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         }
 
         console.log(`[Chat][finalizeRunUI] Synthesised DS for run=${effectiveKey}: status=${synthesisedDs.status}, leads=${provisionalLeads.length} (source=${source})`);
-        deliverySummaryRunIdsRef.current.add(effectiveKey);
-        if (effectiveRunId && effectiveRunId !== effectiveKey) deliverySummaryRunIdsRef.current.add(effectiveRunId);
-        if (effectiveCrid && effectiveCrid !== effectiveKey) deliverySummaryRunIdsRef.current.add(effectiveCrid);
+        markFinalized(effectiveKey, effectiveRunId, effectiveCrid);
 
         window.dispatchEvent(new CustomEvent('wyshbone:results_final', {
           detail: { clientRequestId: effectiveCrid, runId: effectiveRunId || null },
@@ -451,9 +458,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
       const { vs, ce, policySnapshot } = parseSiblingArtefacts(rows);
 
       console.log(`[Chat][finalizeRunUI] delivery_summary found for run=${effectiveKey}, status=${parsed.status} (source=${source})`);
-      deliverySummaryRunIdsRef.current.add(effectiveKey);
-      if (effectiveRunId && effectiveRunId !== effectiveKey) deliverySummaryRunIdsRef.current.add(effectiveRunId);
-      if (effectiveCrid && effectiveCrid !== effectiveKey) deliverySummaryRunIdsRef.current.add(effectiveCrid);
+      markFinalized(effectiveKey, effectiveRunId, effectiveCrid);
 
       window.dispatchEvent(new CustomEvent('wyshbone:results_final', {
         detail: { clientRequestId: effectiveCrid, runId: effectiveRunId || null },
@@ -493,6 +498,90 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
       console.warn(`[Chat][finalizeRunUI] Error (source=${source}):`, err);
     }
   };
+
+  function markFinalized(effectiveKey: string, effectiveRunId?: string | null, effectiveCrid?: string | null) {
+    deliverySummaryRunIdsRef.current.add(effectiveKey);
+    if (effectiveRunId && effectiveRunId !== effectiveKey) deliverySummaryRunIdsRef.current.add(effectiveRunId);
+    if (effectiveCrid && effectiveCrid !== effectiveKey) deliverySummaryRunIdsRef.current.add(effectiveCrid);
+  }
+
+  const retryInFlightRef = useRef<Set<string>>(new Set());
+
+  async function finalizeWithRetry(opts: { runId?: string | null; crid?: string | null; source: string }) {
+    const effectiveKey = opts.runId || opts.crid;
+    if (!effectiveKey) return;
+    if (deliverySummaryRunIdsRef.current.has(effectiveKey)) return;
+    if (retryInFlightRef.current.has(effectiveKey)) {
+      console.log(`[Chat][finalizeWithRetry] Already in-flight for run=${effectiveKey}, skipping (source=${opts.source})`);
+      return;
+    }
+    retryInFlightRef.current.add(effectiveKey);
+
+    try {
+      const delays = [0, 2000, 5000, 10000, 20000];
+      for (let i = 0; i < delays.length; i++) {
+        if (deliverySummaryRunIdsRef.current.has(effectiveKey)) return;
+        if (delays[i] > 0) await new Promise(r => setTimeout(r, delays[i]));
+        if (deliverySummaryRunIdsRef.current.has(effectiveKey)) return;
+        console.log(`[Chat][finalizeWithRetry] attempt ${i + 1}/${delays.length} for run=${effectiveKey} (source=${opts.source})`);
+        await finalizeRunUIRef.current?.({
+          runId: opts.runId,
+          crid: opts.crid,
+          source: `${opts.source}-retry-${i + 1}`,
+        });
+      }
+      if (!deliverySummaryRunIdsRef.current.has(effectiveKey)) {
+        console.log(`[Chat][finalizeWithRetry] Trying messages-table fallback for run=${effectiveKey}`);
+        await tryMessagesTableFallback(effectiveKey, opts.runId, opts.crid);
+      }
+    } finally {
+      retryInFlightRef.current.delete(effectiveKey);
+    }
+  }
+
+  async function tryMessagesTableFallback(effectiveKey: string, effectiveRunId?: string | null, effectiveCrid?: string | null) {
+    if (deliverySummaryRunIdsRef.current.has(effectiveKey)) return;
+    if (!conversationId) return;
+    try {
+      const msgUrl = addDevAuthParams(buildApiUrl(`/api/debug/conversations/${conversationId}/messages`));
+      const msgRes = await fetch(msgUrl, { credentials: 'include' });
+      if (!msgRes.ok) return;
+      const data = await msgRes.json();
+      if (!data?.messages || !Array.isArray(data.messages)) return;
+      for (const msg of data.messages) {
+        const meta = msg.metadata;
+        if (meta && typeof meta === 'object' && meta.type === 'structured_result' && meta.deliverySummary) {
+          const msgRunId = meta.runId || null;
+          if (msgRunId === effectiveRunId || msgRunId === effectiveCrid || msg.id === `ds-${effectiveKey}`) {
+            console.log(`[Chat][fallback] Found structured_result in messages table for run=${effectiveKey}`);
+            markFinalized(effectiveKey, effectiveRunId, effectiveCrid);
+            window.dispatchEvent(new CustomEvent('wyshbone:results_final', {
+              detail: { clientRequestId: effectiveCrid, runId: effectiveRunId || null },
+            }));
+            const resultMsg: Message = {
+              id: msg.id || `ds-${effectiveKey}`,
+              role: 'assistant',
+              content: '',
+              timestamp: safeDate(msg.createdAt),
+              source: 'supervisor',
+              deliverySummary: meta.deliverySummary,
+              verificationSummary: meta.verificationSummary || null,
+              constraintsExtracted: meta.constraintsExtracted || null,
+              policySnapshot: meta.policySnapshot || null,
+              runId: msgRunId || effectiveRunId || undefined,
+              provisional: false,
+            };
+            upsertResultMessage(resultMsg);
+            cleanupRunState(effectiveKey);
+            return;
+          }
+        }
+      }
+      console.warn(`[Chat][fallback] No structured_result found in messages table for run=${effectiveKey}`);
+    } catch (err) {
+      console.warn(`[Chat][fallback] Messages table fallback failed for run=${effectiveKey}:`, err);
+    }
+  }
 
   function upsertResultMessage(msg: Message) {
     setMessages((prev) => {
@@ -588,14 +677,17 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
       for (const [, run] of entries) {
         const { runId, crid } = run;
         if (!runId && !crid) continue;
-        await finalizeRunUIRef.current?.({ runId, crid, source: 'poll' });
+        const effectiveKey = runId || crid;
+        if (effectiveKey && !deliverySummaryRunIdsRef.current.has(effectiveKey) && !retryInFlightRef.current.has(effectiveKey)) {
+          finalizeWithRetry({ runId, crid, source: 'poll' });
+        }
       }
     };
 
     const initialDelay = setTimeout(() => {
       pollForAllRuns();
-      supervisorPollRef.current = setInterval(pollForAllRuns, 5000);
-    }, 3000);
+      supervisorPollRef.current = setInterval(pollForAllRuns, 3000);
+    }, 2000);
 
     return () => {
       clearTimeout(initialDelay);
@@ -642,7 +734,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
             id: `debug-${supervisorMessage.id}`,
             role: 'assistant',
             content: supervisorMessage.content,
-            timestamp: new Date(supervisorMessage.created_at),
+            timestamp: safeDate(supervisorMessage.created_at),
             source: 'supervisor',
             runId: msgRunId,
             hidden: true,
@@ -654,7 +746,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
           id: supervisorMessage.id,
           role: 'assistant',
           content: supervisorMessage.content,
-          timestamp: new Date(supervisorMessage.created_at),
+          timestamp: safeDate(supervisorMessage.created_at),
           source: 'supervisor',
           runId: msgRunId,
         };
@@ -682,25 +774,13 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
 
       const realtimeRunId = msgRunId || supervisorRunIdRef.current || null;
       const realtimeCrid = supervisorClientRequestIdRef.current || null;
-      console.log('[Chat][Realtime] Supervisor message received — attempting finalizeRunUI, runId:', realtimeRunId, 'crid:', realtimeCrid);
+      console.log('[Chat][Realtime] Supervisor message received — attempting finalizeWithRetry, runId:', realtimeRunId, 'crid:', realtimeCrid);
 
-      const tryFinalize = async (attempt: number) => {
-        await finalizeRunUIRef.current?.({ runId: realtimeRunId, crid: realtimeCrid, source: `realtime-attempt-${attempt}` });
-      };
-
-      await tryFinalize(1);
-      const key1 = realtimeRunId || realtimeCrid;
-      if (key1 && !deliverySummaryRunIdsRef.current.has(key1)) {
-        await new Promise(r => setTimeout(r, 3000));
-        await tryFinalize(2);
-      }
-      if (key1 && !deliverySummaryRunIdsRef.current.has(key1)) {
-        await new Promise(r => setTimeout(r, 5000));
-        await tryFinalize(3);
-      }
-      if (key1 && !deliverySummaryRunIdsRef.current.has(key1)) {
-        console.log('[Chat][Realtime] Did NOT finalize after 3 attempts — leaving poll active for run:', key1);
-      }
+      finalizeWithRetry({
+        runId: realtimeRunId,
+        crid: realtimeCrid,
+        source: 'realtime',
+      });
     });
 
     // Cleanup subscription on unmount or conversation change
@@ -791,7 +871,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
               id: msg.id,
               role: msg.role,
               content: msg.content,
-              timestamp: new Date(msg.createdAt),
+              timestamp: safeDate(msg.createdAt),
             };
             const meta = msg.metadata;
             if (meta && typeof meta === 'object' && meta.type === 'structured_result' && meta.deliverySummary) {
@@ -887,10 +967,12 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail || {};
       const { runId, clientRequestId } = detail;
-      console.log('[Chat][ActivityBridge] wyshbone:activity_terminal received', { runId, clientRequestId });
-      finalizeRunUIRef.current?.({
-        runId: runId || null,
-        crid: clientRequestId || null,
+      const effectiveRunId = runId || supervisorRunIdRef.current || null;
+      const effectiveCrid = clientRequestId || supervisorClientRequestIdRef.current || null;
+      console.log('[Chat][ActivityBridge] wyshbone:activity_terminal received', { runId: effectiveRunId, clientRequestId: effectiveCrid });
+      finalizeWithRetry({
+        runId: effectiveRunId,
+        crid: effectiveCrid,
         source: 'activity-panel-bridge',
       });
     };
@@ -1066,7 +1148,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                 id: msg.id,
                 role: msg.role as "user" | "assistant" | "system",
                 content: msg.content,
-                timestamp: new Date(msg.createdAt),
+                timestamp: safeDate(msg.createdAt),
               };
               const meta = msg.metadata;
               if (meta && typeof meta === 'object' && meta.type === 'structured_result' && meta.deliverySummary) {
