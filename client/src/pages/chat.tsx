@@ -1883,14 +1883,20 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
             </div>
           ) : (
             messages
-              .filter((message) => {
+              .filter((message, _idx, arr) => {
                 if ("type" in message && message.type === "system") {
                   return true;
                 }
                 const chatMessage = message as Message;
                 if (chatMessage.hidden) return false;
                 if ((chatMessage as any).deliverySummary) return true;
-                return chatMessage.content.trim().length > 0;
+                if (chatMessage.content.trim().length === 0) return false;
+                const content = chatMessage.content.trim();
+                if (chatMessage.role === 'assistant') {
+                  if (content === 'Run complete. Results are available.') return false;
+                  if (content.startsWith('Task delegated to Supervisor')) return false;
+                }
+                return true;
               })
               .map((message) => {
               if ("type" in message && message.type === "system") {
