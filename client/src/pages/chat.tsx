@@ -1054,6 +1054,107 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     loadHistory();
   }, []); // Empty deps - only run ONCE on mount
 
+  useEffect(() => {
+    if (!conversationId || isLoadingHistory) return;
+
+    const recoverOrphanedRuns = async () => {
+      try {
+        const url = addDevAuthParams(buildApiUrl(`/api/afr/activities?limit=30`));
+        const res = await fetch(url, { credentials: 'include' });
+        if (!res.ok) return;
+        const data = await res.json();
+        const activities = Array.isArray(data.activities) ? data.activities : [];
+
+        const convActivities = activities.filter(
+          (a: any) => a.conversationId === conversationId && a.runId && a.status === 'completed'
+        );
+
+        const orphaned = convActivities.filter(
+          (a: any) => !deliverySummaryRunIdsRef.current.has(a.runId) && !deliverySummaryRunIdsRef.current.has(a.clientRequestId)
+        );
+
+        if (orphaned.length === 0) return;
+        console.log(`[Chat][Recovery] Found ${orphaned.length} orphaned completed runs for conversation ${conversationId}`);
+
+        for (const act of orphaned) {
+          try {
+            const params = new URLSearchParams();
+            params.set('runId', act.runId);
+            const artUrl = buildApiUrl(addDevAuthParams(`/api/afr/artefacts?${params.toString()}`));
+            const artRes = await fetch(artUrl, { credentials: 'include' });
+            if (!artRes.ok) continue;
+            const rows = await artRes.json();
+            if (!Array.isArray(rows)) continue;
+
+            const dsRow = rows.find((r: any) => r.type === 'delivery_summary');
+            if (!dsRow) continue;
+
+            let parsed = dsRow.payload_json;
+            if (typeof parsed === 'string') { try { parsed = JSON.parse(parsed); } catch { continue; } }
+            if (!parsed || typeof parsed !== 'object') continue;
+
+            const { vs, ce, policySnapshot } = parseSiblingArtefacts(rows);
+            const effectiveId = act.runId;
+            console.log(`[Chat][Recovery] Recovering delivery_summary for run ${effectiveId}`);
+
+            deliverySummaryRunIdsRef.current.add(effectiveId);
+            if (act.clientRequestId) deliverySummaryRunIdsRef.current.add(act.clientRequestId);
+
+            const resultMessage: Message = {
+              id: `ds-${effectiveId}`,
+              role: 'assistant',
+              content: '',
+              timestamp: new Date(act.timestamp || Date.now()),
+              source: 'supervisor',
+              deliverySummary: parsed as DeliverySummary,
+              verificationSummary: vs,
+              constraintsExtracted: ce,
+              policySnapshot: policySnapshot || undefined,
+              runId: effectiveId,
+              provisional: false,
+            };
+
+            setMessages((prev) => {
+              const existingIdx = prev.findIndex(m => m.id === resultMessage.id);
+              if (existingIdx >= 0) {
+                const updated = [...prev];
+                updated[existingIdx] = resultMessage;
+                return updated;
+              }
+              const provisionalIdx = prev.findIndex(m => {
+                if ('type' in m) return false;
+                const cm = m as Message;
+                return cm.provisional === true && cm.deliverySummary && cm.id?.startsWith('ds-');
+              });
+              if (provisionalIdx >= 0) {
+                const updated = [...prev];
+                updated[provisionalIdx] = resultMessage;
+                return updated;
+              }
+              return [...prev, resultMessage];
+            });
+
+            persistStructuredResult({
+              messageId: resultMessage.id,
+              runId: effectiveId,
+              deliverySummary: parsed,
+              verificationSummary: vs || null,
+              constraintsExtracted: ce || null,
+              policySnapshot: policySnapshot || null,
+            });
+          } catch (err) {
+            console.warn(`[Chat][Recovery] Error recovering run ${act.runId}:`, err);
+          }
+        }
+      } catch (err) {
+        console.warn('[Chat][Recovery] Error:', err);
+      }
+    };
+
+    const timer = setTimeout(recoverOrphanedRuns, 2000);
+    return () => clearTimeout(timer);
+  }, [conversationId, isLoadingHistory]);
+
   // Persist conversationId to localStorage
   useEffect(() => {
     if (conversationId) {
