@@ -1,0 +1,105 @@
+We are rolling back and we are NOT changing Supervisor, Tower, or the Activity Panel logic. UI only.
+
+Goal: Make the chat result bubble be a faithful rendering of the AFR run outcome, matching what the “Details” modal shows. The chat bubble must never show unverified candidates as “verified match”.
+
+Observed bug:
+
+The run ended with delivery_summary: STOP and verified_exact=3 (requested=5), checked=11.
+
+The chat bubble headline correctly says “I found 3 results that match.”
+
+But the list underneath shows more than 3 items and labels them “Verified match”, which is false.
+
+The Details modal correctly shows STOP, why it stopped (CVL verdict stop), verified 3 vs requested 5, and the candidates list.
+
+Source of truth:
+Use AFR artefacts only (not Supabase messages metadata).
+The chat bubble should be built from these artefacts for the run:
+
+delivery_summary (required)
+
+verification_summary (required)
+
+lead_verification artefacts (preferred) OR a verified list inside delivery_summary if it exists
+
+leads_list (for “X found” count and optional candidates list)
+
+Acceptance rules:
+
+When a run reaches terminal state (PASS / PARTIAL / STOP / FAIL), the chat bubble must fetch the artefacts from /api/afr/artefacts (using runId or streamRunId + client_request_id).
+
+If delivery_summary exists, build the chat bubble from it.
+
+If verification_summary exists, it is authoritative for:
+
+verified_exact count (the number of “matches”)
+
+checked count (how many were evaluated)
+
+requested count
+
+The “Matches” section must contain exactly the verified exact leads only.
+
+If verified_exact=3, show exactly 3 items in Matches.
+
+Each item shown in Matches must be one that is marked exact / all_hard_satisfied=true (from lead_verification artefacts, or from delivery_summary payload if it provides exact matches list).
+
+Only those get the “Verified match” badge. Everything else must NOT get that badge.
+
+If more leads were found (eg leads_list has 11), show a separate section:
+
+“Candidates (not fully verified)” with the remaining leads.
+
+Those should have a neutral badge like “Not verified” or “Candidate”.
+
+The status line must reflect the real outcome:
+
+STOP should show stopped and the stop_reason from delivery_summary.
+
+PASS should show pass, etc.
+
+Keep existing UI structure. Minimal changes. Do not touch Supervisor or Tower. Do not change Activity Panel logic.
+
+Add extremely explicit console logs for debugging:
+
+when terminal detected
+
+runId + client_request_id used
+
+which artefacts found
+
+delivery_summary.status, verification_summary.verified_exact, requested
+
+how many leads are rendered in Matches vs Candidates
+
+Provide a short investigation report first (why the mismatch happens in code), then implement the fix.
+
+Implementation hint (do not overcomplicate):
+
+The current chat bubble list is probably using “leads_list” or “leads” and treating them all as verified.
+
+Change it so the displayed “matches” list is derived from “exact matches” only:
+
+Build a set of exact lead ids or place_ids from lead_verification where all_hard_satisfied=true.
+
+Filter the leads_list to exact first.
+
+Candidates = leads_list minus exact.
+
+If we cannot map IDs reliably, fall back to matching by place_id (Google places id), then by normalized name+address.
+
+Deliverables:
+
+Report (short, factual)
+
+Code changes in UI repo only, with full file rewrites for any file you touch
+
+Confirm by running the same test prompt “Find 5 pubs in Arundel with live music” and show console logs proving:
+
+verified_exact=3
+
+Matches rendered=3
+
+Candidates rendered=8
+
+STOP shown with stop reason

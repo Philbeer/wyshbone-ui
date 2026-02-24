@@ -30,7 +30,7 @@ import { useResultsPanel } from "@/contexts/ResultsPanelContext";
 import { useCurrentRequest } from "@/contexts/CurrentRequestContext";
 import UserResultsView from "@/components/results/UserResultsView";
 import type { DeliverySummary, DeliveryLead } from "@/components/results/UserResultsView";
-import type { VerificationSummaryPayload, ConstraintsExtractedPayload } from "@/components/results/CvlArtefactViews";
+import type { VerificationSummaryPayload, ConstraintsExtractedPayload, LeadVerificationEntry } from "@/components/results/CvlArtefactViews";
 import RunResultBubble from "@/components/results/RunResultBubble";
 import type { PolicySnapshot } from "@/components/results/RunResultBubble";
 import { resolveCanonicalStatus, STATUS_CONFIG } from "@/utils/deliveryStatus";
@@ -42,6 +42,7 @@ type Message = ChatMessage & {
   deliverySummary?: DeliverySummary | null;
   verificationSummary?: VerificationSummaryPayload | null;
   constraintsExtracted?: ConstraintsExtractedPayload | null;
+  leadVerifications?: LeadVerificationEntry[] | null;
   policySnapshot?: PolicySnapshot | null;
   runId?: string | null;
   hidden?: boolean;
@@ -245,12 +246,14 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     vs: VerificationSummaryPayload | null;
     ce: ConstraintsExtractedPayload | null;
     policySnapshot: PolicySnapshot | null;
+    leadVerifications: LeadVerificationEntry[] | null;
   } {
     let vs: VerificationSummaryPayload | null = null;
     let ce: ConstraintsExtractedPayload | null = null;
     let policySnapshot: PolicySnapshot | null = null;
     let fallbackRules: string[] | null = null;
-    if (!Array.isArray(rows)) return { vs, ce, policySnapshot };
+    let leadVerifications: LeadVerificationEntry[] | null = null;
+    if (!Array.isArray(rows)) return { vs, ce, policySnapshot, leadVerifications };
     for (const row of rows) {
       if (row.type === 'verification_summary') {
         let p = row.payload_json;
@@ -261,6 +264,14 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         let p = row.payload_json;
         if (typeof p === 'string') { try { p = JSON.parse(p); } catch { p = null; } }
         if (p && typeof p === 'object') ce = p as ConstraintsExtractedPayload;
+      }
+      if (row.type === 'lead_verification') {
+        let p = row.payload_json;
+        if (typeof p === 'string') { try { p = JSON.parse(p); } catch { p = null; } }
+        if (p && typeof p === 'object') {
+          const entries = Array.isArray(p) ? p : Array.isArray((p as any).leads) ? (p as any).leads : null;
+          if (entries) leadVerifications = entries as LeadVerificationEntry[];
+        }
       }
       if ((row.type === 'policy_applications' || row.type === 'policy_application_snapshot') && !policySnapshot) {
         let p = row.payload_json;
@@ -292,7 +303,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         applied_policies: fallbackRules.map(r => ({ rule_text: r, source: 'plan' })),
       };
     }
-    return { vs, ce, policySnapshot };
+    return { vs, ce, policySnapshot, leadVerifications };
   }
 
   function persistStructuredResult(payload: any) {
@@ -375,7 +386,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
           }
         }
 
-        const { vs: provVs, ce: provCe, policySnapshot: provPs } = parseSiblingArtefacts(rows);
+        const { vs: provVs, ce: provCe, policySnapshot: provPs, leadVerifications: provLv } = parseSiblingArtefacts(rows);
         const towerRow = rows.find((r: any) => r.type === 'tower_judgement');
         let towerVerdict: string | null = null;
         if (towerRow) {
@@ -405,7 +416,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
           };
         }
 
-        console.log(`[Chat][finalizeRunUI] Synthesised DS for run=${effectiveKey}: status=${synthesisedDs.status}, leads=${provisionalLeads.length} (source=${source})`);
+        console.log(`[Chat][finalizeRunUI] Synthesised DS for run=${effectiveKey}: status=${synthesisedDs.status}, leads=${provisionalLeads.length}, leadVerifications=${provLv?.length ?? 'none'} (source=${source})`);
         deliverySummaryRunIdsRef.current.add(effectiveKey);
         if (effectiveRunId && effectiveRunId !== effectiveKey) deliverySummaryRunIdsRef.current.add(effectiveRunId);
         if (effectiveCrid && effectiveCrid !== effectiveKey) deliverySummaryRunIdsRef.current.add(effectiveCrid);
@@ -423,6 +434,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
           deliverySummary: synthesisedDs,
           verificationSummary: provVs,
           constraintsExtracted: provCe,
+          leadVerifications: provLv,
           policySnapshot: provPs || undefined,
           runId: effectiveRunId || undefined,
           provisional: false,
@@ -435,6 +447,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
           deliverySummary: synthesisedDs,
           verificationSummary: provVs || null,
           constraintsExtracted: provCe || null,
+          leadVerifications: provLv || null,
           policySnapshot: provPs || null,
         });
 
@@ -448,9 +461,11 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
       }
       if (!parsed || typeof parsed !== 'object') return;
 
-      const { vs, ce, policySnapshot } = parseSiblingArtefacts(rows);
+      const { vs, ce, policySnapshot, leadVerifications } = parseSiblingArtefacts(rows);
 
-      console.log(`[Chat][finalizeRunUI] delivery_summary found for run=${effectiveKey}, status=${parsed.status} (source=${source})`);
+      const dsExact = Array.isArray(parsed.delivered_exact) ? parsed.delivered_exact.length : 0;
+      const dsClosest = Array.isArray(parsed.delivered_closest) ? parsed.delivered_closest.length : 0;
+      console.log(`[Chat][finalizeRunUI] delivery_summary found for run=${effectiveKey}, status=${parsed.status}, verified_exact=${parsed.verified_exact_count ?? 'n/a'}, delivered_exact=${dsExact}, delivered_closest=${dsClosest}, leadVerifications=${leadVerifications?.length ?? 'none'} (source=${source})`);
       deliverySummaryRunIdsRef.current.add(effectiveKey);
       if (effectiveRunId && effectiveRunId !== effectiveKey) deliverySummaryRunIdsRef.current.add(effectiveRunId);
       if (effectiveCrid && effectiveCrid !== effectiveKey) deliverySummaryRunIdsRef.current.add(effectiveCrid);
@@ -468,6 +483,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         deliverySummary: parsed as DeliverySummary,
         verificationSummary: vs,
         constraintsExtracted: ce,
+        leadVerifications,
         policySnapshot: policySnapshot || undefined,
         runId: effectiveRunId || undefined,
         provisional: false,
@@ -480,6 +496,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         deliverySummary: parsed,
         verificationSummary: vs || null,
         constraintsExtracted: ce || null,
+        leadVerifications: leadVerifications || null,
         policySnapshot: policySnapshot || null,
       });
 
@@ -1145,6 +1162,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                 base.deliverySummary = meta.deliverySummary;
                 base.verificationSummary = meta.verificationSummary || null;
                 base.constraintsExtracted = meta.constraintsExtracted || null;
+                base.leadVerifications = meta.leadVerifications || null;
                 base.policySnapshot = meta.policySnapshot || null;
                 base.runId = meta.runId || null;
               }
@@ -2130,6 +2148,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                           deliverySummary={chatMessage.deliverySummary}
                           verificationSummary={chatMessage.verificationSummary}
                           constraintsExtracted={chatMessage.constraintsExtracted}
+                          leadVerifications={chatMessage.leadVerifications}
                           runId={chatMessage.runId}
                           policySnapshot={chatMessage.policySnapshot}
                           provisional={chatMessage.provisional}

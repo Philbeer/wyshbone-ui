@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { resolveCanonicalStatus, type CanonicalStatus } from "@/utils/deliveryStatus";
 import type { DeliverySummary, DeliveryLead } from "@/components/results/UserResultsView";
-import type { VerificationSummaryPayload, ConstraintsExtractedPayload } from "@/components/results/CvlArtefactViews";
+import type { VerificationSummaryPayload, ConstraintsExtractedPayload, LeadVerificationEntry } from "@/components/results/CvlArtefactViews";
 import { emitTelemetry, type TelemetryEventType } from "@/api/telemetryClient";
 
 export interface AppliedPolicy {
@@ -27,6 +27,7 @@ export interface RunResultBubbleProps {
   deliverySummary: DeliverySummary;
   verificationSummary?: VerificationSummaryPayload | null;
   constraintsExtracted?: ConstraintsExtractedPayload | null;
+  leadVerifications?: LeadVerificationEntry[] | null;
   runId?: string | null;
   policySnapshot?: PolicySnapshot | null;
   provisional?: boolean;
@@ -93,6 +94,77 @@ function resolveVerifiedCount(
     return vs.verified_exact_count;
   }
   return ds.verified_exact_count ?? 0;
+}
+
+function isLeadVerified(entry: LeadVerificationEntry): boolean {
+  const checks = Array.isArray(entry.constraint_checks) ? entry.constraint_checks : [];
+  if (checks.length === 0) return false;
+  return checks.every(c => c.status === 'yes');
+}
+
+function buildVerifiedLeadIds(lvEntries: LeadVerificationEntry[] | null | undefined): Set<string> {
+  const ids = new Set<string>();
+  if (!lvEntries) return ids;
+  for (const entry of lvEntries) {
+    if (isLeadVerified(entry)) {
+      ids.add(entry.lead_id);
+    }
+  }
+  return ids;
+}
+
+function matchLeadToId(lead: DeliveryLead): string[] {
+  const candidates: string[] = [];
+  const placeId = (lead as any).place_id || (lead as any).placeId;
+  if (placeId) candidates.push(placeId);
+  if (lead.name) candidates.push(lead.name);
+  const nameNorm = lead.name?.toLowerCase().trim();
+  if (nameNorm) candidates.push(nameNorm);
+  return candidates;
+}
+
+function splitLeadsByVerification(
+  allLeads: DeliveryLead[],
+  verifiedExact: number,
+  verifiedIds: Set<string>
+): { matches: DeliveryLead[]; candidates: DeliveryLead[] } {
+  if (verifiedIds.size === 0 && verifiedExact === 0) {
+    return { matches: [], candidates: allLeads };
+  }
+
+  if (verifiedIds.size > 0) {
+    const matches: DeliveryLead[] = [];
+    const candidates: DeliveryLead[] = [];
+    const verifiedIdsLower = new Set<string>();
+    verifiedIds.forEach(id => verifiedIdsLower.add(id.toLowerCase().trim()));
+
+    for (const lead of allLeads) {
+      const ids = matchLeadToId(lead);
+      const isMatch = ids.some(id => verifiedIdsLower.has(id.toLowerCase().trim()));
+      if (isMatch) {
+        matches.push(lead);
+      } else {
+        candidates.push(lead);
+      }
+    }
+
+    console.log(`[RunResultBubble] splitLeadsByVerification: verifiedIds=${verifiedIds.size}, matched=${matches.length}, candidates=${candidates.length}, total=${allLeads.length}`);
+    return { matches, candidates };
+  }
+
+  if (verifiedExact > 0 && verifiedExact < allLeads.length) {
+    console.log(`[RunResultBubble] splitLeadsByVerification: no lead_verification data, falling back to verifiedExact=${verifiedExact} slice`);
+    return {
+      matches: allLeads.slice(0, verifiedExact),
+      candidates: allLeads.slice(verifiedExact),
+    };
+  }
+
+  if (verifiedExact > 0 && verifiedExact >= allLeads.length) {
+    return { matches: allLeads, candidates: [] };
+  }
+
+  return { matches: [], candidates: allLeads };
 }
 
 function resolveHasTargetCount(
@@ -415,6 +487,7 @@ export default function RunResultBubble({
   deliverySummary,
   verificationSummary,
   constraintsExtracted,
+  leadVerifications,
   runId,
   policySnapshot,
   provisional = false,
@@ -439,11 +512,10 @@ export default function RunResultBubble({
   const closest = Array.isArray(deliverySummary.delivered_closest) ? deliverySummary.delivered_closest : [];
   const allLeads = [...exact, ...closest];
 
-  const hasVerifiedLeadsToShow = verifiedExact > 0 && allLeads.length > 0;
-  const showExact = verifiedExact > 0 && exact.length > 0;
-  const showVerifiedFromAll = verifiedExact > 0 && exact.length === 0 && allLeads.length > 0;
-  const showCandidates = !hasVerifiedLeadsToShow && closest.length > 0;
-  const showExactAsCandidates = !hasVerifiedLeadsToShow && exact.length > 0 && closest.length === 0;
+  const verifiedIds = buildVerifiedLeadIds(leadVerifications);
+  const { matches, candidates } = splitLeadsByVerification(allLeads, verifiedExact, verifiedIds);
+
+  console.log(`[RunResultBubble] render: status=${canonical.status}, verifiedExact=${verifiedExact}, requested=${target.hasTarget ? target.targetCount : 'any'}, allLeads=${allLeads.length}, matches=${matches.length}, candidates=${candidates.length}, leadVerifications=${leadVerifications?.length ?? 'none'}, verifiedIds=${verifiedIds.size}`);
 
   return (
     <div className="space-y-3">
@@ -480,44 +552,22 @@ export default function RunResultBubble({
         </div>
       )}
 
-      {!provisional && showExact && (
+      {!provisional && matches.length > 0 && (
         <div className="space-y-0.5">
-          <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Matches</h4>
+          <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Matches ({matches.length})</h4>
           <div>
-            {exact.map((lead, i) => (
+            {matches.map((lead, i) => (
               <LeadRow key={i} lead={lead} isVerified={true} unverifiableAttr={null} runId={runId} />
             ))}
           </div>
         </div>
       )}
 
-      {!provisional && showVerifiedFromAll && (
+      {!provisional && candidates.length > 0 && (
         <div className="space-y-0.5">
-          <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Matches</h4>
+          <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Candidates (not fully verified) ({candidates.length})</h4>
           <div>
-            {allLeads.slice(0, verifiedExact).map((lead, i) => (
-              <LeadRow key={i} lead={lead} isVerified={true} unverifiableAttr={null} runId={runId} />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {!provisional && showCandidates && (
-        <div className="space-y-0.5">
-          <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Candidates (not confirmed)</h4>
-          <div>
-            {closest.map((lead, i) => (
-              <LeadRow key={i} lead={lead} isVerified={false} unverifiableAttr={unverifiableAttr} runId={runId} />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {!provisional && showExactAsCandidates && (
-        <div className="space-y-0.5">
-          <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Candidates (not confirmed)</h4>
-          <div>
-            {exact.map((lead, i) => (
+            {candidates.map((lead, i) => (
               <LeadRow key={i} lead={lead} isVerified={false} unverifiableAttr={unverifiableAttr} runId={runId} />
             ))}
           </div>
