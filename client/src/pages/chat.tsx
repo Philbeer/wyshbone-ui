@@ -383,11 +383,79 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
 
             const hasMissionTerminal = artefactTypes.includes('run_summary') ||
               artefactTypes.includes('outcome_log') ||
-              artefactTypes.includes('policy_application_snapshot');
+              artefactTypes.includes('policy_application_snapshot') ||
+              artefactTypes.includes('verification_summary') ||
+              artefactTypes.includes('run_halted') ||
+              artefactTypes.some(t => t === 'tower_judgement');
 
             const runIsTerminal = hasMissionTerminal;
 
-            console.log(`[Chat][Poll] run=${(effectiveId || '').slice(0, 12)} artefacts=${artefactCount} types=[${artefactTypes.join(',')}] leads=${leadsRows.length} hasDS=false hasMissionTerminal=${hasMissionTerminal} terminal=${runIsTerminal} reason=${hasMissionTerminal ? artefactTypes.filter(t => ['run_summary','outcome_log','policy_application_snapshot'].includes(t)).join('+') : 'none'}`);
+            console.log(`[Chat][Poll] run=${(effectiveId || '').slice(0, 12)} artefacts=${artefactCount} types=[${artefactTypes.join(',')}] leads=${leadsRows.length} hasDS=false hasMissionTerminal=${hasMissionTerminal} terminal=${runIsTerminal} reason=${hasMissionTerminal ? artefactTypes.filter(t => ['run_summary','outcome_log','policy_application_snapshot','verification_summary','run_halted','tower_judgement'].includes(t)).join('+') : 'none'}`);
+
+            if (runIsTerminal && leadsRows.length === 0) {
+              const { vs: provVs, ce: provCe, policySnapshot: provPs } = parseSiblingArtefacts(rows);
+              const towerRow = Array.isArray(rows) ? rows.find((r: any) => r.type === 'tower_judgement') : null;
+              let towerVerdict: string | null = null;
+              if (towerRow) {
+                let tp = towerRow.payload_json;
+                if (typeof tp === 'string') { try { tp = JSON.parse(tp); } catch {} }
+                if (tp && typeof tp === 'object') towerVerdict = tp.verdict || null;
+              }
+              const stopStatus = towerVerdict === 'stop' ? 'STOP' : (artefactTypes.includes('run_halted') ? 'STOP' : 'FAIL');
+              const stoppedDs: DeliverySummary = {
+                status: stopStatus,
+                delivered_exact: [],
+                delivered_closest: [],
+                delivered_count: 0,
+                stop_reason: towerVerdict === 'stop' ? 'tower_stopped' : (artefactTypes.includes('run_halted') ? 'run_halted' : 'no_results'),
+              };
+
+              if (effectiveId) deliverySummaryRunIdsRef.current.add(effectiveId);
+
+              window.dispatchEvent(new CustomEvent('wyshbone:results_final', {
+                detail: { clientRequestId: crid, runId: runId || null },
+              }));
+
+              const finalMsg: Message = {
+                id: `ds-${effectiveId}`,
+                role: 'assistant',
+                content: '',
+                timestamp: new Date(),
+                source: 'supervisor',
+                deliverySummary: stoppedDs,
+                verificationSummary: provVs,
+                constraintsExtracted: provCe,
+                policySnapshot: provPs || undefined,
+                runId: runId || undefined,
+                provisional: false,
+              };
+              setMessages((prev) => {
+                const existingIdx = prev.findIndex(m => m.id === finalMsg.id);
+                if (existingIdx >= 0) {
+                  const updated = [...prev];
+                  updated[existingIdx] = finalMsg;
+                  return updated;
+                }
+                return [...prev, finalMsg];
+              });
+
+              runsMap.delete(key);
+              if (runsMap.size === 0) {
+                setIsWaitingForSupervisor(false);
+                setSupervisorTaskId(null);
+                supervisorRunIdRef.current = null;
+                supervisorClientRequestIdRef.current = null;
+                if (supervisorTimeoutRef.current) {
+                  clearTimeout(supervisorTimeoutRef.current);
+                  supervisorTimeoutRef.current = null;
+                }
+                if (supervisorPollRef.current) {
+                  clearInterval(supervisorPollRef.current);
+                  supervisorPollRef.current = null;
+                }
+              }
+              continue;
+            }
 
             if (leadsRows.length > 0) {
               const provisionalLeads: DeliveryLead[] = [];
