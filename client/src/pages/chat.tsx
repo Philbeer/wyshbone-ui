@@ -312,45 +312,232 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     } catch {}
   }
 
-  async function finalizeResultsUI() {
-    const cid = conversationId;
-    if (!cid) return;
-    try {
-      const url = addDevAuthParams(buildApiUrl(`/api/conversations/${cid}/messages`));
-      const res = await fetch(url, { credentials: 'include' });
-      if (!res.ok) return;
-      const dbMessages = await res.json();
-      if (!Array.isArray(dbMessages) || dbMessages.length === 0) return;
+  const finalizeRunUIRef = useRef<(opts: { runId?: string | null; crid?: string | null; source: string }) => Promise<void>>();
+  finalizeRunUIRef.current = async function finalizeRunUI(opts: { runId?: string | null; crid?: string | null; source: string }) {
+    const { runId, crid, source } = opts;
+    const effectiveRunId = runId || supervisorRunIdRef.current;
+    const effectiveCrid = crid || supervisorClientRequestIdRef.current;
+    const effectiveKey = effectiveRunId || effectiveCrid;
 
-      setMessages((prev) => {
-        const existingIds = new Set(prev.map(m => m.id));
-        const newMsgs: Message[] = [];
-        for (const msg of dbMessages) {
-          if (existingIds.has(msg.id)) continue;
-          if (msg.role !== 'assistant') continue;
-          const base: any = {
-            id: msg.id,
-            role: msg.role,
-            content: msg.content || '',
-            timestamp: new Date(msg.createdAt || msg.created_at),
-            source: msg.source || 'supervisor',
-          };
-          const meta = msg.metadata;
-          if (meta && typeof meta === 'object' && meta.type === 'structured_result' && meta.deliverySummary) {
-            base.deliverySummary = meta.deliverySummary;
-            base.verificationSummary = meta.verificationSummary || null;
-            base.constraintsExtracted = meta.constraintsExtracted || null;
-            base.policySnapshot = meta.policySnapshot || null;
-            base.runId = meta.runId || null;
-          }
-          newMsgs.push(base);
+    if (!effectiveKey) {
+      console.warn(`[Chat][finalizeRunUI] No runId or crid available (source=${source}), skipping`);
+      return;
+    }
+
+    if (deliverySummaryRunIdsRef.current.has(effectiveKey)) {
+      console.log(`[Chat][finalizeRunUI] Already finalized run=${effectiveKey} (source=${source}), skipping`);
+      return;
+    }
+
+    console.log(`[Chat][finalizeRunUI] Finalizing run=${effectiveKey} (source=${source})`);
+
+    try {
+      const params = new URLSearchParams();
+      if (effectiveRunId) params.set('runId', effectiveRunId);
+      if (effectiveCrid) params.set('client_request_id', effectiveCrid);
+      const url = buildApiUrl(addDevAuthParams(`/api/afr/artefacts?${params.toString()}`));
+      const res = await fetch(url, { credentials: 'include' });
+      if (!res.ok) {
+        console.warn(`[Chat][finalizeRunUI] Artefact fetch failed: ${res.status} (source=${source})`);
+        return;
+      }
+      const rows = await res.json();
+      if (!Array.isArray(rows)) return;
+
+      const dsRow = rows.find((r: any) => r.type === 'delivery_summary');
+
+      if (!dsRow) {
+        const artefactTypes = rows.map((r: any) => r.type);
+        const hasMissionTerminal = artefactTypes.includes('run_summary') ||
+          artefactTypes.includes('outcome_log') ||
+          artefactTypes.includes('policy_application_snapshot') ||
+          artefactTypes.includes('verification_summary') ||
+          artefactTypes.includes('run_halted') ||
+          artefactTypes.some((t: string) => t === 'tower_judgement');
+
+        if (!hasMissionTerminal) {
+          console.log(`[Chat][finalizeRunUI] No delivery_summary or terminal artefacts yet for run=${effectiveKey} (source=${source}, count=${rows.length})`);
+          return;
         }
-        if (newMsgs.length === 0) return prev;
-        console.log(`[Chat][finalizeResultsUI] Merging ${newMsgs.length} new DB messages into UI`);
-        return [...prev, ...newMsgs];
+
+        const leadsRows = rows.filter((r: any) => r.type === 'leads_list');
+        const provisionalLeads: DeliveryLead[] = [];
+        for (const lr of leadsRows) {
+          let lp = lr.payload_json;
+          if (typeof lp === 'string') { try { lp = JSON.parse(lp); } catch { continue; } }
+          if (lp && typeof lp === 'object') {
+            const items = Array.isArray(lp) ? lp : Array.isArray(lp.leads) ? lp.leads : Array.isArray(lp.results) ? lp.results : [];
+            for (const item of items) {
+              if (item && typeof item === 'object' && (item.name || item.location)) {
+                provisionalLeads.push(item as DeliveryLead);
+              }
+            }
+          }
+        }
+
+        const { vs: provVs, ce: provCe, policySnapshot: provPs } = parseSiblingArtefacts(rows);
+        const towerRow = rows.find((r: any) => r.type === 'tower_judgement');
+        let towerVerdict: string | null = null;
+        if (towerRow) {
+          let tp = towerRow.payload_json;
+          if (typeof tp === 'string') { try { tp = JSON.parse(tp); } catch {} }
+          if (tp && typeof tp === 'object') towerVerdict = tp.verdict || null;
+        }
+
+        let synthesisedDs: DeliverySummary;
+        if (provisionalLeads.length > 0) {
+          const hasVs = provVs && typeof provVs === 'object' && (provVs as any).verified_exact_count > 0;
+          synthesisedDs = {
+            status: hasVs ? 'PASS' : 'STOP',
+            delivered_exact: hasVs ? provisionalLeads : [],
+            delivered_closest: hasVs ? [] : provisionalLeads,
+            delivered_count: provisionalLeads.length,
+            stop_reason: hasVs ? undefined : 'no_delivery_summary',
+          };
+        } else {
+          const stopStatus = towerVerdict === 'stop' ? 'STOP' : (artefactTypes.includes('run_halted') ? 'STOP' : 'FAIL');
+          synthesisedDs = {
+            status: stopStatus,
+            delivered_exact: [],
+            delivered_closest: [],
+            delivered_count: 0,
+            stop_reason: towerVerdict === 'stop' ? 'tower_stopped' : (artefactTypes.includes('run_halted') ? 'run_halted' : 'no_results'),
+          };
+        }
+
+        console.log(`[Chat][finalizeRunUI] Synthesised DS for run=${effectiveKey}: status=${synthesisedDs.status}, leads=${provisionalLeads.length} (source=${source})`);
+        deliverySummaryRunIdsRef.current.add(effectiveKey);
+        if (effectiveRunId && effectiveRunId !== effectiveKey) deliverySummaryRunIdsRef.current.add(effectiveRunId);
+        if (effectiveCrid && effectiveCrid !== effectiveKey) deliverySummaryRunIdsRef.current.add(effectiveCrid);
+
+        window.dispatchEvent(new CustomEvent('wyshbone:results_final', {
+          detail: { clientRequestId: effectiveCrid, runId: effectiveRunId || null },
+        }));
+
+        const finalMsg: Message = {
+          id: `ds-${effectiveKey}`,
+          role: 'assistant',
+          content: '',
+          timestamp: new Date(),
+          source: 'supervisor',
+          deliverySummary: synthesisedDs,
+          verificationSummary: provVs,
+          constraintsExtracted: provCe,
+          policySnapshot: provPs || undefined,
+          runId: effectiveRunId || undefined,
+          provisional: false,
+        };
+        upsertResultMessage(finalMsg);
+
+        persistStructuredResult({
+          messageId: finalMsg.id,
+          runId: effectiveRunId || null,
+          deliverySummary: synthesisedDs,
+          verificationSummary: provVs || null,
+          constraintsExtracted: provCe || null,
+          policySnapshot: provPs || null,
+        });
+
+        cleanupRunState(effectiveKey);
+        return;
+      }
+
+      let parsed = dsRow.payload_json;
+      if (typeof parsed === 'string') {
+        try { parsed = JSON.parse(parsed); } catch { return; }
+      }
+      if (!parsed || typeof parsed !== 'object') return;
+
+      const { vs, ce, policySnapshot } = parseSiblingArtefacts(rows);
+
+      console.log(`[Chat][finalizeRunUI] delivery_summary found for run=${effectiveKey}, status=${parsed.status} (source=${source})`);
+      deliverySummaryRunIdsRef.current.add(effectiveKey);
+      if (effectiveRunId && effectiveRunId !== effectiveKey) deliverySummaryRunIdsRef.current.add(effectiveRunId);
+      if (effectiveCrid && effectiveCrid !== effectiveKey) deliverySummaryRunIdsRef.current.add(effectiveCrid);
+
+      window.dispatchEvent(new CustomEvent('wyshbone:results_final', {
+        detail: { clientRequestId: effectiveCrid, runId: effectiveRunId || null },
+      }));
+
+      const resultMessage: Message = {
+        id: `ds-${effectiveKey}`,
+        role: 'assistant',
+        content: '',
+        timestamp: new Date(),
+        source: 'supervisor',
+        deliverySummary: parsed as DeliverySummary,
+        verificationSummary: vs,
+        constraintsExtracted: ce,
+        policySnapshot: policySnapshot || undefined,
+        runId: effectiveRunId || undefined,
+        provisional: false,
+      };
+      upsertResultMessage(resultMessage);
+
+      persistStructuredResult({
+        messageId: resultMessage.id,
+        runId: effectiveRunId || null,
+        deliverySummary: parsed,
+        verificationSummary: vs || null,
+        constraintsExtracted: ce || null,
+        policySnapshot: policySnapshot || null,
+      });
+
+      cleanupRunState(effectiveKey);
+
+      toast({
+        title: "Results ready",
+        description: "Your results are now available in the chat.",
       });
     } catch (err) {
-      console.warn('[Chat][finalizeResultsUI] fetch error:', err);
+      console.warn(`[Chat][finalizeRunUI] Error (source=${source}):`, err);
+    }
+  };
+
+  function upsertResultMessage(msg: Message) {
+    setMessages((prev) => {
+      const existingIdx = prev.findIndex(m => m.id === msg.id);
+      if (existingIdx >= 0) {
+        const updated = [...prev];
+        updated[existingIdx] = msg;
+        return updated;
+      }
+      const provisionalIdx = prev.findIndex(m => {
+        if ('type' in m) return false;
+        const cm = m as Message;
+        return cm.provisional === true && cm.deliverySummary && cm.id?.startsWith('ds-');
+      });
+      if (provisionalIdx >= 0) {
+        const updated = [...prev];
+        updated[provisionalIdx] = msg;
+        return updated;
+      }
+      return [...prev, msg];
+    });
+  }
+
+  function cleanupRunState(effectiveKey: string) {
+    const runsMap = inFlightSupervisorRunsRef.current;
+    const mapEntries = Array.from(runsMap.entries());
+    for (const [key, run] of mapEntries) {
+      if (run.runId === effectiveKey || run.crid === effectiveKey || key === effectiveKey) {
+        runsMap.delete(key);
+        break;
+      }
+    }
+    if (runsMap.size === 0) {
+      setIsWaitingForSupervisor(false);
+      setSupervisorTaskId(null);
+      supervisorRunIdRef.current = null;
+      supervisorClientRequestIdRef.current = null;
+      if (supervisorTimeoutRef.current) {
+        clearTimeout(supervisorTimeoutRef.current);
+        supervisorTimeoutRef.current = null;
+      }
+      if (supervisorPollRef.current) {
+        clearInterval(supervisorPollRef.current);
+        supervisorPollRef.current = null;
+      }
     }
   }
 
@@ -374,8 +561,6 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     }
   }, [conversationId]);
 
-  // Poll for delivery_summary when waiting for Supervisor completion
-  // Iterates over ALL in-flight runs so back-to-back requests each get their results
   useEffect(() => {
     if (!isWaitingForSupervisor) {
       if (supervisorPollRef.current) {
@@ -386,9 +571,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     }
 
     const runsMap = inFlightSupervisorRunsRef.current;
-    if (process.env.NODE_ENV === 'development') {
-      console.log('[Chat] Polling activated — isWaitingForSupervisor=true, inFlightRuns:', Array.from(runsMap.keys()));
-    }
+    console.log('[Chat][Poll] Polling activated — isWaitingForSupervisor=true, inFlightRuns:', Array.from(runsMap.keys()));
 
     const pollForAllRuns = async () => {
       const entries = Array.from(runsMap.entries());
@@ -402,308 +585,10 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         }
       }
 
-      for (const [key, run] of entries) {
+      for (const [, run] of entries) {
         const { runId, crid } = run;
         if (!runId && !crid) continue;
-
-        try {
-          const params = new URLSearchParams();
-          if (runId) params.set('runId', runId);
-          if (crid) params.set('client_request_id', crid);
-          const url = buildApiUrl(addDevAuthParams(`/api/afr/artefacts?${params.toString()}`));
-
-          const res = await fetch(url, { credentials: 'include' });
-          if (!res.ok) continue;
-          const rows = await res.json();
-          const dsRow = Array.isArray(rows) ? rows.find((r: any) => r.type === 'delivery_summary') : null;
-
-          const effectiveId = runId || crid;
-
-          if (!dsRow) {
-            const leadsRows = Array.isArray(rows) ? rows.filter((r: any) => r.type === 'leads_list') : [];
-            const artefactTypes = Array.isArray(rows) ? rows.map((r: any) => r.type) : [];
-            const artefactCount = Array.isArray(rows) ? rows.length : 0;
-
-            const hasMissionTerminal = artefactTypes.includes('run_summary') ||
-              artefactTypes.includes('outcome_log') ||
-              artefactTypes.includes('policy_application_snapshot') ||
-              artefactTypes.includes('verification_summary') ||
-              artefactTypes.includes('run_halted') ||
-              artefactTypes.some(t => t === 'tower_judgement');
-
-            const runIsTerminal = hasMissionTerminal;
-
-            console.log(`[Chat][Poll] run=${(effectiveId || '').slice(0, 12)} artefacts=${artefactCount} types=[${artefactTypes.join(',')}] leads=${leadsRows.length} hasDS=false hasMissionTerminal=${hasMissionTerminal} terminal=${runIsTerminal} reason=${hasMissionTerminal ? artefactTypes.filter(t => ['run_summary','outcome_log','policy_application_snapshot','verification_summary','run_halted','tower_judgement'].includes(t)).join('+') : 'none'}`);
-
-            if (runIsTerminal && leadsRows.length === 0) {
-              const { vs: provVs, ce: provCe, policySnapshot: provPs } = parseSiblingArtefacts(rows);
-              const towerRow = Array.isArray(rows) ? rows.find((r: any) => r.type === 'tower_judgement') : null;
-              let towerVerdict: string | null = null;
-              if (towerRow) {
-                let tp = towerRow.payload_json;
-                if (typeof tp === 'string') { try { tp = JSON.parse(tp); } catch {} }
-                if (tp && typeof tp === 'object') towerVerdict = tp.verdict || null;
-              }
-              const stopStatus = towerVerdict === 'stop' ? 'STOP' : (artefactTypes.includes('run_halted') ? 'STOP' : 'FAIL');
-              const stoppedDs: DeliverySummary = {
-                status: stopStatus,
-                delivered_exact: [],
-                delivered_closest: [],
-                delivered_count: 0,
-                stop_reason: towerVerdict === 'stop' ? 'tower_stopped' : (artefactTypes.includes('run_halted') ? 'run_halted' : 'no_results'),
-              };
-
-              if (effectiveId) deliverySummaryRunIdsRef.current.add(effectiveId);
-
-              window.dispatchEvent(new CustomEvent('wyshbone:results_final', {
-                detail: { clientRequestId: crid, runId: runId || null },
-              }));
-
-              const finalMsg: Message = {
-                id: `ds-${effectiveId}`,
-                role: 'assistant',
-                content: '',
-                timestamp: new Date(),
-                source: 'supervisor',
-                deliverySummary: stoppedDs,
-                verificationSummary: provVs,
-                constraintsExtracted: provCe,
-                policySnapshot: provPs || undefined,
-                runId: runId || undefined,
-                provisional: false,
-              };
-              setMessages((prev) => {
-                const existingIdx = prev.findIndex(m => m.id === finalMsg.id);
-                if (existingIdx >= 0) {
-                  const updated = [...prev];
-                  updated[existingIdx] = finalMsg;
-                  return updated;
-                }
-                return [...prev, finalMsg];
-              });
-
-              runsMap.delete(key);
-              if (runsMap.size === 0) {
-                setIsWaitingForSupervisor(false);
-                setSupervisorTaskId(null);
-                supervisorRunIdRef.current = null;
-                supervisorClientRequestIdRef.current = null;
-                if (supervisorTimeoutRef.current) {
-                  clearTimeout(supervisorTimeoutRef.current);
-                  supervisorTimeoutRef.current = null;
-                }
-                if (supervisorPollRef.current) {
-                  clearInterval(supervisorPollRef.current);
-                  supervisorPollRef.current = null;
-                }
-              }
-              continue;
-            }
-
-            if (leadsRows.length > 0) {
-              const provisionalLeads: DeliveryLead[] = [];
-              for (const lr of leadsRows) {
-                let lp = lr.payload_json;
-                if (typeof lp === 'string') { try { lp = JSON.parse(lp); } catch { continue; } }
-                if (lp && typeof lp === 'object') {
-                  const items = Array.isArray(lp) ? lp : Array.isArray(lp.leads) ? lp.leads : Array.isArray(lp.results) ? lp.results : [];
-                  for (const item of items) {
-                    if (item && typeof item === 'object' && (item.name || item.location)) {
-                      provisionalLeads.push(item as DeliveryLead);
-                    }
-                  }
-                }
-              }
-              if (provisionalLeads.length > 0) {
-                const { vs: provVs, ce: provCe, policySnapshot: provPs } = parseSiblingArtefacts(rows);
-
-                if (runIsTerminal) {
-                  console.log(`[Chat] Run ${effectiveId} is terminal with ${provisionalLeads.length} leads but no delivery_summary — synthesising final result`);
-                  const hasVs = provVs && typeof provVs === 'object' && (provVs as any).verified_exact_count > 0;
-                  const synthesisedDs: DeliverySummary = {
-                    status: hasVs ? 'PASS' : 'STOP',
-                    delivered_exact: hasVs ? provisionalLeads : [],
-                    delivered_closest: hasVs ? [] : provisionalLeads,
-                    delivered_count: provisionalLeads.length,
-                    stop_reason: hasVs ? undefined : 'no_delivery_summary',
-                  };
-
-                  if (effectiveId) deliverySummaryRunIdsRef.current.add(effectiveId);
-
-                  console.log('[wyshbone:results_final] dispatching (provisional path)', { clientRequestId: crid, runId: runId || null });
-                  window.dispatchEvent(new CustomEvent('wyshbone:results_final', {
-                    detail: { clientRequestId: crid, runId: runId || null },
-                  }));
-
-                  const finalMsg: Message = {
-                    id: `ds-${effectiveId}`,
-                    role: 'assistant',
-                    content: '',
-                    timestamp: new Date(),
-                    source: 'supervisor',
-                    deliverySummary: synthesisedDs,
-                    verificationSummary: provVs,
-                    constraintsExtracted: provCe,
-                    policySnapshot: provPs || undefined,
-                    runId: runId || undefined,
-                    provisional: false,
-                  };
-                  setMessages((prev) => {
-                    const existingIdx = prev.findIndex(m => m.id === finalMsg.id);
-                    if (existingIdx >= 0) {
-                      const updated = [...prev];
-                      updated[existingIdx] = finalMsg;
-                      return updated;
-                    }
-                    return [...prev, finalMsg];
-                  });
-
-                  persistStructuredResult({
-                    messageId: finalMsg.id,
-                    runId: runId || null,
-                    deliverySummary: synthesisedDs,
-                    verificationSummary: provVs || null,
-                    constraintsExtracted: provCe || null,
-                    policySnapshot: provPs || null,
-                  });
-
-                  runsMap.delete(key);
-
-                  if (runsMap.size === 0) {
-                    setIsWaitingForSupervisor(false);
-                    setSupervisorTaskId(null);
-                    supervisorRunIdRef.current = null;
-                    supervisorClientRequestIdRef.current = null;
-                    if (supervisorTimeoutRef.current) {
-                      clearTimeout(supervisorTimeoutRef.current);
-                      supervisorTimeoutRef.current = null;
-                    }
-                    if (supervisorPollRef.current) {
-                      clearInterval(supervisorPollRef.current);
-                      supervisorPollRef.current = null;
-                    }
-                  }
-
-                  toast({
-                    title: "Results ready",
-                    description: "Your results are now available in the chat.",
-                  });
-                } else {
-                  const provisionalDs: DeliverySummary = {
-                    status: null,
-                    delivered_exact: provisionalLeads,
-                    delivered_closest: [],
-                    delivered_count: provisionalLeads.length,
-                  };
-                  const provMsg: Message = {
-                    id: `ds-${effectiveId}`,
-                    role: 'assistant',
-                    content: '',
-                    timestamp: new Date(),
-                    source: 'supervisor',
-                    deliverySummary: provisionalDs,
-                    verificationSummary: provVs,
-                    constraintsExtracted: provCe,
-                    runId: runId || undefined,
-                    provisional: true,
-                  };
-                  setMessages((prev) => {
-                    const existingIdx = prev.findIndex(m => m.id === provMsg.id);
-                    if (existingIdx >= 0) {
-                      const updated = [...prev];
-                      updated[existingIdx] = provMsg;
-                      return updated;
-                    }
-                    return [...prev, provMsg];
-                  });
-                  if (process.env.NODE_ENV === 'development') {
-                    console.log(`[Chat] Provisional bubble for run ${effectiveId}: ${provisionalLeads.length} leads`);
-                  }
-                }
-              }
-            }
-            continue;
-          }
-
-          let parsed = dsRow.payload_json;
-          if (typeof parsed === 'string') {
-            try { parsed = JSON.parse(parsed); } catch { continue; }
-          }
-          if (!parsed || typeof parsed !== 'object') continue;
-
-          const { vs, ce, policySnapshot } = parseSiblingArtefacts(rows);
-
-          if (process.env.NODE_ENV === 'development') {
-            console.log(`[Chat] delivery_summary found for run: ${effectiveId}`);
-          }
-
-          if (effectiveId) deliverySummaryRunIdsRef.current.add(effectiveId);
-
-          console.log('[wyshbone:results_final] dispatching (artefact poll path)', { clientRequestId: crid, runId: runId || null });
-          window.dispatchEvent(new CustomEvent('wyshbone:results_final', {
-            detail: { clientRequestId: crid, runId: runId || null },
-          }));
-
-          const resultMessage: Message = {
-            id: `ds-${effectiveId}`,
-            role: 'assistant',
-            content: '',
-            timestamp: new Date(),
-            source: 'supervisor',
-            deliverySummary: parsed as DeliverySummary,
-            verificationSummary: vs,
-            constraintsExtracted: ce,
-            policySnapshot: policySnapshot || undefined,
-            runId: runId || undefined,
-            provisional: false,
-          };
-          setMessages((prev) => {
-            const existingIdx = prev.findIndex(m => m.id === resultMessage.id);
-            if (existingIdx >= 0) {
-              const updated = [...prev];
-              updated[existingIdx] = resultMessage;
-              return updated;
-            }
-            return [...prev, resultMessage];
-          });
-
-          persistStructuredResult({
-            messageId: resultMessage.id,
-            runId: runId || null,
-            deliverySummary: parsed,
-            verificationSummary: vs || null,
-            constraintsExtracted: ce || null,
-            policySnapshot: policySnapshot || null,
-          });
-
-          setTimeout(() => finalizeResultsUI(), 1000);
-
-          runsMap.delete(key);
-
-          if (runsMap.size === 0) {
-            setIsWaitingForSupervisor(false);
-            setSupervisorTaskId(null);
-            supervisorRunIdRef.current = null;
-            supervisorClientRequestIdRef.current = null;
-            if (supervisorTimeoutRef.current) {
-              clearTimeout(supervisorTimeoutRef.current);
-              supervisorTimeoutRef.current = null;
-            }
-            if (supervisorPollRef.current) {
-              clearInterval(supervisorPollRef.current);
-              supervisorPollRef.current = null;
-            }
-          }
-
-          toast({
-            title: "Results ready",
-            description: "Your results are now available in the chat.",
-          });
-        } catch (err) {
-          if (process.env.NODE_ENV === 'development') {
-            console.warn(`[Chat] Poll for run ${key} failed:`, err);
-          }
-        }
+        await finalizeRunUIRef.current?.({ runId, crid, source: 'poll' });
       }
     };
 
@@ -719,7 +604,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         supervisorPollRef.current = null;
       }
     };
-  }, [isWaitingForSupervisor, toast]);
+  }, [isWaitingForSupervisor]);
 
   // Subscribe to Supervisor responses via Supabase realtime
   useEffect(() => {
@@ -795,136 +680,26 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         supervisorTimeoutRef.current = null;
       }
 
-      const lookupId = msgRunId || supervisorRunIdRef.current || supervisorClientRequestIdRef.current || inFlightRequestIdRef.current;
-      console.log('[Chat] Supervisor realtime callback — lookupId:', lookupId, 'msgRunId:', msgRunId, 'runRef:', supervisorRunIdRef.current, 'cridRef:', supervisorClientRequestIdRef.current);
+      const realtimeRunId = msgRunId || supervisorRunIdRef.current || null;
+      const realtimeCrid = supervisorClientRequestIdRef.current || null;
+      console.log('[Chat][Realtime] Supervisor message received — attempting finalizeRunUI, runId:', realtimeRunId, 'crid:', realtimeCrid);
 
-      let foundDeliverySummary = false;
-      if (lookupId) {
-        const fetchWithRetry = async (attempt: number): Promise<boolean> => {
-          try {
-            const params = new URLSearchParams();
-            if (msgRunId) {
-              params.set('runId', msgRunId);
-            } else if (supervisorRunIdRef.current) {
-              params.set('runId', supervisorRunIdRef.current);
-            }
-            if (supervisorClientRequestIdRef.current) {
-              params.set('client_request_id', supervisorClientRequestIdRef.current);
-            }
-            if (!params.has('runId') && !params.has('client_request_id')) {
-              params.set('client_request_id', lookupId);
-            }
-            const url = buildApiUrl(addDevAuthParams(`/api/afr/artefacts?${params.toString()}`));
-            console.log(`[Chat] Realtime artefact fetch attempt ${attempt}:`, url);
-            const artRes = await fetch(url, { credentials: 'include' });
-            if (!artRes.ok) {
-              console.warn(`[Chat] Realtime artefact fetch attempt ${attempt} failed:`, artRes.status);
-              return false;
-            }
-            const rows = await artRes.json();
-            console.log(`[Chat] Realtime artefact fetch attempt ${attempt} returned`, Array.isArray(rows) ? rows.length : 0, 'artefacts, types:', Array.isArray(rows) ? rows.map((r: any) => r.type) : []);
-            const dsRow = Array.isArray(rows) ? rows.find((r: any) => r.type === 'delivery_summary') : null;
-            if (dsRow) {
-              let parsed = dsRow.payload_json;
-              if (typeof parsed === 'string') {
-                try { parsed = JSON.parse(parsed); } catch {}
-              }
-              if (parsed && typeof parsed === 'object') {
-                const { vs, ce, policySnapshot } = parseSiblingArtefacts(rows);
-                const effectiveRunId = msgRunId || supervisorRunIdRef.current || lookupId;
-                console.log('[Chat] delivery_summary found via realtime callback for run:', effectiveRunId);
+      const tryFinalize = async (attempt: number) => {
+        await finalizeRunUIRef.current?.({ runId: realtimeRunId, crid: realtimeCrid, source: `realtime-attempt-${attempt}` });
+      };
 
-                if (effectiveRunId) deliverySummaryRunIdsRef.current.add(effectiveRunId);
-
-                console.log('[wyshbone:results_final] dispatching (realtime callback path)', { clientRequestId: supervisorClientRequestIdRef.current, runId: effectiveRunId });
-                window.dispatchEvent(new CustomEvent('wyshbone:results_final', {
-                  detail: { clientRequestId: supervisorClientRequestIdRef.current, runId: effectiveRunId },
-                }));
-
-                const resultMessage: Message = {
-                  id: `ds-${effectiveRunId}`,
-                  role: 'assistant',
-                  content: '',
-                  timestamp: new Date(),
-                  source: 'supervisor',
-                  deliverySummary: parsed as DeliverySummary,
-                  verificationSummary: vs,
-                  constraintsExtracted: ce,
-                  policySnapshot: policySnapshot || undefined,
-                  runId: effectiveRunId,
-                  provisional: false,
-                };
-                setMessages((prev) => {
-                  const existingIdx = prev.findIndex(m => m.id === resultMessage.id);
-                  if (existingIdx >= 0) {
-                    const updated = [...prev];
-                    updated[existingIdx] = resultMessage;
-                    return updated;
-                  }
-                  return [...prev, resultMessage];
-                });
-
-                persistStructuredResult({
-                  messageId: resultMessage.id,
-                  runId: effectiveRunId || null,
-                  deliverySummary: parsed,
-                  verificationSummary: vs || null,
-                  constraintsExtracted: ce || null,
-                  policySnapshot: policySnapshot || null,
-                });
-
-                setTimeout(() => finalizeResultsUI(), 1000);
-
-                return true;
-              }
-            }
-            return false;
-          } catch (err) {
-            console.warn(`[Chat] Realtime artefact fetch attempt ${attempt} error:`, err);
-            return false;
-          }
-        };
-
-        foundDeliverySummary = await fetchWithRetry(1);
-        if (!foundDeliverySummary) {
-          await new Promise(r => setTimeout(r, 3000));
-          foundDeliverySummary = await fetchWithRetry(2);
-        }
-        if (!foundDeliverySummary) {
-          await new Promise(r => setTimeout(r, 5000));
-          foundDeliverySummary = await fetchWithRetry(3);
-        }
+      await tryFinalize(1);
+      const key1 = realtimeRunId || realtimeCrid;
+      if (key1 && !deliverySummaryRunIdsRef.current.has(key1)) {
+        await new Promise(r => setTimeout(r, 3000));
+        await tryFinalize(2);
       }
-
-      if (foundDeliverySummary) {
-        const completedRunKey = msgRunId || supervisorRunIdRef.current || supervisorClientRequestIdRef.current;
-        if (completedRunKey) {
-          const runsMap = inFlightSupervisorRunsRef.current;
-          const mapEntries = Array.from(runsMap.entries());
-          for (const [key, run] of mapEntries) {
-            if (run.runId === completedRunKey || run.crid === completedRunKey || key === completedRunKey) {
-              runsMap.delete(key);
-              break;
-            }
-          }
-        }
-
-        if (inFlightSupervisorRunsRef.current.size === 0) {
-          setIsWaitingForSupervisor(false);
-          supervisorRunIdRef.current = null;
-          supervisorClientRequestIdRef.current = null;
-          if (supervisorPollRef.current) {
-            clearInterval(supervisorPollRef.current);
-            supervisorPollRef.current = null;
-          }
-        }
-
-        toast({
-          title: "Results ready",
-          description: "Your results are now available in the chat.",
-        });
-      } else {
-        console.log('[Chat] Realtime callback did NOT find delivery_summary — leaving poll active for run:', msgRunId || supervisorRunIdRef.current || supervisorClientRequestIdRef.current);
+      if (key1 && !deliverySummaryRunIdsRef.current.has(key1)) {
+        await new Promise(r => setTimeout(r, 5000));
+        await tryFinalize(3);
+      }
+      if (key1 && !deliverySummaryRunIdsRef.current.has(key1)) {
+        console.log('[Chat][Realtime] Did NOT finalize after 3 attempts — leaving poll active for run:', key1);
       }
     });
 
@@ -1078,69 +853,10 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
 
         for (const act of orphaned) {
           try {
-            const params = new URLSearchParams();
-            params.set('runId', act.runId);
-            const artUrl = buildApiUrl(addDevAuthParams(`/api/afr/artefacts?${params.toString()}`));
-            const artRes = await fetch(artUrl, { credentials: 'include' });
-            if (!artRes.ok) continue;
-            const rows = await artRes.json();
-            if (!Array.isArray(rows)) continue;
-
-            const dsRow = rows.find((r: any) => r.type === 'delivery_summary');
-            if (!dsRow) continue;
-
-            let parsed = dsRow.payload_json;
-            if (typeof parsed === 'string') { try { parsed = JSON.parse(parsed); } catch { continue; } }
-            if (!parsed || typeof parsed !== 'object') continue;
-
-            const { vs, ce, policySnapshot } = parseSiblingArtefacts(rows);
-            const effectiveId = act.runId;
-            console.log(`[Chat][Recovery] Recovering delivery_summary for run ${effectiveId}`);
-
-            deliverySummaryRunIdsRef.current.add(effectiveId);
-            if (act.clientRequestId) deliverySummaryRunIdsRef.current.add(act.clientRequestId);
-
-            const resultMessage: Message = {
-              id: `ds-${effectiveId}`,
-              role: 'assistant',
-              content: '',
-              timestamp: new Date(act.timestamp || Date.now()),
-              source: 'supervisor',
-              deliverySummary: parsed as DeliverySummary,
-              verificationSummary: vs,
-              constraintsExtracted: ce,
-              policySnapshot: policySnapshot || undefined,
-              runId: effectiveId,
-              provisional: false,
-            };
-
-            setMessages((prev) => {
-              const existingIdx = prev.findIndex(m => m.id === resultMessage.id);
-              if (existingIdx >= 0) {
-                const updated = [...prev];
-                updated[existingIdx] = resultMessage;
-                return updated;
-              }
-              const provisionalIdx = prev.findIndex(m => {
-                if ('type' in m) return false;
-                const cm = m as Message;
-                return cm.provisional === true && cm.deliverySummary && cm.id?.startsWith('ds-');
-              });
-              if (provisionalIdx >= 0) {
-                const updated = [...prev];
-                updated[provisionalIdx] = resultMessage;
-                return updated;
-              }
-              return [...prev, resultMessage];
-            });
-
-            persistStructuredResult({
-              messageId: resultMessage.id,
-              runId: effectiveId,
-              deliverySummary: parsed,
-              verificationSummary: vs || null,
-              constraintsExtracted: ce || null,
-              policySnapshot: policySnapshot || null,
+            await finalizeRunUIRef.current?.({
+              runId: act.runId,
+              crid: act.clientRequestId || null,
+              source: 'recovery',
             });
           } catch (err) {
             console.warn(`[Chat][Recovery] Error recovering run ${act.runId}:`, err);
@@ -1154,6 +870,21 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     const timer = setTimeout(recoverOrphanedRuns, 2000);
     return () => clearTimeout(timer);
   }, [conversationId, isLoadingHistory]);
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail || {};
+      const { runId, clientRequestId } = detail;
+      console.log('[Chat][ActivityBridge] wyshbone:activity_terminal received', { runId, clientRequestId });
+      finalizeRunUIRef.current?.({
+        runId: runId || null,
+        crid: clientRequestId || null,
+        source: 'activity-panel-bridge',
+      });
+    };
+    window.addEventListener('wyshbone:activity_terminal', handler);
+    return () => window.removeEventListener('wyshbone:activity_terminal', handler);
+  }, []);
 
   // Persist conversationId to localStorage
   useEffect(() => {
@@ -1541,23 +1272,6 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                 setSupervisorTaskId(parsed.supervisorTaskId);
                 supervisorClientRequestIdRef.current = clientRequestId;
                 setIsWaitingForSupervisor(true);
-                
-                // Set timeout watchdog (clear if Supervisor responds within 2 minutes)
-                if (supervisorTimeoutRef.current) {
-                  clearTimeout(supervisorTimeoutRef.current);
-                }
-                supervisorTimeoutRef.current = setTimeout(() => {
-                  console.warn('⏱️ Supervisor response timeout — clearing waiting state (polling continues via delivery_summary)');
-                  inFlightSupervisorRunsRef.current.clear();
-                  setIsWaitingForSupervisor(false);
-                  setSupervisorTaskId(null);
-                  supervisorRunIdRef.current = null;
-                  supervisorClientRequestIdRef.current = null;
-                  toast({
-                    title: "Timeout",
-                    description: "Supervisor is taking longer than expected. The results will appear when ready.",
-                  });
-                }, 120000); // 2 minute timeout
               }
               
               // Handle batch job ID

@@ -3517,6 +3517,9 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
           if (DEBUG_TERMINAL) console.log('[TERMINAL_DEBUG] *** CONFIRMING TERMINAL after stability ***');
           setConfirmedTerminal(true);
           terminalStabilityTimerRef.current = null;
+          window.dispatchEvent(new CustomEvent('wyshbone:activity_terminal', {
+            detail: { runId: stream?.run_id || null, clientRequestId: activeClientRequestId || null },
+          }));
         }, TERMINAL_STABILITY_MS);
       }
     }
