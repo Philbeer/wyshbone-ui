@@ -5,7 +5,7 @@ import { authedFetch } from '@/lib/queryClient';
 
 // FAST DEV MODE: Use fast polling in development
 const IS_DEV = import.meta.env.MODE === 'development';
-const EXECUTION_POLL_INTERVAL = IS_DEV ? 300 : 3000; // 300ms in dev, 3s in prod
+const EXECUTION_POLL_INTERVAL = IS_DEV ? 1500 : 3000; // 1.5s in dev, 3s in prod
 
 interface ExecutionState {
   isExecuting: boolean;

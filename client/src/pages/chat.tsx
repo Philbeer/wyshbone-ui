@@ -834,7 +834,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
 
     const recoverOrphanedRuns = async () => {
       try {
-        const runsUrl = addDevAuthParams(buildApiUrl(`/api/afr/runs?limit=20`));
+        const runsUrl = addDevAuthParams(buildApiUrl(`/api/afr/runs?limit=20&conversation_id=${encodeURIComponent(conversationId)}`));
         const runsRes = await fetch(runsUrl, { credentials: 'include' });
         if (!runsRes.ok) {
           console.warn('[Chat][Recovery] Failed to fetch runs:', runsRes.status);

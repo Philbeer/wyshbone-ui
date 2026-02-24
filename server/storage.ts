@@ -632,7 +632,7 @@ export interface IStorage {
   getAgentRun(id: string): Promise<SelectAgentRun | null>;
   getAgentRunByClientRequestId(clientRequestId: string): Promise<SelectAgentRun | null>;
   getMostRecentAgentRun(userId: string): Promise<SelectAgentRun | null>;
-  listAgentRuns(limit: number, userId?: string): Promise<SelectAgentRun[]>;
+  listAgentRuns(limit: number, userId?: string, conversationId?: string): Promise<SelectAgentRun[]>;
   getActivitiesByClientRequestId(clientRequestId: string): Promise<SelectAgentActivity[]>;
   updateAgentRun(id: string, updates: Partial<InsertAgentRun>): Promise<SelectAgentRun | null>;
   updateAgentRunStatus(id: string, status: string, terminalState?: string | null, error?: string | null): Promise<SelectAgentRun | null>;
@@ -1400,10 +1400,13 @@ export class MemStorage implements IStorage {
     return runs[0] || null;
   }
   
-  async listAgentRuns(limit: number = 200, userId?: string): Promise<SelectAgentRun[]> {
+  async listAgentRuns(limit: number = 200, userId?: string, conversationId?: string): Promise<SelectAgentRun[]> {
     let runs = Array.from(this.agentRunsMap.values());
     if (userId) {
       runs = runs.filter(r => r.userId === userId);
+    }
+    if (conversationId) {
+      runs = runs.filter(r => r.conversationId === conversationId);
     }
     return runs.sort((a, b) => b.createdAt - a.createdAt).slice(0, limit);
   }
@@ -5203,12 +5206,16 @@ export class DbStorage implements IStorage {
     return result || null;
   }
   
-  async listAgentRuns(limit: number = 200, userId?: string): Promise<SelectAgentRun[]> {
-    if (userId) {
+  async listAgentRuns(limit: number = 200, userId?: string, conversationId?: string): Promise<SelectAgentRun[]> {
+    const conditions = [];
+    if (userId) conditions.push(eq(agentRuns.userId, userId));
+    if (conversationId) conditions.push(eq(agentRuns.conversationId, conversationId));
+
+    if (conditions.length > 0) {
       return db
         .select()
         .from(agentRuns)
-        .where(eq(agentRuns.userId, userId))
+        .where(conditions.length === 1 ? conditions[0] : and(...conditions))
         .orderBy(desc(agentRuns.createdAt))
         .limit(limit);
     }

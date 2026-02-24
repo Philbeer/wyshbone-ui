@@ -41,9 +41,11 @@ export function createAfrRouter(_storage: typeof storage) {
       const limit = Math.min(parseInt(req.query.limit as string) || 200, 500);
       const offset = Math.max(parseInt(req.query.offset as string) || 0, 0);
       const userId = (req.query.userId || req.query.user_id) as string | undefined;
+      const conversationId = req.query.conversation_id as string | undefined;
       const showAllUsers = req.query.all === 'true';
       
-      const agentRuns = await storage.listAgentRuns(limit);
+      const effectiveUserId = showAllUsers ? undefined : userId;
+      const agentRuns = await storage.listAgentRuns(limit, effectiveUserId, conversationId);
       const dbMs = Date.now() - t0;
 
       const runs: Run[] = agentRuns.map((r) => {
@@ -65,8 +67,9 @@ export function createAfrRouter(_storage: typeof storage) {
           score: null,
           verdict: r.terminalState === 'completed' ? 'continue' as const :
                    r.terminalState === 'failed' ? 'abandon' as const : null,
-          run_type: "agent" as const, // New unified run type
+          run_type: "agent" as const,
           client_request_id: r.clientRequestId,
+          conversation_id: r.conversationId || null,
         };
       });
 
