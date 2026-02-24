@@ -93,6 +93,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const deliverySummaryRunIdsRef = useRef<Set<string>>(new Set());
+  const processedRealtimeMsgIdsRef = useRef<Set<string>>(new Set());
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const hasLoadedHistoryRef = useRef(false);
@@ -309,6 +310,48 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         body: JSON.stringify(payload),
       }).catch(() => {});
     } catch {}
+  }
+
+  async function finalizeResultsUI() {
+    const cid = conversationId;
+    if (!cid) return;
+    try {
+      const url = addDevAuthParams(buildApiUrl(`/api/conversations/${cid}/messages`));
+      const res = await fetch(url, { credentials: 'include' });
+      if (!res.ok) return;
+      const dbMessages = await res.json();
+      if (!Array.isArray(dbMessages) || dbMessages.length === 0) return;
+
+      setMessages((prev) => {
+        const existingIds = new Set(prev.map(m => m.id));
+        const newMsgs: Message[] = [];
+        for (const msg of dbMessages) {
+          if (existingIds.has(msg.id)) continue;
+          if (msg.role !== 'assistant') continue;
+          const base: any = {
+            id: msg.id,
+            role: msg.role,
+            content: msg.content || '',
+            timestamp: new Date(msg.createdAt || msg.created_at),
+            source: msg.source || 'supervisor',
+          };
+          const meta = msg.metadata;
+          if (meta && typeof meta === 'object' && meta.type === 'structured_result' && meta.deliverySummary) {
+            base.deliverySummary = meta.deliverySummary;
+            base.verificationSummary = meta.verificationSummary || null;
+            base.constraintsExtracted = meta.constraintsExtracted || null;
+            base.policySnapshot = meta.policySnapshot || null;
+            base.runId = meta.runId || null;
+          }
+          newMsgs.push(base);
+        }
+        if (newMsgs.length === 0) return prev;
+        console.log(`[Chat][finalizeResultsUI] Merging ${newMsgs.length} new DB messages into UI`);
+        return [...prev, ...newMsgs];
+      });
+    } catch (err) {
+      console.warn('[Chat][finalizeResultsUI] fetch error:', err);
+    }
   }
 
   useEffect(() => {
@@ -633,6 +676,8 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
             policySnapshot: policySnapshot || null,
           });
 
+          setTimeout(() => finalizeResultsUI(), 1000);
+
           runsMap.delete(key);
 
           if (runsMap.size === 0) {
@@ -683,6 +728,12 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     console.log('🔔 Setting up Supervisor subscription for conversation:', conversationId);
     
     const channel = subscribeSupervisorMessages(conversationId, async (supervisorMessage: SupervisorMessage) => {
+      if (processedRealtimeMsgIdsRef.current.has(supervisorMessage.id)) {
+        console.log('[Chat] Skipping already-processed realtime message:', supervisorMessage.id);
+        return;
+      }
+      processedRealtimeMsgIdsRef.current.add(supervisorMessage.id);
+
       console.log('🤖 Received Supervisor message:', supervisorMessage);
 
       const msgRunId = supervisorMessage.metadata?.run_id || supervisorMessage.metadata?.runId || null;
@@ -822,6 +873,8 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                   policySnapshot: policySnapshot || null,
                 });
 
+                setTimeout(() => finalizeResultsUI(), 1000);
+
                 return true;
               }
             }
@@ -843,32 +896,36 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         }
       }
 
-      const completedRunKey = msgRunId || supervisorRunIdRef.current || supervisorClientRequestIdRef.current;
-      if (completedRunKey) {
-        const runsMap = inFlightSupervisorRunsRef.current;
-        const mapEntries = Array.from(runsMap.entries());
-        for (const [key, run] of mapEntries) {
-          if (run.runId === completedRunKey || run.crid === completedRunKey || key === completedRunKey) {
-            runsMap.delete(key);
-            break;
+      if (foundDeliverySummary) {
+        const completedRunKey = msgRunId || supervisorRunIdRef.current || supervisorClientRequestIdRef.current;
+        if (completedRunKey) {
+          const runsMap = inFlightSupervisorRunsRef.current;
+          const mapEntries = Array.from(runsMap.entries());
+          for (const [key, run] of mapEntries) {
+            if (run.runId === completedRunKey || run.crid === completedRunKey || key === completedRunKey) {
+              runsMap.delete(key);
+              break;
+            }
           }
         }
-      }
 
-      if (inFlightSupervisorRunsRef.current.size === 0) {
-        setIsWaitingForSupervisor(false);
-        supervisorRunIdRef.current = null;
-        supervisorClientRequestIdRef.current = null;
-        if (supervisorPollRef.current) {
-          clearInterval(supervisorPollRef.current);
-          supervisorPollRef.current = null;
+        if (inFlightSupervisorRunsRef.current.size === 0) {
+          setIsWaitingForSupervisor(false);
+          supervisorRunIdRef.current = null;
+          supervisorClientRequestIdRef.current = null;
+          if (supervisorPollRef.current) {
+            clearInterval(supervisorPollRef.current);
+            supervisorPollRef.current = null;
+          }
         }
-      }
 
-      toast({
-        title: foundDeliverySummary ? "Results ready" : "Task completed",
-        description: foundDeliverySummary ? "Your results are now available in the chat." : "The Supervisor has completed the task.",
-      });
+        toast({
+          title: "Results ready",
+          description: "Your results are now available in the chat.",
+        });
+      } else {
+        console.log('[Chat] Realtime callback did NOT find delivery_summary — leaving poll active for run:', msgRunId || supervisorRunIdRef.current || supervisorClientRequestIdRef.current);
+      }
     });
 
     // Cleanup subscription on unmount or conversation change

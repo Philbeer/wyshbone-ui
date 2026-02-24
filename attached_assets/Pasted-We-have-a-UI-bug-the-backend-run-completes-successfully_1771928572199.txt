@@ -1,0 +1,108 @@
+We have a UI bug: the backend run completes successfully (delivery_summary created, leads verified, final message created), but the chat UI sometimes stays stuck on the provisional bubble (“Results are being processed”) and does not show the final results message.
+
+Evidence from logs:
+
+Run reaches run_completed
+
+delivery_summary artefact created: PASS — 5 of 5 delivered
+
+Supervisor states a final chat message was created (message_id like c54d6066...) but the UI does not render it in the conversation, while the Live Activity panel shows Tower: PASS and Completed.
+
+Goal:
+Make the chat UI always transition from provisional to final when the run is terminal and final outputs exist.
+
+Constraints:
+
+Do NOT change the Supervisor/Tower logic.
+
+Do NOT change verification logic.
+
+UI-only fix.
+
+When you modify code, output FULL files (copy/paste ready), not partial diffs.
+
+Tasks:
+
+Reproduce and instrument
+
+Add targeted console logs (guarded by a debug flag) in the chat page and any realtime subscription handler to print:
+
+current conversationId
+
+last message ids/timestamps currently in UI state
+
+any Supabase realtime INSERT/UPDATE payloads received for chat messages
+
+detection of terminal run state (delivery_summary / tower_judgement / run_completed / run_halted etc)
+
+Confirm whether the final message is:
+a) never received over realtime, or
+b) received but ignored (filtered out, wrong conversation id, wrong role/type), or
+c) received but overwritten by a state reset / stale fetch.
+
+Fix the state transition rule
+
+Today we show provisional “Results are being processed”.
+
+When ANY of these becomes true, the UI must force-refresh the message list and replace provisional state:
+
+delivery_summary artefact exists for the latest run, OR
+
+verification_summary exists, OR
+
+tower_judgement exists with terminal verdict, OR
+
+a new assistant message is inserted after the user message for the same run/task.
+
+Implement a single “finalizeResultsUI()” path that:
+
+stops any “waiting/processing” spinner,
+
+fetches latest messages from DB (authoritative),
+
+merges them into UI state without dropping anything,
+
+ensures the newest assistant message is rendered.
+
+Fix realtime subscription edge cases
+Common causes to check:
+
+subscription is attached to the wrong channel key or stale conversationId after a second prompt
+
+message inserts done via service role do not trigger the same realtime filter you’re using
+
+you only listen to INSERT but the message might be created as UPDATE from a placeholder
+
+ordering: message arrives but is sorted incorrectly and ends up off-screen or replaced
+
+Make it robust:
+
+Subscribe to both INSERT and UPDATE for messages.
+
+Ensure the filter is exactly conversation_id = <current conversation id>.
+
+On terminal detection, do a “final fetch” regardless of whether realtime fired.
+
+Acceptance criteria
+
+Run: “Find 5 pubs in arundel with live music”
+
+Expected UI behaviour:
+
+provisional bubble appears while verifying
+
+within 1–2 seconds of delivery_summary being written, the provisional bubble is replaced by the final results bubble showing 5 verified pubs
+
+Live Activity panel can finish later if needed, but chat results must show as final and stable
+
+Test also with two quick back-to-back user messages to ensure conversationId/runId wiring doesn’t break.
+
+Deliverables:
+
+Identify root cause in a short note.
+
+Implement fix.
+
+Provide the exact files changed (full file output).
+
+Provide a short “how to test” list with 2–3 runs.
