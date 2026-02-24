@@ -34,6 +34,8 @@ const IS_DEV = import.meta.env.DEV;
 
 const MIN_VISIBLE_RUN_MS = 500;
 const POST_TERMINAL_HOLD_MS = 60000;
+const POST_TERMINAL_CATCHUP_MS = 8000;
+const POST_TERMINAL_POLL_MS = 2000;
 
 const THINKING_MS = 0;
 const WORKING_MS = 0;
@@ -3059,6 +3061,8 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
   const [showThinking, setShowThinking] = useState(false);
   const [showOverlay, setShowOverlay] = useState(false);
   const [confirmedTerminal, setConfirmedTerminal] = useState(false);
+  const confirmedTerminalAtRef = useRef<number | null>(null);
+  const [catchUpDone, setCatchUpDone] = useState(false);
   
   const [demoPlayback, setDemoPlayback] = useState(false);
   const [towerLoopChatMode, setTowerLoopChatMode] = useState(() => {
@@ -3104,7 +3108,16 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
   rawEventsRef.current = rawEvents;
   const allEvents = rawEvents;
   const frozenDisplayEvents = useMemo(() => {
+    if (confirmedTerminal && !catchUpDone) {
+      return rawEvents;
+    }
     if (userVisibleComplete && frozenEventIdsRef.current != null && frozenEventIdsRef.current.length > 0) {
+      const frozenIdSet = new Set(frozenEventIdsRef.current);
+      const hasNewEvents = rawEvents.some((ev: any) => !frozenIdSet.has(ev.id));
+      if (hasNewEvents) {
+        frozenEventIdsRef.current = rawEvents.map((ev: any) => ev.id);
+        return rawEvents;
+      }
       const idOrder = frozenEventIdsRef.current;
       const idSet = new Set(idOrder);
       const matched = rawEvents.filter((e: any) => idSet.has(e.id));
@@ -3112,7 +3125,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
       return matched.length > 0 ? matched : rawEvents;
     }
     return rawEvents;
-  }, [rawEvents, userVisibleComplete]);
+  }, [rawEvents, userVisibleComplete, confirmedTerminal, catchUpDone]);
   const effectiveDemoPlayback = demoPlayback && !activeClientRequestId;
   const { displayEvents, transientPhase } = usePacedPlaybackQueue(frozenDisplayEvents, effectiveDemoPlayback, activeClientRequestId);
   const allRevealed = displayEvents.length >= frozenDisplayEvents.length;
@@ -3269,6 +3282,8 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
     if (activeClientRequestId !== prevClientRequestIdRef.current) {
       setUserVisibleComplete(false);
       frozenEventIdsRef.current = null;
+      confirmedTerminalAtRef.current = null;
+      setCatchUpDone(false);
       prevClientRequestIdRef.current = activeClientRequestId;
     }
     if (!activeClientRequestId) {
@@ -3446,7 +3461,21 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
   }, []);
 
   useEffect(() => {
-    if (confirmedTerminal) return;
+    if (confirmedTerminal) {
+      if (catchUpDone) return;
+      const termAt = confirmedTerminalAtRef.current;
+      if (!termAt) return;
+
+      if (IS_DEV) console.log(`[LiveActivityPanel] Post-terminal catch-up: polling every ${POST_TERMINAL_POLL_MS}ms for ${POST_TERMINAL_CATCHUP_MS / 1000}s`);
+      fetchStream();
+      const interval = setInterval(fetchStream, POST_TERMINAL_POLL_MS);
+      const timeout = setTimeout(() => {
+        clearInterval(interval);
+        setCatchUpDone(true);
+        if (IS_DEV) console.log('[LiveActivityPanel] Post-terminal catch-up complete');
+      }, POST_TERMINAL_CATCHUP_MS);
+      return () => { clearInterval(interval); clearTimeout(timeout); };
+    }
 
     const isActive = stream?.status && !['idle', 'completed', 'failed'].includes(stream.status) && (stream?.status as string) !== 'stopped';
     const hasActiveRequest = !!activeClientRequestId;
@@ -3454,7 +3483,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
 
     const interval = setInterval(fetchStream, intervalMs);
     return () => clearInterval(interval);
-  }, [stream?.status, fetchStream, activeClientRequestId, confirmedTerminal]);
+  }, [stream?.status, fetchStream, activeClientRequestId, confirmedTerminal, catchUpDone]);
 
   useEffect(() => {
     const handleFocus = () => fetchStream();
@@ -3495,6 +3524,8 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
       if (confirmedTerminal || terminalEventCountRef.current !== null) {
         if (DEBUG_TERMINAL) console.log('[TERMINAL_DEBUG] API says not terminal - resetting');
         setConfirmedTerminal(false);
+        confirmedTerminalAtRef.current = null;
+        setCatchUpDone(false);
         terminalEventCountRef.current = null;
       }
       return;
@@ -3516,6 +3547,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
         terminalStabilityTimerRef.current = setTimeout(() => {
           if (DEBUG_TERMINAL) console.log('[TERMINAL_DEBUG] *** CONFIRMING TERMINAL after stability ***');
           setConfirmedTerminal(true);
+          confirmedTerminalAtRef.current = Date.now();
           terminalStabilityTimerRef.current = null;
           window.dispatchEvent(new CustomEvent('wyshbone:activity_terminal', {
             detail: { runId: stream?.run_id || null, clientRequestId: activeClientRequestId || null },
