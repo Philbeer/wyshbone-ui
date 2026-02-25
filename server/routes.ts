@@ -867,81 +867,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // POST /agent/chat - MEGA Agent Kernel (Hybrid Mode)
-  // This runs alongside the standard chat for testing/comparison
-  app.post("/agent/chat", async (req, res) => {
-    // DEV MODE: Check for missing OPENAI_API_KEY and return helpful error
-    if (!process.env.OPENAI_API_KEY) {
-      console.warn('⚠️ OPENAI_API_KEY not set - agent chat unavailable');
-      return res.status(503).json({
-        ok: false,
-        error: 'Chat unavailable: OPENAI_API_KEY not configured',
-        natural: '⚠️ **Chat unavailable**: OPENAI_API_KEY is not configured.\n\nTo fix this:\n1. Create a `.env.local` file in the repo root\n2. Add: `OPENAI_API_KEY=sk-your-key-here`\n3. Restart the dev server\n\n*Other features (CRM, products, orders) should still work.*',
-        plan: null,
-      });
-    }
-    
-    try {
-      const auth = await getAuthenticatedUserId(req);
-      if (!auth) {
-        return res.status(401).json({ error: "Not authenticated" });
-      }
-
-      const { text, conversationId } = req.body;
-      if (!text) {
-        return res.status(400).json({ error: "text required" });
-      }
-
-      // Get user profile for context
-      const user = await storage.getUserById(auth.userId);
-      if (!user) {
-        return res.status(404).json({ error: "User not found" });
-      }
-
-      // Use the same conversationId as Standard mode (shared conversation)
-      // If not provided, use user-specific default
-      const sharedConversationId = conversationId || auth.userId;
-
-      console.log("🚀 MEGA agent starting:", { 
-        conversationId: sharedConversationId, 
-        text: text.substring(0, 50) 
-      });
-
-      // Import agent kernel dynamically
-      const { agentChat } = await import("./lib/agent-kernel");
-
-      // Call MEGA kernel with timeout and pass storage for database persistence
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error("Request timed out after 30 seconds. Please try again.")), 30000)
-      );
-      
-      const result = await Promise.race([
-        agentChat(sharedConversationId, text, user as any, storage),
-        timeoutPromise
-      ]) as any;
-
-      console.log("✅ MEGA agent completed");
-      
-      // Check if MEGA wants to delegate to Standard mode
-      if (result.auto_action_result?.delegateToStandard) {
-        console.log("🔄 MEGA delegating to Standard mode - switching to streaming chat");
-        
-        // Return a special response telling frontend to use Standard mode
-        return res.json({
-          ok: true,
-          natural: result.natural + "\n\n_Switching to Standard mode for this request..._",
-          plan: result.plan,
-          delegateToStandard: true,
-          originalRequest: text,
-          conversationId: sharedConversationId // Share the same conversation
-        });
-      }
-      
-      res.json(result);
-    } catch (error: any) {
-      console.error("MEGA agent error:", error);
-      res.status(500).json({ ok: false, error: error?.message || "unknown" });
-    }
+  app.post("/agent/chat", async (_req, res) => {
+    return res.status(410).json({
+      ok: false,
+      error: 'This endpoint has been removed. Use POST /api/chat instead.',
+    });
   });
 
   // ===========================
@@ -1199,50 +1129,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // ===========================
-  // POST /api/agent/chat – Claude AI with Tool Use
-  // ===========================
-  app.post("/api/agent/chat", async (req, res) => {
-    console.log('🤖 POST /api/agent/chat received');
-    
-    // Check for Anthropic API key
-    if (!process.env.ANTHROPIC_API_KEY) {
-      console.warn('⚠️ ANTHROPIC_API_KEY not set');
-      return res.status(503).json({ 
-        error: "Agent unavailable", 
-        message: "ANTHROPIC_API_KEY is not configured. Please add it to your environment variables." 
-      });
-    }
-    
-    try {
-      const { message, conversationHistory, userId } = req.body;
-      
-      if (!message || typeof message !== 'string') {
-        return res.status(400).json({ error: "Message is required" });
-      }
-      
-      // Get authenticated user ID
-      const auth = await getAuthenticatedUserId(req);
-      const actualUserId = userId || auth?.userId;
-      
-      // Import and call the Claude agent
-      const { chatWithClaude } = await import('./anthropic-agent');
-      
-      const response = await chatWithClaude(
-        message,
-        conversationHistory || [],
-        actualUserId,
-        storage
-      );
-      
-      res.json(response);
-    } catch (error: any) {
-      console.error('❌ Claude agent error:', error);
-      res.status(500).json({ 
-        error: "Agent error", 
-        message: error.message || "An error occurred while processing your request"
-      });
-    }
+  app.post("/api/agent/chat", async (_req, res) => {
+    return res.status(410).json({
+      error: 'This endpoint has been removed. Use POST /api/chat instead.',
+    });
   });
 
   // ===========================
@@ -1405,6 +1295,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const activeClarifySession = await getActiveClarifySession(conversationId);
 
       if (activeClarifySession) {
+        const { decideChatMode: decideChatModeForRecheck } = await import('./lib/decideChatMode.js');
+        const recheckDecision = decideChatModeForRecheck({ userMessage: latestUserText });
+
+        if (recheckDecision.mode !== 'CHAT_INFO' && recheckDecision.entityType &&
+            recheckDecision.entityType.toLowerCase() !== (activeClarifySession.entity_type || '').toLowerCase()) {
+          console.log(`🔀 [CLARIFY_SESSION] New entity intent detected ("${recheckDecision.entityType}"), closing old session and re-routing`);
+          await closeAllClarifySessions(conversationId);
+        }
+      }
+
+      const recheckActiveSession = await getActiveClarifySession(conversationId);
+
+      if (recheckActiveSession) {
+        const activeClarifySession = recheckActiveSession;
         console.log(`🔄 [CLARIFY_SESSION] Active session ${activeClarifySession.id} for conv=${conversationId}, processing user reply: "${latestUserText.slice(0, 60)}"`);
 
         const clarifyHandlerResult = await handleClarifyResponse(activeClarifySession, latestUserText);
@@ -1710,8 +1614,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.log(`🎯 User context loaded: company=${userSessionContext.companyName || 'N/A'}, industry=${userSessionContext.inferredIndustry || 'N/A'}`);
       }
 
-      const memoryMessages = await buildContextWithFacts(user.id, conversationHistory, 20, userSessionContext);
-      console.log(`🧠 Built context with facts for user ${user.id}`);
+      const memoryMessages = await buildContextWithFacts(user.id, conversationHistory, 20, userSessionContext, { omitLegacySystemPrompt: true });
+      console.log(`🧠 Built context with facts for user ${user.id} (legacy prompt omitted)`);
 
       appendMessage(sessionId, { role: "user", content: latestUserText });
       await maybeSummarize(sessionId, openai);
@@ -1721,7 +1625,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const urls = extractUrls(latestUserText);
       const useDirectFetch = urls.length > 0;
 
-      // Prepare messages array with CHAT_INFO system prompt (DON'T mutate memoryMessages)
       const { WyshboneChatConfig } = await import("../shared/conversationConfig");
       
       const systemPrompt = {
@@ -1729,7 +1632,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         content: WyshboneChatConfig.systemPrompts.CHAT_INFO
       };
 
-      
       let chatMessages = [systemPrompt, ...memoryMessages];
       
       // Fetch existing ACTIVE monitors and inject as LATEST system message (after conversation history)
@@ -4878,10 +4780,10 @@ ${run.outputText}`;
     }
   });
 
-  // ===========================
-  // POST /api/tower/chat-test – Tower testing endpoint with export-key auth
-  // ===========================
   app.post("/api/tower/chat-test", async (req, res) => {
+    if (process.env.ENABLE_DEV_CHAT_ENDPOINTS !== 'true') {
+      return res.status(410).json({ error: 'Tower chat-test endpoint is disabled. Set ENABLE_DEV_CHAT_ENDPOINTS=true to enable.' });
+    }
     console.log('🏢 POST /api/tower/chat-test received from Tower');
     
     try {

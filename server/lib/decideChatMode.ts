@@ -41,7 +41,28 @@ const CHAT_INFO_PATTERNS = [
 
 const LOCATION_PATTERN = /\b(?:in|near|around)\s+([a-z][a-z\s,]+)/i;
 
+const INFORMATIONAL_QUESTION_PREFIXES = [
+  /^who (?:is|are|was|were)\b/i,
+  /^what (?:is|are|was|were|do|does|can|should)\b/i,
+  /^how (?:do|does|can|should|to|many|much)\b/i,
+  /^why\b/i,
+  /^when\b/i,
+  /^where (?:is|are|was|were|do|does|can|should)\b/i,
+  /^explain\b/i,
+  /^tell me (?:about|what|how|why|when|where)\b/i,
+  /^describe\b/i,
+  /^define\b/i,
+  /^can you explain\b/i,
+  /^what's the (?:difference|best|biggest|largest|smallest)\b/i,
+];
+
 function detectEntityIntent(normalized: string): { isEntity: boolean; entityType?: string; location?: string; reason: string } {
+  for (const pattern of INFORMATIONAL_QUESTION_PREFIXES) {
+    if (pattern.test(normalized)) {
+      return { isEntity: false, reason: `Informational question prefix: "${normalized.slice(0, 30)}..."` };
+    }
+  }
+
   for (const verbPhrase of ENTITY_FINDING_VERBS) {
     if (normalized.includes(verbPhrase)) {
       const entityInfo = extractEntityAndLocation(normalized);

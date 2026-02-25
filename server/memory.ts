@@ -516,7 +516,8 @@ export async function buildContextWithFacts(
   userId: string,
   conversationHistory: ChatMessage[],
   maxFacts: number = 20,
-  userContext?: SessionContext
+  userContext?: SessionContext,
+  options?: { omitLegacySystemPrompt?: boolean }
 ): Promise<ChatMessage[]> {
   const allFacts = await storage.listTopFacts(userId, 100);
   
@@ -524,14 +525,11 @@ export async function buildContextWithFacts(
   const ONE_DAY = 24 * 60 * 60 * 1000;
   const THIRTY_DAYS = 30 * ONE_DAY;
   
-  // Apply recency boost to high-priority categories (industry, place, subject)
   const boostedFacts = allFacts.map(f => {
     const age = now - f.createdAt;
     let recencyBoost = 0;
     
-    // High-priority categories get recency boost
     if (['industry', 'place', 'subject'].includes(f.category || 'general')) {
-      // Boost: +20 for facts < 1 day, +15 for < 7 days, +10 for < 30 days
       if (age < ONE_DAY) {
         recencyBoost = 20;
       } else if (age < 7 * ONE_DAY) {
@@ -545,27 +543,36 @@ export async function buildContextWithFacts(
     return { ...f, effectiveScore };
   });
   
-  // Sort by effective score (with recency boost) and take top N
   const topFacts = boostedFacts
     .sort((a, b) => b.effectiveScore - a.effectiveScore || b.createdAt - a.createdAt)
     .slice(0, maxFacts);
   
   const factLines = topFacts.map((f) => `- ${f.fact} (score ${f.score})`).join('\n');
   
-  // CRITICAL ORDER: System prompt (personalized if context provided) → Conversation history (PRIORITY) → Durable memory (FALLBACK)
-  const systemPromptContent = userContext 
-    ? buildPersonalizedSystemPrompt(userContext)
-    : SYSTEM_PROMPT.content;
+  const messages: ChatMessage[] = [];
+
+  if (!options?.omitLegacySystemPrompt) {
+    const systemPromptContent = userContext 
+      ? buildPersonalizedSystemPrompt(userContext)
+      : SYSTEM_PROMPT.content;
+    messages.push({ role: "system", content: systemPromptContent });
+  } else if (userContext) {
+    const contextParts: string[] = [];
+    if (userContext.companyName) contextParts.push(`Company: ${userContext.companyName}`);
+    if (userContext.companyDomain) contextParts.push(`Domain: ${userContext.companyDomain}`);
+    if (userContext.inferredIndustry) contextParts.push(`Industry: ${userContext.inferredIndustry}`);
+    if (userContext.roleHint) contextParts.push(`Role: ${userContext.roleHint}`);
+    if (userContext.primaryObjective) contextParts.push(`Objective: ${userContext.primaryObjective}`);
+    if (contextParts.length > 0) {
+      messages.push({
+        role: "system",
+        content: `[User context]\n${contextParts.join('\n')}`
+      });
+    }
+  }
   
-  const messages: ChatMessage[] = [{
-    role: "system",
-    content: systemPromptContent
-  }];
-  
-  // Add conversation history FIRST (highest priority)
   messages.push(...conversationHistory);
   
-  // Add durable memory AFTER conversation (as fallback context)
   if (factLines) {
     messages.push({
       role: "system",

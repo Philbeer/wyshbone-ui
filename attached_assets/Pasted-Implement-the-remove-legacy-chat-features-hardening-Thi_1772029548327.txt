@@ -1,0 +1,76 @@
+Implement the “remove legacy chat features” hardening. This is TRUST-FIRST.
+Do it in the smallest change set possible, but it must fully eliminate bypasses.
+
+Goal (non-negotiable invariants)
+
+If no supervisorTaskId exists for a response, then the assistant must not:
+
+output lists of real-world entities
+
+imply execution or searching
+
+claim results were found
+
+There must be exactly one routing decision tree. No parallel chat agents can bypass it.
+
+Fix 1 (CRITICAL): Remove the dual prompt conflict
+
+Find where buildContextWithFacts() injects the legacy SYSTEM_PROMPT from memory.ts into memoryMessages.
+
+In the CHAT_INFO and CLARIFY_FOR_RUN lanes, ensure only the correct mode prompt is sent.
+
+The legacy agent/tool execution prompt must NOT be included anywhere in those lanes, even indirectly via memory/context builders.
+
+Keep memory “facts” content if needed, but strip any system-level prompt text and execution/tool language from memory injections.
+
+Fix 2 (HIGH): Hard-fence or remove bypass endpoints
+
+For these endpoints:
+
+POST /agent/chat
+
+POST /api/agent/chat
+
+Tower chat test endpoint
+
+Do ONE of the following (prefer simplest):
+
+Option A: Remove them from routing/exports if unused.
+
+Option B: Guard them behind an explicit env flag like ENABLE_DEV_CHAT_ENDPOINTS=false default, and ensure production and normal UI cannot hit them.
+
+Option C: Make them call the same three-way router and obey the invariants above.
+
+Also grep UI for any fetch calls hitting these endpoints and rewire them to the canonical /api/chat path only.
+
+Fix 3 (MED): Clarify session behaviour
+
+When in CLARIFY_FOR_RUN, if the user responds with something that is clearly a NEW request (eg “find charities in Blackpool” instead of answering the question), it must re-route through the three-way router again, not be treated as an answer to the prior clarification question.
+
+Fix 4 (MED): Update misleading copy
+
+Remove any welcome/onboarding text that says “I’ll search immediately” or similar.
+
+Make it consistent with the router states (Chat, Clarify, Run).
+
+Testing (must do)
+
+Add or update tests to cover:
+
+“find organisations that work with local authorities in Blackpool”
+Expected: CLARIFY_FOR_RUN (no fake results, no execution language).
+
+Reply “yes” to clarification without providing missing info
+Expected: ask the next missing clarification question, not direct_response entity list.
+
+“find 5 charities in blackpool”
+Expected: RUN_SUPERVISOR.
+
+“what is a charity”
+Expected: CHAT_INFO with no legacy prompt leakage.
+
+Deliverable
+
+List files changed, and for each: what was removed, what was fenced, what was left.
+
+Confirm the invariants above are enforced.
