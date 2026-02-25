@@ -1,0 +1,92 @@
+You are working in the Wyshbone UI repo.
+
+I just ran this user input:
+
+“find organisations that work with local authorities in blackpool”
+
+In the Live Activity panel it shows:
+
+Router decision: direct_response
+
+Path: direct_response (standard chat response without tool calls)
+
+Run completed in ~0 seconds
+
+No supervisor plan / no tools / no Tower
+
+But the chat bubble displayed a rich, sensible message that said things like:
+
+“I’ll set up a search… handled by the task execution system”
+
+It asked clarifying questions (org type, target roles, area scope, sector focus, approximate number)
+
+This means there is a UI layer (or direct_response rendering path) that is generating this content even when the agent loop is not invoked.
+
+Your task
+
+Produce a forensic report on exactly what code produced that chat bubble and why it ran.
+
+Requirements
+
+Trace the full call path from:
+
+user pressing Enter
+
+request to /api/chat (or equivalent)
+
+SSE / streaming handler
+
+router classification arriving in the stream
+
+UI choosing the direct_response render branch
+
+the final text content being constructed and inserted into the message list
+
+Identify:
+
+Which file(s) contain the direct_response rendering logic
+
+Which file(s) contain the system prompt / template that generated the wording (“I’ll set up a search… task execution system…”)
+
+Any helper functions that expand “find …” into clarifying questions
+
+Show the exact code that:
+
+Detects the router decision == direct_response
+
+Creates the assistant message for this case
+
+Injects it into the chat messages array
+
+Explain the trigger:
+
+Why did the router classify this as direct_response?
+
+What conditions cause the UI to expect agent execution vs direct_response?
+
+Is there any “legacy” layer still enabled that pretends execution will happen?
+
+Output format (mandatory)
+Provide:
+
+A short “What happened” summary (5 lines max)
+
+Then a bullet list of files + functions involved
+
+Then paste the relevant code blocks (only the parts that matter)
+
+Then a “Fix options” section listing 2-3 options:
+
+Option A: keep this layer but remove any language implying tools/execution
+
+Option B: route all “find + location” into Supervisor instead of direct_response
+
+Option C: add a UI guard: don’t show execution language unless a supervisorTaskId exists
+
+Important
+
+Do not guess. If you aren’t sure, search the codebase:
+
+look for: direct_response, Router: direct_response, task execution system, Before it runs, please confirm, clarify, scoping questions, handoff, supervisorTaskId.
+
+Return with a concrete answer tied to actual code locations.
