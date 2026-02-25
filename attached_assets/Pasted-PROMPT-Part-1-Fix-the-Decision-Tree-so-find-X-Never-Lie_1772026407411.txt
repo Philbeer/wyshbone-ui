@@ -1,0 +1,178 @@
+PROMPT: Part 1 — Fix the Decision Tree so “find X” Never Lies or Falls Through
+Objective
+
+Make the top-of-tree decision logic correct and trustworthy.
+
+After this change:
+
+A user asking to find real-world entities can only end in CLARIFY_FOR_RUN or RUN_SUPERVISOR
+
+It must never silently fall into normal chat
+
+The UI must never imply execution unless a Supervisor task actually exists
+
+This is a trust-hardening change, not a feature.
+
+Background (do not dispute, this is known)
+
+Current behaviour (confirmed by forensic report):
+
+decideChatMode() returns RUN for “find …”
+
+detectSupervisorIntent() vetoes due to narrow regex / keyword list
+
+Code falls through to CHAT lane
+
+CHAT lane system prompt tells GPT to say “This will be handled by the task execution system”
+
+Result: misleading chat bubble that sounds like execution but isn’t
+
+This is unacceptable and must be eliminated.
+
+The Stable Decision Tree (must not change)
+User Input
+  ↓
+Intent?
+  ├─ Info → CHAT_INFO
+  └─ Find entities
+        ↓
+    Runnable?
+      ├─ No → CLARIFY_FOR_RUN
+      └─ Yes → RUN_SUPERVISOR
+
+No other outcomes are allowed for “find entities”.
+
+Required Implementation
+1) Replace the two-gate router with a single explicit decision
+
+Eliminate the pattern:
+
+Gate 1 says RUN, Gate 2 vetoes, fall through to chat
+
+Instead, router must return exactly one of:
+
+CHAT_INFO
+
+CLARIFY_FOR_RUN
+
+RUN_SUPERVISOR
+
+There must be no fallthrough.
+
+If a request smells like entity discovery but cannot be run yet, return CLARIFY_FOR_RUN — not false, not chat.
+
+2) Definition of “find entities” (be permissive)
+
+Trigger entity-finding intent when:
+
+verbs like: find, list, show, get, locate, search for
+
+OR patterns like: “X in Y”, “X near Y”, “organisations that…”
+
+Do not rely on fragile regexes limited to 1–2 words
+
+When in doubt, treat it as entity discovery, not info chat
+
+3) Runnable criteria (minimal, explicit)
+
+A request is runnable if:
+
+entity type can be inferred
+
+location is present or implicit
+
+no obvious contradiction
+
+If missing info (eg semantic constraint like “work with councils”), return CLARIFY_FOR_RUN.
+
+Reuse existing leadClarification.ts logic here — do not invent a new clarifier.
+
+4) Clarify mode rules (very important)
+
+When CLARIFY_FOR_RUN:
+
+UI must show a state/badge: “Clarifying before run”
+
+Assistant must:
+
+ask up to 3 targeted questions max
+
+explicitly say it is clarifying before running
+
+never imply execution
+
+Language must NOT include:
+
+“task execution system”
+
+“running now”
+
+“searching”
+
+“handled by”
+
+Clarify is honest, calm, and explicit.
+
+5) RUN_SUPERVISOR rules
+
+Only when:
+
+Supervisor task is actually created
+
+supervisorTaskId exists
+
+Only then may the UI show “running” and agent language.
+
+6) Fix system prompts (mandatory)
+
+In shared/conversationConfig.ts:
+
+Remove any instruction that tells GPT to say:
+
+“This will be handled by the task execution system”
+
+Replace with:
+
+CHAT_INFO → normal helpful chat
+
+CLARIFY_FOR_RUN → clarification language only
+
+RUN_SUPERVISOR → UI handles execution state, GPT does not claim it
+
+7) UI guard (safety net)
+
+In the SSE handler:
+
+If no supervisorTaskId was ever received:
+
+execution-implying language must be impossible
+
+direct_response must only be used for CHAT_INFO
+
+Tests (must pass)
+
+“find charities in blackpool” → RUN_SUPERVISOR
+
+“find organisations that work with local authorities in blackpool” → CLARIFY_FOR_RUN
+
+“find pubs” → CLARIFY_FOR_RUN (ask for location)
+
+“what is a charity” → CHAT_INFO
+
+Invariant:
+Any input classified as “find entities” must result in CLARIFY_FOR_RUN or RUN_SUPERVISOR, never CHAT_INFO.
+
+Deliverables
+
+Routing code changes
+
+Updated prompts
+
+UI state for CLARIFY
+
+Passing tests
+
+Short summary of files touched
+
+Do the minimal clean fix.
+No refactors unrelated to this.
