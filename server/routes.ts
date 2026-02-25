@@ -1390,22 +1390,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
         conversationId,
       });
 
-      // ═══════════════════════════════════════════
-      // 2-LANE FORK: decideChatMode → CHAT or RUN
-      // ═══════════════════════════════════════════
+      // ═══════════════════════════════════════════════════════════
+      // 3-WAY ROUTER: CHAT_INFO | CLARIFY_FOR_RUN | RUN_SUPERVISOR
+      // ═══════════════════════════════════════════════════════════
       const { decideChatMode } = await import('./lib/decideChatMode.js');
       const modeDecision = decideChatMode({ userMessage: latestUserText });
-      console.log(`🔀 [FORK] mode=${modeDecision.mode} reason="${modeDecision.reason}" crid=${clientRequestId || 'none'}`);
+      console.log(`🔀 [ROUTER] mode=${modeDecision.mode} reason="${modeDecision.reason}" entity="${modeDecision.entityType || 'N/A'}" location="${modeDecision.location || 'N/A'}" crid=${clientRequestId || 'none'}`);
 
-      if (modeDecision.mode === 'RUN') {
-        // ─── RUN LANE: enqueue supervisor task and return ───
+      if (modeDecision.mode === 'RUN_SUPERVISOR') {
+        // ─── RUN_SUPERVISOR LANE: enqueue supervisor task and return ───
         try {
           const intentResult = detectSupervisorIntent(latestUserText);
-          if (!intentResult.requiresSupervisor) {
-            console.log(`[FORK] decideChatMode=RUN but detectSupervisorIntent=false, falling through to CHAT lane`);
-          } else {
           const taskType = intentResult.taskType || 'find_prospects';
-          const baseRequestData = { user_message: latestUserText, ...(intentResult.requestData || {}) };
+          const baseRequestData = {
+            user_message: latestUserText,
+            ...(intentResult.requestData || {}),
+            search_query: {
+              business_type: modeDecision.entityType || intentResult.requestData?.search_query?.business_type,
+              location: modeDecision.location || intentResult.requestData?.search_query?.location,
+            },
+          };
           const requestData: Record<string, any> = { ...baseRequestData };
           if (metadata) {
             if (metadata.scenario) requestData.scenario = metadata.scenario;
@@ -1427,8 +1431,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
               conversationId,
               clientRequestId,
               decision: 'supervisor_plan',
-              reason: `decideChatMode → RUN (${modeDecision.reason})`,
-              signals: { taskType, modeReason: modeDecision.reason },
+              reason: `decideChatMode → RUN_SUPERVISOR (${modeDecision.reason})`,
+              signals: { taskType, modeReason: modeDecision.reason, entityType: modeDecision.entityType, location: modeDecision.location },
             }).catch(err => console.error('AFR router log error:', err.message));
           }
 
@@ -1489,19 +1493,101 @@ export async function registerRoutes(app: Express): Promise<Server> {
             conversationId,
           });
 
-          console.log(`[CHAT_ROUTE=RUN_LANE] crid=${clientRequestId || 'none'} run_id=${agentRunId || runId} taskId=${supervisorTask.id}`);
+          console.log(`[CHAT_ROUTE=RUN_SUPERVISOR] crid=${clientRequestId || 'none'} run_id=${agentRunId || runId} taskId=${supervisorTask.id}`);
           res.write(`data: [DONE]\n\n`);
           res.end();
           return;
-          } // end else (requiresSupervisor)
         } catch (error: any) {
-          console.error(`[CHAT_ROUTE=RUN_LANE_ERROR] crid=${clientRequestId || 'none'} error=${error.message}`);
-          console.error('RUN lane failed, falling through to CHAT lane');
+          console.error(`[CHAT_ROUTE=RUN_SUPERVISOR_ERROR] crid=${clientRequestId || 'none'} error=${error.message}`);
+          console.error('RUN_SUPERVISOR lane failed, falling through to CLARIFY_FOR_RUN');
+          modeDecision.mode = 'CLARIFY_FOR_RUN' as any;
+          modeDecision.reason = `RUN_SUPERVISOR failed (${error.message}), falling back to clarification`;
         }
       }
 
-      // ─── CHAT LANE: normal GPT-5 streaming response ───
-      console.log(`[CHAT_LANE] Starting GPT-5 streaming for crid=${clientRequestId || 'none'}`);
+      if (modeDecision.mode === 'CLARIFY_FOR_RUN') {
+        // ─── CLARIFY_FOR_RUN LANE: ask clarifying questions, never imply execution ───
+        try {
+          const { handleLeadClarification } = await import('./leadClarification.js');
+          const conversationHistory = await loadConversationHistory(conversationId);
+          const historyTexts = conversationHistory.map(m => `${m.role}: ${m.content}`);
+
+          const clarifyResult = await handleLeadClarification({
+            sessionId,
+            userMessage: latestUserText,
+            conversationHistory: historyTexts,
+          });
+
+          if (clientRequestId) {
+            await logRouterDecision({
+              userId: user.id,
+              conversationId,
+              clientRequestId,
+              decision: 'clarify_for_run',
+              reason: `decideChatMode → CLARIFY_FOR_RUN (${modeDecision.reason})`,
+              signals: { entityType: modeDecision.entityType, location: modeDecision.location, clarifyType: clarifyResult.type },
+            }).catch(err => console.error('AFR router log error:', err.message));
+          }
+
+          let clarifyMessage: string;
+          if (clarifyResult.type === 'clarify') {
+            clarifyMessage = clarifyResult.formattedMessage;
+          } else if (clarifyResult.type === 'proceed') {
+            clarifyMessage = `Thanks — I now have the details I need. Could you confirm you'd like me to go ahead and run this search?`;
+          } else {
+            const missing: string[] = [];
+            if (!modeDecision.entityType) missing.push('what type of entity you want to find');
+            if (!modeDecision.location) missing.push('which location to search in');
+            clarifyMessage = `Before I run this search, I need to clarify a couple of things:\n\n${missing.map((q, i) => `${i + 1}. Could you tell me ${q}?`).join('\n')}`;
+            if (missing.length === 0) {
+              clarifyMessage = `I'd like to make sure I find exactly what you need. Could you give me a bit more detail about what you're looking for?`;
+            }
+          }
+
+          res.write(`data: ${JSON.stringify({
+            type: 'clarify_for_run',
+            mode: 'CLARIFY_FOR_RUN',
+          })}\n\n`);
+
+          appendMessage(sessionId, { role: "user", content: latestUserText });
+          appendMessage(sessionId, { role: "assistant", content: clarifyMessage });
+          await saveMessage(conversationId, "assistant", clarifyMessage);
+
+          res.write(`data: ${JSON.stringify({ type: 'message', role: 'assistant', content: clarifyMessage })}\n\n`);
+
+          emitSse({
+            type: 'status',
+            stage: 'completed',
+            message: 'Clarifying before run',
+            clientRequestId: clientRequestId || undefined,
+            conversationId,
+          });
+
+          console.log(`[CHAT_ROUTE=CLARIFY_FOR_RUN] crid=${clientRequestId || 'none'} reason="${modeDecision.reason}"`);
+          res.write(`data: [DONE]\n\n`);
+          res.end();
+          return;
+        } catch (error: any) {
+          console.error(`[CHAT_ROUTE=CLARIFY_ERROR] crid=${clientRequestId || 'none'} error=${error.message}`);
+          const fallbackMsg = `I'd like to help you find what you're looking for. Could you tell me more about what type of entity and which location you have in mind?`;
+          appendMessage(sessionId, { role: "user", content: latestUserText });
+          appendMessage(sessionId, { role: "assistant", content: fallbackMsg });
+          await saveMessage(conversationId, "assistant", fallbackMsg);
+
+          res.write(`data: ${JSON.stringify({
+            type: 'clarify_for_run',
+            mode: 'CLARIFY_FOR_RUN',
+          })}\n\n`);
+          res.write(`data: ${JSON.stringify({ type: 'message', role: 'assistant', content: fallbackMsg })}\n\n`);
+          emitSse({ type: 'status', stage: 'completed', message: 'Clarifying before run', clientRequestId: clientRequestId || undefined, conversationId });
+          res.write(`data: [DONE]\n\n`);
+          res.end();
+          return;
+        }
+      }
+
+      // ─── CHAT_INFO LANE: normal GPT-5 streaming response ───
+      console.log(`[CHAT_INFO] Starting GPT-5 streaming for crid=${clientRequestId || 'none'}`);
 
       const conversationHistory = await loadConversationHistory(conversationId);
       console.log(`📚 Loaded ${conversationHistory.length} messages from conversation history`);
@@ -1536,12 +1622,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const urls = extractUrls(latestUserText);
       const useDirectFetch = urls.length > 0;
 
-      // Prepare messages array with system prompt (DON'T mutate memoryMessages)
+      // Prepare messages array with CHAT_INFO system prompt (DON'T mutate memoryMessages)
       const { WyshboneChatConfig } = await import("../shared/conversationConfig");
       
       const systemPrompt = {
         role: "system" as const,
-        content: WyshboneChatConfig.systemPrompt
+        content: WyshboneChatConfig.systemPrompts.CHAT_INFO
       };
 
       

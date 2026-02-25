@@ -10,10 +10,11 @@ CRITICAL DATABASE RULE: ALL database connections MUST use `SUPABASE_DATABASE_URL
 ## System Architecture
 The application features a Node.js/Express backend and a React frontend, built with TypeScript, Tailwind CSS, and shadcn/ui, with TanStack Query managing API state. Core AI interactions utilize OpenAI's GPT models. The system supports multi-tenant user isolation with session-based authentication and robust data security.
 
-**2-Lane Chat Architecture:**
-- **CHAT Lane:** GPT-5 streaming with tool calling for conversational responses.
-- **RUN Lane:** Supervisor delegation for lead-finding, deep research, and batch tasks.
-- **Routing:** Uses keyword matching to fork CHAT vs RUN; client-side UI always POSTs to `/api/chat`, server decides the lane.
+**3-Way Chat Router (Trust-Hardened):**
+- **CHAT_INFO:** GPT-5 streaming for informational/conversational responses. No execution language.
+- **CLARIFY_FOR_RUN:** Entity-finding intent detected but missing info (location, entity type, or has semantic constraints). Asks clarifying questions before running. UI shows "Clarifying before run" badge.
+- **RUN_SUPERVISOR:** Entity-finding intent with complete parameters. Creates supervisor task for execution.
+- **Routing:** Single `decideChatMode()` in `server/lib/decideChatMode.ts` returns exactly one of the three modes. Entity intent is checked first (before CHAT_INFO patterns) to enforce the invariant: any "find entities" input → CLARIFY_FOR_RUN or RUN_SUPERVISOR, never CHAT_INFO.
 - **Shared Infrastructure:** Both lanes use a unified execution layer and PostgreSQL for conversation history.
 
 **UI/UX Decisions:**

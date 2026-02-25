@@ -118,6 +118,9 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
   // Dev-only debug panel state
   const [showDebugPanel, setShowDebugPanel] = useState(false);
   
+  // Clarification state
+  const [isClarifyingForRun, setIsClarifyingForRun] = useState(false);
+
   // Supervisor integration
   const [supervisorTaskId, setSupervisorTaskId] = useState<string | null>(null);
   const [isWaitingForSupervisor, setIsWaitingForSupervisor] = useState(false);
@@ -1206,6 +1209,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     }
     
     setIsStreaming(true);
+    setIsClarifyingForRun(false);
     
     const clientRequestId = crypto.randomUUID();
     inFlightRequestIdRef.current = clientRequestId;
@@ -1361,7 +1365,14 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                 }
               }
               
+              if (parsed.type === 'clarify_for_run') {
+                setIsClarifyingForRun(true);
+                setLastLane("chat");
+                console.log('🔍 Clarifying before run');
+              }
+
               if (parsed.supervisorTaskId) {
+                setIsClarifyingForRun(false);
                 streamHasSupervisorTask = true;
                 isRunLane = true;
                 setLastLane("run");
@@ -2355,6 +2366,16 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
               </div>
             );
           })()}
+
+          {/* Clarifying before run indicator */}
+          {isClarifyingForRun && !isWaitingForSupervisor && (
+            <div className="flex items-center gap-2 mb-2 px-2">
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-800 border border-amber-200">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
+                Clarifying before run
+              </span>
+            </div>
+          )}
 
           {/* Supervisor thinking indicator */}
           {isWaitingForSupervisor && (
