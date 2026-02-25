@@ -1680,7 +1680,30 @@ export async function runStartupMigrations(): Promise<void> {
       CREATE INDEX IF NOT EXISTS telemetry_events_event_type_idx ON public.telemetry_events(event_type);
     `;
 
-    console.log('✅ Startup migrations completed - org system, oauth_states, AFR correlation, supervisor_tasks linking, telemetry_events ensured');
+    await queryClient`
+      CREATE TABLE IF NOT EXISTS clarify_sessions (
+        id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+        conversation_id TEXT NOT NULL,
+        is_active BOOLEAN NOT NULL DEFAULT true,
+        original_user_text TEXT NOT NULL,
+        entity_type TEXT,
+        location TEXT,
+        semantic_constraint TEXT,
+        pending_questions JSONB NOT NULL DEFAULT '[]'::jsonb,
+        answers JSONB NOT NULL DEFAULT '{}'::jsonb,
+        clarified_request_text TEXT,
+        awaiting_confirmation BOOLEAN NOT NULL DEFAULT false,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )
+    `;
+    await queryClient`
+      CREATE INDEX IF NOT EXISTS clarify_sessions_conv_active_idx
+      ON clarify_sessions (conversation_id, is_active)
+      WHERE is_active = true
+    `;
+
+    console.log('✅ Startup migrations completed - org system, oauth_states, AFR correlation, supervisor_tasks linking, telemetry_events, clarify_sessions ensured');
   } catch (error: any) {
     if (error?.code !== '42701') {
       console.error('⚠️ Startup migration error (non-fatal):', error?.message || error);

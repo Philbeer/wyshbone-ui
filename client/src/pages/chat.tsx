@@ -1371,6 +1371,11 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                 console.log('🔍 Clarifying before run');
               }
 
+              if (parsed.type === 'clarify_session_ended') {
+                setIsClarifyingForRun(false);
+                console.log('✅ Clarify session ended');
+              }
+
               if (parsed.supervisorTaskId) {
                 setIsClarifyingForRun(false);
                 streamHasSupervisorTask = true;

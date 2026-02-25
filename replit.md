@@ -12,9 +12,10 @@ The application features a Node.js/Express backend and a React frontend, built w
 
 **3-Way Chat Router (Trust-Hardened):**
 - **CHAT_INFO:** GPT-5 streaming for informational/conversational responses. No execution language.
-- **CLARIFY_FOR_RUN:** Entity-finding intent detected but missing info (location, entity type, or has semantic constraints). Asks clarifying questions before running. UI shows "Clarifying before run" badge.
+- **CLARIFY_FOR_RUN:** Entity-finding intent detected but missing info (location, entity type, or has semantic constraints). Creates a DB-persisted `clarify_sessions` row. Multi-turn: user replies are intercepted by session handler before the 3-way router runs. UI shows amber "Clarifying before run" badge. Session auto-transitions to RUN_SUPERVISOR when all parameters gathered.
 - **RUN_SUPERVISOR:** Entity-finding intent with complete parameters. Creates supervisor task for execution.
 - **Routing:** Single `decideChatMode()` in `server/lib/decideChatMode.ts` returns exactly one of the three modes. Entity intent is checked first (before CHAT_INFO patterns) to enforce the invariant: any "find entities" input → CLARIFY_FOR_RUN or RUN_SUPERVISOR, never CHAT_INFO.
+- **Clarify Sessions:** `server/lib/clarifySession.ts` manages DB-backed multi-turn clarification. `clarify_sessions` table (created in startup migrations). `handleClarifyResponse()` returns `ask_more | run_supervisor | cancelled`. Active session check in `server/routes.ts` runs BEFORE the 3-way router.
 - **Shared Infrastructure:** Both lanes use a unified execution layer and PostgreSQL for conversation history.
 
 **UI/UX Decisions:**
