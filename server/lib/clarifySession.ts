@@ -54,6 +54,28 @@ const BARE_ACKNOWLEDGEMENTS = [
   'yea', 'aye', 'absolutely', 'definitely', 'of course',
 ];
 
+const RUN_TRIGGER_PHRASES = [
+  'search now', 'run now', 'go now', 'start search', 'start now',
+  'run search', 'do it now', 'execute', 'search now with defaults',
+  'run it now', 'go for it now', 'let\'s search', 'begin search',
+];
+
+export function isBareAcknowledgement(message: string): boolean {
+  const normalized = message.toLowerCase().trim().replace(/[.,!?;:]+$/, '');
+  return BARE_ACKNOWLEDGEMENTS.includes(normalized);
+}
+
+function isRunTrigger(message: string): boolean {
+  const normalized = message.toLowerCase().trim().replace(/[.,!?;:]+$/, '');
+  return RUN_TRIGGER_PHRASES.some(phrase => normalized === phrase || normalized.startsWith(phrase));
+}
+
+function allRequiredFieldsPresent(entityType: string | null, location: string | null, semanticConstraint: string | null, semanticConstraintResolved: boolean): boolean {
+  if (!entityType || !location) return false;
+  if (semanticConstraint && !semanticConstraintResolved) return false;
+  return true;
+}
+
 export function isMeaningfulClarificationAnswer(message: string, session: ClarifySession): boolean {
   const normalized = message.toLowerCase().trim().replace(/[.,!?;:]+$/, '');
   if (normalized.length === 0) return false;
@@ -154,6 +176,48 @@ export function handleClarifyResponse(
     };
   }
 
+  const requiredAlreadyFilled = allRequiredFieldsPresent(
+    session.entity_type, session.location,
+    session.semantic_constraint, session.semantic_constraint_resolved
+  );
+
+  if (isBareAcknowledgement(userMessage)) {
+    if (requiredAlreadyFilled) {
+      const clarifiedRequest = buildClarifiedRequest(session.entity_type!, session.location!, session.semantic_constraint, session.answers);
+      updateClarifySession(session.conversation_id, {
+        clarified_request_text: clarifiedRequest,
+        pending_questions: [],
+      });
+      return {
+        action: 'run_supervisor',
+        clarifiedRequest,
+        entityType: session.entity_type || undefined,
+        location: session.location || undefined,
+      };
+    }
+    const rephraseMsg = session.pending_questions.length > 0
+      ? `I still need a bit more detail to proceed:\n\n${session.pending_questions.map((q, i) => `${i + 1}. ${q}`).join('\n')}`
+      : `Could you provide more specific information? For example, what type of business and which location?`;
+    return {
+      action: 'ask_more',
+      message: rephraseMsg,
+    };
+  }
+
+  if (isRunTrigger(userMessage) && requiredAlreadyFilled) {
+    const clarifiedRequest = buildClarifiedRequest(session.entity_type!, session.location!, session.semantic_constraint, session.answers);
+    updateClarifySession(session.conversation_id, {
+      clarified_request_text: clarifiedRequest,
+      pending_questions: [],
+    });
+    return {
+      action: 'run_supervisor',
+      clarifiedRequest,
+      entityType: session.entity_type || undefined,
+      location: session.location || undefined,
+    };
+  }
+
   if (!isMeaningfulClarificationAnswer(userMessage, session)) {
     const rephraseMsg = session.pending_questions.length > 0
       ? `I still need a bit more detail to proceed:\n\n${session.pending_questions.map((q, i) => `${i + 1}. ${q}`).join('\n')}`
@@ -198,6 +262,8 @@ export function handleClarifyResponse(
   if (!location) missingParts.push('location');
   if (session.semantic_constraint && !semanticConstraintResolved) missingParts.push('semantic_constraint');
 
+  const newDataExtracted = !!(parsed.location || parsed.entityType || parsed.count || parsed.semanticDetail);
+
   if (missingParts.length === 0) {
     const clarifiedRequest = buildClarifiedRequest(entityType!, location!, semanticConstraint, newAnswers);
     updateClarifySession(session.conversation_id, {
@@ -209,11 +275,19 @@ export function handleClarifyResponse(
       clarified_request_text: clarifiedRequest,
       pending_questions: [],
     });
+
+    const summaryParts: string[] = [];
+    summaryParts.push(`**${entityType}** in **${location}**`);
+    if (newAnswers['count']) {
+      summaryParts[0] = `**${newAnswers['count']}** ${summaryParts[0]}`;
+    }
+    if (newAnswers['semantic_detail']) {
+      summaryParts.push(`(${newAnswers['semantic_detail']})`);
+    }
+    const summaryMsg = `Got it — I'll search for ${summaryParts.join(' ')}.\n\nReply **Search now** to proceed, or add more details (e.g. number of results).`;
     return {
-      action: 'run_supervisor',
-      clarifiedRequest,
-      entityType: entityType || undefined,
-      location: location || undefined,
+      action: 'ask_more',
+      message: summaryMsg,
     };
   }
 

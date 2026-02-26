@@ -1,0 +1,96 @@
+Goal: Fix the bug where short replies (e.g. “arundel”, “5 results”) kill an active clarify session due to a CHAT_INFO pivot recheck — and add a hard guard so this can’t regress.
+
+What’s happening now (must verify in code)
+
+During an active clarify session, routing re-runs decideChatMode(latestUserText) for “pivot detection”.
+If it returns CHAT_INFO, the code calls something like closeAllClarifySessions(conversationId).
+
+That destroys clarify memory and causes the loop:
+
+“arundel” → session killed → GPT freeform
+
+“search now …” → new clarify session created → asks location again
+
+Required behaviour (hard rules)
+1) Active clarify session overrides router
+
+If there is an active clarify session for this conversationId:
+
+Do NOT run decideChatMode on that message for pivot detection.
+
+Do NOT close clarify sessions based on CHAT_INFO classification of short replies.
+
+Always route the message into handleClarifyResponse (or equivalent), which is responsible for:
+
+extracting missing fields (location, count, etc.)
+
+prompting for remaining fields
+
+transitioning to RUN_SUPERVISOR when complete
+
+handling “cancel / nevermind / stop” safely
+
+2) Only close clarify sessions via clarify handler
+
+Clarify sessions may only close when:
+
+handleClarifyResponse explicitly decides to close (completed / cancelled), OR
+
+the user explicitly cancels in a way the clarify flow recognises.
+
+3) Preserve the 3-lane contract
+
+CHAT_INFO = pure chat, no DB runs, no supervisor tasks
+
+CLARIFY_FOR_RUN = chat-only, no supervisor task creation
+
+RUN_SUPERVISOR = real execution (DB + tasks + artefacts + Tower loop)
+
+NEW: Add a hard guard + log invariant (mandatory)
+
+Add a guard in the routing layer:
+
+If clarify_session_active === true and any code path attempts to:
+
+run decideChatMode (pivot detection) OR
+
+call closeAllClarifySessions due to CHAT_INFO
+
+Then:
+
+Block that behaviour (do not close the session).
+
+Emit a clear log line, e.g.
+"[CLARIFY_GUARD] Blocked pivot recheck while clarify active (conversationId=..., latestUserText=...)"
+
+This guard must be always-on in dev and prod (not behind a feature flag).
+
+Acceptance tests (must pass)
+
+Find pubs with live music.
+→ asks location (clarify), no supervisor task
+
+Reply: arundel
+→ must be accepted as location, clarify session remains active, no session kill
+
+Reply: 5 results
+→ must be accepted as requested_count, still no task
+
+Reply: Search now with defaults
+→ must transition into RUN_SUPERVISOR exactly once
+→ must not ask location again
+→ must create exactly one supervisor task
+
+Verify logs:
+
+The new guard log should never trigger in normal flow
+
+But if forced (unit test or manual toggle), it blocks pivot session closure
+
+Deliverable
+
+Rewrite the full file(s) changed (likely server/routes.ts plus any clarify-session manager).
+
+Do not provide partial diffs or “edit line X” instructions.
+
+Do not change Tower.
