@@ -1299,7 +1299,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const { decideChatMode: decideChatModeForRecheck } = await import('./lib/decideChatMode.js');
         const recheckDecision = decideChatModeForRecheck({ userMessage: latestUserText });
 
-        if (recheckDecision.mode !== 'CHAT_INFO' && recheckDecision.entityType &&
+        if (recheckDecision.mode === 'CHAT_INFO') {
+          console.log(`🔀 [CLARIFY_SESSION] User pivoted to CHAT_INFO ("${latestUserText.slice(0, 40)}"), closing clarify session and re-routing`);
+          closeAllClarifySessions(conversationId);
+        } else if (recheckDecision.entityType &&
             recheckDecision.entityType.toLowerCase() !== (activeClarifySession.entity_type || '').toLowerCase()) {
           console.log(`🔀 [CLARIFY_SESSION] New entity intent detected ("${recheckDecision.entityType}"), closing old session and re-routing`);
           closeAllClarifySessions(conversationId);

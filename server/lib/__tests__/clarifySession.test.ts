@@ -5,6 +5,7 @@ import {
   closeAllClarifySessions,
   buildInitialQuestions,
   checkDbHealth,
+  isMeaningfulClarificationAnswer,
   _getSessionsMapForTesting,
 } from '../clarifySession';
 
@@ -214,6 +215,99 @@ async function runAll() {
     const result = getActiveClarifySession('conv-ttl');
     assert(result === null, 'Expired session should return null');
     assert(!map.has('conv-ttl'), 'Expired session should be cleaned from map');
+  });
+
+  cleanup();
+
+  await test('T10: "yes" during clarification stays in CLARIFY_FOR_RUN (ask_more)', () => {
+    createClarifySession({
+      conversationId: 'conv-t10',
+      originalUserText: 'find organisations that work with local authorities in blackpool',
+      entityType: 'organisations',
+      location: 'blackpool',
+      semanticConstraint: 'that work with local authorities',
+      pendingQuestions: buildInitialQuestions('organisations', 'blackpool', 'that work with local authorities'),
+    });
+
+    const session = getActiveClarifySession('conv-t10');
+    assert(session !== null, 'Session should exist');
+
+    const result = handleClarifyResponse(session!, 'yes');
+    assert(result.action === 'ask_more', `Expected ask_more for bare "yes", got ${result.action}`);
+    assert(result.message !== undefined, 'Should have a follow-up message');
+
+    const stillActive = getActiveClarifySession('conv-t10');
+    assert(stillActive !== null, 'Session should still be active after bare yes');
+  });
+
+  cleanup();
+
+  await test('T11: bare acknowledgements are not meaningful answers', () => {
+    const dummySession: any = {
+      entity_type: 'pubs',
+      location: null,
+      pending_questions: ['Where?'],
+    };
+    const bareWords = ['yes', 'ok', 'sure', 'yeah', 'sounds good', 'go ahead', 'please', 'correct'];
+    for (const word of bareWords) {
+      assert(!isMeaningfulClarificationAnswer(word, dummySession), `"${word}" should NOT be meaningful`);
+    }
+    assert(isMeaningfulClarificationAnswer('in Leeds', dummySession), '"in Leeds" SHOULD be meaningful');
+    assert(isMeaningfulClarificationAnswer('Manchester', dummySession), '"Manchester" SHOULD be meaningful');
+    assert(isMeaningfulClarificationAnswer('pubs that serve food', dummySession), '"pubs that serve food" SHOULD be meaningful');
+  });
+
+  cleanup();
+
+  await test('T12: sufficient clarification transitions to RUN_SUPERVISOR', () => {
+    createClarifySession({
+      conversationId: 'conv-t12',
+      originalUserText: 'find organisations that work with local authorities in blackpool',
+      entityType: 'organisations',
+      location: 'blackpool',
+      semanticConstraint: 'that work with local authorities',
+      pendingQuestions: buildInitialQuestions('organisations', 'blackpool', 'that work with local authorities'),
+    });
+
+    const session = getActiveClarifySession('conv-t12');
+    const result = handleClarifyResponse(session!, 'I mean organisations that have contracts or partnerships with local councils');
+    assert(result.action === 'run_supervisor', `Expected run_supervisor after sufficient clarification, got ${result.action}`);
+    assert(result.clarifiedRequest !== undefined, 'Should have clarifiedRequest');
+    assert(result.clarifiedRequest!.includes('organisations'), 'Should include entity type');
+    assert(result.clarifiedRequest!.includes('blackpool'), 'Should include location');
+  });
+
+  cleanup();
+
+  await test('T13: clarifySession module has no DB imports (static audit)', async () => {
+    const fs = await import('fs');
+    const path = await import('path');
+    const filePath = path.join(process.cwd(), 'server/lib/clarifySession.ts');
+    const source = fs.readFileSync(filePath, 'utf8');
+
+    const lines = source.split('\n');
+    const nonCheckDbLines = lines.filter(l => !l.includes('checkDbHealth') && !l.includes('async function checkDbHealth'));
+    const coreSource = nonCheckDbLines.join('\n');
+
+    assert(!coreSource.includes('import { neon }'), 'Core module should not import neon');
+    assert(!coreSource.includes('from "@neondatabase'), 'Core module should not reference @neondatabase');
+    assert(!coreSource.includes('buildContextWithFacts'), 'Core module should not reference buildContextWithFacts');
+    assert(!coreSource.includes('SYSTEM_PROMPT'), 'Core module should not reference SYSTEM_PROMPT');
+    assert(!coreSource.includes('saveMessage'), 'Core module should not reference saveMessage');
+    assert(!coreSource.includes('createSupervisorTask'), 'Core module should not reference createSupervisorTask');
+  });
+
+  cleanup();
+
+  await test('T14: empty string is not a meaningful answer', () => {
+    const dummySession: any = {
+      entity_type: 'pubs',
+      location: null,
+      pending_questions: ['Where?'],
+    };
+    assert(!isMeaningfulClarificationAnswer('', dummySession), 'Empty string should NOT be meaningful');
+    assert(!isMeaningfulClarificationAnswer('   ', dummySession), 'Whitespace should NOT be meaningful');
+    assert(!isMeaningfulClarificationAnswer('ok.', dummySession), '"ok." should NOT be meaningful');
   });
 
   cleanup();

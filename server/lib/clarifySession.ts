@@ -45,6 +45,24 @@ const CANCEL_PHRASES = [
   'forget that', 'abort', 'quit', 'start over', 'reset',
 ];
 
+const BARE_ACKNOWLEDGEMENTS = [
+  'yes', 'yeah', 'yep', 'yup', 'ok', 'okay', 'sure',
+  'go ahead', 'do it', 'run it', 'go for it', 'confirm',
+  'please', 'proceed', 'let\'s go', 'sounds good', 'correct',
+  'right', 'alright', 'fine', 'great', 'thanks', 'thank you',
+  'yea', 'aye', 'absolutely', 'definitely', 'of course',
+];
+
+export function isMeaningfulClarificationAnswer(message: string, session: ClarifySession): boolean {
+  const normalized = message.toLowerCase().trim().replace(/[.,!?;:]+$/, '');
+  if (normalized.length === 0) return false;
+  if (BARE_ACKNOWLEDGEMENTS.includes(normalized)) return false;
+  if (/^\d+$/.test(normalized)) {
+    return !session.entity_type || !session.location;
+  }
+  return true;
+}
+
 export function getActiveClarifySession(conversationId: string): ClarifySession | null {
   const s = sessions.get(conversationId);
   if (!s || !s.is_active) return null;
@@ -131,6 +149,16 @@ export function handleClarifyResponse(
     return {
       action: 'cancelled',
       message: 'No problem — search cancelled. What else can I help with?',
+    };
+  }
+
+  if (!isMeaningfulClarificationAnswer(userMessage, session)) {
+    const rephraseMsg = session.pending_questions.length > 0
+      ? `I still need a bit more detail to proceed:\n\n${session.pending_questions.map((q, i) => `${i + 1}. ${q}`).join('\n')}`
+      : `Could you provide more specific information? For example, what type of business and which location?`;
+    return {
+      action: 'ask_more',
+      message: rephraseMsg,
     };
   }
 
