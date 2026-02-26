@@ -1,0 +1,77 @@
+Task: Produce a forensic report explaining why CLARIFY loops and why messages are being forwarded to agent execution during CLARIFY.
+
+Evidence (real transcript):
+
+User: “Find pubs with live music.”
+
+Wyshbone asks: location?
+
+User: “arundel”
+
+Wyshbone acknowledges Arundel but then asks confirmation questions
+
+User: “5 results”
+
+Wyshbone asks “reply Search now with defaults”
+
+User: “Search now with defaults”
+
+Wyshbone asks again: location? (loop)
+
+What I need you to report (must be code-verified):
+
+Clarify state storage
+
+Where is clarify state stored (DB table / in-memory / conversation metadata)?
+
+What exact fields are written (location, requested_count, business_type, constraints)?
+
+Show the exact write path for the turn where user replies “arundel”.
+
+Clarify state retrieval
+
+On the next turn, where does the system read the clarify state back?
+
+Show the exact retrieval code path.
+
+Identify why location=Arundel is not present when it asks again.
+
+Routing vs execution gating
+
+Confirm the router decision for each user message in the transcript (CHAT vs CLARIFY vs RUN).
+
+Confirm whether a Supervisor task is being created even when router says CLARIFY.
+
+If yes: where is the task creation triggered (what function, what condition)?
+
+Why “Search now with defaults” does not transition to RUN_SUPERVISOR
+
+What condition is supposed to flip the session from CLARIFY → RUN?
+
+Why does it fail here?
+
+Is the “defaults” phrase being parsed? If so, where and why isn’t it applied?
+
+Identify the single root cause
+
+Pick the one main reason this loops:
+
+clarify session not being persisted?
+
+clarify session key mismatch?
+
+conversation_id mismatch?
+
+message handler always forwarding to agent?
+
+race condition between clarify + run?
+
+Back it with specific file references and logs.
+
+Output format
+
+A short table of each user message → router_decision → clarify_state(after) → supervisor_task_created(yes/no)
+
+Then a root-cause paragraph
+
+Then the minimal fix direction (still report-only; do not implement)
