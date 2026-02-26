@@ -1281,18 +1281,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
       // ═══════════════════════════════════════════════════════════════════════
-      // CLARIFY SESSION CHECK: If active, route through session handler FIRST
+      // CLARIFY SESSION CHECK: If active, route through in-memory session handler FIRST
+      // No DB reads/writes in this block — clarify sessions are purely in-memory.
       // ═══════════════════════════════════════════════════════════════════════
       const {
         getActiveClarifySession,
         handleClarifyResponse,
-        isUserCancelling,
         createClarifySession,
         buildInitialQuestions,
         closeAllClarifySessions,
+        checkDbHealth,
       } = await import('./lib/clarifySession.js');
 
-      const activeClarifySession = await getActiveClarifySession(conversationId);
+      const activeClarifySession = getActiveClarifySession(conversationId);
 
       if (activeClarifySession) {
         const { decideChatMode: decideChatModeForRecheck } = await import('./lib/decideChatMode.js');
@@ -1301,33 +1302,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (recheckDecision.mode !== 'CHAT_INFO' && recheckDecision.entityType &&
             recheckDecision.entityType.toLowerCase() !== (activeClarifySession.entity_type || '').toLowerCase()) {
           console.log(`🔀 [CLARIFY_SESSION] New entity intent detected ("${recheckDecision.entityType}"), closing old session and re-routing`);
-          await closeAllClarifySessions(conversationId);
+          closeAllClarifySessions(conversationId);
         }
       }
 
-      const recheckActiveSession = await getActiveClarifySession(conversationId);
+      const recheckActiveSession = getActiveClarifySession(conversationId);
 
       if (recheckActiveSession) {
-        const activeClarifySession = recheckActiveSession;
-        console.log(`🔄 [CLARIFY_SESSION] Active session ${activeClarifySession.id} for conv=${conversationId}, processing user reply: "${latestUserText.slice(0, 60)}"`);
+        const currentSession = recheckActiveSession;
+        console.log(`🔄 [CLARIFY_SESSION] Active session ${currentSession.id} for conv=${conversationId}, processing user reply: "${latestUserText.slice(0, 60)}"`);
 
-        const clarifyHandlerResult = await handleClarifyResponse(activeClarifySession, latestUserText);
+        const clarifyHandlerResult = handleClarifyResponse(currentSession, latestUserText);
 
         if (clientRequestId) {
-          await logRouterDecision({
+          logRouterDecision({
             userId: user.id,
             conversationId,
             clientRequestId,
             decision: clarifyHandlerResult.action === 'run_supervisor' ? 'supervisor_plan' : 'clarify_for_run',
             reason: `ClarifySession handler → ${clarifyHandlerResult.action}`,
-            signals: { sessionId: activeClarifySession.id, action: clarifyHandlerResult.action },
+            signals: { sessionId: currentSession.id, action: clarifyHandlerResult.action },
           }).catch(err => console.error('AFR router log error:', err.message));
         }
 
         if (clarifyHandlerResult.action === 'cancelled') {
           const cancelMsg = clarifyHandlerResult.message || 'Search cancelled. What else can I help with?';
           appendMessage(sessionId, { role: "assistant", content: cancelMsg });
-          await saveMessage(conversationId, "assistant", cancelMsg);
           res.write(`data: ${JSON.stringify({ type: 'clarify_session_ended' })}\n\n`);
           res.write(`data: ${JSON.stringify({ type: 'message', role: 'assistant', content: cancelMsg })}\n\n`);
           emitSse({ type: 'status', stage: 'completed', message: 'Cancelled', clientRequestId: clientRequestId || undefined, conversationId });
@@ -1339,29 +1339,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (clarifyHandlerResult.action === 'ask_more') {
           const askMsg = clarifyHandlerResult.message || 'Could you provide more detail?';
           appendMessage(sessionId, { role: "assistant", content: askMsg });
-          await saveMessage(conversationId, "assistant", askMsg);
           res.write(`data: ${JSON.stringify({ type: 'clarify_for_run', mode: 'CLARIFY_FOR_RUN' })}\n\n`);
           res.write(`data: ${JSON.stringify({ type: 'message', role: 'assistant', content: askMsg })}\n\n`);
           emitSse({ type: 'status', stage: 'completed', message: 'Clarifying before run', clientRequestId: clientRequestId || undefined, conversationId });
-          console.log(`[CHAT_ROUTE=CLARIFY_SESSION_ASK_MORE] crid=${clientRequestId || 'none'} session=${activeClarifySession.id}`);
+          console.log(`[CHAT_ROUTE=CLARIFY_SESSION_ASK_MORE] crid=${clientRequestId || 'none'} session=${currentSession.id}`);
           res.write(`data: [DONE]\n\n`);
           res.end();
           return;
         }
 
         if (clarifyHandlerResult.action === 'run_supervisor') {
-          const clarifiedRequest = clarifyHandlerResult.clarifiedRequest || activeClarifySession.original_user_text;
-          const entityType = clarifyHandlerResult.entityType || activeClarifySession.entity_type || undefined;
-          const location = clarifyHandlerResult.location || activeClarifySession.location || undefined;
+          const clarifiedRequest = clarifyHandlerResult.clarifiedRequest || currentSession.original_user_text;
+          const entityType = clarifyHandlerResult.entityType || currentSession.entity_type || undefined;
+          const location = clarifyHandlerResult.location || currentSession.location || undefined;
 
-          console.log(`🚀 [CLARIFY→RUN] Session complete, auto-running supervisor. clarifiedRequest="${clarifiedRequest}" entity="${entityType}" location="${location}"`);
+          console.log(`🚀 [CLARIFY→RUN] Session complete, checking DB health before supervisor. clarifiedRequest="${clarifiedRequest}" entity="${entityType}" location="${location}"`);
+
+          const dbHealthy = await checkDbHealth();
+          if (!dbHealthy) {
+            console.error(`[CLARIFY→RUN] DB health check failed, falling back to CHAT_INFO`);
+            const unavailMsg = `I can't run searches right now because the system is temporarily unavailable. Try again shortly.`;
+            appendMessage(sessionId, { role: "assistant", content: unavailMsg });
+            res.write(`data: ${JSON.stringify({ type: 'clarify_session_ended' })}\n\n`);
+            res.write(`data: ${JSON.stringify({ type: 'message', role: 'assistant', content: unavailMsg })}\n\n`);
+            emitSse({ type: 'status', stage: 'completed', message: 'System unavailable', clientRequestId: clientRequestId || undefined, conversationId });
+            res.write(`data: [DONE]\n\n`);
+            res.end();
+            return;
+          }
 
           try {
             const intentResult = detectSupervisorIntent(clarifiedRequest);
             const taskType = intentResult.taskType || 'find_prospects';
             const requestData: Record<string, any> = {
               user_message: clarifiedRequest,
-              original_user_message: activeClarifySession.original_user_text,
+              original_user_message: currentSession.original_user_text,
               ...(intentResult.requestData || {}),
               search_query: {
                 business_type: entityType || intentResult.requestData?.search_query?.business_type,
@@ -1384,7 +1396,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               { runId: agentRunId || runId, clientRequestId: clientRequestId || undefined }
             );
 
-            console.log(`[SUPERVISOR_TASK_CREATED] id=${supervisorTask.id} from clarify session=${activeClarifySession.id}`);
+            console.log(`[SUPERVISOR_TASK_CREATED] id=${supervisorTask.id} from clarify session=${currentSession.id}`);
 
             if (clientRequestId) {
               await transitionRunToExecuting(clientRequestId);
@@ -1404,12 +1416,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
             return;
           } catch (error: any) {
             console.error(`[CLARIFY→RUN_ERROR] ${error.message}`);
-            const errMsg = `I gathered the details but encountered an error starting the search. Please try again.`;
+            const errMsg = `I can't run searches right now because the system is temporarily unavailable. Try again shortly.`;
             appendMessage(sessionId, { role: "assistant", content: errMsg });
-            await saveMessage(conversationId, "assistant", errMsg);
             res.write(`data: ${JSON.stringify({ type: 'clarify_session_ended' })}\n\n`);
             res.write(`data: ${JSON.stringify({ type: 'message', role: 'assistant', content: errMsg })}\n\n`);
-            emitSse({ type: 'status', stage: 'failed', message: 'Run failed', clientRequestId: clientRequestId || undefined, conversationId });
+            emitSse({ type: 'status', stage: 'completed', message: 'System unavailable', clientRequestId: clientRequestId || undefined, conversationId });
             res.write(`data: [DONE]\n\n`);
             res.end();
             return;
@@ -1425,8 +1436,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log(`🔀 [ROUTER] mode=${modeDecision.mode} reason="${modeDecision.reason}" entity="${modeDecision.entityType || 'N/A'}" location="${modeDecision.location || 'N/A'}" crid=${clientRequestId || 'none'}`);
 
       if (modeDecision.mode === 'RUN_SUPERVISOR') {
-        // ─── RUN_SUPERVISOR LANE: close any stale clarify sessions, then enqueue ───
-        await closeAllClarifySessions(conversationId);
+        // ─── RUN_SUPERVISOR LANE: DB health gate, then enqueue ───
+        closeAllClarifySessions(conversationId);
+
+        const dbHealthy = await checkDbHealth();
+        if (!dbHealthy) {
+          console.error(`[CHAT_ROUTE=RUN_SUPERVISOR] DB health check failed, falling back to CHAT_INFO unavailable`);
+          const unavailMsg = `I can't run searches right now because the system is temporarily unavailable. Try again shortly.`;
+          appendMessage(sessionId, { role: "assistant", content: unavailMsg });
+          res.write(`data: ${JSON.stringify({ type: 'message', role: 'assistant', content: unavailMsg })}\n\n`);
+          emitSse({ type: 'status', stage: 'completed', message: 'System unavailable', clientRequestId: clientRequestId || undefined, conversationId });
+          res.write(`data: [DONE]\n\n`);
+          res.end();
+          return;
+        }
+
         try {
           const intentResult = detectSupervisorIntent(latestUserText);
           const taskType = intentResult.taskType || 'find_prospects';
@@ -1527,66 +1551,55 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return;
         } catch (error: any) {
           console.error(`[CHAT_ROUTE=RUN_SUPERVISOR_ERROR] crid=${clientRequestId || 'none'} error=${error.message}`);
-          console.error('RUN_SUPERVISOR lane failed, falling through to CLARIFY_FOR_RUN');
-          modeDecision.mode = 'CLARIFY_FOR_RUN' as any;
-          modeDecision.reason = `RUN_SUPERVISOR failed (${error.message}), falling back to clarification`;
+          const unavailMsg = `I can't run searches right now because the system is temporarily unavailable. Try again shortly.`;
+          appendMessage(sessionId, { role: "assistant", content: unavailMsg });
+          res.write(`data: ${JSON.stringify({ type: 'message', role: 'assistant', content: unavailMsg })}\n\n`);
+          emitSse({ type: 'status', stage: 'completed', message: 'System unavailable', clientRequestId: clientRequestId || undefined, conversationId });
+          res.write(`data: [DONE]\n\n`);
+          res.end();
+          return;
         }
       }
 
       if (modeDecision.mode === 'CLARIFY_FOR_RUN') {
-        // ─── CLARIFY_FOR_RUN LANE: create DB-persisted clarify session ───
-        try {
-          const semanticConstraintMatch = latestUserText.match(/\bthat\s+(work|deal|partner|provide|offer|support|help|serve|are|have|do|focus|engage|operate|specialise|specialize|collaborate)\b[^.!?]*/i);
-          const semanticConstraint = semanticConstraintMatch ? semanticConstraintMatch[0].trim() : undefined;
+        // ─── CLARIFY_FOR_RUN LANE: pure in-memory, no DB writes ───
+        const semanticConstraintMatch = latestUserText.match(/\bthat\s+(work|deal|partner|provide|offer|support|help|serve|are|have|do|focus|engage|operate|specialise|specialize|collaborate)\b[^.!?]*/i);
+        const semanticConstraint = semanticConstraintMatch ? semanticConstraintMatch[0].trim() : undefined;
 
-          const questions = buildInitialQuestions(modeDecision.entityType, modeDecision.location, semanticConstraint);
+        const questions = buildInitialQuestions(modeDecision.entityType, modeDecision.location, semanticConstraint);
 
-          const newSession = await createClarifySession({
+        const newSession = createClarifySession({
+          conversationId,
+          originalUserText: latestUserText,
+          entityType: modeDecision.entityType,
+          location: modeDecision.location,
+          semanticConstraint,
+          pendingQuestions: questions,
+        });
+
+        if (clientRequestId) {
+          logRouterDecision({
+            userId: user.id,
             conversationId,
-            originalUserText: latestUserText,
-            entityType: modeDecision.entityType,
-            location: modeDecision.location,
-            semanticConstraint,
-            pendingQuestions: questions,
-          });
-
-          if (clientRequestId) {
-            await logRouterDecision({
-              userId: user.id,
-              conversationId,
-              clientRequestId,
-              decision: 'clarify_for_run',
-              reason: `decideChatMode → CLARIFY_FOR_RUN (${modeDecision.reason})`,
-              signals: { entityType: modeDecision.entityType, location: modeDecision.location, sessionId: newSession.id },
-            }).catch(err => console.error('AFR router log error:', err.message));
-          }
-
-          const clarifyMessage = `I'd like to make sure I find exactly what you need. A couple of quick questions:\n\n${questions.map((q, i) => `${i + 1}. ${q}`).join('\n')}`;
-
-          appendMessage(sessionId, { role: "assistant", content: clarifyMessage });
-          await saveMessage(conversationId, "assistant", clarifyMessage);
-
-          res.write(`data: ${JSON.stringify({ type: 'clarify_for_run', mode: 'CLARIFY_FOR_RUN' })}\n\n`);
-          res.write(`data: ${JSON.stringify({ type: 'message', role: 'assistant', content: clarifyMessage })}\n\n`);
-          emitSse({ type: 'status', stage: 'completed', message: 'Clarifying before run', clientRequestId: clientRequestId || undefined, conversationId });
-
-          console.log(`[CHAT_ROUTE=CLARIFY_FOR_RUN] crid=${clientRequestId || 'none'} sessionId=${newSession.id} questions=${questions.length}`);
-          res.write(`data: [DONE]\n\n`);
-          res.end();
-          return;
-        } catch (error: any) {
-          console.error(`[CHAT_ROUTE=CLARIFY_ERROR] crid=${clientRequestId || 'none'} error=${error.message}`);
-          const fallbackMsg = `I'd like to help you find what you're looking for. Could you tell me more about what type of entity and which location you have in mind?`;
-          appendMessage(sessionId, { role: "assistant", content: fallbackMsg });
-          await saveMessage(conversationId, "assistant", fallbackMsg);
-
-          res.write(`data: ${JSON.stringify({ type: 'clarify_for_run', mode: 'CLARIFY_FOR_RUN' })}\n\n`);
-          res.write(`data: ${JSON.stringify({ type: 'message', role: 'assistant', content: fallbackMsg })}\n\n`);
-          emitSse({ type: 'status', stage: 'completed', message: 'Clarifying before run', clientRequestId: clientRequestId || undefined, conversationId });
-          res.write(`data: [DONE]\n\n`);
-          res.end();
-          return;
+            clientRequestId,
+            decision: 'clarify_for_run',
+            reason: `decideChatMode → CLARIFY_FOR_RUN (${modeDecision.reason})`,
+            signals: { entityType: modeDecision.entityType, location: modeDecision.location, sessionId: newSession.id },
+          }).catch(err => console.error('AFR router log error:', err.message));
         }
+
+        const clarifyMessage = `I'd like to make sure I find exactly what you need. A couple of quick questions:\n\n${questions.map((q, i) => `${i + 1}. ${q}`).join('\n')}`;
+
+        appendMessage(sessionId, { role: "assistant", content: clarifyMessage });
+
+        res.write(`data: ${JSON.stringify({ type: 'clarify_for_run', mode: 'CLARIFY_FOR_RUN' })}\n\n`);
+        res.write(`data: ${JSON.stringify({ type: 'message', role: 'assistant', content: clarifyMessage })}\n\n`);
+        emitSse({ type: 'status', stage: 'completed', message: 'Clarifying before run', clientRequestId: clientRequestId || undefined, conversationId });
+
+        console.log(`[CHAT_ROUTE=CLARIFY_FOR_RUN] crid=${clientRequestId || 'none'} sessionId=${newSession.id} questions=${questions.length}`);
+        res.write(`data: [DONE]\n\n`);
+        res.end();
+        return;
       }
 
       // ─── CHAT_INFO LANE: normal GPT-5 streaming response ───

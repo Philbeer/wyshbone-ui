@@ -1,7 +1,3 @@
-import { neon } from "@neondatabase/serverless";
-
-const sql = neon(process.env.SUPABASE_DATABASE_URL!);
-
 export interface ClarifySession {
   id: string;
   conversation_id: string;
@@ -13,9 +9,35 @@ export interface ClarifySession {
   pending_questions: string[];
   answers: Record<string, string>;
   clarified_request_text: string | null;
-  awaiting_confirmation: boolean;
-  created_at: string;
-  updated_at: string;
+  created_at: number;
+  updated_at: number;
+}
+
+const SESSION_TTL_MS = 30 * 60 * 1000;
+
+const sessions = new Map<string, ClarifySession>();
+
+let gcTimer: ReturnType<typeof setInterval> | null = null;
+
+function startGc() {
+  if (gcTimer) return;
+  gcTimer = setInterval(() => {
+    const now = Date.now();
+    for (const [key, s] of sessions) {
+      if (now - s.updated_at > SESSION_TTL_MS) {
+        sessions.delete(key);
+      }
+    }
+  }, 60_000);
+  if (gcTimer && typeof gcTimer === 'object' && 'unref' in gcTimer) {
+    (gcTimer as NodeJS.Timeout).unref();
+  }
+}
+
+startGc();
+
+function generateId(): string {
+  return `cs_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
 const CANCEL_PHRASES = [
@@ -23,201 +45,73 @@ const CANCEL_PHRASES = [
   'forget that', 'abort', 'quit', 'start over', 'reset',
 ];
 
-const CONFIRM_PHRASES = [
-  'yes', 'yeah', 'yep', 'yup', 'ok', 'okay', 'sure',
-  'go ahead', 'do it', 'run it', 'go for it', 'confirm',
-  'please', 'proceed', 'let\'s go', 'sounds good', 'correct',
-];
-
-export async function ensureClarifySessionsTable(): Promise<void> {
-  await sql`
-    CREATE TABLE IF NOT EXISTS clarify_sessions (
-      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
-      conversation_id TEXT NOT NULL,
-      is_active BOOLEAN NOT NULL DEFAULT true,
-      original_user_text TEXT NOT NULL,
-      entity_type TEXT,
-      location TEXT,
-      semantic_constraint TEXT,
-      pending_questions JSONB NOT NULL DEFAULT '[]'::jsonb,
-      answers JSONB NOT NULL DEFAULT '{}'::jsonb,
-      clarified_request_text TEXT,
-      awaiting_confirmation BOOLEAN NOT NULL DEFAULT false,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-    )
-  `;
-  await sql`
-    CREATE INDEX IF NOT EXISTS clarify_sessions_conv_active_idx
-    ON clarify_sessions (conversation_id, is_active)
-    WHERE is_active = true
-  `;
+export function getActiveClarifySession(conversationId: string): ClarifySession | null {
+  const s = sessions.get(conversationId);
+  if (!s || !s.is_active) return null;
+  if (Date.now() - s.updated_at > SESSION_TTL_MS) {
+    sessions.delete(conversationId);
+    return null;
+  }
+  return s;
 }
 
-export async function getActiveClarifySession(conversationId: string): Promise<ClarifySession | null> {
-  const rows = await sql`
-    SELECT * FROM clarify_sessions
-    WHERE conversation_id = ${conversationId} AND is_active = true
-    ORDER BY updated_at DESC
-    LIMIT 1
-  `;
-  if (rows.length === 0) return null;
-  const row = rows[0];
-  return {
-    id: row.id,
-    conversation_id: row.conversation_id,
-    is_active: row.is_active,
-    original_user_text: row.original_user_text,
-    entity_type: row.entity_type,
-    location: row.location,
-    semantic_constraint: row.semantic_constraint,
-    pending_questions: Array.isArray(row.pending_questions) ? row.pending_questions : JSON.parse(row.pending_questions || '[]'),
-    answers: typeof row.answers === 'object' && row.answers !== null ? row.answers : JSON.parse(row.answers || '{}'),
-    clarified_request_text: row.clarified_request_text,
-    awaiting_confirmation: row.awaiting_confirmation,
-    created_at: row.created_at,
-    updated_at: row.updated_at,
-  };
-}
-
-export async function createClarifySession(params: {
+export function createClarifySession(params: {
   conversationId: string;
   originalUserText: string;
   entityType?: string;
   location?: string;
   semanticConstraint?: string;
   pendingQuestions: string[];
-}): Promise<ClarifySession> {
-  await sql`
-    UPDATE clarify_sessions SET is_active = false, updated_at = now()
-    WHERE conversation_id = ${params.conversationId} AND is_active = true
-  `;
-
-  const rows = await sql`
-    INSERT INTO clarify_sessions (
-      conversation_id, is_active, original_user_text, entity_type, location,
-      semantic_constraint, pending_questions, answers, awaiting_confirmation
-    ) VALUES (
-      ${params.conversationId}, true, ${params.originalUserText},
-      ${params.entityType || null}, ${params.location || null},
-      ${params.semanticConstraint || null},
-      ${JSON.stringify(params.pendingQuestions)}::jsonb,
-      '{}'::jsonb, false
-    )
-    RETURNING *
-  `;
-  const row = rows[0];
-  return {
-    id: row.id,
-    conversation_id: row.conversation_id,
-    is_active: row.is_active,
-    original_user_text: row.original_user_text,
-    entity_type: row.entity_type,
-    location: row.location,
-    semantic_constraint: row.semantic_constraint,
-    pending_questions: Array.isArray(row.pending_questions) ? row.pending_questions : JSON.parse(row.pending_questions || '[]'),
-    answers: typeof row.answers === 'object' && row.answers !== null ? row.answers : JSON.parse(row.answers || '{}'),
-    clarified_request_text: row.clarified_request_text,
-    awaiting_confirmation: row.awaiting_confirmation,
-    created_at: row.created_at,
-    updated_at: row.updated_at,
+}): ClarifySession {
+  const now = Date.now();
+  const session: ClarifySession = {
+    id: generateId(),
+    conversation_id: params.conversationId,
+    is_active: true,
+    original_user_text: params.originalUserText,
+    entity_type: params.entityType || null,
+    location: params.location || null,
+    semantic_constraint: params.semanticConstraint || null,
+    pending_questions: params.pendingQuestions,
+    answers: {},
+    clarified_request_text: null,
+    created_at: now,
+    updated_at: now,
   };
+  sessions.set(params.conversationId, session);
+  return session;
 }
 
-export async function updateClarifySession(sessionId: string, updates: {
-  answers?: Record<string, string>;
-  pendingQuestions?: string[];
-  entityType?: string;
-  location?: string;
-  semanticConstraint?: string;
-  clarifiedRequestText?: string;
-  awaitingConfirmation?: boolean;
-}): Promise<ClarifySession | null> {
-  const setClauses: string[] = ['updated_at = now()'];
-  const values: any[] = [];
-  let paramIdx = 1;
-
-  if (updates.answers !== undefined) {
-    setClauses.push(`answers = $${paramIdx}::jsonb`);
-    values.push(JSON.stringify(updates.answers));
-    paramIdx++;
-  }
-  if (updates.pendingQuestions !== undefined) {
-    setClauses.push(`pending_questions = $${paramIdx}::jsonb`);
-    values.push(JSON.stringify(updates.pendingQuestions));
-    paramIdx++;
-  }
-  if (updates.entityType !== undefined) {
-    setClauses.push(`entity_type = $${paramIdx}`);
-    values.push(updates.entityType);
-    paramIdx++;
-  }
-  if (updates.location !== undefined) {
-    setClauses.push(`location = $${paramIdx}`);
-    values.push(updates.location);
-    paramIdx++;
-  }
-  if (updates.semanticConstraint !== undefined) {
-    setClauses.push(`semantic_constraint = $${paramIdx}`);
-    values.push(updates.semanticConstraint);
-    paramIdx++;
-  }
-  if (updates.clarifiedRequestText !== undefined) {
-    setClauses.push(`clarified_request_text = $${paramIdx}`);
-    values.push(updates.clarifiedRequestText);
-    paramIdx++;
-  }
-  if (updates.awaitingConfirmation !== undefined) {
-    setClauses.push(`awaiting_confirmation = $${paramIdx}`);
-    values.push(updates.awaitingConfirmation);
-    paramIdx++;
-  }
-
-  values.push(sessionId);
-  const query = `UPDATE clarify_sessions SET ${setClauses.join(', ')} WHERE id = $${paramIdx} RETURNING *`;
-  const rows = await sql(query, values);
-
-  if (rows.length === 0) return null;
-  const row = rows[0];
-  return {
-    id: row.id,
-    conversation_id: row.conversation_id,
-    is_active: row.is_active,
-    original_user_text: row.original_user_text,
-    entity_type: row.entity_type,
-    location: row.location,
-    semantic_constraint: row.semantic_constraint,
-    pending_questions: Array.isArray(row.pending_questions) ? row.pending_questions : JSON.parse(row.pending_questions || '[]'),
-    answers: typeof row.answers === 'object' && row.answers !== null ? row.answers : JSON.parse(row.answers || '{}'),
-    clarified_request_text: row.clarified_request_text,
-    awaiting_confirmation: row.awaiting_confirmation,
-    created_at: row.created_at,
-    updated_at: row.updated_at,
-  };
+export function updateClarifySession(conversationId: string, updates: Partial<Pick<ClarifySession,
+  'answers' | 'pending_questions' | 'entity_type' | 'location' | 'semantic_constraint' | 'clarified_request_text'
+>>): ClarifySession | null {
+  const s = sessions.get(conversationId);
+  if (!s || !s.is_active) return null;
+  if (updates.answers !== undefined) s.answers = updates.answers;
+  if (updates.pending_questions !== undefined) s.pending_questions = updates.pending_questions;
+  if (updates.entity_type !== undefined) s.entity_type = updates.entity_type;
+  if (updates.location !== undefined) s.location = updates.location;
+  if (updates.semantic_constraint !== undefined) s.semantic_constraint = updates.semantic_constraint;
+  if (updates.clarified_request_text !== undefined) s.clarified_request_text = updates.clarified_request_text;
+  s.updated_at = Date.now();
+  return s;
 }
 
-export async function closeClarifySession(sessionId: string): Promise<void> {
-  await sql`
-    UPDATE clarify_sessions SET is_active = false, updated_at = now()
-    WHERE id = ${sessionId}
-  `;
+export function closeClarifySession(conversationId: string): void {
+  const s = sessions.get(conversationId);
+  if (s) {
+    s.is_active = false;
+    sessions.delete(conversationId);
+  }
 }
 
-export async function closeAllClarifySessions(conversationId: string): Promise<void> {
-  await sql`
-    UPDATE clarify_sessions SET is_active = false, updated_at = now()
-    WHERE conversation_id = ${conversationId} AND is_active = true
-  `;
+export function closeAllClarifySessions(conversationId: string): void {
+  closeClarifySession(conversationId);
 }
 
 export function isUserCancelling(message: string): boolean {
   const normalized = message.toLowerCase().trim();
   return CANCEL_PHRASES.some(phrase => normalized === phrase || normalized.startsWith(phrase + ' '));
-}
-
-export function isUserConfirming(message: string): boolean {
-  const normalized = message.toLowerCase().trim();
-  return CONFIRM_PHRASES.some(phrase => normalized === phrase || normalized.startsWith(phrase + ' ') || normalized.startsWith(phrase + ',') || normalized.startsWith(phrase + '.'));
 }
 
 export interface ClarifyHandlerResult {
@@ -228,12 +122,12 @@ export interface ClarifyHandlerResult {
   location?: string;
 }
 
-export async function handleClarifyResponse(
+export function handleClarifyResponse(
   session: ClarifySession,
   userMessage: string,
-): Promise<ClarifyHandlerResult> {
+): ClarifyHandlerResult {
   if (isUserCancelling(userMessage)) {
-    await closeClarifySession(session.id);
+    closeClarifySession(session.conversation_id);
     return {
       action: 'cancelled',
       message: 'No problem — search cancelled. What else can I help with?',
@@ -244,23 +138,6 @@ export async function handleClarifyResponse(
   let entityType = session.entity_type;
   let location = session.location;
   let semanticConstraint = session.semantic_constraint;
-
-  if (session.awaiting_confirmation && isUserConfirming(userMessage)) {
-    if (entityType && location) {
-      const clarifiedRequest = buildClarifiedRequest(entityType, location, semanticConstraint, newAnswers);
-      await updateClarifySession(session.id, {
-        clarifiedRequestText: clarifiedRequest,
-        awaitingConfirmation: false,
-      });
-      await closeClarifySession(session.id);
-      return {
-        action: 'run_supervisor',
-        clarifiedRequest,
-        entityType: entityType || undefined,
-        location: location || undefined,
-      };
-    }
-  }
 
   const parsed = parseAnswerContent(userMessage, session);
 
@@ -290,16 +167,15 @@ export async function handleClarifyResponse(
 
   if (missingParts.length === 0) {
     const clarifiedRequest = buildClarifiedRequest(entityType!, location!, semanticConstraint, newAnswers);
-    await updateClarifySession(session.id, {
+    updateClarifySession(session.conversation_id, {
       answers: newAnswers,
-      entityType: entityType || undefined,
-      location: location || undefined,
-      semanticConstraint: semanticConstraint || undefined,
-      clarifiedRequestText: clarifiedRequest,
-      pendingQuestions: [],
-      awaitingConfirmation: false,
+      entity_type: entityType,
+      location: location,
+      semantic_constraint: semanticConstraint,
+      clarified_request_text: clarifiedRequest,
+      pending_questions: [],
     });
-    await closeClarifySession(session.id);
+    closeClarifySession(session.conversation_id);
     return {
       action: 'run_supervisor',
       clarifiedRequest,
@@ -309,12 +185,12 @@ export async function handleClarifyResponse(
   }
 
   const nextQuestions = buildNextQuestions(missingParts, entityType, location);
-  await updateClarifySession(session.id, {
+  updateClarifySession(session.conversation_id, {
     answers: newAnswers,
-    entityType: entityType || undefined,
-    location: location || undefined,
-    semanticConstraint: semanticConstraint || undefined,
-    pendingQuestions: nextQuestions,
+    entity_type: entityType,
+    location: location,
+    semantic_constraint: semanticConstraint,
+    pending_questions: nextQuestions,
   });
 
   const formattedMsg = `Thanks — just a bit more detail needed:\n\n${nextQuestions.map((q, i) => `${i + 1}. ${q}`).join('\n')}`;
@@ -428,4 +304,19 @@ export function buildInitialQuestions(entityType?: string, location?: string, se
     questions.push(`Could you clarify what you mean by "${semanticConstraint}"? For example, what specific relationship or service are you looking for?`);
   }
   return questions.slice(0, 3);
+}
+
+export async function checkDbHealth(): Promise<boolean> {
+  try {
+    const { neon } = await import('@neondatabase/serverless');
+    const sql = neon(process.env.SUPABASE_DATABASE_URL!);
+    await sql`SELECT 1`;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function _getSessionsMapForTesting(): Map<string, ClarifySession> {
+  return sessions;
 }
