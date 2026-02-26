@@ -56,6 +56,7 @@ async function runAll() {
     assert(session.location === null, 'Location should be null');
     assert(session.pending_questions.length > 0, 'Should have pending questions');
     assert(session.pending_questions.some(q => q.toLowerCase().includes('location')), 'Should ask for location');
+    assert(session.semantic_constraint_resolved === false, 'semantic_constraint_resolved should default to false');
 
     const active = getActiveClarifySession('conv-t1');
     assert(active !== null, 'Session should be retrievable');
@@ -64,7 +65,7 @@ async function runAll() {
 
   cleanup();
 
-  await test('T2: reply "in Leeds" transitions to RUN_SUPERVISOR', () => {
+  await test('T2: reply "in Leeds" transitions to run_supervisor — session stays open', () => {
     createClarifySession({
       conversationId: 'conv-t2',
       originalUserText: 'find pubs',
@@ -83,8 +84,8 @@ async function runAll() {
     assert(result.entityType === 'pubs', 'entityType should be pubs');
     assert(result.location === 'Leeds', `location should be Leeds, got ${result.location}`);
 
-    const afterClose = getActiveClarifySession('conv-t2');
-    assert(afterClose === null, 'Session should be closed after transition');
+    const stillActive = getActiveClarifySession('conv-t2');
+    assert(stillActive !== null, 'Session must remain open — only routes.ts can close it');
   });
 
   cleanup();
@@ -143,7 +144,7 @@ async function runAll() {
 
   cleanup();
 
-  await test('T6: cancellation closes session', () => {
+  await test('T6: cancellation returns cancelled action — session stays open for caller to close', () => {
     createClarifySession({
       conversationId: 'conv-t6',
       originalUserText: 'find pubs',
@@ -155,8 +156,8 @@ async function runAll() {
     const result = handleClarifyResponse(session!, 'cancel');
     assert(result.action === 'cancelled', 'Should be cancelled');
 
-    const afterCancel = getActiveClarifySession('conv-t6');
-    assert(afterCancel === null, 'Session should be gone after cancel');
+    const stillActive = getActiveClarifySession('conv-t6');
+    assert(stillActive !== null, 'Session must remain open — caller (routes.ts) closes it');
   });
 
   cleanup();
@@ -179,7 +180,7 @@ async function runAll() {
 
   cleanup();
 
-  await test('T8: handleClarifyResponse is synchronous (no DB)', () => {
+  await test('T8: handleClarifyResponse is synchronous (no DB) — session stays open', () => {
     createClarifySession({
       conversationId: 'conv-t8',
       originalUserText: 'find pubs',
@@ -191,6 +192,9 @@ async function runAll() {
     const result = handleClarifyResponse(session!, 'in Bristol');
     assert(!(result instanceof Promise), 'handleClarifyResponse should not return a Promise');
     assert(result.action === 'run_supervisor', 'Should transition to run_supervisor');
+
+    const stillActive = getActiveClarifySession('conv-t8');
+    assert(stillActive !== null, 'Session must remain open after run_supervisor');
   });
 
   cleanup();
@@ -205,6 +209,7 @@ async function runAll() {
       entity_type: 'pubs',
       location: null,
       semantic_constraint: null,
+      semantic_constraint_resolved: false,
       pending_questions: ['Where?'],
       answers: {},
       clarified_request_text: null,
@@ -259,7 +264,7 @@ async function runAll() {
 
   cleanup();
 
-  await test('T12: sufficient clarification transitions to RUN_SUPERVISOR', () => {
+  await test('T12: sufficient semantic clarification transitions to RUN_SUPERVISOR', () => {
     createClarifySession({
       conversationId: 'conv-t12',
       originalUserText: 'find organisations that work with local authorities in blackpool',
@@ -308,6 +313,100 @@ async function runAll() {
     assert(!isMeaningfulClarificationAnswer('', dummySession), 'Empty string should NOT be meaningful');
     assert(!isMeaningfulClarificationAnswer('   ', dummySession), 'Whitespace should NOT be meaningful');
     assert(!isMeaningfulClarificationAnswer('ok.', dummySession), '"ok." should NOT be meaningful');
+  });
+
+  cleanup();
+
+  await test('T15: "find pubs" → "in leeds" → run_supervisor returned, session stays open until caller closes', () => {
+    createClarifySession({
+      conversationId: 'conv-t15',
+      originalUserText: 'find pubs',
+      entityType: 'pubs',
+      pendingQuestions: buildInitialQuestions('pubs', undefined),
+    });
+
+    const session = getActiveClarifySession('conv-t15');
+    assert(session !== null, 'Session should exist');
+
+    const result = handleClarifyResponse(session!, 'in Leeds');
+    assert(result.action === 'run_supervisor', 'Should return run_supervisor');
+
+    const beforeClose = getActiveClarifySession('conv-t15');
+    assert(beforeClose !== null, 'Session MUST be alive before caller closes it');
+
+    closeAllClarifySessions('conv-t15');
+
+    const afterClose = getActiveClarifySession('conv-t15');
+    assert(afterClose === null, 'Session should be gone after caller closes it');
+  });
+
+  cleanup();
+
+  await test('T16: DB failure scenario — session preserved for retry', () => {
+    createClarifySession({
+      conversationId: 'conv-t16',
+      originalUserText: 'find pubs',
+      entityType: 'pubs',
+      pendingQuestions: buildInitialQuestions('pubs', undefined),
+    });
+
+    const session = getActiveClarifySession('conv-t16');
+    const result = handleClarifyResponse(session!, 'in Manchester');
+    assert(result.action === 'run_supervisor', 'Should return run_supervisor');
+
+    const stillActive = getActiveClarifySession('conv-t16');
+    assert(stillActive !== null, 'Session must survive — simulates DB failure where caller does NOT close');
+    assert(stillActive!.entity_type === 'pubs', 'Entity type preserved');
+    assert(stillActive!.location === 'Manchester' || stillActive!.answers['location'] === 'Manchester', 'Location preserved');
+  });
+
+  cleanup();
+
+  await test('T17: semantic constraint blocks auto-transition even with entity+location present', () => {
+    createClarifySession({
+      conversationId: 'conv-t17',
+      originalUserText: 'find organisations that work with local authorities in blackpool',
+      entityType: 'organisations',
+      location: 'blackpool',
+      semanticConstraint: 'that work with local authorities',
+      pendingQuestions: buildInitialQuestions('organisations', 'blackpool', 'that work with local authorities'),
+    });
+
+    const session = getActiveClarifySession('conv-t17');
+    assert(session !== null, 'Session should exist');
+    assert(session!.semantic_constraint_resolved === false, 'Semantic constraint not resolved yet');
+
+    const result = handleClarifyResponse(session!, 'in blackpool');
+    assert(result.action === 'ask_more', `Expected ask_more because semantic constraint unresolved, got ${result.action}`);
+    assert(result.message!.includes('local authorities'), 'Should re-ask about semantic constraint');
+
+    const stillActive = getActiveClarifySession('conv-t17');
+    assert(stillActive !== null, 'Session should still be active');
+    assert(stillActive!.semantic_constraint_resolved === false, 'Semantic constraint still unresolved');
+  });
+
+  cleanup();
+
+  await test('T18: bare acknowledgements do not resolve semantic constraint', () => {
+    createClarifySession({
+      conversationId: 'conv-t18',
+      originalUserText: 'find organisations that work with local authorities in blackpool',
+      entityType: 'organisations',
+      location: 'blackpool',
+      semanticConstraint: 'that work with local authorities',
+      pendingQuestions: buildInitialQuestions('organisations', 'blackpool', 'that work with local authorities'),
+    });
+
+    const session = getActiveClarifySession('conv-t18');
+    const bareWords = ['yes', 'ok', 'sure', 'go ahead'];
+    for (const word of bareWords) {
+      const r = handleClarifyResponse(session!, word);
+      assert(r.action === 'ask_more', `"${word}" should not resolve semantic constraint — expected ask_more, got ${r.action}`);
+    }
+
+    const stillActive = getActiveClarifySession('conv-t18');
+    assert(stillActive !== null, 'Session should still be active');
+    assert(stillActive!.semantic_constraint_resolved === false, 'Semantic constraint still unresolved after bare words');
   });
 
   cleanup();

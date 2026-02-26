@@ -1329,6 +1329,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
 
         if (clarifyHandlerResult.action === 'cancelled') {
+          closeAllClarifySessions(conversationId);
           const cancelMsg = clarifyHandlerResult.message || 'Search cancelled. What else can I help with?';
           appendMessage(sessionId, { role: "assistant", content: cancelMsg });
           res.write(`data: ${JSON.stringify({ type: 'clarify_session_ended' })}\n\n`);
@@ -1360,10 +1361,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
           const dbHealthy = await checkDbHealth();
           if (!dbHealthy) {
-            console.error(`[CLARIFY→RUN] DB health check failed, falling back to CHAT_INFO`);
-            const unavailMsg = `I can't run searches right now because the system is temporarily unavailable. Try again shortly.`;
+            console.error(`[CLARIFY→RUN] DB health check failed — session preserved for retry`);
+            const unavailMsg = `I can't run searches right now because the system is temporarily unavailable. Your clarification has been saved — just send any message to retry.`;
             appendMessage(sessionId, { role: "assistant", content: unavailMsg });
-            res.write(`data: ${JSON.stringify({ type: 'clarify_session_ended' })}\n\n`);
             res.write(`data: ${JSON.stringify({ type: 'message', role: 'assistant', content: unavailMsg })}\n\n`);
             emitSse({ type: 'status', stage: 'completed', message: 'System unavailable', clientRequestId: clientRequestId || undefined, conversationId });
             res.write(`data: [DONE]\n\n`);
@@ -1400,6 +1400,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             );
 
             console.log(`[SUPERVISOR_TASK_CREATED] id=${supervisorTask.id} from clarify session=${currentSession.id}`);
+            closeAllClarifySessions(conversationId);
 
             if (clientRequestId) {
               await transitionRunToExecuting(clientRequestId);
@@ -1418,10 +1419,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
             res.end();
             return;
           } catch (error: any) {
-            console.error(`[CLARIFY→RUN_ERROR] ${error.message}`);
-            const errMsg = `I can't run searches right now because the system is temporarily unavailable. Try again shortly.`;
+            console.error(`[CLARIFY→RUN_ERROR] ${error.message} — session preserved for retry`);
+            const errMsg = `I can't run searches right now because the system is temporarily unavailable. Your clarification has been saved — just send any message to retry.`;
             appendMessage(sessionId, { role: "assistant", content: errMsg });
-            res.write(`data: ${JSON.stringify({ type: 'clarify_session_ended' })}\n\n`);
             res.write(`data: ${JSON.stringify({ type: 'message', role: 'assistant', content: errMsg })}\n\n`);
             emitSse({ type: 'status', stage: 'completed', message: 'System unavailable', clientRequestId: clientRequestId || undefined, conversationId });
             res.write(`data: [DONE]\n\n`);

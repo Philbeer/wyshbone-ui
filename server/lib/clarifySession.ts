@@ -6,6 +6,7 @@ export interface ClarifySession {
   entity_type: string | null;
   location: string | null;
   semantic_constraint: string | null;
+  semantic_constraint_resolved: boolean;
   pending_questions: string[];
   answers: Record<string, string>;
   clarified_request_text: string | null;
@@ -90,6 +91,7 @@ export function createClarifySession(params: {
     entity_type: params.entityType || null,
     location: params.location || null,
     semantic_constraint: params.semanticConstraint || null,
+    semantic_constraint_resolved: false,
     pending_questions: params.pendingQuestions,
     answers: {},
     clarified_request_text: null,
@@ -101,7 +103,7 @@ export function createClarifySession(params: {
 }
 
 export function updateClarifySession(conversationId: string, updates: Partial<Pick<ClarifySession,
-  'answers' | 'pending_questions' | 'entity_type' | 'location' | 'semantic_constraint' | 'clarified_request_text'
+  'answers' | 'pending_questions' | 'entity_type' | 'location' | 'semantic_constraint' | 'semantic_constraint_resolved' | 'clarified_request_text'
 >>): ClarifySession | null {
   const s = sessions.get(conversationId);
   if (!s || !s.is_active) return null;
@@ -110,6 +112,7 @@ export function updateClarifySession(conversationId: string, updates: Partial<Pi
   if (updates.entity_type !== undefined) s.entity_type = updates.entity_type;
   if (updates.location !== undefined) s.location = updates.location;
   if (updates.semantic_constraint !== undefined) s.semantic_constraint = updates.semantic_constraint;
+  if (updates.semantic_constraint_resolved !== undefined) s.semantic_constraint_resolved = updates.semantic_constraint_resolved;
   if (updates.clarified_request_text !== undefined) s.clarified_request_text = updates.clarified_request_text;
   s.updated_at = Date.now();
   return s;
@@ -145,7 +148,6 @@ export function handleClarifyResponse(
   userMessage: string,
 ): ClarifyHandlerResult {
   if (isUserCancelling(userMessage)) {
-    closeClarifySession(session.conversation_id);
     return {
       action: 'cancelled',
       message: 'No problem — search cancelled. What else can I help with?',
@@ -166,6 +168,7 @@ export function handleClarifyResponse(
   let entityType = session.entity_type;
   let location = session.location;
   let semanticConstraint = session.semantic_constraint;
+  let semanticConstraintResolved = session.semantic_constraint_resolved;
 
   const parsed = parseAnswerContent(userMessage, session);
 
@@ -183,6 +186,7 @@ export function handleClarifyResponse(
   if (parsed.semanticDetail) {
     semanticConstraint = parsed.semanticDetail;
     newAnswers['semantic_detail'] = parsed.semanticDetail;
+    semanticConstraintResolved = true;
   }
   if (parsed.rawAnswer) {
     const questionIdx = Object.keys(newAnswers).filter(k => k.startsWith('q_')).length;
@@ -192,6 +196,7 @@ export function handleClarifyResponse(
   const missingParts: string[] = [];
   if (!entityType) missingParts.push('entity_type');
   if (!location) missingParts.push('location');
+  if (session.semantic_constraint && !semanticConstraintResolved) missingParts.push('semantic_constraint');
 
   if (missingParts.length === 0) {
     const clarifiedRequest = buildClarifiedRequest(entityType!, location!, semanticConstraint, newAnswers);
@@ -200,10 +205,10 @@ export function handleClarifyResponse(
       entity_type: entityType,
       location: location,
       semantic_constraint: semanticConstraint,
+      semantic_constraint_resolved: semanticConstraintResolved,
       clarified_request_text: clarifiedRequest,
       pending_questions: [],
     });
-    closeClarifySession(session.conversation_id);
     return {
       action: 'run_supervisor',
       clarifiedRequest,
@@ -212,12 +217,13 @@ export function handleClarifyResponse(
     };
   }
 
-  const nextQuestions = buildNextQuestions(missingParts, entityType, location);
+  const nextQuestions = buildNextQuestions(missingParts, entityType, location, semanticConstraint);
   updateClarifySession(session.conversation_id, {
     answers: newAnswers,
     entity_type: entityType,
     location: location,
     semantic_constraint: semanticConstraint,
+    semantic_constraint_resolved: semanticConstraintResolved,
     pending_questions: nextQuestions,
   });
 
@@ -280,11 +286,14 @@ function parseAnswerContent(message: string, session: ClarifySession): {
   }
 
   if (session.semantic_constraint !== null || session.pending_questions.some(q => q.toLowerCase().includes('mean') || q.toLowerCase().includes('clarify') || q.toLowerCase().includes('specify'))) {
-    const parts = normalized.split(/[,;]+/).map(s => s.trim()).filter(s => s.length > 0);
-    if (parts.length > 0) {
-      const nonCountParts = parts.filter(p => !/^\d+$/.test(p));
-      if (nonCountParts.length > 0) {
-        result.semanticDetail = nonCountParts.join(', ');
+    const isLocationOnly = /^\s*(?:in|near|around)\s+[a-z][a-z\s,]+$/i.test(message.trim());
+    if (!isLocationOnly) {
+      const parts = normalized.split(/[,;]+/).map(s => s.trim()).filter(s => s.length > 0);
+      if (parts.length > 0) {
+        const nonCountParts = parts.filter(p => !/^\d+$/.test(p));
+        if (nonCountParts.length > 0) {
+          result.semanticDetail = nonCountParts.join(', ');
+        }
       }
     }
   }
@@ -309,13 +318,16 @@ function buildClarifiedRequest(entityType: string, location: string, semanticCon
   return request;
 }
 
-function buildNextQuestions(missingParts: string[], entityType: string | null, location: string | null): string[] {
+function buildNextQuestions(missingParts: string[], entityType: string | null, location: string | null, semanticConstraint?: string | null): string[] {
   const questions: string[] = [];
   if (missingParts.includes('entity_type')) {
     questions.push('What type of businesses or organisations are you looking for?');
   }
   if (missingParts.includes('location')) {
     questions.push('Which location or area should I search in?');
+  }
+  if (missingParts.includes('semantic_constraint') && semanticConstraint) {
+    questions.push(`Could you clarify what you mean by "${semanticConstraint}"? For example, what specific relationship or service are you looking for?`);
   }
   return questions.slice(0, 3);
 }
