@@ -4,7 +4,6 @@ import {
   handleClarifyResponse,
   closeAllClarifySessions,
   buildInitialQuestions,
-  checkDbHealth,
   isMeaningfulClarificationAnswer,
   _getSessionsMapForTesting,
 } from '../clarifySession';
@@ -104,13 +103,6 @@ async function runAll() {
 
     const active = getActiveClarifySession('conv-t3');
     assert(active !== null, 'Session should exist');
-  });
-
-  cleanup();
-
-  await test('T4: DB health check returns boolean', async () => {
-    const result = await checkDbHealth();
-    assert(typeof result === 'boolean', 'checkDbHealth should return boolean');
   });
 
   cleanup();
@@ -290,16 +282,12 @@ async function runAll() {
     const filePath = path.join(process.cwd(), 'server/lib/clarifySession.ts');
     const source = fs.readFileSync(filePath, 'utf8');
 
-    const lines = source.split('\n');
-    const nonCheckDbLines = lines.filter(l => !l.includes('checkDbHealth') && !l.includes('async function checkDbHealth'));
-    const coreSource = nonCheckDbLines.join('\n');
-
-    assert(!coreSource.includes('import { neon }'), 'Core module should not import neon');
-    assert(!coreSource.includes('from "@neondatabase'), 'Core module should not reference @neondatabase');
-    assert(!coreSource.includes('buildContextWithFacts'), 'Core module should not reference buildContextWithFacts');
-    assert(!coreSource.includes('SYSTEM_PROMPT'), 'Core module should not reference SYSTEM_PROMPT');
-    assert(!coreSource.includes('saveMessage'), 'Core module should not reference saveMessage');
-    assert(!coreSource.includes('createSupervisorTask'), 'Core module should not reference createSupervisorTask');
+    assert(!source.includes('import { neon }'), 'Core module should not import neon');
+    assert(!source.includes('from "@neondatabase'), 'Core module should not reference @neondatabase');
+    assert(!source.includes('buildContextWithFacts'), 'Core module should not reference buildContextWithFacts');
+    assert(!source.includes('SYSTEM_PROMPT'), 'Core module should not reference SYSTEM_PROMPT');
+    assert(!source.includes('saveMessage'), 'Core module should not reference saveMessage');
+    assert(!source.includes('createSupervisorTask'), 'Core module should not reference createSupervisorTask');
   });
 
   cleanup();

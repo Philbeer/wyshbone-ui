@@ -1290,7 +1290,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         createClarifySession,
         buildInitialQuestions,
         closeAllClarifySessions,
-        checkDbHealth,
       } = await import('./lib/clarifySession.js');
 
       const activeClarifySession = getActiveClarifySession(conversationId);
@@ -1357,19 +1356,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const entityType = clarifyHandlerResult.entityType || currentSession.entity_type || undefined;
           const location = clarifyHandlerResult.location || currentSession.location || undefined;
 
-          console.log(`🚀 [CLARIFY→RUN] Session complete, checking DB health before supervisor. clarifiedRequest="${clarifiedRequest}" entity="${entityType}" location="${location}"`);
-
-          const dbHealthy = await checkDbHealth(sql);
-          if (!dbHealthy) {
-            console.error(`[CLARIFY→RUN] DB health check failed — session preserved for retry`);
-            const unavailMsg = `I can't run searches right now because the system is temporarily unavailable. Your clarification has been saved — just send any message to retry.`;
-            appendMessage(sessionId, { role: "assistant", content: unavailMsg });
-            res.write(`data: ${JSON.stringify({ type: 'message', role: 'assistant', content: unavailMsg })}\n\n`);
-            emitSse({ type: 'status', stage: 'completed', message: 'System unavailable', clientRequestId: clientRequestId || undefined, conversationId });
-            res.write(`data: [DONE]\n\n`);
-            res.end();
-            return;
-          }
+          console.log(`🚀 [CLARIFY→RUN] Session complete, creating supervisor task. clarifiedRequest="${clarifiedRequest}" entity="${entityType}" location="${location}"`);
 
           try {
             const intentResult = detectSupervisorIntent(clarifiedRequest);
@@ -1439,20 +1426,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log(`🔀 [ROUTER] mode=${modeDecision.mode} reason="${modeDecision.reason}" entity="${modeDecision.entityType || 'N/A'}" location="${modeDecision.location || 'N/A'}" crid=${clientRequestId || 'none'}`);
 
       if (modeDecision.mode === 'RUN_SUPERVISOR') {
-        // ─── RUN_SUPERVISOR LANE: DB health gate, then enqueue ───
+        // ─── RUN_SUPERVISOR LANE: enqueue supervisor task ───
         closeAllClarifySessions(conversationId);
-
-        const dbHealthy = await checkDbHealth(sql);
-        if (!dbHealthy) {
-          console.error(`[CHAT_ROUTE=RUN_SUPERVISOR] DB health check failed, falling back to CHAT_INFO unavailable`);
-          const unavailMsg = `I can't run searches right now because the system is temporarily unavailable. Try again shortly.`;
-          appendMessage(sessionId, { role: "assistant", content: unavailMsg });
-          res.write(`data: ${JSON.stringify({ type: 'message', role: 'assistant', content: unavailMsg })}\n\n`);
-          emitSse({ type: 'status', stage: 'completed', message: 'System unavailable', clientRequestId: clientRequestId || undefined, conversationId });
-          res.write(`data: [DONE]\n\n`);
-          res.end();
-          return;
-        }
 
         try {
           const intentResult = detectSupervisorIntent(latestUserText);
