@@ -346,13 +346,22 @@ export function buildInitialQuestions(entityType?: string, location?: string, se
   return questions.slice(0, 3);
 }
 
-export async function checkDbHealth(): Promise<boolean> {
+export async function checkDbHealth(sqlClient?: any): Promise<boolean> {
   try {
-    const { neon } = await import('@neondatabase/serverless');
-    const sql = neon(process.env.SUPABASE_DATABASE_URL!);
-    await sql`SELECT 1`;
-    return true;
-  } catch {
+    let queryFn = sqlClient;
+    if (!queryFn) {
+      const { neon } = await import('@neondatabase/serverless');
+      const dbUrl = process.env.SUPABASE_DATABASE_URL;
+      if (!dbUrl) {
+        console.error('[checkDbHealth] SUPABASE_DATABASE_URL not set');
+        return false;
+      }
+      queryFn = neon(dbUrl);
+    }
+    const result = await queryFn`SELECT 1 as ok`;
+    return Array.isArray(result) && result.length > 0;
+  } catch (err: any) {
+    console.error(`[checkDbHealth] Failed: ${err?.message || err}`);
     return false;
   }
 }

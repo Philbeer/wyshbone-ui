@@ -1359,7 +1359,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
           console.log(`🚀 [CLARIFY→RUN] Session complete, checking DB health before supervisor. clarifiedRequest="${clarifiedRequest}" entity="${entityType}" location="${location}"`);
 
-          const dbHealthy = await checkDbHealth();
+          const dbHealthy = await checkDbHealth(sql);
           if (!dbHealthy) {
             console.error(`[CLARIFY→RUN] DB health check failed — session preserved for retry`);
             const unavailMsg = `I can't run searches right now because the system is temporarily unavailable. Your clarification has been saved — just send any message to retry.`;
@@ -1442,7 +1442,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // ─── RUN_SUPERVISOR LANE: DB health gate, then enqueue ───
         closeAllClarifySessions(conversationId);
 
-        const dbHealthy = await checkDbHealth();
+        const dbHealthy = await checkDbHealth(sql);
         if (!dbHealthy) {
           console.error(`[CHAT_ROUTE=RUN_SUPERVISOR] DB health check failed, falling back to CHAT_INFO unavailable`);
           const unavailMsg = `I can't run searches right now because the system is temporarily unavailable. Try again shortly.`;
