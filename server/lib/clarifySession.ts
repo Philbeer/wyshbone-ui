@@ -279,7 +279,17 @@ function parseAnswerContent(message: string, session: ClarifySession): {
     for (const pat of entityPatterns) {
       const match = message.match(pat);
       if (match && match[1]) {
-        result.entityType = match[1].trim();
+        let raw = match[1].trim();
+        const quantMatch = raw.match(/^(?:(\d+)\s+|(?:a|an|some|several|few|many|couple(?:\s+of)?)\s+)/i);
+        if (quantMatch) {
+          if (quantMatch[1] && !result.count) {
+            result.count = quantMatch[1];
+          }
+          raw = raw.slice(quantMatch[0].length).trim();
+        }
+        if (raw.length > 0) {
+          result.entityType = raw;
+        }
         break;
       }
     }

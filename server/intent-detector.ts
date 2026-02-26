@@ -1,4 +1,5 @@
 import { SupervisorTaskData } from './supabase-client';
+import { sanitizeBusinessType } from './lib/decideChatMode';
 
 export interface IntentDetectionResult {
   requiresSupervisor: boolean;
@@ -41,20 +42,18 @@ const ANALYSIS_KEYWORDS = [
 ];
 
 export function detectSupervisorIntent(userMessage: string): IntentDetectionResult {
-  // Normalize: lowercase, strip punctuation, trim
   const normalized = userMessage
     .toLowerCase()
-    .replace(/[.,!?;:()]/g, ' ') // Remove punctuation
-    .replace(/\s+/g, ' ') // Normalize whitespace
+    .replace(/[.,!?;:()]/g, ' ')
+    .replace(/\s+/g, ' ')
     .trim();
 
-  // Check for lead generation intent (using normalized message)
   const hasLeadIntent = LEAD_GENERATION_KEYWORDS.some(keyword =>
     normalized.includes(keyword.toLowerCase())
   );
 
   if (hasLeadIntent) {
-    const { businessType, location } = extractBusinessAndLocation(userMessage);
+    const { businessType, location, requestedCount } = extractBusinessAndLocation(userMessage);
 
     return {
       requiresSupervisor: true,
@@ -64,12 +63,12 @@ export function detectSupervisorIntent(userMessage: string): IntentDetectionResu
         search_query: {
           business_type: businessType,
           location: location,
+          requested_count: requestedCount,
         },
       },
     };
   }
 
-  // Check for analysis intent (using normalized message)
   const hasAnalysisIntent = ANALYSIS_KEYWORDS.some(keyword =>
     normalized.includes(keyword.toLowerCase())
   );
@@ -97,24 +96,25 @@ export function detectSupervisorIntent(userMessage: string): IntentDetectionResu
     };
   }
 
-  // Broad fallback: "find [N] [noun] in [location]" pattern
-  const genericFindInLocation = /\bfind\s+(?:\d+\s+)?([a-z]+(?:\s+[a-z]+)?)\s+in\s+([a-z][a-z\s,]+)/i;
+  const genericFindInLocation = /\bfind\s+(.+?)\s+in\s+([a-z][a-z\s,]+)/i;
   const genericMatch = normalized.match(genericFindInLocation);
   if (genericMatch) {
+    const rawEntity = genericMatch[1]?.trim();
+    const sanitized = sanitizeBusinessType(rawEntity);
     return {
       requiresSupervisor: true,
       taskType: 'find_prospects',
       requestData: {
         user_message: userMessage,
         search_query: {
-          business_type: genericMatch[1]?.trim(),
+          business_type: sanitized.businessType,
           location: genericMatch[2]?.trim(),
+          requested_count: sanitized.requestedCount,
         },
       },
     };
   }
 
-  // No Supervisor intent detected
   return {
     requiresSupervisor: false,
   };
@@ -123,10 +123,8 @@ export function detectSupervisorIntent(userMessage: string): IntentDetectionResu
 function extractBusinessAndLocation(message: string): {
   businessType?: string;
   location?: string;
+  requestedCount?: number;
 } {
-  const lowerMessage = message.toLowerCase();
-
-  // Extract location using common prepositions
   const locationPatterns = [
     /\bin\s+([a-z\s]+?)(?:\s+(?:and|or|,|$))/i,
     /\bat\s+([a-z\s]+?)(?:\s+(?:and|or|,|$))/i,
@@ -143,23 +141,23 @@ function extractBusinessAndLocation(message: string): {
     }
   }
 
-  // Extract business type (noun before location or after "find/search for")
   let businessType: string | undefined;
+  let requestedCount: number | undefined;
 
-  // Pattern: "find [business type] in [location]"
   const businessPatterns = [
-    /(?:find|search\s+for|look\s+for|get|show\s+me|list)\s+([a-z\s]+?)\s+(?:in|at|near|around)/i,
-    /([a-z\s]+?)\s+(?:in|at|near|around)\s+/i,
+    /(?:find|search\s+for|look\s+for|get|show\s+me|list)\s+([a-z0-9\s]+?)\s+(?:in|at|near|around)/i,
+    /([a-z0-9\s]+?)\s+(?:in|at|near|around)\s+/i,
   ];
 
   for (const pattern of businessPatterns) {
     const match = message.match(pattern);
     if (match && match[1]) {
       const extracted = match[1].trim();
-      // Filter out common verbs/words
       const skipWords = ['leads', 'prospects', 'businesses', 'companies', 'the', 'some', 'all', 'any'];
       if (!skipWords.includes(extracted.toLowerCase())) {
-        businessType = extracted;
+        const sanitized = sanitizeBusinessType(extracted);
+        businessType = sanitized.businessType;
+        requestedCount = sanitized.requestedCount;
         break;
       }
     }
@@ -168,5 +166,6 @@ function extractBusinessAndLocation(message: string): {
   return {
     businessType,
     location,
+    requestedCount,
   };
 }

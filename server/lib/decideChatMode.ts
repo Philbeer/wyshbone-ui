@@ -5,6 +5,7 @@ export interface ChatModeDecision {
   reason: string;
   entityType?: string;
   location?: string;
+  requestedCount?: number;
 }
 
 const ENTITY_FINDING_VERBS = [
@@ -56,7 +57,38 @@ const INFORMATIONAL_QUESTION_PREFIXES = [
   /^what's the (?:difference|best|biggest|largest|smallest)\b/i,
 ];
 
-function detectEntityIntent(normalized: string): { isEntity: boolean; entityType?: string; location?: string; reason: string } {
+const QUANTIFIER_PATTERN = /^(?:(\d+)\s+|(?:a|an|some|several|few|many|couple(?:\s+of)?)\s+)/i;
+const QUANTIFIER_WORD_MAP: Record<string, number> = {
+  'a': 1,
+  'an': 1,
+};
+
+export function sanitizeBusinessType(raw: string): { businessType: string; requestedCount?: number } {
+  let working = raw.trim();
+  let requestedCount: number | undefined;
+
+  const match = working.match(QUANTIFIER_PATTERN);
+  if (match) {
+    if (match[1]) {
+      requestedCount = parseInt(match[1], 10);
+    } else {
+      const word = match[0].trim().toLowerCase().replace(/\s+of$/, '');
+      if (QUANTIFIER_WORD_MAP[word] !== undefined) {
+        requestedCount = QUANTIFIER_WORD_MAP[word];
+      }
+    }
+    working = working.slice(match[0].length).trim();
+  }
+
+  if (working.length === 0) {
+    working = raw.trim();
+    requestedCount = undefined;
+  }
+
+  return { businessType: working, requestedCount };
+}
+
+function detectEntityIntent(normalized: string): { isEntity: boolean; entityType?: string; location?: string; requestedCount?: number; reason: string } {
   for (const pattern of INFORMATIONAL_QUESTION_PREFIXES) {
     if (pattern.test(normalized)) {
       return { isEntity: false, reason: `Informational question prefix: "${normalized.slice(0, 30)}..."` };
@@ -70,6 +102,7 @@ function detectEntityIntent(normalized: string): { isEntity: boolean; entityType
         isEntity: true,
         entityType: entityInfo.entityType,
         location: entityInfo.location,
+        requestedCount: entityInfo.requestedCount,
         reason: `Entity-finding verb: "${verbPhrase}"`,
       };
     }
@@ -82,6 +115,7 @@ function detectEntityIntent(normalized: string): { isEntity: boolean; entityType
         isEntity: true,
         entityType: entityInfo.entityType,
         location: entityInfo.location,
+        requestedCount: entityInfo.requestedCount,
         reason: 'Entity discovery pattern (X that/which...)',
       };
     }
@@ -93,11 +127,14 @@ function detectEntityIntent(normalized: string): { isEntity: boolean; entityType
       const hasLocationContext = LOCATION_PATTERN.test(normalized);
       if (hasLocationContext) {
         const entityInfo = extractEntityAndLocation(normalized);
+        const rawEntity = entityInfo.entityType || match[1]?.trim();
+        const sanitized = rawEntity ? sanitizeBusinessType(rawEntity) : { businessType: rawEntity };
         return {
           isEntity: true,
-          entityType: entityInfo.entityType || match[1]?.trim(),
+          entityType: sanitized.businessType,
           location: entityInfo.location,
-          reason: `Entity noun with location context: "${match[1]?.trim()}"`,
+          requestedCount: entityInfo.requestedCount || sanitized.requestedCount,
+          reason: `Entity noun with location context: "${sanitized.businessType}"`,
         };
       }
     }
@@ -106,9 +143,10 @@ function detectEntityIntent(normalized: string): { isEntity: boolean; entityType
   return { isEntity: false, reason: 'No entity-finding intent detected' };
 }
 
-function extractEntityAndLocation(message: string): { entityType?: string; location?: string } {
+function extractEntityAndLocation(message: string): { entityType?: string; location?: string; requestedCount?: number } {
   let location: string | undefined;
   let entityType: string | undefined;
+  let requestedCount: number | undefined;
 
   const locMatch = message.match(LOCATION_PATTERN);
   if (locMatch && locMatch[1]) {
@@ -122,13 +160,15 @@ function extractEntityAndLocation(message: string): { entityType?: string; locat
         .replace(/\s+(in|near|around|at)\s+.*$/i, '')
         .replace(/[.,!?;:]+$/, '');
       if (extracted.length > 0 && extracted.length < 100) {
-        entityType = extracted;
+        const sanitized = sanitizeBusinessType(extracted);
+        entityType = sanitized.businessType;
+        requestedCount = sanitized.requestedCount;
         break;
       }
     }
   }
 
-  return { entityType, location };
+  return { entityType, location, requestedCount };
 }
 
 const SEMANTIC_CONSTRAINT_PATTERNS = [
@@ -165,6 +205,7 @@ export function decideChatMode({ userMessage }: { userMessage: string }): ChatMo
         reason: entityResult.reason,
         entityType: entityResult.entityType,
         location: entityResult.location,
+        requestedCount: entityResult.requestedCount,
       };
     } else {
       const missingParts: string[] = [];
@@ -176,6 +217,7 @@ export function decideChatMode({ userMessage }: { userMessage: string }): ChatMo
         reason: `${entityResult.reason} — ${missingParts.length > 0 ? 'needs: ' + missingParts.join(', ') : 'needs clarification'}`,
         entityType: entityResult.entityType,
         location: entityResult.location,
+        requestedCount: entityResult.requestedCount,
       };
     }
   }

@@ -40,6 +40,7 @@ export interface SupervisorTaskData {
   search_query?: {
     business_type?: string;
     location?: string;
+    requested_count?: number;
   };
   demo?: string;
   metadata?: Record<string, any>;

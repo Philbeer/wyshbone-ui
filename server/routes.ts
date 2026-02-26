@@ -1361,15 +1361,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
           try {
             const intentResult = detectSupervisorIntent(clarifiedRequest);
             const taskType = intentResult.taskType || 'find_prospects';
+            const { sanitizeBusinessType } = await import('./lib/decideChatMode.js');
+            const rawEntityType = entityType || intentResult.requestData?.search_query?.business_type || '';
+            const sanitizedEntity = sanitizeBusinessType(rawEntityType);
+            const clarifyCount = sanitizedEntity.requestedCount
+              || intentResult.requestData?.search_query?.requested_count
+              || (currentSession.answers['count'] ? parseInt(currentSession.answers['count'], 10) : undefined);
             const requestData: Record<string, any> = {
               user_message: clarifiedRequest,
               original_user_message: currentSession.original_user_text,
               ...(intentResult.requestData || {}),
               search_query: {
-                business_type: entityType || intentResult.requestData?.search_query?.business_type,
+                business_type: sanitizedEntity.businessType,
                 location: location || intentResult.requestData?.search_query?.location,
+                ...(clarifyCount !== undefined && !isNaN(clarifyCount) ? { requested_count: clarifyCount } : {}),
               },
             };
+            console.log(`📦 [CLARIFY→SEARCH_QUERY] business_type="${requestData.search_query.business_type}" location="${requestData.search_query.location}" requested_count=${clarifyCount ?? 'default'}`);
             if (metadata) {
               if (metadata.scenario) requestData.scenario = metadata.scenario;
               if (metadata.constraints) requestData.constraints = metadata.constraints;
@@ -1432,14 +1440,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
         try {
           const intentResult = detectSupervisorIntent(latestUserText);
           const taskType = intentResult.taskType || 'find_prospects';
+          const { sanitizeBusinessType } = await import('./lib/decideChatMode.js');
+          const rawBizType = modeDecision.entityType || intentResult.requestData?.search_query?.business_type || '';
+          const sanitizedBiz = sanitizeBusinessType(rawBizType);
+          const resolvedCount = modeDecision.requestedCount || sanitizedBiz.requestedCount || intentResult.requestData?.search_query?.requested_count;
           const baseRequestData = {
             user_message: latestUserText,
             ...(intentResult.requestData || {}),
             search_query: {
-              business_type: modeDecision.entityType || intentResult.requestData?.search_query?.business_type,
+              business_type: sanitizedBiz.businessType,
               location: modeDecision.location || intentResult.requestData?.search_query?.location,
+              ...(resolvedCount !== undefined ? { requested_count: resolvedCount } : {}),
             },
           };
+          console.log(`📦 [SEARCH_QUERY] business_type="${baseRequestData.search_query.business_type}" location="${baseRequestData.search_query.location}" requested_count=${resolvedCount ?? 'default'}`);
           const requestData: Record<string, any> = { ...baseRequestData };
           if (metadata) {
             if (metadata.scenario) requestData.scenario = metadata.scenario;
