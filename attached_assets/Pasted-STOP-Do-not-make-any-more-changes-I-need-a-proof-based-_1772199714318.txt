@@ -1,0 +1,48 @@
+STOP. Do not make any more changes.
+
+I need a proof-based investigation report only.
+
+We still have cases where results do not show in the chat panel after a supervisor run completes.
+
+You previously claimed you fixed 3 bugs:
+(1) SSE line buffering dropping run_id events
+(2) error bubble missing runId
+(3) retry handler reading nulled refs
+
+Now I need you to PROVE whether those fixes are actually active in the deployed UI I’m testing, and whether they explain the current failure.
+
+Deliver a report with the following sections:
+
+A) Deployment sanity check (must be concrete)
+- What repo and branch/commit SHA contains your changes?
+- Is that commit deployed to the URL I’m testing?
+- Show the exact file paths changed and the diff hunks for each fix (short excerpts ok).
+- If you cannot prove deployment, say so.
+
+B) Instrumented reproduction (must be evidence-based)
+- Add TEMPORARY console logging (or server logs if needed) that prints:
+  - every SSE event type received
+  - the runId and clientRequestId captured when received
+  - the moment we enter fetchArtefactsWithRetry
+  - the runId used for the artefact fetch
+  - the list of artefacts returned on each retry attempt
+  - the exact stop condition that produces “Run finished but results not available yet”
+- Then reproduce the bug once and paste the full logs.
+
+C) Decide the true root cause (one of these must be selected)
+Choose exactly one and justify with logs:
+1) runId event missing (SSE parsing still broken)
+2) runId present but wrong (mapping/overwrite bug)
+3) runId present and correct, but artefacts are not available within retry window (timing/race)
+4) artefacts exist but UI fails to render them (rendering / state bug)
+5) results render but are overwritten by another run/state reset (concurrency bug)
+
+D) If it’s timing/race, quantify it
+- What is the typical delay between terminal_state and delivery_summary artefact creation?
+- What is the max observed delay?
+- Is the UI retry window (10 retries) sufficient? If not, what should it be?
+
+E) Only after the report, propose the MINIMAL fix
+- One fix at a time, with acceptance criteria.
+
+No code changes unless asked. Report only.

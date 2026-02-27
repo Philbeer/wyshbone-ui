@@ -346,8 +346,6 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
       return;
     }
 
-    console.log(`[Chat][finalizeRunUI] Finalizing run=${effectiveKey} (source=${source})`);
-
     try {
       const params = new URLSearchParams();
       if (effectiveRunId) params.set('runId', effectiveRunId);
@@ -355,16 +353,17 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
       const url = addDevAuthParams(buildApiUrl(`/api/afr/artefacts?${params.toString()}`));
       const res = await fetch(url, { credentials: 'include' });
       if (!res.ok) {
-        console.warn(`[Chat][finalizeRunUI] Artefact fetch failed: ${res.status} (source=${source})`);
+        console.warn(`[finalizeRunUI] Artefact fetch failed: ${res.status} (source=${source})`);
         return;
       }
       const rows = await res.json();
       if (!Array.isArray(rows)) return;
 
+      const artefactTypes = rows.map((r: any) => r.type);
+
       const dsRow = rows.find((r: any) => r.type === 'delivery_summary');
 
       if (!dsRow) {
-        const artefactTypes = rows.map((r: any) => r.type);
         const hasMissionTerminal = artefactTypes.includes('run_summary') ||
           artefactTypes.includes('outcome_log') ||
           artefactTypes.includes('policy_application_snapshot') ||
@@ -373,7 +372,6 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
           artefactTypes.some((t: string) => t === 'tower_judgement');
 
         if (!hasMissionTerminal) {
-          console.log(`[Chat][finalizeRunUI] No delivery_summary or terminal artefacts yet for run=${effectiveKey} (source=${source}, count=${rows.length})`);
           return;
         }
 
@@ -605,7 +603,6 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         const success = await finalizeRunUIRef.current?.({ runId, crid, source: `afr-poll-retry-${attempt}` });
         const effectiveKey = runId || crid;
         if (effectiveKey && deliverySummaryRunIdsRef.current.has(effectiveKey)) {
-          console.log(`[Chat][AFR-Poll] Phase 2 success: artefacts finalized for ${effectiveKey} on attempt ${attempt}`);
           return true;
         }
         if (attempt < maxRetries) {
@@ -648,9 +645,9 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
           const status = data.status;
           const terminalState = data.terminal_state;
 
+
           if (isTerminal || status === 'completed' || status === 'failed' || 
               terminalState === 'PASS' || terminalState === 'FAIL' || terminalState === 'STOP') {
-            console.log(`[Chat][AFR-Poll] Phase 1 terminal detected for ${effectiveKey}: status=${status}, terminal_state=${terminalState}, is_terminal=${isTerminal}`);
             terminalDetected.add(effectiveKey);
 
             const finalized = await fetchArtefactsWithRetry(runId, crid);
@@ -1333,7 +1330,6 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
             const data = line.slice(6); // Remove 'data: ' prefix
             
             if (data === '[DONE]') {
-              // Stream complete
               break;
             }
             
