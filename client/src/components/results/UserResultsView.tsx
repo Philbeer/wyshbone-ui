@@ -314,8 +314,8 @@ export default function UserResultsView({
       {exact.length > 0 && !hasVerifiedExact && (
         <section className="space-y-2">
           <div>
-            <h3 className="text-sm font-semibold text-foreground">Candidates (not fully verified)</h3>
-            <p className="text-xs text-muted-foreground mt-0.5">These were found but could not be fully verified against all requirements.</p>
+            <h3 className="text-sm font-semibold text-foreground">Results</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">These results were found for your search.</p>
           </div>
           <div className="space-y-2">
             {exact.map((lead, i) => (

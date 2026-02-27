@@ -548,7 +548,7 @@ function ArtefactsRetryBlock({ runId }: { runId?: string | null }) {
       <div className="flex items-center gap-2">
         <AlertTriangle className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
         <p className="text-xs text-amber-700 dark:text-amber-300 font-medium">
-          Run finished but results not available yet.
+          Results are still loading. This usually takes a few seconds.
         </p>
       </div>
       <Button
@@ -559,9 +559,9 @@ function ArtefactsRetryBlock({ runId }: { runId?: string | null }) {
         disabled={retrying}
       >
         {retrying ? (
-          <><Loader2 className="h-3 w-3 animate-spin" /> Retrying...</>
+          <><Loader2 className="h-3 w-3 animate-spin" /> Loading...</>
         ) : (
-          <><RefreshCw className="h-3 w-3" /> Click retry</>
+          <><RefreshCw className="h-3 w-3" /> Refresh results</>
         )}
       </Button>
     </div>
@@ -635,7 +635,7 @@ export default function RunResultBubble({
       {provisional && allLeads.length > 0 && (
         <div className="space-y-0.5">
           <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-            Candidates ({allLeads.length} found so far)
+            Results ({allLeads.length} found so far)
           </h4>
           <div>
             {allLeads.map((lead, i) => (

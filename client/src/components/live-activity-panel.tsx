@@ -1863,8 +1863,8 @@ function StopActionButtons() {
         <Button variant="outline" size="sm" className="h-6 text-xs px-2" onClick={() => handleStopAction("Relax constraint", "Relax the strictest constraint and try again.")}>
           Relax constraint
         </Button>
-        <Button variant="outline" size="sm" className="h-6 text-xs px-2" onClick={() => handleStopAction("Return best-effort list", "Return the best-effort list as-is, even if unverified.")}>
-          Return best-effort list
+        <Button variant="outline" size="sm" className="h-6 text-xs px-2" onClick={() => handleStopAction("Return current results", "Return the results found so far.")}>
+          Return current results
         </Button>
       </div>
     </div>
