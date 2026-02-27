@@ -47,6 +47,7 @@ type Message = ChatMessage & {
   runId?: string | null;
   hidden?: boolean;
   provisional?: boolean;
+  isConfidence?: boolean;
 };
 
 type SystemMessage = {
@@ -870,6 +871,9 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
               base.policySnapshot = meta.policySnapshot || null;
               base.runId = meta.runId || null;
             }
+            if (base.role === 'assistant' && /^Searching for .+\.$/.test(base.content)) {
+              base.isConfidence = true;
+            }
             return base;
           });
           if (historicalMessages.length > 0) {
@@ -1202,6 +1206,9 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                 base.policySnapshot = meta.policySnapshot || null;
                 base.runId = meta.runId || null;
               }
+              if (base.role === 'assistant' && /^Searching for .+\.$/.test(base.content)) {
+                base.isConfidence = true;
+              }
               return base;
             });
             deliverySummaryRunIdsRef.current = new Set();
@@ -1407,6 +1414,20 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
               if (parsed.type === 'clarify_session_ended') {
                 setIsClarifyingForRun(false);
                 console.log('✅ Clarify session ended');
+              }
+
+              if (parsed.type === 'confidence' && parsed.content) {
+                const confidenceId = `confidence-${Date.now()}`;
+                setMessages((prev) => [
+                  ...prev,
+                  {
+                    id: confidenceId,
+                    role: 'assistant' as const,
+                    content: parsed.content,
+                    timestamp: new Date(),
+                    isConfidence: true,
+                  },
+                ]);
               }
 
               if (parsed.supervisorTaskId) {
@@ -2274,6 +2295,28 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                       <span className="text-xs text-muted-foreground mt-1">
                         {chatMessage.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                       </span>
+                    </div>
+                  </div>
+                );
+              }
+
+              if (chatMessage.isConfidence) {
+                return (
+                  <div
+                    key={chatMessage.id}
+                    className="flex gap-3 flex-row"
+                    data-testid={`message-confidence-${chatMessage.id}`}
+                  >
+                    <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0">
+                      <img src={wyshboneLogo} alt="Wyshbone" className="w-full h-full object-cover" />
+                    </div>
+                    <div className="flex flex-col items-start max-w-3xl lg:max-w-none">
+                      <div className="rounded-lg px-4 py-2.5 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/50">
+                        <div className="flex items-center gap-2">
+                          <Search className="w-4 h-4 text-blue-500 dark:text-blue-400 flex-shrink-0" />
+                          <p className="text-[14px] leading-relaxed text-blue-700 dark:text-blue-300 font-medium">{chatMessage.content}</p>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 );

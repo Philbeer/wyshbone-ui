@@ -1400,12 +1400,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
               await transitionRunToExecuting(clientRequestId);
             }
 
-            const ackMsg = `Clarification complete — running search for: ${clarifiedRequest}`;
-            appendMessage(sessionId, { role: "assistant", content: ackMsg });
-            await saveMessage(conversationId, "assistant", ackMsg);
+            const sq = requestData.search_query;
+            const titleCase = (s: string) => s.replace(/\b\w/g, c => c.toUpperCase());
+            const confidenceMsg = `Searching for ${sq.requested_count ? `${sq.requested_count} ` : ''}${sq.business_type || 'businesses'}${sq.location ? ` in ${titleCase(sq.location)}` : ''}.`;
+
+            appendMessage(sessionId, { role: "assistant", content: confidenceMsg });
+            await saveMessage(conversationId, "assistant", confidenceMsg);
 
             res.write(`data: ${JSON.stringify({ type: 'clarify_session_ended' })}\n\n`);
-            res.write(`data: ${JSON.stringify({ type: 'message', role: 'assistant', content: ackMsg })}\n\n`);
+            res.write(`data: ${JSON.stringify({ type: 'confidence', content: confidenceMsg })}\n\n`);
             res.write(`data: ${JSON.stringify({ supervisorTaskId: supervisorTask.id, supervisorTaskType: taskType })}\n\n`);
             emitSse({ type: 'status', stage: 'completed', message: 'Delegated to Supervisor', clientRequestId: clientRequestId || undefined, conversationId });
             console.log(`[CHAT_ROUTE=CLARIFY→RUN_SUPERVISOR] crid=${clientRequestId || 'none'} run_id=${agentRunId || runId} taskId=${supervisorTask.id}`);
@@ -1492,11 +1495,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
               }).catch(err => console.error('AFR router log error:', err.message));
             }
 
-            const ackMsg = `Running the same search in **${followup.newLocation}**: ${reusedRequest}`;
-            appendMessage(sessionId, { role: "assistant", content: ackMsg });
-            await saveMessage(conversationId, "assistant", ackMsg);
+            const sqF = requestData.search_query;
+            const titleCaseF = (s: string) => s.replace(/\b\w/g, c => c.toUpperCase());
+            const confidenceMsgF = `Searching for ${sqF.requested_count ? `${sqF.requested_count} ` : ''}${sqF.business_type || 'businesses'}${sqF.location ? ` in ${titleCaseF(sqF.location)}` : ''}.`;
 
-            res.write(`data: ${JSON.stringify({ type: 'message', role: 'assistant', content: ackMsg })}\n\n`);
+            appendMessage(sessionId, { role: "assistant", content: confidenceMsgF });
+            await saveMessage(conversationId, "assistant", confidenceMsgF);
+
+            res.write(`data: ${JSON.stringify({ type: 'confidence', content: confidenceMsgF })}\n\n`);
             res.write(`data: ${JSON.stringify({ supervisorTaskId: supervisorTask.id, supervisorTaskType: taskType })}\n\n`);
             emitSse({ type: 'status', stage: 'completed', message: 'Delegated to Supervisor', clientRequestId: clientRequestId || undefined, conversationId });
             console.log(`[CHAT_ROUTE=FOLLOWUP_REUSE_SUPERVISOR] crid=${clientRequestId || 'none'} run_id=${agentRunId || runId} taskId=${supervisorTask.id}`);
@@ -1613,11 +1619,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
             }
           }
 
-          const delegateMsg = `Task delegated to Supervisor for execution. The Supervisor will handle tool calls, Tower evaluation, and results delivery.`;
-          appendMessage(sessionId, { role: "assistant", content: delegateMsg });
-          await saveMessage(conversationId, "assistant", delegateMsg);
+          const sqD = requestData.search_query;
+          const titleCaseD = (s: string) => s.replace(/\b\w/g, c => c.toUpperCase());
+          const confidenceMsgD = `Searching for ${sqD?.requested_count ? `${sqD.requested_count} ` : ''}${sqD?.business_type || 'businesses'}${sqD?.location ? ` in ${titleCaseD(sqD.location)}` : ''}.`;
 
-          res.write(`data: ${JSON.stringify({ type: 'message', role: 'assistant', content: delegateMsg })}\n\n`);
+          appendMessage(sessionId, { role: "assistant", content: confidenceMsgD });
+          await saveMessage(conversationId, "assistant", confidenceMsgD);
+
+          res.write(`data: ${JSON.stringify({ type: 'confidence', content: confidenceMsgD })}\n\n`);
 
           emitSse({
             type: 'status',
