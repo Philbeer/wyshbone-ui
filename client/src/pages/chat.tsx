@@ -121,6 +121,8 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
   
   // Clarification state
   const [isClarifyingForRun, setIsClarifyingForRun] = useState(false);
+  const actionedSearchNowIds = useRef<Set<string>>(new Set());
+  const [, forceSearchNowRender] = useState(0);
 
   // Supervisor integration
   const [supervisorTaskId, setSupervisorTaskId] = useState<string | null>(null);
@@ -1133,6 +1135,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         setIsStreaming(false);
         setShowLocationSuggestions(false);
         setIsClarifyingForRun(false);
+        actionedSearchNowIds.current.clear();
         setActiveClientRequestId(null);
         setSupervisorTaskId(null);
         setIsWaitingForSupervisor(false);
@@ -1171,6 +1174,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         setInput("");
         setShowLocationSuggestions(false);
         setIsClarifyingForRun(false);
+        actionedSearchNowIds.current.clear();
         setActiveClientRequestId(null);
         setSupervisorTaskId(null);
         setIsWaitingForSupervisor(false);
@@ -2405,6 +2409,22 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                         <p className="text-[15px] leading-relaxed whitespace-pre-wrap">{chatMessage.content}</p>
                       )}
                     </div>
+                    {!isUser && isClarifyingForRun && chatMessage.content.includes('**Search now**') && !actionedSearchNowIds.current.has(chatMessage.id) && (
+                      <Button
+                        variant="default"
+                        size="sm"
+                        className="mt-1.5 h-7 text-xs gap-1.5"
+                        onClick={() => {
+                          if (actionedSearchNowIds.current.has(chatMessage.id)) return;
+                          actionedSearchNowIds.current.add(chatMessage.id);
+                          forceSearchNowRender(n => n + 1);
+                          handleSendRef.current?.("Search now");
+                        }}
+                      >
+                        <Search className="h-3 w-3" />
+                        Search now
+                      </Button>
+                    )}
                     <span className="text-xs text-muted-foreground mt-1">
                       {chatMessage.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                     </span>
