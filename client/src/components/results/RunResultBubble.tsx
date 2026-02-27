@@ -201,14 +201,6 @@ function splitLeadsByVerification(
     return { matches, candidates };
   }
 
-  if (verifiedExact > 0 && verifiedExact < allLeads.length) {
-    console.log(`[RunResultBubble] splitLeadsByVerification: no lead_verification data, falling back to verifiedExact=${verifiedExact} slice`);
-    return {
-      matches: allLeads.slice(0, verifiedExact),
-      candidates: allLeads.slice(verifiedExact),
-    };
-  }
-
   if (verifiedExact > 0 && verifiedExact >= allLeads.length) {
     return { matches: allLeads, candidates: [] };
   }
@@ -244,33 +236,43 @@ function buildSummaryText(
 ): string {
   const exactLeads = Array.isArray(ds.delivered_exact) ? ds.delivered_exact.length : 0;
   const closestLeads = Array.isArray(ds.delivered_closest) ? ds.delivered_closest.length : 0;
+  const totalDelivered = exactLeads + closestLeads;
   const totalCandidates = (verifiedExact === 0 ? exactLeads : 0) + closestLeads;
 
   switch (canonical.status) {
     case "PASS":
       if (target.hasTarget) {
-        return `I found ${verifiedExact} ${verifiedExact === 1 ? "result" : "results"} that match — that covers your request for ${target.targetCount}.`;
+        return `I found ${verifiedExact} ${verifiedExact === 1 ? "result" : "results"} that match \u2014 that covers your request for ${target.targetCount}.`;
       }
       return `I found ${verifiedExact} ${verifiedExact === 1 ? "result" : "results"} that match what you asked for.`;
 
     case "PARTIAL":
       if (target.hasTarget) {
-        return `I found ${verifiedExact} verified ${verifiedExact === 1 ? "result" : "results"}, but that\u2019s short of the ${target.targetCount} you requested.`;
+        return `Returned ${verifiedExact} of ${target.targetCount} requested. You can search more or broaden the criteria to try to reach ${target.targetCount}.`;
       }
-      return `I found ${verifiedExact} verified ${verifiedExact === 1 ? "result" : "results"}, but not as many as I\u2019d hoped.`;
+      return `I found ${totalDelivered} ${totalDelivered === 1 ? "result" : "results"} for your search.`;
 
     case "STOP": {
       const attr = extractUnverifiableAttribute(ds);
+      if (target.hasTarget) {
+        if (verifiedExact > 0) {
+          return `Returned ${verifiedExact} of ${target.targetCount} requested.`;
+        }
+        if (totalCandidates > 0) {
+          return `I found ${totalCandidates} possible ${totalCandidates === 1 ? "result" : "results"}${attr ? `, but could not confirm ${attr} from available information` : ""}.`;
+        }
+        return `No results found matching your criteria.`;
+      }
       if (verifiedExact > 0) {
         return `I found ${verifiedExact} ${verifiedExact === 1 ? "result" : "results"} that match.`;
       }
       if (attr && totalCandidates > 0) {
-        return `I found ${totalCandidates} possible ${totalCandidates === 1 ? "result" : "results"}, but I couldn\u2019t confirm ${attr}.`;
+        return `I found ${totalCandidates} ${totalCandidates === 1 ? "result" : "results"}, but could not confirm ${attr} from available information.`;
       }
       if (totalCandidates > 0) {
-        return `I found ${totalCandidates} possible ${totalCandidates === 1 ? "result" : "results"}, but couldn\u2019t fully verify them.`;
+        return `I found ${totalCandidates} ${totalCandidates === 1 ? "result" : "results"} for your search.`;
       }
-      return `I couldn\u2019t find any matches for that.`;
+      return `No results found matching your criteria.`;
     }
 
     case "UNAVAILABLE":
@@ -291,16 +293,12 @@ function LeadBadge({ isVerified, unverifiableAttr }: { isVerified: boolean; unve
   if (unverifiableAttr) {
     return (
       <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
-        <AlertTriangle className="h-2.5 w-2.5" /> Not confirmed: {unverifiableAttr}
+        <AlertTriangle className="h-2.5 w-2.5" /> {unverifiableAttr} not checked
       </span>
     );
   }
 
-  return (
-    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400">
-      Candidate
-    </span>
-  );
+  return null;
 }
 
 function LocationBadge({ status }: { status: LocationStatus }) {
@@ -392,10 +390,12 @@ function NextActionButtons({
   ds,
   canonical,
   runId,
+  hasTarget,
 }: {
   ds: DeliverySummary;
   canonical: ReturnType<typeof resolveCanonicalStatus>;
   runId?: string | null;
+  hasTarget: boolean;
 }) {
   const attr = extractUnverifiableAttribute(ds);
   const actions: Array<{
@@ -407,28 +407,28 @@ function NextActionButtons({
 
   if (canonical.status === "STOP" || canonical.status === "PARTIAL") {
     actions.push({
-      label: "Widen the search area",
-      message: "Widen the search area and try again.",
+      label: "Search more results",
+      message: "Search for more results in this area.",
       actionType: "widen_search",
     });
     if (attr) {
       actions.push({
         label: `Check websites for ${attr}`,
-        message: `Check the websites of the candidates to confirm ${attr}.`,
+        message: `Check the websites of the results to confirm ${attr}.`,
         actionType: "check_websites",
         actionPayload: { attribute: attr },
       });
       actions.push({
-        label: `Remove ${attr} requirement`,
-        message: `Remove the ${attr} requirement and find me results without it.`,
+        label: `Search without ${attr} filter`,
+        message: `Search again without the ${attr} requirement.`,
         actionType: "remove_constraint",
         actionPayload: { attribute: attr },
       });
     }
     actions.push({
-      label: "Return best-effort list",
-      message: "Return the best-effort list of candidates you found.",
-      actionType: "return_best_effort",
+      label: "Try a different search",
+      message: "Try a different search with different criteria.",
+      actionType: "different_search",
     });
   }
 
@@ -436,31 +436,36 @@ function NextActionButtons({
 
   const ACTION_TELEMETRY: Record<string, TelemetryEventType> = {
     widen_search: "widen_area_clicked",
-    return_best_effort: "best_effort_clicked",
+    different_search: "best_effort_clicked",
   };
 
   return (
-    <div className="flex flex-wrap gap-2 pt-2">
-      {actions.map((a, i) => (
-        <Button
-          key={i}
-          variant="outline"
-          size="sm"
-          className="text-xs h-7"
-          onClick={() => {
-            const tel = ACTION_TELEMETRY[a.actionType];
-            if (tel && runId) emitTelemetry(runId, tel, { actionType: a.actionType });
-            dispatchFollowUp({
-              message: a.message,
-              parentRunId: runId,
-              actionType: a.actionType,
-              actionPayload: a.actionPayload,
-            });
-          }}
-        >
-          {a.label}
-        </Button>
-      ))}
+    <div className="space-y-1.5 pt-2">
+      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+        {hasTarget ? "Next steps" : "Explore further"}
+      </h4>
+      <div className="flex flex-wrap gap-2">
+        {actions.map((a, i) => (
+          <Button
+            key={i}
+            variant="outline"
+            size="sm"
+            className="text-xs h-7"
+            onClick={() => {
+              const tel = ACTION_TELEMETRY[a.actionType];
+              if (tel && runId) emitTelemetry(runId, tel, { actionType: a.actionType });
+              dispatchFollowUp({
+                message: a.message,
+                parentRunId: runId,
+                actionType: a.actionType,
+                actionPayload: a.actionPayload,
+              });
+            }}
+          >
+            {a.label}
+          </Button>
+        ))}
+      </div>
     </div>
   );
 }
@@ -706,7 +711,7 @@ export default function RunResultBubble({
 
       {!provisional && !useLocationBuckets && candidates.length > 0 && (
         <div className="space-y-0.5">
-          <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Candidates (not fully verified) ({candidates.length})</h4>
+          <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{matches.length > 0 ? `Other results (${candidates.length})` : `Results (${candidates.length})`}</h4>
           <div>
             {candidates.map((lead, i) => (
               <LeadRow key={i} lead={lead} isVerified={false} unverifiableAttr={unverifiableAttr} runId={runId} />
@@ -719,7 +724,7 @@ export default function RunResultBubble({
         <LearningSection snapshot={policySnapshot} />
       )}
 
-      {!provisional && <NextActionButtons ds={deliverySummary} canonical={canonical} runId={runId} />}
+      {!provisional && <NextActionButtons ds={deliverySummary} canonical={canonical} runId={runId} hasTarget={target.hasTarget} />}
     </div>
   );
 }

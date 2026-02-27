@@ -43,17 +43,17 @@ export const STATUS_CONFIG: Record<CanonicalStatus, { label: string; badge: stri
   PASS: {
     label: "Complete",
     badge: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200",
-    description: "All requested results were found and verified.",
+    description: "Results delivered.",
   },
   PARTIAL: {
-    label: "Partial",
+    label: "Results ready",
     badge: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-200",
-    description: "Some results were found but not everything requested.",
+    description: "Results delivered. More may be available.",
   },
   STOP: {
-    label: "Stopped",
+    label: "Search complete",
     badge: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-200",
-    description: "The search was stopped before completing.",
+    description: "Search finished.",
   },
   UNAVAILABLE: {
     label: "Status unavailable",
