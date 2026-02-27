@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { MapPin, Phone, Globe, CheckCircle2, CircleDot, OctagonX, HelpCircle, AlertTriangle, ChevronDown, ChevronRight, BookOpen, Copy, Loader2, RefreshCw } from "lucide-react";
+import { MapPin, Phone, Globe, CheckCircle2, CircleDot, OctagonX, HelpCircle, AlertTriangle, ChevronDown, ChevronRight, BookOpen, Copy, Loader2, RefreshCw, Radar } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { resolveCanonicalStatus, type CanonicalStatus } from "@/utils/deliveryStatus";
@@ -111,6 +111,55 @@ function buildVerifiedLeadIds(lvEntries: LeadVerificationEntry[] | null | undefi
     }
   }
   return ids;
+}
+
+type LocationStatus = "VERIFIED_GEO" | "SEARCH_BOUNDED" | "OUT_OF_AREA" | "UNKNOWN";
+
+function getLocationStatus(lead: DeliveryLead): LocationStatus {
+  const raw = (lead as any).location_status;
+  if (typeof raw === "string") {
+    const upper = raw.toUpperCase().trim();
+    if (upper === "VERIFIED_GEO") return "VERIFIED_GEO";
+    if (upper === "SEARCH_BOUNDED") return "SEARCH_BOUNDED";
+    if (upper === "OUT_OF_AREA") return "OUT_OF_AREA";
+  }
+  return "UNKNOWN";
+}
+
+function hasLocationStatusData(leads: DeliveryLead[]): boolean {
+  if (leads.length === 0) return false;
+  const withStatus = leads.filter(l => {
+    const raw = (l as any).location_status;
+    return typeof raw === "string" && raw.trim().length > 0;
+  });
+  return withStatus.length === leads.length;
+}
+
+function isLeadInMatchSet(lead: DeliveryLead, matchSet: Set<string>): boolean {
+  if (matchSet.size === 0) return false;
+  const ids = matchLeadToId(lead);
+  return ids.some(id => matchSet.has(id.toLowerCase().trim()));
+}
+
+interface LocationBuckets {
+  verifiedGeo: DeliveryLead[];
+  searchBounded: DeliveryLead[];
+  outOfArea: DeliveryLead[];
+  unknown: DeliveryLead[];
+}
+
+function splitLeadsByLocationStatus(leads: DeliveryLead[]): LocationBuckets {
+  const buckets: LocationBuckets = { verifiedGeo: [], searchBounded: [], outOfArea: [], unknown: [] };
+  for (const lead of leads) {
+    const status = getLocationStatus(lead);
+    switch (status) {
+      case "VERIFIED_GEO": buckets.verifiedGeo.push(lead); break;
+      case "SEARCH_BOUNDED": buckets.searchBounded.push(lead); break;
+      case "OUT_OF_AREA": buckets.outOfArea.push(lead); break;
+      default: buckets.unknown.push(lead); break;
+    }
+  }
+  return buckets;
 }
 
 function matchLeadToId(lead: DeliveryLead): string[] {
@@ -254,7 +303,37 @@ function LeadBadge({ isVerified, unverifiableAttr }: { isVerified: boolean; unve
   );
 }
 
-function LeadRow({ lead, isVerified, unverifiableAttr, runId }: { lead: DeliveryLead; isVerified: boolean; unverifiableAttr: string | null; runId?: string | null }) {
+function LocationBadge({ status }: { status: LocationStatus }) {
+  switch (status) {
+    case "VERIFIED_GEO":
+      return (
+        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300">
+          <MapPin className="h-2.5 w-2.5" /> Verified
+        </span>
+      );
+    case "SEARCH_BOUNDED":
+      return (
+        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
+          <Radar className="h-2.5 w-2.5" /> Search-bounded (likely in area)
+        </span>
+      );
+    case "OUT_OF_AREA":
+      return (
+        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300">
+          <OctagonX className="h-2.5 w-2.5" /> Out of area
+        </span>
+      );
+    case "UNKNOWN":
+    default:
+      return (
+        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400">
+          <HelpCircle className="h-2.5 w-2.5" /> Unknown
+        </span>
+      );
+  }
+}
+
+function LeadRow({ lead, isVerified, unverifiableAttr, runId, showLocationBadge }: { lead: DeliveryLead; isVerified: boolean; unverifiableAttr: string | null; runId?: string | null; showLocationBadge?: boolean }) {
   const area = lead.location || "";
   const placeId = (lead as any).place_id || (lead as any).placeId;
   const mapsLink = placeId
@@ -273,6 +352,7 @@ function LeadRow({ lead, isVerified, unverifiableAttr, runId }: { lead: Delivery
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-sm font-semibold text-foreground truncate">{lead.name || "Unknown"}</span>
           <LeadBadge isVerified={isVerified} unverifiableAttr={isVerified ? null : unverifiableAttr} />
+          {showLocationBadge && <LocationBadge status={getLocationStatus(lead)} />}
           <button onClick={handleCopy} className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded hover:bg-muted" title="Copy contact">
             <Copy className="h-3 w-3 text-muted-foreground" />
           </button>
@@ -514,8 +594,16 @@ export default function RunResultBubble({
 
   const verifiedIds = buildVerifiedLeadIds(leadVerifications);
   const { matches, candidates } = splitLeadsByVerification(allLeads, verifiedExact, verifiedIds);
+  const useLocationBuckets = hasLocationStatusData(allLeads);
+  const locationBuckets = useLocationBuckets ? splitLeadsByLocationStatus(allLeads) : null;
+  const matchSetLower = new Set<string>();
+  if (useLocationBuckets) {
+    matches.forEach(lead => {
+      matchLeadToId(lead).forEach(id => matchSetLower.add(id.toLowerCase().trim()));
+    });
+  }
 
-  console.log(`[RunResultBubble] render: status=${canonical.status}, verifiedExact=${verifiedExact}, requested=${target.hasTarget ? target.targetCount : 'any'}, allLeads=${allLeads.length}, matches=${matches.length}, candidates=${candidates.length}, leadVerifications=${leadVerifications?.length ?? 'none'}, verifiedIds=${verifiedIds.size}`);
+  console.log(`[RunResultBubble] render: status=${canonical.status}, verifiedExact=${verifiedExact}, requested=${target.hasTarget ? target.targetCount : 'any'}, allLeads=${allLeads.length}, matches=${matches.length}, candidates=${candidates.length}, leadVerifications=${leadVerifications?.length ?? 'none'}, verifiedIds=${verifiedIds.size}, locationBuckets=${useLocationBuckets ? `geo=${locationBuckets!.verifiedGeo.length},bounded=${locationBuckets!.searchBounded.length},out=${locationBuckets!.outOfArea.length},unknown=${locationBuckets!.unknown.length}` : 'none'}`);
 
   return (
     <div className="space-y-3">
@@ -552,7 +640,60 @@ export default function RunResultBubble({
         </div>
       )}
 
-      {!provisional && matches.length > 0 && (
+      {!provisional && useLocationBuckets && locationBuckets && (
+        <>
+          {locationBuckets.verifiedGeo.length > 0 && (
+            <div className="space-y-0.5">
+              <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                <span className="inline-flex items-center gap-1"><MapPin className="h-3 w-3 text-green-600 dark:text-green-400" /> Verified (geo) ({locationBuckets.verifiedGeo.length})</span>
+              </h4>
+              <div>
+                {locationBuckets.verifiedGeo.map((lead, i) => (
+                  <LeadRow key={i} lead={lead} isVerified={isLeadInMatchSet(lead, matchSetLower) || matchSetLower.size === 0} unverifiableAttr={null} runId={runId} showLocationBadge />
+                ))}
+              </div>
+            </div>
+          )}
+          {locationBuckets.searchBounded.length > 0 && (
+            <div className="space-y-0.5">
+              <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                <span className="inline-flex items-center gap-1"><Radar className="h-3 w-3 text-blue-600 dark:text-blue-400" /> Search-bounded ({locationBuckets.searchBounded.length})</span>
+              </h4>
+              <div>
+                {locationBuckets.searchBounded.map((lead, i) => (
+                  <LeadRow key={i} lead={lead} isVerified={isLeadInMatchSet(lead, matchSetLower)} unverifiableAttr={null} runId={runId} showLocationBadge />
+                ))}
+              </div>
+            </div>
+          )}
+          {locationBuckets.outOfArea.length > 0 && (
+            <div className="space-y-0.5">
+              <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                <span className="inline-flex items-center gap-1"><OctagonX className="h-3 w-3 text-red-600 dark:text-red-400" /> Out of area ({locationBuckets.outOfArea.length})</span>
+              </h4>
+              <div>
+                {locationBuckets.outOfArea.map((lead, i) => (
+                  <LeadRow key={i} lead={lead} isVerified={false} unverifiableAttr={null} runId={runId} showLocationBadge />
+                ))}
+              </div>
+            </div>
+          )}
+          {locationBuckets.unknown.length > 0 && (
+            <div className="space-y-0.5">
+              <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                <span className="inline-flex items-center gap-1"><HelpCircle className="h-3 w-3 text-muted-foreground" /> Unknown ({locationBuckets.unknown.length})</span>
+              </h4>
+              <div>
+                {locationBuckets.unknown.map((lead, i) => (
+                  <LeadRow key={i} lead={lead} isVerified={isLeadInMatchSet(lead, matchSetLower)} unverifiableAttr={isLeadInMatchSet(lead, matchSetLower) ? null : unverifiableAttr} runId={runId} showLocationBadge />
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {!provisional && !useLocationBuckets && matches.length > 0 && (
         <div className="space-y-0.5">
           <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Matches ({matches.length})</h4>
           <div>
@@ -563,7 +704,7 @@ export default function RunResultBubble({
         </div>
       )}
 
-      {!provisional && candidates.length > 0 && (
+      {!provisional && !useLocationBuckets && candidates.length > 0 && (
         <div className="space-y-0.5">
           <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Candidates (not fully verified) ({candidates.length})</h4>
           <div>
