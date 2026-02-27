@@ -105,10 +105,10 @@ test('T18: sanitizeBusinessType — "10 coffee shops" → coffee shops, count=10
   console.log(`PASS [T18]: "10 coffee shops" → businessType="${r.businessType}", requestedCount=${r.requestedCount}`);
 });
 
-test('T19: sanitizeBusinessType — "a pub" → pub, count=1', () => {
+test('T19: sanitizeBusinessType — "a pub" → pub, count=undefined (article strips but no count)', () => {
   const r = sanitizeBusinessType('a pub');
   if (r.businessType !== 'pub') throw new Error(`FAIL [T19]: businessType="${r.businessType}", expected "pub"`);
-  if (r.requestedCount !== 1) throw new Error(`FAIL [T19]: requestedCount=${r.requestedCount}, expected 1`);
+  if (r.requestedCount !== undefined) throw new Error(`FAIL [T19]: requestedCount=${r.requestedCount}, expected undefined`);
   console.log(`PASS [T19]: "a pub" → businessType="${r.businessType}", requestedCount=${r.requestedCount}`);
 });
 
@@ -150,18 +150,18 @@ test('T24: "find 10 coffee shops in leeds" → entityType=coffee shops, requeste
   console.log(`PASS [T24]: "find 10 coffee shops in leeds" → entityType="${r.entityType}", requestedCount=${r.requestedCount}`);
 });
 
-test('T25: "find a pub in york" → entityType=pub, requestedCount=1', () => {
+test('T25: "find a pub in york" → entityType=pub, requestedCount=undefined (article strips but no count)', () => {
   const r = decideChatMode({ userMessage: 'find a pub in york' });
   if (r.mode !== 'RUN_SUPERVISOR') throw new Error(`FAIL [T25]: mode=${r.mode}, expected RUN_SUPERVISOR`);
   if (r.entityType !== 'pub') throw new Error(`FAIL [T25]: entityType="${r.entityType}", expected "pub"`);
-  if (r.requestedCount !== 1) throw new Error(`FAIL [T25]: requestedCount=${r.requestedCount}, expected 1`);
+  if (r.requestedCount !== undefined) throw new Error(`FAIL [T25]: requestedCount=${r.requestedCount}, expected undefined`);
   console.log(`PASS [T25]: "find a pub in york" → entityType="${r.entityType}", requestedCount=${r.requestedCount}`);
 });
 
-test('T26: sanitizeBusinessType — "an electrician" → electrician, count=1', () => {
+test('T26: sanitizeBusinessType — "an electrician" → electrician, count=undefined (article strips but no count)', () => {
   const r = sanitizeBusinessType('an electrician');
   if (r.businessType !== 'electrician') throw new Error(`FAIL [T26]: businessType="${r.businessType}", expected "electrician"`);
-  if (r.requestedCount !== 1) throw new Error(`FAIL [T26]: requestedCount=${r.requestedCount}, expected 1`);
+  if (r.requestedCount !== undefined) throw new Error(`FAIL [T26]: requestedCount=${r.requestedCount}, expected undefined`);
   console.log(`PASS [T26]: "an electrician" → businessType="${r.businessType}", requestedCount=${r.requestedCount}`);
 });
 

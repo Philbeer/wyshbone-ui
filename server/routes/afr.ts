@@ -370,7 +370,8 @@ export function createAfrRouter(_storage: typeof storage) {
       let rows = Array.isArray(result) ? result : (result as any).rows ?? [];
       let lookupPath = 'direct';
 
-      if (rows.length === 0 && resolvedRunId) {
+      const hasDeliverySummary = rows.some((r: any) => r.type === 'delivery_summary');
+      if (!hasDeliverySummary && resolvedRunId) {
         let supervisorRunId: string | undefined;
 
         const agentRunById = await storage.getAgentRun(resolvedRunId);
@@ -405,9 +406,15 @@ export function createAfrRouter(_storage: typeof storage) {
                 WHERE run_id = ${supervisorRunId}
                 ORDER BY created_at ASC`
           );
-          rows = Array.isArray(fallbackResult) ? fallbackResult : (fallbackResult as any).rows ?? [];
-          if (rows.length > 0) {
-            lookupPath = `fallback:supervisor_run_id=${supervisorRunId}`;
+          const supervisorRows = Array.isArray(fallbackResult) ? fallbackResult : (fallbackResult as any).rows ?? [];
+          if (supervisorRows.length > 0) {
+            const existingIds = new Set(rows.map((r: any) => r.id));
+            for (const sr of supervisorRows) {
+              if (!existingIds.has((sr as any).id)) {
+                rows.push(sr);
+              }
+            }
+            lookupPath = `merged:direct+supervisor_run_id=${supervisorRunId}`;
           }
         }
       }

@@ -59,8 +59,6 @@ const INFORMATIONAL_QUESTION_PREFIXES = [
 
 const QUANTIFIER_PATTERN = /^(?:(\d+)\s+|(?:a|an|some|several|few|many|couple(?:\s+of)?)\s+)/i;
 const QUANTIFIER_WORD_MAP: Record<string, number> = {
-  'a': 1,
-  'an': 1,
 };
 
 export function sanitizeBusinessType(raw: string): { businessType: string; requestedCount?: number } {
