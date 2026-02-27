@@ -64,7 +64,7 @@ async function runAll() {
 
   cleanup();
 
-  await test('T2: reply "in Leeds" transitions to run_supervisor — session stays open', () => {
+  await test('T2: reply "in Leeds" shows confirmation (ask_more) — session stays open', () => {
     createClarifySession({
       conversationId: 'conv-t2',
       originalUserText: 'find pubs',
@@ -76,15 +76,19 @@ async function runAll() {
     assert(session !== null, 'Session should exist');
 
     const result = handleClarifyResponse(session!, 'in Leeds');
-    assert(result.action === 'run_supervisor', `Expected run_supervisor, got ${result.action}`);
-    assert(result.clarifiedRequest !== undefined, 'Should have clarifiedRequest');
-    assert(result.clarifiedRequest!.toLowerCase().includes('leeds'), 'Clarified request should include Leeds');
-    assert(result.clarifiedRequest!.toLowerCase().includes('pubs'), 'Clarified request should include pubs');
-    assert(result.entityType === 'pubs', 'entityType should be pubs');
-    assert(result.location === 'Leeds', `location should be Leeds, got ${result.location}`);
+    assert(result.action === 'ask_more', `Expected ask_more (confirmation), got ${result.action}`);
+    assert(result.message!.includes('Search now'), 'Should prompt user to confirm with "Search now"');
+    assert(result.message!.toLowerCase().includes('pubs'), 'Should include entity type in confirmation');
+    assert(result.message!.toLowerCase().includes('leeds'), 'Should include location in confirmation');
 
-    const stillActive = getActiveClarifySession('conv-t2');
-    assert(stillActive !== null, 'Session must remain open — only routes.ts can close it');
+    const updatedSession = getActiveClarifySession('conv-t2');
+    assert(updatedSession !== null, 'Session must remain open');
+    assert(updatedSession!.location === 'Leeds', 'Location should be stored');
+
+    const confirmResult = handleClarifyResponse(updatedSession!, 'Search now');
+    assert(confirmResult.action === 'run_supervisor', `Expected run_supervisor after confirm, got ${confirmResult.action}`);
+    assert(confirmResult.clarifiedRequest!.toLowerCase().includes('leeds'), 'Clarified request should include Leeds');
+    assert(confirmResult.clarifiedRequest!.toLowerCase().includes('pubs'), 'Clarified request should include pubs');
   });
 
   cleanup();
@@ -183,10 +187,13 @@ async function runAll() {
     const session = getActiveClarifySession('conv-t8');
     const result = handleClarifyResponse(session!, 'in Bristol');
     assert(!(result instanceof Promise), 'handleClarifyResponse should not return a Promise');
-    assert(result.action === 'run_supervisor', 'Should transition to run_supervisor');
+    assert(result.action === 'ask_more', 'Should show confirmation (ask_more) when all fields filled');
 
-    const stillActive = getActiveClarifySession('conv-t8');
-    assert(stillActive !== null, 'Session must remain open after run_supervisor');
+    const updatedSession = getActiveClarifySession('conv-t8');
+    assert(updatedSession !== null, 'Session must remain open');
+
+    const confirmResult = handleClarifyResponse(updatedSession!, 'yes');
+    assert(confirmResult.action === 'run_supervisor', 'Should transition to run_supervisor after confirmation');
   });
 
   cleanup();
@@ -268,10 +275,16 @@ async function runAll() {
 
     const session = getActiveClarifySession('conv-t12');
     const result = handleClarifyResponse(session!, 'I mean organisations that have contracts or partnerships with local councils');
-    assert(result.action === 'run_supervisor', `Expected run_supervisor after sufficient clarification, got ${result.action}`);
-    assert(result.clarifiedRequest !== undefined, 'Should have clarifiedRequest');
-    assert(result.clarifiedRequest!.includes('organisations'), 'Should include entity type');
-    assert(result.clarifiedRequest!.includes('blackpool'), 'Should include location');
+    assert(result.action === 'ask_more', `Expected ask_more (confirmation) after sufficient clarification, got ${result.action}`);
+    assert(result.message!.includes('Search now'), 'Should prompt user to confirm');
+    assert(result.message!.toLowerCase().includes('organisations'), 'Should include entity type in confirmation');
+    assert(result.message!.toLowerCase().includes('blackpool'), 'Should include location in confirmation');
+
+    const updated = getActiveClarifySession('conv-t12');
+    const confirmResult = handleClarifyResponse(updated!, 'search now');
+    assert(confirmResult.action === 'run_supervisor', 'Should transition to run_supervisor after confirmation');
+    assert(confirmResult.clarifiedRequest!.includes('organisations'), 'Should include entity type');
+    assert(confirmResult.clarifiedRequest!.includes('blackpool'), 'Should include location');
   });
 
   cleanup();
@@ -305,7 +318,7 @@ async function runAll() {
 
   cleanup();
 
-  await test('T15: "find pubs" → "in leeds" → run_supervisor returned, session stays open until caller closes', () => {
+  await test('T15: "find pubs" → "in leeds" → confirmation → "search now" → run_supervisor, session stays open until caller closes', () => {
     createClarifySession({
       conversationId: 'conv-t15',
       originalUserText: 'find pubs',
@@ -317,7 +330,11 @@ async function runAll() {
     assert(session !== null, 'Session should exist');
 
     const result = handleClarifyResponse(session!, 'in Leeds');
-    assert(result.action === 'run_supervisor', 'Should return run_supervisor');
+    assert(result.action === 'ask_more', 'Should show confirmation first');
+
+    const updated = getActiveClarifySession('conv-t15');
+    const confirmResult = handleClarifyResponse(updated!, 'search now');
+    assert(confirmResult.action === 'run_supervisor', 'Should return run_supervisor after confirmation');
 
     const beforeClose = getActiveClarifySession('conv-t15');
     assert(beforeClose !== null, 'Session MUST be alive before caller closes it');
@@ -340,12 +357,71 @@ async function runAll() {
 
     const session = getActiveClarifySession('conv-t16');
     const result = handleClarifyResponse(session!, 'in Manchester');
-    assert(result.action === 'run_supervisor', 'Should return run_supervisor');
+    assert(result.action === 'ask_more', 'Should show confirmation first');
+
+    const updated = getActiveClarifySession('conv-t16');
+    const confirmResult = handleClarifyResponse(updated!, 'search now');
+    assert(confirmResult.action === 'run_supervisor', 'Should return run_supervisor after confirmation');
 
     const stillActive = getActiveClarifySession('conv-t16');
     assert(stillActive !== null, 'Session must survive — simulates DB failure where caller does NOT close');
     assert(stillActive!.entity_type === 'pubs', 'Entity type preserved');
     assert(stillActive!.location === 'Manchester' || stillActive!.answers['location'] === 'Manchester', 'Location preserved');
+  });
+
+  cleanup();
+
+  await test('T16b: bare number "5" is treated as count slot-fill, not re-ask', () => {
+    createClarifySession({
+      conversationId: 'conv-t16b',
+      originalUserText: 'find pubs with live music',
+      entityType: 'pubs with live music',
+      location: 'Arundel',
+      pendingQuestions: [],
+    });
+
+    const session = getActiveClarifySession('conv-t16b');
+    assert(session !== null, 'Session should exist');
+
+    const result = handleClarifyResponse(session!, '5');
+    assert(result.action === 'ask_more', `Expected ask_more (confirmation with count), got ${result.action}`);
+    assert(result.message!.includes('5'), 'Confirmation should include the count 5');
+    assert(result.message!.toLowerCase().includes('pubs with live music'), 'Should NOT re-ask for entity type');
+    assert(result.message!.toLowerCase().includes('arundel'), 'Should NOT re-ask for location');
+    assert(result.message!.includes('Search now'), 'Should offer Search now confirmation');
+
+    const updated = getActiveClarifySession('conv-t16b');
+    assert(updated!.answers['count'] === '5', 'Count should be stored in answers');
+  });
+
+  cleanup();
+
+  await test('T16c: full slot-fill flow — "Find pubs" → "Arundel" → "5" → "Search now" never re-asks', () => {
+    createClarifySession({
+      conversationId: 'conv-t16c',
+      originalUserText: 'find pubs with live music',
+      entityType: 'pubs with live music',
+      pendingQuestions: buildInitialQuestions('pubs with live music', undefined),
+    });
+
+    const s1 = getActiveClarifySession('conv-t16c')!;
+    const r1 = handleClarifyResponse(s1, 'Arundel');
+    assert(r1.action === 'ask_more', 'Step 1: Should show confirmation after location fill');
+    assert(r1.message!.toLowerCase().includes('arundel'), 'Step 1: Should include arundel');
+
+    const s2 = getActiveClarifySession('conv-t16c')!;
+    const r2 = handleClarifyResponse(s2, '5');
+    assert(r2.action === 'ask_more', 'Step 2: Should show updated confirmation with count');
+    assert(r2.message!.includes('5'), 'Step 2: Should include count 5');
+    assert(r2.message!.toLowerCase().includes('arundel'), 'Step 2: Should still have arundel');
+    assert(r2.message!.toLowerCase().includes('pubs with live music'), 'Step 2: Should still have entity type');
+
+    const s3 = getActiveClarifySession('conv-t16c')!;
+    const r3 = handleClarifyResponse(s3, 'Search now');
+    assert(r3.action === 'run_supervisor', 'Step 3: Should trigger run_supervisor');
+    assert(r3.clarifiedRequest!.includes('5'), 'Step 3: Count in clarified request');
+    assert(r3.clarifiedRequest!.toLowerCase().includes('arundel'), 'Step 3: Location in clarified request');
+    assert(r3.clarifiedRequest!.toLowerCase().includes('pubs with live music'), 'Step 3: Entity in clarified request');
   });
 
   cleanup();

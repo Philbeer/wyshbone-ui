@@ -83,6 +83,12 @@ The user interface adheres to Material Design principles, featuring a dark mode,
 **Data Ownership & Persistence Guardrails:**
 The UI never owns persistence. All artefacts, runs, judgements, and business data come from Supabase via the backend. The frontend is a read/display layer only; it does not write directly to any database. All data mutations flow through backend API endpoints to Supabase PostgreSQL. `SUPABASE_DATABASE_URL` is the single source of truth for database connectivity.
 
+## Slot-Fill Rules (Clarification Sessions)
+- **Bare numbers** (e.g. "5") are always treated as count slot-fills, never rejected as "not meaningful"
+- **Location override**: Explicit location patterns ("in York", "York") are parsed even when session already has a location set, allowing overrides
+- **Fuzzy location fallback**: Short unrecognized text (≤3 words) is only auto-interpreted as location when session has NO location yet
+- **No field erasure**: Previously collected fields are never discarded unless the user explicitly contradicts them
+
 ## Recent Changes (Feb 2026)
 - **Recovery Pipeline Fix:** Rewrote orphaned run recovery to use `/api/afr/runs` endpoint (instead of `/api/afr/activities`) — fixes status field mismatch (`completed` vs `success`) and enables proper `client_request_id` correlation.
 - **AFR Terminal Inference:** Server-side `/api/afr/stream` now infers `is_terminal: true` when `status === 'completed'/'failed'` even if `terminalState` is null, fixing Activity Panel terminal detection.

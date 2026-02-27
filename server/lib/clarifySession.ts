@@ -80,9 +80,7 @@ export function isMeaningfulClarificationAnswer(message: string, session: Clarif
   const normalized = message.toLowerCase().trim().replace(/[.,!?;:]+$/, '');
   if (normalized.length === 0) return false;
   if (BARE_ACKNOWLEDGEMENTS.includes(normalized)) return false;
-  if (/^\d+$/.test(normalized)) {
-    return !session.entity_type || !session.location;
-  }
+  if (/^\d+$/.test(normalized)) return true;
   return true;
 }
 
@@ -329,21 +327,19 @@ function parseAnswerContent(message: string, session: ClarifySession): {
     result.count = countMatch[1];
   }
 
-  if (!session.location) {
-    const locPatterns = [
-      /\bin\s+([a-z][a-z\s,]+)/i,
-      /^([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)$/,
-    ];
-    for (const pat of locPatterns) {
-      const match = message.match(pat);
-      if (match && match[1]) {
-        result.location = match[1].trim().replace(/[.,!?;:]+$/, '');
-        break;
-      }
+  const locPatterns = [
+    /\bin\s+([a-z][a-z\s,]+)/i,
+    /^([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)$/,
+  ];
+  for (const pat of locPatterns) {
+    const match = message.match(pat);
+    if (match && match[1]) {
+      result.location = match[1].trim().replace(/[.,!?;:]+$/, '');
+      break;
     }
-    if (!result.location && !countMatch && normalized.split(/\s+/).length <= 3) {
-      result.location = message.trim().replace(/[.,!?;:]+$/, '');
-    }
+  }
+  if (!session.location && !result.location && !countMatch && normalized.split(/\s+/).length <= 3) {
+    result.location = message.trim().replace(/[.,!?;:]+$/, '');
   }
 
   if (!session.entity_type) {
