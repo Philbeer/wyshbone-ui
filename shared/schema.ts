@@ -22,6 +22,7 @@ export const chatRequestSchema = z.object({
   conversationId: z.string().optional(),
   clientRequestId: z.string().optional(),
   metadata: z.record(z.any()).optional(),
+  google_query_mode: z.enum(["TEXT_ONLY", "BIASED_STABLE"]).optional(),
 });
 
 export type ChatRequest = z.infer<typeof chatRequestSchema>;

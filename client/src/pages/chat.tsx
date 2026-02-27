@@ -34,6 +34,7 @@ import type { VerificationSummaryPayload, ConstraintsExtractedPayload, LeadVerif
 import RunResultBubble from "@/components/results/RunResultBubble";
 import type { PolicySnapshot } from "@/components/results/RunResultBubble";
 import { resolveCanonicalStatus, STATUS_CONFIG } from "@/utils/deliveryStatus";
+import { getGoogleQueryMode } from "@/components/GoogleQueryModeToggle";
 
 type Message = ChatMessage & {
   id: string;
@@ -144,7 +145,7 @@ function RunDiagnosticPanel({
         onClick={() => setShowDebugPanel((p: boolean) => !p)}
         className="w-full text-left px-4 py-1.5 text-[11px] font-mono text-red-600 dark:text-red-400 hover:bg-red-500/10 font-bold"
       >
-        {showDebugPanel ? '▼' : '▶'} DIAGNOSTIC PANEL | convId={conversationId?.slice(0, 12) || 'none'} | msgs={messages.length} | resultBubbles={resultBubbleCount} | waiting={String(isWaitingForSupervisor)} | inFlight={inFlightSupervisorRunsRef.current.size}
+        {showDebugPanel ? '▼' : '▶'} DIAGNOSTIC PANEL | convId={conversationId?.slice(0, 12) || 'none'} | msgs={messages.length} | resultBubbles={resultBubbleCount} | waiting={String(isWaitingForSupervisor)} | inFlight={inFlightSupervisorRunsRef.current.size} | google_query_mode={getGoogleQueryMode()}
       </button>
       {showDebugPanel && (
         <div className="px-4 pb-3 text-[10px] font-mono text-red-600/90 dark:text-red-400/90 max-h-[400px] overflow-y-auto space-y-1">
@@ -1433,6 +1434,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
           clientRequestId: clientRequestId,
           ...(pendingMetadataRef.current ? { metadata: pendingMetadataRef.current } : {}),
           ...(pendingMetadataRef.current?.follow_up ? { follow_up: pendingMetadataRef.current.follow_up } : {}),
+          google_query_mode: getGoogleQueryMode(),
         }),
         signal: abortControllerRef.current.signal,
         credentials: "include",

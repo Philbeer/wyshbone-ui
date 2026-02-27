@@ -1,0 +1,50 @@
+Repo: wyshbone-ui
+
+TASK
+Add a header-bar toggle to control Google Places query mode, persist it, and send it to Supervisor in the mission/request payload.
+
+WHY
+Google Places Text Search results vary wildly depending on query phrasing (e.g. “micropubs in sussex UK” returning 1 result). We want a user-visible toggle to choose between:
+- FAST: TEXT_ONLY (clean query, no “in”)
+- STABLE: BIASED_STABLE (Supervisor adds region + location bias)
+
+UI REQUIREMENTS
+1) Add a compact toggle control in the top header bar on the same row as “Vertical: Breweries” and “Agent-first”.
+   - Label: “Google Query Mode”
+   - Options:
+       Fast  (TEXT_ONLY)
+       Stable (BIASED_STABLE)
+   - Default: Stable
+   - Keep it visually tight (like a pill / segmented control).
+
+2) Persist across reloads.
+   - Use localStorage key: `wyshbone.google_query_mode`
+   - Value stored: "TEXT_ONLY" or "BIASED_STABLE"
+   - On first load, default to "BIASED_STABLE" if nothing set.
+
+3) Wire into chat submit / supervisor request payload.
+   - Wherever the UI creates the Supervisor mission/request for lead finding / SEARCH_PLACES, include:
+       `google_query_mode: "TEXT_ONLY" | "BIASED_STABLE"`
+   - Field name MUST be exactly: `google_query_mode`
+   - If the field is absent (older Supervisor), behaviour should remain unchanged.
+
+4) Add visibility in debug UI.
+   - In the Diagnostic Panel / debug strip (if present), show:
+       `google_query_mode=<value>`
+   - If no existing debug strip, add it to whatever dev-only diagnostic summary exists.
+
+ACCEPTANCE TESTS
+- Toggle appears in header bar and does not break layout.
+- Refresh page: selection persists.
+- Send “find micropubs in sussex” with Fast: outgoing payload includes google_query_mode="TEXT_ONLY".
+- Send same with Stable: outgoing payload includes google_query_mode="BIASED_STABLE".
+
+IMPLEMENTATION NOTES
+- Use a small shared enum/type in UI:
+    type GoogleQueryMode = "TEXT_ONLY" | "BIASED_STABLE";
+- Keep changes contained: header component + request builder.
+- Don’t touch Tower.
+
+DELIVERABLE
+- Commit with message: `feat(ui): google query mode toggle`
+- Ensure build passes.

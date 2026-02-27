@@ -28,6 +28,7 @@ The application features a Node.js/Express backend and a React frontend, built w
 **UI/UX Decisions:**
 The user interface adheres to Material Design principles, featuring a dark mode, Inter font, consistent spacing, real-time chat, auto-expanding input, theme toggle, and a collapsible sidebar with a default UK country selector. Accessibility (WCAG AA) is a key consideration.
 - **New Chat / Load Conversation State Reset:** Both `handleNewChat` and `handleLoadConversation` in `chat.tsx` perform a full state teardown: abort active streams, clear supervisor timers (timeout + poll interval), reset `isClarifyingForRun`, `activeClientRequestId`, `supervisorTaskId`, `isWaitingForSupervisor`, and all context request IDs (`current/pinned/lastCompleted`). This prevents the "Clarifying before run" badge, Live Activity panel data, and supervisor state from leaking across conversations.
+- **Google Query Mode Toggle:** Header bar pill toggle (Fast/Stable) controls `google_query_mode` sent to Supervisor. Persisted in `localStorage` key `wyshbone.google_query_mode`. Values: `TEXT_ONLY` (Fast) or `BIASED_STABLE` (Stable, default). Component: `client/src/components/GoogleQueryModeToggle.tsx`. Wired into all three supervisor request paths (direct, clarify, followup-reuse) via `requestData.google_query_mode`. Validated in `chatRequestSchema` (shared/schema.ts). Shown in diagnostic panel.
 
 **Technical Implementations & Features:**
 - **AI Chat Interface:** Real-time conversations with an AI assistant, enforcing a concise, practical, and UK-focused personality.

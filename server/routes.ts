@@ -1178,9 +1178,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const validatedData = validation.data;
       user = validatedData.user;
-      const { messages, defaultCountry, conversationId: requestedConversationId, clientRequestId: _clientRequestId, metadata } = validatedData;
+      const { messages, defaultCountry, conversationId: requestedConversationId, clientRequestId: _clientRequestId, metadata, google_query_mode } = validatedData;
       clientRequestId = _clientRequestId;
-      console.log('📝 Chat request from user:', user.id, user.email, clientRequestId ? `(crid:${clientRequestId.slice(0,8)})` : '', metadata ? `metadata=${JSON.stringify(metadata).slice(0,200)}` : '');
+      console.log('📝 Chat request from user:', user.id, user.email, clientRequestId ? `(crid:${clientRequestId.slice(0,8)})` : '', metadata ? `metadata=${JSON.stringify(metadata).slice(0,200)}` : '', google_query_mode ? `gqm=${google_query_mode}` : '');
       
       // SECURITY: Validate authenticated user matches the user in request
       const auth = await getAuthenticatedUserId(req);
@@ -1368,6 +1368,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               },
             };
             console.log(`📦 [CLARIFY→SEARCH_QUERY] business_type="${requestData.search_query.business_type}" location="${requestData.search_query.location}" requested_count=${clarifyCount ?? 'default'}`);
+            if (google_query_mode) requestData.google_query_mode = google_query_mode;
             if (metadata) {
               if (metadata.scenario) requestData.scenario = metadata.scenario;
               if (metadata.constraints) requestData.constraints = metadata.constraints;
@@ -1458,6 +1459,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               requestData.search_query.attributes = lastIntent.attributes;
             }
             console.log(`📦 [FOLLOWUP_SEARCH_QUERY] business_type="${lastIntent.business_type}" location="${followup.newLocation}" requested_count=${lastIntent.requested_count ?? 'default'}`);
+            if (google_query_mode) requestData.google_query_mode = google_query_mode;
             if (metadata) {
               if (metadata.scenario) requestData.scenario = metadata.scenario;
               if (metadata.constraints) requestData.constraints = metadata.constraints;
@@ -1544,6 +1546,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           };
           console.log(`📦 [SEARCH_QUERY] business_type="${baseRequestData.search_query.business_type}" location="${baseRequestData.search_query.location}" requested_count=${resolvedCount ?? 'default'}`);
           const requestData: Record<string, any> = { ...baseRequestData };
+          if (google_query_mode) requestData.google_query_mode = google_query_mode;
           if (metadata) {
             if (metadata.scenario) requestData.scenario = metadata.scenario;
             if (metadata.constraints) requestData.constraints = metadata.constraints;

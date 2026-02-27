@@ -71,6 +71,7 @@ import RunTracePage from "@/pages/dev/run-trace";
 import InjectionMouldingPage from "@/pages/dev/injection-moulding";
 import WorkflowPage from "@/pages/workflow";
 import { LayoutToggle } from "@/components/LayoutToggle";
+import { GoogleQueryModeToggle } from "@/components/GoogleQueryModeToggle";
 import DriverTodayPage from "@/pages/driver/today";
 import DriverStopPage from "@/pages/driver/stop";
 import UserManagementPage from "@/pages/admin/user-management";
@@ -1219,6 +1220,7 @@ function AppLayout({
             style={{ marginRight: userMenuMargin }}
           >
             <VerticalIndicator />
+            <GoogleQueryModeToggle />
             <LayoutToggle variant="inline" />
             {import.meta.env.DEV && <TowerChatModeBadge />}
             <XeroStatusBadge className="mr-1" />
