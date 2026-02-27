@@ -1,0 +1,151 @@
+Task: Produce a full forensic report of how chat routing + clarify + run triggering works right now, and why the conversation still loops / fails to execute when user says “Search now”.
+
+Do NOT edit code. Report only.
+
+Evidence screenshot cues
+
+Top bar shows “Not Connected”
+
+User flow:
+
+“Find pubs with live music.”
+
+“arundel”
+
+“5 results”
+
+“Search now”
+
+UI response:
+
+“Reply Search now to proceed…” (even after Search now)
+
+Then: “I can’t run searches right now because the system is temporarily unavailable. Your clarification has been saved…”
+
+What I need in the report (must be code-verified + log-backed)
+1) State machine (current)
+
+Explain the exact states and transitions that exist today:
+
+CHAT_INFO
+
+CLARIFY_FOR_RUN
+
+RUN_SUPERVISOR
+
+any intermediate “confirmation” state (if present)
+For each state: what inputs it accepts, what it stores, and what it triggers.
+
+2) Clarify session persistence
+
+Where is clarify state stored (table/row/fields)?
+
+For this conversation, print the stored clarify session object after each user message:
+
+after “Find pubs…”
+
+after “arundel”
+
+after “5 results”
+
+after “Search now”
+
+Confirm whether the session is being overwritten, duplicated, or reset.
+
+3) Trigger phrase handling (“Search now”)
+
+Where is RUN_TRIGGER_PHRASES implemented?
+
+What exact strings match (“search now”, “Search now with defaults”, etc.)
+
+For the message “Search now”:
+
+does it match trigger?
+
+if yes, what function is called next?
+
+does it set router_decision to RUN_SUPERVISOR?
+
+does it attempt to create a supervisor task?
+
+4) Why execution fails (“system temporarily unavailable”)
+
+Trace the exact code path that produces:
+“I can’t run searches right now because the system is temporarily unavailable…”
+
+What condition triggers this message?
+
+Is it because:
+
+DB write failed?
+
+supervisor task creation failed?
+
+SUPERVISOR_BASE_URL unreachable?
+
+SSE stream aborted (BodyStreamBuffer aborted)?
+
+“Not Connected” UI state?
+
+Provide the underlying exception/error message and the exact catch block.
+
+5) Connection state (“Not Connected”)
+
+What does “Not Connected” mean in code?
+
+What component sets it?
+
+What network call / websocket / SSE is failing?
+
+Does this state block supervisor execution, or is it only UI cosmetics?
+
+Provide the last error seen when it switches to Not Connected.
+
+6) Message-by-message trace table (required)
+
+Create a table with rows:
+User message | router_decision | clarify_session_active | clarify_fields_present | attempted_supervisor_task? | result
+
+Fill it for:
+
+Find pubs with live music
+
+arundel
+
+5 results
+
+Search now
+
+7) Single root cause + fix direction (report-only)
+
+Pick the one main reason this is still broken:
+
+trigger phrase not actually causing RUN transition?
+
+transition happens but task creation fails?
+
+UI stuck “Not Connected” and aborts run?
+
+session enters “confirmation” loop and never commits?
+
+Be decisive and cite the relevant file/function/line.
+
+Output format
+
+1-page summary (bullet points)
+
+Trace table
+
+Key logs excerpt (only the relevant lines)
+
+Fix direction (no implementation)
+
+What I expect they’ll find (so you know what you’re aiming for)
+
+Either:
+
+“Search now” doesn’t actually flip to RUN_SUPERVISOR, it just prints a confirmation again (bad state machine), or
+
+it flips, but the task creation fails, and the error handler prints “temporarily unavailable”.
+
+Both are solvable — but you need the report to name which.
