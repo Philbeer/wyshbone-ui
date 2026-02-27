@@ -5,7 +5,11 @@ import {
   closeAllClarifySessions,
   buildInitialQuestions,
   isMeaningfulClarificationAnswer,
+  saveLastSuccessfulIntent,
+  getLastSuccessfulIntent,
+  detectFollowupReuse,
   _getSessionsMapForTesting,
+  _getIntentsMapForTesting,
 } from '../clarifySession';
 
 let passed = 0;
@@ -38,6 +42,8 @@ function assert(condition: boolean, msg: string) {
 function cleanup() {
   const map = _getSessionsMapForTesting();
   map.clear();
+  const intents = _getIntentsMapForTesting();
+  intents.clear();
 }
 
 async function runAll() {
@@ -471,6 +477,82 @@ async function runAll() {
     const stillActive = getActiveClarifySession('conv-t18');
     assert(stillActive !== null, 'Session should still be active');
     assert(stillActive!.semantic_constraint_resolved === false, 'Semantic constraint still unresolved after bare words');
+  });
+
+  cleanup();
+
+  await test('T19: follow-up reuse — "now do York" after successful run', () => {
+    saveLastSuccessfulIntent('conv-t19', {
+      business_type: 'pubs with live music',
+      location: 'Arundel',
+      requested_count: 5,
+    });
+
+    const intent = getLastSuccessfulIntent('conv-t19');
+    assert(intent !== null, 'Intent should be stored');
+
+    const r1 = detectFollowupReuse('now do York', intent!);
+    assert(r1.isFollowup === true, '"now do York" should be detected as followup');
+    assert(r1.newLocation === 'York', `Location should be York, got ${r1.newLocation}`);
+
+    const r2 = detectFollowupReuse('same thing but Leeds', intent!);
+    assert(r2.isFollowup === true, '"same thing but Leeds" should be followup');
+    assert(r2.newLocation === 'Leeds', `Location should be Leeds, got ${r2.newLocation}`);
+
+    const r3 = detectFollowupReuse('okay, try Manchester', intent!);
+    assert(r3.isFollowup === true, '"okay, try Manchester" should be followup');
+    assert(r3.newLocation === 'Manchester', `Location should be Manchester, got ${r3.newLocation}`);
+
+    const r4 = detectFollowupReuse('how about Bristol', intent!);
+    assert(r4.isFollowup === true, '"how about Bristol" should be followup');
+    assert(r4.newLocation === 'Bristol', `Location should be Bristol, got ${r4.newLocation}`);
+  });
+
+  cleanup();
+
+  await test('T20: follow-up reuse — scope change blocks reuse', () => {
+    saveLastSuccessfulIntent('conv-t20', {
+      business_type: 'pubs with live music',
+      location: 'Arundel',
+      requested_count: 5,
+    });
+
+    const intent = getLastSuccessfulIntent('conv-t20')!;
+
+    const r1 = detectFollowupReuse('now find breweries in York', intent);
+    assert(r1.isFollowup === false, '"now find breweries in York" should NOT be a followup (scope change)');
+
+    const r2 = detectFollowupReuse('find restaurants in Leeds', intent);
+    assert(r2.isFollowup === false, '"find restaurants in Leeds" should NOT be a followup (different entity)');
+  });
+
+  cleanup();
+
+  await test('T21: follow-up reuse — intent TTL expiry', () => {
+    const intents = _getIntentsMapForTesting();
+    intents.set('conv-t21', {
+      business_type: 'pubs',
+      location: 'Arundel',
+      timestamp: Date.now() - (61 * 60 * 1000),
+    });
+
+    const expired = getLastSuccessfulIntent('conv-t21');
+    assert(expired === null, 'Intent older than 1 hour should be expired');
+  });
+
+  cleanup();
+
+  await test('T22: follow-up reuse — bare location directive', () => {
+    saveLastSuccessfulIntent('conv-t22', {
+      business_type: 'pubs',
+      location: 'Arundel',
+      requested_count: 10,
+    });
+
+    const intent = getLastSuccessfulIntent('conv-t22')!;
+    const r = detectFollowupReuse('in Sheffield', intent);
+    assert(r.isFollowup === true, '"in Sheffield" should be followup');
+    assert(r.newLocation === 'Sheffield', `Location should be Sheffield, got ${r.newLocation}`);
   });
 
   cleanup();

@@ -427,6 +427,108 @@ export function buildInitialQuestions(entityType?: string, location?: string, se
 }
 
 
+export interface LastSuccessfulIntent {
+  business_type: string;
+  location: string;
+  requested_count?: number;
+  attributes?: string;
+  timestamp: number;
+}
+
+const lastIntents = new Map<string, LastSuccessfulIntent>();
+
+const INTENT_TTL_MS = 60 * 60 * 1000;
+
+export function saveLastSuccessfulIntent(conversationId: string, intent: Omit<LastSuccessfulIntent, 'timestamp'>): void {
+  if (!intent.business_type || !intent.location) return;
+  lastIntents.set(conversationId, { ...intent, timestamp: Date.now() });
+}
+
+export function getLastSuccessfulIntent(conversationId: string): LastSuccessfulIntent | null {
+  const intent = lastIntents.get(conversationId);
+  if (!intent) return null;
+  if (Date.now() - intent.timestamp > INTENT_TTL_MS) {
+    lastIntents.delete(conversationId);
+    return null;
+  }
+  return intent;
+}
+
+export function clearLastSuccessfulIntent(conversationId: string): void {
+  lastIntents.delete(conversationId);
+}
+
+const FOLLOWUP_REUSE_PATTERNS = [
+  /^(?:now\s+)?(?:do|try|check|search|run)\s+(.+)$/i,
+  /^(?:same\s+(?:thing|search|query)\s+(?:but|for|in)\s+)(.+)$/i,
+  /^(?:okay|ok|and|also|next|then)\s*[,.]?\s*(?:do|try|check|search|run)?\s*(.+)$/i,
+  /^(?:how\s+about|what\s+about)\s+(.+)$/i,
+  /^(?:and|also|next)\s+(.+)$/i,
+  /^(?:repeat\s+(?:for|in|with)\s+)(.+)$/i,
+  /^(?:same\s+(?:but|for|in)\s+)(.+)$/i,
+];
+
+const SCOPE_CHANGE_SIGNALS = [
+  /\b(?:find|search\s+for|look\s+for|looking\s+for)\s+\w+/i,
+  /\b(?:instead|different|change|switch)\b/i,
+  /\b(?:breweries|restaurants?|cafes?|hotels?|shops?|dentists?|salons?|gyms?|clinics?)\b/i,
+];
+
+export function detectFollowupReuse(
+  message: string,
+  lastIntent: LastSuccessfulIntent,
+): { isFollowup: boolean; newLocation?: string; reason?: string } {
+  const normalized = message.trim();
+  const lower = normalized.toLowerCase();
+
+  for (const pattern of SCOPE_CHANGE_SIGNALS) {
+    if (pattern.test(lower)) {
+      const entityNounsInMessage = lower.match(/\b(pubs?|bars?|restaurants?|cafes?|coffee\s+shops?|hotels?|dentists?|salons?|gyms?|clinics?|breweries?|bakeries?|florists?|venues?|shops?|stores?|businesses|companies|organisations?|organizations?|charities)\b/i);
+      if (entityNounsInMessage) {
+        const mentionedEntity = entityNounsInMessage[0].toLowerCase();
+        const lastEntity = lastIntent.business_type.toLowerCase();
+        if (!lastEntity.includes(mentionedEntity) && !mentionedEntity.includes(lastEntity.replace(/s$/, ''))) {
+          return { isFollowup: false, reason: `Scope change detected: "${mentionedEntity}" differs from "${lastIntent.business_type}"` };
+        }
+      }
+    }
+  }
+
+  for (const pattern of FOLLOWUP_REUSE_PATTERNS) {
+    const match = normalized.match(pattern);
+    if (match && match[1]) {
+      const remainder = match[1].trim().replace(/[.,!?;:]+$/, '');
+      if (remainder.length > 0 && remainder.length < 60) {
+        const locationCandidate = remainder
+          .replace(/^(?:in|near|around|for)\s+/i, '')
+          .trim();
+        if (locationCandidate.length > 0 && locationCandidate.split(/\s+/).length <= 5) {
+          return {
+            isFollowup: true,
+            newLocation: locationCandidate,
+            reason: `Follow-up reuse: replacing location "${lastIntent.location}" with "${locationCandidate}"`,
+          };
+        }
+      }
+    }
+  }
+
+  const inMatch = normalized.match(/^(?:in|near|around)\s+([a-zA-Z][a-zA-Z\s,]+)$/i);
+  if (inMatch && inMatch[1]) {
+    return {
+      isFollowup: true,
+      newLocation: inMatch[1].trim().replace(/[.,!?;:]+$/, ''),
+      reason: `Follow-up reuse: bare location directive`,
+    };
+  }
+
+  return { isFollowup: false };
+}
+
 export function _getSessionsMapForTesting(): Map<string, ClarifySession> {
   return sessions;
+}
+
+export function _getIntentsMapForTesting(): Map<string, LastSuccessfulIntent> {
+  return lastIntents;
 }

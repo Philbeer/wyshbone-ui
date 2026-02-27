@@ -1385,6 +1385,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
             );
 
             console.log(`[SUPERVISOR_TASK_CREATED] id=${supervisorTask.id} from clarify session=${currentSession.id}`);
+
+            const { saveLastSuccessfulIntent: saveIntentClarify } = await import('./lib/clarifySession.js');
+            saveIntentClarify(conversationId, {
+              business_type: requestData.search_query.business_type,
+              location: requestData.search_query.location,
+              requested_count: requestData.search_query.requested_count,
+              attributes: currentSession.semantic_constraint || undefined,
+            });
+
             closeAllClarifySessions(conversationId);
 
             if (clientRequestId) {
@@ -1412,6 +1421,90 @@ export async function registerRoutes(app: Express): Promise<Server> {
             res.write(`data: [DONE]\n\n`);
             res.end();
             return;
+          }
+        }
+      }
+
+      // ═══════════════════════════════════════════════════════════
+      // FOLLOW-UP REUSE CHECK: Reuse prior intent if user says "now do York" etc.
+      // ═══════════════════════════════════════════════════════════
+      const { getLastSuccessfulIntent, detectFollowupReuse, saveLastSuccessfulIntent } = await import('./lib/clarifySession.js');
+      const lastIntent = getLastSuccessfulIntent(conversationId);
+      if (lastIntent) {
+        const followup = detectFollowupReuse(latestUserText, lastIntent);
+        if (followup.isFollowup && followup.newLocation) {
+          console.log(`🔄 [FOLLOWUP_REUSE] ${followup.reason} | business_type="${lastIntent.business_type}" count=${lastIntent.requested_count ?? 'default'}`);
+
+          try {
+            const reusedRequest = lastIntent.requested_count
+              ? `find ${lastIntent.requested_count} ${lastIntent.business_type} in ${followup.newLocation}`
+              : `find ${lastIntent.business_type} in ${followup.newLocation}`;
+            const intentResult = detectSupervisorIntent(reusedRequest);
+            const taskType = intentResult.taskType || 'find_prospects';
+            const requestData: Record<string, any> = {
+              user_message: reusedRequest,
+              original_user_message: latestUserText,
+              ...(intentResult.requestData || {}),
+              search_query: {
+                business_type: lastIntent.business_type,
+                location: followup.newLocation,
+                ...(lastIntent.requested_count ? { requested_count: lastIntent.requested_count } : {}),
+              },
+            };
+            if (lastIntent.attributes) {
+              requestData.search_query.attributes = lastIntent.attributes;
+            }
+            console.log(`📦 [FOLLOWUP_SEARCH_QUERY] business_type="${lastIntent.business_type}" location="${followup.newLocation}" requested_count=${lastIntent.requested_count ?? 'default'}`);
+            if (metadata) {
+              if (metadata.scenario) requestData.scenario = metadata.scenario;
+              if (metadata.constraints) requestData.constraints = metadata.constraints;
+              requestData.metadata = metadata;
+            }
+
+            emitSse({ type: 'status', stage: 'planning', message: 'Creating supervisor plan', clientRequestId: clientRequestId || undefined, conversationId });
+
+            const supervisorTask = await createSupervisorTask(
+              conversationId,
+              user.id,
+              taskType,
+              requestData,
+              { runId: agentRunId || runId, clientRequestId: clientRequestId || undefined }
+            );
+
+            saveLastSuccessfulIntent(conversationId, {
+              business_type: lastIntent.business_type,
+              location: followup.newLocation,
+              requested_count: lastIntent.requested_count,
+              attributes: lastIntent.attributes,
+            });
+
+            console.log(`[SUPERVISOR_TASK_CREATED] id=${supervisorTask.id} from followup reuse`);
+
+            if (clientRequestId) {
+              await transitionRunToExecuting(clientRequestId);
+              logRouterDecision({
+                userId: user.id,
+                conversationId,
+                clientRequestId,
+                decision: 'supervisor_plan',
+                reason: `Followup reuse: ${followup.reason}`,
+                signals: { reused_from: lastIntent.location, new_location: followup.newLocation },
+              }).catch(err => console.error('AFR router log error:', err.message));
+            }
+
+            const ackMsg = `Running the same search in **${followup.newLocation}**: ${reusedRequest}`;
+            appendMessage(sessionId, { role: "assistant", content: ackMsg });
+            await saveMessage(conversationId, "assistant", ackMsg);
+
+            res.write(`data: ${JSON.stringify({ type: 'message', role: 'assistant', content: ackMsg })}\n\n`);
+            res.write(`data: ${JSON.stringify({ supervisorTaskId: supervisorTask.id, supervisorTaskType: taskType })}\n\n`);
+            emitSse({ type: 'status', stage: 'completed', message: 'Delegated to Supervisor', clientRequestId: clientRequestId || undefined, conversationId });
+            console.log(`[CHAT_ROUTE=FOLLOWUP_REUSE_SUPERVISOR] crid=${clientRequestId || 'none'} run_id=${agentRunId || runId} taskId=${supervisorTask.id}`);
+            res.write(`data: [DONE]\n\n`);
+            res.end();
+            return;
+          } catch (error: any) {
+            console.error(`[FOLLOWUP_REUSE_ERROR] ${error.message} — falling through to normal router`);
           }
         }
       }
@@ -1482,6 +1575,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           );
 
           console.log(`[SUPERVISOR_TASK_CREATED] id=${supervisorTask.id} status=${supervisorTask.status} task_type=${supervisorTask.task_type} run_id=${supervisorTask.run_id || 'N/A'} client_request_id=${supervisorTask.client_request_id || 'N/A'} has_scenario=${!!requestData.scenario} has_constraints=${!!requestData.constraints} max_scrap=${requestData.constraints?.max_scrap_percent ?? 'N/A'}`);
+
+          const { saveLastSuccessfulIntent: saveIntentDirect } = await import('./lib/clarifySession.js');
+          saveIntentDirect(conversationId, {
+            business_type: requestData.search_query?.business_type || modeDecision.entityType || '',
+            location: requestData.search_query?.location || modeDecision.location || '',
+            requested_count: requestData.search_query?.requested_count || modeDecision.requestedCount,
+          });
 
           res.write(`data: ${JSON.stringify({
             supervisorTaskId: supervisorTask.id,
