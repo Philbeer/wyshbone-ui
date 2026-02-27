@@ -76,6 +76,138 @@ interface ChatPageProps {
   onLoadConversation?: (fn: (conversationId: string) => void) => void;
 }
 
+function RunDiagnosticPanel({
+  conversationId,
+  messages,
+  isWaitingForSupervisor,
+  inFlightSupervisorRunsRef,
+  deliverySummaryRunIdsRef,
+  supervisorRunIdRef,
+  supervisorClientRequestIdRef,
+  showDebugPanel,
+  setShowDebugPanel,
+}: {
+  conversationId: string | undefined;
+  messages: DisplayMessage[];
+  isWaitingForSupervisor: boolean;
+  inFlightSupervisorRunsRef: React.MutableRefObject<Map<string, { runId: string | null; crid: string }>>;
+  deliverySummaryRunIdsRef: React.MutableRefObject<Set<string>>;
+  supervisorRunIdRef: React.MutableRefObject<string | null>;
+  supervisorClientRequestIdRef: React.MutableRefObject<string | null>;
+  showDebugPanel: boolean;
+  setShowDebugPanel: (fn: (p: boolean) => boolean) => void;
+}) {
+  const [diagData, setDiagData] = useState<any>(null);
+  const [diagLoading, setDiagLoading] = useState(false);
+  const [diagError, setDiagError] = useState<string | null>(null);
+  const prevWaitingRef = useRef(isWaitingForSupervisor);
+
+  const fetchDiag = async (reason?: string) => {
+    setDiagLoading(true);
+    setDiagError(null);
+    try {
+      const params = new URLSearchParams();
+      if (conversationId) params.set('conversation_id', conversationId);
+      const url = addDevAuthParams(buildApiUrl(`/api/afr/run-diagnostic?${params.toString()}`));
+      const res = await fetch(url, { credentials: 'include' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      setDiagData(data);
+      if (reason) {
+        console.log(`[DIAGNOSTIC] Auto-fetched (${reason}):`, JSON.stringify(data, null, 2));
+      }
+    } catch (e: any) {
+      setDiagError(e.message);
+    } finally {
+      setDiagLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (prevWaitingRef.current && !isWaitingForSupervisor) {
+      setTimeout(() => {
+        const resultBubbles = messages.filter(m => 'deliverySummary' in m && (m as any).deliverySummary).length;
+        console.log(`[DIAGNOSTIC] Run completed. resultBubbles=${resultBubbles}, msgs=${messages.length}, convId=${conversationId}`);
+        console.log(`[DIAGNOSTIC] Client state: supervisorRunIdRef=${supervisorRunIdRef.current}, crid=${supervisorClientRequestIdRef.current}, deliverySummaryRunIds=[${Array.from(deliverySummaryRunIdsRef.current).join(',')}], inFlight=${inFlightSupervisorRunsRef.current.size}`);
+        fetchDiag('run-completed');
+      }, 2000);
+    }
+    prevWaitingRef.current = isWaitingForSupervisor;
+  }, [isWaitingForSupervisor]);
+
+  const resultBubbleCount = messages.filter(m => 'deliverySummary' in m && (m as any).deliverySummary).length;
+  const inFlightEntries = Array.from(inFlightSupervisorRunsRef.current.entries());
+
+  return (
+    <div className="border-t-2 border-dashed border-red-500/60 bg-red-50/10">
+      <button
+        onClick={() => setShowDebugPanel((p: boolean) => !p)}
+        className="w-full text-left px-4 py-1.5 text-[11px] font-mono text-red-600 dark:text-red-400 hover:bg-red-500/10 font-bold"
+      >
+        {showDebugPanel ? '▼' : '▶'} DIAGNOSTIC PANEL | convId={conversationId?.slice(0, 12) || 'none'} | msgs={messages.length} | resultBubbles={resultBubbleCount} | waiting={String(isWaitingForSupervisor)} | inFlight={inFlightSupervisorRunsRef.current.size}
+      </button>
+      {showDebugPanel && (
+        <div className="px-4 pb-3 text-[10px] font-mono text-red-600/90 dark:text-red-400/90 max-h-[400px] overflow-y-auto space-y-1">
+          <div className="border-b border-red-500/20 pb-1 mb-1">
+            <b>CLIENT STATE:</b><br/>
+            supervisorRunIdRef: {supervisorRunIdRef.current || 'null'}<br/>
+            supervisorClientRequestIdRef: {supervisorClientRequestIdRef.current || 'null'}<br/>
+            deliverySummaryRunIds: [{Array.from(deliverySummaryRunIdsRef.current).join(', ')}]<br/>
+            inFlightRuns: {inFlightEntries.length === 0 ? 'none' : inFlightEntries.map(([k, v]) => `[crid=${k.slice(0, 12)} runId=${v.runId?.slice(0, 12) || 'null'}]`).join(' ')}
+          </div>
+
+          <div className="border-b border-red-500/20 pb-1 mb-1">
+            <b>MESSAGES (last 8):</b><br/>
+            {messages.slice(-8).map((msg, i) => {
+              const m = msg as any;
+              const hasDS = !!m.deliverySummary;
+              const dsStatus = hasDS ? m.deliverySummary?.status : null;
+              const dsLeadCount = hasDS ? (m.deliverySummary?.delivered_exact?.length || 0) + (m.deliverySummary?.delivered_closest?.length || 0) : 0;
+              return (
+                <div key={m.id || i} className={hasDS ? 'text-green-500 font-bold' : ''}>
+                  [{m.role || m.type}] id={m.id?.slice(0, 16) || '?'} {hasDS ? `DS:${dsStatus} leads=${dsLeadCount}` : m.content?.slice(0, 40)} {m.id?.startsWith('ds-') ? 'PERSISTED' : ''} {m.provisional ? 'PROVISIONAL' : ''}
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="border-b border-red-500/20 pb-1 mb-1">
+            <b>DB DIAGNOSTIC:</b>{' '}
+            <button onClick={fetchDiag} className="underline text-blue-500 hover:text-blue-300" disabled={diagLoading}>
+              {diagLoading ? 'Loading...' : 'Fetch from DB'}
+            </button>
+            {diagError && <span className="text-red-500 ml-2">Error: {diagError}</span>}
+          </div>
+
+          {diagData && diagData.diagnostics?.map((d: any, i: number) => (
+            <div key={i} className={`border border-red-500/30 rounded p-2 mb-1 ${d.has_delivery_summary_artefact && d.result_message_persisted ? 'bg-green-900/20' : 'bg-red-900/20'}`}>
+              <div><b>RUN {i + 1}:</b> {d.run_id}</div>
+              <div>conversation_id: {d.conversation_id || 'NULL'}</div>
+              <div>client_request_id: {d.client_request_id}</div>
+              <div>supervisor_run_id: {d.supervisor_run_id || 'NULL'}</div>
+              <div>status: {d.status} | terminal_state: {d.terminal_state || 'null'} | ui_ready: {String(d.ui_ready)}</div>
+              <div>created: {d.created_at} | updated: {d.updated_at}</div>
+              <div>artefacts: {d.total_artefacts} total | has delivery_summary: <b className={d.has_delivery_summary_artefact ? 'text-green-400' : 'text-red-400'}>{String(d.has_delivery_summary_artefact)}</b></div>
+              <div>types: {d.artefact_types?.map((a: any) => `${a.type}(${a.count})`).join(', ') || 'none'}</div>
+              <div>result msg persisted: <b className={d.result_message_persisted ? 'text-green-400' : 'text-red-400'}>{String(d.result_message_persisted)}</b> {d.result_message_id ? `id=${d.result_message_id}` : ''}</div>
+              <div className={`font-bold mt-1 ${d.has_delivery_summary_artefact && d.result_message_persisted ? 'text-green-400' : 'text-red-400'}`}>
+                VERDICT: {
+                  !d.conversation_id ? 'A) CONV_ID NULL - run/conversation linkage bug' :
+                  d.total_artefacts === 0 ? 'B) NO ARTEFACTS - supervisor produced nothing' :
+                  d.has_delivery_summary_artefact && !d.result_message_persisted ? 'C) ARTEFACTS EXIST BUT NO UI MESSAGE - fetch/render/polling bug' :
+                  d.has_delivery_summary_artefact && d.result_message_persisted ? 'OK - artefacts + message both exist' :
+                  !d.has_delivery_summary_artefact && d.total_artefacts > 0 ? 'C) ARTEFACTS EXIST BUT NO delivery_summary - supervisor incomplete' :
+                  'UNKNOWN'
+                }
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage, addRun, updateRun, getActiveRunId, onNewChat, onLoadConversation }: ChatPageProps) {
   const { user } = useUser();
   const { toast } = useToast();
@@ -653,6 +785,15 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
             const finalized = await fetchArtefactsWithRetry(runId, crid);
             if (!finalized) {
               console.warn(`[Chat][AFR-Poll] Phase 2 exhausted retries for ${effectiveKey}. Showing error bubble.`);
+              console.warn(`[DIAGNOSTIC][FAILURE] artefacts_unavailable for key=${effectiveKey}, runId=${runId}, crid=${crid}, convId=${conversationId}`);
+              try {
+                const diagParams = new URLSearchParams();
+                if (conversationId) diagParams.set('conversation_id', conversationId);
+                const diagUrl = addDevAuthParams(buildApiUrl(`/api/afr/run-diagnostic?${diagParams.toString()}`));
+                fetch(diagUrl, { credentials: 'include' }).then(r => r.json()).then(d => {
+                  console.warn(`[DIAGNOSTIC][FAILURE] DB snapshot:`, JSON.stringify(d, null, 2));
+                }).catch(() => {});
+              } catch {}
               const errorMsg: Message = {
                 id: `ds-${effectiveKey}`,
                 role: 'assistant',
@@ -2543,47 +2684,17 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
       </div>
 
       {process.env.NODE_ENV === 'development' && (
-        <div className="border-t border-dashed border-yellow-500/40 bg-yellow-50/5">
-          <button
-            onClick={() => setShowDebugPanel(p => !p)}
-            className="w-full text-left px-4 py-1 text-[10px] font-mono text-yellow-600 dark:text-yellow-400 hover:bg-yellow-500/10"
-          >
-            {showDebugPanel ? '▼' : '▶'} Debug: {messages.length} messages | {messages.filter(m => 'deliverySummary' in m && (m as Message).deliverySummary).length} result bubbles | convId: {conversationId?.slice(0, 8) || 'none'}
-          </button>
-          {showDebugPanel && (
-            <div className="px-4 pb-2 text-[10px] font-mono text-yellow-600/80 dark:text-yellow-400/80 max-h-48 overflow-y-auto space-y-0.5">
-              {messages.length === 0 && <div>No messages loaded</div>}
-              {messages.slice(-10).map((msg, i) => {
-                const m = msg as Message;
-                const hasDS = !!m.deliverySummary;
-                const hasMeta = hasDS ? 'structured_result' : (m as any).type === 'system' ? 'system' : 'text';
-                const status = hasDS ? `DS:${(m.deliverySummary as any)?.status || '?'}` : '';
-                const runRef = m.runId ? `run:${m.runId.slice(0, 8)}` : '';
-                const dbFlag = m.id?.startsWith('ds-') ? '💾persisted' : '';
-                return (
-                  <div key={m.id || i} className={`${hasDS ? 'text-green-500' : ''}`}>
-                    [{messages.length - 10 + i < 0 ? '' : ''}{m.role || (msg as SystemMessage).type}] id={m.id?.slice(0, 12)}.. type={hasMeta} {status} {runRef} {dbFlag}
-                  </div>
-                );
-              })}
-              {(() => {
-                const latestResultMsg = [...messages].reverse().find(m => (m as Message).id?.startsWith('ds-') || (m as Message).deliverySummary);
-                const hasDS = latestResultMsg ? !!(latestResultMsg as Message).deliverySummary : false;
-                return (
-                  <div className={`font-bold ${hasDS ? 'text-green-500' : 'text-red-400'}`}>
-                    Latest result message has deliverySummary in metadata: {hasDS ? 'YES' : 'NO'}
-                    {latestResultMsg ? ` (id: ${(latestResultMsg as Message).id?.slice(0, 16)})` : ' (no result messages found)'}
-                  </div>
-                );
-              })()}
-              <div className="mt-1 border-t border-yellow-500/20 pt-1">
-                deliverySummaryRunIds: [{Array.from(deliverySummaryRunIdsRef.current).map(id => id.slice(0, 8)).join(', ')}]
-                {' | '}waiting={String(isWaitingForSupervisor)}
-                {' | '}inFlight={inFlightSupervisorRunsRef.current.size}
-              </div>
-            </div>
-          )}
-        </div>
+        <RunDiagnosticPanel
+          conversationId={conversationId}
+          messages={messages}
+          isWaitingForSupervisor={isWaitingForSupervisor}
+          inFlightSupervisorRunsRef={inFlightSupervisorRunsRef}
+          deliverySummaryRunIdsRef={deliverySummaryRunIdsRef}
+          supervisorRunIdRef={supervisorRunIdRef}
+          supervisorClientRequestIdRef={supervisorClientRequestIdRef}
+          showDebugPanel={showDebugPanel}
+          setShowDebugPanel={setShowDebugPanel}
+        />
       )}
 
       {/* Input Area */}

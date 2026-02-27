@@ -1090,6 +1090,88 @@ export function createAfrRouter(_storage: typeof storage) {
     }
   });
 
+  router.get("/run-diagnostic", async (req, res) => {
+    try {
+      const db = getDrizzleDb();
+      const conversationId = req.query.conversation_id as string | undefined;
+      const userId = req.query.user_id as string | undefined;
+
+      let runQuery: string;
+      let runParams: any[];
+      if (conversationId) {
+        runQuery = `
+          SELECT id, conversation_id, client_request_id, supervisor_run_id,
+                 status, terminal_state, ui_ready, created_at, updated_at
+          FROM agent_runs
+          WHERE conversation_id = $1
+          ORDER BY updated_at DESC
+          LIMIT 3
+        `;
+        runParams = [conversationId];
+      } else {
+        runQuery = `
+          SELECT id, conversation_id, client_request_id, supervisor_run_id,
+                 status, terminal_state, ui_ready, created_at, updated_at
+          FROM agent_runs
+          ORDER BY updated_at DESC
+          LIMIT 3
+        `;
+        runParams = [];
+      }
+
+      const runsResult = await db.execute(sql.raw(runQuery.replace(/\$1/g, conversationId ? `'${conversationId.replace(/'/g, "''")}'` : "''")));
+      const runs = (runsResult as any).rows || runsResult || [];
+
+      const diagnostics: any[] = [];
+      for (const run of runs.slice(0, 3)) {
+        const artefactResult = await db.execute(sql.raw(`
+          SELECT type, count(*) as cnt
+          FROM artefacts
+          WHERE run_id = '${(run.id || '').replace(/'/g, "''")}'
+          GROUP BY type
+          ORDER BY type
+        `));
+        const artefactTypes = ((artefactResult as any).rows || artefactResult || []).map((r: any) => ({
+          type: r.type,
+          count: Number(r.cnt)
+        }));
+
+        const msgResult = await db.execute(sql.raw(`
+          SELECT id, source, 
+                 CASE WHEN metadata IS NOT NULL AND metadata::text LIKE '%deliverySummary%' THEN true ELSE false END as has_delivery_summary,
+                 CASE WHEN metadata IS NOT NULL THEN substring(metadata::text, 1, 200) ELSE null END as meta_preview
+          FROM messages
+          WHERE id = 'ds-${(run.id || '').replace(/'/g, "''")}'
+          LIMIT 1
+        `));
+        const resultMsg = ((msgResult as any).rows || msgResult || [])[0] || null;
+
+        diagnostics.push({
+          run_id: run.id,
+          conversation_id: run.conversation_id,
+          client_request_id: run.client_request_id,
+          supervisor_run_id: run.supervisor_run_id,
+          status: run.status,
+          terminal_state: run.terminal_state,
+          ui_ready: run.ui_ready,
+          created_at: run.created_at,
+          updated_at: run.updated_at,
+          artefact_types: artefactTypes,
+          total_artefacts: artefactTypes.reduce((sum: number, a: any) => sum + a.count, 0),
+          has_delivery_summary_artefact: artefactTypes.some((a: any) => a.type === 'delivery_summary'),
+          result_message_persisted: !!resultMsg,
+          result_message_id: resultMsg?.id || null,
+          result_message_has_ds: resultMsg?.has_delivery_summary || false,
+        });
+      }
+
+      res.json({ diagnostics, ts: new Date().toISOString() });
+    } catch (error: any) {
+      console.error("AFR /run-diagnostic error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   return router;
 }
 
