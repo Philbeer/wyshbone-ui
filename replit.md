@@ -103,6 +103,9 @@ The UI never owns persistence. All artefacts, runs, judgements, and business dat
 - **Reduced Dev Polling:** Plan polling reduced from 500ms to 2s, execution polling from 300ms to 1.5s in development mode to reduce log noise.
 - **Post-Terminal Catch-Up Polling:** Fixed Activity Panel stalling by adding an 8-second catch-up polling window after terminal detection. When the Supervisor marks a run as completed before all activities are persisted, the panel now continues polling at 2s intervals to catch late-arriving events. Frozen display events use ID-based comparison and bypass freezing during catch-up to ensure all events render.
 - **Artefact Retry Button:** When artefact fetch exhausts retries and shows a FAIL bubble with `stop_reason='artefacts_unavailable'`, a user-visible retry button dispatches `wyshbone:retry_artefacts` CustomEvent. Chat handler clears idempotency guards and re-runs `finalizeRunUI` up to 10 times with 500ms delays.
+- **SSE Line Buffer Fix:** SSE parser in `chat.tsx` now uses a `sseLineBuffer` accumulator so `data:` lines split across TCP chunks are correctly reassembled before parsing. Remaining buffer is also drained after the read loop exits, preventing dropped `run_id` or `supervisorTaskId` events.
+- **Error Bubble runId Fix:** Error bubbles created when artefact retries exhaust now include `runId`, enabling the retry button in `RunResultBubble` to pass the correct run identifier back to the retry handler.
+- **Retry Handler Ref Fix:** The `wyshbone:retry_artefacts` handler now reads `detail.clientRequestId` from the event (alongside `detail.runId`) instead of relying on `supervisorClientRequestIdRef.current`, which was already nulled by `cleanupRunState` before the retry fires.
 
 ## External Dependencies
 - **OpenAI GPT-5:** AI chat responses, prospect enrichment, web search, AI-generated personal lines.

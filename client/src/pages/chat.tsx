@@ -669,6 +669,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                   delivered_count: 0,
                   stop_reason: 'artefacts_unavailable',
                 } as DeliverySummary,
+                runId: runId || undefined,
                 provisional: false,
               };
               upsertResultMessage(errorMsg);
@@ -976,7 +977,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     const handler = async (e: Event) => {
       const detail = (e as CustomEvent).detail || {};
       const retryRunId = detail.runId || supervisorRunIdRef.current;
-      const retryCrid = supervisorClientRequestIdRef.current;
+      const retryCrid = detail.clientRequestId || supervisorClientRequestIdRef.current;
       console.log('[Chat][Retry] wyshbone:retry_artefacts received, runId:', retryRunId, 'crid:', retryCrid);
       if (retryRunId) deliverySummaryRunIdsRef.current.delete(retryRunId);
       if (retryCrid) deliverySummaryRunIdsRef.current.delete(retryCrid);
@@ -1316,15 +1317,18 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         throw new Error("Failed to get response reader");
       }
 
+      let sseLineBuffer = '';
       while (true) {
         const { done, value } = await reader.read();
         
         if (done) break;
         
         const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split('\n');
+        sseLineBuffer += chunk;
+        const parts = sseLineBuffer.split('\n');
+        sseLineBuffer = parts.pop() || '';
         
-        for (const line of lines) {
+        for (const line of parts) {
           if (line.startsWith('data: ')) {
             const data = line.slice(6); // Remove 'data: ' prefix
             
@@ -1503,6 +1507,30 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                 console.warn('Failed to parse SSE data:', data);
               }
             }
+          }
+        }
+      }
+
+      if (sseLineBuffer.trim()) {
+        const remainingLine = sseLineBuffer.trim();
+        if (remainingLine.startsWith('data: ')) {
+          const data = remainingLine.slice(6);
+          if (data !== '[DONE]') {
+            try {
+              const parsed = JSON.parse(data);
+              if (parsed.type === 'run_id' && parsed.runId) {
+                supervisorRunIdRef.current = parsed.runId;
+                window.dispatchEvent(new CustomEvent('wyshbone:run_id', {
+                  detail: { runId: parsed.runId, clientRequestId: parsed.clientRequestId || clientRequestId },
+                }));
+              }
+              if (parsed.supervisorTaskId) {
+                inFlightSupervisorRunsRef.current.set(clientRequestId, {
+                  runId: supervisorRunIdRef.current,
+                  crid: clientRequestId,
+                });
+              }
+            } catch {}
           }
         }
       }
