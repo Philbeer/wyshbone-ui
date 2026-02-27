@@ -1101,6 +1101,16 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
           abortControllerRef.current = null;
         }
         
+        // Clear supervisor timers
+        if (supervisorTimeoutRef.current) {
+          clearTimeout(supervisorTimeoutRef.current);
+          supervisorTimeoutRef.current = null;
+        }
+        if (supervisorPollRef.current) {
+          clearInterval(supervisorPollRef.current);
+          supervisorPollRef.current = null;
+        }
+        
         // IMPORTANT: Set history loading ref to true FIRST to prevent auto-loading
         hasLoadedHistoryRef.current = true;
         
@@ -1118,6 +1128,13 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         setInput("");
         setIsStreaming(false);
         setShowLocationSuggestions(false);
+        setIsClarifyingForRun(false);
+        setActiveClientRequestId(null);
+        setSupervisorTaskId(null);
+        setIsWaitingForSupervisor(false);
+        setCurrentClientRequestId(null);
+        setPinnedClientRequestId(null);
+        setLastCompletedClientRequestId(null);
         clearRecentRuns();
         setConversationId(newConversationId);
         
@@ -1136,10 +1153,26 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
           abortControllerRef.current.abort();
           abortControllerRef.current = null;
         }
+        
+        if (supervisorTimeoutRef.current) {
+          clearTimeout(supervisorTimeoutRef.current);
+          supervisorTimeoutRef.current = null;
+        }
+        if (supervisorPollRef.current) {
+          clearInterval(supervisorPollRef.current);
+          supervisorPollRef.current = null;
+        }
 
         setIsStreaming(false);
         setInput("");
         setShowLocationSuggestions(false);
+        setIsClarifyingForRun(false);
+        setActiveClientRequestId(null);
+        setSupervisorTaskId(null);
+        setIsWaitingForSupervisor(false);
+        setCurrentClientRequestId(null);
+        setPinnedClientRequestId(null);
+        setLastCompletedClientRequestId(null);
         clearRecentRuns();
         
         // Update conversationId
