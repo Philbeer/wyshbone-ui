@@ -1,3 +1,6 @@
+import { readFileSync } from 'fs';
+import { join } from 'path';
+
 export type ChatModeType = 'CHAT_INFO' | 'CLARIFY_FOR_RUN' | 'RUN_SUPERVISOR';
 
 export interface ChatModeDecision {
@@ -6,6 +9,48 @@ export interface ChatModeDecision {
   entityType?: string;
   location?: string;
   requestedCount?: number;
+}
+
+const KNOWN_LOCATIONS = buildKnownLocationsSet();
+
+function buildKnownLocationsSet(): Set<string> {
+  const locs = new Set<string>();
+  const dataDir = join(process.cwd(), 'server', 'data');
+  const files = ['uk_counties.json', 'london_boroughs.json', 'gb_devolved.json', 'ie_counties.json'];
+  for (const file of files) {
+    try {
+      const raw = readFileSync(join(dataDir, file), 'utf-8');
+      const entries: Array<{ id?: string; name?: string }> = JSON.parse(raw);
+      for (const entry of entries) {
+        if (entry.name) locs.add(entry.name.toLowerCase().trim());
+        if (entry.id) locs.add(entry.id.replace(/_/g, ' ').toLowerCase().trim());
+      }
+    } catch {}
+  }
+  const extraCities = [
+    'london', 'edinburgh', 'glasgow', 'cardiff', 'belfast', 'aberdeen', 'dundee',
+    'bath', 'oxford', 'cambridge', 'york', 'canterbury', 'brighton', 'bournemouth',
+    'southampton', 'portsmouth', 'exeter', 'plymouth', 'norwich', 'nottingham',
+    'leicester', 'coventry', 'wolverhampton', 'stoke', 'sunderland', 'hull',
+    'bradford', 'middlesbrough', 'reading', 'luton', 'milton keynes', 'northampton',
+    'swindon', 'peterborough', 'ipswich', 'colchester', 'chelmsford', 'gloucester',
+    'chester', 'carlisle', 'darlington', 'harrogate', 'scarborough', 'whitby',
+    'arundel', 'chichester', 'worthing', 'crawley', 'horsham', 'eastbourne',
+    'hastings', 'lewes', 'tunbridge wells', 'maidstone', 'folkestone', 'dover',
+    'margate', 'ramsgate', 'ashford', 'guildford', 'woking', 'epsom', 'windsor',
+    'slough', 'watford', 'st albans', 'stevenage', 'hemel hempstead', 'harlow',
+    'basildon', 'southend', 'cheltenham', 'stroud', 'cirencester', 'taunton',
+    'yeovil', 'bridgwater', 'salisbury', 'newbury', 'basingstoke', 'andover',
+    'winchester', 'fareham', 'gosport', 'havant', 'petersfield',
+    'dorchester', 'weymouth', 'poole', 'christchurch', 'barnstaple', 'torquay',
+    'truro', 'falmouth', 'newquay', 'penzance', 'st ives',
+    'sussex', 'east sussex', 'west sussex',
+    'uk', 'england', 'scotland', 'wales', 'northern ireland',
+  ];
+  for (const city of extraCities) {
+    locs.add(city.toLowerCase().trim());
+  }
+  return locs;
 }
 
 const ENTITY_FINDING_VERBS = [
@@ -141,6 +186,24 @@ function detectEntityIntent(normalized: string): { isEntity: boolean; entityType
   return { isEntity: false, reason: 'No entity-finding intent detected' };
 }
 
+function extractTrailingKnownLocation(entityType: string): { location: string; cleanedEntity: string } | undefined {
+  const words = entityType.toLowerCase().trim().split(/\s+/);
+  if (words.length < 2) return undefined;
+
+  for (let take = Math.min(words.length - 1, 4); take >= 1; take--) {
+    const candidate = words.slice(words.length - take).join(' ');
+    if (KNOWN_LOCATIONS.has(candidate)) {
+      const cleaned = words.slice(0, words.length - take).join(' ').trim();
+      if (cleaned.length > 0) {
+        return { location: candidate, cleanedEntity: cleaned };
+      }
+    }
+  }
+  return undefined;
+}
+
+const NON_LOCATION_WORDS = new Set(['me', 'my area', 'my location', 'here', 'this area']);
+
 function extractEntityAndLocation(message: string): { entityType?: string; location?: string; requestedCount?: number } {
   let location: string | undefined;
   let entityType: string | undefined;
@@ -148,7 +211,10 @@ function extractEntityAndLocation(message: string): { entityType?: string; locat
 
   const locMatch = message.match(LOCATION_PATTERN);
   if (locMatch && locMatch[1]) {
-    location = locMatch[1].trim().replace(/[.,!?;:]+$/, '');
+    const candidate = locMatch[1].trim().replace(/[.,!?;:]+$/, '');
+    if (!NON_LOCATION_WORDS.has(candidate.toLowerCase())) {
+      location = candidate;
+    }
   }
 
   for (const pattern of ENTITY_NOUN_PATTERNS) {
@@ -163,6 +229,14 @@ function extractEntityAndLocation(message: string): { entityType?: string; locat
         requestedCount = sanitized.requestedCount;
         break;
       }
+    }
+  }
+
+  if (!location && entityType) {
+    const trailing = extractTrailingKnownLocation(entityType);
+    if (trailing) {
+      location = trailing.location;
+      entityType = trailing.cleanedEntity;
     }
   }
 
