@@ -322,7 +322,7 @@ export function isKnownLocation(location: string): boolean {
   return false;
 }
 
-function hasConcreteEntityNoun(entityType: string): boolean {
+export function hasConcreteEntityNoun(entityType: string): boolean {
   if (CONCRETE_ENTITY_NOUNS.test(entityType)) return true;
   const words = entityType.toLowerCase().trim().split(/\s+/);
   const allSubjective = words.every(w => SUBJECTIVE_WORDS.has(w));

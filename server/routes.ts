@@ -1728,16 +1728,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       if (modeDecision.mode === 'CLARIFY_FOR_RUN') {
         // ─── CLARIFY_FOR_RUN LANE: pure in-memory, no DB writes ───
+        const { isKnownLocation, hasConcreteEntityNoun } = await import('./lib/decideChatMode.js');
         const semanticConstraintMatch = latestUserText.match(/\bthat\s+(work|deal|partner|provide|offer|support|help|serve|are|have|do|focus|engage|operate|specialise|specialize|collaborate)\b[^.!?]*/i);
         const semanticConstraint = semanticConstraintMatch ? semanticConstraintMatch[0].trim() : undefined;
 
-        const questions = buildInitialQuestions(modeDecision.entityType, modeDecision.location, semanticConstraint);
+        const effectiveEntityType = (modeDecision.entityType && hasConcreteEntityNoun(modeDecision.entityType)) ? modeDecision.entityType : undefined;
+        const effectiveLocation = (modeDecision.location && isKnownLocation(modeDecision.location)) ? modeDecision.location : undefined;
+
+        const questions = buildInitialQuestions(effectiveEntityType, effectiveLocation, semanticConstraint);
 
         const newSession = createClarifySession({
           conversationId,
           originalUserText: latestUserText,
-          entityType: modeDecision.entityType,
-          location: modeDecision.location,
+          entityType: effectiveEntityType,
+          location: effectiveLocation,
           semanticConstraint,
           pendingQuestions: questions,
         });
@@ -1753,7 +1757,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }).catch(err => console.error('AFR router log error:', err.message));
         }
 
-        const clarifyMessage = `I'd like to make sure I find exactly what you need. A couple of quick questions:\n\n${questions.map((q, i) => `${i + 1}. ${q}`).join('\n')}`;
+        const clarifyMessage = questions.length > 0
+          ? `I'd like to make sure I find exactly what you need. A couple of quick questions:\n\n${questions.map((q, i) => `${i + 1}. ${q}`).join('\n')}`
+          : `Your request is too vague for me to search on. Could you rephrase with a specific type of business and a real location? For example: "Find pubs in Brighton" or "Find dentists in Manchester".`;
 
         appendMessage(sessionId, { role: "assistant", content: clarifyMessage });
 
