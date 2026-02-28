@@ -2747,7 +2747,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                         <p className="text-[15px] leading-relaxed whitespace-pre-wrap">{chatMessage.content}</p>
                       )}
                     </div>
-                    {!isUser && isClarifyingForRun && chatMessage.content.includes('**Search now**') && !actionedSearchNowIds.current.has(chatMessage.id) && clarifyContext.status === 'ready' && clarifyContext.missingFields.length === 0 && (
+                    {!isUser && isClarifyingForRun && chatMessage.content.includes('**Search now**') && !actionedSearchNowIds.current.has(chatMessage.id) && clarifyContext.status === 'ready' && clarifyContext.missingFields.length === 0 && !(clarifyContext.constraintContract && !clarifyContext.constraintContract.can_execute) && (
                       <Button
                         variant="default"
                         size="sm"

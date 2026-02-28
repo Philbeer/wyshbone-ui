@@ -668,8 +668,10 @@ export default function RunResultBubble({
   const isTrustFailure = canonical.status === "FAIL" ||
     (towerVerdict && ['fail', 'error'].includes(towerVerdict.toLowerCase()));
 
+  const isTimePredicateStop = !!(towerStopTimePredicate && (canonical.status === 'STOP' || canonical.status === 'FAIL'));
+
   const defaultBadgeStatus: LeadBadgeStatus =
-    !leadVerifications || leadVerifications.length === 0 || isTrustFailure
+    !leadVerifications || leadVerifications.length === 0 || isTrustFailure || isTimePredicateStop
       ? 'unverified'
       : 'candidate';
 
@@ -745,7 +747,7 @@ export default function RunResultBubble({
         </div>
       )}
 
-      {!provisional && !isTrustFailure && useLocationBuckets && locationBuckets && (
+      {!provisional && !isTrustFailure && !isTimePredicateStop && useLocationBuckets && locationBuckets && (
         <>
           {locationBuckets.verifiedGeo.length > 0 && (
             <div className="space-y-0.5">
@@ -798,7 +800,7 @@ export default function RunResultBubble({
         </>
       )}
 
-      {!provisional && !isTrustFailure && !useLocationBuckets && matches.length > 0 && (
+      {!provisional && !isTrustFailure && !isTimePredicateStop && !useLocationBuckets && matches.length > 0 && (
         <div className="space-y-0.5">
           <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
             {canonical.status === "STOP" || canonical.status === "PARTIAL" ? `Results (${matches.length})` : `Matches (${matches.length})`}
@@ -811,7 +813,7 @@ export default function RunResultBubble({
         </div>
       )}
 
-      {!provisional && !isTrustFailure && !useLocationBuckets && candidates.length > 0 && (
+      {!provisional && !isTrustFailure && !isTimePredicateStop && !useLocationBuckets && candidates.length > 0 && (
         <div className="space-y-0.5">
           <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{matches.length > 0 ? `Other results (${candidates.length})` : `Results (${candidates.length})`}</h4>
           <div>

@@ -48,8 +48,24 @@ function shouldRenderResultsView(payload: MockClarifyPayload): boolean {
   return payload.status === 'ready' && payload.missingFields.length === 0;
 }
 
+function shouldShowSearchNowButton(payload: MockClarifyPayload): boolean {
+  if (payload.constraintContract && !payload.constraintContract.can_execute) return false;
+  return payload.status === 'ready' && payload.missingFields.length === 0;
+}
+
 function shouldShowThinkingIndicator(isStreaming: boolean, isWaitingForSupervisor: boolean, isClarifyingForRun: boolean): boolean {
   return isStreaming && !isWaitingForSupervisor && !isClarifyingForRun;
+}
+
+function shouldRenderLeads(towerStopTimePredicate: boolean, canonicalStatus: string, isTrustFailure: boolean): boolean {
+  if (isTrustFailure) return false;
+  if (towerStopTimePredicate && (canonicalStatus === 'STOP' || canonicalStatus === 'FAIL')) return false;
+  return true;
+}
+
+function resolveDefaultBadgeStatus(hasLeadVerifications: boolean, isTrustFailure: boolean, isTimePredicateStop: boolean): string {
+  if (!hasLeadVerifications || isTrustFailure || isTimePredicateStop) return 'unverified';
+  return 'candidate';
 }
 
 function getResultDisplayText(towerStopTimePredicate: boolean, canonicalStatus: string, summaryText: string): string {
@@ -188,6 +204,58 @@ test('T10: Time predicate STOP does not use "verified" language', () => {
   const displayText = getResultDisplayText(true, 'STOP', 'I found 3 results that match.');
   assert(!displayText.toLowerCase().includes('verified'), `STOP time predicate text should not contain "verified", got "${displayText}"`);
   assert(!displayText.toLowerCase().includes('pass'), `STOP time predicate text should not contain "pass", got "${displayText}"`);
+});
+
+test('T11: Search now button blocked when can_execute=false even if status=ready', () => {
+  const payload: MockClarifyPayload = {
+    entityType: 'breweries',
+    location: 'London',
+    semanticConstraint: 'opened in last 12 months',
+    count: '5',
+    missingFields: [],
+    status: 'ready',
+    pendingQuestions: [],
+    constraintContract: {
+      type: 'time_predicate',
+      can_execute: false,
+      proxy_options: ['Use Google Reviews date as proxy'],
+    },
+  };
+  assert(!shouldShowSearchNowButton(payload), 'Search now button must be blocked when can_execute=false');
+  assert(shouldRenderProxyQuestion(payload), 'Proxy question must render instead');
+});
+
+test('T12: Search now button allowed when can_execute=true', () => {
+  const payload: MockClarifyPayload = {
+    entityType: 'pubs',
+    location: 'Bristol',
+    semanticConstraint: null,
+    count: '3',
+    missingFields: [],
+    status: 'ready',
+    pendingQuestions: [],
+    constraintContract: {
+      type: 'time_predicate',
+      can_execute: true,
+    },
+  };
+  assert(shouldShowSearchNowButton(payload), 'Search now button must be allowed when can_execute=true');
+});
+
+test('T13: Tower STOP + time_predicate suppresses lead rendering', () => {
+  assert(!shouldRenderLeads(true, 'STOP', false), 'Leads must NOT render for time_predicate STOP');
+  assert(!shouldRenderLeads(true, 'FAIL', false), 'Leads must NOT render for time_predicate FAIL');
+});
+
+test('T14: Tower PASS + time_predicate still renders leads', () => {
+  assert(shouldRenderLeads(false, 'PASS', false), 'Leads should render for normal PASS');
+  assert(shouldRenderLeads(true, 'PASS', false), 'Leads should render for PASS even with time_predicate (Tower explicitly allows)');
+});
+
+test('T15: Badge defaults to unverified for time_predicate STOP', () => {
+  assert(resolveDefaultBadgeStatus(true, false, true) === 'unverified', 'Badge must be unverified for time_predicate STOP');
+  assert(resolveDefaultBadgeStatus(true, false, false) === 'candidate', 'Badge should be candidate when not time_predicate STOP');
+  assert(resolveDefaultBadgeStatus(false, false, false) === 'unverified', 'Badge should be unverified when no lead verifications');
 });
 
 console.log(`\n${'='.repeat(50)}`);
