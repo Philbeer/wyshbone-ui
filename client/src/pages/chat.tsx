@@ -1627,13 +1627,21 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                 setLastLane("chat");
                 prevClarifyMsgIdRef.current = latestClarifyMsgIdRef.current;
                 if (parsed.clarify_state) {
+                  const incomingMissing: string[] = parsed.clarify_state.missingFields ?? [];
+                  let incomingStatus: 'gathering' | 'ready' = parsed.clarify_state.status ?? 'gathering';
+
+                  if (incomingStatus === 'ready' && incomingMissing.length > 0) {
+                    console.warn('[ClarifyPanel] Inconsistent clarify_state from server: status=ready but missingFields=', incomingMissing, '— treating as gathering');
+                    incomingStatus = 'gathering';
+                  }
+
                   setClarifyContext({
                     entityType: parsed.clarify_state.entityType ?? null,
                     location: parsed.clarify_state.location ?? null,
                     semanticConstraint: parsed.clarify_state.semanticConstraint ?? null,
                     count: parsed.clarify_state.count ?? null,
-                    missingFields: parsed.clarify_state.missingFields ?? [],
-                    status: parsed.clarify_state.status ?? 'gathering',
+                    missingFields: incomingMissing,
+                    status: incomingStatus,
                     pendingQuestions: parsed.clarify_state.pendingQuestions ?? [],
                   });
                 }
