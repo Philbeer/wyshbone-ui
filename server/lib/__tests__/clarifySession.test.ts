@@ -14,6 +14,7 @@ import {
   _getSessionsMapForTesting,
   _getIntentsMapForTesting,
 } from '../clarifySession';
+import { decideChatMode, isKnownLocation } from '../decideChatMode';
 
 let passed = 0;
 let failed = 0;
@@ -970,6 +971,139 @@ async function runAll() {
     assert(cls !== 'CHAT_INFO', `Should NOT be CHAT_INFO when message has search verb, got ${cls}`);
   });
 
+  cleanup();
+
+  // ── G6: Nonsense / vague query validation (decideChatMode) ──────────────
+
+  await test('T48: "find the best vibes near council things" → CLARIFY_FOR_RUN (nonsense location + subjective entity)', () => {
+    const result = decideChatMode({ userMessage: 'find the best vibes near council things' });
+    assert(result.mode === 'CLARIFY_FOR_RUN', `Expected CLARIFY_FOR_RUN, got ${result.mode}`);
+    assert(result.reason.includes('unrecognised location') || result.reason.includes('vague'), `Reason should mention validation issue, got: ${result.reason}`);
+  });
+
+  await test('T49: "find pubs in leeds" → RUN_SUPERVISOR (valid entity + known location)', () => {
+    const result = decideChatMode({ userMessage: 'find pubs in leeds' });
+    assert(result.mode === 'RUN_SUPERVISOR', `Expected RUN_SUPERVISOR, got ${result.mode}`);
+  });
+
+  await test('T50: "find dentists near council things" → CLARIFY_FOR_RUN (valid entity, unknown location)', () => {
+    const result = decideChatMode({ userMessage: 'find dentists near council things' });
+    assert(result.mode === 'CLARIFY_FOR_RUN', `Expected CLARIFY_FOR_RUN, got ${result.mode}`);
+    assert(result.reason.includes('unrecognised location'), `Reason should flag location, got: ${result.reason}`);
+  });
+
+  await test('T51: "find the best vibes in london" → CLARIFY_FOR_RUN (subjective entity, valid location)', () => {
+    const result = decideChatMode({ userMessage: 'find the best vibes in london' });
+    assert(result.mode === 'CLARIFY_FOR_RUN', `Expected CLARIFY_FOR_RUN, got ${result.mode}`);
+    assert(result.reason.includes('vague') || result.reason.includes('subjective'), `Reason should flag entity, got: ${result.reason}`);
+  });
+
+  await test('T52: isKnownLocation — "leeds" → true', () => {
+    assert(isKnownLocation('leeds') === true, 'Leeds should be a known location');
+  });
+
+  await test('T53: isKnownLocation — "council things" → false', () => {
+    assert(isKnownLocation('council things') === false, '"council things" should NOT be a known location');
+  });
+
+  await test('T54: isKnownLocation — "east sussex" → true (multi-word)', () => {
+    assert(isKnownLocation('east sussex') === true, 'East Sussex should be a known location');
+  });
+
+  await test('T55: "find restaurants in blackpool" → RUN_SUPERVISOR (valid entity + known location)', () => {
+    const result = decideChatMode({ userMessage: 'find restaurants in blackpool' });
+    assert(result.mode === 'RUN_SUPERVISOR', `Expected RUN_SUPERVISOR, got ${result.mode}`);
+  });
+
+  await test('T56: "find awesome energy near magic land" → CLARIFY_FOR_RUN (both nonsense)', () => {
+    const result = decideChatMode({ userMessage: 'find awesome energy near magic land' });
+    assert(result.mode === 'CLARIFY_FOR_RUN', `Expected CLARIFY_FOR_RUN, got ${result.mode}`);
+  });
+
+  // ── G3b: Expanded run trigger phrases ──────────────────────────────────
+
+  await test('T57: "search now" during clarify → EXECUTE', () => {
+    createClarifySession({
+      conversationId: 'conv-t57',
+      originalUserText: 'find pubs in leeds',
+      entityType: 'pubs',
+      location: 'leeds',
+      pendingQuestions: [],
+    });
+    const session = getActiveClarifySession('conv-t57')!;
+    const cls = classifyClarifyInput('search now', session);
+    assert(cls === 'EXECUTE', `Expected EXECUTE, got ${cls}`);
+  });
+  cleanup();
+
+  await test('T58: "just search" during clarify → EXECUTE', () => {
+    createClarifySession({
+      conversationId: 'conv-t58',
+      originalUserText: 'find pubs in leeds',
+      entityType: 'pubs',
+      location: 'leeds',
+      pendingQuestions: [],
+    });
+    const session = getActiveClarifySession('conv-t58')!;
+    const cls = classifyClarifyInput('just search', session);
+    assert(cls === 'EXECUTE', `Expected EXECUTE, got ${cls}`);
+  });
+  cleanup();
+
+  await test('T59: "please search now" during clarify → EXECUTE', () => {
+    createClarifySession({
+      conversationId: 'conv-t59',
+      originalUserText: 'find pubs in leeds',
+      entityType: 'pubs',
+      location: 'leeds',
+      pendingQuestions: [],
+    });
+    const session = getActiveClarifySession('conv-t59')!;
+    const cls = classifyClarifyInput('please search now', session);
+    assert(cls === 'EXECUTE', `Expected EXECUTE, got ${cls}`);
+  });
+  cleanup();
+
+  await test('T60: "run the search" during clarify → EXECUTE', () => {
+    createClarifySession({
+      conversationId: 'conv-t60',
+      originalUserText: 'find pubs in leeds',
+      entityType: 'pubs',
+      location: 'leeds',
+      pendingQuestions: [],
+    });
+    const session = getActiveClarifySession('conv-t60')!;
+    const cls = classifyClarifyInput('run the search', session);
+    assert(cls === 'EXECUTE', `Expected EXECUTE, got ${cls}`);
+  });
+  cleanup();
+
+  await test('T61: "search now" with all fields filled → run_supervisor', () => {
+    createClarifySession({
+      conversationId: 'conv-t61',
+      originalUserText: 'find pubs in leeds',
+      entityType: 'pubs',
+      location: 'leeds',
+      pendingQuestions: [],
+    });
+    const session = getActiveClarifySession('conv-t61')!;
+    const result = handleClarifyResponse(session, 'search now');
+    assert(result.action === 'run_supervisor', `Expected run_supervisor, got ${result.action}`);
+  });
+  cleanup();
+
+  await test('T62: "search for dentists" during pubs clarify → NOT EXECUTE (entity-bearing, not a run trigger)', () => {
+    createClarifySession({
+      conversationId: 'conv-t62',
+      originalUserText: 'find pubs in leeds',
+      entityType: 'pubs',
+      location: 'leeds',
+      pendingQuestions: [],
+    });
+    const session = getActiveClarifySession('conv-t62')!;
+    const cls = classifyClarifyInput('search for dentists in manchester', session);
+    assert(cls !== 'EXECUTE', `Should NOT be EXECUTE for entity-bearing query, got ${cls}`);
+  });
   cleanup();
 
   console.log(`\n${'='.repeat(50)}`);

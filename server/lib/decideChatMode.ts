@@ -45,6 +45,49 @@ function buildKnownLocationsSet(): Set<string> {
     'dorchester', 'weymouth', 'poole', 'christchurch', 'barnstaple', 'torquay',
     'truro', 'falmouth', 'newquay', 'penzance', 'st ives',
     'sussex', 'east sussex', 'west sussex',
+    'blackpool', 'preston', 'burnley', 'lancaster', 'accrington', 'fleetwood',
+    'morecambe', 'lytham', 'chorley', 'leyland', 'clitheroe', 'nelson',
+    'colne', 'rawtenstall', 'bacup', 'ormskirk', 'skelmersdale', 'wigan',
+    'bolton', 'bury', 'rochdale', 'oldham', 'stockport', 'tameside',
+    'salford', 'trafford', 'warrington', 'widnes', 'runcorn', 'crewe',
+    'macclesfield', 'congleton', 'nantwich', 'stafford', 'lichfield',
+    'tamworth', 'burton upon trent', 'cannock', 'rugeley', 'uttoxeter',
+    'newcastle under lyme', 'leek', 'biddulph', 'telford', 'shrewsbury',
+    'oswestry', 'bridgnorth', 'ludlow', 'hereford', 'leominster', 'ross on wye',
+    'worcester', 'redditch', 'bromsgrove', 'kidderminster', 'droitwich',
+    'evesham', 'pershore', 'malvern', 'stratford upon avon', 'kenilworth',
+    'rugby', 'nuneaton', 'bedworth', 'hinckley', 'loughborough',
+    'melton mowbray', 'market harborough', 'coalville', 'corby', 'kettering',
+    'wellingborough', 'rushden', 'daventry', 'towcester', 'brackley',
+    'banbury', 'bicester', 'witney', 'carterton', 'abingdon', 'didcot',
+    'wantage', 'henley on thames', 'thame', 'aylesbury', 'high wycombe',
+    'amersham', 'chesham', 'marlow', 'maidenhead', 'wokingham', 'bracknell',
+    'camberley', 'farnham', 'aldershot', 'farnborough', 'fleet', 'bordon',
+    'liphook', 'midhurst', 'petworth', 'bognor regis', 'littlehampton',
+    'birkenhead', 'wallasey', 'southport', 'formby', 'crosby', 'bootle',
+    'st helens', 'prescot', 'huyton', 'kirkby', 'maghull',
+    'grimsby', 'scunthorpe', 'cleethorpes', 'brigg', 'barton upon humber',
+    'doncaster', 'rotherham', 'barnsley', 'wakefield', 'dewsbury',
+    'batley', 'huddersfield', 'halifax', 'keighley', 'skipton', 'ilkley',
+    'otley', 'wetherby', 'selby', 'goole', 'bridlington', 'driffield',
+    'beverley', 'hornsea', 'withernsea', 'filey', 'pickering', 'malton',
+    'thirsk', 'ripon', 'northallerton', 'richmond', 'leyburn',
+    'stockton on tees', 'hartlepool', 'redcar', 'guisborough',
+    'bishop auckland', 'durham', 'consett', 'stanley', 'chester le street',
+    'seaham', 'peterlee', 'newton aycliffe', 'spennymoor',
+    'south shields', 'gateshead', 'jarrow', 'washington', 'houghton le spring',
+    'hexham', 'morpeth', 'blyth', 'cramlington', 'ashington', 'alnwick',
+    'berwick upon tweed', 'amble', 'prudhoe', 'ponteland',
+    'inverness', 'stirling', 'perth', 'dumfries', 'ayr', 'kilmarnock',
+    'paisley', 'greenock', 'hamilton', 'motherwell', 'coatbridge', 'airdrie',
+    'east kilbride', 'cumbernauld', 'livingston', 'kirkcaldy', 'dunfermline',
+    'falkirk', 'alloa', 'arbroath', 'montrose', 'forfar', 'brechin',
+    'elgin', 'nairn', 'fort william', 'oban', 'campbeltown',
+    'swansea', 'newport', 'wrexham', 'bangor', 'aberystwyth', 'carmarthen',
+    'llanelli', 'neath', 'port talbot', 'bridgend', 'pontypridd', 'caerphilly',
+    'cwmbran', 'pontypool', 'abergavenny', 'monmouth', 'chepstow',
+    'merthyr tydfil', 'ebbw vale', 'tredegar', 'bargoed', 'aberdare',
+    'rhondda', 'barry', 'penarth', 'cowbridge',
     'uk', 'england', 'scotland', 'wales', 'northern ireland',
   ];
   for (const city of extraCities) {
@@ -255,11 +298,49 @@ function hasSemanticConstraint(message: string): boolean {
   return SEMANTIC_CONSTRAINT_PATTERNS.some(p => p.test(message));
 }
 
+const CONCRETE_ENTITY_NOUNS = /\b(organisations?|organizations?|charities|charit(?:y|ies)|businesses|companies|shops?|pubs?|bars?|restaurants?|cafes?|coffee\s*shops?|hotels?|dentists?|dental\s+practices?|salons?|gyms?|clinics?|venues?|breweries?|bakeries?|florists?|plumbers?|electricians?|mechanics?|garages?|nurseries?|schools?|churches?|offices?|warehouses?|factories?|takeaways?|stores?|retailers?|accountants?|solicitors?|lawyers?|agents?|consultants?|contractors?|architects?|pharmacies|pharmacy|opticians?|vets?|veterinar(?:y|ians?)|caterers?|cleaners?|painters?|roofers?|landscapers?|builders?|joiners?|carpenters?|locksmiths?|tutors?|therapists?|counsellors?|counselors?|chiropractors?|physiotherapists?|osteopaths?|studios?|galleries?|cinemas?|theatres?|theaters?|libraries?|museums?|parks?|pools?|spas?|clubs?|lodges?|inns?|hostels?|motels?|B&Bs?|guesthouses?|guest\s*houses?|supermarkets?|markets?|boutiques?|dealerships?|showrooms?|workshops?|labs?|laboratories?|warehouses?|depots?|suppliers?|wholesalers?|distributors?|manufacturers?|printers?|signmakers?|jewellers?|jewelers?|tailors?|dressmakers?|cobblers?|barbers?|hairdressers?|beauticians?|aestheticians?|nail\s*bars?|tanning\s*salons?|tattoo\s*(?:parlours?|studios?|shops?)|piercing\s*studios?|launderettes?|laundromats?|dry\s*cleaners?)\b/i;
+
+const SUBJECTIVE_WORDS = new Set([
+  'best', 'top', 'greatest', 'finest', 'amazing', 'awesome', 'coolest', 'cool',
+  'nicest', 'nice', 'vibes', 'vibe', 'energy', 'feels', 'feel', 'good', 'great',
+  'excellent', 'fantastic', 'wonderful', 'brilliant', 'superb', 'outstanding',
+  'exceptional', 'remarkable', 'incredible', 'magnificent', 'terrific', 'fabulous',
+  'spectacular', 'phenomenal', 'extraordinary', 'marvellous', 'marvelous',
+  'the', 'a', 'an', 'some', 'most', 'really', 'very', 'super', 'ultra',
+]);
+
+export function isKnownLocation(location: string): boolean {
+  const normalized = location.toLowerCase().trim().replace(/[.,!?;:]+$/, '');
+  if (KNOWN_LOCATIONS.has(normalized)) return true;
+  const words = normalized.split(/\s+/);
+  for (let take = Math.min(words.length, 4); take >= 1; take--) {
+    for (let start = 0; start <= words.length - take; start++) {
+      const candidate = words.slice(start, start + take).join(' ');
+      if (KNOWN_LOCATIONS.has(candidate)) return true;
+    }
+  }
+  return false;
+}
+
+function hasConcreteEntityNoun(entityType: string): boolean {
+  if (CONCRETE_ENTITY_NOUNS.test(entityType)) return true;
+  const words = entityType.toLowerCase().trim().split(/\s+/);
+  const allSubjective = words.every(w => SUBJECTIVE_WORDS.has(w));
+  if (allSubjective) return false;
+  return true;
+}
+
 function isRunnable(entityType?: string, location?: string, message?: string): boolean {
   if (!entityType || entityType.length === 0 || !location || location.length === 0) {
     return false;
   }
   if (message && hasSemanticConstraint(message)) {
+    return false;
+  }
+  if (!isKnownLocation(location)) {
+    return false;
+  }
+  if (!hasConcreteEntityNoun(entityType)) {
     return false;
   }
   return true;
@@ -283,6 +364,8 @@ export function decideChatMode({ userMessage }: { userMessage: string }): ChatMo
       const missingParts: string[] = [];
       if (!entityResult.entityType) missingParts.push('entity type');
       if (!entityResult.location) missingParts.push('location');
+      if (entityResult.location && !isKnownLocation(entityResult.location)) missingParts.push('unrecognised location');
+      if (entityResult.entityType && !hasConcreteEntityNoun(entityResult.entityType)) missingParts.push('vague/subjective entity type');
       if (hasSemanticConstraint(normalized)) missingParts.push('semantic constraint needs clarification');
       return {
         mode: 'CLARIFY_FOR_RUN',

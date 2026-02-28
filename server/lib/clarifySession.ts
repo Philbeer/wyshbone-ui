@@ -58,6 +58,10 @@ const RUN_TRIGGER_PHRASES = [
   'search now', 'run now', 'go now', 'start search', 'start now',
   'run search', 'do it now', 'execute', 'search now with defaults',
   'run it now', 'go for it now', 'let\'s search', 'begin search',
+  'just search', 'go ahead and search', 'please search', 'search please',
+  'run it', 'just run it', 'go ahead and run',
+  'please search now', 'search now please', 'run the search',
+  'start the search', 'do the search', 'launch search',
 ];
 
 export function isBareAcknowledgement(message: string): boolean {
@@ -67,7 +71,9 @@ export function isBareAcknowledgement(message: string): boolean {
 
 function isRunTrigger(message: string): boolean {
   const normalized = message.toLowerCase().trim().replace(/[.,!?;:]+$/, '');
-  return RUN_TRIGGER_PHRASES.some(phrase => normalized === phrase || normalized.startsWith(phrase));
+  return RUN_TRIGGER_PHRASES.some(phrase =>
+    normalized === phrase || normalized.startsWith(phrase + ' ') || normalized.startsWith(phrase + ',')
+  );
 }
 
 function allRequiredFieldsPresent(entityType: string | null, location: string | null, semanticConstraint: string | null, semanticConstraintResolved: boolean): boolean {
