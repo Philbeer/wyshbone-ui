@@ -2815,10 +2815,23 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                   {clarifyContext.semanticConstraint && <span className="text-xs text-muted-foreground ml-1">({clarifyContext.semanticConstraint})</span>}
                 </div>
               )}
+              {clarifyContext.status === 'gathering' && clarifyContext.missingFields.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mt-1">
+                  {clarifyContext.missingFields.map((field) => (
+                    <span key={field} className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-200/60 dark:bg-amber-800/40 text-amber-800 dark:text-amber-200">
+                      {field === 'entity_type' ? 'Business type' : field === 'location' ? 'Location' : field === 'semantic_constraint' ? 'Constraint' : field}
+                    </span>
+                  ))}
+                </div>
+              )}
               {clarifyContext.status === 'gathering' && clarifyContext.pendingQuestions.length > 0 && (
-                <div className="text-xs text-amber-700 dark:text-amber-300">
-                  <HelpCircle className="h-3 w-3 inline mr-1" />
-                  {clarifyContext.pendingQuestions[clarifyContext.pendingQuestions.length - 1]}
+                <div className="space-y-1">
+                  {clarifyContext.pendingQuestions.map((question, idx) => (
+                    <div key={idx} className="text-xs text-amber-700 dark:text-amber-300">
+                      <HelpCircle className="h-3 w-3 inline mr-1" />
+                      {question}
+                    </div>
+                  ))}
                 </div>
               )}
               {clarifyContext.status === 'ready' && (
