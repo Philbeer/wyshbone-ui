@@ -52,6 +52,8 @@ type Message = ChatMessage & {
   provisional?: boolean;
   isConfidence?: boolean;
   towerVerdict?: string | null;
+  isClarifyMsg?: boolean;
+  isClarifySuperseded?: boolean;
 };
 
 type SystemMessage = {
@@ -266,6 +268,21 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
   const [isClarifyingForRun, setIsClarifyingForRun] = useState(false);
   const actionedSearchNowIds = useRef<Set<string>>(new Set());
   const [, forceSearchNowRender] = useState(0);
+  
+  interface ClarifyContext {
+    entityType: string | null;
+    location: string | null;
+    semanticConstraint: string | null;
+    pendingQuestion: string | null;
+    isConfirmation: boolean;
+    latestClarifyMsgId: string | null;
+  }
+  const [clarifyContext, setClarifyContext] = useState<ClarifyContext>({
+    entityType: null, location: null, semanticConstraint: null,
+    pendingQuestion: null, isConfirmation: false, latestClarifyMsgId: null,
+  });
+  const prevClarifyMsgIdRef = useRef<string | null>(null);
+  const latestClarifyMsgIdRef = useRef<string | null>(null);
 
   // Supervisor integration
   const [supervisorTaskId, setSupervisorTaskId] = useState<string | null>(null);
@@ -1318,6 +1335,9 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         setIsStreaming(false);
         setShowLocationSuggestions(false);
         setIsClarifyingForRun(false);
+        setClarifyContext({ entityType: null, location: null, semanticConstraint: null, pendingQuestion: null, isConfirmation: false, latestClarifyMsgId: null });
+        prevClarifyMsgIdRef.current = null;
+        latestClarifyMsgIdRef.current = null;
         actionedSearchNowIds.current.clear();
         setActiveClientRequestId(null);
         setSupervisorTaskId(null);
@@ -1357,6 +1377,9 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         setInput("");
         setShowLocationSuggestions(false);
         setIsClarifyingForRun(false);
+        setClarifyContext({ entityType: null, location: null, semanticConstraint: null, pendingQuestion: null, isConfirmation: false, latestClarifyMsgId: null });
+        prevClarifyMsgIdRef.current = null;
+        latestClarifyMsgIdRef.current = null;
         actionedSearchNowIds.current.clear();
         setActiveClientRequestId(null);
         setSupervisorTaskId(null);
@@ -1425,6 +1448,36 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     }
   }, [onLoadConversation]);
 
+  function parseClarifyMessage(content: string): Partial<ClarifyContext> {
+    const ctx: Partial<ClarifyContext> = {};
+
+    const confirmMatch = content.match(/search for\s+(.*?)\.\s*$/im);
+    if (confirmMatch) {
+      ctx.isConfirmation = true;
+      const boldParts = confirmMatch[1].match(/\*\*(.+?)\*\*/g);
+      if (boldParts) {
+        const cleaned = boldParts.map(b => b.replace(/\*\*/g, ''));
+        if (cleaned.length >= 2) {
+          ctx.entityType = cleaned[0];
+          ctx.location = cleaned[1];
+        } else if (cleaned.length === 1) {
+          ctx.entityType = cleaned[0];
+        }
+      }
+      const parenMatch = confirmMatch[1].match(/\(([^)]+)\)/);
+      if (parenMatch) {
+        ctx.semanticConstraint = parenMatch[1];
+      }
+    }
+
+    const questionLines = content.match(/^\d+\.\s+(.+)$/gm);
+    if (questionLines && questionLines.length > 0) {
+      ctx.pendingQuestion = questionLines[questionLines.length - 1].replace(/^\d+\.\s+/, '');
+    }
+
+    return ctx;
+  }
+
   const streamChatResponse = async (conversationMessages: ChatMessage[]) => {
     if (inFlightRequestIdRef.current) {
       return;
@@ -1456,6 +1509,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     
     const assistantMessageId = crypto.randomUUID();
     let isRunLane = false;
+    let streamIsClarifying = false;
 
     try {
       // Create abort controller for this request
@@ -1596,13 +1650,18 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
               }
               
               if (parsed.type === 'clarify_for_run') {
+                streamIsClarifying = true;
                 setIsClarifyingForRun(true);
                 setLastLane("chat");
+                prevClarifyMsgIdRef.current = latestClarifyMsgIdRef.current;
                 console.log('🔍 Clarifying before run');
               }
 
               if (parsed.type === 'clarify_session_ended') {
                 setIsClarifyingForRun(false);
+                setClarifyContext({ entityType: null, location: null, semanticConstraint: null, pendingQuestion: null, isConfirmation: false, latestClarifyMsgId: null });
+                prevClarifyMsgIdRef.current = null;
+                latestClarifyMsgIdRef.current = null;
                 console.log('✅ Clarify session ended');
               }
 
@@ -1668,10 +1727,32 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                   setLastLane("chat");
                 }
                 accumulatedContent += parsed.content;
+
+                if (streamIsClarifying) {
+                  const parsed_ = parseClarifyMessage(accumulatedContent);
+                  latestClarifyMsgIdRef.current = assistantMessageId;
+                  setClarifyContext(prev => ({
+                    entityType: parsed_.entityType ?? prev.entityType,
+                    location: parsed_.location ?? prev.location,
+                    semanticConstraint: parsed_.semanticConstraint ?? prev.semanticConstraint,
+                    pendingQuestion: parsed_.isConfirmation ? null : (parsed_.pendingQuestion ?? prev.pendingQuestion),
+                    isConfirmation: parsed_.isConfirmation ?? prev.isConfirmation,
+                    latestClarifyMsgId: assistantMessageId,
+                  }));
+
+                  const prevId = prevClarifyMsgIdRef.current;
+                  if (prevId && prevId !== assistantMessageId) {
+                    setMessages(prev => prev.map(m =>
+                      m.id === prevId ? { ...m, isClarifySuperseded: true } : m
+                    ));
+                    prevClarifyMsgIdRef.current = null;
+                  }
+                }
+
                 setMessages((prev) => {
                   const exists = prev.some(m => m.id === assistantMessageId);
                   if (!exists) {
-                    return [...prev, { id: assistantMessageId, role: 'assistant' as const, content: accumulatedContent, timestamp: new Date() }];
+                    return [...prev, { id: assistantMessageId, role: 'assistant' as const, content: accumulatedContent, timestamp: new Date(), isClarifyMsg: streamIsClarifying || undefined }];
                   }
                   return prev.map((msg) =>
                     msg.id === assistantMessageId
@@ -2187,6 +2268,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                 }
                 const chatMessage = message as Message;
                 if (chatMessage.hidden) return false;
+                if (chatMessage.isClarifySuperseded) return false;
                 if ((chatMessage as any).deliverySummary) return true;
                 if (chatMessage.content.trim().length === 0) return false;
                 const content = chatMessage.content.trim();
@@ -2739,13 +2821,32 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
             </div>
           )}
 
-          {/* Clarifying before run indicator */}
           {isClarifyingForRun && !isWaitingForSupervisor && (
-            <div className="flex items-center gap-2 mb-2 px-2">
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-800 border border-amber-200">
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
-                Clarifying before run
-              </span>
+            <div className="mb-3 mx-2 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50/80 dark:bg-amber-950/30 px-4 py-3 space-y-2">
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
+                <span className="text-xs font-semibold text-amber-800 dark:text-amber-200 uppercase tracking-wide">Clarifying before run</span>
+              </div>
+              {(clarifyContext.entityType || clarifyContext.location || clarifyContext.semanticConstraint) && (
+                <div className="text-sm text-amber-900 dark:text-amber-100">
+                  <span className="text-muted-foreground text-xs">Current request: </span>
+                  {clarifyContext.entityType && <span className="font-medium">{clarifyContext.entityType}</span>}
+                  {clarifyContext.location && <span className="font-medium">{clarifyContext.entityType ? ` in ${clarifyContext.location}` : clarifyContext.location}</span>}
+                  {clarifyContext.semanticConstraint && <span className="text-xs text-muted-foreground ml-1">({clarifyContext.semanticConstraint})</span>}
+                </div>
+              )}
+              {clarifyContext.pendingQuestion && !clarifyContext.isConfirmation && (
+                <div className="text-xs text-amber-700 dark:text-amber-300">
+                  <HelpCircle className="h-3 w-3 inline mr-1" />
+                  {clarifyContext.pendingQuestion}
+                </div>
+              )}
+              {clarifyContext.isConfirmation && (
+                <div className="text-xs text-green-700 dark:text-green-300">
+                  <CheckCircle2 className="h-3 w-3 inline mr-1" />
+                  Ready to search — type or click <strong>Search now</strong> to proceed.
+                </div>
+              )}
             </div>
           )}
 
