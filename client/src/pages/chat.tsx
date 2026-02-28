@@ -24,7 +24,9 @@ import { useSidebarFlash } from "@/contexts/SidebarFlashContext";
 import { subscribeSupervisorMessages, type SupervisorMessage } from "@/lib/supabase";
 import { useUserGoal } from "@/hooks/use-user-goal";
 import { publishEvent } from "@/lib/events";
-import { getCurrentVerticalId } from "@/contexts/VerticalContext";
+import { getCurrentVerticalId, AVAILABLE_VERTICALS } from "@/contexts/VerticalContext";
+import { detectVerticalMismatch, getVerticalLabel } from "@/lib/verticalMismatch";
+import type { VerticalId } from "@/lib/verticals/types";
 import { WhatJustHappenedPanel } from "@/components/tower/WhatJustHappenedPanel";
 import { useResultsPanel } from "@/contexts/ResultsPanelContext";
 import { useCurrentRequest } from "@/contexts/CurrentRequestContext";
@@ -49,6 +51,7 @@ type Message = ChatMessage & {
   hidden?: boolean;
   provisional?: boolean;
   isConfidence?: boolean;
+  towerVerdict?: string | null;
 };
 
 type SystemMessage = {
@@ -87,6 +90,8 @@ function RunDiagnosticPanel({
   supervisorClientRequestIdRef,
   showDebugPanel,
   setShowDebugPanel,
+  lastSentQueryRef,
+  lastRunFinalVerdictRef,
 }: {
   conversationId: string | undefined;
   messages: DisplayMessage[];
@@ -97,6 +102,8 @@ function RunDiagnosticPanel({
   supervisorClientRequestIdRef: React.MutableRefObject<string | null>;
   showDebugPanel: boolean;
   setShowDebugPanel: (fn: (p: boolean) => boolean) => void;
+  lastSentQueryRef: React.MutableRefObject<string | null>;
+  lastRunFinalVerdictRef: React.MutableRefObject<string | null>;
 }) {
   const [diagData, setDiagData] = useState<any>(null);
   const [diagLoading, setDiagLoading] = useState(false);
@@ -154,7 +161,9 @@ function RunDiagnosticPanel({
             supervisorRunIdRef: {supervisorRunIdRef.current || 'null'}<br/>
             supervisorClientRequestIdRef: {supervisorClientRequestIdRef.current || 'null'}<br/>
             deliverySummaryRunIds: [{Array.from(deliverySummaryRunIdsRef.current).join(', ')}]<br/>
-            inFlightRuns: {inFlightEntries.length === 0 ? 'none' : inFlightEntries.map(([k, v]) => `[crid=${k.slice(0, 12)} runId=${v.runId?.slice(0, 12) || 'null'}]`).join(' ')}
+            inFlightRuns: {inFlightEntries.length === 0 ? 'none' : inFlightEntries.map(([k, v]) => `[crid=${k.slice(0, 12)} runId=${v.runId?.slice(0, 12) || 'null'}]`).join(' ')}<br/>
+            lastSentQuery: {lastSentQueryRef.current ? lastSentQueryRef.current.slice(0, 60) + (lastSentQueryRef.current.length > 60 ? '...' : '') : 'null'}<br/>
+            lastRunFinalVerdict: {lastRunFinalVerdictRef.current || 'UNKNOWN'}
           </div>
 
           <div className="border-b border-red-500/20 pb-1 mb-1">
@@ -292,6 +301,19 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
   }, [queuedMessage]);
 
   const pendingMetadataRef = useRef<Record<string, any> | null>(null);
+
+  const lastSentQueryRef = useRef<string | null>(null);
+  const skipMismatchOnceRef = useRef(false);
+  const lastRunFinalVerdictRef = useRef<string | null>(null);
+
+  const [concatenationError, setConcatenationError] = useState<string | null>(null);
+
+  interface VerticalMismatchPrompt {
+    query: string;
+    currentVertical: VerticalId;
+    matchedTerms: string[];
+  }
+  const [verticalMismatchPrompt, setVerticalMismatchPrompt] = useState<VerticalMismatchPrompt | null>(null);
 
   useEffect(() => {
     const handlePrefill = (e: Event) => {
@@ -562,6 +584,8 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
           detail: { clientRequestId: effectiveCrid, runId: effectiveRunId || null },
         }));
 
+        lastRunFinalVerdictRef.current = towerVerdict || synthesisedDs.status || 'UNKNOWN';
+
         const finalMsg: Message = {
           id: `ds-${effectiveKey}`,
           role: 'assistant',
@@ -575,6 +599,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
           policySnapshot: provPs || undefined,
           runId: effectiveRunId || undefined,
           provisional: false,
+          towerVerdict,
         };
         upsertResultMessage(finalMsg);
 
@@ -600,9 +625,20 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
 
       const { vs, ce, policySnapshot, leadVerifications } = parseSiblingArtefacts(rows);
 
+      const towerRow2 = rows.find((r: any) => r.type === 'tower_judgement');
+      let dsPathTowerVerdict: string | null = null;
+      if (towerRow2) {
+        let tp2 = towerRow2.payload_json;
+        if (typeof tp2 === 'string') { try { tp2 = JSON.parse(tp2); } catch {} }
+        if (tp2 && typeof tp2 === 'object') dsPathTowerVerdict = tp2.verdict || null;
+      }
+
       const dsExact = Array.isArray(parsed.delivered_exact) ? parsed.delivered_exact.length : 0;
       const dsClosest = Array.isArray(parsed.delivered_closest) ? parsed.delivered_closest.length : 0;
-      console.log(`[Chat][finalizeRunUI] delivery_summary found for run=${effectiveKey}, status=${parsed.status}, verified_exact=${parsed.verified_exact_count ?? 'n/a'}, delivered_exact=${dsExact}, delivered_closest=${dsClosest}, leadVerifications=${leadVerifications?.length ?? 'none'} (source=${source})`);
+      console.log(`[Chat][finalizeRunUI] delivery_summary found for run=${effectiveKey}, status=${parsed.status}, verified_exact=${parsed.verified_exact_count ?? 'n/a'}, delivered_exact=${dsExact}, delivered_closest=${dsClosest}, leadVerifications=${leadVerifications?.length ?? 'none'}, towerVerdict=${dsPathTowerVerdict} (source=${source})`);
+
+      lastRunFinalVerdictRef.current = dsPathTowerVerdict || parsed.status || 'UNKNOWN';
+
       deliverySummaryRunIdsRef.current.add(effectiveKey);
       if (effectiveRunId && effectiveRunId !== effectiveKey) deliverySummaryRunIdsRef.current.add(effectiveRunId);
       if (effectiveCrid && effectiveCrid !== effectiveKey) deliverySummaryRunIdsRef.current.add(effectiveCrid);
@@ -611,26 +647,30 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         detail: { clientRequestId: effectiveCrid, runId: effectiveRunId || null },
       }));
 
+      const isTrustFailure = parsed.status?.toUpperCase() === 'FAIL' ||
+        (dsPathTowerVerdict && ['fail', 'error'].includes(dsPathTowerVerdict.toLowerCase()));
+
       const resultMessage: Message = {
         id: `ds-${effectiveKey}`,
         role: 'assistant',
         content: '',
         timestamp: new Date(),
         source: 'supervisor',
-        deliverySummary: parsed as DeliverySummary,
+        deliverySummary: isTrustFailure ? { ...parsed, status: 'FAIL' } as DeliverySummary : parsed as DeliverySummary,
         verificationSummary: vs,
         constraintsExtracted: ce,
         leadVerifications,
         policySnapshot: policySnapshot || undefined,
         runId: effectiveRunId || undefined,
         provisional: false,
+        towerVerdict: dsPathTowerVerdict,
       };
       upsertResultMessage(resultMessage);
 
       persistStructuredResult({
         messageId: resultMessage.id,
         runId: effectiveRunId || null,
-        deliverySummary: parsed,
+        deliverySummary: isTrustFailure ? { ...parsed, status: 'FAIL' } : parsed,
         verificationSummary: vs || null,
         constraintsExtracted: ce || null,
         leadVerifications: leadVerifications || null,
@@ -639,10 +679,12 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
 
       cleanupRunState(effectiveKey);
 
-      toast({
-        title: "Results ready",
-        description: "Your results are now available in the chat.",
-      });
+      if (!isTrustFailure) {
+        toast({
+          title: "Results ready",
+          description: "Your results are now available in the chat.",
+        });
+      }
     } catch (err) {
       console.warn(`[Chat][finalizeRunUI] Error (source=${source}):`, err);
     }
@@ -1920,21 +1962,41 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     const messageContent = promptOverride || input.trim();
     if (!messageContent) return;
     
-    // SOFT LOCK: If a run is active, don't submit - this is handled by handleKeyDown
-    // This check is here as a safety net for direct calls
     if (isStreaming || isRunActive) {
-      console.log('⏸️ Run active, cannot submit new message');
+      console.log('[Chat] Run active, cannot submit new message');
       return;
     }
 
-    // Hide location suggestions
+    setConcatenationError(null);
+
+    if (lastSentQueryRef.current && messageContent !== lastSentQueryRef.current && messageContent.length > lastSentQueryRef.current.length) {
+      const prevLower = lastSentQueryRef.current.toLowerCase();
+      const newLower = messageContent.toLowerCase();
+      if (newLower.includes(prevLower) && prevLower.length > 10) {
+        setConcatenationError("Your request looks merged with the previous one. Please try again.");
+        console.warn('[Chat][ConcatGuard] Blocked send: new query contains previous query as substring');
+        return;
+      }
+    }
+
+    const verticalId = getCurrentVerticalId();
+    if (verticalId !== 'generic' && !skipMismatchOnceRef.current) {
+      const { mismatch, matchedTerms } = detectVerticalMismatch(verticalId, messageContent);
+      if (mismatch) {
+        console.log(`[Chat][SanityGate] Vertical mismatch detected: vertical=${verticalId}, terms=${matchedTerms.join(', ')}`);
+        setVerticalMismatchPrompt({ query: messageContent, currentVertical: verticalId, matchedTerms });
+        setInput("");
+        return;
+      }
+    }
+    skipMismatchOnceRef.current = false;
+
     setShowLocationSuggestions(false);
 
-    // INTENT CLASSIFICATION: Determine if this is a new goal or continuation
     const currentHistory = messages.filter((msg): msg is Message => !("type" in msg));
     const intent = classifyIntent(messageContent, currentHistory);
 
-    console.log(`🎯 Intent classified: ${intent} for message: "${messageContent.slice(0, 50)}..."`);
+    console.log(`[Chat] Intent classified: ${intent} for message: "${messageContent.slice(0, 50)}..."`);
 
     const userMessage: Message = {
       id: crypto.randomUUID(),
@@ -1943,27 +2005,23 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
       timestamp: new Date(),
     };
 
-    // Handle intent-based context management
     if (intent === 'NEW_REPLACE') {
-      console.log('🔄 NEW_REPLACE: Clearing old context and starting fresh');
       setMessages((prev) => {
         const dsMessages = prev.filter(m => m.id.startsWith('ds-'));
         return [...dsMessages, userMessage];
       });
     } else if (intent === 'NEW_UNRELATED') {
-      console.log('🆕 NEW_UNRELATED: Starting new thread');
       setMessages((prev) => {
         const dsMessages = prev.filter(m => m.id.startsWith('ds-'));
         return [...dsMessages, userMessage];
       });
     } else {
-      // CONTINUE or MODIFY: Keep existing context
       setMessages((prev) => [...prev, userMessage]);
     }
 
     setInput("");
+    lastSentQueryRef.current = messageContent;
 
-    // Publish event for message sent
     publishEvent("CHAT_MESSAGE_SENT", {
       conversationId: conversationId || "pending",
       messageId: userMessage.id,
@@ -1971,24 +2029,19 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
       mode: chatMode,
     });
 
-    // Build conversation history based on intent
     let conversationHistory: ChatMessage[];
 
     if (intent === 'NEW_REPLACE' || intent === 'NEW_UNRELATED') {
-      // For new goals, only send the current message (no old context)
       conversationHistory = [{ role: userMessage.role, content: userMessage.content }];
     } else {
-      // For CONTINUE/MODIFY, send recent history
       const allHistory = messages
         .filter((msg): msg is Message => !("type" in msg))
         .map(({ role, content }) => ({ role, content }));
 
-      // LIMIT TO LAST 6 MESSAGES (3 exchanges) to prevent old context pollution
       const recentHistory = allHistory.slice(-6);
       conversationHistory = [...recentHistory, { role: userMessage.role, content: userMessage.content }];
     }
 
-    // Send conversation to backend
     streamChatResponse(conversationHistory);
   };
 
@@ -2399,6 +2452,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                           runId={chatMessage.runId}
                           policySnapshot={chatMessage.policySnapshot}
                           provisional={chatMessage.provisional}
+                          towerVerdict={chatMessage.towerVerdict}
                         />
                       </div>
                       <span className="text-xs text-muted-foreground mt-1">
@@ -2635,6 +2689,52 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
             );
           })()}
 
+          {verticalMismatchPrompt && (
+            <div className="flex gap-3 flex-row mb-2" data-testid="vertical-mismatch">
+              <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0">
+                <img src={wyshboneLogo} alt="Wyshbone" className="w-full h-full object-cover" />
+              </div>
+              <div className="flex flex-col items-start max-w-3xl lg:max-w-none">
+                <div className="rounded-lg px-4 py-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800">
+                  <p className="text-sm text-amber-800 dark:text-amber-200 mb-2">
+                    That looks like a different type of search than {getVerticalLabel(verticalMismatchPrompt.currentVertical)}. Do you want me to switch to General and run it, or keep {getVerticalLabel(verticalMismatchPrompt.currentVertical)}?
+                  </p>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={() => {
+                        const q = verticalMismatchPrompt.query;
+                        setVerticalMismatchPrompt(null);
+                        try {
+                          localStorage.setItem('wyshbone.currentVerticalId', 'generic');
+                          window.dispatchEvent(new CustomEvent('wyshbone:vertical_changed', { detail: { verticalId: 'generic' } }));
+                        } catch {}
+                        handleSendRef.current?.(q);
+                      }}
+                    >
+                      Switch to General and run
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={() => {
+                        const q = verticalMismatchPrompt.query;
+                        setVerticalMismatchPrompt(null);
+                        skipMismatchOnceRef.current = true;
+                        handleSendRef.current?.(q);
+                      }}
+                    >
+                      Keep {getVerticalLabel(verticalMismatchPrompt.currentVertical)}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Clarifying before run indicator */}
           {isClarifyingForRun && !isWaitingForSupervisor && (
             <div className="flex items-center gap-2 mb-2 px-2">
@@ -2696,6 +2796,8 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
           supervisorClientRequestIdRef={supervisorClientRequestIdRef}
           showDebugPanel={showDebugPanel}
           setShowDebugPanel={setShowDebugPanel}
+          lastSentQueryRef={lastSentQueryRef}
+          lastRunFinalVerdictRef={lastRunFinalVerdictRef}
         />
       )}
 
@@ -2760,6 +2862,20 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
             />
           )}
           
+          {concatenationError && (
+            <div className="mb-2 px-3 py-2 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded-lg flex items-center justify-between">
+              <span className="text-sm text-red-700 dark:text-red-300">{concatenationError}</span>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => { setConcatenationError(null); setInput(""); }}
+                className="text-red-600 hover:text-red-800 dark:text-red-400"
+              >
+                Clear
+              </Button>
+            </div>
+          )}
+
           {/* Queued Message Indicator */}
           {queuedMessage && (
             <div className="mb-2 px-3 py-2 bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-lg flex items-center justify-between">

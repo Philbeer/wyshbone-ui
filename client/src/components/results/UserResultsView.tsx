@@ -35,6 +35,7 @@ const STATUS_ICONS: Record<CanonicalStatus, typeof CheckCircle2> = {
   PASS: CheckCircle2,
   PARTIAL: CircleDot,
   STOP: OctagonX,
+  FAIL: AlertTriangle,
   UNAVAILABLE: HelpCircle,
 };
 

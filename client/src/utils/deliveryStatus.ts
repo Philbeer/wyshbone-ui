@@ -1,4 +1,4 @@
-export type CanonicalStatus = "PASS" | "PARTIAL" | "STOP" | "UNAVAILABLE";
+export type CanonicalStatus = "PASS" | "PARTIAL" | "STOP" | "FAIL" | "UNAVAILABLE";
 
 export interface StopReason {
   message: string;
@@ -21,9 +21,9 @@ export interface DeliveryStatusInput {
 export function resolveCanonicalStatus(input: DeliveryStatusInput): CanonicalDeliveryStatus {
   const raw = (input.status || "").toUpperCase().trim();
 
-  if (raw === "PASS" || raw === "PARTIAL" || raw === "STOP") {
+  if (raw === "PASS" || raw === "PARTIAL" || raw === "STOP" || raw === "FAIL") {
     let stopReason: StopReason | null = null;
-    if (raw === "STOP" && input.stop_reason) {
+    if ((raw === "STOP" || raw === "FAIL") && input.stop_reason) {
       if (typeof input.stop_reason === "string") {
         stopReason = { message: input.stop_reason };
       } else if (typeof input.stop_reason === "object" && input.stop_reason !== null) {
@@ -54,6 +54,11 @@ export const STATUS_CONFIG: Record<CanonicalStatus, { label: string; badge: stri
     label: "Search complete",
     badge: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-200",
     description: "Search finished.",
+  },
+  FAIL: {
+    label: "Verification failed",
+    badge: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-200",
+    description: "Results could not be verified.",
   },
   UNAVAILABLE: {
     label: "Status unavailable",

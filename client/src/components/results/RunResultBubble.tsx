@@ -31,6 +31,7 @@ export interface RunResultBubbleProps {
   runId?: string | null;
   policySnapshot?: PolicySnapshot | null;
   provisional?: boolean;
+  towerVerdict?: string | null;
 }
 
 function dispatchFollowUp(params: {
@@ -59,6 +60,7 @@ const STATUS_ICONS: Record<CanonicalStatus, typeof CheckCircle2> = {
   PASS: CheckCircle2,
   PARTIAL: CircleDot,
   STOP: OctagonX,
+  FAIL: AlertTriangle,
   UNAVAILABLE: HelpCircle,
 };
 
@@ -66,6 +68,7 @@ const STATUS_COLORS: Record<CanonicalStatus, string> = {
   PASS: "text-green-600 dark:text-green-400",
   PARTIAL: "text-blue-600 dark:text-blue-400",
   STOP: "text-red-600 dark:text-red-400",
+  FAIL: "text-red-600 dark:text-red-400",
   UNAVAILABLE: "text-muted-foreground",
 };
 
@@ -281,8 +284,12 @@ function buildSummaryText(
   }
 }
 
-function LeadBadge({ isVerified, unverifiableAttr }: { isVerified: boolean; unverifiableAttr: string | null }) {
-  if (isVerified) {
+type LeadBadgeStatus = 'verified' | 'candidate' | 'unverified';
+
+function LeadBadge({ isVerified, unverifiableAttr, badgeStatus }: { isVerified: boolean; unverifiableAttr: string | null; badgeStatus?: LeadBadgeStatus }) {
+  const effectiveStatus: LeadBadgeStatus = badgeStatus === 'unverified' ? 'unverified' : (isVerified ? 'verified' : (badgeStatus || 'candidate'));
+
+  if (effectiveStatus === 'verified') {
     return (
       <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300">
         <CheckCircle2 className="h-2.5 w-2.5" /> Verified match
@@ -298,7 +305,19 @@ function LeadBadge({ isVerified, unverifiableAttr }: { isVerified: boolean; unve
     );
   }
 
-  return null;
+  if (effectiveStatus === 'unverified') {
+    return (
+      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400">
+        <HelpCircle className="h-2.5 w-2.5" /> Unverified
+      </span>
+    );
+  }
+
+  return (
+    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400">
+      Candidate
+    </span>
+  );
 }
 
 function LocationBadge({ status }: { status: LocationStatus }) {
@@ -331,7 +350,7 @@ function LocationBadge({ status }: { status: LocationStatus }) {
   }
 }
 
-function LeadRow({ lead, isVerified, unverifiableAttr, runId, showLocationBadge }: { lead: DeliveryLead; isVerified: boolean; unverifiableAttr: string | null; runId?: string | null; showLocationBadge?: boolean }) {
+function LeadRow({ lead, isVerified, unverifiableAttr, runId, showLocationBadge, badgeStatus }: { lead: DeliveryLead; isVerified: boolean; unverifiableAttr: string | null; runId?: string | null; showLocationBadge?: boolean; badgeStatus?: LeadBadgeStatus }) {
   const area = lead.location || "";
   const placeId = (lead as any).place_id || (lead as any).placeId;
   const mapsLink = placeId
@@ -349,7 +368,7 @@ function LeadRow({ lead, isVerified, unverifiableAttr, runId, showLocationBadge 
       <div className="flex-1 min-w-0 space-y-1">
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-sm font-semibold text-foreground truncate">{lead.name || "Unknown"}</span>
-          <LeadBadge isVerified={isVerified} unverifiableAttr={isVerified ? null : unverifiableAttr} />
+          <LeadBadge isVerified={isVerified} unverifiableAttr={isVerified ? null : unverifiableAttr} badgeStatus={badgeStatus} />
           {showLocationBadge && <LocationBadge status={getLocationStatus(lead)} />}
           <button onClick={handleCopy} className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded hover:bg-muted" title="Copy contact">
             <Copy className="h-3 w-3 text-muted-foreground" />
@@ -568,6 +587,49 @@ function ArtefactsRetryBlock({ runId }: { runId?: string | null }) {
   );
 }
 
+function TrustErrorBlock({ verdict, runId }: { verdict: string; runId?: string | null }) {
+  return (
+    <div className="flex flex-col items-start gap-2 rounded-md bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 px-3 py-2">
+      <div className="flex items-center gap-2">
+        <AlertTriangle className="h-3.5 w-3.5 text-red-600 dark:text-red-400 shrink-0" />
+        <p className="text-xs text-red-700 dark:text-red-300 font-medium">
+          I can't trust these results because verification failed (Tower: {verdict.toUpperCase()}). Want me to retry with a cleaned query or ask a clarification question?
+        </p>
+      </div>
+      <div className="flex gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7 text-xs gap-1.5"
+          onClick={() => {
+            dispatchFollowUp({
+              message: "Retry the search with a clean query.",
+              parentRunId: runId,
+              actionType: "retry_clean",
+            });
+          }}
+        >
+          <RefreshCw className="h-3 w-3" /> Retry
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7 text-xs gap-1.5"
+          onClick={() => {
+            dispatchFollowUp({
+              message: "Ask me a clarification question about what I need.",
+              parentRunId: runId,
+              actionType: "ask_clarification",
+            });
+          }}
+        >
+          <HelpCircle className="h-3 w-3" /> Ask me a question
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 export default function RunResultBubble({
   deliverySummary,
   verificationSummary,
@@ -576,6 +638,7 @@ export default function RunResultBubble({
   runId,
   policySnapshot,
   provisional = false,
+  towerVerdict,
 }: RunResultBubbleProps) {
   const verifiedExact = resolveVerifiedCount(deliverySummary, verificationSummary);
   const target = resolveHasTargetCount(deliverySummary, constraintsExtracted);
@@ -587,6 +650,14 @@ export default function RunResultBubble({
     requested_count: target.hasTarget ? target.targetCount : undefined,
     verified_exact_count: verifiedExact,
   });
+
+  const isTrustFailure = canonical.status === "FAIL" ||
+    (towerVerdict && ['fail', 'error'].includes(towerVerdict.toLowerCase()));
+
+  const defaultBadgeStatus: LeadBadgeStatus =
+    !leadVerifications || leadVerifications.length === 0 || isTrustFailure
+      ? 'unverified'
+      : 'candidate';
 
   const StatusIcon = STATUS_ICONS[canonical.status];
   const statusColor = STATUS_COLORS[canonical.status];
@@ -625,7 +696,11 @@ export default function RunResultBubble({
         <ArtefactsRetryBlock runId={runId} />
       )}
 
-      {!provisional && deliverySummary.stop_reason !== 'artefacts_unavailable' && (
+      {!provisional && isTrustFailure && deliverySummary.stop_reason !== 'artefacts_unavailable' && (
+        <TrustErrorBlock verdict={towerVerdict || deliverySummary.status || 'FAIL'} runId={runId} />
+      )}
+
+      {!provisional && !isTrustFailure && deliverySummary.stop_reason !== 'artefacts_unavailable' && (
         <div className="flex items-start gap-2">
           <StatusIcon className={cn("h-4 w-4 mt-0.5 shrink-0", statusColor)} />
           <p className="text-sm text-foreground leading-relaxed">{summaryText}</p>
@@ -645,7 +720,7 @@ export default function RunResultBubble({
         </div>
       )}
 
-      {!provisional && useLocationBuckets && locationBuckets && (
+      {!provisional && !isTrustFailure && useLocationBuckets && locationBuckets && (
         <>
           {locationBuckets.verifiedGeo.length > 0 && (
             <div className="space-y-0.5">
@@ -654,7 +729,7 @@ export default function RunResultBubble({
               </h4>
               <div>
                 {locationBuckets.verifiedGeo.map((lead, i) => (
-                  <LeadRow key={i} lead={lead} isVerified={isLeadInMatchSet(lead, matchSetLower) || matchSetLower.size === 0} unverifiableAttr={null} runId={runId} showLocationBadge />
+                  <LeadRow key={i} lead={lead} isVerified={isLeadInMatchSet(lead, matchSetLower) || matchSetLower.size === 0} unverifiableAttr={null} runId={runId} showLocationBadge badgeStatus={defaultBadgeStatus} />
                 ))}
               </div>
             </div>
@@ -666,7 +741,7 @@ export default function RunResultBubble({
               </h4>
               <div>
                 {locationBuckets.searchBounded.map((lead, i) => (
-                  <LeadRow key={i} lead={lead} isVerified={isLeadInMatchSet(lead, matchSetLower)} unverifiableAttr={null} runId={runId} showLocationBadge />
+                  <LeadRow key={i} lead={lead} isVerified={isLeadInMatchSet(lead, matchSetLower)} unverifiableAttr={null} runId={runId} showLocationBadge badgeStatus={defaultBadgeStatus} />
                 ))}
               </div>
             </div>
@@ -678,7 +753,7 @@ export default function RunResultBubble({
               </h4>
               <div>
                 {locationBuckets.outOfArea.map((lead, i) => (
-                  <LeadRow key={i} lead={lead} isVerified={false} unverifiableAttr={null} runId={runId} showLocationBadge />
+                  <LeadRow key={i} lead={lead} isVerified={false} unverifiableAttr={null} runId={runId} showLocationBadge badgeStatus={defaultBadgeStatus} />
                 ))}
               </div>
             </div>
@@ -690,7 +765,7 @@ export default function RunResultBubble({
               </h4>
               <div>
                 {locationBuckets.unknown.map((lead, i) => (
-                  <LeadRow key={i} lead={lead} isVerified={isLeadInMatchSet(lead, matchSetLower)} unverifiableAttr={isLeadInMatchSet(lead, matchSetLower) ? null : unverifiableAttr} runId={runId} showLocationBadge />
+                  <LeadRow key={i} lead={lead} isVerified={isLeadInMatchSet(lead, matchSetLower)} unverifiableAttr={isLeadInMatchSet(lead, matchSetLower) ? null : unverifiableAttr} runId={runId} showLocationBadge badgeStatus={defaultBadgeStatus} />
                 ))}
               </div>
             </div>
@@ -698,23 +773,23 @@ export default function RunResultBubble({
         </>
       )}
 
-      {!provisional && !useLocationBuckets && matches.length > 0 && (
+      {!provisional && !isTrustFailure && !useLocationBuckets && matches.length > 0 && (
         <div className="space-y-0.5">
           <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Matches ({matches.length})</h4>
           <div>
             {matches.map((lead, i) => (
-              <LeadRow key={i} lead={lead} isVerified={true} unverifiableAttr={null} runId={runId} />
+              <LeadRow key={i} lead={lead} isVerified={true} unverifiableAttr={null} runId={runId} badgeStatus={defaultBadgeStatus} />
             ))}
           </div>
         </div>
       )}
 
-      {!provisional && !useLocationBuckets && candidates.length > 0 && (
+      {!provisional && !isTrustFailure && !useLocationBuckets && candidates.length > 0 && (
         <div className="space-y-0.5">
           <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{matches.length > 0 ? `Other results (${candidates.length})` : `Results (${candidates.length})`}</h4>
           <div>
             {candidates.map((lead, i) => (
-              <LeadRow key={i} lead={lead} isVerified={false} unverifiableAttr={unverifiableAttr} runId={runId} />
+              <LeadRow key={i} lead={lead} isVerified={false} unverifiableAttr={unverifiableAttr} runId={runId} badgeStatus={defaultBadgeStatus} />
             ))}
           </div>
         </div>

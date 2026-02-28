@@ -119,3 +119,10 @@ The UI never owns persistence. All artefacts, runs, judgements, and business dat
 - **Xero:** Accounting platform integration.
 - **Hunter.io:** Domain discovery, email finding, and verification.
 - **SalesHandy:** Automated prospect management and campaign integration.
+
+## Trust & Verification Safeguards (UI Layer)
+- **Concatenation Guard (A):** `handleSend` in `chat.tsx` checks if a new outbound query contains the previous query as a substring (>10 chars). If detected, blocks send with an inline error: "Your request looks merged with the previous one. Please try again." Source of truth: `lastSentQueryRef` tracks the last query sent. State: `concatenationError`.
+- **Pre-Run Sanity Gate (B):** Before sending a run request, `handleSend` calls `detectVerticalMismatch()` from `client/src/lib/verticalMismatch.ts`. If the active vertical (e.g. Breweries) doesn't match the user's query domain (e.g. "vulnerable adults"), shows a clarification bubble with two buttons: "Switch to General and run" / "Keep [Vertical]". Config: keyword-based mismatch heuristic per vertical stored in `MISMATCH_MAP`. Currently configured for `brewery` vertical only.
+- **Tower Veto / Trust Failure (C):** `finalizeRunUI` extracts `towerVerdict` from `tower_judgement` artefacts. If verdict is FAIL/ERROR, the UI does NOT show "Results ready" toast. `RunResultBubble` renders a `TrustErrorBlock` with "Retry" / "Ask me a question" buttons instead of results. `deliveryStatus.ts` now includes `FAIL` as a canonical status.
+- **Verified Match Badges (D):** `LeadBadge` in `RunResultBubble.tsx` now shows three states: "Verified match" (green, only when lead_verification confirms), "Candidate" (neutral gray, when verification exists but lead not confirmed), "Unverified" (gray with icon, when tower didn't judge or failed). `badgeStatus` prop propagated through `LeadRow`.
+- **Debug Diagnostics (E):** `RunDiagnosticPanel` in `chat.tsx` now shows `lastSentQuery` (truncated to 60 chars) and `lastRunFinalVerdict` (PASS/FAIL/STOP/ERROR/UNKNOWN) in the client state section. Non-user-visible (dev only).
