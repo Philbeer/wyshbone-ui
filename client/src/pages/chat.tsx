@@ -2695,7 +2695,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                         <p className="text-[15px] leading-relaxed whitespace-pre-wrap">{chatMessage.content}</p>
                       )}
                     </div>
-                    {!isUser && isClarifyingForRun && chatMessage.content.includes('**Search now**') && !actionedSearchNowIds.current.has(chatMessage.id) && (
+                    {!isUser && isClarifyingForRun && chatMessage.content.includes('**Search now**') && !actionedSearchNowIds.current.has(chatMessage.id) && clarifyContext.status === 'ready' && clarifyContext.missingFields.length === 0 && (
                       <Button
                         variant="default"
                         size="sm"
@@ -2815,7 +2815,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                   {clarifyContext.semanticConstraint && <span className="text-xs text-muted-foreground ml-1">({clarifyContext.semanticConstraint})</span>}
                 </div>
               )}
-              {clarifyContext.status === 'gathering' && clarifyContext.missingFields.length > 0 && (
+              {clarifyContext.missingFields.length > 0 && (
                 <div className="flex flex-wrap gap-1.5 mt-1">
                   {clarifyContext.missingFields.map((field) => (
                     <span key={field} className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-200/60 dark:bg-amber-800/40 text-amber-800 dark:text-amber-200">
@@ -2824,7 +2824,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                   ))}
                 </div>
               )}
-              {clarifyContext.status === 'gathering' && clarifyContext.pendingQuestions.length > 0 && (
+              {(clarifyContext.missingFields.length > 0 || clarifyContext.status !== 'ready') && clarifyContext.pendingQuestions.length > 0 && (
                 <div className="space-y-1">
                   {clarifyContext.pendingQuestions.map((question, idx) => (
                     <div key={idx} className="text-xs text-amber-700 dark:text-amber-300">
@@ -2834,7 +2834,13 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                   ))}
                 </div>
               )}
-              {clarifyContext.status === 'ready' && (
+              {(clarifyContext.missingFields.length > 0 || clarifyContext.status !== 'ready') && (
+                <div className="text-xs text-amber-700 dark:text-amber-300 mt-1">
+                  <Loader2 className="h-3 w-3 inline mr-1 animate-spin" />
+                  Waiting for clarification before search can run.
+                </div>
+              )}
+              {clarifyContext.missingFields.length === 0 && clarifyContext.status === 'ready' && (
                 <div className="text-xs text-green-700 dark:text-green-300">
                   <CheckCircle2 className="h-3 w-3 inline mr-1" />
                   Ready to search — type or click <strong>Search now</strong> to proceed.
