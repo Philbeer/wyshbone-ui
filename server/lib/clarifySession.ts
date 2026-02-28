@@ -155,12 +155,42 @@ export function isUserCancelling(message: string): boolean {
   return CANCEL_PHRASES.some(phrase => normalized === phrase || normalized.startsWith(phrase + ' '));
 }
 
+export interface ClarifyStatePayload {
+  entityType: string | null;
+  location: string | null;
+  semanticConstraint: string | null;
+  count: string | null;
+  missingFields: string[];
+  status: 'gathering' | 'ready';
+  pendingQuestions: string[];
+}
+
 export interface ClarifyHandlerResult {
   action: 'ask_more' | 'run_supervisor' | 'cancelled';
   message?: string;
   clarifiedRequest?: string;
   entityType?: string;
   location?: string;
+  clarifyState?: ClarifyStatePayload;
+}
+
+export function buildClarifyStatePayload(session: ClarifySession): ClarifyStatePayload {
+  const missingFields: string[] = [];
+  if (!session.entity_type) missingFields.push('entity_type');
+  if (!session.location) missingFields.push('location');
+  if (session.semantic_constraint && !session.semantic_constraint_resolved) missingFields.push('semantic_constraint');
+
+  const allFilled = missingFields.length === 0;
+
+  return {
+    entityType: session.entity_type,
+    location: session.location,
+    semanticConstraint: session.semantic_constraint,
+    count: session.answers['count'] || null,
+    missingFields,
+    status: allFilled ? 'ready' : 'gathering',
+    pendingQuestions: session.pending_questions,
+  };
 }
 
 export function handleClarifyResponse(
@@ -199,20 +229,32 @@ export function handleClarifyResponse(
     return {
       action: 'ask_more',
       message: rephraseMsg,
+      clarifyState: buildClarifyStatePayload(session),
     };
   }
 
-  if (isRunTrigger(userMessage) && requiredAlreadyFilled) {
-    const clarifiedRequest = buildClarifiedRequest(session.entity_type!, session.location!, session.semantic_constraint, session.answers);
-    updateClarifySession(session.conversation_id, {
-      clarified_request_text: clarifiedRequest,
-      pending_questions: [],
-    });
+  if (isRunTrigger(userMessage)) {
+    if (requiredAlreadyFilled) {
+      const clarifiedRequest = buildClarifiedRequest(session.entity_type!, session.location!, session.semantic_constraint, session.answers);
+      updateClarifySession(session.conversation_id, {
+        clarified_request_text: clarifiedRequest,
+        pending_questions: [],
+      });
+      return {
+        action: 'run_supervisor',
+        clarifiedRequest,
+        entityType: session.entity_type || undefined,
+        location: session.location || undefined,
+      };
+    }
+    const missingLabels: string[] = [];
+    if (!session.entity_type) missingLabels.push('what type of business');
+    if (!session.location) missingLabels.push('which location');
+    const rephraseMsg = `I'd love to search now, but I still need: ${missingLabels.join(' and ')}. Could you provide ${missingLabels.length === 1 ? 'that' : 'those'}?`;
     return {
-      action: 'run_supervisor',
-      clarifiedRequest,
-      entityType: session.entity_type || undefined,
-      location: session.location || undefined,
+      action: 'ask_more',
+      message: rephraseMsg,
+      clarifyState: buildClarifyStatePayload(session),
     };
   }
 
@@ -223,6 +265,7 @@ export function handleClarifyResponse(
     return {
       action: 'ask_more',
       message: rephraseMsg,
+      clarifyState: buildClarifyStatePayload(session),
     };
   }
 
@@ -283,9 +326,11 @@ export function handleClarifyResponse(
       summaryParts.push(`(${newAnswers['semantic_detail']})`);
     }
     const summaryMsg = `Got it — I'll search for ${summaryParts.join(' ')}.\n\nReply **Search now** to proceed, or add more details (e.g. number of results).`;
+    const updatedSession = getActiveClarifySession(session.conversation_id) || session;
     return {
       action: 'ask_more',
       message: summaryMsg,
+      clarifyState: buildClarifyStatePayload(updatedSession),
     };
   }
 
@@ -299,10 +344,12 @@ export function handleClarifyResponse(
     pending_questions: nextQuestions,
   });
 
+  const updatedSession = getActiveClarifySession(session.conversation_id) || session;
   const formattedMsg = `Thanks — just a bit more detail needed:\n\n${nextQuestions.map((q, i) => `${i + 1}. ${q}`).join('\n')}`;
   return {
     action: 'ask_more',
     message: formattedMsg,
+    clarifyState: buildClarifyStatePayload(updatedSession),
   };
 }
 
@@ -322,9 +369,15 @@ function parseAnswerContent(message: string, session: ClarifySession): {
     rawAnswer?: string;
   } = {};
 
-  const countMatch = normalized.match(/\b(\d+)\b/);
-  if (countMatch) {
-    result.count = countMatch[1];
+  const TIME_UNIT_PATTERN = /\b\d+\s*(?:months?|years?|weeks?|days?|hours?|minutes?|mins?|yrs?|mos?)\b/i;
+  const standaloneCountMatch = normalized.match(/\b(\d+)\b/);
+  if (standaloneCountMatch) {
+    const numberStr = standaloneCountMatch[0];
+    const idxStart = standaloneCountMatch.index ?? 0;
+    const surroundingText = normalized.slice(Math.max(0, idxStart - 1), idxStart + numberStr.length + 12);
+    if (!TIME_UNIT_PATTERN.test(surroundingText)) {
+      result.count = standaloneCountMatch[1];
+    }
   }
 
   const locPatterns = [
@@ -338,7 +391,7 @@ function parseAnswerContent(message: string, session: ClarifySession): {
       break;
     }
   }
-  if (!session.location && !result.location && !countMatch && normalized.split(/\s+/).length <= 3) {
+  if (!session.location && !result.location && !standaloneCountMatch && normalized.split(/\s+/).length <= 3) {
     result.location = message.trim().replace(/[.,!?;:]+$/, '');
   }
 

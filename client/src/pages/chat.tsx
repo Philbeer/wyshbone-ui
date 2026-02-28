@@ -268,19 +268,21 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
   const [isClarifyingForRun, setIsClarifyingForRun] = useState(false);
   const actionedSearchNowIds = useRef<Set<string>>(new Set());
   const [, forceSearchNowRender] = useState(0);
-  
+
   interface ClarifyContext {
     entityType: string | null;
     location: string | null;
     semanticConstraint: string | null;
-    pendingQuestion: string | null;
-    isConfirmation: boolean;
-    latestClarifyMsgId: string | null;
+    count: string | null;
+    missingFields: string[];
+    status: 'gathering' | 'ready';
+    pendingQuestions: string[];
   }
-  const [clarifyContext, setClarifyContext] = useState<ClarifyContext>({
+  const EMPTY_CLARIFY_CONTEXT: ClarifyContext = {
     entityType: null, location: null, semanticConstraint: null,
-    pendingQuestion: null, isConfirmation: false, latestClarifyMsgId: null,
-  });
+    count: null, missingFields: [], status: 'gathering', pendingQuestions: [],
+  };
+  const [clarifyContext, setClarifyContext] = useState<ClarifyContext>(EMPTY_CLARIFY_CONTEXT);
   const prevClarifyMsgIdRef = useRef<string | null>(null);
   const latestClarifyMsgIdRef = useRef<string | null>(null);
 
@@ -1335,7 +1337,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         setIsStreaming(false);
         setShowLocationSuggestions(false);
         setIsClarifyingForRun(false);
-        setClarifyContext({ entityType: null, location: null, semanticConstraint: null, pendingQuestion: null, isConfirmation: false, latestClarifyMsgId: null });
+        setClarifyContext(EMPTY_CLARIFY_CONTEXT);
         prevClarifyMsgIdRef.current = null;
         latestClarifyMsgIdRef.current = null;
         actionedSearchNowIds.current.clear();
@@ -1377,7 +1379,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         setInput("");
         setShowLocationSuggestions(false);
         setIsClarifyingForRun(false);
-        setClarifyContext({ entityType: null, location: null, semanticConstraint: null, pendingQuestion: null, isConfirmation: false, latestClarifyMsgId: null });
+        setClarifyContext(EMPTY_CLARIFY_CONTEXT);
         prevClarifyMsgIdRef.current = null;
         latestClarifyMsgIdRef.current = null;
         actionedSearchNowIds.current.clear();
@@ -1448,35 +1450,6 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     }
   }, [onLoadConversation]);
 
-  function parseClarifyMessage(content: string): Partial<ClarifyContext> {
-    const ctx: Partial<ClarifyContext> = {};
-
-    const confirmMatch = content.match(/search for\s+(.*?)\.\s*$/im);
-    if (confirmMatch) {
-      ctx.isConfirmation = true;
-      const boldParts = confirmMatch[1].match(/\*\*(.+?)\*\*/g);
-      if (boldParts) {
-        const cleaned = boldParts.map(b => b.replace(/\*\*/g, ''));
-        if (cleaned.length >= 2) {
-          ctx.entityType = cleaned[0];
-          ctx.location = cleaned[1];
-        } else if (cleaned.length === 1) {
-          ctx.entityType = cleaned[0];
-        }
-      }
-      const parenMatch = confirmMatch[1].match(/\(([^)]+)\)/);
-      if (parenMatch) {
-        ctx.semanticConstraint = parenMatch[1];
-      }
-    }
-
-    const questionLines = content.match(/^\d+\.\s+(.+)$/gm);
-    if (questionLines && questionLines.length > 0) {
-      ctx.pendingQuestion = questionLines[questionLines.length - 1].replace(/^\d+\.\s+/, '');
-    }
-
-    return ctx;
-  }
 
   const streamChatResponse = async (conversationMessages: ChatMessage[]) => {
     if (inFlightRequestIdRef.current) {
@@ -1489,7 +1462,6 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     }
     
     setIsStreaming(true);
-    setIsClarifyingForRun(false);
     
     const clientRequestId = crypto.randomUUID();
     inFlightRequestIdRef.current = clientRequestId;
@@ -1654,12 +1626,24 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                 setIsClarifyingForRun(true);
                 setLastLane("chat");
                 prevClarifyMsgIdRef.current = latestClarifyMsgIdRef.current;
+                if (parsed.clarify_state) {
+                  setClarifyContext({
+                    entityType: parsed.clarify_state.entityType ?? null,
+                    location: parsed.clarify_state.location ?? null,
+                    semanticConstraint: parsed.clarify_state.semanticConstraint ?? null,
+                    count: parsed.clarify_state.count ?? null,
+                    missingFields: parsed.clarify_state.missingFields ?? [],
+                    status: parsed.clarify_state.status ?? 'gathering',
+                    pendingQuestions: parsed.clarify_state.pendingQuestions ?? [],
+                  });
+                }
                 console.log('🔍 Clarifying before run');
               }
 
               if (parsed.type === 'clarify_session_ended') {
+                streamIsClarifying = false;
                 setIsClarifyingForRun(false);
-                setClarifyContext({ entityType: null, location: null, semanticConstraint: null, pendingQuestion: null, isConfirmation: false, latestClarifyMsgId: null });
+                setClarifyContext(EMPTY_CLARIFY_CONTEXT);
                 prevClarifyMsgIdRef.current = null;
                 latestClarifyMsgIdRef.current = null;
                 console.log('✅ Clarify session ended');
@@ -1680,7 +1664,9 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
               }
 
               if (parsed.supervisorTaskId) {
+                streamIsClarifying = false;
                 setIsClarifyingForRun(false);
+                setClarifyContext(EMPTY_CLARIFY_CONTEXT);
                 streamHasSupervisorTask = true;
                 isRunLane = true;
                 setLastLane("run");
@@ -1729,16 +1715,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                 accumulatedContent += parsed.content;
 
                 if (streamIsClarifying) {
-                  const parsed_ = parseClarifyMessage(accumulatedContent);
                   latestClarifyMsgIdRef.current = assistantMessageId;
-                  setClarifyContext(prev => ({
-                    entityType: parsed_.entityType ?? prev.entityType,
-                    location: parsed_.location ?? prev.location,
-                    semanticConstraint: parsed_.semanticConstraint ?? prev.semanticConstraint,
-                    pendingQuestion: parsed_.isConfirmation ? null : (parsed_.pendingQuestion ?? prev.pendingQuestion),
-                    isConfirmation: parsed_.isConfirmation ?? prev.isConfirmation,
-                    latestClarifyMsgId: assistantMessageId,
-                  }));
 
                   const prevId = prevClarifyMsgIdRef.current;
                   if (prevId && prevId !== assistantMessageId) {
@@ -1917,6 +1894,8 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     } catch (error: any) {
       setIsStreaming(false);
       inFlightRequestIdRef.current = null;
+      setIsClarifyingForRun(false);
+      setClarifyContext(EMPTY_CLARIFY_CONTEXT);
       
       // ROBUST CLEANUP: Clear soft lock state on error
       setActiveClientRequestId(null);
@@ -2830,18 +2809,19 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
               {(clarifyContext.entityType || clarifyContext.location || clarifyContext.semanticConstraint) && (
                 <div className="text-sm text-amber-900 dark:text-amber-100">
                   <span className="text-muted-foreground text-xs">Current request: </span>
+                  {clarifyContext.count && <span className="font-medium">{clarifyContext.count} </span>}
                   {clarifyContext.entityType && <span className="font-medium">{clarifyContext.entityType}</span>}
                   {clarifyContext.location && <span className="font-medium">{clarifyContext.entityType ? ` in ${clarifyContext.location}` : clarifyContext.location}</span>}
                   {clarifyContext.semanticConstraint && <span className="text-xs text-muted-foreground ml-1">({clarifyContext.semanticConstraint})</span>}
                 </div>
               )}
-              {clarifyContext.pendingQuestion && !clarifyContext.isConfirmation && (
+              {clarifyContext.status === 'gathering' && clarifyContext.pendingQuestions.length > 0 && (
                 <div className="text-xs text-amber-700 dark:text-amber-300">
                   <HelpCircle className="h-3 w-3 inline mr-1" />
-                  {clarifyContext.pendingQuestion}
+                  {clarifyContext.pendingQuestions[clarifyContext.pendingQuestions.length - 1]}
                 </div>
               )}
-              {clarifyContext.isConfirmation && (
+              {clarifyContext.status === 'ready' && (
                 <div className="text-xs text-green-700 dark:text-green-300">
                   <CheckCircle2 className="h-3 w-3 inline mr-1" />
                   Ready to search — type or click <strong>Search now</strong> to proceed.

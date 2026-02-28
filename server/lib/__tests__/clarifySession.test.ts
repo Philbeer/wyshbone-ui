@@ -8,6 +8,7 @@ import {
   saveLastSuccessfulIntent,
   getLastSuccessfulIntent,
   detectFollowupReuse,
+  buildClarifyStatePayload,
   _getSessionsMapForTesting,
   _getIntentsMapForTesting,
 } from '../clarifySession';
@@ -553,6 +554,104 @@ async function runAll() {
     const r = detectFollowupReuse('in Sheffield', intent);
     assert(r.isFollowup === true, '"in Sheffield" should be followup');
     assert(r.newLocation === 'Sheffield', `Location should be Sheffield, got ${r.newLocation}`);
+  });
+
+  cleanup();
+
+  await test('T23: "12 months" must NOT extract 12 as result count', () => {
+    createClarifySession({
+      conversationId: 'conv-t23',
+      originalUserText: 'find pubs',
+      entityType: 'pubs',
+      pendingQuestions: buildInitialQuestions('pubs', undefined),
+    });
+
+    const s1 = getActiveClarifySession('conv-t23')!;
+    const r1 = handleClarifyResponse(s1, 'in Leeds');
+    assert(r1.action === 'ask_more', 'Step 1: confirm after location');
+
+    const s2 = getActiveClarifySession('conv-t23')!;
+    const r2 = handleClarifyResponse(s2, 'established in the last 12 months');
+    assert(r2.action === 'ask_more', 'Step 2: ask_more after semantic detail');
+    assert(!s2.answers['count'] || s2.answers['count'] !== '12',
+      '"12 months" must NOT set count to 12');
+
+    const s3 = getActiveClarifySession('conv-t23')!;
+    assert(s3.answers['count'] === undefined || s3.answers['count'] !== '12',
+      'After "12 months", count slot must remain empty or not be 12');
+  });
+
+  cleanup();
+
+  await test('T24: typed "search now" with missing fields gives clear error, not silent fallthrough', () => {
+    createClarifySession({
+      conversationId: 'conv-t24',
+      originalUserText: 'find pubs',
+      entityType: 'pubs',
+      pendingQuestions: buildInitialQuestions('pubs', undefined),
+    });
+
+    const session = getActiveClarifySession('conv-t24')!;
+    const result = handleClarifyResponse(session, 'search now');
+    assert(result.action === 'ask_more', 'Should be ask_more when fields missing');
+    assert(result.message!.toLowerCase().includes('need'), 'Should tell user what is missing');
+    assert(result.message!.toLowerCase().includes('location'), 'Should mention location is missing');
+  });
+
+  cleanup();
+
+  await test('T25: clarifyState is returned in ask_more results', () => {
+    createClarifySession({
+      conversationId: 'conv-t25',
+      originalUserText: 'find pubs',
+      entityType: 'pubs',
+      pendingQuestions: buildInitialQuestions('pubs', undefined),
+    });
+
+    const session = getActiveClarifySession('conv-t25')!;
+    const r1 = handleClarifyResponse(session, 'in Leeds');
+    assert(r1.clarifyState !== undefined, 'ask_more result should include clarifyState');
+    assert(r1.clarifyState!.entityType === 'pubs', 'clarifyState should have entityType');
+    assert(r1.clarifyState!.location === 'Leeds', 'clarifyState should have location');
+    assert(r1.clarifyState!.status === 'ready', 'Status should be ready when all fields filled');
+    assert(r1.clarifyState!.missingFields.length === 0, 'No missing fields');
+  });
+
+  cleanup();
+
+  await test('T26: clarifyState with missing fields shows gathering status', () => {
+    createClarifySession({
+      conversationId: 'conv-t26',
+      originalUserText: 'find some businesses',
+      pendingQuestions: buildInitialQuestions(undefined, undefined),
+    });
+
+    const session = getActiveClarifySession('conv-t26')!;
+    const state = buildClarifyStatePayload(session);
+    assert(state.status === 'gathering', 'Status should be gathering when fields missing');
+    assert(state.missingFields.includes('entity_type'), 'Should list entity_type as missing');
+    assert(state.missingFields.includes('location'), 'Should list location as missing');
+    assert(state.entityType === null, 'entityType should be null');
+    assert(state.location === null, 'location should be null');
+  });
+
+  cleanup();
+
+  await test('T27: standalone count "50" IS extracted as count', () => {
+    createClarifySession({
+      conversationId: 'conv-t27',
+      originalUserText: 'find pubs',
+      entityType: 'pubs',
+      location: 'Leeds',
+      pendingQuestions: [],
+    });
+
+    const session = getActiveClarifySession('conv-t27')!;
+    const result = handleClarifyResponse(session, '50');
+    assert(result.action === 'ask_more', 'Should confirm with count');
+
+    const updated = getActiveClarifySession('conv-t27')!;
+    assert(updated.answers['count'] === '50', 'Standalone 50 should be extracted as count');
   });
 
   cleanup();

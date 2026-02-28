@@ -1295,6 +1295,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         createClarifySession,
         buildInitialQuestions,
         closeAllClarifySessions,
+        buildClarifyStatePayload,
       } = await import('./lib/clarifySession.js');
 
       const activeClarifySession = getActiveClarifySession(conversationId);
@@ -1332,7 +1333,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (clarifyHandlerResult.action === 'ask_more') {
           const askMsg = clarifyHandlerResult.message || 'Could you provide more detail?';
           appendMessage(sessionId, { role: "assistant", content: askMsg });
-          res.write(`data: ${JSON.stringify({ type: 'clarify_for_run', mode: 'CLARIFY_FOR_RUN' })}\n\n`);
+          const clarifyState = clarifyHandlerResult.clarifyState || buildClarifyStatePayload(currentSession);
+          res.write(`data: ${JSON.stringify({ type: 'clarify_for_run', mode: 'CLARIFY_FOR_RUN', clarify_state: clarifyState })}\n\n`);
           res.write(`data: ${JSON.stringify({ type: 'message', role: 'assistant', content: askMsg })}\n\n`);
           emitSse({ type: 'status', stage: 'completed', message: 'Clarifying before run', clientRequestId: clientRequestId || undefined, conversationId });
           console.log(`[CHAT_ROUTE=CLARIFY_SESSION_ASK_MORE] crid=${clientRequestId || 'none'} session=${currentSession.id}`);
@@ -1686,7 +1688,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         appendMessage(sessionId, { role: "assistant", content: clarifyMessage });
 
-        res.write(`data: ${JSON.stringify({ type: 'clarify_for_run', mode: 'CLARIFY_FOR_RUN' })}\n\n`);
+        const initialClarifyState = buildClarifyStatePayload(newSession);
+        res.write(`data: ${JSON.stringify({ type: 'clarify_for_run', mode: 'CLARIFY_FOR_RUN', clarify_state: initialClarifyState })}\n\n`);
         res.write(`data: ${JSON.stringify({ type: 'message', role: 'assistant', content: clarifyMessage })}\n\n`);
         emitSse({ type: 'status', stage: 'completed', message: 'Clarifying before run', clientRequestId: clientRequestId || undefined, conversationId });
 
