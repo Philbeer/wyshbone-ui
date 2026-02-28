@@ -1689,28 +1689,32 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
               }
 
               if (parsed.type === 'confidence' && parsed.content) {
-                const confidenceId = `confidence-${Date.now()}`;
-                const normalizedIncoming = parsed.content.trim().toLowerCase().replace(/\s+/g, ' ').replace(/[.!?]+$/, '');
-                setMessages((prev) => {
-                  const now = Date.now();
-                  const lastConfidence = [...prev].reverse().find(m => m.isConfidence);
-                  if (lastConfidence && (now - lastConfidence.timestamp.getTime()) < 10000) {
-                    const normalizedExisting = lastConfidence.content.trim().toLowerCase().replace(/\s+/g, ' ').replace(/[.!?]+$/, '');
-                    if (normalizedExisting === normalizedIncoming) {
-                      return prev;
+                if (streamIsClarifying) {
+                  console.log('[Chat] Suppressed confidence bubble during clarification:', parsed.content);
+                } else {
+                  const confidenceId = `confidence-${Date.now()}`;
+                  const normalizedIncoming = parsed.content.trim().toLowerCase().replace(/\s+/g, ' ').replace(/[.!?]+$/, '');
+                  setMessages((prev) => {
+                    const now = Date.now();
+                    const lastConfidence = [...prev].reverse().find(m => m.isConfidence);
+                    if (lastConfidence && (now - lastConfidence.timestamp.getTime()) < 10000) {
+                      const normalizedExisting = lastConfidence.content.trim().toLowerCase().replace(/\s+/g, ' ').replace(/[.!?]+$/, '');
+                      if (normalizedExisting === normalizedIncoming) {
+                        return prev;
+                      }
                     }
-                  }
-                  return [
-                    ...prev,
-                    {
-                      id: confidenceId,
-                      role: 'assistant' as const,
-                      content: parsed.content,
-                      timestamp: new Date(),
-                      isConfidence: true,
-                    },
-                  ];
-                });
+                    return [
+                      ...prev,
+                      {
+                        id: confidenceId,
+                        role: 'assistant' as const,
+                        content: parsed.content,
+                        timestamp: new Date(),
+                        isConfidence: true,
+                      },
+                    ];
+                  });
+                }
               }
 
               if (parsed.supervisorTaskId) {
@@ -2643,6 +2647,9 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
               }
 
               if (chatMessage.isConfidence) {
+                if (isClarifyingForRun && clarifyContext.constraintContract && !clarifyContext.constraintContract.can_execute) {
+                  return null;
+                }
                 return (
                   <div
                     key={chatMessage.id}
@@ -2772,8 +2779,9 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
             })
           )}
 
-          {/* Progress Stack - shows only user-facing status updates during request */}
+          {/* Progress Stack - shows only user-facing status updates during request; hidden during clarification */}
           {(() => {
+            if (isClarifyingForRun) return null;
             const HIDDEN_STAGES = new Set(['ack', 'classifying', 'planning', 'completed']);
             const visibleEvents = progressStack.filter(e => !HIDDEN_STAGES.has(e.stage));
             if (visibleEvents.length === 0) return null;
@@ -2856,7 +2864,11 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
             <div className="mb-3 mx-2 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50/80 dark:bg-amber-950/30 px-4 py-3 space-y-2">
               <div className="flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
-                <span className="text-xs font-semibold text-amber-800 dark:text-amber-200 uppercase tracking-wide">Clarifying before run</span>
+                <span className="text-xs font-semibold text-amber-800 dark:text-amber-200 uppercase tracking-wide">
+                  {clarifyContext.constraintContract && !clarifyContext.constraintContract.can_execute
+                    ? 'Waiting for clarification'
+                    : 'Clarifying before run'}
+                </span>
               </div>
               {(clarifyContext.entityType || clarifyContext.location || clarifyContext.semanticConstraint) && (
                 <div className="text-sm text-amber-900 dark:text-amber-100">
@@ -2876,10 +2888,10 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                   ))}
                 </div>
               )}
-              {clarifyContext.constraintContract && !clarifyContext.constraintContract.can_execute && clarifyContext.constraintContract.type === 'time_predicate' && (
-                <div className="space-y-2 mt-1 rounded-md border border-amber-300 dark:border-amber-700 bg-amber-100/50 dark:bg-amber-900/20 px-3 py-2" data-testid="time-predicate-proxy">
+              {clarifyContext.constraintContract && !clarifyContext.constraintContract.can_execute && (
+                <div className="space-y-2 mt-1 rounded-md border border-amber-300 dark:border-amber-700 bg-amber-100/50 dark:bg-amber-900/20 px-3 py-2" data-testid="constraint-clarification">
                   <p className="text-xs text-amber-800 dark:text-amber-200 font-medium">
-                    {clarifyContext.constraintContract.explanation || "Opening dates can't be guaranteed from listings."}
+                    {clarifyContext.constraintContract.explanation || (clarifyContext.constraintContract.type === 'time_predicate' ? "Opening dates can't be guaranteed from listings." : "This constraint needs clarification before searching.")}
                   </p>
                   {Array.isArray(clarifyContext.constraintContract.proxy_options) && clarifyContext.constraintContract.proxy_options.length > 0 && (
                     <div className="space-y-1">

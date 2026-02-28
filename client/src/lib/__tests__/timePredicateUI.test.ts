@@ -68,6 +68,24 @@ function resolveDefaultBadgeStatus(hasLeadVerifications: boolean, isTrustFailure
   return 'candidate';
 }
 
+function shouldIngestConfidenceBubble(streamIsClarifying: boolean): boolean {
+  return !streamIsClarifying;
+}
+
+function shouldRenderConfidenceBubble(isClarifyingForRun: boolean, constraintContract: MockConstraintContract | null): boolean {
+  if (isClarifyingForRun && constraintContract && !constraintContract.can_execute) return false;
+  return true;
+}
+
+function shouldShowProgressStack(isClarifyingForRun: boolean): boolean {
+  return !isClarifyingForRun;
+}
+
+function getClarifyPanelHeader(constraintContract: MockConstraintContract | null): string {
+  if (constraintContract && !constraintContract.can_execute) return 'Waiting for clarification';
+  return 'Clarifying before run';
+}
+
 function getResultDisplayText(towerStopTimePredicate: boolean, canonicalStatus: string, summaryText: string): string {
   if (towerStopTimePredicate && (canonicalStatus === 'STOP' || canonicalStatus === 'FAIL')) {
     return "Stopped: can\u2019t verify opening date constraint without an acceptable proxy.";
@@ -256,6 +274,57 @@ test('T15: Badge defaults to unverified for time_predicate STOP', () => {
   assert(resolveDefaultBadgeStatus(true, false, true) === 'unverified', 'Badge must be unverified for time_predicate STOP');
   assert(resolveDefaultBadgeStatus(true, false, false) === 'candidate', 'Badge should be candidate when not time_predicate STOP');
   assert(resolveDefaultBadgeStatus(false, false, false) === 'unverified', 'Badge should be unverified when no lead verifications');
+});
+
+test('T16: Confidence bubble suppressed at ingestion during clarification stream', () => {
+  assert(!shouldIngestConfidenceBubble(true), 'Confidence bubble must NOT be ingested when stream is clarifying');
+  assert(shouldIngestConfidenceBubble(false), 'Confidence bubble should be ingested when NOT clarifying');
+});
+
+test('T17: Confidence bubble suppressed at render when can_execute=false', () => {
+  const blockedContract: MockConstraintContract = { type: 'time_predicate', can_execute: false, proxy_options: ['Use date proxy'] };
+  assert(!shouldRenderConfidenceBubble(true, blockedContract), 'Confidence must NOT render when clarifying + can_execute=false');
+  assert(shouldRenderConfidenceBubble(false, blockedContract), 'Confidence should render when not clarifying');
+  assert(shouldRenderConfidenceBubble(true, null), 'Confidence should render when clarifying but no constraint contract');
+  assert(shouldRenderConfidenceBubble(true, { type: 'time_predicate', can_execute: true }), 'Confidence should render when can_execute=true');
+});
+
+test('T18: Progress stack hidden during clarification', () => {
+  assert(!shouldShowProgressStack(true), 'Progress stack must NOT show during clarification');
+  assert(shouldShowProgressStack(false), 'Progress stack should show when not clarifying');
+});
+
+test('T19: Panel header says "Waiting for clarification" when can_execute=false', () => {
+  const blocked: MockConstraintContract = { type: 'time_predicate', can_execute: false };
+  assert(getClarifyPanelHeader(blocked) === 'Waiting for clarification', 'Header must say waiting when blocked');
+  assert(getClarifyPanelHeader(null) === 'Clarifying before run', 'Header should say clarifying when no constraint');
+  assert(getClarifyPanelHeader({ type: 'time_predicate', can_execute: true }) === 'Clarifying before run', 'Header should say clarifying when can_execute=true');
+});
+
+test('T20: Compound clarification — constraint + missing fields coexist', () => {
+  const payload: MockClarifyPayload = {
+    entityType: 'pubs',
+    location: null,
+    semanticConstraint: 'live music, opened in last 12 months',
+    count: null,
+    missingFields: ['location'],
+    status: 'gathering',
+    pendingQuestions: ['What location should I search in?'],
+    constraintContract: {
+      type: 'time_predicate',
+      can_execute: false,
+      explanation: "Opening dates can't be guaranteed from listings.",
+      proxy_options: ['Use Google Reviews date as proxy'],
+      required_inputs_missing: ['verification_method_for_live_music'],
+    },
+  };
+  assert(shouldRenderProxyQuestion(payload), 'Proxy question must render');
+  assert(!shouldRenderResultsView(payload), 'Results view must NOT render');
+  assert(!shouldShowSearchNowButton(payload), 'Search now must be blocked');
+  assert(payload.missingFields.length > 0, 'Missing fields present');
+  assert(payload.pendingQuestions.length > 0, 'Pending questions present');
+  assert(payload.constraintContract!.required_inputs_missing!.length > 0, 'Constraint-level missing inputs present');
+  assert(getClarifyPanelHeader(payload.constraintContract) === 'Waiting for clarification', 'Header must say waiting');
 });
 
 console.log(`\n${'='.repeat(50)}`);
