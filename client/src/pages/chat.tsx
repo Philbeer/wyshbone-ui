@@ -52,6 +52,8 @@ type Message = ChatMessage & {
   provisional?: boolean;
   isConfidence?: boolean;
   towerVerdict?: string | null;
+  towerProxyUsed?: string | null;
+  towerStopTimePredicate?: boolean;
   isClarifyMsg?: boolean;
   isClarifySuperseded?: boolean;
 };
@@ -269,6 +271,14 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
   const actionedSearchNowIds = useRef<Set<string>>(new Set());
   const [, forceSearchNowRender] = useState(0);
 
+  interface ConstraintContract {
+    type: string;
+    can_execute: boolean;
+    explanation?: string;
+    proxy_options?: string[];
+    required_inputs_missing?: string[];
+  }
+
   interface ClarifyContext {
     entityType: string | null;
     location: string | null;
@@ -277,10 +287,12 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     missingFields: string[];
     status: 'gathering' | 'ready';
     pendingQuestions: string[];
+    constraintContract?: ConstraintContract | null;
   }
   const EMPTY_CLARIFY_CONTEXT: ClarifyContext = {
     entityType: null, location: null, semanticConstraint: null,
     count: null, missingFields: [], status: 'gathering', pendingQuestions: [],
+    constraintContract: null,
   };
   const [clarifyContext, setClarifyContext] = useState<ClarifyContext>(EMPTY_CLARIFY_CONTEXT);
   const prevClarifyMsgIdRef = useRef<string | null>(null);
@@ -568,10 +580,16 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         const { vs: provVs, ce: provCe, policySnapshot: provPs, leadVerifications: provLv } = parseSiblingArtefacts(rows);
         const towerRow = rows.find((r: any) => r.type === 'tower_judgement');
         let towerVerdict: string | null = null;
+        let towerProxyUsed: string | null = null;
+        let towerStopTimePredicate = false;
         if (towerRow) {
           let tp = towerRow.payload_json;
           if (typeof tp === 'string') { try { tp = JSON.parse(tp); } catch {} }
-          if (tp && typeof tp === 'object') towerVerdict = tp.verdict || null;
+          if (tp && typeof tp === 'object') {
+            towerVerdict = tp.verdict || null;
+            towerProxyUsed = tp.proxy_used || null;
+            if (tp.stop_reason === 'time_predicate' || tp.constraint_type === 'time_predicate') towerStopTimePredicate = true;
+          }
         }
 
         let synthesisedDs: DeliverySummary;
@@ -620,6 +638,8 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
           runId: effectiveRunId || undefined,
           provisional: false,
           towerVerdict,
+          towerProxyUsed: towerProxyUsed,
+          towerStopTimePredicate,
         };
         upsertResultMessage(finalMsg);
 
@@ -647,10 +667,16 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
 
       const towerRow2 = rows.find((r: any) => r.type === 'tower_judgement');
       let dsPathTowerVerdict: string | null = null;
+      let dsPathProxyUsed: string | null = null;
+      let dsPathStopTimePredicate = false;
       if (towerRow2) {
         let tp2 = towerRow2.payload_json;
         if (typeof tp2 === 'string') { try { tp2 = JSON.parse(tp2); } catch {} }
-        if (tp2 && typeof tp2 === 'object') dsPathTowerVerdict = tp2.verdict || null;
+        if (tp2 && typeof tp2 === 'object') {
+          dsPathTowerVerdict = tp2.verdict || null;
+          dsPathProxyUsed = tp2.proxy_used || null;
+          if (tp2.stop_reason === 'time_predicate' || tp2.constraint_type === 'time_predicate') dsPathStopTimePredicate = true;
+        }
       }
 
       const dsExact = Array.isArray(parsed.delivered_exact) ? parsed.delivered_exact.length : 0;
@@ -684,6 +710,8 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         runId: effectiveRunId || undefined,
         provisional: false,
         towerVerdict: dsPathTowerVerdict,
+        towerProxyUsed: dsPathProxyUsed,
+        towerStopTimePredicate: dsPathStopTimePredicate,
       };
       upsertResultMessage(resultMessage);
 
@@ -1635,6 +1663,8 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                     incomingStatus = 'gathering';
                   }
 
+                  const incomingContract = parsed.clarify_state.constraint_contract ?? parsed.clarify_state.constraintContract ?? null;
+
                   setClarifyContext({
                     entityType: parsed.clarify_state.entityType ?? null,
                     location: parsed.clarify_state.location ?? null,
@@ -1643,6 +1673,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                     missingFields: incomingMissing,
                     status: incomingStatus,
                     pendingQuestions: parsed.clarify_state.pendingQuestions ?? [],
+                    constraintContract: incomingContract,
                   });
                 }
                 console.log('🔍 Clarifying before run');
@@ -2537,6 +2568,8 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                           policySnapshot={chatMessage.policySnapshot}
                           provisional={chatMessage.provisional}
                           towerVerdict={chatMessage.towerVerdict}
+                          towerProxyUsed={chatMessage.towerProxyUsed}
+                          towerStopTimePredicate={chatMessage.towerStopTimePredicate}
                         />
                       </div>
                       <span className="text-xs text-muted-foreground mt-1">
@@ -2843,6 +2876,51 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                   ))}
                 </div>
               )}
+              {clarifyContext.constraintContract && !clarifyContext.constraintContract.can_execute && clarifyContext.constraintContract.type === 'time_predicate' && (
+                <div className="space-y-2 mt-1 rounded-md border border-amber-300 dark:border-amber-700 bg-amber-100/50 dark:bg-amber-900/20 px-3 py-2" data-testid="time-predicate-proxy">
+                  <p className="text-xs text-amber-800 dark:text-amber-200 font-medium">
+                    {clarifyContext.constraintContract.explanation || "Opening dates can't be guaranteed from listings."}
+                  </p>
+                  {Array.isArray(clarifyContext.constraintContract.proxy_options) && clarifyContext.constraintContract.proxy_options.length > 0 && (
+                    <div className="space-y-1">
+                      <p className="text-[10px] text-amber-700 dark:text-amber-300 uppercase tracking-wide font-semibold">Choose a proxy</p>
+                      {clarifyContext.constraintContract.proxy_options.map((option, idx) => (
+                        <button
+                          key={idx}
+                          type="button"
+                          className="block w-full text-left text-xs px-2 py-1.5 rounded border border-amber-200 dark:border-amber-700 bg-white dark:bg-amber-950/40 hover:bg-amber-50 dark:hover:bg-amber-900/40 text-amber-900 dark:text-amber-100 transition-colors"
+                          onClick={() => {
+                            handleSendRef.current?.(option);
+                          }}
+                        >
+                          {idx + 1}. {option}
+                        </button>
+                      ))}
+                      <button
+                        type="button"
+                        className="block w-full text-left text-xs px-2 py-1.5 rounded border border-red-200 dark:border-red-800 bg-white dark:bg-red-950/30 hover:bg-red-50 dark:hover:bg-red-900/30 text-red-700 dark:text-red-300 transition-colors"
+                        onClick={() => {
+                          handleSendRef.current?.("No proxy is acceptable (stop)");
+                        }}
+                      >
+                        No proxy is acceptable (stop)
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {clarifyContext.constraintContract && Array.isArray(clarifyContext.constraintContract.required_inputs_missing) && clarifyContext.constraintContract.required_inputs_missing.length > 0 && (
+                <div className="mt-1">
+                  <p className="text-[10px] text-amber-700 dark:text-amber-300 uppercase tracking-wide font-semibold mb-1">Still needed</p>
+                  <ul className="list-disc list-inside space-y-0.5">
+                    {clarifyContext.constraintContract.required_inputs_missing.map((item, idx) => (
+                      <li key={idx} className="text-xs text-amber-800 dark:text-amber-200">{item}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
               {(clarifyContext.missingFields.length > 0 || clarifyContext.status !== 'ready') && clarifyContext.pendingQuestions.length > 0 && (
                 <div className="space-y-1">
                   {clarifyContext.pendingQuestions.map((question, idx) => (
@@ -2853,13 +2931,19 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                   ))}
                 </div>
               )}
-              {(clarifyContext.missingFields.length > 0 || clarifyContext.status !== 'ready') && (
+              {(clarifyContext.missingFields.length > 0 || clarifyContext.status !== 'ready') && !(clarifyContext.constraintContract && !clarifyContext.constraintContract.can_execute) && (
                 <div className="text-xs text-amber-700 dark:text-amber-300 mt-1">
                   <Loader2 className="h-3 w-3 inline mr-1 animate-spin" />
                   Waiting for clarification before search can run.
                 </div>
               )}
-              {clarifyContext.missingFields.length === 0 && clarifyContext.status === 'ready' && (
+              {clarifyContext.constraintContract && !clarifyContext.constraintContract.can_execute && !(clarifyContext.missingFields.length > 0) && (
+                <div className="text-xs text-amber-700 dark:text-amber-300 mt-1">
+                  <HelpCircle className="h-3 w-3 inline mr-1" />
+                  Please choose an option above to continue.
+                </div>
+              )}
+              {clarifyContext.missingFields.length === 0 && clarifyContext.status === 'ready' && !(clarifyContext.constraintContract && !clarifyContext.constraintContract.can_execute) && (
                 <div className="text-xs text-green-700 dark:text-green-300">
                   <CheckCircle2 className="h-3 w-3 inline mr-1" />
                   Ready to search — click <strong>Search now</strong> to proceed.
@@ -2886,8 +2970,8 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
             </div>
           )}
 
-          {/* Thinking indicator — hidden when supervisor banner is active */}
-          {isStreaming && !isWaitingForSupervisor && (
+          {/* Thinking indicator — hidden when supervisor banner is active or during clarification-only */}
+          {isStreaming && !isWaitingForSupervisor && !isClarifyingForRun && (
             <div className="flex gap-3 flex-row" data-testid="thinking-indicator">
               <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0">
                 <img src={wyshboneLogo} alt="Wyshbone" className="w-full h-full object-cover" />

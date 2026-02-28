@@ -32,6 +32,8 @@ export interface RunResultBubbleProps {
   policySnapshot?: PolicySnapshot | null;
   provisional?: boolean;
   towerVerdict?: string | null;
+  towerProxyUsed?: string | null;
+  towerStopTimePredicate?: boolean;
 }
 
 function dispatchFollowUp(params: {
@@ -649,6 +651,8 @@ export default function RunResultBubble({
   policySnapshot,
   provisional = false,
   towerVerdict,
+  towerProxyUsed,
+  towerStopTimePredicate,
 }: RunResultBubbleProps) {
   const verifiedExact = resolveVerifiedCount(deliverySummary, verificationSummary);
   const target = resolveHasTargetCount(deliverySummary, constraintsExtracted);
@@ -713,7 +717,18 @@ export default function RunResultBubble({
       {!provisional && !isTrustFailure && deliverySummary.stop_reason !== 'artefacts_unavailable' && (
         <div className="flex items-start gap-2">
           <StatusIcon className={cn("h-4 w-4 mt-0.5 shrink-0", statusColor)} />
-          <p className="text-sm text-foreground leading-relaxed">{summaryText}</p>
+          <div>
+            <p className="text-sm text-foreground leading-relaxed">
+              {towerStopTimePredicate && (canonical.status === 'STOP' || canonical.status === 'FAIL')
+                ? "Stopped: can\u2019t verify opening date constraint without an acceptable proxy."
+                : summaryText}
+            </p>
+            {towerProxyUsed && (
+              <p className="text-xs text-muted-foreground mt-1" data-testid="proxy-used-line">
+                Time constraint handled via proxy: {towerProxyUsed}.
+              </p>
+            )}
+          </div>
         </div>
       )}
 
