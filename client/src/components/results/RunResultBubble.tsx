@@ -235,12 +235,16 @@ function buildSummaryText(
   ds: DeliverySummary,
   canonical: ReturnType<typeof resolveCanonicalStatus>,
   verifiedExact: number,
-  target: { hasTarget: boolean; targetCount: number }
+  target: { hasTarget: boolean; targetCount: number },
+  towerVerdict?: string | null
 ): string {
   const exactLeads = Array.isArray(ds.delivered_exact) ? ds.delivered_exact.length : 0;
   const closestLeads = Array.isArray(ds.delivered_closest) ? ds.delivered_closest.length : 0;
   const totalDelivered = exactLeads + closestLeads;
   const totalCandidates = (verifiedExact === 0 ? exactLeads : 0) + closestLeads;
+
+  const verdictUpper = (towerVerdict || "").toUpperCase();
+  const isPartialOrStop = verdictUpper === "PARTIAL" || verdictUpper === "STOP";
 
   switch (canonical.status) {
     case "PASS":
@@ -251,32 +255,38 @@ function buildSummaryText(
 
     case "PARTIAL":
       if (target.hasTarget) {
+        if (isPartialOrStop) {
+          return `Found ${totalDelivered} ${totalDelivered === 1 ? "candidate" : "candidates"}, but could not verify the requirement. Returned ${verifiedExact} of ${target.targetCount} requested.`;
+        }
         return `Returned ${verifiedExact} of ${target.targetCount} requested. You can search more or broaden the criteria to try to reach ${target.targetCount}.`;
+      }
+      if (isPartialOrStop) {
+        return `Found ${totalDelivered} ${totalDelivered === 1 ? "candidate" : "candidates"}, but could not verify the requirement.`;
       }
       return `I found ${totalDelivered} ${totalDelivered === 1 ? "result" : "results"} for your search.`;
 
     case "STOP": {
       const attr = extractUnverifiableAttribute(ds);
       if (target.hasTarget) {
-        if (verifiedExact > 0) {
+        if (verifiedExact > 0 && !isPartialOrStop) {
           return `Returned ${verifiedExact} of ${target.targetCount} requested.`;
         }
         if (totalCandidates > 0) {
-          return `I found ${totalCandidates} possible ${totalCandidates === 1 ? "result" : "results"}${attr ? `, but could not confirm ${attr} from available information` : ""}.`;
+          return `Found ${totalCandidates} ${totalCandidates === 1 ? "candidate" : "candidates"}, but could not verify the requirement${attr ? ` (${attr})` : ""}.`;
         }
-        return `No results found matching your criteria.`;
+        return `Search stopped. No results could be confirmed for your criteria.`;
       }
-      if (verifiedExact > 0) {
-        return `I found ${verifiedExact} ${verifiedExact === 1 ? "result" : "results"} that match.`;
-      }
-      if (attr && totalCandidates > 0) {
-        return `I found ${totalCandidates} ${totalCandidates === 1 ? "result" : "results"}, but could not confirm ${attr} from available information.`;
+      if (verifiedExact > 0 && !isPartialOrStop) {
+        return `I found ${verifiedExact} ${verifiedExact === 1 ? "result" : "results"}.`;
       }
       if (totalCandidates > 0) {
-        return `I found ${totalCandidates} ${totalCandidates === 1 ? "result" : "results"} for your search.`;
+        return `Found ${totalCandidates} ${totalCandidates === 1 ? "candidate" : "candidates"}, but could not verify the requirement${attr ? ` (${attr})` : ""}.`;
       }
-      return `No results found matching your criteria.`;
+      return `Search stopped. No results could be confirmed for your criteria.`;
     }
+
+    case "FAIL":
+      return `Search could not be completed. Results were not verified.`;
 
     case "UNAVAILABLE":
     default:
@@ -292,7 +302,7 @@ function LeadBadge({ isVerified, unverifiableAttr, badgeStatus }: { isVerified: 
   if (effectiveStatus === 'verified') {
     return (
       <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300">
-        <CheckCircle2 className="h-2.5 w-2.5" /> Verified match
+        <CheckCircle2 className="h-2.5 w-2.5" /> Verified
       </span>
     );
   }
@@ -661,7 +671,7 @@ export default function RunResultBubble({
 
   const StatusIcon = STATUS_ICONS[canonical.status];
   const statusColor = STATUS_COLORS[canonical.status];
-  const summaryText = buildSummaryText(deliverySummary, canonical, verifiedExact, target);
+  const summaryText = buildSummaryText(deliverySummary, canonical, verifiedExact, target, towerVerdict);
   const unverifiableAttr = extractUnverifiableAttribute(deliverySummary);
 
   const exact = Array.isArray(deliverySummary.delivered_exact) ? deliverySummary.delivered_exact : [];
@@ -775,7 +785,9 @@ export default function RunResultBubble({
 
       {!provisional && !isTrustFailure && !useLocationBuckets && matches.length > 0 && (
         <div className="space-y-0.5">
-          <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Matches ({matches.length})</h4>
+          <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+            {canonical.status === "STOP" || canonical.status === "PARTIAL" ? `Results (${matches.length})` : `Matches (${matches.length})`}
+          </h4>
           <div>
             {matches.map((lead, i) => (
               <LeadRow key={i} lead={lead} isVerified={true} unverifiableAttr={null} runId={runId} badgeStatus={defaultBadgeStatus} />

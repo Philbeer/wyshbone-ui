@@ -46,14 +46,14 @@ export const STATUS_CONFIG: Record<CanonicalStatus, { label: string; badge: stri
     description: "Results delivered.",
   },
   PARTIAL: {
-    label: "Results ready",
+    label: "Results returned",
     badge: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-200",
-    description: "Results delivered. More may be available.",
+    description: "Some results returned. Verification may be incomplete.",
   },
   STOP: {
-    label: "Search complete",
+    label: "Search stopped",
     badge: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-200",
-    description: "Search finished.",
+    description: "Search was stopped before completing.",
   },
   FAIL: {
     label: "Verification failed",

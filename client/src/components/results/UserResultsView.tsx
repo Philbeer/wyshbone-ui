@@ -93,7 +93,7 @@ function NextActionsSection({ suggestedQuestion, shortfall, requestedCount, onCl
     actions.push({ label: "Include nearby", message: `Ok, include nearby results. Try to reach ${target}.`, variant: "default" });
     actions.push({ label: "Keep it strict", message: `Keep the constraints strict. If you can't reach ${target}, stop and explain.`, variant: "outline" });
   } else if (q.includes("similar")) {
-    actions.push({ label: "Include similar", message: `Ok, include similar matches. Try to reach ${target}.`, variant: "default" });
+    actions.push({ label: "Include similar", message: `Ok, include similar results. Try to reach ${target}.`, variant: "default" });
     actions.push({ label: "Keep it strict", message: `Keep the constraints strict. If you can't reach ${target}, stop and explain.`, variant: "outline" });
   } else if (q.includes("broaden")) {
     actions.push({ label: "Broaden criteria", message: `Ok, broaden the criteria sensibly and try to reach ${target}. Tell me what you relaxed.`, variant: "default" });
@@ -329,7 +329,7 @@ export default function UserResultsView({
       {closest.length > 0 && (
         <section className="space-y-2">
           <div>
-            <h3 className="text-sm font-semibold text-foreground">Closest matches</h3>
+            <h3 className="text-sm font-semibold text-foreground">Closest results</h3>
             <p className="text-xs text-muted-foreground mt-0.5">These are the nearest alternatives once soft constraints were relaxed.</p>
           </div>
           <div className="space-y-2">

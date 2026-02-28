@@ -229,6 +229,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
+  const [inFlightBlockMessage, setInFlightBlockMessage] = useState<string | null>(null);
   const [showLocationSuggestions, setShowLocationSuggestions] = useState(false);
   const [conversationId, setConversationId] = useState<string | undefined>(() => {
     // Load conversationId from localStorage on mount
@@ -1964,8 +1965,19 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     
     if (isStreaming || isRunActive) {
       console.log('[Chat] Run active, cannot submit new message');
+      if (!queuedMessage) {
+        setQueuedMessage(messageContent);
+        setInput("");
+        setInFlightBlockMessage("Still working on your last request. Your message has been queued and will send automatically.");
+        setTimeout(() => setInFlightBlockMessage(null), 5000);
+      } else {
+        setInFlightBlockMessage("Still working on your last request. Please wait or cancel.");
+        setTimeout(() => setInFlightBlockMessage(null), 4000);
+      }
       return;
     }
+
+    setInFlightBlockMessage(null);
 
     setConcatenationError(null);
 
@@ -2062,15 +2074,6 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
       e.preventDefault();
       setShowLocationSuggestions(false);
       
-      // SOFT LOCK: If run is active, show toast and don't submit
-      if (isRunActive || isStreaming) {
-        toast({
-          title: "Wyshbone is working",
-          description: "Press Queue to run this next, or wait for the current request to finish.",
-        });
-        return;
-      }
-      
       handleSend();
     } else if (e.key === "Escape") {
       setShowLocationSuggestions(false);
@@ -2097,6 +2100,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
       abortControllerRef.current = null;
     }
     setIsStreaming(false);
+    setInFlightBlockMessage(null);
     inFlightRequestIdRef.current = null;
     setActiveClientRequestId(null);
     setProgressStack((prev) => {
@@ -2876,7 +2880,22 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
             </div>
           )}
 
-          {/* Queued Message Indicator */}
+          {inFlightBlockMessage && (
+            <div className="mb-2 px-3 py-2 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 rounded-lg flex items-center justify-between">
+              <span className="text-sm text-amber-700 dark:text-amber-300">
+                {inFlightBlockMessage}
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setInFlightBlockMessage(null)}
+                className="text-amber-600 hover:text-amber-800 dark:text-amber-400"
+              >
+                Dismiss
+              </Button>
+            </div>
+          )}
+
           {queuedMessage && (
             <div className="mb-2 px-3 py-2 bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-lg flex items-center justify-between">
               <span className="text-sm text-blue-700 dark:text-blue-300">
