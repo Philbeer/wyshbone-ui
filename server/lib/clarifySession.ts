@@ -331,7 +331,7 @@ export function handleClarifyResponse(
     if (newAnswers['semantic_detail']) {
       summaryParts.push(`(${newAnswers['semantic_detail']})`);
     }
-    const summaryMsg = `Got it — I'll search for ${summaryParts.join(' ')}.\n\nReply **Search now** to proceed, or add more details (e.g. number of results).`;
+    const summaryMsg = `Got it — I'll search for ${summaryParts.join(' ')}.\n\nClick **Search now** to proceed, or add more details (e.g. number of results).`;
     const updatedSession = getActiveClarifySession(session.conversation_id) || session;
     return {
       action: 'ask_more',

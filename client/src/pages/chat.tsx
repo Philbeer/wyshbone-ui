@@ -2851,7 +2851,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
               {clarifyContext.missingFields.length === 0 && clarifyContext.status === 'ready' && (
                 <div className="text-xs text-green-700 dark:text-green-300">
                   <CheckCircle2 className="h-3 w-3 inline mr-1" />
-                  Ready to search — type or click <strong>Search now</strong> to proceed.
+                  Ready to search — click <strong>Search now</strong> to proceed.
                 </div>
               )}
             </div>
