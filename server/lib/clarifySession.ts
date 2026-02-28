@@ -578,7 +578,7 @@ export function detectFollowupReuse(
   return { isFollowup: false };
 }
 
-export type ClarifyInputClass = 'EXECUTE' | 'META_TRUST' | 'NEW_TASK' | 'REFINE';
+export type ClarifyInputClass = 'EXECUTE' | 'META_TRUST' | 'NEW_TASK' | 'CHAT_INFO' | 'REFINE';
 
 const META_TRUST_PATTERNS = [
   /\b(?:guaranteed|guarantee|accurate|accuracy|how\s+sure|confidence|confident|reliable|reliability)\b/i,
@@ -587,6 +587,19 @@ const META_TRUST_PATTERNS = [
   /\b(?:how\s+(?:reliable|accurate|trustworthy|confident)\b)/i,
   /\b(?:source\s+of\s+(?:the\s+)?(?:data|information|results?))\b/i,
   /\b(?:is\s+(?:this|that|the)\s+(?:data|info|information)\s+(?:accurate|reliable|correct))\b/i,
+];
+
+const CHAT_INFO_PATTERNS = [
+  /^(?:can\s+you\s+help\s+(?:me\s+)?with)\b/i,
+  /^(?:how\s+(?:do|can|should)\s+i)\b/i,
+  /^(?:what\s+(?:should|can|do)\s+i\s+(?:do|try|use))\b/i,
+  /^(?:tell\s+me\s+(?:about|how|more))\b/i,
+  /^(?:i\s+(?:need|want)\s+(?:help|advice|tips|guidance))\b/i,
+  /^(?:any\s+(?:tips|advice|suggestions?|ideas?))\b/i,
+  /^(?:explain|describe|what\s+(?:is|are)\s+(?:the\s+)?(?:best|good))\b/i,
+  /\b(?:help\s+me\s+(?:with|understand|improve|grow|plan))\b/i,
+  /\b(?:advice\s+(?:on|for|about))\b/i,
+  /\b(?:how\s+to\s+(?:sell|market|grow|improve|increase|boost|generate|get\s+more))\b/i,
 ];
 
 const ENTITY_NOUN_PATTERN = /\b(pubs?|bars?|restaurants?|cafes?|coffee\s+shops?|hotels?|dentists?|salons?|gyms?|clinics?|breweries?|bakeries?|florists?|venues?|shops?|stores?|businesses|companies|organisations?|organizations?|charities|electricians?|plumbers?|solicitors?|accountants?|butchers?|hairdressers?|mechanics?|vets?|veterinar(?:y|ians?)|nurseries|pharmacies|estate\s+agents?|letting\s+agents?)\b/i;
@@ -617,12 +630,14 @@ export function classifyClarifyInput(message: string, session: ClarifySession): 
       const mentioned = entityMatch[0].toLowerCase().replace(/s$/, '');
       const current = session.entity_type.toLowerCase().replace(/s$/, '');
       if (mentioned !== current && !current.includes(mentioned) && !mentioned.includes(current)) {
-        if (SEARCH_VERB_PATTERN.test(normalized) || /\bin\s+[a-z]/i.test(message)) {
-          return 'NEW_TASK';
-        }
         return 'NEW_TASK';
       }
     }
+  }
+
+  const hasChatInfoPattern = CHAT_INFO_PATTERNS.some(pat => pat.test(normalized));
+  if (hasChatInfoPattern && !SEARCH_VERB_PATTERN.test(normalized)) {
+    return 'CHAT_INFO';
   }
 
   return 'REFINE';

@@ -877,6 +877,101 @@ async function runAll() {
 
   cleanup();
 
+  await test('T42: "can you help me with sales" during clarify → CHAT_INFO', () => {
+    createClarifySession({
+      conversationId: 'conv-t42',
+      originalUserText: 'find pubs in west sussex',
+      entityType: 'pubs',
+      location: 'West Sussex',
+      pendingQuestions: [],
+    });
+
+    const session = getActiveClarifySession('conv-t42')!;
+    const cls = classifyClarifyInput('can you help me with sales', session);
+    assert(cls === 'CHAT_INFO', `Expected CHAT_INFO, got ${cls}`);
+    const after = getActiveClarifySession('conv-t42')!;
+    assert(after.is_active === true, 'session should still be active');
+    assert(after.entity_type === 'pubs', 'entity_type should still be pubs');
+    assert(after.location === 'West Sussex', 'location should still be West Sussex');
+  });
+
+  cleanup();
+
+  await test('T43: "how do I sell more" during clarify → CHAT_INFO', () => {
+    createClarifySession({
+      conversationId: 'conv-t43',
+      originalUserText: 'find pubs',
+      entityType: 'pubs',
+      pendingQuestions: buildInitialQuestions('pubs', undefined),
+    });
+
+    const session = getActiveClarifySession('conv-t43')!;
+    const cls = classifyClarifyInput('how do I sell more', session);
+    assert(cls === 'CHAT_INFO', `Expected CHAT_INFO, got ${cls}`);
+  });
+
+  cleanup();
+
+  await test('T44: "what should I do next" during clarify → CHAT_INFO', () => {
+    createClarifySession({
+      conversationId: 'conv-t44',
+      originalUserText: 'find pubs',
+      entityType: 'pubs',
+      pendingQuestions: buildInitialQuestions('pubs', undefined),
+    });
+
+    const session = getActiveClarifySession('conv-t44')!;
+    const cls = classifyClarifyInput('what should I do next', session);
+    assert(cls === 'CHAT_INFO', `Expected CHAT_INFO, got ${cls}`);
+  });
+
+  cleanup();
+
+  await test('T45: "any tips on marketing" during clarify → CHAT_INFO', () => {
+    createClarifySession({
+      conversationId: 'conv-t45',
+      originalUserText: 'find pubs',
+      entityType: 'pubs',
+      pendingQuestions: buildInitialQuestions('pubs', undefined),
+    });
+
+    const session = getActiveClarifySession('conv-t45')!;
+    const cls = classifyClarifyInput('any tips on marketing', session);
+    assert(cls === 'CHAT_INFO', `Expected CHAT_INFO, got ${cls}`);
+  });
+
+  cleanup();
+
+  await test('T46: "how to generate more leads" during clarify → CHAT_INFO', () => {
+    createClarifySession({
+      conversationId: 'conv-t46',
+      originalUserText: 'find pubs',
+      entityType: 'pubs',
+      pendingQuestions: buildInitialQuestions('pubs', undefined),
+    });
+
+    const session = getActiveClarifySession('conv-t46')!;
+    const cls = classifyClarifyInput('how to generate more leads', session);
+    assert(cls === 'CHAT_INFO', `Expected CHAT_INFO, got ${cls}`);
+  });
+
+  cleanup();
+
+  await test('T47: "find me some cafes" during clarify → NOT CHAT_INFO (has search verb)', () => {
+    createClarifySession({
+      conversationId: 'conv-t47',
+      originalUserText: 'find pubs',
+      entityType: 'pubs',
+      pendingQuestions: buildInitialQuestions('pubs', undefined),
+    });
+
+    const session = getActiveClarifySession('conv-t47')!;
+    const cls = classifyClarifyInput('find me some cafes', session);
+    assert(cls !== 'CHAT_INFO', `Should NOT be CHAT_INFO when message has search verb, got ${cls}`);
+  });
+
+  cleanup();
+
   console.log(`\n${'='.repeat(50)}`);
   console.log(`Results: ${passed} passed, ${failed} failed out of ${passed + failed}`);
   if (failed > 0) {

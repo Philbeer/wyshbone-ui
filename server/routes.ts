@@ -1349,6 +1349,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
           res.write(`data: ${JSON.stringify({ type: 'clarify_session_ended' })}\n\n`);
         }
 
+        if (inputClass === 'CHAT_INFO') {
+          console.log(`[CLARIFY_GUARD→CHAT_INFO] Suspending clarify session ${activeClarifySession.id}, routing to chat pipeline`);
+          if (clientRequestId) {
+            logRouterDecision({
+              userId: user.id,
+              conversationId,
+              clientRequestId,
+              decision: 'direct_response',
+              reason: `ClarifySession CHAT_INFO bypass — session suspended`,
+              signals: { sessionId: activeClarifySession.id, inputClass: 'CHAT_INFO' },
+            }).catch(err => console.error('AFR router log error:', err.message));
+          }
+          const clarifyState = buildClarifyStatePayload(activeClarifySession);
+          res.write(`data: ${JSON.stringify({ type: 'clarify_for_run', mode: 'CLARIFY_FOR_RUN', clarify_state: clarifyState })}\n\n`);
+        }
+
         if (inputClass === 'EXECUTE' || inputClass === 'REFINE') {
         const currentSession = activeClarifySession;
         console.log(`🔄 [CLARIFY_SESSION] Active session ${currentSession.id} for conv=${conversationId}, processing user reply: "${latestUserText.slice(0, 60)}"`);
@@ -1480,6 +1496,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         } // end EXECUTE/REFINE block
 
         // NEW_TASK: session already closed above — fall through to decideChatMode.
+        // CHAT_INFO: session preserved (suspended) — fall through to decideChatMode for chat answer.
         // META_TRUST: already handled by early interception above (never reaches here).
       }
 
