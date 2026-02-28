@@ -1659,16 +1659,27 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
 
               if (parsed.type === 'confidence' && parsed.content) {
                 const confidenceId = `confidence-${Date.now()}`;
-                setMessages((prev) => [
-                  ...prev,
-                  {
-                    id: confidenceId,
-                    role: 'assistant' as const,
-                    content: parsed.content,
-                    timestamp: new Date(),
-                    isConfidence: true,
-                  },
-                ]);
+                const normalizedIncoming = parsed.content.trim().toLowerCase().replace(/\s+/g, ' ').replace(/[.!?]+$/, '');
+                setMessages((prev) => {
+                  const now = Date.now();
+                  const lastConfidence = [...prev].reverse().find(m => m.isConfidence);
+                  if (lastConfidence && (now - lastConfidence.timestamp.getTime()) < 10000) {
+                    const normalizedExisting = lastConfidence.content.trim().toLowerCase().replace(/\s+/g, ' ').replace(/[.!?]+$/, '');
+                    if (normalizedExisting === normalizedIncoming) {
+                      return prev;
+                    }
+                  }
+                  return [
+                    ...prev,
+                    {
+                      id: confidenceId,
+                      role: 'assistant' as const,
+                      content: parsed.content,
+                      timestamp: new Date(),
+                      isConfidence: true,
+                    },
+                  ];
+                });
               }
 
               if (parsed.supervisorTaskId) {
@@ -1716,7 +1727,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                 triggerSidebarFlash('emailFinder');
               }
               
-              if (parsed.content && !isRunLane) {
+              if (parsed.content && !isRunLane && parsed.type !== 'confidence') {
                 if (!streamHasSupervisorTask) {
                   setLastLane("chat");
                 }
@@ -2875,8 +2886,8 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
             </div>
           )}
 
-          {/* Thinking indicator */}
-          {isStreaming && (
+          {/* Thinking indicator — hidden when supervisor banner is active */}
+          {isStreaming && !isWaitingForSupervisor && (
             <div className="flex gap-3 flex-row" data-testid="thinking-indicator">
               <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0">
                 <img src={wyshboneLogo} alt="Wyshbone" className="w-full h-full object-cover" />
