@@ -10,6 +10,7 @@ import {
   detectFollowupReuse,
   buildClarifyStatePayload,
   classifyClarifyInput,
+  isMetaTrustQuestion,
   _getSessionsMapForTesting,
   _getIntentsMapForTesting,
 } from '../clarifySession';
@@ -825,6 +826,53 @@ async function runAll() {
     const session = getActiveClarifySession('conv-t38')!;
     const cls = classifyClarifyInput('cancel', session);
     assert(cls === 'REFINE', `Expected REFINE, got ${cls} — cancel should route through handleClarifyResponse`);
+  });
+
+  cleanup();
+
+  await test('T39: isMetaTrustQuestion detects trust questions standalone (no session needed)', () => {
+    assert(isMetaTrustQuestion('are these results guaranteed correct') === true, 'guaranteed → true');
+    assert(isMetaTrustQuestion('how accurate is this data') === true, 'accurate → true');
+    assert(isMetaTrustQuestion('can I trust this data') === true, 'trust → true');
+    assert(isMetaTrustQuestion('how reliable are the results') === true, 'reliable → true');
+    assert(isMetaTrustQuestion('where does this data come from') === true, 'where from → true');
+    assert(isMetaTrustQuestion('find pubs in Leeds') === false, 'search query → false');
+    assert(isMetaTrustQuestion('in Manchester') === false, 'location → false');
+    assert(isMetaTrustQuestion('search now') === false, 'run trigger → false');
+  });
+
+  cleanup();
+
+  await test('T40: META_TRUST during active clarify session does not mutate session', () => {
+    createClarifySession({
+      conversationId: 'conv-t40',
+      originalUserText: 'find pubs',
+      entityType: 'pubs',
+      location: 'Leeds',
+      pendingQuestions: [],
+    });
+
+    const sessionBefore = getActiveClarifySession('conv-t40')!;
+    assert(sessionBefore.is_active === true, 'session should be active');
+    assert(sessionBefore.entity_type === 'pubs', 'entity_type should be pubs');
+
+    const isTrust = isMetaTrustQuestion('are these results guaranteed correct');
+    assert(isTrust === true, 'should detect trust question');
+
+    const sessionAfter = getActiveClarifySession('conv-t40')!;
+    assert(sessionAfter.is_active === true, 'session should still be active after trust check');
+    assert(sessionAfter.entity_type === 'pubs', 'entity_type should still be pubs');
+    assert(sessionAfter.location === 'Leeds', 'location should still be Leeds');
+  });
+
+  cleanup();
+
+  await test('T41: META_TRUST fires even without any clarify session', () => {
+    const session = getActiveClarifySession('conv-t41');
+    assert(session === null, 'no session should exist');
+
+    const isTrust = isMetaTrustQuestion('how sure are you about this data');
+    assert(isTrust === true, 'should detect trust question without session');
   });
 
   cleanup();

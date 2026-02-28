@@ -1281,13 +1281,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
       // ═══════════════════════════════════════════════════════════════════════
-      // CLARIFY SESSION CHECK: If active, route through in-memory session handler FIRST
-      // No DB reads/writes in this block — clarify sessions are purely in-memory.
-      // ═══════════════════════════════════════════════════════════════════════
-      // [CLARIFY_GUARD] When a clarify session is active, classify the input first.
-      // EXECUTE/REFINE → handleClarifyResponse (existing logic).
-      // NEW_TASK → close session, fall through to decideChatMode pipeline.
-      // META_TRUST → respond in chat mode, session untouched.
+      // META_TRUST EARLY INTERCEPTION: Trust/accuracy questions always get an
+      // immediate chat answer regardless of clarify session or execution state.
       // ═══════════════════════════════════════════════════════════════════════
       const {
         getActiveClarifySession,
@@ -1297,7 +1292,50 @@ export async function registerRoutes(app: Express): Promise<Server> {
         closeAllClarifySessions,
         buildClarifyStatePayload,
         classifyClarifyInput,
+        isMetaTrustQuestion,
       } = await import('./lib/clarifySession.js');
+
+      if (isMetaTrustQuestion(latestUserText)) {
+        console.log(`[META_TRUST_INTERCEPT] Answering trust question immediately: "${latestUserText.slice(0, 80)}"`);
+
+        if (clientRequestId) {
+          logRouterDecision({
+            userId: user.id,
+            conversationId,
+            clientRequestId,
+            decision: 'direct_response',
+            reason: `META_TRUST early interception — trust/accuracy question`,
+            signals: { inputClass: 'META_TRUST' },
+          }).catch(err => console.error('AFR router log error:', err.message));
+        }
+
+        const trustAnswer = `Our search results come from live public data sources including Google Business listings, Companies House records, and other publicly available directories. While we work hard to provide accurate and up-to-date information, we recommend independently verifying critical details — especially contact information, trading status, and regulatory standing — before making business decisions. If any result looks incorrect, please let us know and we'll investigate.`;
+
+        appendMessage(sessionId, { role: "assistant", content: trustAnswer });
+        await saveMessage(conversationId, "assistant", trustAnswer);
+
+        const activeClarifyForTrust = getActiveClarifySession(conversationId);
+        if (activeClarifyForTrust) {
+          const clarifyState = buildClarifyStatePayload(activeClarifyForTrust);
+          res.write(`data: ${JSON.stringify({ type: 'clarify_for_run', mode: 'CLARIFY_FOR_RUN', clarify_state: clarifyState })}\n\n`);
+        }
+
+        res.write(`data: ${JSON.stringify({ type: 'message', role: 'assistant', content: trustAnswer })}\n\n`);
+        emitSse({ type: 'status', stage: 'completed', message: 'Answered', clientRequestId: clientRequestId || undefined, conversationId });
+        res.write(`data: [DONE]\n\n`);
+        res.end();
+        return;
+      }
+
+      // ═══════════════════════════════════════════════════════════════════════
+      // CLARIFY SESSION CHECK: If active, route through in-memory session handler FIRST
+      // No DB reads/writes in this block — clarify sessions are purely in-memory.
+      // ═══════════════════════════════════════════════════════════════════════
+      // [CLARIFY_GUARD] When a clarify session is active, classify the input first.
+      // EXECUTE/REFINE → handleClarifyResponse (existing logic).
+      // NEW_TASK → close session, fall through to decideChatMode pipeline.
+      // META_TRUST → (already handled above by early interception).
+      // ═══════════════════════════════════════════════════════════════════════
 
       const activeClarifySession = getActiveClarifySession(conversationId);
 
@@ -1309,22 +1347,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
           console.log(`[CLARIFY_GUARD→NEW_TASK] Closing session ${activeClarifySession.id}, routing through normal pipeline`);
           closeAllClarifySessions(conversationId);
           res.write(`data: ${JSON.stringify({ type: 'clarify_session_ended' })}\n\n`);
-        }
-
-        if (inputClass === 'META_TRUST') {
-          console.log(`[CLARIFY_GUARD→META_TRUST] Responding in chat mode, session ${activeClarifySession.id} preserved`);
-          if (clientRequestId) {
-            logRouterDecision({
-              userId: user.id,
-              conversationId,
-              clientRequestId,
-              decision: 'direct_response',
-              reason: `ClarifySession META_TRUST bypass — session preserved`,
-              signals: { sessionId: activeClarifySession.id, inputClass: 'META_TRUST' },
-            }).catch(err => console.error('AFR router log error:', err.message));
-          }
-          const clarifyState = buildClarifyStatePayload(activeClarifySession);
-          res.write(`data: ${JSON.stringify({ type: 'clarify_for_run', mode: 'CLARIFY_FOR_RUN', clarify_state: clarifyState })}\n\n`);
         }
 
         if (inputClass === 'EXECUTE' || inputClass === 'REFINE') {
@@ -1457,14 +1479,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         } // end EXECUTE/REFINE block
 
-        if (inputClass === 'META_TRUST') {
-          // Fall through to CHAT_INFO pipeline below — session stays active.
-          // The clarify_for_run SSE was already emitted above to keep yellow box visible.
-          // decideChatMode will handle this as CHAT_INFO and stream a response.
-        }
-
         // NEW_TASK: session already closed above — fall through to decideChatMode.
-        // META_TRUST: fall through to decideChatMode which will route to CHAT_INFO.
+        // META_TRUST: already handled by early interception above (never reaches here).
       }
 
       // ═══════════════════════════════════════════════════════════

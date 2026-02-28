@@ -593,6 +593,11 @@ const ENTITY_NOUN_PATTERN = /\b(pubs?|bars?|restaurants?|cafes?|coffee\s+shops?|
 
 const SEARCH_VERB_PATTERN = /\b(?:find|search|look\s+for|looking\s+for|get\s+me|show\s+me|locate|discover)\b/i;
 
+export function isMetaTrustQuestion(message: string): boolean {
+  const normalized = message.toLowerCase().trim().replace(/[.,!?;:]+$/, '');
+  return META_TRUST_PATTERNS.some(pat => pat.test(normalized));
+}
+
 export function classifyClarifyInput(message: string, session: ClarifySession): ClarifyInputClass {
   const normalized = message.toLowerCase().trim().replace(/[.,!?;:]+$/, '');
 
