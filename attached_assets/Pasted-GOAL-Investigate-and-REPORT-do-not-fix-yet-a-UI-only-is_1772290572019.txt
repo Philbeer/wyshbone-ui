@@ -1,0 +1,64 @@
+GOAL
+Investigate and REPORT (do not fix yet) a UI-only issue where duplicate chat bubbles
+and/or duplicate “thinking …” dots appear during agent runs.
+
+IMPORTANT
+- Do NOT change any code yet.
+- Do NOT refactor.
+- Do NOT attempt fixes.
+- This task is REPORT-ONLY.
+
+WHAT WE ARE SEEING
+During an agent run, especially when:
+- a new user message arrives mid-run, or
+- a META_TRUST / CHAT_INFO bypass occurs, or
+- clarify_session_ended fires near a run transition
+
+The UI sometimes shows:
+- Duplicate “Searching for …” messages
+- Duplicate assistant bubbles with identical text
+- Extra lingering “…” thinking indicators
+- Two assistant bubbles for what should be one logical response
+
+The backend logic is correct; this is a rendering / stream handling issue.
+
+WHAT TO INVESTIGATE
+1. How SSE events are handled and rendered in client/src/pages/chat.tsx
+2. Whether incoming SSE messages have stable IDs and whether the UI dedupes them
+3. Whether multiple event types map to the same visual bubble
+   (e.g. run_started + status_update + assistant_message)
+4. Whether race conditions exist between:
+   - supervisorTaskId arrival
+   - clarify_session_ended
+   - direct_response (CHAT_INFO / META_TRUST)
+   - inFlight / waiting flags
+5. Whether any message is rendered both:
+   - optimistically AND again on SSE receipt
+6. Whether message keys are index-based instead of ID-based
+
+WHAT TO DELIVER
+Produce a short forensic report containing:
+
+A) Exact files involved (with line numbers)
+B) Event flow diagram (textual is fine) showing how one logical response
+   becomes two visual bubbles
+C) Which events are duplicated (or misinterpreted)
+D) Whether this is:
+   - missing deduplication
+   - incorrect keying
+   - incorrect lifecycle cleanup
+   - or an SSE ordering issue
+E) A clear hypothesis of the root cause
+F) A suggested minimal fix direction (describe, do NOT implement)
+
+CONSTRAINTS
+- Assume Supervisor and Tower are correct.
+- Do NOT move logic out of UI.
+- Do NOT introduce new state models.
+- This is analysis only.
+
+OUTPUT
+Return ONLY the investigation report.
+No code changes.
+No fixes.
+No speculative redesigns.
