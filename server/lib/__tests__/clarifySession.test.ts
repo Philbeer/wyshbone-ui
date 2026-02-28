@@ -9,6 +9,7 @@ import {
   getLastSuccessfulIntent,
   detectFollowupReuse,
   buildClarifyStatePayload,
+  classifyClarifyInput,
   _getSessionsMapForTesting,
   _getIntentsMapForTesting,
 } from '../clarifySession';
@@ -652,6 +653,178 @@ async function runAll() {
 
     const updated = getActiveClarifySession('conv-t27')!;
     assert(updated.answers['count'] === '50', 'Standalone 50 should be extracted as count');
+  });
+
+  cleanup();
+
+  await test('T28: "cafes in bristol" during pubs clarify → NEW_TASK', () => {
+    createClarifySession({
+      conversationId: 'conv-t28',
+      originalUserText: 'find pubs',
+      entityType: 'pubs',
+      pendingQuestions: buildInitialQuestions('pubs', undefined),
+    });
+
+    const session = getActiveClarifySession('conv-t28')!;
+    const cls = classifyClarifyInput('cafes in bristol', session);
+    assert(cls === 'NEW_TASK', `Expected NEW_TASK, got ${cls}`);
+  });
+
+  cleanup();
+
+  await test('T29: "find restaurants in York" during pubs clarify → NEW_TASK', () => {
+    createClarifySession({
+      conversationId: 'conv-t29',
+      originalUserText: 'find pubs',
+      entityType: 'pubs',
+      pendingQuestions: buildInitialQuestions('pubs', undefined),
+    });
+
+    const session = getActiveClarifySession('conv-t29')!;
+    const cls = classifyClarifyInput('find restaurants in York', session);
+    assert(cls === 'NEW_TASK', `Expected NEW_TASK, got ${cls}`);
+  });
+
+  cleanup();
+
+  await test('T30: "are these results guaranteed correct" during clarify → META_TRUST', () => {
+    createClarifySession({
+      conversationId: 'conv-t30',
+      originalUserText: 'find pubs',
+      entityType: 'pubs',
+      pendingQuestions: buildInitialQuestions('pubs', undefined),
+    });
+
+    const session = getActiveClarifySession('conv-t30')!;
+    const cls = classifyClarifyInput('are these results guaranteed correct', session);
+    assert(cls === 'META_TRUST', `Expected META_TRUST, got ${cls}`);
+  });
+
+  cleanup();
+
+  await test('T31: "can i trust this data" during clarify → META_TRUST', () => {
+    createClarifySession({
+      conversationId: 'conv-t31',
+      originalUserText: 'find pubs',
+      entityType: 'pubs',
+      pendingQuestions: buildInitialQuestions('pubs', undefined),
+    });
+
+    const session = getActiveClarifySession('conv-t31')!;
+    const cls = classifyClarifyInput('can i trust this data', session);
+    assert(cls === 'META_TRUST', `Expected META_TRUST, got ${cls}`);
+  });
+
+  cleanup();
+
+  await test('T32: "search now" during clarify → EXECUTE', () => {
+    createClarifySession({
+      conversationId: 'conv-t32',
+      originalUserText: 'find pubs',
+      entityType: 'pubs',
+      location: 'Leeds',
+      pendingQuestions: [],
+    });
+
+    const session = getActiveClarifySession('conv-t32')!;
+    const cls = classifyClarifyInput('search now', session);
+    assert(cls === 'EXECUTE', `Expected EXECUTE, got ${cls}`);
+  });
+
+  cleanup();
+
+  await test('T33: "in Leeds" during pubs clarify → REFINE (same entity)', () => {
+    createClarifySession({
+      conversationId: 'conv-t33',
+      originalUserText: 'find pubs',
+      entityType: 'pubs',
+      pendingQuestions: buildInitialQuestions('pubs', undefined),
+    });
+
+    const session = getActiveClarifySession('conv-t33')!;
+    const cls = classifyClarifyInput('in Leeds', session);
+    assert(cls === 'REFINE', `Expected REFINE, got ${cls}`);
+  });
+
+  cleanup();
+
+  await test('T34: "pubs in Manchester" during pubs clarify → REFINE (same entity)', () => {
+    createClarifySession({
+      conversationId: 'conv-t34',
+      originalUserText: 'find pubs',
+      entityType: 'pubs',
+      pendingQuestions: buildInitialQuestions('pubs', undefined),
+    });
+
+    const session = getActiveClarifySession('conv-t34')!;
+    const cls = classifyClarifyInput('pubs in Manchester', session);
+    assert(cls === 'REFINE', `Expected REFINE, got ${cls}`);
+  });
+
+  cleanup();
+
+  await test('T35: "new question: what about dentists" during clarify → NEW_TASK', () => {
+    createClarifySession({
+      conversationId: 'conv-t35',
+      originalUserText: 'find pubs',
+      entityType: 'pubs',
+      pendingQuestions: buildInitialQuestions('pubs', undefined),
+    });
+
+    const session = getActiveClarifySession('conv-t35')!;
+    const cls = classifyClarifyInput('new question: what about dentists', session);
+    assert(cls === 'NEW_TASK', `Expected NEW_TASK, got ${cls}`);
+  });
+
+  cleanup();
+
+  await test('T36: META_TRUST does not alter session slots', () => {
+    createClarifySession({
+      conversationId: 'conv-t36',
+      originalUserText: 'find pubs',
+      entityType: 'pubs',
+      location: 'Leeds',
+      pendingQuestions: [],
+    });
+
+    const session = getActiveClarifySession('conv-t36')!;
+    const cls = classifyClarifyInput('how reliable is this data', session);
+    assert(cls === 'META_TRUST', `Expected META_TRUST, got ${cls}`);
+    const afterSession = getActiveClarifySession('conv-t36')!;
+    assert(afterSession.entity_type === 'pubs', 'entity_type should still be pubs');
+    assert(afterSession.location === 'Leeds', 'location should still be Leeds');
+    assert(afterSession.is_active === true, 'session should still be active');
+  });
+
+  cleanup();
+
+  await test('T37: "yes" during clarify → EXECUTE', () => {
+    createClarifySession({
+      conversationId: 'conv-t37',
+      originalUserText: 'find pubs',
+      entityType: 'pubs',
+      location: 'Leeds',
+      pendingQuestions: [],
+    });
+
+    const session = getActiveClarifySession('conv-t37')!;
+    const cls = classifyClarifyInput('yes', session);
+    assert(cls === 'EXECUTE', `Expected EXECUTE, got ${cls}`);
+  });
+
+  cleanup();
+
+  await test('T38: "cancel" during clarify → REFINE (cancel handled inside handleClarifyResponse)', () => {
+    createClarifySession({
+      conversationId: 'conv-t38',
+      originalUserText: 'find pubs',
+      entityType: 'pubs',
+      pendingQuestions: buildInitialQuestions('pubs', undefined),
+    });
+
+    const session = getActiveClarifySession('conv-t38')!;
+    const cls = classifyClarifyInput('cancel', session);
+    assert(cls === 'REFINE', `Expected REFINE, got ${cls} — cancel should route through handleClarifyResponse`);
   });
 
   cleanup();

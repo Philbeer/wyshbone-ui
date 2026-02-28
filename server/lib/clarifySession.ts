@@ -578,6 +578,51 @@ export function detectFollowupReuse(
   return { isFollowup: false };
 }
 
+export type ClarifyInputClass = 'EXECUTE' | 'META_TRUST' | 'NEW_TASK' | 'REFINE';
+
+const META_TRUST_PATTERNS = [
+  /\b(?:guaranteed|guarantee|accurate|accuracy|how\s+sure|confidence|confident|reliable|reliability)\b/i,
+  /\b(?:where\s+(?:does?|do|is|are)\s+(?:this|the|that|these)\s+(?:data|info|information|results?)\s+(?:come|from))/i,
+  /\b(?:can\s+i\s+trust|trust\s+(?:this|these|the|that))\b/i,
+  /\b(?:how\s+(?:reliable|accurate|trustworthy|confident)\b)/i,
+  /\b(?:source\s+of\s+(?:the\s+)?(?:data|information|results?))\b/i,
+  /\b(?:is\s+(?:this|that|the)\s+(?:data|info|information)\s+(?:accurate|reliable|correct))\b/i,
+];
+
+const ENTITY_NOUN_PATTERN = /\b(pubs?|bars?|restaurants?|cafes?|coffee\s+shops?|hotels?|dentists?|salons?|gyms?|clinics?|breweries?|bakeries?|florists?|venues?|shops?|stores?|businesses|companies|organisations?|organizations?|charities|electricians?|plumbers?|solicitors?|accountants?|butchers?|hairdressers?|mechanics?|vets?|veterinar(?:y|ians?)|nurseries|pharmacies|estate\s+agents?|letting\s+agents?)\b/i;
+
+const SEARCH_VERB_PATTERN = /\b(?:find|search|look\s+for|looking\s+for|get\s+me|show\s+me|locate|discover)\b/i;
+
+export function classifyClarifyInput(message: string, session: ClarifySession): ClarifyInputClass {
+  const normalized = message.toLowerCase().trim().replace(/[.,!?;:]+$/, '');
+
+  if (isRunTrigger(message)) return 'EXECUTE';
+  if (isBareAcknowledgement(message)) return 'EXECUTE';
+  if (isUserCancelling(message)) return 'REFINE';
+
+  for (const pat of META_TRUST_PATTERNS) {
+    if (pat.test(normalized)) return 'META_TRUST';
+  }
+
+  if (/^new\s+question\s*:/i.test(normalized)) return 'NEW_TASK';
+
+  if (session.entity_type) {
+    const entityMatch = normalized.match(ENTITY_NOUN_PATTERN);
+    if (entityMatch) {
+      const mentioned = entityMatch[0].toLowerCase().replace(/s$/, '');
+      const current = session.entity_type.toLowerCase().replace(/s$/, '');
+      if (mentioned !== current && !current.includes(mentioned) && !mentioned.includes(current)) {
+        if (SEARCH_VERB_PATTERN.test(normalized) || /\bin\s+[a-z]/i.test(message)) {
+          return 'NEW_TASK';
+        }
+        return 'NEW_TASK';
+      }
+    }
+  }
+
+  return 'REFINE';
+}
+
 export function _getSessionsMapForTesting(): Map<string, ClarifySession> {
   return sessions;
 }

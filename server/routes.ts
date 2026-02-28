@@ -1284,10 +1284,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // CLARIFY SESSION CHECK: If active, route through in-memory session handler FIRST
       // No DB reads/writes in this block — clarify sessions are purely in-memory.
       // ═══════════════════════════════════════════════════════════════════════
-      // [CLARIFY_GUARD] HARD INVARIANT: When a clarify session is active, ALL messages
-      // route through handleClarifyResponse. No pivot-detection recheck. No decideChatMode
-      // re-evaluation. No closeAllClarifySessions due to CHAT_INFO classification.
-      // Only handleClarifyResponse may decide to close (via cancel or run_supervisor).
+      // [CLARIFY_GUARD] When a clarify session is active, classify the input first.
+      // EXECUTE/REFINE → handleClarifyResponse (existing logic).
+      // NEW_TASK → close session, fall through to decideChatMode pipeline.
+      // META_TRUST → respond in chat mode, session untouched.
       // ═══════════════════════════════════════════════════════════════════════
       const {
         getActiveClarifySession,
@@ -1296,12 +1296,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
         buildInitialQuestions,
         closeAllClarifySessions,
         buildClarifyStatePayload,
+        classifyClarifyInput,
       } = await import('./lib/clarifySession.js');
 
       const activeClarifySession = getActiveClarifySession(conversationId);
 
       if (activeClarifySession) {
-        console.log(`[CLARIFY_GUARD] Active session ${activeClarifySession.id} for conv=${conversationId} — routing directly to handleClarifyResponse, pivot recheck blocked (latestUserText="${latestUserText.slice(0, 60)}")`);
+        const inputClass = classifyClarifyInput(latestUserText, activeClarifySession);
+        console.log(`[CLARIFY_GUARD] Active session ${activeClarifySession.id} for conv=${conversationId} — inputClass=${inputClass} (latestUserText="${latestUserText.slice(0, 60)}")`);
+
+        if (inputClass === 'NEW_TASK') {
+          console.log(`[CLARIFY_GUARD→NEW_TASK] Closing session ${activeClarifySession.id}, routing through normal pipeline`);
+          closeAllClarifySessions(conversationId);
+          res.write(`data: ${JSON.stringify({ type: 'clarify_session_ended' })}\n\n`);
+        }
+
+        if (inputClass === 'META_TRUST') {
+          console.log(`[CLARIFY_GUARD→META_TRUST] Responding in chat mode, session ${activeClarifySession.id} preserved`);
+          if (clientRequestId) {
+            logRouterDecision({
+              userId: user.id,
+              conversationId,
+              clientRequestId,
+              decision: 'direct_response',
+              reason: `ClarifySession META_TRUST bypass — session preserved`,
+              signals: { sessionId: activeClarifySession.id, inputClass: 'META_TRUST' },
+            }).catch(err => console.error('AFR router log error:', err.message));
+          }
+          const clarifyState = buildClarifyStatePayload(activeClarifySession);
+          res.write(`data: ${JSON.stringify({ type: 'clarify_for_run', mode: 'CLARIFY_FOR_RUN', clarify_state: clarifyState })}\n\n`);
+        }
+
+        if (inputClass === 'EXECUTE' || inputClass === 'REFINE') {
         const currentSession = activeClarifySession;
         console.log(`🔄 [CLARIFY_SESSION] Active session ${currentSession.id} for conv=${conversationId}, processing user reply: "${latestUserText.slice(0, 60)}"`);
 
@@ -1429,6 +1455,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
             return;
           }
         }
+        } // end EXECUTE/REFINE block
+
+        if (inputClass === 'META_TRUST') {
+          // Fall through to CHAT_INFO pipeline below — session stays active.
+          // The clarify_for_run SSE was already emitted above to keep yellow box visible.
+          // decideChatMode will handle this as CHAT_INFO and stream a response.
+        }
+
+        // NEW_TASK: session already closed above — fall through to decideChatMode.
+        // META_TRUST: fall through to decideChatMode which will route to CHAT_INFO.
       }
 
       // ═══════════════════════════════════════════════════════════
