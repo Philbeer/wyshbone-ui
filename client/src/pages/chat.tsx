@@ -1348,6 +1348,20 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
           clearInterval(supervisorPollRef.current);
           supervisorPollRef.current = null;
         }
+
+        // Clear in-flight request tracking
+        inFlightRequestIdRef.current = null;
+        if (pendingCleanupRef.current) {
+          clearTimeout(pendingCleanupRef.current);
+          pendingCleanupRef.current = null;
+        }
+        inFlightSupervisorRunsRef.current.clear();
+        supervisorRunIdRef.current = null;
+        supervisorClientRequestIdRef.current = null;
+        processedRealtimeMsgIdsRef.current.clear();
+        deliverySummaryRunIdsRef.current = new Set();
+        pendingResultPersistsRef.current = [];
+        pendingMetadataRef.current = null;
         
         // IMPORTANT: Set history loading ref to true FIRST to prevent auto-loading
         hasLoadedHistoryRef.current = true;
@@ -1380,6 +1394,8 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         clearRecentRuns();
         lastSentQueryRef.current = null;
         setConcatenationError(null);
+        setQueuedMessage(null);
+        setInFlightBlockMessage(null);
         setConversationId(newConversationId);
         
         console.log(`🆕 Started new chat with ID: ${newConversationId}`);
@@ -1407,6 +1423,20 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
           supervisorPollRef.current = null;
         }
 
+        // Clear in-flight request tracking
+        inFlightRequestIdRef.current = null;
+        if (pendingCleanupRef.current) {
+          clearTimeout(pendingCleanupRef.current);
+          pendingCleanupRef.current = null;
+        }
+        inFlightSupervisorRunsRef.current.clear();
+        supervisorRunIdRef.current = null;
+        supervisorClientRequestIdRef.current = null;
+        processedRealtimeMsgIdsRef.current.clear();
+        deliverySummaryRunIdsRef.current = new Set();
+        pendingResultPersistsRef.current = [];
+        pendingMetadataRef.current = null;
+
         setIsStreaming(false);
         setInput("");
         setShowLocationSuggestions(false);
@@ -1424,6 +1454,8 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         clearRecentRuns();
         lastSentQueryRef.current = null;
         setConcatenationError(null);
+        setQueuedMessage(null);
+        setInFlightBlockMessage(null);
         
         // Update conversationId
         setConversationId(newConversationId);
@@ -2223,7 +2255,24 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     setIsStreaming(false);
     setInFlightBlockMessage(null);
     inFlightRequestIdRef.current = null;
+    if (pendingCleanupRef.current) {
+      clearTimeout(pendingCleanupRef.current);
+      pendingCleanupRef.current = null;
+    }
+    inFlightSupervisorRunsRef.current.clear();
+    supervisorRunIdRef.current = null;
+    supervisorClientRequestIdRef.current = null;
+    if (supervisorTimeoutRef.current) {
+      clearTimeout(supervisorTimeoutRef.current);
+      supervisorTimeoutRef.current = null;
+    }
+    if (supervisorPollRef.current) {
+      clearInterval(supervisorPollRef.current);
+      supervisorPollRef.current = null;
+    }
     setActiveClientRequestId(null);
+    setSupervisorTaskId(null);
+    setIsWaitingForSupervisor(false);
     setProgressStack((prev) => {
       const last = prev[prev.length - 1];
       if (last && last.stage !== 'completed' && last.stage !== 'failed') {
