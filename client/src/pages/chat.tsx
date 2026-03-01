@@ -430,6 +430,8 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
       hasLoadedHistoryRef.current = false;
       hasShownGreetingRef.current = false;
       clearRecentRuns();
+      lastSentQueryRef.current = null;
+      setConcatenationError(null);
 
       console.log('✅ Demo mode clean slate applied - fresh "first time" experience ready');
     }
@@ -1376,6 +1378,8 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         setPinnedClientRequestId(null);
         setLastCompletedClientRequestId(null);
         clearRecentRuns();
+        lastSentQueryRef.current = null;
+        setConcatenationError(null);
         setConversationId(newConversationId);
         
         console.log(`🆕 Started new chat with ID: ${newConversationId}`);
@@ -1418,6 +1422,8 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         setPinnedClientRequestId(null);
         setLastCompletedClientRequestId(null);
         clearRecentRuns();
+        lastSentQueryRef.current = null;
+        setConcatenationError(null);
         
         // Update conversationId
         setConversationId(newConversationId);
@@ -2095,7 +2101,8 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
 
     setConcatenationError(null);
 
-    if (lastSentQueryRef.current && messageContent !== lastSentQueryRef.current && messageContent.length > lastSentQueryRef.current.length) {
+    const userMessages = messages.filter(m => m.role === 'user');
+    if (userMessages.length > 0 && lastSentQueryRef.current && messageContent !== lastSentQueryRef.current && messageContent.length > lastSentQueryRef.current.length) {
       const prevLower = lastSentQueryRef.current.toLowerCase();
       const newLower = messageContent.toLowerCase();
       if (newLower.includes(prevLower) && prevLower.length > 10) {
@@ -3087,7 +3094,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => { setConcatenationError(null); setInput(""); }}
+                onClick={() => { setConcatenationError(null); setInput(""); lastSentQueryRef.current = null; }}
                 className="text-red-600 hover:text-red-800 dark:text-red-400"
               >
                 Clear
