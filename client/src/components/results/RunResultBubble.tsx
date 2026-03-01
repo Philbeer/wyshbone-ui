@@ -63,6 +63,7 @@ const STATUS_ICONS: Record<CanonicalStatus, typeof CheckCircle2> = {
   PARTIAL: CircleDot,
   STOP: OctagonX,
   FAIL: AlertTriangle,
+  ACCEPT_WITH_UNVERIFIED: AlertTriangle,
   UNAVAILABLE: HelpCircle,
 };
 
@@ -71,6 +72,7 @@ const STATUS_COLORS: Record<CanonicalStatus, string> = {
   PARTIAL: "text-blue-600 dark:text-blue-400",
   STOP: "text-red-600 dark:text-red-400",
   FAIL: "text-red-600 dark:text-red-400",
+  ACCEPT_WITH_UNVERIFIED: "text-amber-600 dark:text-amber-400",
   UNAVAILABLE: "text-muted-foreground",
 };
 
@@ -287,6 +289,15 @@ function buildSummaryText(
       return `Search stopped. No results could be confirmed for your criteria.`;
     }
 
+    case "ACCEPT_WITH_UNVERIFIED": {
+      const totalItems = (Array.isArray(ds.delivered_exact) ? ds.delivered_exact.length : 0) +
+        (Array.isArray(ds.delivered_closest) ? ds.delivered_closest.length : 0);
+      if (target.hasTarget) {
+        return `Returned ${totalItems} ${totalItems === 1 ? "result" : "results"} for ${target.targetCount} requested, but not all could be verified against your requirements.`;
+      }
+      return `I found ${totalItems} ${totalItems === 1 ? "result" : "results"}, but not all could be verified against your requirements.`;
+    }
+
     case "FAIL":
       return `Search could not be completed. Results were not verified.`;
 
@@ -436,7 +447,7 @@ function NextActionButtons({
     actionPayload?: Record<string, any>;
   }> = [];
 
-  if (canonical.status === "STOP" || canonical.status === "PARTIAL") {
+  if (canonical.status === "STOP" || canonical.status === "PARTIAL" || canonical.status === "ACCEPT_WITH_UNVERIFIED") {
     actions.push({
       label: "Search more results",
       message: "Search for more results in this area.",
@@ -670,15 +681,12 @@ export default function RunResultBubble({
 
   const isTimePredicateStop = !!(towerStopTimePredicate && (canonical.status === 'STOP' || canonical.status === 'FAIL'));
 
-  const defaultBadgeStatus: LeadBadgeStatus =
-    !leadVerifications || leadVerifications.length === 0 || isTrustFailure || isTimePredicateStop
-      ? 'unverified'
-      : 'candidate';
+  const hasUnverifiedLeads = !leadVerifications || leadVerifications.length === 0 || isTrustFailure || isTimePredicateStop;
 
-  const StatusIcon = STATUS_ICONS[canonical.status];
-  const statusColor = STATUS_COLORS[canonical.status];
-  const summaryText = buildSummaryText(deliverySummary, canonical, verifiedExact, target, towerVerdict);
-  const unverifiableAttr = extractUnverifiableAttribute(deliverySummary);
+  const defaultBadgeStatus: LeadBadgeStatus = hasUnverifiedLeads ? 'unverified' : 'candidate';
+
+  const towerVerdictUpper = (towerVerdict || "").toUpperCase().replace(/[\s-]/g, '_');
+  const isExplicitAcceptWithUnverified = towerVerdictUpper === 'ACCEPT_WITH_UNVERIFIED';
 
   const exact = Array.isArray(deliverySummary.delivered_exact) ? deliverySummary.delivered_exact : [];
   const closest = Array.isArray(deliverySummary.delivered_closest) ? deliverySummary.delivered_closest : [];
@@ -686,6 +694,26 @@ export default function RunResultBubble({
 
   const verifiedIds = buildVerifiedLeadIds(leadVerifications);
   const { matches, candidates } = splitLeadsByVerification(allLeads, verifiedExact, verifiedIds);
+
+  const verifiedExactCoversAll = verifiedExact >= allLeads.length && allLeads.length > 0;
+
+  const hasAnyUnverifiedResults = allLeads.length > 0 && !verifiedExactCoversAll && (
+    hasUnverifiedLeads || candidates.length > 0 || matches.length < allLeads.length
+  );
+
+  let effectiveCanonical = canonical;
+  if (isExplicitAcceptWithUnverified) {
+    effectiveCanonical = { status: "ACCEPT_WITH_UNVERIFIED", stop_reason: null };
+  } else if (canonical.status === "PASS" && hasAnyUnverifiedResults) {
+    effectiveCanonical = { status: "ACCEPT_WITH_UNVERIFIED", stop_reason: null };
+    console.log(`[RunResultBubble] Downgraded PASS → ACCEPT_WITH_UNVERIFIED: allLeads=${allLeads.length}, matches=${matches.length}, candidates=${candidates.length}, hasUnverifiedLeads=${hasUnverifiedLeads}`);
+  }
+
+  const StatusIcon = STATUS_ICONS[effectiveCanonical.status];
+  const statusColor = STATUS_COLORS[effectiveCanonical.status];
+  const summaryText = buildSummaryText(deliverySummary, effectiveCanonical, verifiedExact, target, towerVerdict);
+  const unverifiableAttr = extractUnverifiableAttribute(deliverySummary);
+
   const useLocationBuckets = hasLocationStatusData(allLeads);
   const locationBuckets = useLocationBuckets ? splitLeadsByLocationStatus(allLeads) : null;
   const matchSetLower = new Set<string>();
@@ -695,7 +723,7 @@ export default function RunResultBubble({
     });
   }
 
-  console.log(`[RunResultBubble] render: status=${canonical.status}, verifiedExact=${verifiedExact}, requested=${target.hasTarget ? target.targetCount : 'any'}, allLeads=${allLeads.length}, matches=${matches.length}, candidates=${candidates.length}, leadVerifications=${leadVerifications?.length ?? 'none'}, verifiedIds=${verifiedIds.size}, locationBuckets=${useLocationBuckets ? `geo=${locationBuckets!.verifiedGeo.length},bounded=${locationBuckets!.searchBounded.length},out=${locationBuckets!.outOfArea.length},unknown=${locationBuckets!.unknown.length}` : 'none'}`);
+  console.log(`[RunResultBubble] render: status=${effectiveCanonical.status} (raw=${canonical.status}), verifiedExact=${verifiedExact}, requested=${target.hasTarget ? target.targetCount : 'any'}, allLeads=${allLeads.length}, matches=${matches.length}, candidates=${candidates.length}, leadVerifications=${leadVerifications?.length ?? 'none'}, verifiedIds=${verifiedIds.size}, locationBuckets=${useLocationBuckets ? `geo=${locationBuckets!.verifiedGeo.length},bounded=${locationBuckets!.searchBounded.length},out=${locationBuckets!.outOfArea.length},unknown=${locationBuckets!.unknown.length}` : 'none'}`);
 
   return (
     <div className="space-y-3">
@@ -721,7 +749,7 @@ export default function RunResultBubble({
           <StatusIcon className={cn("h-4 w-4 mt-0.5 shrink-0", statusColor)} />
           <div>
             <p className="text-sm text-foreground leading-relaxed">
-              {towerStopTimePredicate && (canonical.status === 'STOP' || canonical.status === 'FAIL')
+              {towerStopTimePredicate && (effectiveCanonical.status === 'STOP' || effectiveCanonical.status === 'FAIL')
                 ? "Stopped: can\u2019t verify opening date constraint without an acceptable proxy."
                 : summaryText}
             </p>
@@ -803,7 +831,7 @@ export default function RunResultBubble({
       {!provisional && !isTrustFailure && !isTimePredicateStop && !useLocationBuckets && matches.length > 0 && (
         <div className="space-y-0.5">
           <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-            {canonical.status === "STOP" || canonical.status === "PARTIAL" ? `Results (${matches.length})` : `Matches (${matches.length})`}
+            {effectiveCanonical.status === "STOP" || effectiveCanonical.status === "PARTIAL" || effectiveCanonical.status === "ACCEPT_WITH_UNVERIFIED" ? `Results (${matches.length})` : `Matches (${matches.length})`}
           </h4>
           <div>
             {matches.map((lead, i) => (
@@ -828,7 +856,7 @@ export default function RunResultBubble({
         <LearningSection snapshot={policySnapshot} />
       )}
 
-      {!provisional && <NextActionButtons ds={deliverySummary} canonical={canonical} runId={runId} hasTarget={target.hasTarget} />}
+      {!provisional && <NextActionButtons ds={deliverySummary} canonical={effectiveCanonical} runId={runId} hasTarget={target.hasTarget} />}
     </div>
   );
 }

@@ -1,4 +1,4 @@
-export type CanonicalStatus = "PASS" | "PARTIAL" | "STOP" | "FAIL" | "UNAVAILABLE";
+export type CanonicalStatus = "PASS" | "PARTIAL" | "STOP" | "FAIL" | "UNAVAILABLE" | "ACCEPT_WITH_UNVERIFIED";
 
 export interface StopReason {
   message: string;
@@ -19,7 +19,11 @@ export interface DeliveryStatusInput {
 }
 
 export function resolveCanonicalStatus(input: DeliveryStatusInput): CanonicalDeliveryStatus {
-  const raw = (input.status || "").toUpperCase().trim();
+  const raw = (input.status || "").toUpperCase().trim().replace(/[\s-]/g, '_');
+
+  if (raw === "ACCEPT_WITH_UNVERIFIED") {
+    return { status: "ACCEPT_WITH_UNVERIFIED", stop_reason: null };
+  }
 
   if (raw === "PASS" || raw === "PARTIAL" || raw === "STOP" || raw === "FAIL") {
     let stopReason: StopReason | null = null;
@@ -59,6 +63,11 @@ export const STATUS_CONFIG: Record<CanonicalStatus, { label: string; badge: stri
     label: "Verification failed",
     badge: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-200",
     description: "Results could not be verified.",
+  },
+  ACCEPT_WITH_UNVERIFIED: {
+    label: "Results returned — not all verified",
+    badge: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-200",
+    description: "Results delivered but some constraints could not be verified.",
   },
   UNAVAILABLE: {
     label: "Status unavailable",

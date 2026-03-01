@@ -327,6 +327,110 @@ test('T20: Compound clarification — constraint + missing fields coexist', () =
   assert(getClarifyPanelHeader(payload.constraintContract) === 'Waiting for clarification', 'Header must say waiting');
 });
 
+test('T21: ACCEPT_WITH_UNVERIFIED parsed by resolveCanonicalStatus', () => {
+  const result = resolveCanonicalStatus({ status: 'ACCEPT_WITH_UNVERIFIED' });
+  assert(result.status === 'ACCEPT_WITH_UNVERIFIED', `Expected ACCEPT_WITH_UNVERIFIED, got ${result.status}`);
+});
+
+test('T22: ACCEPT_WITH_UNVERIFIED uses warning styling not success', () => {
+  const config = STATUS_CONFIG.ACCEPT_WITH_UNVERIFIED;
+  assert(config !== undefined, 'STATUS_CONFIG must have ACCEPT_WITH_UNVERIFIED');
+  assert(config.badge.includes('amber'), `Badge should use amber styling, got "${config.badge}"`);
+  assert(!config.label.includes('Complete'), `Label must not say Complete, got "${config.label}"`);
+  assert(config.label.includes('not all verified'), `Label should mention unverified, got "${config.label}"`);
+});
+
+test('T23: PASS with unverified leads must downgrade to ACCEPT_WITH_UNVERIFIED', () => {
+  function detectEffectiveStatus(
+    rawStatus: string,
+    towerVerdict: string | null,
+    allLeadsCount: number,
+    matchesCount: number,
+    hasLeadVerifications: boolean
+  ): string {
+    const canonical = resolveCanonicalStatus({ status: rawStatus });
+    const towerUpper = (towerVerdict || "").toUpperCase().replace(/[\s-]/g, '_');
+    if (towerUpper === 'ACCEPT_WITH_UNVERIFIED') return 'ACCEPT_WITH_UNVERIFIED';
+    const hasUnverified = !hasLeadVerifications;
+    const hasAnyUnverifiedResults = allLeadsCount > 0 && (hasUnverified || matchesCount < allLeadsCount);
+    if (canonical.status === 'PASS' && hasAnyUnverifiedResults) return 'ACCEPT_WITH_UNVERIFIED';
+    return canonical.status;
+  }
+
+  assert(
+    detectEffectiveStatus('PASS', null, 5, 0, false) === 'ACCEPT_WITH_UNVERIFIED',
+    'PASS + no lead verifications must downgrade'
+  );
+  assert(
+    detectEffectiveStatus('PASS', null, 5, 5, true) === 'PASS',
+    'PASS + all verified should stay PASS'
+  );
+  assert(
+    detectEffectiveStatus('PASS', null, 5, 3, true) === 'ACCEPT_WITH_UNVERIFIED',
+    'PASS + some unverified must downgrade'
+  );
+  assert(
+    detectEffectiveStatus('PASS', 'ACCEPT_WITH_UNVERIFIED', 5, 5, true) === 'ACCEPT_WITH_UNVERIFIED',
+    'Explicit Tower ACCEPT_WITH_UNVERIFIED always wins'
+  );
+  assert(
+    detectEffectiveStatus('STOP', null, 5, 0, false) === 'STOP',
+    'STOP should remain STOP regardless of verification'
+  );
+});
+
+test('T24: PASS with all leads verified stays PASS', () => {
+  const canonical = resolveCanonicalStatus({ status: 'PASS' });
+  assert(canonical.status === 'PASS', 'Raw status should be PASS');
+  const allLeads = 5;
+  const matches = 5;
+  const hasLeadVerifications = true;
+  const hasAnyUnverified = allLeads > 0 && (!hasLeadVerifications || matches < allLeads);
+  assert(!hasAnyUnverified, 'Should NOT detect unverified when all leads match');
+});
+
+test('T25a: PASS stays PASS when verifiedExact covers all leads', () => {
+  function detectWithVerifiedExact(
+    rawStatus: string,
+    allLeadsCount: number,
+    verifiedExact: number,
+    hasLeadVerifications: boolean
+  ): string {
+    const canonical = resolveCanonicalStatus({ status: rawStatus });
+    const verifiedExactCoversAll = verifiedExact >= allLeadsCount && allLeadsCount > 0;
+    const hasUnverified = !hasLeadVerifications;
+    const hasAnyUnverifiedResults = allLeadsCount > 0 && !verifiedExactCoversAll && hasUnverified;
+    if (canonical.status === 'PASS' && hasAnyUnverifiedResults) return 'ACCEPT_WITH_UNVERIFIED';
+    return canonical.status;
+  }
+
+  assert(
+    detectWithVerifiedExact('PASS', 5, 5, false) === 'PASS',
+    'PASS + verifiedExact=allLeads should stay PASS even without leadVerifications'
+  );
+  assert(
+    detectWithVerifiedExact('PASS', 5, 6, false) === 'PASS',
+    'PASS + verifiedExact>allLeads should stay PASS'
+  );
+  assert(
+    detectWithVerifiedExact('PASS', 5, 3, false) === 'ACCEPT_WITH_UNVERIFIED',
+    'PASS + verifiedExact<allLeads + no leadVerifications should downgrade'
+  );
+  assert(
+    detectWithVerifiedExact('PASS', 0, 0, false) === 'PASS',
+    'PASS + no leads at all should stay PASS'
+  );
+});
+
+test('T25b: ACCEPT_WITH_UNVERIFIED summary text avoids success language', () => {
+  const canonical = resolveCanonicalStatus({ status: 'ACCEPT_WITH_UNVERIFIED' });
+  assert(canonical.status === 'ACCEPT_WITH_UNVERIFIED', 'Should resolve to ACCEPT_WITH_UNVERIFIED');
+  const config = STATUS_CONFIG[canonical.status];
+  assert(!config.label.toLowerCase().includes('pass'), 'Label must not say pass');
+  assert(!config.label.toLowerCase().includes('complete'), 'Label must not say complete');
+  assert(!config.description.toLowerCase().includes('success'), 'Description must not say success');
+});
+
 console.log(`\n${'='.repeat(50)}`);
 console.log(`Results: ${passed} passed, ${failed} failed, ${passed + failed} total`);
 if (failed > 0) process.exit(1);
