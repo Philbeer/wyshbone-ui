@@ -14,7 +14,7 @@ import {
   _getSessionsMapForTesting,
   _getIntentsMapForTesting,
 } from '../clarifySession';
-import { decideChatMode, isKnownLocation, hasOpenedTimePredicate, hasExplicitProxy, hasNoProxyRefusal } from '../decideChatMode';
+import { decideChatMode, isKnownLocation, hasOpenedTimePredicate, hasExplicitProxy, hasNoProxyRefusal, extractAttributeConstraints } from '../decideChatMode';
 
 let passed = 0;
 let failed = 0;
@@ -1211,6 +1211,45 @@ async function runAll() {
     assert(hasNoProxyRefusal('must be certain') === true, '"must be certain" → true');
     assert(hasNoProxyRefusal('no guessing') === true, '"no guessing" → true');
     assert(hasNoProxyRefusal('find pubs in Leeds') === false, 'no refusal → false');
+  });
+  cleanup();
+
+  await test('T71: "Find 10 pubs in Bristol that opened in the last 12 months and have live music" → CLARIFY_FOR_RUN with BOTH time-predicate and attribute constraint', () => {
+    const msg = 'Find 10 pubs in Bristol that opened in the last 12 months and have live music';
+
+    assert(hasOpenedTimePredicate(msg) === true, 'should detect opened time predicate');
+
+    const attrs = extractAttributeConstraints(msg);
+    assert(attrs.length >= 1, `should extract at least 1 attribute constraint, got ${attrs.length}`);
+    assert(attrs.some(a => a.includes('live music')), `should include "live music", got: ${JSON.stringify(attrs)}`);
+
+    const decision = decideChatMode({ userMessage: msg });
+    assert(decision.mode === 'CLARIFY_FOR_RUN', `Expected CLARIFY_FOR_RUN, got ${decision.mode}`);
+    assert(decision.entityType !== undefined, 'entityType should be extracted');
+    assert(decision.location !== undefined, 'location should be extracted');
+  });
+  cleanup();
+
+  await test('T72: extractAttributeConstraints — compound "and have/are/serve" patterns', () => {
+    const r1 = extractAttributeConstraints('find pubs that opened recently and have live music');
+    assert(r1.some(a => a.includes('live music')), `"and have live music" → should extract "live music", got ${JSON.stringify(r1)}`);
+
+    const r2 = extractAttributeConstraints('find cafes in Leeds and serve vegan food');
+    assert(r2.some(a => a.includes('vegan food')), `"and serve vegan food" → should extract, got ${JSON.stringify(r2)}`);
+
+    const r3 = extractAttributeConstraints('find pubs in London with beer garden');
+    assert(r3.some(a => a.includes('beer garden')), `"with beer garden" → should extract, got ${JSON.stringify(r3)}`);
+
+    const r4 = extractAttributeConstraints('find pubs in Leeds');
+    assert(r4.length === 0, `no attribute constraints → empty array, got ${JSON.stringify(r4)}`);
+  });
+  cleanup();
+
+  await test('T73: Compound constraints — both time predicate and semantic constraint block isRunnable', () => {
+    const msg = 'find 10 pubs in bristol that opened in the last 12 months and have live music';
+    const decision = decideChatMode({ userMessage: msg });
+    assert(decision.mode === 'CLARIFY_FOR_RUN', `Expected CLARIFY_FOR_RUN, got ${decision.mode}`);
+    assert(decision.reason.includes('opened-time predicate') || decision.reason.includes('semantic constraint'), `Reason should mention predicate or constraint, got: ${decision.reason}`);
   });
   cleanup();
 

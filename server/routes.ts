@@ -1778,8 +1778,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return;
         }
 
+        const { extractAttributeConstraints } = await import('./lib/decideChatMode.js');
         const semanticConstraintMatch = latestUserText.match(/\bthat\s+(work|deal|partner|provide|offer|support|help|serve|are|have|do|focus|engage|operate|specialise|specialize|collaborate)\b[^.!?]*/i);
         const semanticConstraint = semanticConstraintMatch ? semanticConstraintMatch[0].trim() : undefined;
+
+        const attributeConstraints = extractAttributeConstraints(latestUserText);
 
         const effectiveEntityType = (modeDecision.entityType && hasConcreteEntityNoun(modeDecision.entityType)) ? modeDecision.entityType : undefined;
         const effectiveLocation = (modeDecision.location && isKnownLocation(modeDecision.location)) ? modeDecision.location : undefined;
@@ -1790,12 +1793,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
           questions.push(`You mentioned businesses that "opened" recently. There's no single reliable source for exact opening dates, so I'd need to use a proxy. Which would you prefer?\n  • **First Google review date** — when the first public review appeared\n  • **News mentions / press releases** — media coverage of an opening\n  • **Google Maps listing freshness** — when the listing was first indexed\n  • **Companies House incorporation date** — official UK registration date (not always the same as opening)\n\nOr if you'd rather not use a proxy, just say "no proxies" and I'll explain the limitations.`);
         }
 
+        for (const attr of attributeConstraints) {
+          questions.push(`You want results that "${attr}". This attribute can't always be verified from public data alone. How should I handle it?\n  • **Best-effort search** — I'll include "${attr}" in the search query and return what I find, but results may not all be verified\n  • **Strict filter** — only return results where I can confirm "${attr}" from reviews, listings, or other public sources (may return fewer results)\n  • **Skip this filter** — search without filtering by "${attr}"\n\nOr say "must be certain" if you only want guaranteed results (I may not be able to proceed).`);
+        }
+
+        const combinedConstraintParts: string[] = [];
+        if (isOpenedTimePred) combinedConstraintParts.push('opened-time predicate');
+        if (attributeConstraints.length > 0) combinedConstraintParts.push(`attribute: ${attributeConstraints.join(', ')}`);
+        if (semanticConstraint && !isOpenedTimePred) combinedConstraintParts.push(semanticConstraint);
+        const combinedConstraint = combinedConstraintParts.length > 0 ? combinedConstraintParts.join(' + ') : semanticConstraint;
+
         const newSession = createClarifySession({
           conversationId,
           originalUserText: latestUserText,
           entityType: effectiveEntityType,
           location: effectiveLocation,
-          semanticConstraint: isOpenedTimePred ? (semanticConstraint || 'opened-time predicate') : semanticConstraint,
+          semanticConstraint: combinedConstraint,
           pendingQuestions: questions,
         });
 

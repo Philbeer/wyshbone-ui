@@ -292,6 +292,7 @@ const SEMANTIC_CONSTRAINT_PATTERNS = [
   /\bwho\s+(?:work|deal|partner|collaborate|operate|specialise|specialize|focus|engage)\b/i,
   /\bthat\s+(?:are|have|do|provide|offer|support|help|serve)\b/i,
   /\bwhich\s+(?:are|have|do|provide|offer|support|help|serve)\b/i,
+  /\band\s+(?:have|are|do|provide|offer|support|help|serve)\b/i,
 ];
 
 function hasSemanticConstraint(message: string): boolean {
@@ -332,6 +333,39 @@ export function hasExplicitProxy(message: string): boolean {
 
 export function hasNoProxyRefusal(message: string): boolean {
   return NO_PROXY_REFUSAL_PATTERNS.some(p => p.test(message));
+}
+
+const COMPOUND_ATTRIBUTE_PATTERN = /\band\s+(?:have|are|do|provide|offer|support|help|serve)\s+([^.!?,]+)/gi;
+const WITH_ATTRIBUTE_PATTERN = /\bwith\s+(live\s+music|beer\s+garden|outdoor\s+seating|parking|wifi|free\s+wifi|food|accommodation|garden|terrace|rooftop|karaoke|pool\s+table|darts|quiz\s+night|function\s+room|disabled\s+access|dog\s+friendly|vegan\s+(?:menu|options?)|gluten\s+free|halal|kosher|late\s+(?:opening|licence|license)|happy\s+hour|brunch|delivery|takeaway|drive\s+through|play\s+area|kids?\s+area)/gi;
+
+const LOCATION_PREPOSITIONS = /\s+(?:in|near|around|from|across|throughout|within)\s+/i;
+const STRUCTURAL_NOISE = /\s+(?:that|which|who|where|when)\s+/i;
+
+export function extractAttributeConstraints(message: string): string[] {
+  const attributes: string[] = [];
+  const normalized = message.toLowerCase().trim();
+
+  let match: RegExpExecArray | null;
+  const compoundRe = new RegExp(COMPOUND_ATTRIBUTE_PATTERN.source, 'gi');
+  while ((match = compoundRe.exec(normalized)) !== null) {
+    let attr = match[1].trim()
+      .replace(/\s+and\s+.*$/, '')
+      .split(LOCATION_PREPOSITIONS)[0].trim()
+      .split(STRUCTURAL_NOISE)[0].trim();
+    if (attr.length > 2 && attr.length < 60 && !CONCRETE_ENTITY_NOUNS.test(attr)) {
+      attributes.push(attr);
+    }
+  }
+
+  const withRe = new RegExp(WITH_ATTRIBUTE_PATTERN.source, 'gi');
+  while ((match = withRe.exec(normalized)) !== null) {
+    const attr = match[1].trim();
+    if (!attributes.some(a => a.includes(attr))) {
+      attributes.push(attr);
+    }
+  }
+
+  return attributes;
 }
 
 const CONCRETE_ENTITY_NOUNS = /\b(organisations?|organizations?|charities|charit(?:y|ies)|businesses|companies|shops?|pubs?|bars?|restaurants?|cafes?|coffee\s*shops?|hotels?|dentists?|dental\s+practices?|salons?|gyms?|clinics?|venues?|breweries?|bakeries?|florists?|plumbers?|electricians?|mechanics?|garages?|nurseries?|schools?|churches?|offices?|warehouses?|factories?|takeaways?|stores?|retailers?|accountants?|solicitors?|lawyers?|agents?|consultants?|contractors?|architects?|pharmacies|pharmacy|opticians?|vets?|veterinar(?:y|ians?)|caterers?|cleaners?|painters?|roofers?|landscapers?|builders?|joiners?|carpenters?|locksmiths?|tutors?|therapists?|counsellors?|counselors?|chiropractors?|physiotherapists?|osteopaths?|studios?|galleries?|cinemas?|theatres?|theaters?|libraries?|museums?|parks?|pools?|spas?|clubs?|lodges?|inns?|hostels?|motels?|B&Bs?|guesthouses?|guest\s*houses?|supermarkets?|markets?|boutiques?|dealerships?|showrooms?|workshops?|labs?|laboratories?|warehouses?|depots?|suppliers?|wholesalers?|distributors?|manufacturers?|printers?|signmakers?|jewellers?|jewelers?|tailors?|dressmakers?|cobblers?|barbers?|hairdressers?|beauticians?|aestheticians?|nail\s*bars?|tanning\s*salons?|tattoo\s*(?:parlours?|studios?|shops?)|piercing\s*studios?|launderettes?|laundromats?|dry\s*cleaners?)\b/i;
