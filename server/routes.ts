@@ -1295,8 +1295,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         isMetaTrustQuestion,
       } = await import('./lib/clarifySession.js');
 
-      if (isMetaTrustQuestion(latestUserText)) {
-        console.log(`[META_TRUST_INTERCEPT] Answering trust question immediately: "${latestUserText.slice(0, 80)}"`);
+      const hasActiveClarifyForMetaTrust = !!getActiveClarifySession(conversationId);
+      if (isMetaTrustQuestion(latestUserText) && !hasActiveClarifyForMetaTrust) {
+        console.log(`[META_TRUST_INTERCEPT] Answering trust question immediately (no clarify session): "${latestUserText.slice(0, 80)}"`);
 
         if (clientRequestId) {
           logRouterDecision({
@@ -1314,12 +1315,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         appendMessage(sessionId, { role: "assistant", content: trustAnswer });
         await saveMessage(conversationId, "assistant", trustAnswer);
 
-        const activeClarifyForTrust = getActiveClarifySession(conversationId);
-        if (activeClarifyForTrust) {
-          const clarifyState = buildClarifyStatePayload(activeClarifyForTrust);
-          res.write(`data: ${JSON.stringify({ type: 'clarify_for_run', mode: 'CLARIFY_FOR_RUN', clarify_state: clarifyState })}\n\n`);
-        }
-
         res.write(`data: ${JSON.stringify({ type: 'message', role: 'assistant', content: trustAnswer })}\n\n`);
         emitSse({ type: 'status', stage: 'completed', message: 'Answered', clientRequestId: clientRequestId || undefined, conversationId });
         res.write(`data: [DONE]\n\n`);
@@ -1334,7 +1329,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // [CLARIFY_GUARD] When a clarify session is active, classify the input first.
       // EXECUTE/REFINE → handleClarifyResponse (existing logic).
       // NEW_TASK → close session, fall through to decideChatMode pipeline.
-      // META_TRUST → (already handled above by early interception).
+      // META_TRUST → suspend session, fall through to decideChatMode for conversational GPT answer.
+      // CHAT_INFO → suspend session, fall through to decideChatMode for conversational GPT answer.
       // ═══════════════════════════════════════════════════════════════════════
 
       const activeClarifySession = getActiveClarifySession(conversationId);
@@ -1347,6 +1343,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
           console.log(`[CLARIFY_GUARD→NEW_TASK] Closing session ${activeClarifySession.id}, routing through normal pipeline`);
           closeAllClarifySessions(conversationId);
           res.write(`data: ${JSON.stringify({ type: 'clarify_session_ended' })}\n\n`);
+        }
+
+        if (inputClass === 'META_TRUST') {
+          console.log(`[CLARIFY_GUARD→META_TRUST] Suspending clarify session ${activeClarifySession.id}, routing to chat pipeline for conversational answer`);
+          if (clientRequestId) {
+            logRouterDecision({
+              userId: user.id,
+              conversationId,
+              clientRequestId,
+              decision: 'direct_response',
+              reason: `ClarifySession META_TRUST bypass — session suspended, routing to CHAT_INFO`,
+              signals: { sessionId: activeClarifySession.id, inputClass: 'META_TRUST' },
+            }).catch(err => console.error('AFR router log error:', err.message));
+          }
+          const clarifyState = buildClarifyStatePayload(activeClarifySession);
+          res.write(`data: ${JSON.stringify({ type: 'clarify_for_run', mode: 'CLARIFY_FOR_RUN', clarify_state: clarifyState })}\n\n`);
         }
 
         if (inputClass === 'CHAT_INFO') {
@@ -1497,7 +1509,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         // NEW_TASK: session already closed above — fall through to decideChatMode.
         // CHAT_INFO: session preserved (suspended) — fall through to decideChatMode for chat answer.
-        // META_TRUST: already handled by early interception above (never reaches here).
+        // META_TRUST: session preserved (suspended) — fall through to decideChatMode for conversational answer.
       }
 
       // ═══════════════════════════════════════════════════════════
