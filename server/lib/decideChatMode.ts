@@ -298,6 +298,42 @@ function hasSemanticConstraint(message: string): boolean {
   return SEMANTIC_CONSTRAINT_PATTERNS.some(p => p.test(message));
 }
 
+const OPENED_TIME_PREDICATE_PATTERNS = [
+  /\b(?:that|which|who)\s+opened\s+(?:in\s+the\s+last|in\s+the\s+past|within\s+the\s+last|within\s+the\s+past)\s+\d+\s+(?:months?|years?|weeks?|days?)\b/i,
+  /\b(?:that|which|who)\s+opened\s+(?:recently|this\s+year|this\s+month|last\s+year|last\s+month)\b/i,
+  /\b(?:that|which)\s+(?:just|recently|newly)\s+opened\b/i,
+  /\b(?:recently|newly|just)\s+opened\s+(?:pubs?|bars?|restaurants?|cafes?|shops?|stores?|businesses|venues?|hotels?|gyms?|salons?|clinics?|breweries?|bakeries?)\b/i,
+  /\bnew(?:ly)?\s+(?:pubs?|bars?|restaurants?|cafes?|shops?|stores?|businesses|venues?|hotels?|gyms?|salons?|clinics?|breweries?|bakeries?)\s+(?:that|which)?\s*opened\b/i,
+  /\bopened\s+(?:in\s+the\s+last|in\s+the\s+past|within\s+the\s+last|within\s+the\s+past)\s+\d+\s+(?:months?|years?|weeks?|days?)\b/i,
+  /\bopened\s+(?:recently|this\s+year|this\s+month|last\s+year|last\s+month)\b/i,
+];
+
+const EXPLICIT_PROXY_PATTERNS = [
+  /\busing\s+(?:[\w\s]+?)\s+as\s+(?:a\s+)?proxy\b/i,
+  /\bproxy\s*:\s*\w+/i,
+  /\buse\s+(?:first\s+review|google\s+listing|companies\s+house|news\s+mentions?|press\s+releases?|listing\s+freshness)\s+(?:as\s+(?:a\s+)?proxy|data|date)?\b/i,
+];
+
+const NO_PROXY_REFUSAL_PATTERNS = [
+  /\bno\s+prox(?:y|ies)\b/i,
+  /\bmust\s+be\s+certain\b/i,
+  /\bno\s+(?:guessing|assumptions?|approximations?)\b/i,
+  /\bonly\s+(?:if\s+)?(?:verified|confirmed|certain|guaranteed)\b/i,
+  /\bdon'?t\s+(?:guess|assume|approximate)\b/i,
+];
+
+export function hasOpenedTimePredicate(message: string): boolean {
+  return OPENED_TIME_PREDICATE_PATTERNS.some(p => p.test(message));
+}
+
+export function hasExplicitProxy(message: string): boolean {
+  return EXPLICIT_PROXY_PATTERNS.some(p => p.test(message));
+}
+
+export function hasNoProxyRefusal(message: string): boolean {
+  return NO_PROXY_REFUSAL_PATTERNS.some(p => p.test(message));
+}
+
 const CONCRETE_ENTITY_NOUNS = /\b(organisations?|organizations?|charities|charit(?:y|ies)|businesses|companies|shops?|pubs?|bars?|restaurants?|cafes?|coffee\s*shops?|hotels?|dentists?|dental\s+practices?|salons?|gyms?|clinics?|venues?|breweries?|bakeries?|florists?|plumbers?|electricians?|mechanics?|garages?|nurseries?|schools?|churches?|offices?|warehouses?|factories?|takeaways?|stores?|retailers?|accountants?|solicitors?|lawyers?|agents?|consultants?|contractors?|architects?|pharmacies|pharmacy|opticians?|vets?|veterinar(?:y|ians?)|caterers?|cleaners?|painters?|roofers?|landscapers?|builders?|joiners?|carpenters?|locksmiths?|tutors?|therapists?|counsellors?|counselors?|chiropractors?|physiotherapists?|osteopaths?|studios?|galleries?|cinemas?|theatres?|theaters?|libraries?|museums?|parks?|pools?|spas?|clubs?|lodges?|inns?|hostels?|motels?|B&Bs?|guesthouses?|guest\s*houses?|supermarkets?|markets?|boutiques?|dealerships?|showrooms?|workshops?|labs?|laboratories?|warehouses?|depots?|suppliers?|wholesalers?|distributors?|manufacturers?|printers?|signmakers?|jewellers?|jewelers?|tailors?|dressmakers?|cobblers?|barbers?|hairdressers?|beauticians?|aestheticians?|nail\s*bars?|tanning\s*salons?|tattoo\s*(?:parlours?|studios?|shops?)|piercing\s*studios?|launderettes?|laundromats?|dry\s*cleaners?)\b/i;
 
 const SUBJECTIVE_WORDS = new Set([
@@ -337,6 +373,9 @@ function isRunnable(entityType?: string, location?: string, message?: string): b
   if (message && hasSemanticConstraint(message)) {
     return false;
   }
+  if (message && hasOpenedTimePredicate(message) && !hasExplicitProxy(message)) {
+    return false;
+  }
   if (!isKnownLocation(location)) {
     return false;
   }
@@ -367,6 +406,7 @@ export function decideChatMode({ userMessage }: { userMessage: string }): ChatMo
       if (entityResult.location && !isKnownLocation(entityResult.location)) missingParts.push('unrecognised location');
       if (entityResult.entityType && !hasConcreteEntityNoun(entityResult.entityType)) missingParts.push('vague/subjective entity type');
       if (hasSemanticConstraint(normalized)) missingParts.push('semantic constraint needs clarification');
+      if (hasOpenedTimePredicate(normalized) && !hasExplicitProxy(normalized)) missingParts.push('opened-time predicate needs proxy clarification');
       return {
         mode: 'CLARIFY_FOR_RUN',
         reason: `${entityResult.reason} — ${missingParts.length > 0 ? 'needs: ' + missingParts.join(', ') : 'needs clarification'}`,

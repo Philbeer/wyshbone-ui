@@ -14,7 +14,7 @@ import {
   _getSessionsMapForTesting,
   _getIntentsMapForTesting,
 } from '../clarifySession';
-import { decideChatMode, isKnownLocation } from '../decideChatMode';
+import { decideChatMode, isKnownLocation, hasOpenedTimePredicate, hasExplicitProxy, hasNoProxyRefusal } from '../decideChatMode';
 
 let passed = 0;
 let failed = 0;
@@ -1147,6 +1147,70 @@ async function runAll() {
     assert(isMetaTrustQuestion('find pubs in Leeds') === false, 'search query → false');
     assert(isMetaTrustQuestion('5') === false, 'bare number → false');
     assert(isMetaTrustQuestion('Manchester') === false, 'bare location → false');
+  });
+  cleanup();
+
+  await test('T65: "Find 10 pubs in Manchester that opened in the last 12 months" → CLARIFY_FOR_RUN (not RUN_SUPERVISOR)', () => {
+    const msg = 'Find 10 pubs in Manchester that opened in the last 12 months';
+    assert(hasOpenedTimePredicate(msg) === true, 'should detect opened time predicate');
+    assert(hasExplicitProxy(msg) === false, 'no explicit proxy');
+    assert(hasNoProxyRefusal(msg) === false, 'no proxy refusal');
+
+    const decision = decideChatMode({ userMessage: msg });
+    assert(decision.mode === 'CLARIFY_FOR_RUN', `Expected CLARIFY_FOR_RUN, got ${decision.mode}`);
+    assert(decision.reason.includes('opened-time predicate'), `Reason should mention opened-time predicate, got: ${decision.reason}`);
+    assert(decision.entityType !== undefined, 'entityType should be extracted');
+    assert(decision.location !== undefined, 'location should be extracted');
+  });
+  cleanup();
+
+  await test('T66: "Find 10 pubs in Manchester that opened in the last 12 months using news mentions as a proxy" → RUN_SUPERVISOR', () => {
+    const msg = 'Find 10 pubs in Manchester that opened in the last 12 months using news mentions as a proxy';
+    assert(hasOpenedTimePredicate(msg) === true, 'should detect opened time predicate');
+    assert(hasExplicitProxy(msg) === true, 'should detect explicit proxy');
+
+    const decision = decideChatMode({ userMessage: msg });
+    assert(decision.mode === 'RUN_SUPERVISOR', `Expected RUN_SUPERVISOR, got ${decision.mode}`);
+  });
+  cleanup();
+
+  await test('T67: "Find 10 cafes in Brighton that just opened, no proxies, must be certain" → CLARIFY_FOR_RUN with no-proxy refusal flags', () => {
+    const msg = 'Find 10 cafes in Brighton that just opened, no proxies, must be certain';
+    assert(hasOpenedTimePredicate(msg) === true, 'should detect opened time predicate');
+    assert(hasNoProxyRefusal(msg) === true, 'should detect no-proxy refusal');
+    assert(hasExplicitProxy(msg) === false, 'no explicit proxy');
+
+    const decision = decideChatMode({ userMessage: msg });
+    assert(decision.mode === 'CLARIFY_FOR_RUN', `Expected CLARIFY_FOR_RUN, got ${decision.mode}`);
+  });
+  cleanup();
+
+  await test('T68: hasOpenedTimePredicate — various phrases', () => {
+    assert(hasOpenedTimePredicate('find pubs that opened recently') === true, '"opened recently" → true');
+    assert(hasOpenedTimePredicate('find pubs that opened this year') === true, '"opened this year" → true');
+    assert(hasOpenedTimePredicate('find pubs that opened in the last 6 months') === true, '"opened in the last 6 months" → true');
+    assert(hasOpenedTimePredicate('pubs that just opened') === true, '"just opened" → true');
+    assert(hasOpenedTimePredicate('newly opened cafes') === true, '"newly opened cafes" → true');
+    assert(hasOpenedTimePredicate('find pubs in Leeds') === false, 'no time predicate → false');
+    assert(hasOpenedTimePredicate('find restaurants in Manchester') === false, 'no time predicate → false');
+  });
+  cleanup();
+
+  await test('T69: hasExplicitProxy — detection', () => {
+    assert(hasExplicitProxy('using news mentions as a proxy') === true, '"using news mentions as a proxy" → true');
+    assert(hasExplicitProxy('using first review as proxy') === true, '"using first review as proxy" → true');
+    assert(hasExplicitProxy('use first review date') === true, '"use first review date" → true');
+    assert(hasExplicitProxy('use companies house date') === true, '"use companies house date" → true');
+    assert(hasExplicitProxy('find pubs in Leeds') === false, 'no proxy → false');
+  });
+  cleanup();
+
+  await test('T70: hasNoProxyRefusal — detection', () => {
+    assert(hasNoProxyRefusal('no proxies') === true, '"no proxies" → true');
+    assert(hasNoProxyRefusal('no proxy') === true, '"no proxy" → true');
+    assert(hasNoProxyRefusal('must be certain') === true, '"must be certain" → true');
+    assert(hasNoProxyRefusal('no guessing') === true, '"no guessing" → true');
+    assert(hasNoProxyRefusal('find pubs in Leeds') === false, 'no refusal → false');
   });
   cleanup();
 

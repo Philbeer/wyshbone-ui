@@ -1629,6 +1629,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
           };
           console.log(`📦 [SEARCH_QUERY] business_type="${baseRequestData.search_query.business_type}" location="${baseRequestData.search_query.location}" requested_count=${resolvedCount ?? 'default'}`);
           const requestData: Record<string, any> = { ...baseRequestData };
+
+          const { hasOpenedTimePredicate: checkTimeP, hasExplicitProxy: checkProxyP } = await import('./lib/decideChatMode.js');
+          if (checkTimeP(latestUserText) && checkProxyP(latestUserText)) {
+            const proxyMatch = latestUserText.match(/using\s+([\w\s]+?)\s+as\s+(?:a\s+)?proxy/i);
+            const proxyLabel = proxyMatch ? proxyMatch[1].trim() : 'user-specified proxy';
+            requestData.search_query.opened_proxy = proxyLabel;
+            requestData.search_query.proxy_disclaimer = true;
+            console.log(`📦 [OPENED_TIME_PROXY] proxy="${proxyLabel}" — results will be marked as proxy/unverified`);
+          }
+
           if (google_query_mode) requestData.google_query_mode = google_query_mode;
           if (metadata) {
             if (metadata.scenario) requestData.scenario = metadata.scenario;
@@ -1707,7 +1717,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
           const sqD = requestData.search_query;
           const titleCaseD = (s: string) => s.replace(/\b\w/g, c => c.toUpperCase());
-          const confidenceMsgD = `Searching for ${sqD?.requested_count ? `${sqD.requested_count} ` : ''}${sqD?.business_type || 'businesses'}${sqD?.location ? ` in ${titleCaseD(sqD.location)}` : ''}.`;
+          const proxyNote = sqD?.opened_proxy ? ` Using proxy: ${sqD.opened_proxy} (not guaranteed).` : '';
+          const confidenceMsgD = `Searching for ${sqD?.requested_count ? `${sqD.requested_count} ` : ''}${sqD?.business_type || 'businesses'}${sqD?.location ? ` in ${titleCaseD(sqD.location)}` : ''}.${proxyNote}`;
 
           appendMessage(sessionId, { role: "assistant", content: confidenceMsgD });
           await saveMessage(conversationId, "assistant", confidenceMsgD);
@@ -1740,7 +1751,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       if (modeDecision.mode === 'CLARIFY_FOR_RUN') {
         // ─── CLARIFY_FOR_RUN LANE: pure in-memory, no DB writes ───
-        const { isKnownLocation, hasConcreteEntityNoun } = await import('./lib/decideChatMode.js');
+        const { isKnownLocation, hasConcreteEntityNoun, hasOpenedTimePredicate: checkTimePred, hasExplicitProxy: checkProxy, hasNoProxyRefusal: checkNoProxy } = await import('./lib/decideChatMode.js');
+
+        const isOpenedTimePred = checkTimePred(latestUserText);
+        const isNoProxy = checkNoProxy(latestUserText);
+
+        if (isOpenedTimePred && isNoProxy) {
+          console.log(`[OPENED_TIME_GATE] No-proxy refusal detected: "${latestUserText.slice(0, 80)}"`);
+          const refusalMsg = `I understand you need certainty about when businesses opened, but unfortunately there's no reliable public data source that guarantees exact opening dates. The information available through Google Business listings, Companies House records, and review platforms can suggest when a business appeared, but none can confirm the actual opening date with certainty.\n\nIf approximate timing is acceptable, I can search using a proxy such as first Google review date, Companies House incorporation date, or listing freshness — just let me know. Otherwise, I'd recommend contacting businesses directly to confirm their opening dates.`;
+          appendMessage(sessionId, { role: "assistant", content: refusalMsg });
+          await saveMessage(conversationId, "assistant", refusalMsg);
+          if (clientRequestId) {
+            logRouterDecision({
+              userId: user.id,
+              conversationId,
+              clientRequestId,
+              decision: 'direct_response',
+              reason: `OPENED_TIME_GATE — no-proxy refusal`,
+              signals: { inputClass: 'NO_PROXY_REFUSAL' },
+            }).catch(err => console.error('AFR router log error:', err.message));
+          }
+          res.write(`data: ${JSON.stringify({ type: 'message', role: 'assistant', content: refusalMsg })}\n\n`);
+          emitSse({ type: 'status', stage: 'completed', message: 'Cannot guarantee opening dates', clientRequestId: clientRequestId || undefined, conversationId });
+          res.write(`data: [DONE]\n\n`);
+          res.end();
+          return;
+        }
+
         const semanticConstraintMatch = latestUserText.match(/\bthat\s+(work|deal|partner|provide|offer|support|help|serve|are|have|do|focus|engage|operate|specialise|specialize|collaborate)\b[^.!?]*/i);
         const semanticConstraint = semanticConstraintMatch ? semanticConstraintMatch[0].trim() : undefined;
 
@@ -1749,12 +1786,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         const questions = buildInitialQuestions(effectiveEntityType, effectiveLocation, semanticConstraint);
 
+        if (isOpenedTimePred) {
+          questions.push(`You mentioned businesses that "opened" recently. There's no single reliable source for exact opening dates, so I'd need to use a proxy. Which would you prefer?\n  • **First Google review date** — when the first public review appeared\n  • **News mentions / press releases** — media coverage of an opening\n  • **Google Maps listing freshness** — when the listing was first indexed\n  • **Companies House incorporation date** — official UK registration date (not always the same as opening)\n\nOr if you'd rather not use a proxy, just say "no proxies" and I'll explain the limitations.`);
+        }
+
         const newSession = createClarifySession({
           conversationId,
           originalUserText: latestUserText,
           entityType: effectiveEntityType,
           location: effectiveLocation,
-          semanticConstraint,
+          semanticConstraint: isOpenedTimePred ? (semanticConstraint || 'opened-time predicate') : semanticConstraint,
           pendingQuestions: questions,
         });
 
@@ -1765,7 +1806,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             clientRequestId,
             decision: 'clarify_for_run',
             reason: `decideChatMode → CLARIFY_FOR_RUN (${modeDecision.reason})`,
-            signals: { entityType: modeDecision.entityType, location: modeDecision.location, sessionId: newSession.id },
+            signals: { entityType: modeDecision.entityType, location: modeDecision.location, sessionId: newSession.id, openedTimePredicate: isOpenedTimePred },
           }).catch(err => console.error('AFR router log error:', err.message));
         }
 
@@ -1780,7 +1821,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         res.write(`data: ${JSON.stringify({ type: 'message', role: 'assistant', content: clarifyMessage })}\n\n`);
         emitSse({ type: 'status', stage: 'completed', message: 'Clarifying before run', clientRequestId: clientRequestId || undefined, conversationId });
 
-        console.log(`[CHAT_ROUTE=CLARIFY_FOR_RUN] crid=${clientRequestId || 'none'} sessionId=${newSession.id} questions=${questions.length}`);
+        console.log(`[CHAT_ROUTE=CLARIFY_FOR_RUN] crid=${clientRequestId || 'none'} sessionId=${newSession.id} questions=${questions.length} openedTimePred=${isOpenedTimePred}`);
         res.write(`data: [DONE]\n\n`);
         res.end();
         return;

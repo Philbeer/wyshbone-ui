@@ -92,6 +92,12 @@ The user interface adheres to Material Design principles, featuring a dark mode,
 **Data Ownership & Persistence Guardrails:**
 The UI never owns persistence. All artefacts, runs, judgements, and business data come from Supabase via the backend. The frontend is a read/display layer only; it does not write directly to any database. All data mutations flow through backend API endpoints to Supabase PostgreSQL. `SUPABASE_DATABASE_URL` is the single source of truth for database connectivity.
 
+## Opened-Time Predicate Gate (Honesty Gate)
+- **Detection:** `hasOpenedTimePredicate()` in `decideChatMode.ts` detects phrases like "opened in the last 12 months", "opened recently", "opened this year", "just opened", "newly opened". When detected without an explicit proxy, `isRunnable()` returns false → CLARIFY_FOR_RUN.
+- **Explicit Proxy Bypass:** `hasExplicitProxy()` detects "using X as a proxy" phrases. When both time predicate and explicit proxy are present, execution is allowed (RUN_SUPERVISOR) with `opened_proxy` and `proxy_disclaimer` fields in `search_query`. The confidence message includes "Using proxy: X (not guaranteed)."
+- **No-Proxy Refusal:** `hasNoProxyRefusal()` detects "no proxies", "must be certain", "no guessing". When detected with a time predicate, the system returns an immediate refusal explaining that opening dates cannot be guaranteed, and suggests alternative proxy approaches.
+- **Proxy Clarification Questions:** When CLARIFY_FOR_RUN is triggered by a time predicate, the clarify session includes a question listing proxy options (first Google review date, news mentions, Google Maps listing freshness, Companies House incorporation date). The time predicate is stored as a semantic constraint on the session.
+
 ## Slot-Fill Rules (Clarification Sessions)
 - **Bare numbers** (e.g. "5") are always treated as count slot-fills, never rejected as "not meaningful"
 - **Location override**: Explicit location patterns ("in York", "York") are parsed even when session already has a location set, allowing overrides

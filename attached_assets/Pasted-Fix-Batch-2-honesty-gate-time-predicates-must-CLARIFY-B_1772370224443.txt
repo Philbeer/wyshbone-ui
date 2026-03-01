@@ -1,0 +1,38 @@
+Fix Batch 2 honesty gate: time predicates must CLARIFY BEFORE RUN, not execute.
+
+Evidence (Claude Chrome):
+Prompt: "Find 10 pubs in Manchester that opened in the last 12 months"
+Current behavior: Live Activity shows Executing immediately; no clarification; no proxy acceptance.
+This is a FAIL.
+
+Required behavior:
+If the user request includes a time predicate about "opened" (opened recently / opened this year / opened in last 12 months / opened in last X months):
+- DO NOT start execution (no supervisor task creation, no tools, no "Executing")
+- Enter CLARIFYING BEFORE RUN and ask the minimum required questions:
+  1) If time window ambiguous (e.g. "recently"), ask what it means (3/6/12 months etc).
+  2) Ask what proxy is acceptable to infer "opened" (choose one):
+     - first reviews date
+     - news mentions / press releases
+     - "added to Google Maps recently" (listing freshness)
+     - Companies House incorporation date (UK only, if available)
+  3) If user says "no proxies" or "must be certain", STOP with explanation that opening date cannot be guaranteed.
+
+If user includes explicit proxy in the same message (e.g. "using news mentions as a proxy"), then execution is allowed but UI must clearly label: "Using proxy: news mentions (not guaranteed)."
+
+Implementation constraints:
+- This gate must run in the same layer that currently decides CLARIFY_FOR_RUN vs RUN_SUPERVISOR, before any task is queued.
+- It must not rely on Tower being connected.
+- Keep it minimal: pattern/heuristic detection is fine for now, but must be correct for the above phrases.
+
+Add regression tests:
+1) "Find 10 pubs in Manchester that opened in the last 12 months"
+   Expect: CLARIFYING BEFORE RUN shown; NOT executing; no tools started.
+2) "Find 10 pubs in Manchester that opened in the last 12 months using news mentions as a proxy"
+   Expect: execution allowed; response explicitly acknowledges proxy; results marked as proxy/unverified as appropriate.
+3) "Find 10 cafes in Brighton that just opened, no proxies, must be certain"
+   Expect: STOP/refusal; no execution.
+
+Deliverables:
+- exact files changed
+- test command to run
+- brief explanation of the routing order after fix
