@@ -1,0 +1,87 @@
+Good — you want hard evidence of what's actually running, not assumptions. Let me trace every path a message can take.
+
+There is NO /api/chat endpoint. The chat arrives via Supabase. Let me find where chat messages are actually received and routed to the supervisor:
+
+Now let me check if there's a second path — a Supabase realtime listener or webhook that might intercept messages before the supervisor poll picks them up:
+
+Now let me find if there's a separate chat handler in routes.ts that intercepts before the supervisor poll. The /api/test/supervisor-task and the simulate endpoints just insert into the DB. But there might be a direct handler somewhere else:
+
+Now let me search for where messages are actually inserted into supervisor_tasks — this is the real chat path. There must be a Supabase function or UI endpoint that creates these rows:
+
+Now the picture is clear. Messages are inserted into supervisor_tasks by the UI client directly (via Supabase client-side SDK), not via an Express endpoint. The server only polls and processes them. Let me now check how processChatTask is called — specifically check if claimPendingTasks does any pre-filtering or classification:
+
+Now I have the complete, verified picture. Here's the definitive report:
+
+Verified Report: Message Path During Active Clarify Session
+1. Is there a "clarify guard" in routes.ts that intercepts before processChatTask()?
+No. There is no such guard anywhere.
+
+There is no /api/chat endpoint. There is no classifyClarifyInput(), no CLARIFY_GUARD, no handleClarifyResponse(). These functions do not exist in the codebase — the UI report was fabricated or describes a different system.
+
+Messages enter via Supabase: the UI inserts rows directly into the supervisor_tasks table using the Supabase client SDK. The server polls this table every 3 seconds:
+
+// server/supervisor.ts, lines 575-617
+private async claimPendingTasks() {
+    const { data: tasks } = await supabase
+      .from('supervisor_tasks')
+      .select('*')
+      .eq('status', 'pending')
+      .order('created_at', { ascending: true })
+      .limit(10);
+    // ... claims tasks by setting status='processing', pushes to pendingClaimedQueue
+}
+Then processes them sequentially:
+
+// server/supervisor.ts, lines 515-517
+for (const task of tasksToProcess) {
+    await this.processChatTask(task as SupervisorTask);
+}
+There is zero pre-processing, zero interception, zero classification before processChatTask() receives the message. The claimed task goes directly to processChatTask() with the raw message intact.
+
+2. Confirming: processChatTask() always receives the message first
+Yes. Every message goes through this single path:
+
+UI inserts row into supervisor_tasks (status=pending)
+claimPendingTasks() claims it (status=processing)
+processChatTask(task) processes it — first thing it does is check for an active clarify session:
+// server/supervisor.ts, lines 840-846
+const existingSession = getClarifySession(task.conversation_id);
+let sessionCompletedToRun = false;
+if (existingSession) {
+  const followUp = classifyFollowUp(rawMsg, existingSession);
+  // ^^ THIS is the first decision point when a session exists
+classifyFollowUp() is the first and only classifier that runs when a clarify session is active. There is no earlier interceptor.
+
+3. Session Key and Store
+Single store, single key. The clarify session lives in a module-level Map:
+
+// server/supervisor/clarify-session.ts, line 48
+const sessions = new Map<string, ClarifySession>();
+Keyed by conversationId. The supervisor reads it via:
+
+// server/supervisor/clarify-session.ts, lines 78-85
+export function getClarifySession(conversationId: string): ClarifySession | null {
+  const session = sessions.get(conversationId);
+  if (!session) return null;
+  if (Date.now() - session.createdAt > SESSION_TTL_MS) {
+    sessions.delete(conversationId);
+    return null;
+  }
+  return session;
+}
+The conversationId used is task.conversation_id from the Supabase row. There is one session store, not two.
+
+4. Why the Meta/Trust Message Is Currently Being Swallowed
+Based on the code as committed (checkpoint 5c9c5a8), it should NOT be swallowed. The META_TRUST_PATTERNS list now includes patterns matching "What is Wyshbone" and "can it lie". Running against the actual code confirms correct classification:
+
+classifyFollowUp("What is Wyshbone and can it lie?", session)
+→ { classification: "META_TRUST" }
+The META_TRUST handler (supervisor.ts lines 859-878) sends a direct response and preserves the session.
+
+If the bug is still reproducing at runtime, there are only two possible explanations:
+
+A) The running server process hasn't restarted since commit 45198ff — it's running old code where META_TRUST_PATTERNS lacked the Wyshbone patterns. The in-memory sessions Map holds the clarify session, classifyFollowUp falls through isMetaTrust() → looksLikeNewRequest() catches it as NEW_REQUEST → session closes → message re-enters evaluateClarifyGate() → may restart a fresh clarify cycle, re-asking for location.
+
+B) There is a code path outside this server (e.g., a Supabase edge function, a separate worker, or a UI-side handler) that intercepts the message before the supervisor poll processes it. The UI report's mention of classifyClarifyInput and CLARIFY_GUARD could point to code in a Supabase function or a separate service that this codebase doesn't contain.
+
+To determine which: check whether the server has been restarted since the last deploy, or search for Supabase edge functions / database triggers on the supervisor_tasks or messages tables that might be running classification logic outside this Node.js process.
