@@ -1,3 +1,12 @@
+export interface ConstraintContractData {
+  type: string;
+  can_execute: boolean;
+  explanation?: string;
+  why_blocked?: string;
+  proxy_options?: string[];
+  required_inputs_missing?: string[];
+}
+
 export interface ClarifySession {
   id: string;
   conversation_id: string;
@@ -7,6 +16,7 @@ export interface ClarifySession {
   location: string | null;
   semantic_constraint: string | null;
   semantic_constraint_resolved: boolean;
+  constraint_contract: ConstraintContractData | null;
   pending_questions: string[];
   answers: Record<string, string>;
   clarified_request_text: string | null;
@@ -106,6 +116,7 @@ export function createClarifySession(params: {
   entityType?: string;
   location?: string;
   semanticConstraint?: string;
+  constraintContract?: ConstraintContractData | null;
   pendingQuestions: string[];
 }): ClarifySession {
   const now = Date.now();
@@ -118,6 +129,7 @@ export function createClarifySession(params: {
     location: params.location || null,
     semantic_constraint: params.semanticConstraint || null,
     semantic_constraint_resolved: false,
+    constraint_contract: params.constraintContract || null,
     pending_questions: params.pendingQuestions,
     answers: {},
     clarified_request_text: null,
@@ -129,7 +141,7 @@ export function createClarifySession(params: {
 }
 
 export function updateClarifySession(conversationId: string, updates: Partial<Pick<ClarifySession,
-  'answers' | 'pending_questions' | 'entity_type' | 'location' | 'semantic_constraint' | 'semantic_constraint_resolved' | 'clarified_request_text'
+  'answers' | 'pending_questions' | 'entity_type' | 'location' | 'semantic_constraint' | 'semantic_constraint_resolved' | 'clarified_request_text' | 'constraint_contract'
 >>): ClarifySession | null {
   const s = sessions.get(conversationId);
   if (!s || !s.is_active) return null;
@@ -140,6 +152,7 @@ export function updateClarifySession(conversationId: string, updates: Partial<Pi
   if (updates.semantic_constraint !== undefined) s.semantic_constraint = updates.semantic_constraint;
   if (updates.semantic_constraint_resolved !== undefined) s.semantic_constraint_resolved = updates.semantic_constraint_resolved;
   if (updates.clarified_request_text !== undefined) s.clarified_request_text = updates.clarified_request_text;
+  if (updates.constraint_contract !== undefined) s.constraint_contract = updates.constraint_contract;
   s.updated_at = Date.now();
   return s;
 }
@@ -169,6 +182,7 @@ export interface ClarifyStatePayload {
   missingFields: string[];
   status: 'gathering' | 'ready';
   pendingQuestions: string[];
+  constraint_contract?: ConstraintContractData | null;
 }
 
 export interface ClarifyHandlerResult {
@@ -186,7 +200,9 @@ export function buildClarifyStatePayload(session: ClarifySession): ClarifyStateP
   if (!session.location) missingFields.push('location');
   if (session.semantic_constraint && !session.semantic_constraint_resolved) missingFields.push('semantic_constraint');
 
-  const allFilled = missingFields.length === 0;
+  const cc = session.constraint_contract;
+  const blocked = cc && !cc.can_execute;
+  const allFilled = missingFields.length === 0 && !blocked;
 
   return {
     entityType: session.entity_type,
@@ -196,6 +212,7 @@ export function buildClarifyStatePayload(session: ClarifySession): ClarifyStateP
     missingFields,
     status: allFilled ? 'ready' : 'gathering',
     pendingQuestions: session.pending_questions,
+    constraint_contract: cc || undefined,
   };
 }
 
@@ -275,6 +292,73 @@ export function handleClarifyResponse(
     };
   }
 
+  const PROXY_CHOICE_PATTERN = /\buse\s+(?:first\s+)?(?:google\s+review|news\s+mentions|google\s+maps|companies\s+house|website\s+registration|social\s+media)\b/i;
+  const RELAX_CERTAINTY_PATTERN = /\bbest[- ]effort\b|\brelax\b|\bapproximate\b|\bacceptable\b/i;
+  if ((PROXY_CHOICE_PATTERN.test(userMessage) || RELAX_CERTAINTY_PATTERN.test(userMessage)) && session.constraint_contract && !session.constraint_contract.can_execute) {
+    const proxyChoice = userMessage.trim();
+    updateClarifySession(session.conversation_id, {
+      constraint_contract: { ...session.constraint_contract, can_execute: true, why_blocked: undefined },
+      semantic_constraint_resolved: true,
+      answers: { ...session.answers, semantic_detail: proxyChoice },
+    });
+    const updatedSession = getActiveClarifySession(session.conversation_id) || session;
+    const allFilled = updatedSession.entity_type && updatedSession.location;
+    if (allFilled) {
+      const clarifiedRequest = buildClarifiedRequest(updatedSession.entity_type!, updatedSession.location!, updatedSession.semantic_constraint, updatedSession.answers);
+      updateClarifySession(session.conversation_id, {
+        clarified_request_text: clarifiedRequest,
+        pending_questions: [],
+      });
+      const finalSession = getActiveClarifySession(session.conversation_id) || updatedSession;
+      const summaryMsg = `Got it — I'll use "${proxyChoice}" to handle the constraint.\n\nClick **Search now** to proceed.`;
+      return {
+        action: 'ask_more',
+        message: summaryMsg,
+        clarifyState: buildClarifyStatePayload(finalSession),
+      };
+    }
+    const nextQuestions = buildNextQuestions(
+      [
+        ...(updatedSession.entity_type ? [] : ['entity_type']),
+        ...(updatedSession.location ? [] : ['location']),
+      ],
+      updatedSession.entity_type, updatedSession.location, updatedSession.semantic_constraint
+    );
+    updateClarifySession(session.conversation_id, { pending_questions: nextQuestions });
+    const finalSession = getActiveClarifySession(session.conversation_id) || updatedSession;
+    const msg = `Got it — I'll use "${proxyChoice}" to handle the constraint.\n\n${nextQuestions.map((q, i) => `${i + 1}. ${q}`).join('\n')}`;
+    return {
+      action: 'ask_more',
+      message: msg,
+      clarifyState: buildClarifyStatePayload(finalSession),
+    };
+  }
+
+  const MUST_BE_CERTAIN_PATTERN = /\bmust\s+be\s+certain\b|\bonly\s+guaranteed\b|\bneed\s+certainty\b|\bno\s+guessing\b/i;
+  if (MUST_BE_CERTAIN_PATTERN.test(userMessage) && session.semantic_constraint) {
+    const constraintLabel = session.semantic_constraint;
+    const blockedContract: ConstraintContractData = {
+      type: constraintLabel.includes('opened-time predicate') ? 'time_predicate' : 'unverifiable_constraint',
+      can_execute: false,
+      explanation: `The constraint "${constraintLabel}" cannot be guaranteed from public data sources.`,
+      why_blocked: `You selected "must be certain", but this constraint cannot be verified with certainty from available data. Choose a proxy approach, relax the certainty requirement, or change your query.`,
+      proxy_options: constraintLabel.includes('opened-time predicate')
+        ? ['Use first Google review date as proxy', 'Use news mentions as proxy', 'Use Google Maps listing freshness as proxy', 'Use Companies House incorporation date as proxy']
+        : undefined,
+    };
+    updateClarifySession(session.conversation_id, {
+      constraint_contract: blockedContract,
+      pending_questions: [],
+    });
+    const updatedSession = getActiveClarifySession(session.conversation_id) || session;
+    const blockMsg = `I understand you need certainty, but unfortunately the constraint "${constraintLabel}" cannot be verified with 100% accuracy from public data sources.\n\nYour options:\n• **Choose a proxy** — use an indirect indicator (e.g. first Google review date) to approximate\n• **Relax certainty** — accept best-effort results that may not all be verified\n• **Change your query** — remove the unverifiable constraint and search without it`;
+    return {
+      action: 'ask_more',
+      message: blockMsg,
+      clarifyState: buildClarifyStatePayload(updatedSession),
+    };
+  }
+
   const newAnswers = { ...session.answers };
   let entityType = session.entity_type;
   let location = session.location;
@@ -298,6 +382,17 @@ export function handleClarifyResponse(
     semanticConstraint = parsed.semanticDetail;
     newAnswers['semantic_detail'] = parsed.semanticDetail;
     semanticConstraintResolved = true;
+  }
+  const ATTRIBUTE_RESOLUTION_PATTERN = /\b(?:best[- ]effort|strict\s+filter|skip\s+(?:this\s+)?filter)\b/i;
+  if (ATTRIBUTE_RESOLUTION_PATTERN.test(userMessage) && session.constraint_contract && !session.constraint_contract.can_execute) {
+    semanticConstraintResolved = true;
+    newAnswers['semantic_detail'] = newAnswers['semantic_detail'] || userMessage.trim();
+  }
+  const shouldClearContract = semanticConstraintResolved && session.constraint_contract && !session.constraint_contract.can_execute;
+  if (shouldClearContract) {
+    updateClarifySession(session.conversation_id, {
+      constraint_contract: { ...session.constraint_contract!, can_execute: true, why_blocked: undefined },
+    });
   }
   if (parsed.rawAnswer) {
     const questionIdx = Object.keys(newAnswers).filter(k => k.startsWith('q_')).length;

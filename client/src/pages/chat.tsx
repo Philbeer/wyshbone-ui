@@ -9,7 +9,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest, authedFetch, addDevAuthParams, buildApiUrl, handleApiError } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Send, User, CheckCircle2, Search, Building2, HelpCircle, Activity, Loader2 } from "lucide-react";
+import { Send, User, CheckCircle2, Search, Building2, HelpCircle, Activity, Loader2, AlertTriangle } from "lucide-react";
 import type { ChatMessage, AddNoteResponse, DeepResearchCreateRequest } from "@shared/schema";
 import wyshboneLogo from "@assets/wyshbone-logo_1759667581806.png";
 import { LocationSuggestions } from "@/components/LocationSuggestions";
@@ -275,6 +275,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     type: string;
     can_execute: boolean;
     explanation?: string;
+    why_blocked?: string;
     proxy_options?: string[];
     required_inputs_missing?: string[];
   }
@@ -1810,14 +1811,9 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
 
                 if (streamIsClarifying) {
                   latestClarifyMsgIdRef.current = assistantMessageId;
-
-                  const prevId = prevClarifyMsgIdRef.current;
-                  if (prevId && prevId !== assistantMessageId) {
-                    setMessages(prev => prev.map(m =>
-                      m.id === prevId ? { ...m, isClarifySuperseded: true } : m
-                    ));
-                    prevClarifyMsgIdRef.current = null;
-                  }
+                  // Append-only: do NOT mark previous clarify messages as superseded.
+                  // All chat bubbles remain visible even when clarify state updates.
+                  prevClarifyMsgIdRef.current = null;
                 }
 
                 setMessages((prev) => {
@@ -2352,7 +2348,8 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                 }
                 const chatMessage = message as Message;
                 if (chatMessage.hidden) return false;
-                if (chatMessage.isClarifySuperseded) return false;
+                // NOTE: isClarifySuperseded messages are kept visible (append-only chat transcript).
+                // Previously these were hidden, but the conversation must never visually delete bubbles.
                 if ((chatMessage as any).deliverySummary) return true;
                 if (chatMessage.content.trim().length === 0) return false;
                 const content = chatMessage.content.trim();
@@ -2940,10 +2937,18 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                 </div>
               )}
               {clarifyContext.constraintContract && !clarifyContext.constraintContract.can_execute && (
-                <div className="space-y-2 mt-1 rounded-md border border-amber-300 dark:border-amber-700 bg-amber-100/50 dark:bg-amber-900/20 px-3 py-2" data-testid="constraint-clarification">
-                  <p className="text-xs text-amber-800 dark:text-amber-200 font-medium">
-                    {clarifyContext.constraintContract.explanation || (clarifyContext.constraintContract.type === 'time_predicate' ? "Opening dates can't be guaranteed from listings." : "This constraint needs clarification before searching.")}
-                  </p>
+                <div className="space-y-2 mt-1 rounded-md border border-red-300 dark:border-red-700 bg-red-50/60 dark:bg-red-900/20 px-3 py-2" data-testid="constraint-clarification">
+                  {clarifyContext.constraintContract.why_blocked && (
+                    <div className="flex items-start gap-2 text-xs text-red-800 dark:text-red-200 font-medium" data-testid="why-blocked-message">
+                      <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0 mt-0.5 text-red-600 dark:text-red-400" />
+                      <span>{clarifyContext.constraintContract.why_blocked}</span>
+                    </div>
+                  )}
+                  {!clarifyContext.constraintContract.why_blocked && (
+                    <p className="text-xs text-amber-800 dark:text-amber-200 font-medium">
+                      {clarifyContext.constraintContract.explanation || (clarifyContext.constraintContract.type === 'time_predicate' ? "Opening dates can't be guaranteed from listings." : "This constraint needs clarification before searching.")}
+                    </p>
+                  )}
                   {Array.isArray(clarifyContext.constraintContract.proxy_options) && clarifyContext.constraintContract.proxy_options.length > 0 && (
                     <div className="space-y-1">
                       <p className="text-[10px] text-amber-700 dark:text-amber-300 uppercase tracking-wide font-semibold">Choose a proxy</p>
@@ -2959,17 +2964,25 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                           {idx + 1}. {option}
                         </button>
                       ))}
-                      <button
-                        type="button"
-                        className="block w-full text-left text-xs px-2 py-1.5 rounded border border-red-200 dark:border-red-800 bg-white dark:bg-red-950/30 hover:bg-red-50 dark:hover:bg-red-900/30 text-red-700 dark:text-red-300 transition-colors"
-                        onClick={() => {
-                          handleSendRef.current?.("No proxy is acceptable (stop)");
-                        }}
-                      >
-                        No proxy is acceptable (stop)
-                      </button>
                     </div>
                   )}
+                  <div className="space-y-1 pt-1 border-t border-red-200 dark:border-red-800" data-testid="safe-next-actions">
+                    <p className="text-[10px] text-red-700 dark:text-red-300 uppercase tracking-wide font-semibold">You can also</p>
+                    <button
+                      type="button"
+                      className="block w-full text-left text-xs px-2 py-1.5 rounded border border-amber-200 dark:border-amber-700 bg-white dark:bg-amber-950/40 hover:bg-amber-50 dark:hover:bg-amber-900/40 text-amber-900 dark:text-amber-100 transition-colors"
+                      onClick={() => { handleSendRef.current?.("Use best-effort search instead"); }}
+                    >
+                      Relax certainty (best-effort search)
+                    </button>
+                    <button
+                      type="button"
+                      className="block w-full text-left text-xs px-2 py-1.5 rounded border border-amber-200 dark:border-amber-700 bg-white dark:bg-amber-950/40 hover:bg-amber-50 dark:hover:bg-amber-900/40 text-amber-900 dark:text-amber-100 transition-colors"
+                      onClick={() => { handleSendRef.current?.("cancel"); }}
+                    >
+                      Change my query (start over)
+                    </button>
+                  </div>
                 </div>
               )}
 

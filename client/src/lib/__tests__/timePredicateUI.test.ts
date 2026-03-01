@@ -22,6 +22,7 @@ interface MockConstraintContract {
   type: string;
   can_execute: boolean;
   explanation?: string;
+  why_blocked?: string;
   proxy_options?: string[];
   required_inputs_missing?: string[];
 }
@@ -96,6 +97,27 @@ function getResultDisplayText(towerStopTimePredicate: boolean, canonicalStatus: 
 function getProxyUsedLine(proxyUsed: string | null): string | null {
   if (!proxyUsed) return null;
   return `Time constraint handled via proxy: ${proxyUsed}.`;
+}
+
+function shouldRenderWhyBlocked(constraintContract: MockConstraintContract | null): boolean {
+  return !!(constraintContract && !constraintContract.can_execute && constraintContract.why_blocked);
+}
+
+function shouldRenderSafeNextActions(constraintContract: MockConstraintContract | null): boolean {
+  return !!(constraintContract && !constraintContract.can_execute);
+}
+
+function getBlockingDisplayText(constraintContract: MockConstraintContract | null): string | null {
+  if (!constraintContract || constraintContract.can_execute) return null;
+  if (constraintContract.why_blocked) return constraintContract.why_blocked;
+  if (constraintContract.explanation) return constraintContract.explanation;
+  return constraintContract.type === 'time_predicate'
+    ? "Opening dates can't be guaranteed from listings."
+    : "This constraint needs clarification before searching.";
+}
+
+function isChatAppendOnly(messages: Array<{ id: string; visible: boolean }>): boolean {
+  return messages.every(m => m.visible);
 }
 
 test('T1: Clarify payload with can_execute=false and proxy_options renders proxy question', () => {
@@ -429,6 +451,106 @@ test('T25b: ACCEPT_WITH_UNVERIFIED summary text avoids success language', () => 
   assert(!config.label.toLowerCase().includes('pass'), 'Label must not say pass');
   assert(!config.label.toLowerCase().includes('complete'), 'Label must not say complete');
   assert(!config.description.toLowerCase().includes('success'), 'Description must not say success');
+});
+
+test('T26: why_blocked message renders when can_execute=false with why_blocked', () => {
+  const cc: MockConstraintContract = {
+    type: 'time_predicate',
+    can_execute: false,
+    why_blocked: 'You selected "must be certain", but this constraint cannot be verified.',
+    proxy_options: ['Use first Google review date as proxy'],
+  };
+  assert(shouldRenderWhyBlocked(cc), 'why_blocked should render when present');
+  assert(!shouldShowSearchNowButton({
+    entityType: 'pubs', location: 'London', semanticConstraint: 'opened recently',
+    count: '5', missingFields: [], status: 'ready', pendingQuestions: [], constraintContract: cc,
+  }), 'Search now must be blocked');
+});
+
+test('T27: why_blocked does NOT render when can_execute=true', () => {
+  const cc: MockConstraintContract = {
+    type: 'time_predicate',
+    can_execute: true,
+    why_blocked: 'leftover text should not show',
+  };
+  assert(!shouldRenderWhyBlocked(cc), 'why_blocked must NOT render when can_execute=true');
+});
+
+test('T28: why_blocked does NOT render when field absent', () => {
+  const cc: MockConstraintContract = {
+    type: 'time_predicate',
+    can_execute: false,
+    explanation: 'Some explanation',
+  };
+  assert(!shouldRenderWhyBlocked(cc), 'why_blocked must NOT render when field is absent');
+  const display = getBlockingDisplayText(cc);
+  assert(display === 'Some explanation', `Should fall back to explanation, got "${display}"`);
+});
+
+test('T29: Safe next actions render when can_execute=false', () => {
+  const cc: MockConstraintContract = {
+    type: 'time_predicate',
+    can_execute: false,
+    why_blocked: 'Blocked',
+  };
+  assert(shouldRenderSafeNextActions(cc), 'Safe next actions must render when blocked');
+  assert(!shouldRenderSafeNextActions(null), 'Safe next actions must NOT render when no contract');
+  assert(!shouldRenderSafeNextActions({ type: 'time_predicate', can_execute: true }), 'Safe next actions must NOT render when can_execute=true');
+});
+
+test('T30: Search now button blocked even with why_blocked and all fields filled', () => {
+  const payload: MockClarifyPayload = {
+    entityType: 'pubs',
+    location: 'Bristol',
+    semanticConstraint: 'opened in last 12 months',
+    count: '10',
+    missingFields: [],
+    status: 'ready',
+    pendingQuestions: [],
+    constraintContract: {
+      type: 'time_predicate',
+      can_execute: false,
+      why_blocked: 'Must be certain selected — cannot verify.',
+    },
+  };
+  assert(!shouldShowSearchNowButton(payload), 'Search now must be blocked when why_blocked is present');
+  assert(!shouldRenderResultsView(payload), 'Results view must NOT render');
+  assert(shouldRenderWhyBlocked(payload.constraintContract), 'why_blocked message must render');
+  assert(shouldRenderSafeNextActions(payload.constraintContract), 'Safe next actions must render');
+});
+
+test('T31: Chat transcript is append-only — no messages removed', () => {
+  const messages = [
+    { id: 'msg-1', visible: true },
+    { id: 'msg-2', visible: true },
+    { id: 'clarify-1', visible: true },
+    { id: 'meta-trust-1', visible: true },
+    { id: 'clarify-2', visible: true },
+  ];
+  assert(isChatAppendOnly(messages), 'All messages must remain visible (append-only)');
+  const withHidden = [...messages, { id: 'clarify-3', visible: false }];
+  assert(!isChatAppendOnly(withHidden), 'Should detect non-append-only when a message is hidden');
+});
+
+test('T32: getBlockingDisplayText — priority: why_blocked > explanation > default', () => {
+  const withBoth: MockConstraintContract = {
+    type: 'time_predicate', can_execute: false,
+    why_blocked: 'WHY_BLOCKED', explanation: 'EXPLANATION',
+  };
+  assert(getBlockingDisplayText(withBoth) === 'WHY_BLOCKED', 'why_blocked takes priority');
+
+  const explainOnly: MockConstraintContract = {
+    type: 'time_predicate', can_execute: false, explanation: 'EXPLANATION',
+  };
+  assert(getBlockingDisplayText(explainOnly) === 'EXPLANATION', 'Falls back to explanation');
+
+  const neither: MockConstraintContract = { type: 'time_predicate', can_execute: false };
+  assert(getBlockingDisplayText(neither)?.includes("can't be guaranteed"), 'Falls back to default for time_predicate');
+
+  const canExecute: MockConstraintContract = { type: 'time_predicate', can_execute: true };
+  assert(getBlockingDisplayText(canExecute) === null, 'Returns null when can_execute=true');
+
+  assert(getBlockingDisplayText(null) === null, 'Returns null when no contract');
 });
 
 console.log(`\n${'='.repeat(50)}`);

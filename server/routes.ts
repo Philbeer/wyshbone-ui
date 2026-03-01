@@ -1803,12 +1803,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (semanticConstraint && !isOpenedTimePred) combinedConstraintParts.push(semanticConstraint);
         const combinedConstraint = combinedConstraintParts.length > 0 ? combinedConstraintParts.join(' + ') : semanticConstraint;
 
+        const initialContract = isOpenedTimePred ? {
+          type: 'time_predicate',
+          can_execute: false,
+          explanation: "Opening dates can't be guaranteed from public listings. Please choose a proxy approach.",
+          proxy_options: [
+            'Use first Google review date as proxy',
+            'Use news mentions as proxy',
+            'Use Google Maps listing freshness as proxy',
+            'Use Companies House incorporation date as proxy',
+          ],
+        } : (attributeConstraints.length > 0 ? {
+          type: 'unverifiable_constraint',
+          can_execute: false,
+          explanation: `The attribute${attributeConstraints.length > 1 ? 's' : ''} "${attributeConstraints.join(', ')}" can't always be verified from public data. Please choose how to handle ${attributeConstraints.length > 1 ? 'them' : 'it'}.`,
+        } : null);
+
         const newSession = createClarifySession({
           conversationId,
           originalUserText: latestUserText,
           entityType: effectiveEntityType,
           location: effectiveLocation,
           semanticConstraint: combinedConstraint,
+          constraintContract: initialContract,
           pendingQuestions: questions,
         });
 
