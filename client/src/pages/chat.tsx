@@ -335,6 +335,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
   const pendingMetadataRef = useRef<Record<string, any> | null>(null);
 
   const lastSentQueryRef = useRef<string | null>(null);
+  const handleNewChatRef = useRef<(() => void) | null>(null);
   const skipMismatchOnceRef = useRef(false);
   const lastRunFinalVerdictRef = useRef<string | null>(null);
 
@@ -1400,6 +1401,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         
         console.log(`🆕 Started new chat with ID: ${newConversationId}`);
       };
+      handleNewChatRef.current = handleNewChat;
       onNewChat(handleNewChat);
     }
   }, [onNewChat]);
@@ -2117,15 +2119,8 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     
     if (isStreaming || isRunActive) {
       console.log('[Chat] Run active, cannot submit new message');
-      if (!queuedMessage) {
-        setQueuedMessage(messageContent);
-        setInput("");
-        setInFlightBlockMessage("Still working on your last request. Your message has been queued and will send automatically.");
-        setTimeout(() => setInFlightBlockMessage(null), 5000);
-      } else {
-        setInFlightBlockMessage("Still working on your last request. Please wait or cancel.");
-        setTimeout(() => setInFlightBlockMessage(null), 4000);
-      }
+      setInput("");
+      setInFlightBlockMessage("Run in progress. Start a new chat to run another test.");
       return;
     }
 
@@ -2138,8 +2133,8 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
       const prevLower = lastSentQueryRef.current.toLowerCase();
       const newLower = messageContent.toLowerCase();
       if (newLower.includes(prevLower) && prevLower.length > 10) {
-        setConcatenationError("Your request looks merged with the previous one. Please try again.");
-        console.warn('[Chat][ConcatGuard] Blocked send: new query contains previous query as substring');
+        setConcatenationError("This looks like it may include your previous request. Start a fresh chat for a clean test, or clear to send anyway.");
+        console.warn('[Chat][ConcatGuard] Warned: new query contains previous query as substring');
         return;
       }
     }
@@ -3138,16 +3133,28 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
           )}
           
           {concatenationError && (
-            <div className="mb-2 px-3 py-2 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded-lg flex items-center justify-between">
-              <span className="text-sm text-red-700 dark:text-red-300">{concatenationError}</span>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => { setConcatenationError(null); setInput(""); lastSentQueryRef.current = null; }}
-                className="text-red-600 hover:text-red-800 dark:text-red-400"
-              >
-                Clear
-              </Button>
+            <div className="mb-2 px-3 py-2 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 rounded-lg flex items-center justify-between">
+              <span className="text-sm text-amber-700 dark:text-amber-300">{concatenationError}</span>
+              <div className="flex gap-1.5 shrink-0">
+                {handleNewChatRef.current && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => { setConcatenationError(null); handleNewChatRef.current?.(); }}
+                    className="text-amber-700 border-amber-300 hover:bg-amber-100 dark:text-amber-300 dark:border-amber-700 dark:hover:bg-amber-900"
+                  >
+                    Start fresh
+                  </Button>
+                )}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => { setConcatenationError(null); lastSentQueryRef.current = null; }}
+                  className="text-amber-600 hover:text-amber-800 dark:text-amber-400"
+                >
+                  Send anyway
+                </Button>
+              </div>
             </div>
           )}
 
@@ -3156,14 +3163,26 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
               <span className="text-sm text-amber-700 dark:text-amber-300">
                 {inFlightBlockMessage}
               </span>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setInFlightBlockMessage(null)}
-                className="text-amber-600 hover:text-amber-800 dark:text-amber-400"
-              >
-                Dismiss
-              </Button>
+              <div className="flex gap-1.5 shrink-0">
+                {handleNewChatRef.current && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => { setInFlightBlockMessage(null); handleNewChatRef.current?.(); }}
+                    className="text-amber-700 border-amber-300 hover:bg-amber-100 dark:text-amber-300 dark:border-amber-700 dark:hover:bg-amber-900"
+                  >
+                    Start fresh test
+                  </Button>
+                )}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setInFlightBlockMessage(null)}
+                  className="text-amber-600 hover:text-amber-800 dark:text-amber-400"
+                >
+                  Dismiss
+                </Button>
+              </div>
             </div>
           )}
 
