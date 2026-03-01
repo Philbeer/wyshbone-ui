@@ -593,6 +593,11 @@ const META_TRUST_PATTERNS = [
   /\b(?:how\s+(?:reliable|accurate|trustworthy|confident)\b)/i,
   /\b(?:source\s+of\s+(?:the\s+)?(?:data|information|results?))\b/i,
   /\b(?:is\s+(?:this|that|the)\s+(?:data|info|information)\s+(?:accurate|reliable|correct))\b/i,
+  /\b(?:what\s+is|who\s+(?:is|are)|tell\s+me\s+about)\s+wyshbone\b/i,
+  /\b(?:can|does|will|would|could)\s+(?:it|wyshbone|this|the\s+(?:system|tool|app|platform|bot))\s+(?:lie|make\s+(?:things?|stuff|it)\s+up|hallucinate|fabricate|invent|deceive)\b/i,
+  /\b(?:is|are)\s+(?:it|wyshbone|this)\s+(?:honest|truthful|trustworthy|biased)\b/i,
+  /\bhow\s+does\s+(?:wyshbone|this\s+(?:system|tool|app|platform|bot))\s+(?:work|function|operate)\b/i,
+  /\bcan\s+(?:i|we)\s+trust\s+(?:it|wyshbone|this)\b/i,
 ];
 
 const CHAT_INFO_PATTERNS = [

@@ -1106,6 +1106,50 @@ async function runAll() {
   });
   cleanup();
 
+  await test('T63: "What is Wyshbone and can it lie?" during active clarify (missing location) → META_TRUST, no location question, session preserved', () => {
+    createClarifySession({
+      conversationId: 'conv-t63',
+      originalUserText: 'find 5 pubs',
+      entityType: 'pubs',
+      pendingQuestions: buildInitialQuestions('pubs', undefined),
+    });
+
+    const sessionBefore = getActiveClarifySession('conv-t63')!;
+    sessionBefore.answers['count'] = '5';
+    assert(sessionBefore.is_active === true, 'session should be active');
+    assert(!sessionBefore.location, 'location should be missing (triggers clarify)');
+
+    const metaMsg = 'What is Wyshbone and can it lie?';
+    assert(isMetaTrustQuestion(metaMsg) === true, 'should detect as META_TRUST question');
+
+    const cls = classifyClarifyInput(metaMsg, sessionBefore);
+    assert(cls === 'META_TRUST', `classifyClarifyInput should return META_TRUST, got ${cls}`);
+
+    const sessionAfter = getActiveClarifySession('conv-t63')!;
+    assert(sessionAfter.is_active === true, 'session should still be active after meta question');
+    assert(sessionAfter.entity_type === 'pubs', 'entity_type should still be pubs');
+    assert(!sessionAfter.location, 'location should still be missing — no slot mutation');
+    assert(sessionAfter.answers['count'] === '5', 'count should still be 5');
+  });
+  cleanup();
+
+  await test('T64: Additional meta/trust patterns — "can it lie", "how does wyshbone work", "is it honest"', () => {
+    assert(isMetaTrustQuestion('can it lie') === true, '"can it lie" → true');
+    assert(isMetaTrustQuestion('does wyshbone lie') === true, '"does wyshbone lie" → true');
+    assert(isMetaTrustQuestion('how does wyshbone work') === true, '"how does wyshbone work" → true');
+    assert(isMetaTrustQuestion('how does this system work') === true, '"how does this system work" → true');
+    assert(isMetaTrustQuestion('how does it work') === false, '"how does it work" (ambiguous) → false');
+    assert(isMetaTrustQuestion('is it honest') === true, '"is it honest" → true');
+    assert(isMetaTrustQuestion('is wyshbone trustworthy') === true, '"is wyshbone trustworthy" → true');
+    assert(isMetaTrustQuestion('what is wyshbone') === true, '"what is wyshbone" → true');
+    assert(isMetaTrustQuestion('can I trust it') === true, '"can I trust it" → true');
+    assert(isMetaTrustQuestion('can we trust wyshbone') === true, '"can we trust wyshbone" → true');
+    assert(isMetaTrustQuestion('find pubs in Leeds') === false, 'search query → false');
+    assert(isMetaTrustQuestion('5') === false, 'bare number → false');
+    assert(isMetaTrustQuestion('Manchester') === false, 'bare location → false');
+  });
+  cleanup();
+
   console.log(`\n${'='.repeat(50)}`);
   console.log(`Results: ${passed} passed, ${failed} failed out of ${passed + failed}`);
   if (failed > 0) {
