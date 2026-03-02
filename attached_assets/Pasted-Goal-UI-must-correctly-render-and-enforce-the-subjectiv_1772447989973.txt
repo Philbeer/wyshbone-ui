@@ -1,0 +1,78 @@
+Goal: UI must correctly render and enforce the subjective constraint gate from the shared constraint contract. No execution affordances until clarified, and the state must be obvious to the user.
+
+Required behaviour (must match time-predicate gate)
+
+When constraint_contract.can_execute = false and the blocking constraint includes type = "subjective":
+
+Show a clear “Waiting for clarification” state in the chat bubble output area.
+
+Must be visible in the main chat thread (not only the activity panel).
+
+Must include why_blocked.
+
+Render a clarification question that quotes the term
+Example:
+
+“What do you mean by ‘nice’?”
+If multiple:
+
+“What do you mean by ‘nice’ and ‘good’?”
+
+Render measurable option buttons
+Buttons must be shown as quick replies, minimum set:
+
+Lively
+
+Quiet
+
+Cosy
+
+Late-night
+
+Live music
+
+Good for food
+
+Beer garden
+
+Dog friendly
+
+Remove or disable any execution affordance
+While can_execute is false:
+
+Hide “Search now”
+
+Disable Enter-to-run behaviour if you have that shortcut
+
+Do not auto-trigger Supervisor execution calls
+
+Do not show “Searching…” or any run-in-progress UI
+
+Selecting an option resolves the block
+When the user clicks an option:
+
+Append the choice as a user chat message (append-only)
+
+Send it back through the same pipeline as a clarification response
+
+After Supervisor returns can_execute true, the normal “ready to run” behaviour resumes
+
+Append-only guarantee
+
+Do not delete, replace, or collapse earlier messages.
+
+The clarification and the user’s choice must remain visible in the thread.
+
+UI tests to add (required)
+
+Subjective clarification renders “Waiting for clarification” and why_blocked
+
+“Search now” does not appear while subjective constraint unresolved
+
+Clicking “Lively” appends a user message and results in can_execute true on next contract update (mock Supervisor response)
+
+Regression: time-predicate gate still behaves exactly as before
+
+Definition of done
+
+You can demo “Find nice bars in Manchester” and the UI never starts searching until the user chooses a measurable definition.
