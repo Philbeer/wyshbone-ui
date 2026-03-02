@@ -23,6 +23,7 @@ interface MockConstraintContract {
   can_execute: boolean;
   explanation?: string;
   why_blocked?: string;
+  suggested_rephrase?: string;
   proxy_options?: string[];
   required_inputs_missing?: string[];
 }
@@ -118,6 +119,18 @@ function getBlockingDisplayText(constraintContract: MockConstraintContract | nul
 
 function isChatAppendOnly(messages: Array<{ id: string; visible: boolean }>): boolean {
   return messages.every(m => m.visible);
+}
+
+function shouldRenderSuggestedRephrase(constraintContract: MockConstraintContract | null): boolean {
+  return !!(constraintContract && !constraintContract.can_execute && constraintContract.suggested_rephrase);
+}
+
+function shouldRenderPendingQuestions(payload: MockClarifyPayload): boolean {
+  if (payload.pendingQuestions.length === 0) return false;
+  if (payload.missingFields.length > 0) return true;
+  if (payload.status !== 'ready') return true;
+  if (payload.constraintContract && !payload.constraintContract.can_execute) return true;
+  return false;
 }
 
 test('T1: Clarify payload with can_execute=false and proxy_options renders proxy question', () => {
@@ -646,6 +659,122 @@ test('T38: Chat history append-only — superseded clarify messages visible alon
   ];
   assert(isChatAppendOnly(chatMessages), 'All messages must remain visible including older clarify bubbles');
   assert(chatMessages.length === 7, 'No messages should be removed');
+});
+
+test('T39: subjective_predicate renders why_blocked + suggested_rephrase + hides Search now', () => {
+  const payload: MockClarifyPayload = {
+    entityType: 'restaurants',
+    location: null,
+    semanticConstraint: 'that are nice',
+    count: '10',
+    missingFields: ['location'],
+    status: 'gathering',
+    pendingQuestions: [
+      'Which location should I search in?',
+      'What does "nice" mean to you? E.g. highly rated, good decor, Michelin-starred?',
+    ],
+    constraintContract: {
+      type: 'subjective_predicate',
+      can_execute: false,
+      why_blocked: '"Nice" is subjective and cannot be searched as-is.',
+      suggested_rephrase: 'Find restaurants in Manchester with 4.5+ Google rating',
+    },
+  };
+  assert(!shouldShowSearchNowButton(payload), 'Search now must be hidden');
+  assert(!shouldRenderResultsView(payload), 'Results view must NOT render');
+  assert(shouldRenderWhyBlocked(payload.constraintContract), 'why_blocked must render');
+  assert(shouldRenderSuggestedRephrase(payload.constraintContract), 'suggested_rephrase must render');
+  assert(shouldRenderSafeNextActions(payload.constraintContract), 'Safe next actions must render');
+  assert(shouldRenderPendingQuestions(payload), 'Pending questions must render (both location + subjective)');
+  assert(payload.pendingQuestions.length === 2, 'Should have 2 pending questions');
+  assert(getClarifyPanelHeader(payload.constraintContract) === 'Waiting for clarification', 'Header must say Waiting');
+});
+
+test('T40: suggested_rephrase does NOT render when can_execute=true', () => {
+  const cc: MockConstraintContract = {
+    type: 'subjective_predicate',
+    can_execute: true,
+    suggested_rephrase: 'leftover text',
+  };
+  assert(!shouldRenderSuggestedRephrase(cc), 'suggested_rephrase must NOT render when can_execute=true');
+});
+
+test('T41: suggested_rephrase does NOT render when absent', () => {
+  const cc: MockConstraintContract = {
+    type: 'subjective_predicate',
+    can_execute: false,
+    why_blocked: 'Blocked',
+  };
+  assert(!shouldRenderSuggestedRephrase(cc), 'suggested_rephrase must NOT render when field missing');
+  assert(shouldRenderWhyBlocked(cc), 'why_blocked should still render');
+});
+
+test('T42: subjective block with BOTH missing location and pending questions renders all', () => {
+  const payload: MockClarifyPayload = {
+    entityType: 'pubs',
+    location: null,
+    semanticConstraint: 'with good vibes',
+    count: '5',
+    missingFields: ['location', 'semantic_constraint'],
+    status: 'gathering',
+    pendingQuestions: [
+      'Which location?',
+      'What do "good vibes" mean to you?',
+    ],
+    constraintContract: {
+      type: 'subjective_predicate',
+      can_execute: false,
+      why_blocked: '"Good vibes" is not measurable.',
+      suggested_rephrase: 'Find pubs in Leeds with live music and 4+ star reviews',
+    },
+  };
+  assert(!shouldShowSearchNowButton(payload), 'Search now must be hidden');
+  assert(shouldRenderPendingQuestions(payload), 'Questions must render');
+  assert(payload.pendingQuestions.length === 2, 'Both questions present');
+  assert(payload.missingFields.length === 2, 'Both fields missing');
+  assert(shouldRenderWhyBlocked(payload.constraintContract), 'why_blocked renders');
+  assert(shouldRenderSuggestedRephrase(payload.constraintContract), 'suggested_rephrase renders');
+});
+
+test('T43: pending questions still render when can_execute=false even if missingFields empty', () => {
+  const payload: MockClarifyPayload = {
+    entityType: 'cafes',
+    location: 'Bristol',
+    semanticConstraint: 'that are trendy',
+    count: '5',
+    missingFields: [],
+    status: 'gathering',
+    pendingQuestions: ['What does "trendy" mean to you?'],
+    constraintContract: {
+      type: 'subjective_predicate',
+      can_execute: false,
+      why_blocked: '"Trendy" cannot be verified from listings.',
+    },
+  };
+  assert(shouldRenderPendingQuestions(payload), 'Questions must render even with empty missingFields when blocked');
+  assert(!shouldShowSearchNowButton(payload), 'Search now hidden');
+});
+
+test('T44: no Searching bubble during subjective block (confidence suppressed)', () => {
+  const cc: MockConstraintContract = {
+    type: 'subjective_predicate',
+    can_execute: false,
+    why_blocked: 'Ambiguous term',
+  };
+  assert(!shouldRenderConfidenceBubble(true, cc), 'Confidence/searching bubble must NOT render during subjective block');
+  assert(!shouldIngestConfidenceBubble(true), 'Confidence bubble must NOT be ingested during clarification stream');
+});
+
+test('T45: append-only — meta escape does not remove clarify bubbles', () => {
+  const transcript = [
+    { id: 'user-query', visible: true },
+    { id: 'assistant-clarify-subjective', visible: true },
+    { id: 'user-meta-escape', visible: true },
+    { id: 'assistant-meta-answer', visible: true },
+    { id: 'assistant-clarify-followup', visible: true },
+  ];
+  assert(isChatAppendOnly(transcript), 'All bubbles must remain visible after meta escape');
+  assert(transcript.length === 5, 'No bubbles removed');
 });
 
 console.log(`\n${'='.repeat(50)}`);

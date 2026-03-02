@@ -3,6 +3,7 @@ export interface ConstraintContractData {
   can_execute: boolean;
   explanation?: string;
   why_blocked?: string;
+  suggested_rephrase?: string;
   proxy_options?: string[];
   required_inputs_missing?: string[];
 }

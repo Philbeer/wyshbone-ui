@@ -276,6 +276,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     can_execute: boolean;
     explanation?: string;
     why_blocked?: string;
+    suggested_rephrase?: string;
     proxy_options?: string[];
     required_inputs_missing?: string[];
   }
@@ -2944,6 +2945,11 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                       <span>{clarifyContext.constraintContract.why_blocked}</span>
                     </div>
                   )}
+                  {clarifyContext.constraintContract.suggested_rephrase && (
+                    <p className="text-[11px] text-muted-foreground italic pl-5" data-testid="suggested-rephrase">
+                      Try: &ldquo;{clarifyContext.constraintContract.suggested_rephrase}&rdquo;
+                    </p>
+                  )}
                   {!clarifyContext.constraintContract.why_blocked && (
                     <p className="text-xs text-amber-800 dark:text-amber-200 font-medium">
                       {clarifyContext.constraintContract.explanation || (clarifyContext.constraintContract.type === 'time_predicate' ? "Opening dates can't be guaranteed from listings." : "This constraint needs clarification before searching.")}
@@ -2997,8 +3003,8 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                 </div>
               )}
 
-              {(clarifyContext.missingFields.length > 0 || clarifyContext.status !== 'ready') && clarifyContext.pendingQuestions.length > 0 && (
-                <div className="space-y-1">
+              {clarifyContext.pendingQuestions.length > 0 && (clarifyContext.missingFields.length > 0 || clarifyContext.status !== 'ready' || (clarifyContext.constraintContract && !clarifyContext.constraintContract.can_execute)) && (
+                <div className="space-y-1" data-testid="pending-questions">
                   {clarifyContext.pendingQuestions.map((question, idx) => (
                     <div key={idx} className="text-xs text-amber-700 dark:text-amber-300">
                       <HelpCircle className="h-3 w-3 inline mr-1" />
