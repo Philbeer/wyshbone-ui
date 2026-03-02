@@ -1791,53 +1791,80 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const effectiveEntityType = (rawEntityType && hasConcreteEntityNoun(rawEntityType)) ? rawEntityType : undefined;
         const effectiveLocation = (modeDecision.location && isKnownLocation(modeDecision.location)) ? modeDecision.location : undefined;
 
-        const questions = buildInitialQuestions(effectiveEntityType, effectiveLocation, semanticConstraint);
+        const SUBJECTIVE_OPTIONS = ['Lively', 'Quiet', 'Cosy', 'Late-night', 'Live music', 'Good for food', 'Beer garden', 'Dog friendly'];
+
+        const allConstraintDescriptors: Array<{ type: 'subjective' | 'time_predicate' | 'unverifiable_constraint'; contract: any; questions: string[]; constraintLabel: string; priority: number }> = [];
+
+        if (isSubjectiveGate) {
+          const quotedTerms = subjectiveTerms.map((t: string) => `'${t}'`);
+          const termsList = quotedTerms.length === 1 ? quotedTerms[0] : quotedTerms.slice(0, -1).join(', ') + ' and ' + quotedTerms[quotedTerms.length - 1];
+          allConstraintDescriptors.push({
+            type: 'subjective',
+            priority: 0,
+            constraintLabel: `subjective: ${subjectiveTerms.join(', ')}`,
+            contract: {
+              type: 'subjective',
+              can_execute: false,
+              why_blocked: `The term${subjectiveTerms.length > 1 ? 's' : ''} ${subjectiveTerms.map((t: string) => `"${t}"`).join(' and ')} ${subjectiveTerms.length > 1 ? 'are' : 'is'} subjective and can't be measured in a search. Please choose a concrete definition below.`,
+              explanation: `"${subjectiveTerms.join(', ')}" means different things to different people — pick a measurable attribute so I can find relevant results.`,
+              subjective_terms: subjectiveTerms,
+              subjective_options: SUBJECTIVE_OPTIONS,
+            },
+            questions: [`What do you mean by ${termsList}? Pick a measurable definition so I can search effectively.`],
+          });
+        }
 
         if (isOpenedTimePred) {
-          questions.push(`You mentioned businesses that "opened" recently. There's no single reliable source for exact opening dates, so I'd need to use a proxy. Which would you prefer?\n  • **First Google review date** — when the first public review appeared\n  • **News mentions / press releases** — media coverage of an opening\n  • **Google Maps listing freshness** — when the listing was first indexed\n  • **Companies House incorporation date** — official UK registration date (not always the same as opening)\n\nOr if you'd rather not use a proxy, just say "no proxies" and I'll explain the limitations.`);
+          allConstraintDescriptors.push({
+            type: 'time_predicate',
+            priority: 1,
+            constraintLabel: 'opened-time predicate',
+            contract: {
+              type: 'time_predicate',
+              can_execute: false,
+              explanation: "Opening dates can't be guaranteed from public listings. Please choose a proxy approach.",
+              proxy_options: [
+                'Use first Google review date as proxy',
+                'Use news mentions as proxy',
+                'Use Google Maps listing freshness as proxy',
+                'Use Companies House incorporation date as proxy',
+              ],
+            },
+            questions: [`You mentioned businesses that "opened" recently. There's no single reliable source for exact opening dates, so I'd need to use a proxy. Which would you prefer?\n  • **First Google review date** — when the first public review appeared\n  • **News mentions / press releases** — media coverage of an opening\n  • **Google Maps listing freshness** — when the listing was first indexed\n  • **Companies House incorporation date** — official UK registration date (not always the same as opening)\n\nOr if you'd rather not use a proxy, just say "no proxies" and I'll explain the limitations.`],
+          });
         }
 
         for (const attr of attributeConstraints) {
-          questions.push(`You want results that "${attr}". This attribute can't always be verified from public data alone. How should I handle it?\n  • **Best-effort search** — I'll include "${attr}" in the search query and return what I find, but results may not all be verified\n  • **Strict filter** — only return results where I can confirm "${attr}" from reviews, listings, or other public sources (may return fewer results)\n  • **Skip this filter** — search without filtering by "${attr}"\n\nOr say "must be certain" if you only want guaranteed results (I may not be able to proceed).`);
+          allConstraintDescriptors.push({
+            type: 'unverifiable_constraint',
+            priority: 2,
+            constraintLabel: `attribute: ${attr}`,
+            contract: {
+              type: 'unverifiable_constraint',
+              can_execute: false,
+              explanation: `The attribute "${attr}" can't always be verified from public data. Please choose how to handle it.`,
+            },
+            questions: [`You want results that "${attr}". This attribute can't always be verified from public data alone. How should I handle it?\n  • **Best-effort search** — I'll include "${attr}" in the search query and return what I find, but results may not all be verified\n  • **Strict filter** — only return results where I can confirm "${attr}" from reviews, listings, or other public sources (may return fewer results)\n  • **Skip this filter** — search without filtering by "${attr}"\n\nOr say "must be certain" if you only want guaranteed results (I may not be able to proceed).`],
+          });
         }
 
-        if (isSubjectiveGate) {
-          const quotedTerms = subjectiveTerms.map(t => `'${t}'`);
-          const termsList = quotedTerms.length === 1 ? quotedTerms[0] : quotedTerms.slice(0, -1).join(', ') + ' and ' + quotedTerms[quotedTerms.length - 1];
-          questions.push(`What do you mean by ${termsList}? Pick a measurable definition so I can search effectively.`);
+        allConstraintDescriptors.sort((a, b) => a.priority - b.priority);
+
+        const activeConstraint = allConstraintDescriptors.length > 0 ? allConstraintDescriptors[0] : null;
+        const deferredConstraints = allConstraintDescriptors.slice(1).map(({ type, contract, questions: qs, constraintLabel }) => ({ type, contract, questions: qs, constraintLabel }));
+
+        const initialContract = activeConstraint ? activeConstraint.contract : null;
+        const activeConstraintLabel = activeConstraint ? activeConstraint.constraintLabel : undefined;
+
+        const questions = buildInitialQuestions(effectiveEntityType, effectiveLocation, semanticConstraint);
+        if (activeConstraint) {
+          questions.push(...activeConstraint.questions);
         }
 
-        const combinedConstraintParts: string[] = [];
-        if (isOpenedTimePred) combinedConstraintParts.push('opened-time predicate');
-        if (attributeConstraints.length > 0) combinedConstraintParts.push(`attribute: ${attributeConstraints.join(', ')}`);
-        if (isSubjectiveGate) combinedConstraintParts.push(`subjective: ${subjectiveTerms.join(', ')}`);
-        if (semanticConstraint && !isOpenedTimePred) combinedConstraintParts.push(semanticConstraint);
-        const combinedConstraint = combinedConstraintParts.length > 0 ? combinedConstraintParts.join(' + ') : semanticConstraint;
-
-        const SUBJECTIVE_OPTIONS = ['Lively', 'Quiet', 'Cosy', 'Late-night', 'Live music', 'Good for food', 'Beer garden', 'Dog friendly'];
-
-        const initialContract = isOpenedTimePred ? {
-          type: 'time_predicate',
-          can_execute: false,
-          explanation: "Opening dates can't be guaranteed from public listings. Please choose a proxy approach.",
-          proxy_options: [
-            'Use first Google review date as proxy',
-            'Use news mentions as proxy',
-            'Use Google Maps listing freshness as proxy',
-            'Use Companies House incorporation date as proxy',
-          ],
-        } : isSubjectiveGate ? {
-          type: 'subjective',
-          can_execute: false,
-          why_blocked: `The term${subjectiveTerms.length > 1 ? 's' : ''} ${subjectiveTerms.map(t => `"${t}"`).join(' and ')} ${subjectiveTerms.length > 1 ? 'are' : 'is'} subjective and can't be measured in a search. Please choose a concrete definition below.`,
-          explanation: `"${subjectiveTerms.join(', ')}" means different things to different people — pick a measurable attribute so I can find relevant results.`,
-          subjective_terms: subjectiveTerms,
-          subjective_options: SUBJECTIVE_OPTIONS,
-        } : (attributeConstraints.length > 0 ? {
-          type: 'unverifiable_constraint',
-          can_execute: false,
-          explanation: `The attribute${attributeConstraints.length > 1 ? 's' : ''} "${attributeConstraints.join(', ')}" can't always be verified from public data. Please choose how to handle ${attributeConstraints.length > 1 ? 'them' : 'it'}.`,
-        } : null);
+        const constraintParts: string[] = [];
+        if (activeConstraintLabel) constraintParts.push(activeConstraintLabel);
+        if (semanticConstraint && !isSubjectiveGate && !isOpenedTimePred) constraintParts.push(semanticConstraint);
+        const combinedConstraint = constraintParts.length > 0 ? constraintParts.join(' + ') : (semanticConstraint || undefined);
 
         const newSession = createClarifySession({
           conversationId,
@@ -1846,6 +1873,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           location: effectiveLocation,
           semanticConstraint: combinedConstraint,
           constraintContract: initialContract,
+          pendingConstraints: deferredConstraints,
           pendingQuestions: questions,
         });
 

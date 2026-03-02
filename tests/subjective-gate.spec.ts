@@ -156,4 +156,74 @@ test.describe('Subjective Constraint Gate', () => {
 
     console.log('✅ T6: Non-subjective queries not gated by subjective constraint');
   });
+
+  test('T7: Compound query (subjective + time) shows subjective first, then time after resolution', async ({ request }) => {
+    const { events: step1Events } = await sendChat(request, 'Find nice pubs that opened recently in Manchester');
+
+    const step1Clarify = step1Events.find(e => e.type === 'clarify_for_run');
+    expect(step1Clarify).toBeTruthy();
+    const step1Contract = step1Clarify.clarify_state.constraint_contract;
+    expect(step1Contract.type).toBe('subjective');
+    expect(step1Contract.can_execute).toBe(false);
+    expect(step1Contract.subjective_options).toBeTruthy();
+
+    expect(step1Clarify.clarify_state.pendingQuestions.length).toBe(1);
+    expect(step1Clarify.clarify_state.pendingQuestions[0]).toContain("'nice'");
+    expect(step1Clarify.clarify_state.pendingQuestions[0]).not.toContain('proxy');
+    expect(step1Clarify.clarify_state.pendingQuestions[0]).not.toContain('opened');
+
+    const serverConvId = step1Events.find(e => e.conversationId)?.conversationId;
+    expect(serverConvId).toBeTruthy();
+
+    const { events: step2Events } = await sendChat(request, 'Lively', serverConvId);
+
+    const step2Clarify = step2Events.find(e => e.type === 'clarify_for_run');
+    expect(step2Clarify).toBeTruthy();
+    const step2Contract = step2Clarify.clarify_state.constraint_contract;
+    expect(step2Contract.type).toBe('time_predicate');
+    expect(step2Contract.can_execute).toBe(false);
+    expect(step2Contract.proxy_options).toBeTruthy();
+    expect(step2Contract.proxy_options.length).toBeGreaterThan(0);
+
+    expect(step2Clarify.clarify_state.status).toBe('gathering');
+
+    const step2Message = step2Events.find(e => e.type === 'message' && e.role === 'assistant');
+    expect(step2Message).toBeTruthy();
+    expect(step2Message.content.toLowerCase()).toContain('lively');
+    expect(step2Message.content).toContain('proxy');
+
+    console.log('✅ T7: Compound query sequences subjective → time_predicate correctly');
+  });
+
+  test('T8: Pure time-predicate query (no subjective) shows time_predicate immediately', async ({ request }) => {
+    const { events } = await sendChat(request, 'Find pubs that opened recently in Manchester');
+
+    const clarifyEvent = events.find(e => e.type === 'clarify_for_run');
+    expect(clarifyEvent).toBeTruthy();
+
+    const contract = clarifyEvent.clarify_state.constraint_contract;
+    expect(contract).toBeTruthy();
+    expect(contract.type).toBe('time_predicate');
+    expect(contract.proxy_options).toBeTruthy();
+
+    console.log('✅ T8: Pure time-predicate shows immediately without subjective gate');
+  });
+
+  test('T9: Subjective-only query does not queue any further constraints', async ({ request }) => {
+    const { events: step1Events } = await sendChat(request, 'Find nice bars in Manchester');
+
+    const step1Clarify = step1Events.find(e => e.type === 'clarify_for_run');
+    expect(step1Clarify).toBeTruthy();
+    expect(step1Clarify.clarify_state.constraint_contract.type).toBe('subjective');
+
+    const serverConvId = step1Events.find(e => e.conversationId)?.conversationId;
+    const { events: step2Events } = await sendChat(request, 'Lively', serverConvId);
+
+    const step2Clarify = step2Events.find(e => e.type === 'clarify_for_run');
+    expect(step2Clarify).toBeTruthy();
+    expect(step2Clarify.clarify_state.constraint_contract.can_execute).toBe(true);
+    expect(step2Clarify.clarify_state.status).toBe('ready');
+
+    console.log('✅ T9: Subjective-only resolves to ready (no queued constraints)');
+  });
 });
