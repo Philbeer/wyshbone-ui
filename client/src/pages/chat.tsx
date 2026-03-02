@@ -2807,7 +2807,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                         <p className="text-[15px] leading-relaxed whitespace-pre-wrap">{chatMessage.content}</p>
                       )}
                     </div>
-                    {!isUser && isClarifyingForRun && chatMessage.content.includes('**Search now**') && !actionedSearchNowIds.current.has(chatMessage.id) && clarifyContext.status === 'ready' && clarifyContext.missingFields.length === 0 && !(clarifyContext.constraintContract && !clarifyContext.constraintContract.can_execute) && (
+                    {!isUser && isClarifyingForRun && /search now/i.test(chatMessage.content) && !actionedSearchNowIds.current.has(chatMessage.id) && clarifyContext.status === 'ready' && clarifyContext.missingFields.length === 0 && !(clarifyContext.constraintContract && !clarifyContext.constraintContract.can_execute) && (
                       <Button
                         variant="default"
                         size="sm"
@@ -3092,9 +3092,22 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                 </div>
               )}
               {clarifyContext.missingFields.length === 0 && clarifyContext.status === 'ready' && !(clarifyContext.constraintContract && !clarifyContext.constraintContract.can_execute) && (
-                <div className="text-xs text-green-700 dark:text-green-300">
-                  <CheckCircle2 className="h-3 w-3 inline mr-1" />
-                  All set — click <strong>Search now</strong> when you're ready.
+                <div className="flex items-center gap-2 mt-1">
+                  <div className="text-xs text-green-700 dark:text-green-300">
+                    <CheckCircle2 className="h-3 w-3 inline mr-1" />
+                    All set.
+                  </div>
+                  <Button
+                    variant="default"
+                    size="sm"
+                    className="h-7 text-xs gap-1.5"
+                    onClick={() => {
+                      handleSendRef.current?.("Search now");
+                    }}
+                  >
+                    <Search className="h-3 w-3" />
+                    Search now
+                  </Button>
                 </div>
               )}
             </div>
