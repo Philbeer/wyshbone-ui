@@ -282,6 +282,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     subjective_terms?: string[];
     subjective_options?: string[];
     numeric_options?: string[];
+    relationship_options?: string[];
   }
 
   interface ClarifyContext {
@@ -2998,7 +2999,27 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                       </div>
                     </div>
                   )}
-                  {clarifyContext.constraintContract.type !== 'subjective' && clarifyContext.constraintContract.type !== 'numeric_ambiguity' && Array.isArray(clarifyContext.constraintContract.proxy_options) && clarifyContext.constraintContract.proxy_options.length > 0 && (
+                  {clarifyContext.constraintContract.type === 'relationship_predicate' && Array.isArray(clarifyContext.constraintContract.relationship_options) && clarifyContext.constraintContract.relationship_options.length > 0 && (
+                    <div className="space-y-1.5" data-testid="relationship-options">
+                      <p className="text-[10px] text-amber-700 dark:text-amber-300 uppercase tracking-wide font-semibold">Verification approach</p>
+                      <div className="flex flex-col gap-1">
+                        {clarifyContext.constraintContract.relationship_options.map((option, idx) => (
+                          <button
+                            key={idx}
+                            type="button"
+                            className="block w-full text-left text-xs px-2 py-1.5 rounded border border-amber-200 dark:border-amber-700 bg-white dark:bg-amber-950/40 hover:bg-amber-50 dark:hover:bg-amber-900/40 text-amber-900 dark:text-amber-100 transition-colors"
+                            data-testid={`relationship-option-${option.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`}
+                            onClick={() => {
+                              handleSendRef.current?.(option.toLowerCase());
+                            }}
+                          >
+                            {idx + 1}. {option}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {clarifyContext.constraintContract.type !== 'subjective' && clarifyContext.constraintContract.type !== 'numeric_ambiguity' && clarifyContext.constraintContract.type !== 'relationship_predicate' && Array.isArray(clarifyContext.constraintContract.proxy_options) && clarifyContext.constraintContract.proxy_options.length > 0 && (
                     <div className="space-y-1">
                       <p className="text-[10px] text-amber-700 dark:text-amber-300 uppercase tracking-wide font-semibold">Choose a proxy</p>
                       {clarifyContext.constraintContract.proxy_options.map((option, idx) => (
@@ -3017,7 +3038,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                   )}
                   <div className="space-y-1 pt-1 border-t border-red-200 dark:border-red-800" data-testid="safe-next-actions">
                     <p className="text-[10px] text-red-700 dark:text-red-300 uppercase tracking-wide font-semibold">You can also</p>
-                    {clarifyContext.constraintContract.type !== 'subjective' && clarifyContext.constraintContract.type !== 'numeric_ambiguity' && (
+                    {clarifyContext.constraintContract.type !== 'subjective' && clarifyContext.constraintContract.type !== 'numeric_ambiguity' && clarifyContext.constraintContract.type !== 'relationship_predicate' && (
                       <button
                         type="button"
                         className="block w-full text-left text-xs px-2 py-1.5 rounded border border-amber-200 dark:border-amber-700 bg-white dark:bg-amber-950/40 hover:bg-amber-50 dark:hover:bg-amber-900/40 text-amber-900 dark:text-amber-100 transition-colors"

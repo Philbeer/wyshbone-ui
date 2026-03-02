@@ -1778,7 +1778,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return;
         }
 
-        const { extractAttributeConstraints, extractSubjectiveModifiers: getSubjMods, hasSubjectiveModifiers: checkSubjMods, hasNumericAmbiguity: checkNumericAmbiguity, extractNumericAmbiguityTerms: getNumericTerms } = await import('./lib/decideChatMode.js');
+        const { extractAttributeConstraints, extractSubjectiveModifiers: getSubjMods, hasSubjectiveModifiers: checkSubjMods, hasNumericAmbiguity: checkNumericAmbiguity, extractNumericAmbiguityTerms: getNumericTerms, hasRelationshipPredicate: checkRelPred, extractRelationshipClause: getRelClause } = await import('./lib/decideChatMode.js');
         const semanticConstraintMatch = latestUserText.match(/\bthat\s+(work|deal|partner|provide|offer|support|help|serve|are|have|do|focus|engage|operate|specialise|specialize|collaborate)\b[^.!?]*/i);
         const semanticConstraint = semanticConstraintMatch ? semanticConstraintMatch[0].trim() : undefined;
 
@@ -1793,7 +1793,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         const SUBJECTIVE_OPTIONS = ['Lively', 'Quiet', 'Cosy', 'Late-night', 'Live music', 'Good for food', 'Beer garden', 'Dog friendly'];
 
-        const allConstraintDescriptors: Array<{ type: 'subjective' | 'time_predicate' | 'unverifiable_constraint' | 'numeric_ambiguity'; contract: any; questions: string[]; constraintLabel: string; priority: number }> = [];
+        const allConstraintDescriptors: Array<{ type: 'subjective' | 'time_predicate' | 'unverifiable_constraint' | 'numeric_ambiguity' | 'relationship_predicate'; contract: any; questions: string[]; constraintLabel: string; priority: number }> = [];
 
         if (isSubjectiveGate) {
           const quotedTerms = subjectiveTerms.map((t: string) => `'${t}'`);
@@ -1834,10 +1834,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
           });
         }
 
+        const isRelPred = checkRelPred(latestUserText);
+        if (isRelPred) {
+          const relClause = getRelClause(latestUserText) || 'relationship constraint';
+          allConstraintDescriptors.push({
+            type: 'relationship_predicate',
+            priority: 2,
+            constraintLabel: `relationship: ${relClause}`,
+            contract: {
+              type: 'relationship_predicate',
+              can_execute: false,
+              why_blocked: `The relationship "${relClause}" can't always be verified from public data. How should I check it?`,
+              explanation: `Relationships like "${relClause}" may not be publicly listed. Choose a verification approach.`,
+              relationship_options: [
+                'Official sources only',
+                'Best-effort public web',
+                'Require 2+ sources',
+                'Skip if uncertain',
+              ],
+            },
+            questions: [`You want businesses "${relClause}". This relationship may not be publicly verifiable. How should I handle verification?\n  • **Official sources only** — only include if confirmed by official registries or directories\n  • **Best-effort public web** — search the public web for evidence of this relationship\n  • **Require 2+ sources** — include only if at least two independent sources mention it\n  • **Skip if uncertain** — show venues only, without relationship verification`],
+          });
+        }
+
         if (isOpenedTimePred) {
           allConstraintDescriptors.push({
             type: 'time_predicate',
-            priority: 2,
+            priority: 3,
             constraintLabel: 'opened-time predicate',
             contract: {
               type: 'time_predicate',
@@ -1857,7 +1880,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         for (const attr of attributeConstraints) {
           allConstraintDescriptors.push({
             type: 'unverifiable_constraint',
-            priority: 3,
+            priority: 4,
             constraintLabel: `attribute: ${attr}`,
             contract: {
               type: 'unverifiable_constraint',

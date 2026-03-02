@@ -21,7 +21,7 @@ export interface ConstraintContractData {
 }
 
 export interface PendingConstraintDescriptor {
-  type: 'subjective' | 'time_predicate' | 'unverifiable_constraint' | 'numeric_ambiguity';
+  type: 'subjective' | 'time_predicate' | 'unverifiable_constraint' | 'numeric_ambiguity' | 'relationship_predicate';
   contract: ConstraintContractData;
   questions: string[];
   constraintLabel: string;
@@ -469,6 +469,67 @@ export function handleClarifyResponse(
       updateClarifySession(session.conversation_id, { pending_questions: nextQuestions });
       const finalSession = getActiveClarifySession(session.conversation_id) || updatedSession;
       const msg = `Got it — I'll return ${chosenCount === 'all' ? 'all matching' : chosenCount} results. ${nextQuestions.length > 0 ? '\n\n' + nextQuestions.map((q, i) => `${i + 1}. ${q}`).join('\n') : ''}`;
+      return {
+        action: 'ask_more',
+        message: msg,
+        clarifyState: buildClarifyStatePayload(finalSession),
+      };
+    }
+  }
+
+  const RELATIONSHIP_OPTION_VALUES = new Set([
+    'official sources only',
+    'best-effort public web',
+    'require 2+ sources',
+    'skip if uncertain',
+  ]);
+  if (session.constraint_contract && !session.constraint_contract.can_execute && session.constraint_contract.type === 'relationship_predicate') {
+    const relNormalized = normalizedMsg.replace(/[.,!?;:]+$/, '').trim();
+    const matchedRelOption = [...RELATIONSHIP_OPTION_VALUES].find(opt => relNormalized === opt || relNormalized.startsWith(opt));
+    if (matchedRelOption) {
+      const chosenApproach = matchedRelOption.charAt(0).toUpperCase() + matchedRelOption.slice(1);
+      updateClarifySession(session.conversation_id, {
+        constraint_contract: { ...session.constraint_contract, can_execute: true, why_blocked: undefined },
+        semantic_constraint_resolved: true,
+        answers: { ...session.answers, semantic_detail: chosenApproach, relationship_approach: chosenApproach },
+      });
+      const updatedSession = getActiveClarifySession(session.conversation_id) || session;
+
+      const advancement = advanceToNextConstraint(updatedSession);
+      if (advancement.advanced) {
+        const msg = `Got it — I'll use "${chosenApproach}" for the relationship check.\n\n${advancement.message}`;
+        return {
+          action: 'ask_more',
+          message: msg,
+          clarifyState: advancement.clarifyState,
+        };
+      }
+
+      const allFilled = updatedSession.entity_type && updatedSession.location;
+      if (allFilled) {
+        const clarifiedRequest = buildClarifiedRequest(updatedSession.entity_type!, updatedSession.location!, updatedSession.semantic_constraint, updatedSession.answers);
+        updateClarifySession(session.conversation_id, {
+          clarified_request_text: clarifiedRequest,
+          pending_questions: [],
+        });
+        const finalSession = getActiveClarifySession(session.conversation_id) || updatedSession;
+        const summaryMsg = `Got it — I'll use "${chosenApproach}" to verify the relationship.\n\nClick **Search now** to proceed.`;
+        return {
+          action: 'ask_more',
+          message: summaryMsg,
+          clarifyState: buildClarifyStatePayload(finalSession),
+        };
+      }
+      const nextQuestions = buildNextQuestions(
+        [
+          ...(updatedSession.entity_type ? [] : ['entity_type']),
+          ...(updatedSession.location ? [] : ['location']),
+        ],
+        updatedSession.entity_type, updatedSession.location, updatedSession.semantic_constraint
+      );
+      updateClarifySession(session.conversation_id, { pending_questions: nextQuestions });
+      const finalSession = getActiveClarifySession(session.conversation_id) || updatedSession;
+      const msg = `Got it — I'll use "${chosenApproach}" for the relationship check. ${nextQuestions.length > 0 ? '\n\n' + nextQuestions.map((q, i) => `${i + 1}. ${q}`).join('\n') : ''}`;
       return {
         action: 'ask_more',
         message: msg,

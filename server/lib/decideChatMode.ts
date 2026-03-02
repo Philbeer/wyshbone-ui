@@ -299,6 +299,21 @@ function hasSemanticConstraint(message: string): boolean {
   return SEMANTIC_CONSTRAINT_PATTERNS.some(p => p.test(message));
 }
 
+const RELATIONSHIP_PREDICATE_PATTERNS = [
+  /\bthat\s+(?:work|deal|partner|collaborate|operate|specialise|specialize|focus|engage)\s+(?:with|alongside|for|in)\b/i,
+  /\bwhich\s+(?:work|deal|partner|collaborate|operate|specialise|specialize|focus|engage)\s+(?:with|alongside|for|in)\b/i,
+  /\bwho\s+(?:work|deal|partner|collaborate|operate|specialise|specialize|focus|engage)\s+(?:with|alongside|for|in)\b/i,
+];
+
+export function hasRelationshipPredicate(message: string): boolean {
+  return RELATIONSHIP_PREDICATE_PATTERNS.some(p => p.test(message));
+}
+
+export function extractRelationshipClause(message: string): string | null {
+  const match = message.match(/\b(?:that|which|who)\s+(?:work|deal|partner|collaborate|operate|specialise|specialize|focus|engage)\s+(?:with|alongside|for|in)\b[^.!?]*/i);
+  return match ? match[0].trim() : null;
+}
+
 const OPENED_TIME_PREDICATE_PATTERNS = [
   /\b(?:that|which|who)\s+opened\s+(?:in\s+the\s+last|in\s+the\s+past|within\s+the\s+last|within\s+the\s+past)\s+\d+\s+(?:months?|years?|weeks?|days?)\b/i,
   /\b(?:that|which|who)\s+opened\s+(?:recently|this\s+year|this\s+month|last\s+year|last\s+month)\b/i,
@@ -446,6 +461,9 @@ function isRunnable(entityType?: string, location?: string, message?: string): b
   if (message && hasNumericAmbiguity(message)) {
     return false;
   }
+  if (message && hasRelationshipPredicate(message)) {
+    return false;
+  }
   return true;
 }
 
@@ -473,6 +491,7 @@ export function decideChatMode({ userMessage }: { userMessage: string }): ChatMo
       if (hasSemanticConstraint(normalized)) missingParts.push('semantic constraint needs clarification');
       if (hasOpenedTimePredicate(normalized) && !hasExplicitProxy(normalized)) missingParts.push('opened-time predicate needs proxy clarification');
       if (hasNumericAmbiguity(normalized)) missingParts.push('numeric ambiguity needs clarification');
+      if (hasRelationshipPredicate(normalized)) missingParts.push('relationship predicate needs clarification');
       return {
         mode: 'CLARIFY_FOR_RUN',
         reason: `${entityResult.reason} — ${missingParts.length > 0 ? 'needs: ' + missingParts.join(', ') : 'needs clarification'}`,
