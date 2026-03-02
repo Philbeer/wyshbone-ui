@@ -1,4 +1,12 @@
-import { SUBJECTIVE_WORDS } from './decideChatMode';
+import { SUBJECTIVE_WORDS, NUMERIC_AMBIGUITY_WORDS } from './decideChatMode';
+
+function stripNumericAmbiguityWords(entityType: string): string {
+  return entityType
+    .split(/\s+/)
+    .filter(w => !NUMERIC_AMBIGUITY_WORDS.has(w.toLowerCase()))
+    .join(' ')
+    .trim() || entityType;
+}
 
 export interface ConstraintContractData {
   type: string;
@@ -443,7 +451,8 @@ export function handleClarifyResponse(
           pending_questions: [],
         });
         const finalSession = getActiveClarifySession(session.conversation_id) || updatedSession;
-        const summaryMsg = `Got it — I'll search for ${chosenCount === 'all' ? 'all' : chosenCount} ${updatedSession.entity_type} in ${updatedSession.location}.\n\nClick **Search now** to proceed.`;
+        const displayEntity = stripNumericAmbiguityWords(updatedSession.entity_type!);
+        const summaryMsg = `Got it — I'll search for ${chosenCount === 'all' ? 'all' : chosenCount} ${displayEntity} in ${updatedSession.location}.\n\nClick **Search now** to proceed.`;
         return {
           action: 'ask_more',
           message: summaryMsg,
@@ -623,7 +632,8 @@ export function handleClarifyResponse(
     });
 
     const summaryParts: string[] = [];
-    summaryParts.push(`**${entityType}** in **${location}**`);
+    const displayEntity = newAnswers['count'] ? stripNumericAmbiguityWords(entityType!) : entityType!;
+    summaryParts.push(`**${displayEntity}** in **${location}**`);
     if (newAnswers['count']) {
       summaryParts[0] = `**${newAnswers['count']}** ${summaryParts[0]}`;
     }
@@ -741,13 +751,14 @@ function parseAnswerContent(message: string, session: ClarifySession): {
 }
 
 function buildClarifiedRequest(entityType: string, location: string, semanticConstraint: string | null, answers: Record<string, string>): string {
-  let request = `find ${entityType} in ${location}`;
+  const displayEntity = answers['count'] ? stripNumericAmbiguityWords(entityType) : entityType;
+  let request = `find ${displayEntity} in ${location}`;
   if (semanticConstraint || answers['semantic_detail']) {
     const constraint = answers['semantic_detail'] || semanticConstraint;
     request += ` (${constraint})`;
   }
   if (answers['count']) {
-    request = `find ${answers['count']} ${entityType} in ${location}`;
+    request = `find ${answers['count']} ${displayEntity} in ${location}`;
     if (semanticConstraint || answers['semantic_detail']) {
       const constraint = answers['semantic_detail'] || semanticConstraint;
       request += ` (${constraint})`;

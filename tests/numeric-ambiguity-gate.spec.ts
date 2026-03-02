@@ -139,7 +139,26 @@ test.describe('Numeric Ambiguity Constraint Gate', () => {
     expect(contract.can_execute).toBe(false);
   });
 
-  test('T17: "cheap hotels" triggers subjective gate (cheap is subjective)', async ({ request }) => {
+  test('T17: Resolved numeric copy does not leak fuzzy token ("3 few pubs" → "3 pubs")', async ({ request }) => {
+    const { events: initEvents, convId } = await sendChat(request, 'Find a few pubs in Bristol');
+
+    const clarifyEvent = initEvents.find(e => e.type === 'clarify_for_run');
+    expect(clarifyEvent).toBeTruthy();
+    expect(clarifyEvent.clarify_state.constraint_contract.type).toBe('numeric_ambiguity');
+
+    const { events: replyEvents } = await sendChat(request, '3', convId);
+
+    const messageEvent = replyEvents.find(e => e.type === 'message');
+    expect(messageEvent).toBeTruthy();
+    const content = messageEvent.content;
+    expect(content).not.toMatch(/\d+\s+few/i);
+    expect(content).not.toMatch(/\d+\s+some/i);
+    expect(content).not.toMatch(/\d+\s+several/i);
+    expect(content).toContain('3');
+    expect(content.toLowerCase()).toContain('pubs');
+  });
+
+  test('T18: "cheap hotels" triggers subjective gate (cheap is subjective)', async ({ request }) => {
     const { events } = await sendChat(request, 'Find cheap hotels in Birmingham');
 
     const clarifyEvent = events.find(e => e.type === 'clarify_for_run');
