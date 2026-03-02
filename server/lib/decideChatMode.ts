@@ -370,7 +370,7 @@ export function extractAttributeConstraints(message: string): string[] {
 
 const CONCRETE_ENTITY_NOUNS = /\b(organisations?|organizations?|charities|charit(?:y|ies)|businesses|companies|shops?|pubs?|bars?|restaurants?|cafes?|coffee\s*shops?|hotels?|dentists?|dental\s+practices?|salons?|gyms?|clinics?|venues?|breweries?|bakeries?|florists?|plumbers?|electricians?|mechanics?|garages?|nurseries?|schools?|churches?|offices?|warehouses?|factories?|takeaways?|stores?|retailers?|accountants?|solicitors?|lawyers?|agents?|consultants?|contractors?|architects?|pharmacies|pharmacy|opticians?|vets?|veterinar(?:y|ians?)|caterers?|cleaners?|painters?|roofers?|landscapers?|builders?|joiners?|carpenters?|locksmiths?|tutors?|therapists?|counsellors?|counselors?|chiropractors?|physiotherapists?|osteopaths?|studios?|galleries?|cinemas?|theatres?|theaters?|libraries?|museums?|parks?|pools?|spas?|clubs?|lodges?|inns?|hostels?|motels?|B&Bs?|guesthouses?|guest\s*houses?|supermarkets?|markets?|boutiques?|dealerships?|showrooms?|workshops?|labs?|laboratories?|warehouses?|depots?|suppliers?|wholesalers?|distributors?|manufacturers?|printers?|signmakers?|jewellers?|jewelers?|tailors?|dressmakers?|cobblers?|barbers?|hairdressers?|beauticians?|aestheticians?|nail\s*bars?|tanning\s*salons?|tattoo\s*(?:parlours?|studios?|shops?)|piercing\s*studios?|launderettes?|laundromats?|dry\s*cleaners?)\b/i;
 
-const SUBJECTIVE_WORDS = new Set([
+export const SUBJECTIVE_WORDS = new Set([
   'best', 'top', 'greatest', 'finest', 'amazing', 'awesome', 'coolest', 'cool',
   'nicest', 'nice', 'vibes', 'vibe', 'energy', 'feels', 'feel', 'good', 'great',
   'excellent', 'fantastic', 'wonderful', 'brilliant', 'superb', 'outstanding',
@@ -400,6 +400,15 @@ export function hasConcreteEntityNoun(entityType: string): boolean {
   return true;
 }
 
+export function extractSubjectiveModifiers(entityType: string): string[] {
+  const words = entityType.toLowerCase().trim().split(/\s+/);
+  return words.filter(w => SUBJECTIVE_WORDS.has(w) && !['the', 'a', 'an', 'some', 'most'].includes(w));
+}
+
+export function hasSubjectiveModifiers(entityType: string): boolean {
+  return extractSubjectiveModifiers(entityType).length > 0;
+}
+
 function isRunnable(entityType?: string, location?: string, message?: string): boolean {
   if (!entityType || entityType.length === 0 || !location || location.length === 0) {
     return false;
@@ -414,6 +423,9 @@ function isRunnable(entityType?: string, location?: string, message?: string): b
     return false;
   }
   if (!hasConcreteEntityNoun(entityType)) {
+    return false;
+  }
+  if (hasSubjectiveModifiers(entityType)) {
     return false;
   }
   return true;
@@ -439,6 +451,7 @@ export function decideChatMode({ userMessage }: { userMessage: string }): ChatMo
       if (!entityResult.location) missingParts.push('location');
       if (entityResult.location && !isKnownLocation(entityResult.location)) missingParts.push('unrecognised location');
       if (entityResult.entityType && !hasConcreteEntityNoun(entityResult.entityType)) missingParts.push('vague/subjective entity type');
+      if (entityResult.entityType && hasSubjectiveModifiers(entityResult.entityType)) missingParts.push('subjective modifier needs clarification');
       if (hasSemanticConstraint(normalized)) missingParts.push('semantic constraint needs clarification');
       if (hasOpenedTimePredicate(normalized) && !hasExplicitProxy(normalized)) missingParts.push('opened-time predicate needs proxy clarification');
       return {

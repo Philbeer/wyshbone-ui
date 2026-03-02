@@ -92,6 +92,16 @@ The user interface adheres to Material Design principles, featuring a dark mode,
 **Data Ownership & Persistence Guardrails:**
 The UI never owns persistence. All artefacts, runs, judgements, and business data come from Supabase via the backend. The frontend is a read/display layer only; it does not write directly to any database. All data mutations flow through backend API endpoints to Supabase PostgreSQL. `SUPABASE_DATABASE_URL` is the single source of truth for database connectivity.
 
+## Subjective Constraint Gate
+- **Detection:** `extractSubjectiveModifiers()` and `hasSubjectiveModifiers()` in `decideChatMode.ts` detect subjective adjective modifiers (e.g., "nice", "good", "cool", "best") in entity types. When a concrete entity noun has subjective modifiers (e.g., "nice bars"), `isRunnable()` returns false → CLARIFY_FOR_RUN.
+- **Constraint Contract:** Creates a `type: 'subjective'` constraint contract with `can_execute: false`, `why_blocked` quoting the subjective term(s), `subjective_terms` array, and `subjective_options` array of measurable alternatives (Lively, Quiet, Cosy, Late-night, Live music, Good for food, Beer garden, Dog friendly).
+- **Clarification Question:** Generates "What do you mean by 'nice'?" (or "'nice' and 'good'" for multiple terms) in the chat thread.
+- **Option Buttons:** UI renders subjective options as rounded pill buttons in the constraint clarification panel. Clicking one sends the option as a user message through the clarify pipeline.
+- **Resolution:** `handleClarifyResponse()` in `clarifySession.ts` matches subjective option values with fuzzy matching (strips trailing punctuation, allows "option + noun" and "noun + option" variants). Imports shared `SUBJECTIVE_WORDS` set from `decideChatMode.ts` for entity type cleanup (single source of truth). Strips subjective words from the entity type, resolves the semantic constraint, and flips `can_execute` to `true`.
+- **Gate Enforcement:** While `can_execute === false`: "Search now" button hidden, Enter-to-run allowed only for clarification responses (not execution), no auto-trigger of Supervisor, no "Searching…" UI.
+- **Append-only:** The clarification question and user's choice remain visible in the chat thread.
+- **UI Tests:** `tests/subjective-gate.spec.ts` covers: T1 (renders why_blocked + options), T2 (Search now hidden), T3 (option resolves gate), T4 (time-predicate regression), T5 (multiple terms), T6 (non-subjective passthrough). All 6 pass.
+
 ## Opened-Time Predicate Gate (Honesty Gate)
 - **Detection:** `hasOpenedTimePredicate()` in `decideChatMode.ts` detects phrases like "opened in the last 12 months", "opened recently", "opened this year", "just opened", "newly opened". When detected without an explicit proxy, `isRunnable()` returns false → CLARIFY_FOR_RUN.
 - **Explicit Proxy Bypass:** `hasExplicitProxy()` detects "using X as a proxy" phrases. When both time predicate and explicit proxy are present, execution is allowed (RUN_SUPERVISOR) with `opened_proxy` and `proxy_disclaimer` fields in `search_query`. The confidence message includes "Using proxy: X (not guaranteed)."

@@ -1,3 +1,5 @@
+import { SUBJECTIVE_WORDS } from './decideChatMode';
+
 export interface ConstraintContractData {
   type: string;
   can_execute: boolean;
@@ -6,6 +8,8 @@ export interface ConstraintContractData {
   suggested_rephrase?: string;
   proxy_options?: string[];
   required_inputs_missing?: string[];
+  subjective_terms?: string[];
+  subjective_options?: string[];
 }
 
 export interface ClarifySession {
@@ -290,6 +294,56 @@ export function handleClarifyResponse(
       action: 'ask_more',
       message: rephraseMsg,
       clarifyState: buildClarifyStatePayload(session),
+    };
+  }
+
+  const SUBJECTIVE_OPTION_VALUES = new Set(['lively', 'quiet', 'cosy', 'late-night', 'live music', 'good for food', 'beer garden', 'dog friendly']);
+  const normalizedMsg = userMessage.toLowerCase().trim().replace(/[.,!?;:]+$/, '').trim();
+  const matchedOption = [...SUBJECTIVE_OPTION_VALUES].find(opt => normalizedMsg === opt || normalizedMsg.startsWith(opt + ' ') || normalizedMsg.endsWith(' ' + opt));
+  if (session.constraint_contract && !session.constraint_contract.can_execute && session.constraint_contract.type === 'subjective' && matchedOption) {
+    const chosenOption = matchedOption.charAt(0).toUpperCase() + matchedOption.slice(1);
+    const cleanedEntityType = session.entity_type
+      ? session.entity_type.split(/\s+/).filter(w => {
+          return !SUBJECTIVE_WORDS.has(w.toLowerCase());
+        }).join(' ')
+      : session.entity_type;
+    updateClarifySession(session.conversation_id, {
+      constraint_contract: { ...session.constraint_contract, can_execute: true, why_blocked: undefined },
+      semantic_constraint: chosenOption,
+      semantic_constraint_resolved: true,
+      entity_type: cleanedEntityType || session.entity_type,
+      answers: { ...session.answers, semantic_detail: chosenOption, subjective_choice: chosenOption },
+    });
+    const updatedSession = getActiveClarifySession(session.conversation_id) || session;
+    const allFilled = updatedSession.entity_type && updatedSession.location;
+    if (allFilled) {
+      const clarifiedRequest = buildClarifiedRequest(updatedSession.entity_type!, updatedSession.location!, chosenOption, updatedSession.answers);
+      updateClarifySession(session.conversation_id, {
+        clarified_request_text: clarifiedRequest,
+        pending_questions: [],
+      });
+      const finalSession = getActiveClarifySession(session.conversation_id) || updatedSession;
+      const summaryMsg = `Got it — I'll search for "${chosenOption}" ${updatedSession.entity_type} in ${updatedSession.location}.\n\nClick **Search now** to proceed.`;
+      return {
+        action: 'ask_more',
+        message: summaryMsg,
+        clarifyState: buildClarifyStatePayload(finalSession),
+      };
+    }
+    const nextQuestions = buildNextQuestions(
+      [
+        ...(updatedSession.entity_type ? [] : ['entity_type']),
+        ...(updatedSession.location ? [] : ['location']),
+      ],
+      updatedSession.entity_type, updatedSession.location, chosenOption
+    );
+    updateClarifySession(session.conversation_id, { pending_questions: nextQuestions });
+    const finalSession = getActiveClarifySession(session.conversation_id) || updatedSession;
+    const msg = `Got it — you mean "${chosenOption}". ${nextQuestions.length > 0 ? '\n\n' + nextQuestions.map((q, i) => `${i + 1}. ${q}`).join('\n') : ''}`;
+    return {
+      action: 'ask_more',
+      message: msg,
+      clarifyState: buildClarifyStatePayload(finalSession),
     };
   }
 

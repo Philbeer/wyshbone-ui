@@ -279,6 +279,8 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     suggested_rephrase?: string;
     proxy_options?: string[];
     required_inputs_missing?: string[];
+    subjective_terms?: string[];
+    subjective_options?: string[];
   }
 
   interface ClarifyContext {
@@ -2954,6 +2956,26 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                     <p className="text-xs text-amber-800 dark:text-amber-200 font-medium">
                       {clarifyContext.constraintContract.explanation || (clarifyContext.constraintContract.type === 'time_predicate' ? "Opening dates can't be guaranteed from listings." : "This constraint needs clarification before searching.")}
                     </p>
+                  )}
+                  {clarifyContext.constraintContract.type === 'subjective' && Array.isArray(clarifyContext.constraintContract.subjective_options) && clarifyContext.constraintContract.subjective_options.length > 0 && (
+                    <div className="space-y-1.5" data-testid="subjective-options">
+                      <p className="text-[10px] text-amber-700 dark:text-amber-300 uppercase tracking-wide font-semibold">Pick a measurable definition</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {clarifyContext.constraintContract.subjective_options.map((option, idx) => (
+                          <button
+                            key={idx}
+                            type="button"
+                            className="inline-flex items-center px-3 py-1.5 rounded-full text-xs font-medium border border-amber-300 dark:border-amber-600 bg-white dark:bg-amber-950/40 hover:bg-amber-100 dark:hover:bg-amber-900/50 text-amber-900 dark:text-amber-100 transition-colors"
+                            data-testid={`subjective-option-${option.toLowerCase().replace(/\s+/g, '-')}`}
+                            onClick={() => {
+                              handleSendRef.current?.(option);
+                            }}
+                          >
+                            {option}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                   )}
                   {Array.isArray(clarifyContext.constraintContract.proxy_options) && clarifyContext.constraintContract.proxy_options.length > 0 && (
                     <div className="space-y-1">

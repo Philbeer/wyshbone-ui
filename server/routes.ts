@@ -1778,13 +1778,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return;
         }
 
-        const { extractAttributeConstraints } = await import('./lib/decideChatMode.js');
+        const { extractAttributeConstraints, extractSubjectiveModifiers: getSubjMods, hasSubjectiveModifiers: checkSubjMods } = await import('./lib/decideChatMode.js');
         const semanticConstraintMatch = latestUserText.match(/\bthat\s+(work|deal|partner|provide|offer|support|help|serve|are|have|do|focus|engage|operate|specialise|specialize|collaborate)\b[^.!?]*/i);
         const semanticConstraint = semanticConstraintMatch ? semanticConstraintMatch[0].trim() : undefined;
 
         const attributeConstraints = extractAttributeConstraints(latestUserText);
 
-        const effectiveEntityType = (modeDecision.entityType && hasConcreteEntityNoun(modeDecision.entityType)) ? modeDecision.entityType : undefined;
+        const rawEntityType = modeDecision.entityType;
+        const subjectiveTerms = rawEntityType ? getSubjMods(rawEntityType) : [];
+        const isSubjectiveGate = subjectiveTerms.length > 0 && rawEntityType && hasConcreteEntityNoun(rawEntityType);
+
+        const effectiveEntityType = (rawEntityType && hasConcreteEntityNoun(rawEntityType)) ? rawEntityType : undefined;
         const effectiveLocation = (modeDecision.location && isKnownLocation(modeDecision.location)) ? modeDecision.location : undefined;
 
         const questions = buildInitialQuestions(effectiveEntityType, effectiveLocation, semanticConstraint);
@@ -1797,11 +1801,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
           questions.push(`You want results that "${attr}". This attribute can't always be verified from public data alone. How should I handle it?\n  • **Best-effort search** — I'll include "${attr}" in the search query and return what I find, but results may not all be verified\n  • **Strict filter** — only return results where I can confirm "${attr}" from reviews, listings, or other public sources (may return fewer results)\n  • **Skip this filter** — search without filtering by "${attr}"\n\nOr say "must be certain" if you only want guaranteed results (I may not be able to proceed).`);
         }
 
+        if (isSubjectiveGate) {
+          const quotedTerms = subjectiveTerms.map(t => `'${t}'`);
+          const termsList = quotedTerms.length === 1 ? quotedTerms[0] : quotedTerms.slice(0, -1).join(', ') + ' and ' + quotedTerms[quotedTerms.length - 1];
+          questions.push(`What do you mean by ${termsList}? Pick a measurable definition so I can search effectively.`);
+        }
+
         const combinedConstraintParts: string[] = [];
         if (isOpenedTimePred) combinedConstraintParts.push('opened-time predicate');
         if (attributeConstraints.length > 0) combinedConstraintParts.push(`attribute: ${attributeConstraints.join(', ')}`);
+        if (isSubjectiveGate) combinedConstraintParts.push(`subjective: ${subjectiveTerms.join(', ')}`);
         if (semanticConstraint && !isOpenedTimePred) combinedConstraintParts.push(semanticConstraint);
         const combinedConstraint = combinedConstraintParts.length > 0 ? combinedConstraintParts.join(' + ') : semanticConstraint;
+
+        const SUBJECTIVE_OPTIONS = ['Lively', 'Quiet', 'Cosy', 'Late-night', 'Live music', 'Good for food', 'Beer garden', 'Dog friendly'];
 
         const initialContract = isOpenedTimePred ? {
           type: 'time_predicate',
@@ -1813,6 +1826,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
             'Use Google Maps listing freshness as proxy',
             'Use Companies House incorporation date as proxy',
           ],
+        } : isSubjectiveGate ? {
+          type: 'subjective',
+          can_execute: false,
+          why_blocked: `The term${subjectiveTerms.length > 1 ? 's' : ''} ${subjectiveTerms.map(t => `"${t}"`).join(' and ')} ${subjectiveTerms.length > 1 ? 'are' : 'is'} subjective and can't be measured in a search. Please choose a concrete definition below.`,
+          explanation: `"${subjectiveTerms.join(', ')}" means different things to different people — pick a measurable attribute so I can find relevant results.`,
+          subjective_terms: subjectiveTerms,
+          subjective_options: SUBJECTIVE_OPTIONS,
         } : (attributeConstraints.length > 0 ? {
           type: 'unverifiable_constraint',
           can_execute: false,
