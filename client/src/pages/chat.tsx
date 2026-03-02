@@ -37,6 +37,8 @@ import RunResultBubble from "@/components/results/RunResultBubble";
 import type { PolicySnapshot } from "@/components/results/RunResultBubble";
 import { resolveCanonicalStatus, STATUS_CONFIG } from "@/utils/deliveryStatus";
 import { getGoogleQueryMode } from "@/components/GoogleQueryModeToggle";
+import { PreRunBanner } from "@/components/results/PreRunBanner";
+import { RunConfigOverridesPanel, type RunConfigOverrides } from "@/components/results/RunConfigOverridesPanel";
 
 type Message = ChatMessage & {
   id: string;
@@ -339,6 +341,14 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
   }, [queuedMessage]);
 
   const pendingMetadataRef = useRef<Record<string, any> | null>(null);
+
+  const [runConfigOverrides, setRunConfigOverrides] = useState<RunConfigOverrides>({
+    speed_mode: "balanced",
+    replan_ceiling: undefined,
+    ignore_learned_policy: false,
+  });
+  const [preRunPolicySnapshot, setPreRunPolicySnapshot] = useState<PolicySnapshot | null>(null);
+  const [showPreRunBanner, setShowPreRunBanner] = useState(false);
 
   const lastSentQueryRef = useRef<string | null>(null);
   const handleNewChatRef = useRef<(() => void) | null>(null);
@@ -748,6 +758,12 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
   };
 
   function upsertResultMessage(msg: Message) {
+    if (!msg.provisional && msg.deliverySummary) {
+      setShowPreRunBanner(false);
+      if (msg.policySnapshot) {
+        setPreRunPolicySnapshot(msg.policySnapshot);
+      }
+    }
     setMessages((prev) => {
       const existingIdx = prev.findIndex(m => m.id === msg.id);
       if (existingIdx >= 0) {
@@ -1578,6 +1594,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
           ...(pendingMetadataRef.current ? { metadata: pendingMetadataRef.current } : {}),
           ...(pendingMetadataRef.current?.follow_up ? { follow_up: pendingMetadataRef.current.follow_up } : {}),
           google_query_mode: getGoogleQueryMode(),
+          run_config_overrides: (runConfigOverrides.speed_mode !== "balanced" || runConfigOverrides.replan_ceiling !== undefined || runConfigOverrides.ignore_learned_policy) ? runConfigOverrides : undefined,
         }),
         signal: abortControllerRef.current.signal,
         credentials: "include",
@@ -1770,6 +1787,8 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                 streamHasSupervisorTask = true;
                 isRunLane = true;
                 setLastLane("run");
+                setShowPreRunBanner(true);
+                setPreRunPolicySnapshot(null);
                 console.log('🤖 Supervisor task created:', parsed.supervisorTaskId, 'runId=', supervisorRunIdRef.current, 'crid=', clientRequestId);
                 inFlightSupervisorRunsRef.current.set(clientRequestId, {
                   runId: supervisorRunIdRef.current,
@@ -2867,6 +2886,20 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
             );
           })()}
 
+          {showPreRunBanner && isWaitingForSupervisor && (
+            <div className="flex gap-3 flex-row mb-2" data-testid="pre-run-banner">
+              <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0">
+                <img src={wyshboneLogo} alt="Wyshbone" className="w-full h-full object-cover" />
+              </div>
+              <div className="flex flex-col items-start max-w-3xl lg:max-w-none w-full">
+                <PreRunBanner
+                  policySnapshot={preRunPolicySnapshot}
+                  loading={!preRunPolicySnapshot}
+                />
+              </div>
+            </div>
+          )}
+
           {verticalMismatchPrompt && (
             <div className="flex gap-3 flex-row mb-2" data-testid="vertical-mismatch">
               <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0">
@@ -3300,6 +3333,10 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
             </div>
           )}
           
+          <RunConfigOverridesPanel
+            overrides={runConfigOverrides}
+            onChange={setRunConfigOverrides}
+          />
           <div className="bg-card border border-card-border rounded-xl p-2 flex items-end gap-2">
             <Textarea
               ref={textareaRef}

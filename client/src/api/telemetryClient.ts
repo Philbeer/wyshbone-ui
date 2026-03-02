@@ -5,7 +5,9 @@ export type TelemetryEventType =
   | "best_effort_clicked"
   | "export_csv"
   | "copy_contact"
-  | "mark_wrong";
+  | "mark_wrong"
+  | "feedback_helpful"
+  | "feedback_not_helpful";
 
 export function emitTelemetry(
   runId: string,

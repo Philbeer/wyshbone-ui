@@ -67,6 +67,7 @@ import DevProgressPage from "@/pages/dev/progress";
 import DatabaseMaintenance from "@/pages/admin/database-maintenance";
 import InspectorPage from "@/pages/dev/inspector";
 import AfrPage from "@/pages/dev/afr";
+import LearningPage from "@/pages/learning";
 import RunTracePage from "@/pages/dev/run-trace";
 import InjectionMouldingPage from "@/pages/dev/injection-moulding";
 import WorkflowPage from "@/pages/workflow";
@@ -151,6 +152,9 @@ function AgentFirstRouter({
       <Route path="/admin/database-maintenance" component={DatabaseMaintenance} />
       <Route path="/admin/users" component={UserManagementPage} />
 
+      {/* Learning Dashboard */}
+      <Route path="/learning" component={LearningPage} />
+
       {/* Driver routes */}
       <Route path="/driver/today" component={DriverTodayPage} />
       <Route path="/driver/stop/:id" component={DriverStopPage} />
@@ -223,6 +227,7 @@ function Router({
       <Route path="/admin/users" component={UserManagementPage} />
       <Route path="/settings/users" component={UserManagementPage} />
       <Route path="/settings/team" component={TeamPage} />
+      <Route path="/learning" component={LearningPage} />
       <Route path="/driver/today" component={DriverTodayPage} />
       <Route path="/driver/stop/:id" component={DriverStopPage} />
       <Route path="/onboarding/brewery" component={BreweryOnboardingWizard} />

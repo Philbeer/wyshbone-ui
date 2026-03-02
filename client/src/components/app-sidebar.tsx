@@ -974,6 +974,14 @@ export function AppSidebar({
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={location === "/learning"} data-testid="link-learning">
+                  <Link href="/learning">
+                    <History className="h-4 w-4" />
+                    <span>Learning</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
                 <Collapsible open={showIntegrations} onOpenChange={setShowIntegrations}>
                   <CollapsibleTrigger asChild>
                     <SidebarMenuButton data-testid="button-toggle-integrations">

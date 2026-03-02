@@ -6,6 +6,9 @@ import { resolveCanonicalStatus, type CanonicalStatus } from "@/utils/deliverySt
 import type { DeliverySummary, DeliveryLead } from "@/components/results/UserResultsView";
 import type { VerificationSummaryPayload, ConstraintsExtractedPayload, LeadVerificationEntry } from "@/components/results/CvlArtefactViews";
 import { emitTelemetry, type TelemetryEventType } from "@/api/telemetryClient";
+import { StopReasonBadge } from "@/components/results/StopReasonBadge";
+import { FeedbackButtons } from "@/components/results/FeedbackButtons";
+import { PlanVersionTimeline, type PlanVersion } from "@/components/results/PlanVersionTimeline";
 
 export interface AppliedPolicy {
   policy_id?: string;
@@ -34,6 +37,8 @@ export interface RunResultBubbleProps {
   towerVerdict?: string | null;
   towerProxyUsed?: string | null;
   towerStopTimePredicate?: boolean;
+  planVersions?: PlanVersion[] | null;
+  towerUnavailable?: boolean;
 }
 
 function dispatchFollowUp(params: {
@@ -664,6 +669,8 @@ export default function RunResultBubble({
   towerVerdict,
   towerProxyUsed,
   towerStopTimePredicate,
+  planVersions,
+  towerUnavailable,
 }: RunResultBubbleProps) {
   const verifiedExact = resolveVerifiedCount(deliverySummary, verificationSummary);
   const target = resolveHasTargetCount(deliverySummary, constraintsExtracted);
@@ -852,11 +859,30 @@ export default function RunResultBubble({
         </div>
       )}
 
+      {!provisional && towerUnavailable && (
+        <div className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
+          <AlertTriangle className="h-3 w-3 text-muted-foreground" />
+          <span className="text-[11px] text-muted-foreground font-medium">Tower not available</span>
+        </div>
+      )}
+
+      {!provisional && (effectiveCanonical.status === "STOP" || effectiveCanonical.status === "FAIL") && deliverySummary.stop_reason && deliverySummary.stop_reason !== 'artefacts_unavailable' && (
+        <StopReasonBadge stopReason={deliverySummary.stop_reason} />
+      )}
+
+      {!provisional && planVersions && planVersions.length > 1 && (
+        <PlanVersionTimeline versions={planVersions} />
+      )}
+
       {!provisional && policySnapshot && (policySnapshot.why_short || (policySnapshot.max_replans != null && policySnapshot.max_replans !== DEFAULT_MAX_REPLANS)) && (
         <LearningSection snapshot={policySnapshot} />
       )}
 
       {!provisional && <NextActionButtons ds={deliverySummary} canonical={effectiveCanonical} runId={runId} hasTarget={target.hasTarget} />}
+
+      {!provisional && !isTrustFailure && (
+        <FeedbackButtons runId={runId} />
+      )}
     </div>
   );
 }
