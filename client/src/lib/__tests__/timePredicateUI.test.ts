@@ -553,6 +553,101 @@ test('T32: getBlockingDisplayText — priority: why_blocked > explanation > defa
   assert(getBlockingDisplayText(null) === null, 'Returns null when no contract');
 });
 
+test('T33: subjective_predicate block — renders warning + hides Search now', () => {
+  const payload: MockClarifyPayload = {
+    entityType: 'restaurants',
+    location: 'Manchester',
+    semanticConstraint: 'that are trendy',
+    count: '10',
+    missingFields: [],
+    status: 'ready',
+    pendingQuestions: ['What do you mean by "trendy"? Could you give me measurable criteria?'],
+    constraintContract: {
+      type: 'subjective_predicate',
+      can_execute: false,
+      explanation: '"Trendy" is subjective and cannot be verified from public data.',
+      why_blocked: 'The term "trendy" is ambiguous. Please clarify what you mean so I can search effectively.',
+    },
+  };
+  assert(!shouldShowSearchNowButton(payload), 'Search now must be hidden for subjective_predicate block');
+  assert(!shouldRenderResultsView(payload), 'Results view must NOT render');
+  assert(shouldRenderWhyBlocked(payload.constraintContract), 'why_blocked must render');
+  assert(shouldRenderSafeNextActions(payload.constraintContract), 'Safe next actions must render');
+  assert(getClarifyPanelHeader(payload.constraintContract) === 'Waiting for clarification', 'Header must say Waiting');
+  assert(!shouldRenderConfidenceBubble(true, payload.constraintContract), 'Confidence bubble must be suppressed');
+});
+
+test('T34: subjective_predicate without why_blocked falls back to explanation', () => {
+  const cc: MockConstraintContract = {
+    type: 'subjective_predicate',
+    can_execute: false,
+    explanation: '"Best vibes" cannot be measured.',
+  };
+  assert(!shouldRenderWhyBlocked(cc), 'why_blocked should not render when absent');
+  const text = getBlockingDisplayText(cc);
+  assert(text === '"Best vibes" cannot be measured.', `Should show explanation, got "${text}"`);
+});
+
+test('T35: subjective_predicate without why_blocked or explanation gets generic fallback', () => {
+  const cc: MockConstraintContract = {
+    type: 'subjective_predicate',
+    can_execute: false,
+  };
+  const text = getBlockingDisplayText(cc);
+  assert(text === "This constraint needs clarification before searching.", `Expected generic fallback, got "${text}"`);
+});
+
+test('T36: subjective_predicate block consistent with time_predicate block', () => {
+  const subj: MockConstraintContract = { type: 'subjective_predicate', can_execute: false, why_blocked: 'Ambiguous' };
+  const time: MockConstraintContract = { type: 'time_predicate', can_execute: false, why_blocked: 'No proxy chosen' };
+
+  assert(shouldRenderWhyBlocked(subj) === shouldRenderWhyBlocked(time), 'Both types should render why_blocked');
+  assert(shouldRenderSafeNextActions(subj) === shouldRenderSafeNextActions(time), 'Both types should show safe actions');
+  assert(getClarifyPanelHeader(subj) === getClarifyPanelHeader(time), 'Both types should show same header');
+  assert(!shouldShowSearchNowButton({
+    entityType: 'pubs', location: 'Bristol', semanticConstraint: null, count: '5',
+    missingFields: [], status: 'ready', pendingQuestions: [], constraintContract: subj,
+  }), 'subjective_predicate must block Search now');
+  assert(!shouldShowSearchNowButton({
+    entityType: 'pubs', location: 'Bristol', semanticConstraint: null, count: '5',
+    missingFields: [], status: 'ready', pendingQuestions: [], constraintContract: time,
+  }), 'time_predicate must block Search now');
+});
+
+test('T37: subjective_predicate with pending questions renders them', () => {
+  const payload: MockClarifyPayload = {
+    entityType: 'cafes',
+    location: 'Leeds',
+    semanticConstraint: 'that are cosy',
+    count: '5',
+    missingFields: ['semantic_constraint'],
+    status: 'gathering',
+    pendingQuestions: ['What makes a cafe "cosy" to you? E.g. small seating area, fireplace, dim lighting?'],
+    constraintContract: {
+      type: 'subjective_predicate',
+      can_execute: false,
+      why_blocked: '"Cosy" is subjective — please clarify.',
+    },
+  };
+  assert(payload.pendingQuestions.length === 1, 'Should have 1 pending question');
+  assert(!shouldShowSearchNowButton(payload), 'Search now must be hidden');
+  assert(payload.missingFields.includes('semantic_constraint'), 'semantic_constraint should be missing');
+});
+
+test('T38: Chat history append-only — superseded clarify messages visible alongside new ones', () => {
+  const chatMessages = [
+    { id: 'user-1', visible: true },
+    { id: 'assistant-clarify-1', visible: true },
+    { id: 'user-meta-trust', visible: true },
+    { id: 'assistant-meta-answer', visible: true },
+    { id: 'assistant-clarify-2', visible: true },
+    { id: 'user-answer', visible: true },
+    { id: 'assistant-clarify-3', visible: true },
+  ];
+  assert(isChatAppendOnly(chatMessages), 'All messages must remain visible including older clarify bubbles');
+  assert(chatMessages.length === 7, 'No messages should be removed');
+});
+
 console.log(`\n${'='.repeat(50)}`);
 console.log(`Results: ${passed} passed, ${failed} failed, ${passed + failed} total`);
 if (failed > 0) process.exit(1);
