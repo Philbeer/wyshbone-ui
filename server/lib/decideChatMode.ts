@@ -377,7 +377,22 @@ export const SUBJECTIVE_WORDS = new Set([
   'exceptional', 'remarkable', 'incredible', 'magnificent', 'terrific', 'fabulous',
   'spectacular', 'phenomenal', 'extraordinary', 'marvellous', 'marvelous',
   'the', 'a', 'an', 'some', 'most', 'really', 'very', 'super', 'ultra',
+  'cheap', 'cheapest', 'affordable', 'budget', 'inexpensive',
 ]);
+
+export const NUMERIC_AMBIGUITY_WORDS = new Set([
+  'few', 'some', 'several', 'many', 'couple', 'most', 'top', 'numerous',
+]);
+
+export function hasNumericAmbiguity(message: string): boolean {
+  const words = message.toLowerCase().trim().split(/\s+/);
+  return words.some(w => NUMERIC_AMBIGUITY_WORDS.has(w));
+}
+
+export function extractNumericAmbiguityTerms(message: string): string[] {
+  const words = message.toLowerCase().trim().split(/\s+/);
+  return words.filter(w => NUMERIC_AMBIGUITY_WORDS.has(w));
+}
 
 export function isKnownLocation(location: string): boolean {
   const normalized = location.toLowerCase().trim().replace(/[.,!?;:]+$/, '');
@@ -428,6 +443,9 @@ function isRunnable(entityType?: string, location?: string, message?: string): b
   if (hasSubjectiveModifiers(entityType)) {
     return false;
   }
+  if (message && hasNumericAmbiguity(message)) {
+    return false;
+  }
   return true;
 }
 
@@ -454,6 +472,7 @@ export function decideChatMode({ userMessage }: { userMessage: string }): ChatMo
       if (entityResult.entityType && hasSubjectiveModifiers(entityResult.entityType)) missingParts.push('subjective modifier needs clarification');
       if (hasSemanticConstraint(normalized)) missingParts.push('semantic constraint needs clarification');
       if (hasOpenedTimePredicate(normalized) && !hasExplicitProxy(normalized)) missingParts.push('opened-time predicate needs proxy clarification');
+      if (hasNumericAmbiguity(normalized)) missingParts.push('numeric ambiguity needs clarification');
       return {
         mode: 'CLARIFY_FOR_RUN',
         reason: `${entityResult.reason} — ${missingParts.length > 0 ? 'needs: ' + missingParts.join(', ') : 'needs clarification'}`,

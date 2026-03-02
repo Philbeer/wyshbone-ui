@@ -13,7 +13,7 @@ export interface ConstraintContractData {
 }
 
 export interface PendingConstraintDescriptor {
-  type: 'subjective' | 'time_predicate' | 'unverifiable_constraint';
+  type: 'subjective' | 'time_predicate' | 'unverifiable_constraint' | 'numeric_ambiguity';
   contract: ConstraintContractData;
   questions: string[];
   constraintLabel: string;
@@ -410,6 +410,62 @@ export function handleClarifyResponse(
       message: msg,
       clarifyState: buildClarifyStatePayload(finalSession),
     };
+  }
+
+  const NUMERIC_OPTION_VALUES = new Set(['3', '5', '10', 'all']);
+  if (session.constraint_contract && !session.constraint_contract.can_execute && session.constraint_contract.type === 'numeric_ambiguity') {
+    const numNormalized = normalizedMsg.replace(/[.,!?;:]+$/, '').trim();
+    const matched = NUMERIC_OPTION_VALUES.has(numNormalized);
+    if (matched) {
+      const chosenCount = numNormalized;
+      updateClarifySession(session.conversation_id, {
+        constraint_contract: { ...session.constraint_contract, can_execute: true, why_blocked: undefined },
+        semantic_constraint_resolved: true,
+        answers: { ...session.answers, count: chosenCount },
+      });
+      const updatedSession = getActiveClarifySession(session.conversation_id) || session;
+
+      const advancement = advanceToNextConstraint(updatedSession);
+      if (advancement.advanced) {
+        const msg = `Got it — I'll return ${chosenCount === 'all' ? 'all matching' : chosenCount} results.\n\n${advancement.message}`;
+        return {
+          action: 'ask_more',
+          message: msg,
+          clarifyState: advancement.clarifyState,
+        };
+      }
+
+      const allFilled = updatedSession.entity_type && updatedSession.location;
+      if (allFilled) {
+        const clarifiedRequest = buildClarifiedRequest(updatedSession.entity_type!, updatedSession.location!, updatedSession.semantic_constraint, updatedSession.answers);
+        updateClarifySession(session.conversation_id, {
+          clarified_request_text: clarifiedRequest,
+          pending_questions: [],
+        });
+        const finalSession = getActiveClarifySession(session.conversation_id) || updatedSession;
+        const summaryMsg = `Got it — I'll search for ${chosenCount === 'all' ? 'all' : chosenCount} ${updatedSession.entity_type} in ${updatedSession.location}.\n\nClick **Search now** to proceed.`;
+        return {
+          action: 'ask_more',
+          message: summaryMsg,
+          clarifyState: buildClarifyStatePayload(finalSession),
+        };
+      }
+      const nextQuestions = buildNextQuestions(
+        [
+          ...(updatedSession.entity_type ? [] : ['entity_type']),
+          ...(updatedSession.location ? [] : ['location']),
+        ],
+        updatedSession.entity_type, updatedSession.location, updatedSession.semantic_constraint
+      );
+      updateClarifySession(session.conversation_id, { pending_questions: nextQuestions });
+      const finalSession = getActiveClarifySession(session.conversation_id) || updatedSession;
+      const msg = `Got it — I'll return ${chosenCount === 'all' ? 'all matching' : chosenCount} results. ${nextQuestions.length > 0 ? '\n\n' + nextQuestions.map((q, i) => `${i + 1}. ${q}`).join('\n') : ''}`;
+      return {
+        action: 'ask_more',
+        message: msg,
+        clarifyState: buildClarifyStatePayload(finalSession),
+      };
+    }
   }
 
   const PROXY_CHOICE_PATTERN = /\buse\s+(?:first\s+)?(?:google\s+review|news\s+mentions|google\s+maps|companies\s+house|website\s+registration|social\s+media)\b/i;

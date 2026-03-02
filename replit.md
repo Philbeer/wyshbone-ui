@@ -104,11 +104,22 @@ The UI never owns persistence. All artefacts, runs, judgements, and business dat
 
 ## Constraint Sequencing (Single-Blocker State Machine)
 - **Architecture:** The CLARIFY_FOR_RUN path implements a true single-blocker state machine. Only one constraint is active at a time; others are queued in `pending_constraints[]` on `ClarifySession`.
-- **Priority order:** `subjective` (0) > `time_predicate` (1) > `unverifiable_constraint` (2). Implemented via priority sort in `routes.ts` CLARIFY_FOR_RUN lane.
+- **Priority order:** `subjective` (0) > `numeric_ambiguity` (1) > `time_predicate` (2) > `unverifiable_constraint` (3). Implemented via priority sort in `routes.ts` CLARIFY_FOR_RUN lane.
 - **Session field:** `ClarifySession.pending_constraints: PendingConstraintDescriptor[]` stores deferred constraint descriptors (type, contract, questions, constraintLabel).
 - **Question isolation:** Only the active constraint's question(s) appear in `pendingQuestions[]`. Deferred constraints' questions are NOT shown until their turn.
 - **Advancement:** `advanceToNextConstraint()` in `clarifySession.ts` pops the next descriptor, sets it as the active `constraint_contract`, resets `semantic_constraint_resolved` to false, and replaces `pending_questions` with the next constraint's questions. Called after every constraint resolution (subjective, proxy, attribute, generic).
 - **Ready gate:** `buildClarifyStatePayload` and `allRequiredFieldsPresent` both check `pending_constraints.length > 0` — status cannot be `'ready'` while queued constraints remain.
+
+## Numeric Ambiguity Gate
+- **Detection:** `hasNumericAmbiguity()` and `extractNumericAmbiguityTerms()` in `decideChatMode.ts` detect vague quantity words: "few", "some", "several", "many", "couple", "most", "top", "numerous". When detected, `isRunnable()` returns false → CLARIFY_FOR_RUN.
+- **Explicit numbers bypass:** "Find 5 pubs in Brighton" — the explicit `5` is parsed by `sanitizeBusinessType` as `requestedCount`, and `hasNumericAmbiguity` does NOT trigger for bare digits → RUN_SUPERVISOR immediately.
+- **Constraint Contract:** Creates a `type: 'numeric_ambiguity'` constraint contract with `can_execute: false`, `why_blocked` quoting the vague term, and `numeric_options: ['3', '5', '10', 'All']`.
+- **UI rendering:** Numeric options render as rounded pill buttons (like subjective options). No proxy options, no "Relax certainty" button, no subjective options — only numeric buttons and "Change my query".
+- **Resolution:** `handleClarifyResponse()` matches user input against `NUMERIC_OPTION_VALUES` ('3', '5', '10', 'all'). Sets the chosen count in `answers.count` and flips `can_execute: true`. Then calls `advanceToNextConstraint()`.
+- **Priority:** numeric_ambiguity has priority 1 (after subjective=0, before time_predicate=2, before unverifiable_constraint=3).
+- **Overlap with subjective:** Words like "top" and "some" appear in both `SUBJECTIVE_WORDS` and `NUMERIC_AMBIGUITY_WORDS`. "top" triggers subjective gate (priority 0) first; "some" is excluded from `extractSubjectiveModifiers()` (articles filter), so only triggers numeric gate.
+- **"cheap" is subjective:** Added "cheap", "cheapest", "affordable", "budget", "inexpensive" to `SUBJECTIVE_WORDS` — these are quality judgements, not quantities.
+- **UI Tests:** `tests/numeric-ambiguity-gate.spec.ts` covers: T10 ("few pubs" triggers numeric_ambiguity), T11 ("several bars" triggers), T12 (explicit "5 pubs" no gate), T13 (answering "5" resolves gate), T14 (answering "all" resolves), T15 (no proxy/subjective options in contract), T16 (nice+few = subjective first), T17 (cheap = subjective). All 8 pass.
 
 ## Opened-Time Predicate Gate (Honesty Gate)
 - **Detection:** `hasOpenedTimePredicate()` in `decideChatMode.ts` detects phrases like "opened in the last 12 months", "opened recently", "opened this year", "just opened", "newly opened". When detected without an explicit proxy, `isRunnable()` returns false → CLARIFY_FOR_RUN.

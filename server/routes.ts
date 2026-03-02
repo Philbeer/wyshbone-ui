@@ -1778,7 +1778,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return;
         }
 
-        const { extractAttributeConstraints, extractSubjectiveModifiers: getSubjMods, hasSubjectiveModifiers: checkSubjMods } = await import('./lib/decideChatMode.js');
+        const { extractAttributeConstraints, extractSubjectiveModifiers: getSubjMods, hasSubjectiveModifiers: checkSubjMods, hasNumericAmbiguity: checkNumericAmbiguity, extractNumericAmbiguityTerms: getNumericTerms } = await import('./lib/decideChatMode.js');
         const semanticConstraintMatch = latestUserText.match(/\bthat\s+(work|deal|partner|provide|offer|support|help|serve|are|have|do|focus|engage|operate|specialise|specialize|collaborate)\b[^.!?]*/i);
         const semanticConstraint = semanticConstraintMatch ? semanticConstraintMatch[0].trim() : undefined;
 
@@ -1793,7 +1793,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         const SUBJECTIVE_OPTIONS = ['Lively', 'Quiet', 'Cosy', 'Late-night', 'Live music', 'Good for food', 'Beer garden', 'Dog friendly'];
 
-        const allConstraintDescriptors: Array<{ type: 'subjective' | 'time_predicate' | 'unverifiable_constraint'; contract: any; questions: string[]; constraintLabel: string; priority: number }> = [];
+        const allConstraintDescriptors: Array<{ type: 'subjective' | 'time_predicate' | 'unverifiable_constraint' | 'numeric_ambiguity'; contract: any; questions: string[]; constraintLabel: string; priority: number }> = [];
 
         if (isSubjectiveGate) {
           const quotedTerms = subjectiveTerms.map((t: string) => `'${t}'`);
@@ -1814,10 +1814,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
           });
         }
 
+        const isNumericAmbiguity = checkNumericAmbiguity(latestUserText);
+        if (isNumericAmbiguity) {
+          const numericTerms = getNumericTerms(latestUserText);
+          const quotedNumTerms = numericTerms.map((t: string) => `"${t}"`);
+          const numTermsList = quotedNumTerms.length === 1 ? quotedNumTerms[0] : quotedNumTerms.join(' and ');
+          allConstraintDescriptors.push({
+            type: 'numeric_ambiguity',
+            priority: 1,
+            constraintLabel: `numeric ambiguity: ${numericTerms.join(', ')}`,
+            contract: {
+              type: 'numeric_ambiguity',
+              can_execute: false,
+              why_blocked: `You said ${numTermsList} — how many results do you actually want?`,
+              explanation: `${numTermsList} is vague. Pick a specific number so I know how many results to return.`,
+              numeric_options: ['3', '5', '10', 'All'],
+            },
+            questions: [`How many results do you want? Pick a number or choose "All".`],
+          });
+        }
+
         if (isOpenedTimePred) {
           allConstraintDescriptors.push({
             type: 'time_predicate',
-            priority: 1,
+            priority: 2,
             constraintLabel: 'opened-time predicate',
             contract: {
               type: 'time_predicate',
@@ -1837,7 +1857,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         for (const attr of attributeConstraints) {
           allConstraintDescriptors.push({
             type: 'unverifiable_constraint',
-            priority: 2,
+            priority: 3,
             constraintLabel: `attribute: ${attr}`,
             contract: {
               type: 'unverifiable_constraint',
