@@ -73,7 +73,7 @@ import { getSummary, getFileContent } from './lib/exporter';
 import { randomBytes } from 'crypto';
 import { startRunLog, completeRunLog, logToolCall, isTowerLoggingEnabled } from './lib/towerClient';
 import { getUserGoal, setUserGoal, hasUserGoal } from './userGoalHelper';
-import { logUserMessageReceived, logRouterDecision, logRunCompleted, logRunFailed, transitionRunToExecuting, transitionRunToFinalizing, type RouterDecision } from './lib/activity-logger';
+import { logUserMessageReceived, logRouterDecision, logRunCompleted, logRunFailed, transitionRunToExecuting, transitionRunToFinalizing, transitionRunToClarifying, persistClarifyGateArtefact, persistClarifyResolutionArtefact, type RouterDecision } from './lib/activity-logger';
 import { guardRoute } from './lib/assertNoExecutionInUI.js';
 
 // ============================================
@@ -1413,6 +1413,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
           res.write(`data: ${JSON.stringify({ type: 'clarify_for_run', mode: 'CLARIFY_FOR_RUN', clarify_state: clarifyState })}\n\n`);
           res.write(`data: ${JSON.stringify({ type: 'message', role: 'assistant', content: askMsg })}\n\n`);
           emitSse({ type: 'status', stage: 'completed', message: 'Clarifying before run', clientRequestId: clientRequestId || undefined, conversationId });
+
+          if (clientRequestId && clarifyHandlerResult.resolvedConstraintType && clarifyHandlerResult.resolvedStrategy) {
+            persistClarifyResolutionArtefact({
+              clientRequestId,
+              constraintType: clarifyHandlerResult.resolvedConstraintType,
+              chosenStrategy: clarifyHandlerResult.resolvedStrategy,
+            }).catch(err => console.error('AFR clarify_resolution artefact error:', err.message));
+          }
+
           console.log(`[CHAT_ROUTE=CLARIFY_SESSION_ASK_MORE] crid=${clientRequestId || 'none'} session=${currentSession.id}`);
           res.write(`data: [DONE]\n\n`);
           res.end();
@@ -1929,6 +1938,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
             reason: `decideChatMode → CLARIFY_FOR_RUN (${modeDecision.reason})`,
             signals: { entityType: modeDecision.entityType, location: modeDecision.location, sessionId: newSession.id, openedTimePredicate: isOpenedTimePred },
           }).catch(err => console.error('AFR router log error:', err.message));
+
+          transitionRunToClarifying(clientRequestId).catch(err => console.error('AFR clarify transition error:', err.message));
+
+          if (activeConstraint) {
+            persistClarifyGateArtefact({
+              clientRequestId,
+              constraintType: activeConstraint.type,
+              reason: activeConstraint.contract?.why_blocked || activeConstraint.contract?.explanation || 'Clarification required',
+              options: activeConstraint.contract?.relationship_options || activeConstraint.contract?.subjective_options || activeConstraint.contract?.numeric_options || activeConstraint.contract?.proxy_options || [],
+              constraintLabel: activeConstraint.constraintLabel,
+            }).catch(err => console.error('AFR clarify_gate artefact error:', err.message));
+          }
         }
 
         const clarifyMessage = questions.length > 0

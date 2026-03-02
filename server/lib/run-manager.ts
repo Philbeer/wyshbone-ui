@@ -2,13 +2,14 @@ import { storage } from '../storage';
 import { randomUUID } from 'crypto';
 import type { InsertAgentRun, SelectAgentRun } from '@shared/schema';
 
-export type RunStatus = 'starting' | 'planning' | 'executing' | 'finalizing' | 'completed' | 'failed' | 'stopped';
+export type RunStatus = 'starting' | 'clarifying' | 'planning' | 'executing' | 'finalizing' | 'completed' | 'failed' | 'stopped';
 export type TerminalState = 'completed' | 'failed' | 'stopped';
 
 const TERMINAL_STATUSES = new Set<RunStatus>(['completed', 'failed', 'stopped']);
 
 const ALLOWED_TRANSITIONS: Record<RunStatus, RunStatus[]> = {
-  starting: ['planning', 'executing', 'failed', 'stopped'],
+  starting: ['clarifying', 'planning', 'executing', 'failed', 'stopped'],
+  clarifying: ['planning', 'executing', 'completed', 'failed', 'stopped'],
   planning: ['executing', 'failed', 'stopped'],
   executing: ['finalizing', 'completed', 'failed', 'stopped'],
   finalizing: ['completed', 'failed', 'stopped'],

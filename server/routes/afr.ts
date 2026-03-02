@@ -877,7 +877,7 @@ export function createAfrRouter(_storage: typeof storage) {
 
       // AUTHORITATIVE STATUS FROM RUN RECORD
       // If we have a run record, use it for status - NEVER infer from events
-      let overallStatus: 'idle' | 'routing' | 'planning' | 'executing' | 'finalizing' | 'completed' | 'failed' | 'stopped' = 'idle';
+      let overallStatus: 'idle' | 'routing' | 'clarifying' | 'planning' | 'executing' | 'finalizing' | 'completed' | 'failed' | 'stopped' = 'idle';
       let isTerminal = false;
       let terminalState: 'completed' | 'failed' | 'stopped' | null = null;
       let uiReady = false;
@@ -896,7 +896,7 @@ export function createAfrRouter(_storage: typeof storage) {
           terminalState = agentRun.status === 'completed' ? 'completed' : 'failed';
           uiReady = true;
           console.log(`[AFR_STREAM] Run ${agentRun.id} has status=${agentRun.status} but no terminalState — inferring terminal=${terminalState}`);
-        } else {
+        } else if (agentRun.status !== 'clarifying') {
           const updatedAt = agentRun.updatedAt ? new Date(agentRun.updatedAt).getTime() : 0;
           const age = Date.now() - updatedAt;
           if (age > STALE_RUN_TIMEOUT_MS && !isTerminal) {
@@ -1441,6 +1441,7 @@ function mapAgentRunStatus(
   switch (status) {
     case 'starting':
     case 'planning':
+    case 'clarifying':
       return 'pending';
     case 'executing':
     case 'finalizing':

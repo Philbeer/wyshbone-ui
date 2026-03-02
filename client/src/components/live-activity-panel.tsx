@@ -2144,7 +2144,7 @@ interface StreamResponse {
   message?: string;
 }
 
-type OverallStatus = 'idle' | 'routing' | 'planning' | 'executing' | 'finalizing' | 'deep_research' | 'awaiting_judgement' | 'replanning' | 'completed' | 'failed' | 'stopped';
+type OverallStatus = 'idle' | 'routing' | 'clarifying' | 'planning' | 'executing' | 'finalizing' | 'deep_research' | 'awaiting_judgement' | 'replanning' | 'completed' | 'failed' | 'stopped';
 
 function formatRelativeTime(dateString: string): string {
   const date = new Date(dateString);
@@ -2175,6 +2175,7 @@ function StatusBadge({ status }: { status: OverallStatus }) {
   const config: Record<OverallStatus, { icon: typeof Clock; label: string; className: string }> = {
     idle: { icon: Clock, label: "Idle", className: "bg-gray-100 text-gray-800 dark:bg-gray-800/50 dark:text-gray-300" },
     routing: { icon: Route, label: "Routing", className: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-200" },
+    clarifying: { icon: MessageSquare, label: "Clarifying", className: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-200" },
     planning: { icon: Brain, label: "Planning", className: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-200" },
     executing: { icon: Zap, label: "Executing", className: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-200" },
     finalizing: { icon: Zap, label: "Finalizing", className: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-200" },
@@ -2187,7 +2188,7 @@ function StatusBadge({ status }: { status: OverallStatus }) {
   };
 
   const { icon: Icon, label, className } = config[status] || config.idle;
-  const isAnimated = ['routing', 'planning', 'executing', 'finalizing', 'deep_research', 'awaiting_judgement', 'replanning'].includes(status);
+  const isAnimated = ['routing', 'clarifying', 'planning', 'executing', 'finalizing', 'deep_research', 'awaiting_judgement', 'replanning'].includes(status);
   
   return (
     <span className={cn("inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium", className)}>
@@ -2308,13 +2309,16 @@ function TruthStrip({ runId }: { runId?: string | null }) {
   if (!runId || fetchState === 'idle' || fetchState === 'loading') return null;
 
   const artefactTypes = new Set(dbArtefacts.map(a => a.type));
-  const hasArtefact = artefactTypes.has('leads_list') || artefactTypes.has('plan_result') || artefactTypes.has('step_result') || artefactTypes.has('deep_research_result') || artefactTypes.has('run_summary') || artefactTypes.has('delivery_summary');
+  const hasClarifyGate = artefactTypes.has('clarify_gate');
+  const hasClarifyResolution = artefactTypes.has('clarify_resolution');
+  const isClarifying = hasClarifyGate && !hasClarifyResolution;
+  const hasArtefact = artefactTypes.has('leads_list') || artefactTypes.has('plan_result') || artefactTypes.has('step_result') || artefactTypes.has('deep_research_result') || artefactTypes.has('run_summary') || artefactTypes.has('delivery_summary') || hasClarifyGate;
   const hasTowerVerdict = artefactTypes.has('tower_judgement');
   const hasRunStored = dbArtefacts.length > 0;
 
-  const indicators = [
-    { label: 'Artefact persisted', ok: hasArtefact, missing: 'Not persisted' },
-    { label: 'Tower verdict', ok: hasTowerVerdict, missing: 'Missing' },
+  const indicators: Array<{ label: string; ok: boolean; missing: string; neutral?: boolean }> = [
+    { label: hasClarifyGate ? 'Clarify gate persisted' : 'Artefact persisted', ok: hasArtefact, missing: 'Not persisted' },
+    { label: 'Tower verdict', ok: hasTowerVerdict, missing: isClarifying ? 'N/A (clarifying)' : 'Missing', neutral: isClarifying },
     { label: 'Run stored', ok: hasRunStored, missing: 'Not persisted' },
   ];
 
@@ -2327,16 +2331,18 @@ function TruthStrip({ runId }: { runId?: string | null }) {
         </span>
       </div>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        {indicators.map(({ label, ok, missing }) => (
+        {indicators.map(({ label, ok, missing, neutral }) => (
           <div key={label} className="flex items-center gap-1">
             {ok ? (
               <CheckCircle2 className="h-3 w-3 text-green-500" />
+            ) : neutral ? (
+              <Clock className="h-3 w-3 text-amber-400" />
             ) : (
               <XCircle className="h-3 w-3 text-red-400" />
             )}
             <span className={cn(
               "text-[10px] font-medium",
-              ok ? "text-green-700 dark:text-green-300" : "text-red-600 dark:text-red-400"
+              ok ? "text-green-700 dark:text-green-300" : neutral ? "text-amber-600 dark:text-amber-400" : "text-red-600 dark:text-red-400"
             )}>
               {ok ? label : `${label}: ${missing}`}
             </span>
@@ -3657,6 +3663,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
     
     const s = stream.status;
     if (s === 'routing') return 'routing';
+    if (s === 'clarifying') return 'clarifying';
     if (s === 'planning') return 'planning';
     if (s === 'finalizing') return 'finalizing';
     if (s === 'executing') {

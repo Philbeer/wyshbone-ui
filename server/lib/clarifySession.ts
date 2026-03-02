@@ -217,6 +217,8 @@ export interface ClarifyHandlerResult {
   entityType?: string;
   location?: string;
   clarifyState?: ClarifyStatePayload;
+  resolvedConstraintType?: string;
+  resolvedStrategy?: string;
 }
 
 export function buildClarifyStatePayload(session: ClarifySession): ClarifyStatePayload {
@@ -385,6 +387,8 @@ export function handleClarifyResponse(
         action: 'ask_more',
         message: msg,
         clarifyState: advancement.clarifyState,
+        resolvedConstraintType: 'subjective',
+        resolvedStrategy: chosenOption,
       };
     }
 
@@ -401,6 +405,8 @@ export function handleClarifyResponse(
         action: 'ask_more',
         message: summaryMsg,
         clarifyState: buildClarifyStatePayload(finalSession),
+        resolvedConstraintType: 'subjective',
+        resolvedStrategy: chosenOption,
       };
     }
     const nextQuestions = buildNextQuestions(
@@ -417,6 +423,8 @@ export function handleClarifyResponse(
       action: 'ask_more',
       message: msg,
       clarifyState: buildClarifyStatePayload(finalSession),
+      resolvedConstraintType: 'subjective',
+      resolvedStrategy: chosenOption,
     };
   }
 
@@ -440,6 +448,8 @@ export function handleClarifyResponse(
           action: 'ask_more',
           message: msg,
           clarifyState: advancement.clarifyState,
+          resolvedConstraintType: 'numeric_ambiguity',
+          resolvedStrategy: chosenCount,
         };
       }
 
@@ -457,6 +467,8 @@ export function handleClarifyResponse(
           action: 'ask_more',
           message: summaryMsg,
           clarifyState: buildClarifyStatePayload(finalSession),
+          resolvedConstraintType: 'numeric_ambiguity',
+          resolvedStrategy: chosenCount,
         };
       }
       const nextQuestions = buildNextQuestions(
@@ -473,6 +485,8 @@ export function handleClarifyResponse(
         action: 'ask_more',
         message: msg,
         clarifyState: buildClarifyStatePayload(finalSession),
+        resolvedConstraintType: 'numeric_ambiguity',
+        resolvedStrategy: chosenCount,
       };
     }
   }
@@ -502,6 +516,8 @@ export function handleClarifyResponse(
           action: 'ask_more',
           message: msg,
           clarifyState: advancement.clarifyState,
+          resolvedConstraintType: 'relationship_predicate',
+          resolvedStrategy: chosenApproach,
         };
       }
 
@@ -518,6 +534,8 @@ export function handleClarifyResponse(
           action: 'ask_more',
           message: summaryMsg,
           clarifyState: buildClarifyStatePayload(finalSession),
+          resolvedConstraintType: 'relationship_predicate',
+          resolvedStrategy: chosenApproach,
         };
       }
       const nextQuestions = buildNextQuestions(
@@ -534,6 +552,8 @@ export function handleClarifyResponse(
         action: 'ask_more',
         message: msg,
         clarifyState: buildClarifyStatePayload(finalSession),
+        resolvedConstraintType: 'relationship_predicate',
+        resolvedStrategy: chosenApproach,
       };
     }
   }

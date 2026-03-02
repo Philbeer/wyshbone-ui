@@ -1,0 +1,70 @@
+You are working in the Wyshbone-UI repo.
+
+Goal
+Fix the “relationship clarification” flow so it behaves the same as now (it blocks correctly), BUT it no longer marks the run as Failed / Sequence failed, and it correctly persists the clarify artefact + run state so DB TRUTH STRIP is truthful and Tower isn’t expected yet.
+
+Current observed behaviour (BUG)
+When user enters: “Find pubs in Bristol and the landlord name”
+- UI correctly blocks and shows relationship strategy options (Official only / Best-effort web / Require 2+ sources / Skip if uncertain). This part is correct.
+- BUT Live Activity shows “Failed”, and DB TRUTH STRIP shows:
+  - Artifact persisted: Not persisted
+  - Tower verdict: Missing
+  - Run stored: Not persisted
+  - Sequence failed
+This is wrong because the system is waiting for clarification, not failing, and Tower verdict should not exist yet.
+
+What should happen (EXPECTED)
+For relationship/role predicates that require clarification:
+1) The run enters a “Clarifying” state (not Failed).
+2) A “Clarify Gate” artefact is persisted immediately (or equivalent persisted record that the truth strip reads).
+3) Tower verdict is NOT required/expected until after the user chooses a strategy AND the user clicks “Search now” AND execution occurs.
+4) The DB TRUTH STRIP should show something like:
+   - Run stored: ✅ (or “stored: clarifying”)
+   - Artifact persisted: ✅ (clarify_gate persisted)
+   - Tower verdict: N/A (or Pending, but NOT “Missing”)
+   - Sequence failed: ❌ should not show during clarification
+5) After the user chooses a relationship strategy:
+   - persist the chosen strategy (either update the clarify_gate artefact or create a clarify_resolution artefact)
+   - update the run state to “Ready to search”
+   - show “Search now” enabled
+6) Only after “Search now” is clicked should we create the supervisor task and proceed. Only then should Tower be expected.
+
+Implementation guidance (do not handwave, implement cleanly)
+- Identify where DB TRUTH STRIP status is derived. It is currently treating “clarifying” as failure or expecting Tower/artefacts too early.
+- Ensure the CLARIFY_FOR_RUN path:
+  - creates/updates a run record with status = “clarifying” (or your equivalent)
+  - persists a clarify artefact (type: clarify_gate, reason: relationship_predicate, includes the 4 strategies)
+  - emits SSE state so UI can render options
+- Ensure the “relationship strategy selected” handler:
+  - persists the selection (update artefact or create clarify_resolution artefact)
+  - sets state so “Search now” appears/activates
+  - does NOT trigger Tower, does NOT mark any failure
+- Ensure failure statuses are reserved for actual errors (exceptions, timeouts, tool failures) not “waiting for user”.
+- Add defensive logging around this flow so if persistence fails we show an explicit error message, not a fake “Tower verdict missing” failure.
+
+Acceptance tests (manual)
+A) Relationship gate test
+Input: “Find pubs in Bristol and the landlord name”
+Expected:
+- Blocks and shows the 4 strategy options
+- Live Activity does NOT show Failed
+- DB TRUTH STRIP does NOT show Sequence failed
+- Tower verdict is not shown as Missing (should be N/A / Pending-after-run)
+
+B) Selection persistence test
+Click: “Skip if uncertain”
+Expected:
+- Clarify selection persists
+- Search now enabled
+- Clicking Search now starts execution
+
+C) Control test (no relationship)
+Input: “Find 5 lively pubs in Bristol”
+Expected:
+- No relationship clarification gate
+- Normal execution flow
+
+Deliverable
+- Implement the fixes in Wyshbone-UI.
+- If you need to change schema/fields, add a migration or a backwards-compatible fallback.
+- Provide a short summary of what you changed and where, and confirm the acceptance tests pass.
