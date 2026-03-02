@@ -232,10 +232,19 @@ export function buildClarifyStatePayload(session: ClarifySession): ClarifyStateP
   const hasPendingConstraints = session.pending_constraints && session.pending_constraints.length > 0;
   const allFilled = missingFields.length === 0 && !blocked && !hasPendingConstraints;
 
+  const cleanEntityType = session.entity_type ? stripNumericAmbiguityWords(session.entity_type) : session.entity_type;
+
+  const cleanConstraint = session.semantic_constraint
+    ? session.semantic_constraint
+        .replace(/\b(?:subjective|numeric[_ ]ambiguity|relationship|attribute|opened-time predicate):\s*/gi, '')
+        .replace(/\s*\+\s*/g, ', ')
+        .trim() || null
+    : session.semantic_constraint;
+
   return {
-    entityType: session.entity_type,
+    entityType: cleanEntityType,
     location: session.location,
-    semanticConstraint: session.semantic_constraint,
+    semanticConstraint: cleanConstraint,
     count: session.answers['count'] || null,
     missingFields,
     status: allFilled ? 'ready' : 'gathering',
@@ -400,7 +409,7 @@ export function handleClarifyResponse(
         pending_questions: [],
       });
       const finalSession = getActiveClarifySession(session.conversation_id) || updatedSession;
-      const summaryMsg = `Got it — ${chosenOption.toLowerCase()} ${updatedSession.entity_type}. Click **Search now** when you're ready.`;
+      const summaryMsg = `Got it — ${chosenOption.toLowerCase()} ${stripNumericAmbiguityWords(updatedSession.entity_type || '')}. Click Search now when you're ready.`;
       return {
         action: 'ask_more',
         message: summaryMsg,
@@ -462,7 +471,7 @@ export function handleClarifyResponse(
         });
         const finalSession = getActiveClarifySession(session.conversation_id) || updatedSession;
         const displayEntity = stripNumericAmbiguityWords(updatedSession.entity_type!);
-        const summaryMsg = `Got it — I'll find ${chosenCount === 'all' ? 'all' : chosenCount} ${displayEntity} in ${updatedSession.location}. Click **Search now** when you're ready.`;
+        const summaryMsg = `Got it — I'll find ${chosenCount === 'all' ? 'all' : chosenCount} ${displayEntity} in ${updatedSession.location}. Click Search now when you're ready.`;
         return {
           action: 'ask_more',
           message: summaryMsg,
@@ -529,7 +538,7 @@ export function handleClarifyResponse(
           pending_questions: [],
         });
         const finalSession = getActiveClarifySession(session.conversation_id) || updatedSession;
-        const summaryMsg = `Okay, I'll use ${chosenApproach.toLowerCase()} to verify that. Click **Search now** when you're ready.`;
+        const summaryMsg = `Okay, I'll use ${chosenApproach.toLowerCase()} to verify that. Click Search now when you're ready.`;
         return {
           action: 'ask_more',
           message: summaryMsg,
@@ -587,7 +596,7 @@ export function handleClarifyResponse(
         pending_questions: [],
       });
       const finalSession = getActiveClarifySession(session.conversation_id) || updatedSession;
-      const summaryMsg = `Okay, I'll use that as a proxy. Click **Search now** when you're ready.`;
+      const summaryMsg = `Okay, I'll use that as a proxy. Click Search now when you're ready.`;
       return {
         action: 'ask_more',
         message: summaryMsg,
@@ -628,7 +637,7 @@ export function handleClarifyResponse(
       pending_questions: [],
     });
     const updatedSession = getActiveClarifySession(session.conversation_id) || session;
-    const blockMsg = `Unfortunately, "${constraintLabel}" can't be verified with full certainty from public data.\n\nHere's what I can do instead:\n• **Choose a proxy** — use an indirect indicator to approximate\n• **Relax certainty** — accept best-effort results\n• **Change your query** — search without this constraint`;
+    const blockMsg = `Unfortunately, "${constraintLabel}" can't be verified with full certainty from public data.\n\nHere's what I can do instead:\n• Choose a proxy — use an indirect indicator to approximate\n• Relax certainty — accept best-effort results\n• Change your query — search without this constraint`;
     return {
       action: 'ask_more',
       message: blockMsg,
@@ -688,7 +697,7 @@ export function handleClarifyResponse(
     const latestSession = getActiveClarifySession(session.conversation_id) || session;
     const advancement = advanceToNextConstraint(latestSession);
     if (advancement.advanced) {
-      const ackMsg = parsed.semanticDetail ? `Got it — "${parsed.semanticDetail}".` : 'Got it.';
+      const ackMsg = 'Got it.';
       return {
         action: 'ask_more',
         message: `${ackMsg}\n\n${advancement.message}`,
@@ -713,15 +722,15 @@ export function handleClarifyResponse(
     });
 
     const summaryParts: string[] = [];
-    const displayEntity = newAnswers['count'] ? stripNumericAmbiguityWords(entityType!) : entityType!;
-    summaryParts.push(`**${displayEntity}** in **${location}**`);
+    const displayEntity = newAnswers['count'] ? stripNumericAmbiguityWords(entityType!) : stripNumericAmbiguityWords(entityType!);
+    summaryParts.push(`${displayEntity} in ${location}`);
     if (newAnswers['count']) {
-      summaryParts[0] = `**${newAnswers['count']}** ${summaryParts[0]}`;
+      summaryParts[0] = `${newAnswers['count']} ${summaryParts[0]}`;
     }
     if (newAnswers['semantic_detail']) {
       summaryParts.push(`(${newAnswers['semantic_detail']})`);
     }
-    const summaryMsg = `Got it — I'll search for ${summaryParts.join(' ')}. Click **Search now** when you're ready.`;
+    const summaryMsg = `Got it — I'll search for ${summaryParts.join(' ')}. Click Search now when you're ready.`;
     const updatedSession = getActiveClarifySession(session.conversation_id) || session;
     return {
       action: 'ask_more',

@@ -415,7 +415,7 @@ export const SUBJECTIVE_WORDS = new Set([
 ]);
 
 export const NUMERIC_AMBIGUITY_WORDS = new Set([
-  'few', 'some', 'several', 'many', 'couple', 'most', 'top', 'numerous',
+  'few', 'some', 'several', 'many', 'couple', 'numerous',
 ]);
 
 export function hasNumericAmbiguity(message: string): boolean {
