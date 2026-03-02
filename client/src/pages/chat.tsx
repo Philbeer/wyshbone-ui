@@ -2977,7 +2977,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                       </div>
                     </div>
                   )}
-                  {Array.isArray(clarifyContext.constraintContract.proxy_options) && clarifyContext.constraintContract.proxy_options.length > 0 && (
+                  {clarifyContext.constraintContract.type !== 'subjective' && Array.isArray(clarifyContext.constraintContract.proxy_options) && clarifyContext.constraintContract.proxy_options.length > 0 && (
                     <div className="space-y-1">
                       <p className="text-[10px] text-amber-700 dark:text-amber-300 uppercase tracking-wide font-semibold">Choose a proxy</p>
                       {clarifyContext.constraintContract.proxy_options.map((option, idx) => (
@@ -2996,13 +2996,15 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                   )}
                   <div className="space-y-1 pt-1 border-t border-red-200 dark:border-red-800" data-testid="safe-next-actions">
                     <p className="text-[10px] text-red-700 dark:text-red-300 uppercase tracking-wide font-semibold">You can also</p>
-                    <button
-                      type="button"
-                      className="block w-full text-left text-xs px-2 py-1.5 rounded border border-amber-200 dark:border-amber-700 bg-white dark:bg-amber-950/40 hover:bg-amber-50 dark:hover:bg-amber-900/40 text-amber-900 dark:text-amber-100 transition-colors"
-                      onClick={() => { handleSendRef.current?.("Use best-effort search instead"); }}
-                    >
-                      Relax certainty (best-effort search)
-                    </button>
+                    {clarifyContext.constraintContract.type !== 'subjective' && (
+                      <button
+                        type="button"
+                        className="block w-full text-left text-xs px-2 py-1.5 rounded border border-amber-200 dark:border-amber-700 bg-white dark:bg-amber-950/40 hover:bg-amber-50 dark:hover:bg-amber-900/40 text-amber-900 dark:text-amber-100 transition-colors"
+                        onClick={() => { handleSendRef.current?.("Use best-effort search instead"); }}
+                      >
+                        Relax certainty (best-effort search)
+                      </button>
+                    )}
                     <button
                       type="button"
                       className="block w-full text-left text-xs px-2 py-1.5 rounded border border-amber-200 dark:border-amber-700 bg-white dark:bg-amber-950/40 hover:bg-amber-50 dark:hover:bg-amber-900/40 text-amber-900 dark:text-amber-100 transition-colors"
