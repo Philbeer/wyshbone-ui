@@ -2919,13 +2919,13 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                 <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
                 <span className="text-xs font-semibold text-amber-800 dark:text-amber-200 uppercase tracking-wide">
                   {clarifyContext.constraintContract && !clarifyContext.constraintContract.can_execute
-                    ? 'Waiting for clarification'
-                    : 'Clarifying before run'}
+                    ? 'Quick question'
+                    : 'Almost ready'}
                 </span>
               </div>
               {(clarifyContext.entityType || clarifyContext.location || clarifyContext.semanticConstraint) && (
                 <div className="text-sm text-amber-900 dark:text-amber-100">
-                  <span className="text-muted-foreground text-xs">Current request: </span>
+                  <span className="text-muted-foreground text-xs">Looking for: </span>
                   {clarifyContext.count && <span className="font-medium">{clarifyContext.count} </span>}
                   {clarifyContext.entityType && <span className="font-medium">{clarifyContext.entityType}</span>}
                   {clarifyContext.location && <span className="font-medium">{clarifyContext.entityType ? ` in ${clarifyContext.location}` : clarifyContext.location}</span>}
@@ -2956,12 +2956,12 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                   )}
                   {!clarifyContext.constraintContract.why_blocked && (
                     <p className="text-xs text-amber-800 dark:text-amber-200 font-medium">
-                      {clarifyContext.constraintContract.explanation || (clarifyContext.constraintContract.type === 'time_predicate' ? "Opening dates can't be guaranteed from listings." : "This constraint needs clarification before searching.")}
+                      {clarifyContext.constraintContract.explanation || (clarifyContext.constraintContract.type === 'time_predicate' ? "Exact opening dates aren't reliably available." : "I need a bit more detail before I can search.")}
                     </p>
                   )}
                   {clarifyContext.constraintContract.type === 'subjective' && Array.isArray(clarifyContext.constraintContract.subjective_options) && clarifyContext.constraintContract.subjective_options.length > 0 && (
                     <div className="space-y-1.5" data-testid="subjective-options">
-                      <p className="text-[10px] text-amber-700 dark:text-amber-300 uppercase tracking-wide font-semibold">Pick a measurable definition</p>
+                      <p className="text-[10px] text-amber-700 dark:text-amber-300 uppercase tracking-wide font-semibold">What kind?</p>
                       <div className="flex flex-wrap gap-1.5">
                         {clarifyContext.constraintContract.subjective_options.map((option, idx) => (
                           <button
@@ -2981,7 +2981,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                   )}
                   {clarifyContext.constraintContract.type === 'numeric_ambiguity' && Array.isArray(clarifyContext.constraintContract.numeric_options) && clarifyContext.constraintContract.numeric_options.length > 0 && (
                     <div className="space-y-1.5" data-testid="numeric-options">
-                      <p className="text-[10px] text-amber-700 dark:text-amber-300 uppercase tracking-wide font-semibold">How many?</p>
+                      <p className="text-[10px] text-amber-700 dark:text-amber-300 uppercase tracking-wide font-semibold">How many results?</p>
                       <div className="flex flex-wrap gap-1.5">
                         {clarifyContext.constraintContract.numeric_options.map((option, idx) => (
                           <button
@@ -3001,7 +3001,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                   )}
                   {clarifyContext.constraintContract.type === 'relationship_predicate' && Array.isArray(clarifyContext.constraintContract.relationship_options) && clarifyContext.constraintContract.relationship_options.length > 0 && (
                     <div className="space-y-1.5" data-testid="relationship-options">
-                      <p className="text-[10px] text-amber-700 dark:text-amber-300 uppercase tracking-wide font-semibold">Verification approach</p>
+                      <p className="text-[10px] text-amber-700 dark:text-amber-300 uppercase tracking-wide font-semibold">How should I verify this?</p>
                       <div className="flex flex-col gap-1">
                         {clarifyContext.constraintContract.relationship_options.map((option, idx) => (
                           <button
@@ -3021,7 +3021,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                   )}
                   {clarifyContext.constraintContract.type !== 'subjective' && clarifyContext.constraintContract.type !== 'numeric_ambiguity' && clarifyContext.constraintContract.type !== 'relationship_predicate' && Array.isArray(clarifyContext.constraintContract.proxy_options) && clarifyContext.constraintContract.proxy_options.length > 0 && (
                     <div className="space-y-1">
-                      <p className="text-[10px] text-amber-700 dark:text-amber-300 uppercase tracking-wide font-semibold">Choose a proxy</p>
+                      <p className="text-[10px] text-amber-700 dark:text-amber-300 uppercase tracking-wide font-semibold">Which approach?</p>
                       {clarifyContext.constraintContract.proxy_options.map((option, idx) => (
                         <button
                           key={idx}
@@ -3037,14 +3037,14 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                     </div>
                   )}
                   <div className="space-y-1 pt-1 border-t border-red-200 dark:border-red-800" data-testid="safe-next-actions">
-                    <p className="text-[10px] text-red-700 dark:text-red-300 uppercase tracking-wide font-semibold">You can also</p>
+                    <p className="text-[10px] text-red-700 dark:text-red-300 uppercase tracking-wide font-semibold">Or instead</p>
                     {clarifyContext.constraintContract.type !== 'subjective' && clarifyContext.constraintContract.type !== 'numeric_ambiguity' && clarifyContext.constraintContract.type !== 'relationship_predicate' && (
                       <button
                         type="button"
                         className="block w-full text-left text-xs px-2 py-1.5 rounded border border-amber-200 dark:border-amber-700 bg-white dark:bg-amber-950/40 hover:bg-amber-50 dark:hover:bg-amber-900/40 text-amber-900 dark:text-amber-100 transition-colors"
                         onClick={() => { handleSendRef.current?.("Use best-effort search instead"); }}
                       >
-                        Relax certainty (best-effort search)
+                        Just do a best-effort search
                       </button>
                     )}
                     <button
@@ -3052,7 +3052,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                       className="block w-full text-left text-xs px-2 py-1.5 rounded border border-amber-200 dark:border-amber-700 bg-white dark:bg-amber-950/40 hover:bg-amber-50 dark:hover:bg-amber-900/40 text-amber-900 dark:text-amber-100 transition-colors"
                       onClick={() => { handleSendRef.current?.("cancel"); }}
                     >
-                      Change my query (start over)
+                      Start over with a different query
                     </button>
                   </div>
                 </div>
@@ -3060,7 +3060,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
 
               {clarifyContext.constraintContract && Array.isArray(clarifyContext.constraintContract.required_inputs_missing) && clarifyContext.constraintContract.required_inputs_missing.length > 0 && (
                 <div className="mt-1">
-                  <p className="text-[10px] text-amber-700 dark:text-amber-300 uppercase tracking-wide font-semibold mb-1">Still needed</p>
+                  <p className="text-[10px] text-amber-700 dark:text-amber-300 uppercase tracking-wide font-semibold mb-1">I still need</p>
                   <ul className="list-disc list-inside space-y-0.5">
                     {clarifyContext.constraintContract.required_inputs_missing.map((item, idx) => (
                       <li key={idx} className="text-xs text-amber-800 dark:text-amber-200">{item}</li>
@@ -3082,19 +3082,19 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
               {(clarifyContext.missingFields.length > 0 || clarifyContext.status !== 'ready') && !(clarifyContext.constraintContract && !clarifyContext.constraintContract.can_execute) && (
                 <div className="text-xs text-amber-700 dark:text-amber-300 mt-1">
                   <Loader2 className="h-3 w-3 inline mr-1 animate-spin" />
-                  Waiting for clarification before search can run.
+                  Just need a bit more info before I can search.
                 </div>
               )}
               {clarifyContext.constraintContract && !clarifyContext.constraintContract.can_execute && !(clarifyContext.missingFields.length > 0) && (
                 <div className="text-xs text-amber-700 dark:text-amber-300 mt-1">
                   <HelpCircle className="h-3 w-3 inline mr-1" />
-                  Please choose an option above to continue.
+                  Pick an option above to continue.
                 </div>
               )}
               {clarifyContext.missingFields.length === 0 && clarifyContext.status === 'ready' && !(clarifyContext.constraintContract && !clarifyContext.constraintContract.can_execute) && (
                 <div className="text-xs text-green-700 dark:text-green-300">
                   <CheckCircle2 className="h-3 w-3 inline mr-1" />
-                  Ready to search — click <strong>Search now</strong> to proceed.
+                  All set — click <strong>Search now</strong> when you're ready.
                 </div>
               )}
             </div>

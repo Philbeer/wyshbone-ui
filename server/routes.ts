@@ -1814,12 +1814,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
             contract: {
               type: 'subjective',
               can_execute: false,
-              why_blocked: `The term${subjectiveTerms.length > 1 ? 's' : ''} ${subjectiveTerms.map((t: string) => `"${t}"`).join(' and ')} ${subjectiveTerms.length > 1 ? 'are' : 'is'} subjective and can't be measured in a search. Please choose a concrete definition below.`,
-              explanation: `"${subjectiveTerms.join(', ')}" means different things to different people — pick a measurable attribute so I can find relevant results.`,
+              why_blocked: `I can't search by ${termsList} directly — it means different things to different people. Pick an option below so I know what to look for.`,
+              explanation: `What counts as ${termsList} varies, so pick a specific attribute and I'll use that to find results.`,
               subjective_terms: subjectiveTerms,
               subjective_options: SUBJECTIVE_OPTIONS,
             },
-            questions: [`What do you mean by ${termsList}? Pick a measurable definition so I can search effectively.`],
+            questions: [`What do you mean by ${termsList}?`],
           });
         }
 
@@ -1835,11 +1835,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
             contract: {
               type: 'numeric_ambiguity',
               can_execute: false,
-              why_blocked: `You said ${numTermsList} — how many results do you actually want?`,
-              explanation: `${numTermsList} is vague. Pick a specific number so I know how many results to return.`,
+              why_blocked: `How many results would you like? Pick a number below.`,
+              explanation: `Just let me know how many results you'd like.`,
               numeric_options: ['3', '5', '10', 'All'],
             },
-            questions: [`How many results do you want? Pick a number or choose "All".`],
+            questions: [`How many results would you like?`],
           });
         }
 
@@ -1853,8 +1853,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             contract: {
               type: 'relationship_predicate',
               can_execute: false,
-              why_blocked: `The relationship/role info "${relClause}" can't always be verified from public data. How should I handle it?`,
-              explanation: `Details like "${relClause}" may not be publicly available or reliable. Choose a verification strategy.`,
+              why_blocked: `"${relClause}" may not be publicly verifiable. How would you like me to handle it?`,
+              explanation: `This kind of detail isn't always available in public data. Pick an approach below.`,
               relationship_options: [
                 'Official sources only',
                 'Best-effort public web',
@@ -1862,7 +1862,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 'Skip if uncertain',
               ],
             },
-            questions: [`You asked for "${relClause}" — this kind of relationship or role info may not be publicly verifiable. How should I handle it?\n  • **Official sources only** — only include if confirmed by official registries or directories\n  • **Best-effort public web** — search the public web for evidence\n  • **Require 2+ sources** — include only if at least two independent sources confirm it\n  • **Skip if uncertain** — return venues only, without guessing relationship/role info`],
+            questions: [`"${relClause}" may be hard to confirm from public sources. How should I approach it?`],
           });
         }
 
@@ -1874,7 +1874,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             contract: {
               type: 'time_predicate',
               can_execute: false,
-              explanation: "Opening dates can't be guaranteed from public listings. Please choose a proxy approach.",
+              explanation: "Exact opening dates aren't reliably available, but I can use a proxy instead.",
               proxy_options: [
                 'Use first Google review date as proxy',
                 'Use news mentions as proxy',
@@ -1882,7 +1882,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 'Use Companies House incorporation date as proxy',
               ],
             },
-            questions: [`You mentioned businesses that "opened" recently. There's no single reliable source for exact opening dates, so I'd need to use a proxy. Which would you prefer?\n  • **First Google review date** — when the first public review appeared\n  • **News mentions / press releases** — media coverage of an opening\n  • **Google Maps listing freshness** — when the listing was first indexed\n  • **Companies House incorporation date** — official UK registration date (not always the same as opening)\n\nOr if you'd rather not use a proxy, just say "no proxies" and I'll explain the limitations.`],
+            questions: [`Exact opening dates aren't always available. Which proxy would you like me to use instead?`],
           });
         }
 
@@ -1894,9 +1894,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
             contract: {
               type: 'unverifiable_constraint',
               can_execute: false,
-              explanation: `The attribute "${attr}" can't always be verified from public data. Please choose how to handle it.`,
+              explanation: `"${attr}" may not always be verifiable from public data. How should I handle it?`,
             },
-            questions: [`You want results that "${attr}". This attribute can't always be verified from public data alone. How should I handle it?\n  • **Best-effort search** — I'll include "${attr}" in the search query and return what I find, but results may not all be verified\n  • **Strict filter** — only return results where I can confirm "${attr}" from reviews, listings, or other public sources (may return fewer results)\n  • **Skip this filter** — search without filtering by "${attr}"\n\nOr say "must be certain" if you only want guaranteed results (I may not be able to proceed).`],
+            questions: [`"${attr}" can be tricky to verify from public data. How should I handle it?`],
           });
         }
 
@@ -1953,8 +1953,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
 
         const clarifyMessage = questions.length > 0
-          ? `I'd like to make sure I find exactly what you need. A couple of quick questions:\n\n${questions.map((q, i) => `${i + 1}. ${q}`).join('\n')}`
-          : `Your request is too vague for me to search on. Could you rephrase with a specific type of business and a real location? For example: "Find pubs in Brighton" or "Find dentists in Manchester".`;
+          ? (questions.length === 1 ? questions[0] : `Before I search, a couple of quick questions:\n\n${questions.map((q, i) => `${i + 1}. ${q}`).join('\n')}`)
+          : `I wasn't able to work out what to search for. Could you try again with a specific business type and location? For example: "Find pubs in Brighton".`;
 
         appendMessage(sessionId, { role: "assistant", content: clarifyMessage });
 

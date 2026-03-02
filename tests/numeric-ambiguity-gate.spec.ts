@@ -47,7 +47,7 @@ test.describe('Numeric Ambiguity Constraint Gate', () => {
     expect(contract.type).toBe('numeric_ambiguity');
     expect(contract.can_execute).toBe(false);
     expect(contract.why_blocked).toBeTruthy();
-    expect(contract.why_blocked.toLowerCase()).toContain('few');
+    expect(contract.why_blocked.toLowerCase()).toContain('how many');
     expect(contract.numeric_options).toBeTruthy();
     expect(contract.numeric_options.length).toBe(4);
     expect(contract.numeric_options).toContain('3');

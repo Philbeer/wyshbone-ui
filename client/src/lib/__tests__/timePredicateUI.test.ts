@@ -84,8 +84,8 @@ function shouldShowProgressStack(isClarifyingForRun: boolean): boolean {
 }
 
 function getClarifyPanelHeader(constraintContract: MockConstraintContract | null): string {
-  if (constraintContract && !constraintContract.can_execute) return 'Waiting for clarification';
-  return 'Clarifying before run';
+  if (constraintContract && !constraintContract.can_execute) return 'Quick question';
+  return 'Almost ready';
 }
 
 function getResultDisplayText(towerStopTimePredicate: boolean, canonicalStatus: string, summaryText: string): string {
@@ -329,11 +329,11 @@ test('T18: Progress stack hidden during clarification', () => {
   assert(shouldShowProgressStack(false), 'Progress stack should show when not clarifying');
 });
 
-test('T19: Panel header says "Waiting for clarification" when can_execute=false', () => {
+test('T19: Panel header says "Quick question" when can_execute=false', () => {
   const blocked: MockConstraintContract = { type: 'time_predicate', can_execute: false };
-  assert(getClarifyPanelHeader(blocked) === 'Waiting for clarification', 'Header must say waiting when blocked');
-  assert(getClarifyPanelHeader(null) === 'Clarifying before run', 'Header should say clarifying when no constraint');
-  assert(getClarifyPanelHeader({ type: 'time_predicate', can_execute: true }) === 'Clarifying before run', 'Header should say clarifying when can_execute=true');
+  assert(getClarifyPanelHeader(blocked) === 'Quick question', 'Header must say quick question when blocked');
+  assert(getClarifyPanelHeader(null) === 'Almost ready', 'Header should say almost ready when no constraint');
+  assert(getClarifyPanelHeader({ type: 'time_predicate', can_execute: true }) === 'Almost ready', 'Header should say almost ready when can_execute=true');
 });
 
 test('T20: Compound clarification — constraint + missing fields coexist', () => {

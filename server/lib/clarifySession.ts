@@ -260,8 +260,8 @@ export function advanceToNextConstraint(session: ClarifySession): { advanced: bo
       : next.constraintLabel);
 
   const baseQuestions: string[] = [];
-  if (!session.entity_type) baseQuestions.push('What type of businesses or organisations are you looking for?');
-  if (!session.location) baseQuestions.push('Which location or area should I search in?');
+  if (!session.entity_type) baseQuestions.push('What type of business are you looking for?');
+  if (!session.location) baseQuestions.push('Where should I search?');
   const mergedQuestions = [...baseQuestions, ...next.questions];
 
   updateClarifySession(session.conversation_id, {
@@ -274,8 +274,8 @@ export function advanceToNextConstraint(session: ClarifySession): { advanced: bo
 
   const updatedSession = getActiveClarifySession(session.conversation_id) || session;
   const questionText = mergedQuestions.length > 0
-    ? `Next question:\n\n${mergedQuestions.map((q, i) => `${i + 1}. ${q}`).join('\n')}`
-    : 'One more thing to clarify before I can search.';
+    ? (mergedQuestions.length === 1 ? mergedQuestions[0] : `One more thing:\n\n${mergedQuestions.map((q, i) => `${i + 1}. ${q}`).join('\n')}`)
+    : 'Just one more thing before I can search.';
 
   return {
     advanced: true,
@@ -382,7 +382,7 @@ export function handleClarifyResponse(
 
     const advancement = advanceToNextConstraint(updatedSession);
     if (advancement.advanced) {
-      const msg = `Got it — you mean "${chosenOption}".\n\n${advancement.message}`;
+      const msg = `Got it — ${chosenOption.toLowerCase()} it is.\n\n${advancement.message}`;
       return {
         action: 'ask_more',
         message: msg,
@@ -400,7 +400,7 @@ export function handleClarifyResponse(
         pending_questions: [],
       });
       const finalSession = getActiveClarifySession(session.conversation_id) || updatedSession;
-      const summaryMsg = `Got it — I'll search for "${chosenOption}" ${updatedSession.entity_type} in ${updatedSession.location}.\n\nClick **Search now** to proceed.`;
+      const summaryMsg = `Got it — ${chosenOption.toLowerCase()} ${updatedSession.entity_type}. Click **Search now** when you're ready.`;
       return {
         action: 'ask_more',
         message: summaryMsg,
@@ -418,7 +418,7 @@ export function handleClarifyResponse(
     );
     updateClarifySession(session.conversation_id, { pending_questions: nextQuestions });
     const finalSession = getActiveClarifySession(session.conversation_id) || updatedSession;
-    const msg = `Got it — you mean "${chosenOption}". ${nextQuestions.length > 0 ? '\n\n' + nextQuestions.map((q, i) => `${i + 1}. ${q}`).join('\n') : ''}`;
+    const msg = `Got it — ${chosenOption.toLowerCase()}.${nextQuestions.length > 0 ? '\n\n' + nextQuestions.map((q, i) => `${i + 1}. ${q}`).join('\n') : ''}`;
     return {
       action: 'ask_more',
       message: msg,
@@ -443,7 +443,7 @@ export function handleClarifyResponse(
 
       const advancement = advanceToNextConstraint(updatedSession);
       if (advancement.advanced) {
-        const msg = `Got it — I'll return ${chosenCount === 'all' ? 'all matching' : chosenCount} results.\n\n${advancement.message}`;
+        const msg = `Got it — ${chosenCount === 'all' ? 'all results' : chosenCount + ' results'}.\n\n${advancement.message}`;
         return {
           action: 'ask_more',
           message: msg,
@@ -462,7 +462,7 @@ export function handleClarifyResponse(
         });
         const finalSession = getActiveClarifySession(session.conversation_id) || updatedSession;
         const displayEntity = stripNumericAmbiguityWords(updatedSession.entity_type!);
-        const summaryMsg = `Got it — I'll search for ${chosenCount === 'all' ? 'all' : chosenCount} ${displayEntity} in ${updatedSession.location}.\n\nClick **Search now** to proceed.`;
+        const summaryMsg = `Got it — I'll find ${chosenCount === 'all' ? 'all' : chosenCount} ${displayEntity} in ${updatedSession.location}. Click **Search now** when you're ready.`;
         return {
           action: 'ask_more',
           message: summaryMsg,
@@ -480,7 +480,7 @@ export function handleClarifyResponse(
       );
       updateClarifySession(session.conversation_id, { pending_questions: nextQuestions });
       const finalSession = getActiveClarifySession(session.conversation_id) || updatedSession;
-      const msg = `Got it — I'll return ${chosenCount === 'all' ? 'all matching' : chosenCount} results. ${nextQuestions.length > 0 ? '\n\n' + nextQuestions.map((q, i) => `${i + 1}. ${q}`).join('\n') : ''}`;
+      const msg = `Got it — ${chosenCount === 'all' ? 'all results' : chosenCount + ' results'}.${nextQuestions.length > 0 ? '\n\n' + nextQuestions.map((q, i) => `${i + 1}. ${q}`).join('\n') : ''}`;
       return {
         action: 'ask_more',
         message: msg,
@@ -511,7 +511,7 @@ export function handleClarifyResponse(
 
       const advancement = advanceToNextConstraint(updatedSession);
       if (advancement.advanced) {
-        const msg = `Got it — I'll use "${chosenApproach}" for the relationship check.\n\n${advancement.message}`;
+        const msg = `Okay, I'll use ${chosenApproach.toLowerCase()}.\n\n${advancement.message}`;
         return {
           action: 'ask_more',
           message: msg,
@@ -529,7 +529,7 @@ export function handleClarifyResponse(
           pending_questions: [],
         });
         const finalSession = getActiveClarifySession(session.conversation_id) || updatedSession;
-        const summaryMsg = `Got it — I'll use "${chosenApproach}" to verify the relationship.\n\nClick **Search now** to proceed.`;
+        const summaryMsg = `Okay, I'll use ${chosenApproach.toLowerCase()} to verify that. Click **Search now** when you're ready.`;
         return {
           action: 'ask_more',
           message: summaryMsg,
@@ -547,7 +547,7 @@ export function handleClarifyResponse(
       );
       updateClarifySession(session.conversation_id, { pending_questions: nextQuestions });
       const finalSession = getActiveClarifySession(session.conversation_id) || updatedSession;
-      const msg = `Got it — I'll use "${chosenApproach}" for the relationship check. ${nextQuestions.length > 0 ? '\n\n' + nextQuestions.map((q, i) => `${i + 1}. ${q}`).join('\n') : ''}`;
+      const msg = `Okay, I'll use ${chosenApproach.toLowerCase()}.${nextQuestions.length > 0 ? '\n\n' + nextQuestions.map((q, i) => `${i + 1}. ${q}`).join('\n') : ''}`;
       return {
         action: 'ask_more',
         message: msg,
@@ -571,7 +571,7 @@ export function handleClarifyResponse(
 
     const advancement = advanceToNextConstraint(updatedSession);
     if (advancement.advanced) {
-      const msg = `Got it — I'll use "${proxyChoice}" to handle the constraint.\n\n${advancement.message}`;
+      const msg = `Okay, I'll use that as a proxy.\n\n${advancement.message}`;
       return {
         action: 'ask_more',
         message: msg,
@@ -587,7 +587,7 @@ export function handleClarifyResponse(
         pending_questions: [],
       });
       const finalSession = getActiveClarifySession(session.conversation_id) || updatedSession;
-      const summaryMsg = `Got it — I'll use "${proxyChoice}" to handle the constraint.\n\nClick **Search now** to proceed.`;
+      const summaryMsg = `Okay, I'll use that as a proxy. Click **Search now** when you're ready.`;
       return {
         action: 'ask_more',
         message: summaryMsg,
@@ -603,7 +603,7 @@ export function handleClarifyResponse(
     );
     updateClarifySession(session.conversation_id, { pending_questions: nextQuestions });
     const finalSession = getActiveClarifySession(session.conversation_id) || updatedSession;
-    const msg = `Got it — I'll use "${proxyChoice}" to handle the constraint.\n\n${nextQuestions.map((q, i) => `${i + 1}. ${q}`).join('\n')}`;
+    const msg = `Okay, I'll use that as a proxy.\n\n${nextQuestions.map((q, i) => `${i + 1}. ${q}`).join('\n')}`;
     return {
       action: 'ask_more',
       message: msg,
@@ -617,8 +617,8 @@ export function handleClarifyResponse(
     const blockedContract: ConstraintContractData = {
       type: constraintLabel.includes('opened-time predicate') ? 'time_predicate' : 'unverifiable_constraint',
       can_execute: false,
-      explanation: `The constraint "${constraintLabel}" cannot be guaranteed from public data sources.`,
-      why_blocked: `You selected "must be certain", but this constraint cannot be verified with certainty from available data. Choose a proxy approach, relax the certainty requirement, or change your query.`,
+      explanation: `"${constraintLabel}" can't be guaranteed from public data.`,
+      why_blocked: `This constraint can't be verified with full certainty from available data. You can choose a proxy, relax the requirement, or change your query.`,
       proxy_options: constraintLabel.includes('opened-time predicate')
         ? ['Use first Google review date as proxy', 'Use news mentions as proxy', 'Use Google Maps listing freshness as proxy', 'Use Companies House incorporation date as proxy']
         : undefined,
@@ -628,7 +628,7 @@ export function handleClarifyResponse(
       pending_questions: [],
     });
     const updatedSession = getActiveClarifySession(session.conversation_id) || session;
-    const blockMsg = `I understand you need certainty, but unfortunately the constraint "${constraintLabel}" cannot be verified with 100% accuracy from public data sources.\n\nYour options:\n• **Choose a proxy** — use an indirect indicator (e.g. first Google review date) to approximate\n• **Relax certainty** — accept best-effort results that may not all be verified\n• **Change your query** — remove the unverifiable constraint and search without it`;
+    const blockMsg = `Unfortunately, "${constraintLabel}" can't be verified with full certainty from public data.\n\nHere's what I can do instead:\n• **Choose a proxy** — use an indirect indicator to approximate\n• **Relax certainty** — accept best-effort results\n• **Change your query** — search without this constraint`;
     return {
       action: 'ask_more',
       message: blockMsg,
@@ -721,7 +721,7 @@ export function handleClarifyResponse(
     if (newAnswers['semantic_detail']) {
       summaryParts.push(`(${newAnswers['semantic_detail']})`);
     }
-    const summaryMsg = `Got it — I'll search for ${summaryParts.join(' ')}.\n\nClick **Search now** to proceed, or add more details (e.g. number of results).`;
+    const summaryMsg = `Got it — I'll search for ${summaryParts.join(' ')}. Click **Search now** when you're ready.`;
     const updatedSession = getActiveClarifySession(session.conversation_id) || session;
     return {
       action: 'ask_more',
@@ -741,7 +741,9 @@ export function handleClarifyResponse(
   });
 
   const updatedSession = getActiveClarifySession(session.conversation_id) || session;
-  const formattedMsg = `Thanks — just a bit more detail needed:\n\n${nextQuestions.map((q, i) => `${i + 1}. ${q}`).join('\n')}`;
+  const formattedMsg = nextQuestions.length === 1
+    ? nextQuestions[0]
+    : `Just a couple more things:\n\n${nextQuestions.map((q, i) => `${i + 1}. ${q}`).join('\n')}`;
   return {
     action: 'ask_more',
     message: formattedMsg,
@@ -851,13 +853,13 @@ function buildClarifiedRequest(entityType: string, location: string, semanticCon
 function buildNextQuestions(missingParts: string[], entityType: string | null, location: string | null, semanticConstraint?: string | null): string[] {
   const questions: string[] = [];
   if (missingParts.includes('entity_type')) {
-    questions.push('What type of businesses or organisations are you looking for?');
+    questions.push('What type of business are you looking for?');
   }
   if (missingParts.includes('location')) {
-    questions.push('Which location or area should I search in?');
+    questions.push('Where should I search?');
   }
   if (missingParts.includes('semantic_constraint') && semanticConstraint) {
-    questions.push(`Could you clarify what you mean by "${semanticConstraint}"? For example, what specific relationship or service are you looking for?`);
+    questions.push(`What do you mean by "${semanticConstraint}"?`);
   }
   return questions.slice(0, 3);
 }
@@ -865,13 +867,13 @@ function buildNextQuestions(missingParts: string[], entityType: string | null, l
 export function buildInitialQuestions(entityType?: string, location?: string, semanticConstraint?: string): string[] {
   const questions: string[] = [];
   if (!entityType) {
-    questions.push('What type of businesses or organisations are you looking for?');
+    questions.push('What type of business are you looking for?');
   }
   if (!location) {
-    questions.push('Which location or area should I search in?');
+    questions.push('Where should I search?');
   }
   if (semanticConstraint) {
-    questions.push(`Could you clarify what you mean by "${semanticConstraint}"? For example, what specific relationship or service are you looking for?`);
+    questions.push(`What do you mean by "${semanticConstraint}"?`);
   }
   return questions.slice(0, 3);
 }
