@@ -299,10 +299,24 @@ function hasSemanticConstraint(message: string): boolean {
   return SEMANTIC_CONSTRAINT_PATTERNS.some(p => p.test(message));
 }
 
+const RELATIONSHIP_ROLE_TERMS = [
+  'owner', 'owned\\s+by', 'landlord', 'manager', 'operator',
+  'run\\s+by', 'managed\\s+by', 'operated\\s+by',
+  'part\\s+of', 'group', 'chain',
+  'decision\\s+maker', 'practice\\s+manager', 'head\\s+brewer',
+  'contact\\s+name',
+];
+
+const RELATIONSHIP_ROLE_PATTERN = new RegExp(
+  '\\b(?:and\\s+(?:the\\s+)?|with\\s+(?:the\\s+)?)?(?:' + RELATIONSHIP_ROLE_TERMS.join('|') + ')(?:\\s+name)?\\b',
+  'i'
+);
+
 const RELATIONSHIP_PREDICATE_PATTERNS = [
   /\bthat\s+(?:work|deal|partner|collaborate|operate|specialise|specialize|focus|engage)\s+(?:with|alongside|for|in)\b/i,
   /\bwhich\s+(?:work|deal|partner|collaborate|operate|specialise|specialize|focus|engage)\s+(?:with|alongside|for|in)\b/i,
   /\bwho\s+(?:work|deal|partner|collaborate|operate|specialise|specialize|focus|engage)\s+(?:with|alongside|for|in)\b/i,
+  RELATIONSHIP_ROLE_PATTERN,
 ];
 
 export function hasRelationshipPredicate(message: string): boolean {
@@ -310,8 +324,13 @@ export function hasRelationshipPredicate(message: string): boolean {
 }
 
 export function extractRelationshipClause(message: string): string | null {
-  const match = message.match(/\b(?:that|which|who)\s+(?:work|deal|partner|collaborate|operate|specialise|specialize|focus|engage)\s+(?:with|alongside|for|in)\b[^.!?]*/i);
-  return match ? match[0].trim() : null;
+  const verbMatch = message.match(/\b(?:that|which|who)\s+(?:work|deal|partner|collaborate|operate|specialise|specialize|focus|engage)\s+(?:with|alongside|for|in)\b[^.!?]*/i);
+  if (verbMatch) return verbMatch[0].trim();
+
+  const roleMatch = message.match(RELATIONSHIP_ROLE_PATTERN);
+  if (roleMatch) return roleMatch[0].trim();
+
+  return null;
 }
 
 const OPENED_TIME_PREDICATE_PATTERNS = [

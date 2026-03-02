@@ -130,4 +130,69 @@ test.describe('Relationship Predicate Constraint Gate', () => {
     expect(contract.type).toBe('relationship_predicate');
     expect(contract.can_execute).toBe(false);
   });
+
+  test('T25: "and the landlord name" triggers relationship_predicate, NOT RUN', async ({ request }) => {
+    const { events } = await sendChat(request, 'Find pubs in Bristol and the landlord name');
+
+    const clarifyEvent = events.find(e => e.type === 'clarify_for_run');
+    expect(clarifyEvent).toBeTruthy();
+
+    const contract = clarifyEvent.clarify_state.constraint_contract;
+    expect(contract).toBeTruthy();
+    expect(contract.type).toBe('relationship_predicate');
+    expect(contract.can_execute).toBe(false);
+    expect(contract.relationship_options).toBeTruthy();
+    expect(contract.relationship_options.length).toBe(4);
+
+    const runEvents = events.filter(e => e.type === 'supervisor_task_created' || e.type === 'confidence');
+    expect(runEvents.length).toBe(0);
+  });
+
+  test('T26: "and the practice manager" triggers relationship_predicate', async ({ request }) => {
+    const { events } = await sendChat(request, 'Find dentists in Texas and the practice manager');
+
+    const clarifyEvent = events.find(e => e.type === 'clarify_for_run');
+    expect(clarifyEvent).toBeTruthy();
+
+    const contract = clarifyEvent.clarify_state.constraint_contract;
+    expect(contract).toBeTruthy();
+    expect(contract.type).toBe('relationship_predicate');
+    expect(contract.can_execute).toBe(false);
+    expect(contract.why_blocked).toBeTruthy();
+    expect(contract.why_blocked.toLowerCase()).toContain('practice manager');
+  });
+
+  test('T27: "owned by" triggers relationship_predicate', async ({ request }) => {
+    const { events } = await sendChat(request, 'Find breweries in Sussex owned by AB InBev');
+
+    const clarifyEvent = events.find(e => e.type === 'clarify_for_run');
+    expect(clarifyEvent).toBeTruthy();
+
+    const contract = clarifyEvent.clarify_state.constraint_contract;
+    expect(contract).toBeTruthy();
+    expect(contract.type).toBe('relationship_predicate');
+    expect(contract.can_execute).toBe(false);
+    expect(contract.why_blocked.toLowerCase()).toContain('owned by');
+  });
+
+  test('T28: "Skip if uncertain" resolves relationship_predicate and proceeds', async ({ request }) => {
+    const { events: initEvents, convId } = await sendChat(request, 'Find pubs in Bristol and the landlord name');
+
+    const clarifyEvent = initEvents.find(e => e.type === 'clarify_for_run');
+    expect(clarifyEvent).toBeTruthy();
+    expect(clarifyEvent.clarify_state.constraint_contract.type).toBe('relationship_predicate');
+
+    const { events: replyEvents } = await sendChat(request, 'skip if uncertain', convId);
+
+    const messageEvent = replyEvents.find(e => e.type === 'message');
+    expect(messageEvent).toBeTruthy();
+    expect(messageEvent.content.toLowerCase()).toContain('skip if uncertain');
+
+    const secondClarify = replyEvents.find(e => e.type === 'clarify_for_run');
+    if (secondClarify && secondClarify.clarify_state.constraint_contract) {
+      if (secondClarify.clarify_state.constraint_contract.type === 'relationship_predicate') {
+        expect(secondClarify.clarify_state.constraint_contract.can_execute).toBe(true);
+      }
+    }
+  });
 });

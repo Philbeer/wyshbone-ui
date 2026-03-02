@@ -1844,8 +1844,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             contract: {
               type: 'relationship_predicate',
               can_execute: false,
-              why_blocked: `The relationship "${relClause}" can't always be verified from public data. How should I check it?`,
-              explanation: `Relationships like "${relClause}" may not be publicly listed. Choose a verification approach.`,
+              why_blocked: `The relationship/role info "${relClause}" can't always be verified from public data. How should I handle it?`,
+              explanation: `Details like "${relClause}" may not be publicly available or reliable. Choose a verification strategy.`,
               relationship_options: [
                 'Official sources only',
                 'Best-effort public web',
@@ -1853,7 +1853,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 'Skip if uncertain',
               ],
             },
-            questions: [`You want businesses "${relClause}". This relationship may not be publicly verifiable. How should I handle verification?\n  • **Official sources only** — only include if confirmed by official registries or directories\n  • **Best-effort public web** — search the public web for evidence of this relationship\n  • **Require 2+ sources** — include only if at least two independent sources mention it\n  • **Skip if uncertain** — show venues only, without relationship verification`],
+            questions: [`You asked for "${relClause}" — this kind of relationship or role info may not be publicly verifiable. How should I handle it?\n  • **Official sources only** — only include if confirmed by official registries or directories\n  • **Best-effort public web** — search the public web for evidence\n  • **Require 2+ sources** — include only if at least two independent sources confirm it\n  • **Skip if uncertain** — return venues only, without guessing relationship/role info`],
           });
         }
 
