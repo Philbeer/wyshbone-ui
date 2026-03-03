@@ -90,6 +90,41 @@ export function parsePolicyApplied(payload: any): PolicyApplied | null {
   };
 }
 
+export interface SearchQueryCompiled {
+  interpreted_query: string;
+  interpreted_location: string;
+  requested_count: number | null;
+  final_returned_count: number | null;
+  radius_escalated: boolean;
+  pages_budget_used: number | null;
+  query_broadened?: boolean;
+  stop_reason: string | null;
+}
+
+export function parseSearchQueryCompiled(payload: any): SearchQueryCompiled | null {
+  if (!payload || typeof payload !== "object") return null;
+  if (typeof payload.interpreted_query !== "string" && typeof payload.interpreted_location !== "string") return null;
+  return {
+    interpreted_query: payload.interpreted_query || "",
+    interpreted_location: payload.interpreted_location || "",
+    requested_count: typeof payload.requested_count === "number" ? payload.requested_count : null,
+    final_returned_count: typeof payload.final_returned_count === "number" ? payload.final_returned_count : null,
+    radius_escalated: !!payload.radius_escalated,
+    pages_budget_used: typeof payload.pages_budget_used === "number" ? payload.pages_budget_used : null,
+    query_broadened: !!payload.query_broadened,
+    stop_reason: typeof payload.stop_reason === "string" ? payload.stop_reason : null,
+  };
+}
+
+export function buildCleanConfidenceText(sqc: SearchQueryCompiled): string {
+  const titleCase = (s: string) => s.replace(/\b\w/g, c => c.toUpperCase());
+  const parts: string[] = ["Searching for"];
+  if (sqc.requested_count) parts.push(String(sqc.requested_count));
+  parts.push(sqc.interpreted_query || "businesses");
+  if (sqc.interpreted_location) parts.push(`in ${titleCase(sqc.interpreted_location)}`);
+  return parts.join(" ") + ".";
+}
+
 export function parseLearningUpdate(payload: any): LearningUpdate | null {
   if (!payload || typeof payload !== "object") return null;
   if (!payload.query_shape_key || !Array.isArray(payload.changed_fields)) return null;

@@ -40,7 +40,8 @@ import { getGoogleQueryMode } from "@/components/GoogleQueryModeToggle";
 import { PreRunBanner } from "@/components/results/PreRunBanner";
 import { RunConfigOverridesPanel, type RunConfigOverrides } from "@/components/results/RunConfigOverridesPanel";
 import type { PolicyApplied, LearningUpdate } from "@/utils/policyFormatters";
-import { parsePolicyApplied, parseLearningUpdate } from "@/utils/policyFormatters";
+import { parsePolicyApplied, parseLearningUpdate, parseSearchQueryCompiled, buildCleanConfidenceText } from "@/utils/policyFormatters";
+import type { SearchQueryCompiled } from "@/utils/policyFormatters";
 
 type Message = ChatMessage & {
   id: string;
@@ -53,6 +54,7 @@ type Message = ChatMessage & {
   policySnapshot?: PolicySnapshot | null;
   policyApplied?: PolicyApplied | null;
   learningUpdate?: LearningUpdate | null;
+  searchQueryCompiled?: SearchQueryCompiled | null;
   runId?: string | null;
   hidden?: boolean;
   provisional?: boolean;
@@ -465,6 +467,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     policySnapshot: PolicySnapshot | null;
     policyApplied: PolicyApplied | null;
     learningUpdate: LearningUpdate | null;
+    searchQueryCompiled: SearchQueryCompiled | null;
     leadVerifications: LeadVerificationEntry[] | null;
   } {
     let vs: VerificationSummaryPayload | null = null;
@@ -472,9 +475,10 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     let policySnapshot: PolicySnapshot | null = null;
     let policyApplied: PolicyApplied | null = null;
     let learningUpdate: LearningUpdate | null = null;
+    let searchQueryCompiled: SearchQueryCompiled | null = null;
     let fallbackRules: string[] | null = null;
     let leadVerifications: LeadVerificationEntry[] | null = null;
-    if (!Array.isArray(rows)) return { vs, ce, policySnapshot, policyApplied, learningUpdate, leadVerifications };
+    if (!Array.isArray(rows)) return { vs, ce, policySnapshot, policyApplied, learningUpdate, searchQueryCompiled, leadVerifications };
     for (const row of rows) {
       if (row.type === 'verification_summary') {
         let p = row.payload_json;
@@ -520,6 +524,11 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         if (typeof p === 'string') { try { p = JSON.parse(p); } catch { p = null; } }
         learningUpdate = parseLearningUpdate(p);
       }
+      if (row.type === 'search_query_compiled' && !searchQueryCompiled) {
+        let p = row.payload_json;
+        if (typeof p === 'string') { try { p = JSON.parse(p); } catch { p = null; } }
+        searchQueryCompiled = parseSearchQueryCompiled(p);
+      }
       if (row.type === 'plan_update' && !fallbackRules) {
         let p = row.payload_json;
         if (typeof p === 'string') { try { p = JSON.parse(p); } catch { p = null; } }
@@ -534,7 +543,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         applied_policies: fallbackRules.map(r => ({ rule_text: r, source: 'plan' })),
       };
     }
-    return { vs, ce, policySnapshot, policyApplied, learningUpdate, leadVerifications };
+    return { vs, ce, policySnapshot, policyApplied, learningUpdate, searchQueryCompiled, leadVerifications };
   }
 
   function persistStructuredResult(payload: any) {
@@ -552,6 +561,15 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         body: JSON.stringify(payload),
       }).catch(() => {});
     } catch {}
+  }
+
+  function rewriteConfidenceMessages(sqc: SearchQueryCompiled) {
+    const cleanText = buildCleanConfidenceText(sqc);
+    setMessages(prev => prev.map(m => {
+      if (!m.isConfidence) return m;
+      if (m.content === cleanText) return m;
+      return { ...m, content: cleanText };
+    }));
   }
 
   const finalizeRunUIRef = useRef<(opts: { runId?: string | null; crid?: string | null; source: string }) => Promise<void>>();
@@ -615,7 +633,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
           }
         }
 
-        const { vs: provVs, ce: provCe, policySnapshot: provPs, policyApplied: provPa, learningUpdate: provLu, leadVerifications: provLv } = parseSiblingArtefacts(rows);
+        const { vs: provVs, ce: provCe, policySnapshot: provPs, policyApplied: provPa, learningUpdate: provLu, searchQueryCompiled: provSqc, leadVerifications: provLv } = parseSiblingArtefacts(rows);
         const towerRow = rows.find((r: any) => r.type === 'tower_judgement');
         let towerVerdict: string | null = null;
         let towerProxyUsed: string | null = null;
@@ -675,6 +693,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
           policySnapshot: provPs || undefined,
           policyApplied: provPa || undefined,
           learningUpdate: provLu || undefined,
+          searchQueryCompiled: provSqc || undefined,
           runId: effectiveRunId || undefined,
           provisional: false,
           towerVerdict,
@@ -682,6 +701,10 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
           towerStopTimePredicate,
         };
         upsertResultMessage(finalMsg);
+
+        if (provSqc) {
+          rewriteConfidenceMessages(provSqc);
+        }
 
         persistStructuredResult({
           messageId: finalMsg.id,
@@ -693,6 +716,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
           policySnapshot: provPs || null,
           policyApplied: provPa || null,
           learningUpdate: provLu || null,
+          searchQueryCompiled: provSqc || null,
         });
 
         cleanupRunState(effectiveKey);
@@ -705,7 +729,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
       }
       if (!parsed || typeof parsed !== 'object') return;
 
-      const { vs, ce, policySnapshot, policyApplied, learningUpdate, leadVerifications } = parseSiblingArtefacts(rows);
+      const { vs, ce, policySnapshot, policyApplied, learningUpdate, searchQueryCompiled, leadVerifications } = parseSiblingArtefacts(rows);
 
       const towerRow2 = rows.find((r: any) => r.type === 'tower_judgement');
       let dsPathTowerVerdict: string | null = null;
@@ -751,6 +775,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         policySnapshot: policySnapshot || undefined,
         policyApplied: policyApplied || undefined,
         learningUpdate: learningUpdate || undefined,
+        searchQueryCompiled: searchQueryCompiled || undefined,
         runId: effectiveRunId || undefined,
         provisional: false,
         towerVerdict: dsPathTowerVerdict,
@@ -758,6 +783,10 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         towerStopTimePredicate: dsPathStopTimePredicate,
       };
       upsertResultMessage(resultMessage);
+
+      if (searchQueryCompiled) {
+        rewriteConfidenceMessages(searchQueryCompiled);
+      }
 
       persistStructuredResult({
         messageId: resultMessage.id,
@@ -769,6 +798,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         policySnapshot: policySnapshot || null,
         policyApplied: policyApplied || null,
         learningUpdate: learningUpdate || null,
+        searchQueryCompiled: searchQueryCompiled || null,
       });
 
       cleanupRunState(effectiveKey);
@@ -1158,10 +1188,15 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
               base.policySnapshot = meta.policySnapshot || null;
               base.policyApplied = meta.policyApplied ? parsePolicyApplied(meta.policyApplied) : null;
               base.learningUpdate = meta.learningUpdate ? parseLearningUpdate(meta.learningUpdate) : null;
+              base.searchQueryCompiled = meta.searchQueryCompiled ? parseSearchQueryCompiled(meta.searchQueryCompiled) : null;
               base.runId = meta.runId || null;
             }
             if (base.role === 'assistant' && /^Searching for .+\.$/.test(base.content)) {
               base.isConfidence = true;
+              base.content = base.content
+                .replace(/\s+and\s+return\s+exactly\b[^.]*/gi, '')
+                .replace(/\s{2,}/g, ' ')
+                .trim();
             }
             return base;
           });
@@ -1540,10 +1575,15 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                 base.policySnapshot = meta.policySnapshot || null;
                 base.policyApplied = meta.policyApplied ? parsePolicyApplied(meta.policyApplied) : null;
                 base.learningUpdate = meta.learningUpdate ? parseLearningUpdate(meta.learningUpdate) : null;
+                base.searchQueryCompiled = meta.searchQueryCompiled ? parseSearchQueryCompiled(meta.searchQueryCompiled) : null;
                 base.runId = meta.runId || null;
               }
               if (base.role === 'assistant' && /^Searching for .+\.$/.test(base.content)) {
                 base.isConfidence = true;
+                base.content = base.content
+                  .replace(/\s+and\s+return\s+exactly\b[^.]*/gi, '')
+                  .replace(/\s{2,}/g, ' ')
+                  .trim();
               }
               return base;
             });
@@ -1790,7 +1830,11 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                   console.log('[Chat] Suppressed confidence bubble during clarification:', parsed.content);
                 } else {
                   const confidenceId = `confidence-${Date.now()}`;
-                  const normalizedIncoming = parsed.content.trim().toLowerCase().replace(/\s+/g, ' ').replace(/[.!?]+$/, '');
+                  const sanitisedContent = parsed.content
+                    .replace(/\s+and\s+return\s+exactly\b[^.]*/gi, '')
+                    .replace(/\s{2,}/g, ' ')
+                    .trim();
+                  const normalizedIncoming = sanitisedContent.toLowerCase().replace(/\s+/g, ' ').replace(/[.!?]+$/, '');
                   setMessages((prev) => {
                     const now = Date.now();
                     const lastConfidence = [...prev].reverse().find(m => m.isConfidence);
@@ -1805,7 +1849,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                       {
                         id: confidenceId,
                         role: 'assistant' as const,
-                        content: parsed.content,
+                        content: sanitisedContent,
                         timestamp: new Date(),
                         isConfidence: true,
                       },
@@ -2679,6 +2723,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                           policySnapshot={chatMessage.policySnapshot}
                           policyApplied={chatMessage.policyApplied}
                           learningUpdate={chatMessage.learningUpdate}
+                          searchQueryCompiled={chatMessage.searchQueryCompiled}
                           provisional={chatMessage.provisional}
                           towerVerdict={chatMessage.towerVerdict}
                           towerProxyUsed={chatMessage.towerProxyUsed}

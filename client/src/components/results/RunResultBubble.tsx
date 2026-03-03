@@ -9,7 +9,7 @@ import { emitTelemetry, type TelemetryEventType } from "@/api/telemetryClient";
 import { StopReasonBadge } from "@/components/results/StopReasonBadge";
 import { FeedbackButtons } from "@/components/results/FeedbackButtons";
 import { PlanVersionTimeline, type PlanVersion } from "@/components/results/PlanVersionTimeline";
-import type { PolicyApplied, LearningUpdate } from "@/utils/policyFormatters";
+import type { PolicyApplied, LearningUpdate, SearchQueryCompiled } from "@/utils/policyFormatters";
 import { getSourceBadge, getPolicyKnobLabel, formatPolicyValue, formatMetricsTrigger } from "@/utils/policyFormatters";
 
 export interface AppliedPolicy {
@@ -37,6 +37,7 @@ export interface RunResultBubbleProps {
   policySnapshot?: PolicySnapshot | null;
   policyApplied?: PolicyApplied | null;
   learningUpdate?: LearningUpdate | null;
+  searchQueryCompiled?: SearchQueryCompiled | null;
   provisional?: boolean;
   towerVerdict?: string | null;
   towerProxyUsed?: string | null;
@@ -746,6 +747,61 @@ function TrustErrorBlock({ verdict, runId }: { verdict: string; runId?: string |
   );
 }
 
+function formatStopReason(reason: string): string {
+  const map: Record<string, string> = {
+    budget_exhausted: "Search budget exhausted",
+    no_more_results: "No more results available",
+    radius_limit: "Radius limit reached",
+    target_met: "Target met",
+    timeout: "Search timed out",
+    manual_stop: "Manually stopped",
+    tower_stopped: "Quality check stopped run",
+    run_halted: "Run halted",
+  };
+  return map[reason] || reason.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+}
+
+function SearchSummaryBlock({ sqc }: { sqc: SearchQueryCompiled }) {
+  const titleCase = (s: string) => s.replace(/\b\w/g, c => c.toUpperCase());
+  const triedParts: string[] = [];
+  if (sqc.radius_escalated) triedParts.push("Radius escalated");
+  if (sqc.pages_budget_used != null) triedParts.push(`${sqc.pages_budget_used} page${sqc.pages_budget_used !== 1 ? "s" : ""} searched`);
+  if (sqc.query_broadened) triedParts.push("Query broadened");
+
+  const isUnderfilled = sqc.requested_count != null && sqc.final_returned_count != null && sqc.final_returned_count < sqc.requested_count;
+
+  return (
+    <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs space-y-1" data-testid="search-summary">
+      <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-muted-foreground">
+        {sqc.interpreted_location && (
+          <span><span className="font-medium text-foreground">Location:</span> {titleCase(sqc.interpreted_location)}</span>
+        )}
+        {sqc.interpreted_query && (
+          <span><span className="font-medium text-foreground">Query:</span> {sqc.interpreted_query}</span>
+        )}
+        {sqc.requested_count != null && (
+          <span><span className="font-medium text-foreground">Target:</span> {sqc.requested_count}</span>
+        )}
+        {sqc.final_returned_count != null && (
+          <span className={isUnderfilled ? "text-amber-600 dark:text-amber-400" : ""}>
+            <span className="font-medium text-foreground">Got:</span> {sqc.final_returned_count}
+          </span>
+        )}
+      </div>
+      {triedParts.length > 0 && (
+        <p className="text-muted-foreground">
+          <span className="font-medium text-foreground">Tried:</span> {triedParts.join(" · ")}
+        </p>
+      )}
+      {sqc.stop_reason && (
+        <p className="text-muted-foreground">
+          <span className="font-medium text-foreground">Stop reason:</span> {formatStopReason(sqc.stop_reason)}
+        </p>
+      )}
+    </div>
+  );
+}
+
 export default function RunResultBubble({
   deliverySummary,
   verificationSummary,
@@ -755,6 +811,7 @@ export default function RunResultBubble({
   policySnapshot,
   policyApplied,
   learningUpdate,
+  searchQueryCompiled,
   provisional = false,
   towerVerdict,
   towerProxyUsed,
@@ -857,6 +914,10 @@ export default function RunResultBubble({
             )}
           </div>
         </div>
+      )}
+
+      {!provisional && searchQueryCompiled && (
+        <SearchSummaryBlock sqc={searchQueryCompiled} />
       )}
 
       {provisional && allLeads.length > 0 && (
