@@ -2759,7 +2759,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                 if (isClarifyingForRun && clarifyContext.constraintContract && !clarifyContext.constraintContract.can_execute) {
                   return null;
                 }
-                const allConfidenceMessages = displayMessages.filter(m => 'isConfidence' in m && (m as Message).isConfidence);
+                const allConfidenceMessages = (Array.isArray(messages) ? messages : []).filter(m => 'isConfidence' in m && (m as Message).isConfidence);
                 const confidenceIndex = allConfidenceMessages.findIndex(m => m.id === chatMessage.id);
                 const totalConfidence = allConfidenceMessages.length;
                 const stepLabel = totalConfidence > 1 ? `Verification step ${confidenceIndex + 1}/${totalConfidence}` : null;
