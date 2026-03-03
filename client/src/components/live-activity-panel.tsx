@@ -1344,8 +1344,28 @@ function EvidenceSection({ clientRequestId, runId, preloadedArtefacts }: { clien
     };
 
     if (preloadedArtefacts && preloadedArtefacts.length > 0) {
-      const tj = preloadedArtefacts.find(r => r.type === 'tower_judgement');
-      if (tj) setJudgementArtefact(tj);
+      const tjs = preloadedArtefacts.filter(r => r.type === 'tower_judgement');
+      if (tjs.length > 0) {
+        const last = tjs[tjs.length - 1];
+        const hasAnyFail = tjs.some(r => {
+          let p = r.payload_json;
+          if (typeof p === 'string') { try { p = JSON.parse(p); } catch { return false; } }
+          const v = (p?.verdict || '').toLowerCase();
+          return v === 'fail' || v === 'error';
+        });
+        if (hasAnyFail) {
+          let lp = last.payload_json;
+          if (typeof lp === 'string') { try { lp = JSON.parse(lp); } catch { lp = {}; } }
+          const lv = ((lp as any)?.verdict || '').toLowerCase();
+          if (lv === 'pass' || lv === 'accept' || lv === 'accept_with_unverified') {
+            setJudgementArtefact({ ...last, payload_json: { ...(typeof lp === 'object' ? lp : {}), verdict: 'fail' } });
+          } else {
+            setJudgementArtefact(last);
+          }
+        } else {
+          setJudgementArtefact(last);
+        }
+      }
     }
 
     if (clientRequestId) {
@@ -1365,8 +1385,28 @@ function EvidenceSection({ clientRequestId, runId, preloadedArtefacts }: { clien
         fetch(artefactUrl)
           .then(res => res.ok ? res.json() : [])
           .then((rows: Artefact[]) => {
-            const tj = rows.find(r => r.type === 'tower_judgement');
-            if (tj) setJudgementArtefact(tj);
+            const tjs = rows.filter(r => r.type === 'tower_judgement');
+            if (tjs.length > 0) {
+              const last = tjs[tjs.length - 1];
+              const hasAnyFail = tjs.some(r => {
+                let p = r.payload_json;
+                if (typeof p === 'string') { try { p = JSON.parse(p); } catch { return false; } }
+                const v = (p?.verdict || '').toLowerCase();
+                return v === 'fail' || v === 'error';
+              });
+              if (hasAnyFail) {
+                let lp = last.payload_json;
+                if (typeof lp === 'string') { try { lp = JSON.parse(lp); } catch { lp = {}; } }
+                const lv = ((lp as any)?.verdict || '').toLowerCase();
+                if (lv === 'pass' || lv === 'accept' || lv === 'accept_with_unverified') {
+                  setJudgementArtefact({ ...last, payload_json: { ...(typeof lp === 'object' ? lp : {}), verdict: 'fail' } });
+                } else {
+                  setJudgementArtefact(last);
+                }
+              } else {
+                setJudgementArtefact(last);
+              }
+            }
           })
           .catch(() => {});
       }
@@ -1532,7 +1572,8 @@ function ResultsModal({ clientRequestId, runId, open, onOpenChange }: { clientRe
           <div className="text-sm text-muted-foreground py-8 text-center">No results yet.</div>
         )}
         {!loading && !error && artefacts.length > 0 && (() => {
-          const verdictArtefact = artefacts.find(a => a.type === 'tower_judgement');
+          const towerArtefacts = artefacts.filter(a => a.type === 'tower_judgement');
+          const verdictArtefact = towerArtefacts.length > 0 ? towerArtefacts[towerArtefacts.length - 1] : undefined;
           const verdictSource = verdictArtefact || artefacts.find(a => {
             const p = parsePayload(a.payload_json);
             return p?.verdict && (a.type === 'run_summary' || a.type === 'plan_update' || p?.tower_judgement_received);
@@ -1551,7 +1592,20 @@ function ResultsModal({ clientRequestId, runId, open, onOpenChange }: { clientRe
           const targetCount = leadsPayload?.target_count ?? leadsPayload?.requested ?? leadsPayload?.requested_count ?? null;
 
           const summaryPayload = artefacts.find(a => a.type === 'run_summary') ? parsePayload(artefacts.find(a => a.type === 'run_summary')!.payload_json) : null;
-          const towerPayload = verdictArtefact ? parsePayload(verdictArtefact.payload_json) : null;
+          let towerPayload = verdictArtefact ? parsePayload(verdictArtefact.payload_json) : null;
+          if (towerPayload && towerArtefacts.length > 1) {
+            const anyFail = towerArtefacts.some(a => {
+              const tp = parsePayload(a.payload_json);
+              const tv = (tp?.verdict || '').toLowerCase();
+              return tv === 'fail' || tv === 'error';
+            });
+            if (anyFail) {
+              const lv = (towerPayload.verdict || '').toLowerCase();
+              if (lv === 'pass' || lv === 'accept' || lv === 'accept_with_unverified') {
+                towerPayload = { ...towerPayload, verdict: 'fail' };
+              }
+            }
+          }
 
           const cvlConstraints = artefacts.find(a => a.type === 'constraints_extracted');
           const cvlVerification = artefacts.find(a => a.type === 'verification_summary');
@@ -2989,18 +3043,27 @@ function deriveTowerAwareStatus(events: StreamEvent[], serverTerminalState: 'com
 
   if (artefacts?.length) {
     isLeadRun = artefacts.some(a => LEAD_ARTEFACT_TYPES.includes(a.type));
-    const towerArtefact = artefacts.find(a => a.type === 'tower_judgement');
-    if (towerArtefact) {
+    const towerArtefactList = artefacts.filter(a => a.type === 'tower_judgement');
+    if (towerArtefactList.length > 0) {
       hasTowerJudgement = true;
       hasTowerJudgementArtefact = true;
-      const p = towerArtefact.payload_json;
-      if (p?.verdict && typeof p.verdict === 'string') {
-        lastTowerVerdict = p.verdict.toLowerCase();
+      let anyFail = false;
+      for (const ta of towerArtefactList) {
+        const tp = ta.payload_json;
+        const tv = (tp?.verdict || '').toLowerCase();
+        if (tv === 'fail' || tv === 'error') anyFail = true;
       }
-      if (p?.rationale && typeof p.rationale === 'string') {
-        lastTowerRationale = p.rationale;
-      } else if (p?.reason && typeof p.reason === 'string') {
-        lastTowerRationale = p.reason;
+      const lastTa = towerArtefactList[towerArtefactList.length - 1];
+      const lp = lastTa.payload_json;
+      let resolvedVerdict = (lp?.verdict && typeof lp.verdict === 'string') ? lp.verdict.toLowerCase() : '';
+      if (anyFail && (resolvedVerdict === 'pass' || resolvedVerdict === 'accept' || resolvedVerdict === 'accept_with_unverified')) {
+        resolvedVerdict = 'fail';
+      }
+      lastTowerVerdict = resolvedVerdict;
+      if (lp?.rationale && typeof lp.rationale === 'string') {
+        lastTowerRationale = lp.rationale;
+      } else if (lp?.reason && typeof lp.reason === 'string') {
+        lastTowerRationale = lp.reason;
       }
     }
   }

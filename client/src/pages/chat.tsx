@@ -461,6 +461,41 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     }
   }, [user.id, user.email, queryClient]);
 
+  function resolveAuthoritativeTower(rows: any[]): {
+    verdict: string | null;
+    proxyUsed: string | null;
+    stopTimePredicate: boolean;
+    hasAnyFail: boolean;
+  } {
+    const towerRows = rows.filter((r: any) => r.type === 'tower_judgement');
+    if (towerRows.length === 0) return { verdict: null, proxyUsed: null, stopTimePredicate: false, hasAnyFail: false };
+
+    let hasAnyFail = false;
+    let lastVerdict: string | null = null;
+    let lastProxyUsed: string | null = null;
+    let lastStopTimePredicate = false;
+
+    for (const row of towerRows) {
+      let p = row.payload_json;
+      if (typeof p === 'string') { try { p = JSON.parse(p); } catch { continue; } }
+      if (!p || typeof p !== 'object') continue;
+      const v = (p.verdict || '').toLowerCase();
+      if (v === 'fail' || v === 'error') hasAnyFail = true;
+      lastVerdict = p.verdict || null;
+      lastProxyUsed = p.proxy_used || null;
+      lastStopTimePredicate = p.stop_reason === 'time_predicate' || p.constraint_type === 'time_predicate';
+    }
+
+    if (hasAnyFail && lastVerdict) {
+      const lv = lastVerdict.toLowerCase();
+      if (lv === 'pass' || lv === 'accept' || lv === 'accept_with_unverified') {
+        lastVerdict = 'fail';
+      }
+    }
+
+    return { verdict: lastVerdict, proxyUsed: lastProxyUsed, stopTimePredicate: lastStopTimePredicate, hasAnyFail };
+  }
+
   function parseSiblingArtefacts(rows: any[]): {
     vs: VerificationSummaryPayload | null;
     ce: ConstraintsExtractedPayload | null;
@@ -634,19 +669,10 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         }
 
         const { vs: provVs, ce: provCe, policySnapshot: provPs, policyApplied: provPa, learningUpdate: provLu, searchQueryCompiled: provSqc, leadVerifications: provLv } = parseSiblingArtefacts(rows);
-        const towerRow = rows.find((r: any) => r.type === 'tower_judgement');
-        let towerVerdict: string | null = null;
-        let towerProxyUsed: string | null = null;
-        let towerStopTimePredicate = false;
-        if (towerRow) {
-          let tp = towerRow.payload_json;
-          if (typeof tp === 'string') { try { tp = JSON.parse(tp); } catch {} }
-          if (tp && typeof tp === 'object') {
-            towerVerdict = tp.verdict || null;
-            towerProxyUsed = tp.proxy_used || null;
-            if (tp.stop_reason === 'time_predicate' || tp.constraint_type === 'time_predicate') towerStopTimePredicate = true;
-          }
-        }
+        const tower = resolveAuthoritativeTower(rows);
+        const towerVerdict = tower.verdict;
+        const towerProxyUsed = tower.proxyUsed;
+        const towerStopTimePredicate = tower.stopTimePredicate;
 
         let synthesisedDs: DeliverySummary;
         if (provisionalLeads.length > 0) {
@@ -731,19 +757,10 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
 
       const { vs, ce, policySnapshot, policyApplied, learningUpdate, searchQueryCompiled, leadVerifications } = parseSiblingArtefacts(rows);
 
-      const towerRow2 = rows.find((r: any) => r.type === 'tower_judgement');
-      let dsPathTowerVerdict: string | null = null;
-      let dsPathProxyUsed: string | null = null;
-      let dsPathStopTimePredicate = false;
-      if (towerRow2) {
-        let tp2 = towerRow2.payload_json;
-        if (typeof tp2 === 'string') { try { tp2 = JSON.parse(tp2); } catch {} }
-        if (tp2 && typeof tp2 === 'object') {
-          dsPathTowerVerdict = tp2.verdict || null;
-          dsPathProxyUsed = tp2.proxy_used || null;
-          if (tp2.stop_reason === 'time_predicate' || tp2.constraint_type === 'time_predicate') dsPathStopTimePredicate = true;
-        }
-      }
+      const tower2 = resolveAuthoritativeTower(rows);
+      const dsPathTowerVerdict = tower2.verdict;
+      const dsPathProxyUsed = tower2.proxyUsed;
+      const dsPathStopTimePredicate = tower2.stopTimePredicate;
 
       const dsExact = Array.isArray(parsed.delivered_exact) ? parsed.delivered_exact.length : 0;
       const dsClosest = Array.isArray(parsed.delivered_closest) ? parsed.delivered_closest.length : 0;
