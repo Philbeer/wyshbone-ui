@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { MapPin, Phone, Globe, CheckCircle2, CircleDot, OctagonX, HelpCircle, AlertTriangle, ChevronDown, ChevronRight, BookOpen, Copy, Loader2, RefreshCw, Radar } from "lucide-react";
+import { MapPin, Phone, Globe, CheckCircle2, CircleDot, OctagonX, HelpCircle, AlertTriangle, ChevronDown, ChevronRight, BookOpen, Copy, Loader2, RefreshCw, Radar, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { resolveCanonicalStatus, type CanonicalStatus } from "@/utils/deliveryStatus";
@@ -9,6 +9,8 @@ import { emitTelemetry, type TelemetryEventType } from "@/api/telemetryClient";
 import { StopReasonBadge } from "@/components/results/StopReasonBadge";
 import { FeedbackButtons } from "@/components/results/FeedbackButtons";
 import { PlanVersionTimeline, type PlanVersion } from "@/components/results/PlanVersionTimeline";
+import type { PolicyApplied, LearningUpdate } from "@/utils/policyFormatters";
+import { getSourceBadge, getPolicyKnobLabel, formatPolicyValue, formatMetricsTrigger } from "@/utils/policyFormatters";
 
 export interface AppliedPolicy {
   policy_id?: string;
@@ -33,6 +35,8 @@ export interface RunResultBubbleProps {
   leadVerifications?: LeadVerificationEntry[] | null;
   runId?: string | null;
   policySnapshot?: PolicySnapshot | null;
+  policyApplied?: PolicyApplied | null;
+  learningUpdate?: LearningUpdate | null;
   provisional?: boolean;
   towerVerdict?: string | null;
   towerProxyUsed?: string | null;
@@ -517,41 +521,87 @@ function NextActionButtons({
   );
 }
 
-function LearningSection({ snapshot }: { snapshot: PolicySnapshot }) {
+function AppliedPolicySection({ policyApplied, snapshot }: { policyApplied?: PolicyApplied | null; snapshot?: PolicySnapshot | null }) {
   const [detailsOpen, setDetailsOpen] = useState(false);
 
-  const lines = (snapshot.why_short || '')
+  const hasPolicyApplied = policyApplied && policyApplied.final_policy && Object.keys(policyApplied.final_policy).length > 0;
+  const hasSnapshot = snapshot && (snapshot.why_short || (snapshot.max_replans != null && snapshot.max_replans !== DEFAULT_MAX_REPLANS));
+
+  if (!hasPolicyApplied && !hasSnapshot) return null;
+
+  const learnedUsed = policyApplied?.learned_used === true;
+
+  const displayKnobs = ["result_count", "verification_level", "search_budget_pages", "radius_escalation"];
+  const fp = policyApplied?.final_policy || {};
+  const sources = policyApplied?.knob_sources || {};
+  const knobs = displayKnobs.filter(k => fp[k] != null);
+
+  const snapshotLines = (snapshot?.why_short || '')
     .split('\n')
     .map(l => l.trim())
     .filter(Boolean)
     .slice(0, 3);
 
-  const showMaxReplans =
-    snapshot.max_replans != null && snapshot.max_replans !== DEFAULT_MAX_REPLANS;
+  const showMaxReplans = snapshot?.max_replans != null && snapshot.max_replans !== DEFAULT_MAX_REPLANS;
 
-  if (lines.length === 0 && !showMaxReplans) return null;
-
-  const hasDetails =
-    (Array.isArray(snapshot.applied_policies) && snapshot.applied_policies.length > 0) ||
-    !!snapshot.max_replans_evidence;
+  const hasExpandableDetails =
+    (Array.isArray(snapshot?.applied_policies) && snapshot!.applied_policies!.length > 0) ||
+    !!snapshot?.max_replans_evidence;
 
   return (
     <div className="space-y-1.5 pt-1">
       <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
         <BookOpen className="h-3 w-3" />
-        Learning
+        Applied policy
       </h4>
-      <div className="space-y-0.5">
-        {lines.map((line, i) => (
-          <p key={i} className="text-xs text-foreground/80 leading-snug">{line}</p>
-        ))}
-        {showMaxReplans && (
-          <p className="text-xs text-foreground/80 leading-snug">
-            Max replans: {snapshot.max_replans} <span className="text-amber-600 dark:text-amber-400 font-medium">(learned)</span>
-          </p>
-        )}
-      </div>
-      {hasDetails && (
+
+      {learnedUsed && (
+        <p className="text-[10px] text-amber-600 dark:text-amber-400 font-medium">
+          Learned settings applied
+          {policyApplied!.source_run_ids && policyApplied!.source_run_ids.length > 0 && (
+            <span className="font-normal text-muted-foreground ml-1">
+              (from {policyApplied!.source_run_ids.length} prior run{policyApplied!.source_run_ids.length > 1 ? "s" : ""})
+            </span>
+          )}
+        </p>
+      )}
+
+      {policyApplied && !learnedUsed && (
+        <p className="text-[10px] text-muted-foreground">Using default settings</p>
+      )}
+
+      {knobs.length > 0 && (
+        <div className="flex flex-wrap gap-x-3 gap-y-1">
+          {knobs.map(k => {
+            const badge = getSourceBadge(sources[k] || "default");
+            return (
+              <span key={k} className="inline-flex items-center gap-1 text-[11px] text-foreground/80">
+                <span>{getPolicyKnobLabel(k)}:</span>
+                <span className="font-medium">{formatPolicyValue(fp[k])}</span>
+                <span className={cn("inline-flex items-center px-1 py-px rounded text-[9px] font-medium", badge.className)}>
+                  {badge.label}
+                </span>
+              </span>
+            );
+          })}
+        </div>
+      )}
+
+      {snapshotLines.length > 0 && (
+        <div className="space-y-0.5">
+          {snapshotLines.map((line, i) => (
+            <p key={i} className="text-xs text-foreground/80 leading-snug">{line}</p>
+          ))}
+        </div>
+      )}
+
+      {showMaxReplans && (
+        <p className="text-xs text-foreground/80 leading-snug">
+          Replan ceiling: {snapshot!.max_replans}
+        </p>
+      )}
+
+      {hasExpandableDetails && (
         <button
           className="inline-flex items-center gap-0.5 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
           onClick={() => setDetailsOpen(!detailsOpen)}
@@ -562,18 +612,56 @@ function LearningSection({ snapshot }: { snapshot: PolicySnapshot }) {
       )}
       {detailsOpen && (
         <div className="ml-3 space-y-1 border-l border-border pl-2">
-          {snapshot.applied_policies?.map((ap, i) => (
+          {snapshot?.applied_policies?.map((ap, i) => (
             <div key={i} className="text-[11px] text-muted-foreground leading-snug">
               {ap.rule_text || ap.policy_id || `Policy ${i + 1}`}
               {ap.source && <span className="ml-1 opacity-60">({ap.source})</span>}
             </div>
           ))}
-          {snapshot.max_replans_evidence && (
+          {snapshot?.max_replans_evidence && (
             <div className="text-[11px] text-muted-foreground leading-snug">
               {snapshot.max_replans_evidence}
             </div>
           )}
         </div>
+      )}
+    </div>
+  );
+}
+
+function LearningDeltaSection({ learningUpdate }: { learningUpdate: LearningUpdate }) {
+  if (!learningUpdate.changed_fields || learningUpdate.changed_fields.length === 0) return null;
+
+  const triggerText = formatMetricsTrigger(learningUpdate.metrics_trigger);
+
+  return (
+    <div className="space-y-1.5 pt-1">
+      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+        <ArrowRight className="h-3 w-3" />
+        What changed since last time
+      </h4>
+
+      <div className="space-y-1">
+        {learningUpdate.changed_fields.map((delta, i) => (
+          <div key={i} className="flex items-center gap-1.5 text-[11px] text-foreground/80">
+            <span className="font-medium">{getPolicyKnobLabel(delta.field)}:</span>
+            <span className="text-muted-foreground">{formatPolicyValue(delta.before)}</span>
+            <ArrowRight className="h-2.5 w-2.5 text-muted-foreground shrink-0" />
+            <span className="font-medium">{formatPolicyValue(delta.after)}</span>
+          </div>
+        ))}
+      </div>
+
+      {learningUpdate.tower_reason && (
+        <p className="text-[11px] text-muted-foreground leading-snug">
+          {learningUpdate.tower_reason}
+        </p>
+      )}
+
+      {triggerText && (
+        <p className="text-[10px] text-muted-foreground/70 leading-snug">
+          Trigger: {triggerText}
+        </p>
       )}
     </div>
   );
@@ -665,6 +753,8 @@ export default function RunResultBubble({
   leadVerifications,
   runId,
   policySnapshot,
+  policyApplied,
+  learningUpdate,
   provisional = false,
   towerVerdict,
   towerProxyUsed,
@@ -874,8 +964,12 @@ export default function RunResultBubble({
         <PlanVersionTimeline versions={planVersions} />
       )}
 
-      {!provisional && policySnapshot && (policySnapshot.why_short || (policySnapshot.max_replans != null && policySnapshot.max_replans !== DEFAULT_MAX_REPLANS)) && (
-        <LearningSection snapshot={policySnapshot} />
+      {!provisional && (policyApplied || (policySnapshot && (policySnapshot.why_short || (policySnapshot.max_replans != null && policySnapshot.max_replans !== DEFAULT_MAX_REPLANS)))) && (
+        <AppliedPolicySection policyApplied={policyApplied} snapshot={policySnapshot} />
+      )}
+
+      {!provisional && learningUpdate && (
+        <LearningDeltaSection learningUpdate={learningUpdate} />
       )}
 
       {!provisional && <NextActionButtons ds={deliverySummary} canonical={effectiveCanonical} runId={runId} hasTarget={target.hasTarget} />}

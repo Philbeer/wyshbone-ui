@@ -528,7 +528,7 @@ function ExplainRunModal({
           <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/30 p-3 space-y-1.5">
             <h4 className="text-xs font-semibold text-amber-700 dark:text-amber-300 uppercase tracking-wide flex items-center gap-1.5">
               <BookOpen className="h-3 w-3" />
-              Learning
+              Applied policy
             </h4>
             <div className="space-y-0.5">
               {policyLines.map((line, i) => (
@@ -536,7 +536,7 @@ function ExplainRunModal({
               ))}
               {showMaxReplans && (
                 <p className="text-xs text-foreground/80 leading-snug">
-                  Max replans: {policySnapshot!.max_replans} <span className="text-amber-600 dark:text-amber-400 font-medium">(learned)</span>
+                  Replan ceiling: {policySnapshot!.max_replans}
                 </p>
               )}
             </div>

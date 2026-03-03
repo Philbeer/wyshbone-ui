@@ -39,6 +39,8 @@ import { resolveCanonicalStatus, STATUS_CONFIG } from "@/utils/deliveryStatus";
 import { getGoogleQueryMode } from "@/components/GoogleQueryModeToggle";
 import { PreRunBanner } from "@/components/results/PreRunBanner";
 import { RunConfigOverridesPanel, type RunConfigOverrides } from "@/components/results/RunConfigOverridesPanel";
+import type { PolicyApplied, LearningUpdate } from "@/utils/policyFormatters";
+import { parsePolicyApplied, parseLearningUpdate } from "@/utils/policyFormatters";
 
 type Message = ChatMessage & {
   id: string;
@@ -49,6 +51,8 @@ type Message = ChatMessage & {
   constraintsExtracted?: ConstraintsExtractedPayload | null;
   leadVerifications?: LeadVerificationEntry[] | null;
   policySnapshot?: PolicySnapshot | null;
+  policyApplied?: PolicyApplied | null;
+  learningUpdate?: LearningUpdate | null;
   runId?: string | null;
   hidden?: boolean;
   provisional?: boolean;
@@ -348,6 +352,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     ignore_learned_policy: false,
   });
   const [preRunPolicySnapshot, setPreRunPolicySnapshot] = useState<PolicySnapshot | null>(null);
+  const [preRunPolicyApplied, setPreRunPolicyApplied] = useState<PolicyApplied | null>(null);
   const [showPreRunBanner, setShowPreRunBanner] = useState(false);
 
   const lastSentQueryRef = useRef<string | null>(null);
@@ -458,14 +463,18 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     vs: VerificationSummaryPayload | null;
     ce: ConstraintsExtractedPayload | null;
     policySnapshot: PolicySnapshot | null;
+    policyApplied: PolicyApplied | null;
+    learningUpdate: LearningUpdate | null;
     leadVerifications: LeadVerificationEntry[] | null;
   } {
     let vs: VerificationSummaryPayload | null = null;
     let ce: ConstraintsExtractedPayload | null = null;
     let policySnapshot: PolicySnapshot | null = null;
+    let policyApplied: PolicyApplied | null = null;
+    let learningUpdate: LearningUpdate | null = null;
     let fallbackRules: string[] | null = null;
     let leadVerifications: LeadVerificationEntry[] | null = null;
-    if (!Array.isArray(rows)) return { vs, ce, policySnapshot, leadVerifications };
+    if (!Array.isArray(rows)) return { vs, ce, policySnapshot, policyApplied, learningUpdate, leadVerifications };
     for (const row of rows) {
       if (row.type === 'verification_summary') {
         let p = row.payload_json;
@@ -501,6 +510,16 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
           }
         }
       }
+      if (row.type === 'policy_applied' && !policyApplied) {
+        let p = row.payload_json;
+        if (typeof p === 'string') { try { p = JSON.parse(p); } catch { p = null; } }
+        policyApplied = parsePolicyApplied(p);
+      }
+      if (row.type === 'learning_update' && !learningUpdate) {
+        let p = row.payload_json;
+        if (typeof p === 'string') { try { p = JSON.parse(p); } catch { p = null; } }
+        learningUpdate = parseLearningUpdate(p);
+      }
       if (row.type === 'plan_update' && !fallbackRules) {
         let p = row.payload_json;
         if (typeof p === 'string') { try { p = JSON.parse(p); } catch { p = null; } }
@@ -515,7 +534,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         applied_policies: fallbackRules.map(r => ({ rule_text: r, source: 'plan' })),
       };
     }
-    return { vs, ce, policySnapshot, leadVerifications };
+    return { vs, ce, policySnapshot, policyApplied, learningUpdate, leadVerifications };
   }
 
   function persistStructuredResult(payload: any) {
@@ -596,7 +615,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
           }
         }
 
-        const { vs: provVs, ce: provCe, policySnapshot: provPs, leadVerifications: provLv } = parseSiblingArtefacts(rows);
+        const { vs: provVs, ce: provCe, policySnapshot: provPs, policyApplied: provPa, learningUpdate: provLu, leadVerifications: provLv } = parseSiblingArtefacts(rows);
         const towerRow = rows.find((r: any) => r.type === 'tower_judgement');
         let towerVerdict: string | null = null;
         let towerProxyUsed: string | null = null;
@@ -654,6 +673,8 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
           constraintsExtracted: provCe,
           leadVerifications: provLv,
           policySnapshot: provPs || undefined,
+          policyApplied: provPa || undefined,
+          learningUpdate: provLu || undefined,
           runId: effectiveRunId || undefined,
           provisional: false,
           towerVerdict,
@@ -670,6 +691,8 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
           constraintsExtracted: provCe || null,
           leadVerifications: provLv || null,
           policySnapshot: provPs || null,
+          policyApplied: provPa || null,
+          learningUpdate: provLu || null,
         });
 
         cleanupRunState(effectiveKey);
@@ -682,7 +705,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
       }
       if (!parsed || typeof parsed !== 'object') return;
 
-      const { vs, ce, policySnapshot, leadVerifications } = parseSiblingArtefacts(rows);
+      const { vs, ce, policySnapshot, policyApplied, learningUpdate, leadVerifications } = parseSiblingArtefacts(rows);
 
       const towerRow2 = rows.find((r: any) => r.type === 'tower_judgement');
       let dsPathTowerVerdict: string | null = null;
@@ -726,6 +749,8 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         constraintsExtracted: ce,
         leadVerifications,
         policySnapshot: policySnapshot || undefined,
+        policyApplied: policyApplied || undefined,
+        learningUpdate: learningUpdate || undefined,
         runId: effectiveRunId || undefined,
         provisional: false,
         towerVerdict: dsPathTowerVerdict,
@@ -742,6 +767,8 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         constraintsExtracted: ce || null,
         leadVerifications: leadVerifications || null,
         policySnapshot: policySnapshot || null,
+        policyApplied: policyApplied || null,
+        learningUpdate: learningUpdate || null,
       });
 
       cleanupRunState(effectiveKey);
@@ -762,6 +789,9 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
       setShowPreRunBanner(false);
       if (msg.policySnapshot) {
         setPreRunPolicySnapshot(msg.policySnapshot);
+      }
+      if (msg.policyApplied) {
+        setPreRunPolicyApplied(msg.policyApplied);
       }
     }
     setMessages((prev) => {
@@ -1126,6 +1156,8 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
               base.verificationSummary = meta.verificationSummary || null;
               base.constraintsExtracted = meta.constraintsExtracted || null;
               base.policySnapshot = meta.policySnapshot || null;
+              base.policyApplied = meta.policyApplied ? parsePolicyApplied(meta.policyApplied) : null;
+              base.learningUpdate = meta.learningUpdate ? parseLearningUpdate(meta.learningUpdate) : null;
               base.runId = meta.runId || null;
             }
             if (base.role === 'assistant' && /^Searching for .+\.$/.test(base.content)) {
@@ -1506,6 +1538,8 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                 base.constraintsExtracted = meta.constraintsExtracted || null;
                 base.leadVerifications = meta.leadVerifications || null;
                 base.policySnapshot = meta.policySnapshot || null;
+                base.policyApplied = meta.policyApplied ? parsePolicyApplied(meta.policyApplied) : null;
+                base.learningUpdate = meta.learningUpdate ? parseLearningUpdate(meta.learningUpdate) : null;
                 base.runId = meta.runId || null;
               }
               if (base.role === 'assistant' && /^Searching for .+\.$/.test(base.content)) {
@@ -1789,6 +1823,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                 setLastLane("run");
                 setShowPreRunBanner(true);
                 setPreRunPolicySnapshot(null);
+                setPreRunPolicyApplied(null);
                 console.log('🤖 Supervisor task created:', parsed.supervisorTaskId, 'runId=', supervisorRunIdRef.current, 'crid=', clientRequestId);
                 inFlightSupervisorRunsRef.current.set(clientRequestId, {
                   runId: supervisorRunIdRef.current,
@@ -2642,6 +2677,8 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                           leadVerifications={chatMessage.leadVerifications}
                           runId={chatMessage.runId}
                           policySnapshot={chatMessage.policySnapshot}
+                          policyApplied={chatMessage.policyApplied}
+                          learningUpdate={chatMessage.learningUpdate}
                           provisional={chatMessage.provisional}
                           towerVerdict={chatMessage.towerVerdict}
                           towerProxyUsed={chatMessage.towerProxyUsed}
@@ -2722,6 +2759,10 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                 if (isClarifyingForRun && clarifyContext.constraintContract && !clarifyContext.constraintContract.can_execute) {
                   return null;
                 }
+                const allConfidenceMessages = displayMessages.filter(m => 'isConfidence' in m && (m as Message).isConfidence);
+                const confidenceIndex = allConfidenceMessages.findIndex(m => m.id === chatMessage.id);
+                const totalConfidence = allConfidenceMessages.length;
+                const stepLabel = totalConfidence > 1 ? `Verification step ${confidenceIndex + 1}/${totalConfidence}` : null;
                 return (
                   <div
                     key={chatMessage.id}
@@ -2735,7 +2776,12 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                       <div className="rounded-lg px-4 py-2.5 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/50">
                         <div className="flex items-center gap-2">
                           <Search className="w-4 h-4 text-blue-500 dark:text-blue-400 flex-shrink-0" />
-                          <p className="text-[14px] leading-relaxed text-blue-700 dark:text-blue-300 font-medium">{chatMessage.content}</p>
+                          <div>
+                            {stepLabel && (
+                              <p className="text-[10px] text-blue-500 dark:text-blue-400 font-medium mb-0.5">{stepLabel}</p>
+                            )}
+                            <p className="text-[14px] leading-relaxed text-blue-700 dark:text-blue-300 font-medium">{chatMessage.content}</p>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -2894,7 +2940,8 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
               <div className="flex flex-col items-start max-w-3xl lg:max-w-none w-full">
                 <PreRunBanner
                   policySnapshot={preRunPolicySnapshot}
-                  loading={!preRunPolicySnapshot}
+                  policyApplied={preRunPolicyApplied}
+                  loading={!preRunPolicySnapshot && !preRunPolicyApplied}
                 />
               </div>
             </div>
