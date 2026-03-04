@@ -21,14 +21,11 @@ const AgentFirstContext = createContext<AgentFirstContextType | undefined>(undef
 const STORAGE_KEY = "wyshbone_agent_first_ui";
 
 export function AgentFirstProvider({ children }: { children: ReactNode }) {
-  const [isAgentFirstEnabled, setIsAgentFirstEnabled] = useState<boolean>(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    return stored !== null ? stored === "true" : false;
-  });
+  const [isAgentFirstEnabled, setIsAgentFirstEnabled] = useState<boolean>(false);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, String(isAgentFirstEnabled));
-  }, [isAgentFirstEnabled]);
+    try { localStorage.removeItem(STORAGE_KEY); } catch {}
+  }, []);
 
   const setAgentFirstEnabled = (enabled: boolean) => {
     setIsAgentFirstEnabled(enabled);

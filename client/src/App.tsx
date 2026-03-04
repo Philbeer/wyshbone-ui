@@ -105,11 +105,21 @@ function AgentFirstRouter({
 }) {
   return (
     <Switch>
-      {/* Default home shows Agent Workspace with activity */}
-      <Route path="/" component={AgentWorkspace} />
+      {/* Default home shows chat - consistent with classic layout */}
+      <Route path="/">
+        {() => <ChatPage 
+          defaultCountry={defaultCountry} 
+          onInjectSystemMessage={onInjectSystemMessage} 
+          addRun={addRunFn} 
+          updateRun={updateRunFn}
+          getActiveRunId={getActiveRunId}
+          onNewChat={onNewChat}
+          onLoadConversation={onLoadConversation}
+        />}
+      </Route>
       
-      {/* Activity page for mobile */}
-      <Route path="/activity" component={ActivityPage} />
+      {/* Activity page */}
+      <Route path="/activity" component={AgentWorkspace} />
       
       {/* Settings page */}
       <Route path="/settings" component={SettingsPage} />
@@ -192,6 +202,17 @@ function Router({
   return (
     <Switch>
       <Route path="/">
+        {() => <ChatPage 
+          defaultCountry={defaultCountry} 
+          onInjectSystemMessage={onInjectSystemMessage} 
+          addRun={addRunFn} 
+          updateRun={updateRunFn}
+          getActiveRunId={getActiveRunId}
+          onNewChat={onNewChat}
+          onLoadConversation={onLoadConversation}
+        />}
+      </Route>
+      <Route path="/chat">
         {() => <ChatPage 
           defaultCountry={defaultCountry} 
           onInjectSystemMessage={onInjectSystemMessage} 
