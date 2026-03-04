@@ -522,6 +522,204 @@ function NextActionButtons({
   );
 }
 
+export interface RunNarrative {
+  queryLabel: string;
+  bullets: string[];
+  towerLine: { text: string; pass: boolean } | null;
+  emailFoundCount: number;
+  phoneFoundCount: number;
+  deliveredCount: number;
+  requestedCount: number | null;
+  candidateCount: number | null;
+  towerVerdict: string | null;
+}
+
+export function buildRunNarrative(
+  deliverySummary: DeliverySummary,
+  searchQueryCompiled?: SearchQueryCompiled | null,
+  constraintsExtracted?: ConstraintsExtractedPayload | null,
+  towerVerdict?: string | null,
+): RunNarrative {
+  const exact = Array.isArray(deliverySummary.delivered_exact) ? deliverySummary.delivered_exact : [];
+  const closest = Array.isArray(deliverySummary.delivered_closest) ? deliverySummary.delivered_closest : [];
+  const allLeads = [...exact, ...closest];
+
+  const deliveredCount = allLeads.length;
+
+  const requestedCount = constraintsExtracted?.requested_count_user ??
+    deliverySummary.requested_count ??
+    searchQueryCompiled?.requested_count ??
+    null;
+
+  const candidateCount = searchQueryCompiled?.final_returned_count ?? deliverySummary.delivered_count ?? null;
+
+  const titleCase = (s: string) => s.replace(/\b\w/g, c => c.toUpperCase());
+  const query = searchQueryCompiled?.interpreted_query || '';
+  const location = searchQueryCompiled?.interpreted_location || '';
+
+  const constraints = Array.isArray(constraintsExtracted?.constraints) ? constraintsExtracted!.constraints : [];
+  const emailConstraintWords = ['email', 'emails', 'contact', 'contact_email', 'include_email'];
+  const userAskedForEmail = constraints.some(c =>
+    emailConstraintWords.includes((c.field || '').toLowerCase()) ||
+    emailConstraintWords.includes((c.kind || '').toLowerCase()) ||
+    emailConstraintWords.includes((c.id || '').toLowerCase()) ||
+    String(c.value || '').toLowerCase().includes('email')
+  );
+
+  let queryLabel = 'Find results';
+  if (query && location) {
+    queryLabel = `Find${requestedCount ? ` ${requestedCount}` : ''} ${query} in ${titleCase(location)}`;
+  } else if (query) {
+    queryLabel = `Find${requestedCount ? ` ${requestedCount}` : ''} ${query}`;
+  } else if (location) {
+    queryLabel = `Find results in ${titleCase(location)}`;
+  } else if (requestedCount) {
+    queryLabel = `Find ${requestedCount} results`;
+  }
+  if (userAskedForEmail) {
+    queryLabel += ' and include email';
+  }
+
+  let emailFoundCount = 0;
+  let phoneFoundCount = 0;
+  for (const lead of allLeads) {
+    const emails = (lead as any).emails || (lead as any).email;
+    if (Array.isArray(emails) && emails.length > 0) {
+      emailFoundCount++;
+    } else if (typeof emails === 'string' && emails.trim().length > 0) {
+      emailFoundCount++;
+    }
+    const phone = lead.phone || (lead as any).phones;
+    if (Array.isArray(phone) && phone.length > 0) {
+      phoneFoundCount++;
+    } else if (typeof phone === 'string' && phone.trim().length > 0) {
+      phoneFoundCount++;
+    }
+  }
+
+  const bullets: string[] = [];
+
+  if (candidateCount != null && candidateCount > 0) {
+    const entityWord = query || 'results';
+    const locationPart = location ? ` in ${titleCase(location)}` : '';
+    bullets.push(`Found ${candidateCount} ${entityWord}${locationPart}`);
+  }
+
+  bullets.push('Checked websites for contact details where available');
+
+  if (requestedCount != null && requestedCount > 0) {
+    bullets.push(`Delivered ${deliveredCount} of ${requestedCount} requested`);
+  } else if (deliveredCount > 0) {
+    bullets.push(`Delivered ${deliveredCount} ${deliveredCount === 1 ? 'result' : 'results'}`);
+  } else {
+    bullets.push('No results could be delivered');
+  }
+
+  if (userAskedForEmail) {
+    if (emailFoundCount > 0) {
+      bullets.push(`Emails found for ${emailFoundCount}/${deliveredCount}`);
+    } else {
+      bullets.push('No emails found on the public pages we checked');
+    }
+  }
+
+  if (phoneFoundCount > 0 && deliveredCount > 0) {
+    bullets.push(`Phone numbers found for ${phoneFoundCount}/${deliveredCount}`);
+  }
+
+  const tv = (towerVerdict || '').toLowerCase();
+  let towerLine: RunNarrative['towerLine'] = null;
+  if (tv === 'pass' || tv === 'accept' || tv === 'accept_with_unverified') {
+    towerLine = { text: `Verified and delivered (Tower: ${towerVerdict!.toUpperCase()})`, pass: true };
+  } else if (tv === 'fail' || tv === 'error' || tv === 'stop') {
+    towerLine = { text: `Could not verify enough (Tower: ${towerVerdict!.toUpperCase()})`, pass: false };
+  }
+
+  return {
+    queryLabel,
+    bullets,
+    towerLine,
+    emailFoundCount,
+    phoneFoundCount,
+    deliveredCount,
+    requestedCount,
+    candidateCount,
+    towerVerdict: towerVerdict || null,
+  };
+}
+
+function WhatIDidSection({
+  narrative,
+  runId,
+}: {
+  narrative: RunNarrative;
+  runId?: string | null;
+}) {
+  return (
+    <div className="rounded-lg border bg-muted/30 px-3 py-2.5 space-y-2" data-testid="what-i-did">
+      <p className="text-xs font-semibold text-foreground">
+        You asked: {narrative.queryLabel}
+      </p>
+      <ul className="space-y-0.5 text-xs text-muted-foreground list-disc list-inside">
+        {narrative.bullets.map((b, i) => (
+          <li key={i}>{b}</li>
+        ))}
+      </ul>
+      {narrative.towerLine && (
+        <div className={cn(
+          "flex items-center gap-1.5 text-xs font-medium rounded px-2 py-1 w-fit",
+          narrative.towerLine.pass
+            ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200"
+            : "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-200"
+        )}>
+          {narrative.towerLine.pass
+            ? <CheckCircle2 className="h-3 w-3" />
+            : <AlertTriangle className="h-3 w-3" />
+          }
+          {narrative.towerLine.text}
+        </div>
+      )}
+      {narrative.towerLine && !narrative.towerLine.pass && (
+        <div className="flex gap-2 pt-1">
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 text-xs gap-1.5"
+            onClick={() => {
+              dispatchFollowUp({
+                message: "Retry the search with a clean query.",
+                parentRunId: runId,
+                actionType: "retry_clean",
+              });
+            }}
+          >
+            <RefreshCw className="h-3 w-3" /> Retry
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 text-xs gap-1.5"
+            onClick={() => {
+              dispatchFollowUp({
+                message: "Ask me a clarification question about what I need.",
+                parentRunId: runId,
+                actionType: "ask_clarification",
+              });
+            }}
+          >
+            <HelpCircle className="h-3 w-3" /> Ask me a question
+          </Button>
+        </div>
+      )}
+      {import.meta.env.DEV && (
+        <div className="mt-1 px-2 py-1 rounded bg-gray-100 dark:bg-gray-900 border border-dashed border-gray-300 dark:border-gray-700 text-[9px] font-mono text-muted-foreground" data-testid="what-i-did-debug">
+          candidateCount={narrative.candidateCount ?? 'n/a'} deliveredCount={narrative.deliveredCount} emailFoundCount={narrative.emailFoundCount} phoneFoundCount={narrative.phoneFoundCount} towerVerdict={narrative.towerVerdict || 'none'}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AppliedPolicySection({ policyApplied, snapshot }: { policyApplied?: PolicyApplied | null; snapshot?: PolicySnapshot | null }) {
   const [detailsOpen, setDetailsOpen] = useState(false);
 
@@ -923,6 +1121,11 @@ export default function RunResultBubble({
       {!provisional && searchQueryCompiled && (
         <SearchSummaryBlock sqc={searchQueryCompiled} />
       )}
+
+      {!provisional && (() => {
+        const narrative = buildRunNarrative(deliverySummary, searchQueryCompiled, constraintsExtracted, towerVerdict);
+        return <WhatIDidSection narrative={narrative} runId={runId} />;
+      })()}
 
       {provisional && allLeads.length > 0 && (
         <div className="space-y-0.5">

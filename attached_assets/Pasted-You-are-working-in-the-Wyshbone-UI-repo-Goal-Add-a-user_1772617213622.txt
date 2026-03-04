@@ -1,0 +1,50 @@
+You are working in the Wyshbone UI repo.
+
+Goal
+Add a user-friendly “What I did” summary inside the final chat bubble for lead-finder missions, powered ONLY by backend artefacts from the current runId. It must match reality and never claim emails were found if they were not.
+
+Requirements
+1) The summary appears ONLY when a run is complete (delivery_summary exists OR final_delivery exists).
+2) It must be generated from real artefact fields, not guessed text.
+3) It must be short, human, non-dev language. No tool names like WEB_VISIT / CONTACT_EXTRACT.
+4) It must be honest about email coverage:
+   - If user asked “include email”, show “Emails found for X of 10” (X derived from delivered leads that contain at least one email).
+   - If X=0, say “No emails found on the public pages we checked.”
+5) It must reflect Tower:
+   - If Tower final_delivery PASS/ACCEPT: show a green “Verified and delivered (Tower: PASS)”
+   - If Tower FAIL/STOP: show a red “Could not verify enough (Tower: FAIL)” and offer Retry / Ask a question buttons.
+
+What to show (template)
+Title line:
+“You asked: Find 10 pubs in Arundel and include email.”
+
+Then bullet summary (example):
+- Found 30 pubs in Arundel
+- Checked websites for contact details where available
+- Delivered 10 pubs
+- Emails found for X/10 (phones found for Y/10 optional)
+- Verification: PASS (Tower)
+
+Data sources (must use)
+- Candidate count: from Step result SEARCH_PLACES or count_diagnostic candidateCountFromGoogle
+- Delivered count: from leads_list / final_delivery delivered
+- Requested count: from count_diagnostic userRequestedCountFinal or final_delivery requested
+- Email coverage: compute from the delivered leads list (leads_list artefact contents). Count leads where emails array length > 0 OR lead_pack includes at least one email.
+- Tower verdict: tower_judgement for final_delivery
+
+Implementation tasks
+1) Find the component that renders the final assistant bubble after a run.
+2) Add a “What I did” section that renders from a derived summary object.
+3) Implement a pure helper function buildRunNarrative(runArtefacts) that:
+   - selects artefacts by runId only
+   - extracts candidateCount, deliveredCount, requestedCount
+   - computes emailFoundCount from delivered leads
+   - reads final Tower verdict
+4) Ensure it never shows “include email” as completed unless emailFoundCount > 0.
+5) Add DEV-only debug line showing the raw counts used: candidateCount, deliveredCount, emailFoundCount, towerVerdict.
+
+Deliverables
+- Code changes in UI only.
+- List files changed.
+- Show the exact output text for the Arundel example:
+  Found 30, delivered 10, emails found for X/10, Tower PASS.
