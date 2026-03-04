@@ -22,9 +22,8 @@ const STORAGE_KEY = "wyshbone_agent_first_ui";
 
 export function AgentFirstProvider({ children }: { children: ReactNode }) {
   const [isAgentFirstEnabled, setIsAgentFirstEnabled] = useState<boolean>(() => {
-    // Default to enabled for new Agent-First experience
     const stored = localStorage.getItem(STORAGE_KEY);
-    return stored !== null ? stored === "true" : true;
+    return stored !== null ? stored === "true" : false;
   });
 
   useEffect(() => {
