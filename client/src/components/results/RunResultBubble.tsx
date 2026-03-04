@@ -664,6 +664,56 @@ function HumanSummary({ narrative }: { narrative: RunNarrative }) {
   );
 }
 
+function ReceiptInlineLine({ narrative, runReceipt }: { narrative: RunNarrative; runReceipt?: RunReceipt | null }) {
+  const isDev = import.meta.env.VITE_SHOW_RECEIPT_IN_BUBBLE === 'true' && import.meta.env.MODE !== 'production';
+  if (!isDev) return null;
+
+  if (!runReceipt) {
+    return (
+      <p className="text-[11px] text-muted-foreground font-mono mt-1">
+        Receipt (backend): not available
+      </p>
+    );
+  }
+
+  const proven = runReceipt.contacts_proven === true;
+  const rEmails = proven && runReceipt.unique_email_count != null ? runReceipt.unique_email_count : null;
+  const rPhones = proven && runReceipt.unique_phone_count != null ? runReceipt.unique_phone_count : null;
+
+  if (!proven || rEmails == null || rPhones == null) {
+    return (
+      <p className="text-[11px] text-muted-foreground font-mono mt-1">
+        Receipt (backend): contacts unknown (proven=false)
+      </p>
+    );
+  }
+
+  const dEmails = narrative.emailFoundCount;
+  const dPhones = narrative.phoneFoundCount;
+  const emailMismatch = rEmails !== dEmails;
+  const phoneMismatch = rPhones !== dPhones;
+  const hasMismatch = emailMismatch || phoneMismatch;
+
+  return (
+    <div className="mt-1 space-y-0.5">
+      <p className="text-[11px] text-muted-foreground font-mono">
+        Receipt (backend): emails={rEmails} phones={rPhones} proven=true
+      </p>
+      {hasMismatch && (
+        <p className="text-[11px] font-mono font-semibold text-amber-600 dark:text-amber-400 flex items-center gap-1">
+          <AlertTriangle className="h-3 w-3 inline shrink-0" />
+          WARNING: mismatch vs receipt
+        </p>
+      )}
+      {hasMismatch && (
+        <p className="text-[11px] font-mono text-amber-600 dark:text-amber-400">
+          UI: emails={dEmails} phones={dPhones} | Receipt: emails={rEmails} phones={rPhones}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function ReceiptComparison({ narrative, runReceipt }: { narrative: RunNarrative; runReceipt?: RunReceipt | null }) {
   if (!runReceipt) {
     return (
@@ -1277,7 +1327,10 @@ export default function RunResultBubble({
       )}
 
       {!provisional && narrative && deliverySummary.stop_reason !== 'artefacts_unavailable' && (
-        <HumanSummary narrative={narrative} />
+        <>
+          <HumanSummary narrative={narrative} />
+          <ReceiptInlineLine narrative={narrative} runReceipt={runReceipt} />
+        </>
       )}
 
       {provisional && allLeads.length > 0 && (

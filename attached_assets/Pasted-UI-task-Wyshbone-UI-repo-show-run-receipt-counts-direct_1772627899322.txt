@@ -1,0 +1,43 @@
+UI task (Wyshbone-UI repo): show run_receipt counts directly under the chat bubble summary for easy dev comparison
+
+Goal
+We already display derived counts in the chat bubble (7 emails, 9 phones).
+Supervisor now emits a run_receipt artefact with unique_email_count and unique_phone_count.
+I want the chat bubble to ALSO show the run_receipt counts underneath, for quick truth auditing in DEV.
+
+Non-negotiable constraints
+1) Do NOT change existing derived-count behaviour.
+   The chat bubble must continue to show the current UI-derived counts exactly as it does today.
+
+2) Add a small "Receipt (backend)" line directly under the existing summary, only in DEV.
+   Format example:
+   - "Receipt (backend): emails=7 phones=9 proven=true"
+   If contacts_proven=false or counts null:
+   - "Receipt (backend): contacts unknown (proven=false)"
+
+3) If derived counts and receipt counts differ, show an obvious warning right there:
+   - "WARNING: mismatch vs receipt"
+   and show both pairs:
+   - "UI: emails=X phones=Y | Receipt: emails=A phones=B"
+
+4) The UI must locate the run_receipt artefact by runId in the same artefacts list the page already has.
+   We can see run_receipt exists in /dev/afr?run=... so it is present in AFR artefacts feed.
+
+5) Make this DEV-only with a hard gate so it cannot leak to production by mistake:
+   - show only if (process.env.NODE_ENV !== "production")
+   OR (preferred) require an explicit env flag AND also not production:
+   - NEXT_PUBLIC_SHOW_RECEIPT_IN_BUBBLE=true
+   AND process.env.NODE_ENV !== "production"
+
+6) Do not add new API calls if not needed.
+   Use the existing artefacts already loaded for the run.
+
+7) No partial edits.
+   Rewrite full files as needed.
+   Output: files changed + exact env var name + where the line appears in the bubble.
+
+Acceptance check
+- For run_id 44fe21fb-226f-48c9-9427-b077b2d9f470, bubble should show:
+  Receipt (backend): emails=7 phones=9 proven=true
+- If you artificially remove run_receipt from the artefacts list, show:
+  Receipt (backend): not available
