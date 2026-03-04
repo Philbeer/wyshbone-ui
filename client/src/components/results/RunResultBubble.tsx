@@ -50,7 +50,9 @@ export interface ContactCounts {
 export interface ReceiptAttributeOutcome {
   attribute_raw: string;
   matched_count: number;
+  unknown_count?: number;
   matched_place_ids?: string[];
+  evidence_refs?: Array<{ url?: string; snippet?: string; place_id?: string; matched_variant?: string }>;
 }
 
 export interface RunReceipt {
@@ -631,6 +633,7 @@ export function buildRunNarrative(
   towerVerdict?: string | null,
   contactCounts?: ContactCounts | null,
   attributeOutcomes?: AttributeOutcome[] | null,
+  hasReceiptAttributes?: boolean,
 ): RunNarrative {
   const exact = Array.isArray(deliverySummary.delivered_exact) ? deliverySummary.delivered_exact : [];
   const closest = Array.isArray(deliverySummary.delivered_closest) ? deliverySummary.delivered_closest : [];
@@ -657,13 +660,31 @@ export function buildRunNarrative(
   const isTrustFailure = tv === 'fail' || tv === 'error' || tv === 'stop';
 
   const lines: string[] = [];
+  const outcomes = attributeOutcomes ?? [];
+  const receiptHasPositiveMatch = hasReceiptAttributes && outcomes.some(ao => ao.matched_count > 0);
 
   const entityWord = query || 'businesses';
   const locationPart = location ? ` in ${titleCase(location)}` : '';
-  if (candidateCount != null && candidateCount > 0) {
+
+  if (deliveredCount > 0) {
+    lines.push(`I found ${deliveredCount} ${entityWord}${locationPart}.`);
+  } else if (candidateCount != null && candidateCount > 0) {
     lines.push(`I searched Google Places for ${entityWord}${locationPart} and found ${candidateCount} possible ${candidateCount === 1 ? 'match' : 'matches'}.`);
   } else {
     lines.push(`I searched Google Places for ${entityWord}${locationPart}.`);
+  }
+
+  for (const ao of outcomes) {
+    if (ao.matched_count > 0) {
+      lines.push(`${ao.matched_count} of them mention "${ao.attribute_raw}" on their website.`);
+    } else if (ao.unknown_count > 0 && ao.unknown_count === ao.total_checked) {
+      lines.push(`I wasn\u2019t able to verify which ones mention "${ao.attribute_raw}" on their website.`);
+    } else if (ao.unknown_count > 0) {
+      const checked = ao.total_checked - ao.unknown_count;
+      lines.push(`I checked ${checked} website${checked !== 1 ? 's' : ''} but none mention "${ao.attribute_raw}". ${ao.unknown_count} could not be verified.`);
+    } else if (ao.total_checked > 0) {
+      lines.push(`None of the ${ao.total_checked} websites I checked mention "${ao.attribute_raw}".`);
+    }
   }
 
   if (countsProven) {
@@ -683,35 +704,15 @@ export function buildRunNarrative(
     lines.push('I checked websites where available for contact details. Results varied by venue.');
   }
 
-  const outcomes = attributeOutcomes ?? [];
-
-  if (isTrustFailure) {
+  if (isTrustFailure && !receiptHasPositiveMatch) {
     lines.push("I found some matches, but I couldn\u2019t verify everything, so I\u2019m not fully confident in these results.");
-  } else if (deliveredCount > 0) {
-    if (requestedCount != null && requestedCount > 0) {
-      lines.push(`I selected ${deliveredCount} ${entityWord} for you${requestedCount !== deliveredCount ? ` (you asked for ${requestedCount})` : ''}.`);
-    } else {
-      lines.push(`I selected ${deliveredCount} ${entityWord} for you.`);
-    }
-    for (const ao of outcomes) {
-      if (ao.matched_count > 0) {
-        lines.push(`${ao.matched_count} of their websites mention "${ao.attribute_raw}".`);
-      } else if (ao.unknown_count > 0 && ao.unknown_count === ao.total_checked) {
-        lines.push(`I wasn\u2019t able to verify which ones mention "${ao.attribute_raw}" on their website.`);
-      } else if (ao.unknown_count > 0) {
-        const checked = ao.total_checked - ao.unknown_count;
-        lines.push(`I checked ${checked} website${checked !== 1 ? 's' : ''} but none mention "${ao.attribute_raw}". ${ao.unknown_count} could not be verified.`);
-      } else if (ao.total_checked > 0) {
-        lines.push(`None of the ${ao.total_checked} websites I checked mention "${ao.attribute_raw}".`);
-      }
-    }
-  } else {
+  } else if (deliveredCount === 0) {
     lines.push('No results could be delivered for this search.');
   }
 
   return {
     lines,
-    isTrustFailure,
+    isTrustFailure: isTrustFailure && !receiptHasPositiveMatch,
     emailFoundCount,
     phoneFoundCount,
     deliveredCount,
@@ -1472,17 +1473,18 @@ export default function RunResultBubble({
     }
   }
 
-  const effectiveAttrOutcomes = (Array.isArray(receiptAttrs) && receiptAttrs.length > 0)
-    ? receiptAttrs.map(ra => ({
+  const hasReceiptAttributes = Array.isArray(receiptAttrs) && receiptAttrs.length > 0;
+  const effectiveAttrOutcomes = hasReceiptAttributes
+    ? receiptAttrs!.map(ra => ({
         attribute_raw: ra.attribute_raw,
         matched_count: ra.matched_count,
-        unknown_count: 0,
-        total_checked: 0,
+        unknown_count: ra.unknown_count ?? 0,
+        total_checked: ra.matched_count + (ra.unknown_count ?? 0),
         matched_lead_ids: ra.matched_place_ids ?? [],
       } satisfies AttributeOutcome))
     : attrOutcomes;
 
-  const narrative = !provisional ? buildRunNarrative(deliverySummary, searchQueryCompiled, constraintsExtracted, towerVerdict, contactCounts, effectiveAttrOutcomes) : null;
+  const narrative = !provisional ? buildRunNarrative(deliverySummary, searchQueryCompiled, constraintsExtracted, towerVerdict, contactCounts, effectiveAttrOutcomes, hasReceiptAttributes) : null;
 
   return (
     <div className="space-y-3">
@@ -1507,8 +1509,15 @@ export default function RunResultBubble({
         <RunTimeoutBlock stopReason={deliverySummary.stop_reason} />
       )}
 
-      {!provisional && isTrustFailure && deliverySummary.stop_reason !== 'artefacts_unavailable' && deliverySummary.stop_reason !== 'run_timeout' && deliverySummary.stop_reason !== 'run_not_persisted' && deliverySummary.stop_reason !== 'still_working' && (
+      {!provisional && isTrustFailure && !hasReceiptAttributes && deliverySummary.stop_reason !== 'artefacts_unavailable' && deliverySummary.stop_reason !== 'run_timeout' && deliverySummary.stop_reason !== 'run_not_persisted' && deliverySummary.stop_reason !== 'still_working' && (
         <TrustErrorBlock verdict={effectiveTowerDisplay || deliverySummary.status || 'FAIL'} runId={runId} />
+      )}
+
+      {!provisional && isTrustFailure && hasReceiptAttributes && deliverySummary.stop_reason !== 'artefacts_unavailable' && deliverySummary.stop_reason !== 'still_working' && (
+        <div className="flex items-center gap-1.5 rounded px-2 py-1 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 w-fit">
+          <AlertTriangle className="h-3 w-3 text-amber-500 dark:text-amber-400 shrink-0" />
+          <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium">Tower: {(effectiveTowerDisplay || 'FAIL').toUpperCase()}</span>
+        </div>
       )}
 
       {!provisional && !isTrustFailure && isMixedVerdict && deliverySummary.stop_reason !== 'artefacts_unavailable' && (
@@ -1520,7 +1529,7 @@ export default function RunResultBubble({
         </div>
       )}
 
-      {!provisional && !isTrustFailure && !isMixedVerdict && hasUnknownAttributeConstraints && (
+      {!provisional && !isTrustFailure && !isMixedVerdict && hasUnknownAttributeConstraints && !hasReceiptAttributes && (
         <div className="flex items-center gap-2 rounded-md bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 px-3 py-2">
           <ShieldQuestion className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
           <p className="text-xs text-blue-700 dark:text-blue-300 font-medium">
@@ -1602,7 +1611,61 @@ export default function RunResultBubble({
         </>
       )}
 
-      {!provisional && !useLocationBuckets && matches.length > 0 && (
+      {!provisional && !useLocationBuckets && hasReceiptAttributes && (() => {
+        if (receiptAttrMatchIds.size === 0) {
+          return allLeads.length > 0 ? (
+            <div className="space-y-0.5">
+              <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                Results ({allLeads.length})
+              </h4>
+              <div>
+                {allLeads.map((lead, i) => (
+                  <LeadRow key={i} lead={lead} isVerified={false} unverifiableAttr={unverifiableAttr} runId={runId} badgeStatus={defaultBadgeStatus} />
+                ))}
+              </div>
+            </div>
+          ) : null;
+        }
+        const attrLabel = receiptAttrs![0]?.attribute_raw || 'attribute';
+        const attrMatched = allLeads.filter(l => {
+          const pid = (l as any).place_id || (l as any).id || '';
+          return receiptAttrMatchIds.has(pid);
+        });
+        const attrRest = allLeads.filter(l => {
+          const pid = (l as any).place_id || (l as any).id || '';
+          return !receiptAttrMatchIds.has(pid);
+        });
+        return (
+          <>
+            {attrMatched.length > 0 && (
+              <div className="space-y-0.5">
+                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                  Mentions &lsquo;{attrLabel}&rsquo; ({attrMatched.length})
+                </h4>
+                <div>
+                  {attrMatched.map((lead, i) => (
+                    <LeadRow key={i} lead={lead} isVerified={true} unverifiableAttr={null} runId={runId} badgeStatus={defaultBadgeStatus} />
+                  ))}
+                </div>
+              </div>
+            )}
+            {attrRest.length > 0 && (
+              <div className="space-y-0.5">
+                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                  {attrMatched.length > 0 ? `Other results (${attrRest.length})` : `Results (${attrRest.length})`}
+                </h4>
+                <div>
+                  {attrRest.map((lead, i) => (
+                    <LeadRow key={i} lead={lead} isVerified={false} unverifiableAttr={unverifiableAttr} runId={runId} badgeStatus={defaultBadgeStatus} />
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
+        );
+      })()}
+
+      {!provisional && !useLocationBuckets && !hasReceiptAttributes && matches.length > 0 && (
         <div className="space-y-0.5">
           <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
             Results ({matches.length})
@@ -1615,7 +1678,7 @@ export default function RunResultBubble({
         </div>
       )}
 
-      {!provisional && !useLocationBuckets && candidates.length > 0 && (
+      {!provisional && !useLocationBuckets && !hasReceiptAttributes && candidates.length > 0 && (
         <div className="space-y-0.5">
           <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{matches.length > 0 ? `Other results (${candidates.length})` : `Results (${candidates.length})`}</h4>
           <div>
@@ -1649,7 +1712,7 @@ export default function RunResultBubble({
 
       {!provisional && deliverySummary.stop_reason !== 'still_working' && <NextActionButtons ds={deliverySummary} canonical={effectiveCanonical} runId={runId} hasTarget={target.hasTarget} />}
 
-      {!provisional && !isTrustFailure && deliverySummary.stop_reason !== 'still_working' && (
+      {!provisional && (!isTrustFailure || hasReceiptAttributes) && deliverySummary.stop_reason !== 'still_working' && (
         <FeedbackButtons runId={runId} />
       )}
     </div>
