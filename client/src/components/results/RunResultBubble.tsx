@@ -1187,8 +1187,48 @@ function formatStopReason(reason: string): string {
     manual_stop: "Manually stopped",
     tower_stopped: "Quality check stopped run",
     run_halted: "Run halted",
+    run_timeout: "Run timed out waiting for results",
+    run_not_persisted: "Run failed to start",
   };
   return map[reason] || reason.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+}
+
+function RunTimeoutBlock({ stopReason }: { stopReason: string }) {
+  const [retrying, setRetrying] = useState(false);
+
+  const handleRetry = useCallback(() => {
+    setRetrying(true);
+    window.dispatchEvent(new CustomEvent('wyshbone:retry_last_message'));
+    setTimeout(() => setRetrying(false), 5000);
+  }, []);
+
+  const message = stopReason === 'run_not_persisted'
+    ? "The run failed to start — it wasn't recorded by the system. This can happen if the server was busy."
+    : "The run timed out waiting for results. The server may still be processing, but the UI stopped waiting.";
+
+  return (
+    <div className="flex flex-col items-start gap-2 rounded-md bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 px-3 py-2">
+      <div className="flex items-center gap-2">
+        <AlertTriangle className="h-3.5 w-3.5 text-red-600 dark:text-red-400 shrink-0" />
+        <p className="text-xs text-red-700 dark:text-red-300 font-medium">
+          {message}
+        </p>
+      </div>
+      <Button
+        variant="outline"
+        size="sm"
+        className="h-7 text-xs gap-1.5"
+        onClick={handleRetry}
+        disabled={retrying}
+      >
+        {retrying ? (
+          <><Loader2 className="h-3 w-3 animate-spin" /> Retrying...</>
+        ) : (
+          <><RefreshCw className="h-3 w-3" /> Retry</>
+        )}
+      </Button>
+    </div>
+  );
 }
 
 function SearchSummaryBlock({ sqc }: { sqc: SearchQueryCompiled }) {
@@ -1335,7 +1375,11 @@ export default function RunResultBubble({
         <ArtefactsRetryBlock runId={runId} />
       )}
 
-      {!provisional && isTrustFailure && deliverySummary.stop_reason !== 'artefacts_unavailable' && (
+      {!provisional && (deliverySummary.stop_reason === 'run_timeout' || deliverySummary.stop_reason === 'run_not_persisted') && (
+        <RunTimeoutBlock stopReason={deliverySummary.stop_reason} />
+      )}
+
+      {!provisional && isTrustFailure && deliverySummary.stop_reason !== 'artefacts_unavailable' && deliverySummary.stop_reason !== 'run_timeout' && deliverySummary.stop_reason !== 'run_not_persisted' && (
         <TrustErrorBlock verdict={effectiveTowerDisplay || deliverySummary.status || 'FAIL'} runId={runId} />
       )}
 

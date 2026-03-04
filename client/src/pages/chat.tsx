@@ -1113,6 +1113,10 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     let stopped = false;
     const terminalDetected = new Set<string>();
     const clarifyDetected = new Set<string>();
+    const runFirstSeen = new Map<string, number>();
+    const MAX_POLL_WAIT_MS = 90_000;
+    const consecutiveFailures = new Map<string, number>();
+    const MAX_CONSECUTIVE_FAILURES = 15;
 
     async function fetchArtefactsWithRetry(runId: string | null, crid: string | null, maxRetries: number = 10): Promise<boolean> {
       for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -1127,6 +1131,35 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         }
       }
       return false;
+    }
+
+    function emitRunFailureBubble(effectiveKey: string, runId: string | null, stopReason: string) {
+      console.warn(`[Chat][AFR-Poll] Emitting failure bubble for ${effectiveKey}, reason=${stopReason}`);
+      const errorMsg: Message = {
+        id: `ds-${effectiveKey}`,
+        role: 'assistant',
+        content: '',
+        timestamp: new Date(),
+        source: 'supervisor',
+        deliverySummary: {
+          status: 'FAIL',
+          delivered_exact: [],
+          delivered_closest: [],
+          delivered_count: 0,
+          stop_reason: stopReason,
+        } as DeliverySummary,
+        runId: runId || undefined,
+        provisional: false,
+      };
+      upsertResultMessage(errorMsg);
+      deliverySummaryRunIdsRef.current.add(effectiveKey);
+      cleanupRunState(effectiveKey);
+      setActiveClientRequestId(null);
+      setIsStreaming(false);
+      if (pendingCleanupRef.current) {
+        clearTimeout(pendingCleanupRef.current);
+        pendingCleanupRef.current = null;
+      }
     }
 
     const pollStream = async () => {
@@ -1149,13 +1182,32 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         if (deliverySummaryRunIdsRef.current.has(effectiveKey)) continue;
         if (terminalDetected.has(effectiveKey)) continue;
 
+        if (!runFirstSeen.has(effectiveKey)) {
+          runFirstSeen.set(effectiveKey, Date.now());
+        }
+        const runElapsed = Date.now() - runFirstSeen.get(effectiveKey)!;
+        if (runElapsed > MAX_POLL_WAIT_MS) {
+          console.warn(`[Chat][AFR-Poll] Per-run timeout reached for ${effectiveKey} (${Math.round(runElapsed / 1000)}s). Emitting failure bubble.`);
+          emitRunFailureBubble(effectiveKey, runId, 'run_timeout');
+          continue;
+        }
+
         try {
           const params = new URLSearchParams();
           if (crid) params.set('client_request_id', crid);
           if (runId) params.set('runId', runId);
           const streamUrl = addDevAuthParams(buildApiUrl(`/api/afr/stream?${params.toString()}`));
           const res = await fetch(streamUrl, { credentials: 'include', cache: 'no-store' });
-          if (!res.ok) continue;
+          if (!res.ok) {
+            const failCount = (consecutiveFailures.get(effectiveKey) || 0) + 1;
+            consecutiveFailures.set(effectiveKey, failCount);
+            if (failCount >= MAX_CONSECUTIVE_FAILURES) {
+              console.warn(`[Chat][AFR-Poll] ${MAX_CONSECUTIVE_FAILURES} consecutive API failures for ${effectiveKey}. Run likely not persisted.`);
+              emitRunFailureBubble(effectiveKey, runId, 'run_not_persisted');
+            }
+            continue;
+          }
+          consecutiveFailures.set(effectiveKey, 0);
           const data = await res.json();
 
           const isTerminal = data.is_terminal === true;
@@ -1278,10 +1330,18 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
               upsertResultMessage(errorMsg);
               deliverySummaryRunIdsRef.current.add(effectiveKey);
               cleanupRunState(effectiveKey);
+              setActiveClientRequestId(null);
+              setIsStreaming(false);
             }
           }
         } catch (err) {
           console.warn(`[Chat][AFR-Poll] Stream poll error for ${effectiveKey}:`, err);
+          const failCount = (consecutiveFailures.get(effectiveKey) || 0) + 1;
+          consecutiveFailures.set(effectiveKey, failCount);
+          if (failCount >= MAX_CONSECUTIVE_FAILURES) {
+            console.warn(`[Chat][AFR-Poll] ${MAX_CONSECUTIVE_FAILURES} consecutive poll exceptions for ${effectiveKey}. Bailing.`);
+            emitRunFailureBubble(effectiveKey, runId, 'run_not_persisted');
+          }
         }
       }
     };
@@ -1607,7 +1667,20 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     return () => window.removeEventListener('wyshbone:retry_artefacts', handler);
   }, []);
 
-  // Persist conversationId to localStorage
+  useEffect(() => {
+    const handler = () => {
+      const lastQuery = lastSentQueryRef.current;
+      if (!lastQuery) {
+        console.warn('[Chat][Retry] No previous message to retry');
+        return;
+      }
+      console.log('[Chat][Retry] wyshbone:retry_last_message received, resending:', lastQuery.slice(0, 60));
+      setTimeout(() => handleSendRef.current?.(lastQuery), 200);
+    };
+    window.addEventListener('wyshbone:retry_last_message', handler);
+    return () => window.removeEventListener('wyshbone:retry_last_message', handler);
+  }, []);
+
   useEffect(() => {
     if (conversationId) {
       localStorage.setItem('currentConversationId', conversationId);
