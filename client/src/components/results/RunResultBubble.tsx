@@ -554,6 +554,14 @@ function NextActionButtons({
   );
 }
 
+export interface AttributeOutcome {
+  attribute_raw: string;
+  matched_count: number;
+  unknown_count: number;
+  total_checked: number;
+  matched_lead_ids: string[];
+}
+
 export interface RunNarrative {
   lines: string[];
   isTrustFailure: boolean;
@@ -564,10 +572,46 @@ export interface RunNarrative {
   candidateCount: number | null;
   towerVerdict: string | null;
   contactCountsSource: string;
+  attributeOutcomes?: AttributeOutcome[];
   contactDebug?: ContactCounts['debugInfo'] & {
     emails: string[];
     phones: string[];
   };
+}
+
+export function buildAttributeOutcomes(
+  constraintsExtracted?: ConstraintsExtractedPayload | null,
+  leadVerifications?: LeadVerificationEntry[] | null,
+): AttributeOutcome[] {
+  if (!constraintsExtracted?.constraints?.length) return [];
+  if (!leadVerifications?.length) return [];
+  const attrConstraints = constraintsExtracted.constraints.filter(
+    c => (c.kind || '').toLowerCase() === 'has_attribute' || (c.field || '').toLowerCase() === 'attribute'
+  );
+  if (attrConstraints.length === 0) return [];
+
+  return attrConstraints.map(ac => {
+    let matched = 0;
+    let unknown = 0;
+    const matchedIds: string[] = [];
+    for (const lv of leadVerifications) {
+      const checks = Array.isArray(lv.constraint_checks) ? lv.constraint_checks : [];
+      const check = checks.find(ch => ch.constraint_id === ac.id);
+      if (!check || check.status === 'unknown') {
+        unknown++;
+      } else if (check.status === 'yes') {
+        matched++;
+        matchedIds.push(lv.lead_id);
+      }
+    }
+    return {
+      attribute_raw: typeof ac.value === 'string' ? ac.value : String(ac.value ?? ac.label ?? ac.id),
+      matched_count: matched,
+      unknown_count: unknown,
+      total_checked: leadVerifications.length,
+      matched_lead_ids: matchedIds,
+    };
+  });
 }
 
 
@@ -577,6 +621,7 @@ export function buildRunNarrative(
   constraintsExtracted?: ConstraintsExtractedPayload | null,
   towerVerdict?: string | null,
   contactCounts?: ContactCounts | null,
+  attributeOutcomes?: AttributeOutcome[] | null,
 ): RunNarrative {
   const exact = Array.isArray(deliverySummary.delivered_exact) ? deliverySummary.delivered_exact : [];
   const closest = Array.isArray(deliverySummary.delivered_closest) ? deliverySummary.delivered_closest : [];
@@ -629,6 +674,8 @@ export function buildRunNarrative(
     lines.push('I checked websites where available for contact details. Results varied by venue.');
   }
 
+  const outcomes = attributeOutcomes ?? [];
+
   if (isTrustFailure) {
     lines.push("I found some matches, but I couldn\u2019t verify everything, so I\u2019m not fully confident in these results.");
   } else if (deliveredCount > 0) {
@@ -636,6 +683,18 @@ export function buildRunNarrative(
       lines.push(`I selected ${deliveredCount} ${entityWord} for you${requestedCount !== deliveredCount ? ` (you asked for ${requestedCount})` : ''}.`);
     } else {
       lines.push(`I selected ${deliveredCount} ${entityWord} for you.`);
+    }
+    for (const ao of outcomes) {
+      if (ao.matched_count > 0) {
+        lines.push(`${ao.matched_count} of their websites mention "${ao.attribute_raw}".`);
+      } else if (ao.unknown_count > 0 && ao.unknown_count === ao.total_checked) {
+        lines.push(`I wasn\u2019t able to verify which ones mention "${ao.attribute_raw}" on their website.`);
+      } else if (ao.unknown_count > 0) {
+        const checked = ao.total_checked - ao.unknown_count;
+        lines.push(`I checked ${checked} website${checked !== 1 ? 's' : ''} but none mention "${ao.attribute_raw}". ${ao.unknown_count} could not be verified.`);
+      } else if (ao.total_checked > 0) {
+        lines.push(`None of the ${ao.total_checked} websites I checked mention "${ao.attribute_raw}".`);
+      }
     }
   } else {
     lines.push('No results could be delivered for this search.');
@@ -651,6 +710,7 @@ export function buildRunNarrative(
     candidateCount,
     towerVerdict: towerVerdict || null,
     contactCountsSource,
+    attributeOutcomes: outcomes,
     contactDebug: contactCounts ? { ...contactCounts.debugInfo, emails: contactCounts.emails, phones: contactCounts.phones } : undefined,
   };
 }
@@ -1383,7 +1443,8 @@ export default function RunResultBubble({
 
   console.log(`[RunResultBubble] render: status=${effectiveCanonical.status} (raw=${canonical.status}), verifiedExact=${verifiedExact}, requested=${target.hasTarget ? target.targetCount : 'any'}, allLeads=${allLeads.length}, matches=${matches.length}, candidates=${candidates.length}, leadVerifications=${leadVerifications?.length ?? 'none'}, verifiedIds=${verifiedIds.size}, locationBuckets=${useLocationBuckets ? `geo=${locationBuckets!.verifiedGeo.length},bounded=${locationBuckets!.searchBounded.length},out=${locationBuckets!.outOfArea.length},unknown=${locationBuckets!.unknown.length}` : 'none'}`);
 
-  const narrative = !provisional ? buildRunNarrative(deliverySummary, searchQueryCompiled, constraintsExtracted, towerVerdict, contactCounts) : null;
+  const attrOutcomes = buildAttributeOutcomes(constraintsExtracted, leadVerifications);
+  const narrative = !provisional ? buildRunNarrative(deliverySummary, searchQueryCompiled, constraintsExtracted, towerVerdict, contactCounts, attrOutcomes) : null;
 
   return (
     <div className="space-y-3">
