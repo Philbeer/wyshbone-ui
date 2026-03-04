@@ -28,6 +28,14 @@ export interface PolicySnapshot {
   max_replans_evidence?: string | null;
 }
 
+export interface ContactCounts {
+  source: 'lead_pack' | 'contact_extract' | 'delivery_leads' | 'unknown';
+  emailCount: number;
+  phoneCount: number;
+  leadsWithEmail: number;
+  leadsWithPhone: number;
+}
+
 export interface RunResultBubbleProps {
   deliverySummary: DeliverySummary;
   verificationSummary?: VerificationSummaryPayload | null;
@@ -44,6 +52,7 @@ export interface RunResultBubbleProps {
   towerStopTimePredicate?: boolean;
   planVersions?: PlanVersion[] | null;
   towerUnavailable?: boolean;
+  contactCounts?: ContactCounts | null;
 }
 
 function dispatchFollowUp(params: {
@@ -531,6 +540,27 @@ export interface RunNarrative {
   requestedCount: number | null;
   candidateCount: number | null;
   towerVerdict: string | null;
+  contactCountsSource: string;
+}
+
+function countContactsFromLeads(allLeads: DeliveryLead[]): { emailCount: number; phoneCount: number; leadsWithEmail: number; leadsWithPhone: number } {
+  let leadsWithEmail = 0;
+  let leadsWithPhone = 0;
+  for (const lead of allLeads) {
+    const emails = (lead as any).emails || (lead as any).email;
+    if (Array.isArray(emails) && emails.length > 0) {
+      leadsWithEmail++;
+    } else if (typeof emails === 'string' && emails.trim().length > 0) {
+      leadsWithEmail++;
+    }
+    const phone = lead.phone || (lead as any).phones;
+    if (Array.isArray(phone) && phone.length > 0) {
+      leadsWithPhone++;
+    } else if (typeof phone === 'string' && phone.trim().length > 0) {
+      leadsWithPhone++;
+    }
+  }
+  return { emailCount: leadsWithEmail, phoneCount: leadsWithPhone, leadsWithEmail, leadsWithPhone };
 }
 
 export function buildRunNarrative(
@@ -538,6 +568,7 @@ export function buildRunNarrative(
   searchQueryCompiled?: SearchQueryCompiled | null,
   constraintsExtracted?: ConstraintsExtractedPayload | null,
   towerVerdict?: string | null,
+  contactCounts?: ContactCounts | null,
 ): RunNarrative {
   const exact = Array.isArray(deliverySummary.delivered_exact) ? deliverySummary.delivered_exact : [];
   const closest = Array.isArray(deliverySummary.delivered_closest) ? deliverySummary.delivered_closest : [];
@@ -555,22 +586,22 @@ export function buildRunNarrative(
   const query = searchQueryCompiled?.interpreted_query || '';
   const location = searchQueryCompiled?.interpreted_location || '';
 
-  let emailFoundCount = 0;
-  let phoneFoundCount = 0;
-  for (const lead of allLeads) {
-    const emails = (lead as any).emails || (lead as any).email;
-    if (Array.isArray(emails) && emails.length > 0) {
-      emailFoundCount++;
-    } else if (typeof emails === 'string' && emails.trim().length > 0) {
-      emailFoundCount++;
-    }
-    const phone = lead.phone || (lead as any).phones;
-    if (Array.isArray(phone) && phone.length > 0) {
-      phoneFoundCount++;
-    } else if (typeof phone === 'string' && phone.trim().length > 0) {
-      phoneFoundCount++;
-    }
+  let emailFoundCount: number;
+  let phoneFoundCount: number;
+  let contactCountsSource: string;
+
+  if (contactCounts && contactCounts.source !== 'unknown') {
+    emailFoundCount = contactCounts.emailCount;
+    phoneFoundCount = contactCounts.phoneCount;
+    contactCountsSource = contactCounts.source;
+  } else {
+    const fromLeads = countContactsFromLeads(allLeads);
+    emailFoundCount = fromLeads.leadsWithEmail;
+    phoneFoundCount = fromLeads.leadsWithPhone;
+    contactCountsSource = (fromLeads.leadsWithEmail > 0 || fromLeads.leadsWithPhone > 0) ? 'delivery_leads' : 'unknown';
   }
+
+  const countsKnown = contactCountsSource !== 'unknown';
 
   const tv = (towerVerdict || '').toLowerCase();
   const isTrustFailure = tv === 'fail' || tv === 'error' || tv === 'stop';
@@ -587,17 +618,21 @@ export function buildRunNarrative(
 
   lines.push('I checked websites where available to look for contact details.');
 
-  const contactParts: string[] = [];
-  if (emailFoundCount > 0) {
-    contactParts.push(`${emailFoundCount} public ${emailFoundCount === 1 ? 'email' : 'emails'}`);
-  }
-  if (phoneFoundCount > 0) {
-    contactParts.push(`${phoneFoundCount} phone ${phoneFoundCount === 1 ? 'number' : 'numbers'}`);
-  }
-  if (contactParts.length > 0) {
-    lines.push(`I found ${contactParts.join(' and ')}.`);
+  if (countsKnown) {
+    const contactParts: string[] = [];
+    if (emailFoundCount > 0) {
+      contactParts.push(`${emailFoundCount} public ${emailFoundCount === 1 ? 'email' : 'emails'}`);
+    }
+    if (phoneFoundCount > 0) {
+      contactParts.push(`${phoneFoundCount} phone ${phoneFoundCount === 1 ? 'number' : 'numbers'}`);
+    }
+    if (contactParts.length > 0) {
+      lines.push(`I found ${contactParts.join(' and ')}.`);
+    } else {
+      lines.push('I couldn\u2019t find any public emails or phone numbers on the pages I checked.');
+    }
   } else if (deliveredCount > 0) {
-    lines.push('I found no public emails or phone numbers on the pages I checked.');
+    lines.push('Contact details varied by venue.');
   }
 
   if (isTrustFailure) {
@@ -621,6 +656,7 @@ export function buildRunNarrative(
     requestedCount,
     candidateCount,
     towerVerdict: towerVerdict || null,
+    contactCountsSource,
   };
 }
 
@@ -746,14 +782,20 @@ function TechnicalDetails({
             <LearningDeltaSection learningUpdate={learningUpdate} />
           )}
 
-          <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-[10px] text-muted-foreground font-mono pt-1 border-t border-border">
-            <span>status={effectiveCanonical.status}</span>
-            <span>delivered={narrative.deliveredCount}</span>
-            <span>candidates={narrative.candidateCount ?? 'n/a'}</span>
-            <span>emails={narrative.emailFoundCount}</span>
-            <span>phones={narrative.phoneFoundCount}</span>
-            {towerVerdict && <span>tower={towerVerdict}</span>}
-            {runId && <span>run={runId.slice(0, 12)}</span>}
+          <div className="space-y-1 pt-1 border-t border-border">
+            <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-[10px] text-muted-foreground font-mono">
+              <span>status={effectiveCanonical.status}</span>
+              <span>delivered={narrative.deliveredCount}</span>
+              <span>candidates={narrative.candidateCount ?? 'n/a'}</span>
+              <span>emails={narrative.emailFoundCount}</span>
+              <span>phones={narrative.phoneFoundCount}</span>
+              {towerVerdict && <span>tower={towerVerdict}</span>}
+              {runId && <span>run={runId.slice(0, 12)}</span>}
+            </div>
+            <div className="text-[10px] text-muted-foreground font-mono">
+              Contact counts source: <span className="font-semibold">{narrative.contactCountsSource}</span>
+              {narrative.contactCountsSource === 'unknown' && ' (no artefact data available, counts may be inaccurate)'}
+            </div>
           </div>
         </div>
       )}
@@ -1057,6 +1099,7 @@ export default function RunResultBubble({
   towerStopTimePredicate,
   planVersions,
   towerUnavailable,
+  contactCounts,
 }: RunResultBubbleProps) {
   const verifiedExact = resolveVerifiedCount(deliverySummary, verificationSummary);
   const target = resolveHasTargetCount(deliverySummary, constraintsExtracted);
@@ -1119,7 +1162,7 @@ export default function RunResultBubble({
 
   console.log(`[RunResultBubble] render: status=${effectiveCanonical.status} (raw=${canonical.status}), verifiedExact=${verifiedExact}, requested=${target.hasTarget ? target.targetCount : 'any'}, allLeads=${allLeads.length}, matches=${matches.length}, candidates=${candidates.length}, leadVerifications=${leadVerifications?.length ?? 'none'}, verifiedIds=${verifiedIds.size}, locationBuckets=${useLocationBuckets ? `geo=${locationBuckets!.verifiedGeo.length},bounded=${locationBuckets!.searchBounded.length},out=${locationBuckets!.outOfArea.length},unknown=${locationBuckets!.unknown.length}` : 'none'}`);
 
-  const narrative = !provisional ? buildRunNarrative(deliverySummary, searchQueryCompiled, constraintsExtracted, towerVerdict) : null;
+  const narrative = !provisional ? buildRunNarrative(deliverySummary, searchQueryCompiled, constraintsExtracted, towerVerdict, contactCounts) : null;
 
   return (
     <div className="space-y-3">

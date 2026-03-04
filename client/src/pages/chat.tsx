@@ -34,7 +34,7 @@ import UserResultsView from "@/components/results/UserResultsView";
 import type { DeliverySummary, DeliveryLead } from "@/components/results/UserResultsView";
 import type { VerificationSummaryPayload, ConstraintsExtractedPayload, LeadVerificationEntry } from "@/components/results/CvlArtefactViews";
 import RunResultBubble from "@/components/results/RunResultBubble";
-import type { PolicySnapshot } from "@/components/results/RunResultBubble";
+import type { PolicySnapshot, ContactCounts } from "@/components/results/RunResultBubble";
 import { resolveCanonicalStatus, STATUS_CONFIG } from "@/utils/deliveryStatus";
 import { getGoogleQueryMode } from "@/components/GoogleQueryModeToggle";
 import { PreRunBanner } from "@/components/results/PreRunBanner";
@@ -62,6 +62,7 @@ type Message = ChatMessage & {
   towerVerdict?: string | null;
   towerProxyUsed?: string | null;
   towerStopTimePredicate?: boolean;
+  contactCounts?: ContactCounts | null;
   isClarifyMsg?: boolean;
   isClarifySuperseded?: boolean;
 };
@@ -514,6 +515,94 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     return { verdict: lastVerdict, proxyUsed: lastProxyUsed, stopTimePredicate: lastStopTimePredicate, hasAnyFail };
   }
 
+  function extractContactCounts(rows: any[]): ContactCounts | null {
+    const leadPacks: any[] = [];
+    const contactExtracts: any[] = [];
+
+    for (const row of rows) {
+      let p = row.payload_json;
+      if (typeof p === 'string') { try { p = JSON.parse(p); } catch { continue; } }
+      if (!p || typeof p !== 'object') continue;
+
+      if (row.type === 'lead_pack') {
+        const leads = Array.isArray(p) ? p : Array.isArray(p.leads) ? p.leads : [p];
+        leadPacks.push(...leads);
+      }
+      if (row.type === 'contact_extract') {
+        const contacts = Array.isArray(p) ? p
+          : Array.isArray(p.contacts) ? p.contacts
+          : Array.isArray(p.results) ? p.results
+          : (p.email || p.name) ? [p] : [];
+        contactExtracts.push(...contacts);
+      }
+    }
+
+    if (leadPacks.length > 0) {
+      const emails = new Set<string>();
+      const phones = new Set<string>();
+      let leadsWithEmail = 0;
+      let leadsWithPhone = 0;
+
+      for (const lp of leadPacks) {
+        let hasEmail = false;
+        let hasPhone = false;
+
+        const contactEmails: string[] = [];
+        if (lp.contact?.emails && Array.isArray(lp.contact.emails)) {
+          contactEmails.push(...lp.contact.emails);
+        }
+        if (lp.email && typeof lp.email === 'string') contactEmails.push(lp.email);
+        if (Array.isArray(lp.emails)) contactEmails.push(...lp.emails);
+        if (Array.isArray(lp.contacts)) {
+          for (const c of lp.contacts) {
+            if (c.email) contactEmails.push(c.email);
+            if (c.email_address) contactEmails.push(c.email_address);
+          }
+        }
+        for (const e of contactEmails) {
+          const norm = (e || '').trim().toLowerCase();
+          if (norm && norm.includes('@')) { emails.add(norm); hasEmail = true; }
+        }
+
+        const contactPhones: string[] = [];
+        if (lp.contact?.phones && Array.isArray(lp.contact.phones)) {
+          contactPhones.push(...lp.contact.phones);
+        }
+        if (lp.phone && typeof lp.phone === 'string') contactPhones.push(lp.phone);
+        if (lp.phone_number && typeof lp.phone_number === 'string') contactPhones.push(lp.phone_number);
+        if (Array.isArray(lp.phones)) contactPhones.push(...lp.phones);
+        for (const ph of contactPhones) {
+          const norm = (ph || '').trim();
+          if (norm.length >= 5) { phones.add(norm); hasPhone = true; }
+        }
+
+        if (hasEmail) leadsWithEmail++;
+        if (hasPhone) leadsWithPhone++;
+      }
+
+      return { source: 'lead_pack', emailCount: emails.size, phoneCount: phones.size, leadsWithEmail, leadsWithPhone };
+    }
+
+    if (contactExtracts.length > 0) {
+      const emails = new Set<string>();
+      const phones = new Set<string>();
+
+      for (const ce of contactExtracts) {
+        const email = ce.email || ce.email_address || '';
+        const norm = (email || '').trim().toLowerCase();
+        if (norm && norm.includes('@')) emails.add(norm);
+
+        const phone = ce.phone || ce.phone_number || '';
+        const pnorm = (phone || '').trim();
+        if (pnorm.length >= 5) phones.add(pnorm);
+      }
+
+      return { source: 'contact_extract', emailCount: emails.size, phoneCount: phones.size, leadsWithEmail: emails.size, leadsWithPhone: phones.size };
+    }
+
+    return null;
+  }
+
   function parseSiblingArtefacts(rows: any[]): {
     vs: VerificationSummaryPayload | null;
     ce: ConstraintsExtractedPayload | null;
@@ -522,6 +611,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     learningUpdate: LearningUpdate | null;
     searchQueryCompiled: SearchQueryCompiled | null;
     leadVerifications: LeadVerificationEntry[] | null;
+    contactCounts: ContactCounts | null;
   } {
     let vs: VerificationSummaryPayload | null = null;
     let ce: ConstraintsExtractedPayload | null = null;
@@ -531,7 +621,8 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     let searchQueryCompiled: SearchQueryCompiled | null = null;
     let fallbackRules: string[] | null = null;
     let leadVerifications: LeadVerificationEntry[] | null = null;
-    if (!Array.isArray(rows)) return { vs, ce, policySnapshot, policyApplied, learningUpdate, searchQueryCompiled, leadVerifications };
+    const contactCounts = extractContactCounts(rows);
+    if (!Array.isArray(rows)) return { vs, ce, policySnapshot, policyApplied, learningUpdate, searchQueryCompiled, leadVerifications, contactCounts: null };
     for (const row of rows) {
       if (row.type === 'verification_summary') {
         let p = row.payload_json;
@@ -596,7 +687,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         applied_policies: fallbackRules.map(r => ({ rule_text: r, source: 'plan' })),
       };
     }
-    return { vs, ce, policySnapshot, policyApplied, learningUpdate, searchQueryCompiled, leadVerifications };
+    return { vs, ce, policySnapshot, policyApplied, learningUpdate, searchQueryCompiled, leadVerifications, contactCounts };
   }
 
   function persistStructuredResult(payload: any) {
@@ -686,7 +777,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
           }
         }
 
-        const { vs: provVs, ce: provCe, policySnapshot: provPs, policyApplied: provPa, learningUpdate: provLu, searchQueryCompiled: provSqc, leadVerifications: provLv } = parseSiblingArtefacts(rows);
+        const { vs: provVs, ce: provCe, policySnapshot: provPs, policyApplied: provPa, learningUpdate: provLu, searchQueryCompiled: provSqc, leadVerifications: provLv, contactCounts: provCC } = parseSiblingArtefacts(rows);
         const tower = resolveAuthoritativeTower(rows);
         const towerVerdict = tower.verdict;
         const towerProxyUsed = tower.proxyUsed;
@@ -743,6 +834,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
           towerVerdict,
           towerProxyUsed: towerProxyUsed,
           towerStopTimePredicate,
+          contactCounts: provCC,
         };
         upsertResultMessage(finalMsg);
 
@@ -761,6 +853,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
           policyApplied: provPa || null,
           learningUpdate: provLu || null,
           searchQueryCompiled: provSqc || null,
+          contactCounts: provCC || null,
         });
 
         cleanupRunState(effectiveKey);
@@ -773,7 +866,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
       }
       if (!parsed || typeof parsed !== 'object') return;
 
-      const { vs, ce, policySnapshot, policyApplied, learningUpdate, searchQueryCompiled, leadVerifications } = parseSiblingArtefacts(rows);
+      const { vs, ce, policySnapshot, policyApplied, learningUpdate, searchQueryCompiled, leadVerifications, contactCounts } = parseSiblingArtefacts(rows);
 
       const tower2 = resolveAuthoritativeTower(rows);
       const dsPathTowerVerdict = tower2.verdict;
@@ -820,6 +913,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         towerVerdict: dsPathTowerVerdict,
         towerProxyUsed: dsPathProxyUsed,
         towerStopTimePredicate: dsPathStopTimePredicate,
+        contactCounts,
       };
       upsertResultMessage(resultMessage);
 
@@ -838,6 +932,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         policyApplied: policyApplied || null,
         learningUpdate: learningUpdate || null,
         searchQueryCompiled: searchQueryCompiled || null,
+        contactCounts: contactCounts || null,
       });
 
       cleanupRunState(effectiveKey);
@@ -1229,6 +1324,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
               base.learningUpdate = meta.learningUpdate ? parseLearningUpdate(meta.learningUpdate) : null;
               base.searchQueryCompiled = meta.searchQueryCompiled ? parseSearchQueryCompiled(meta.searchQueryCompiled) : null;
               base.runId = meta.runId || null;
+              base.contactCounts = meta.contactCounts || null;
             }
             if (base.role === 'assistant' && /^Searching for .+\.$/.test(base.content)) {
               base.isConfidence = true;
@@ -1616,6 +1712,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                 base.learningUpdate = meta.learningUpdate ? parseLearningUpdate(meta.learningUpdate) : null;
                 base.searchQueryCompiled = meta.searchQueryCompiled ? parseSearchQueryCompiled(meta.searchQueryCompiled) : null;
                 base.runId = meta.runId || null;
+                base.contactCounts = meta.contactCounts || null;
               }
               if (base.role === 'assistant' && /^Searching for .+\.$/.test(base.content)) {
                 base.isConfidence = true;
@@ -2767,6 +2864,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                           towerVerdict={chatMessage.towerVerdict}
                           towerProxyUsed={chatMessage.towerProxyUsed}
                           towerStopTimePredicate={chatMessage.towerStopTimePredicate}
+                          contactCounts={chatMessage.contactCounts}
                         />
                       </div>
                       <span className="text-xs text-muted-foreground mt-1">

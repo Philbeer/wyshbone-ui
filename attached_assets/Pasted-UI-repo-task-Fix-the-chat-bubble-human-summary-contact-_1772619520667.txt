@@ -1,0 +1,37 @@
+UI repo task: Fix the chat bubble human summary contact counts (emails/phones) so it matches backend reality.
+
+Bug
+The human summary currently says “I found no public emails or phone numbers…”, but backend runs show CONTACT_EXTRACT often finds emails/phones.
+So the UI is reading the wrong fields or defaulting to 0.
+
+What to do
+1) Identify exactly where the human summary gets:
+   - total candidates found
+   - emails found count
+   - phones found count
+2) Replace the email/phone totals with a calculation derived from real artefacts.
+
+Rules for correct counting (must match backend)
+- Prefer counting from LEAD_ENRICH (lead_pack) artefacts for the delivered leads:
+  Sum over delivered leads:
+    email_count = number of unique emails in lead_pack.contact.emails (or equivalent)
+    phone_count = number of unique phones in lead_pack.contact.phones (or equivalent)
+- If lead_pack artefacts aren’t available, fallback to CONTACT_EXTRACT artefacts:
+  Sum unique emails/phones across the CONTACT_EXTRACT results for the delivered lead names/place_ids.
+- If neither artefact type exists, only then say:
+  “I couldn’t find any public emails on the pages I checked.” (do NOT claim “no phone numbers” unless checked)
+
+Important: Don’t ever show a confident “0 emails/0 phones” unless you can prove you checked and counted.
+If counts are unknown, say “I checked websites where available and found some contact details for a few places” or “Contact details varied by venue”.
+
+Debug requirement
+- In the “Show details” section, add a small line showing which source was used for counts:
+  “Contact counts source: lead_pack” OR “contact_extract” OR “unknown”
+- Also show the raw numbers used to compute totals.
+
+Acceptance test
+Use a run where CONTACT_EXTRACT clearly found emails/phones (example: George at Burpham had 1 email, 1 phone).
+The human summary must display non-zero counts and match the artefacts.
+
+Deliverable
+Implement fix, list files changed, and paste before/after screenshots of the chat bubble summary + details.
