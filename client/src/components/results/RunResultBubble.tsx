@@ -47,6 +47,16 @@ export interface ContactCounts {
   };
 }
 
+export interface RunReceipt {
+  unique_email_count?: number | null;
+  unique_phone_count?: number | null;
+  contacts_proven?: boolean | null;
+  requested_count?: number | null;
+  delivered_count?: number | null;
+  narrative_lines?: string[] | null;
+  tower_verdict?: string | null;
+}
+
 export interface RunResultBubbleProps {
   deliverySummary: DeliverySummary;
   verificationSummary?: VerificationSummaryPayload | null;
@@ -64,6 +74,7 @@ export interface RunResultBubbleProps {
   planVersions?: PlanVersion[] | null;
   towerUnavailable?: boolean;
   contactCounts?: ContactCounts | null;
+  runReceipt?: RunReceipt | null;
 }
 
 function dispatchFollowUp(params: {
@@ -653,6 +664,71 @@ function HumanSummary({ narrative }: { narrative: RunNarrative }) {
   );
 }
 
+function ReceiptComparison({ narrative, runReceipt }: { narrative: RunNarrative; runReceipt?: RunReceipt | null }) {
+  if (!runReceipt) {
+    return (
+      <div className="text-[10px] text-muted-foreground font-mono pt-1 border-t border-border/50 mt-1">
+        Receipt: not available for this run
+      </div>
+    );
+  }
+
+  const receiptProven = runReceipt.contacts_proven === true;
+  const receiptEmails = receiptProven && runReceipt.unique_email_count != null ? runReceipt.unique_email_count : null;
+  const receiptPhones = receiptProven && runReceipt.unique_phone_count != null ? runReceipt.unique_phone_count : null;
+
+  const derivedEmails = narrative.emailFoundCount;
+  const derivedPhones = narrative.phoneFoundCount;
+
+  const emailMismatch = receiptEmails != null && receiptEmails !== derivedEmails;
+  const phoneMismatch = receiptPhones != null && receiptPhones !== derivedPhones;
+  const hasMismatch = emailMismatch || phoneMismatch;
+
+  const receiptTower = runReceipt.tower_verdict;
+  const receiptTowerLower = (receiptTower || '').toLowerCase();
+  const towerAccepted = ['pass', 'accept', 'accept_with_unverified'].includes(receiptTowerLower);
+  const towerRejected = ['fail', 'stop', 'error'].includes(receiptTowerLower);
+
+  return (
+    <div className="space-y-0.5 text-[10px] font-mono pt-1 border-t border-border/50 mt-1">
+      <div className="font-semibold text-muted-foreground uppercase tracking-wider text-[9px]">Receipt comparison</div>
+      <div className="flex gap-x-6">
+        <div className="text-muted-foreground">
+          Derived: emails={derivedEmails} phones={derivedPhones}
+        </div>
+        <div className="text-muted-foreground">
+          Receipt: emails={receiptEmails ?? 'unknown'} phones={receiptPhones ?? 'unknown'}
+          {!receiptProven && <span className="ml-1 text-amber-600 dark:text-amber-400">(unproven)</span>}
+        </div>
+      </div>
+      {hasMismatch && (
+        <div className="text-amber-600 dark:text-amber-400 font-semibold flex items-center gap-1">
+          <AlertTriangle className="h-3 w-3 inline" />
+          Mismatch: UI derived counts != run_receipt
+          {emailMismatch && <span className="font-normal ml-1">[emails: {derivedEmails} vs {receiptEmails}]</span>}
+          {phoneMismatch && <span className="font-normal ml-1">[phones: {derivedPhones} vs {receiptPhones}]</span>}
+        </div>
+      )}
+      {receiptTower && (
+        <div className={cn(
+          "flex items-center gap-1",
+          towerAccepted && "text-green-600 dark:text-green-400",
+          towerRejected && "text-red-600 dark:text-red-400",
+          !towerAccepted && !towerRejected && "text-muted-foreground"
+        )}>
+          Tower: {towerAccepted ? 'receipt verified' : towerRejected ? 'receipt failed verification' : `receipt verdict=${receiptTower}`}
+        </div>
+      )}
+      {runReceipt.delivered_count != null && (
+        <div className="text-muted-foreground">
+          Receipt delivered={runReceipt.delivered_count}
+          {runReceipt.requested_count != null && <span> requested={runReceipt.requested_count}</span>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TechnicalDetails({
   deliverySummary,
   effectiveCanonical,
@@ -668,6 +744,7 @@ function TechnicalDetails({
   towerUnavailable,
   runId,
   narrative,
+  runReceipt,
 }: {
   deliverySummary: DeliverySummary;
   effectiveCanonical: ReturnType<typeof resolveCanonicalStatus>;
@@ -683,6 +760,7 @@ function TechnicalDetails({
   towerUnavailable?: boolean;
   runId?: string | null;
   narrative: RunNarrative;
+  runReceipt?: RunReceipt | null;
 }) {
   const [open, setOpen] = useState(false);
 
@@ -802,6 +880,13 @@ function TechnicalDetails({
                   <div className="text-amber-600 dark:text-amber-400">{narrative.contactDebug.mappingNote}</div>
                 )}
               </div>
+            )}
+
+            {import.meta.env.VITE_SHOW_RECEIPT_COMPARISON === 'true' && (
+              <ReceiptComparison
+                narrative={narrative}
+                runReceipt={runReceipt}
+              />
             )}
           </div>
         </div>
@@ -1107,6 +1192,7 @@ export default function RunResultBubble({
   planVersions,
   towerUnavailable,
   contactCounts,
+  runReceipt,
 }: RunResultBubbleProps) {
   const verifiedExact = resolveVerifiedCount(deliverySummary, verificationSummary);
   const target = resolveHasTargetCount(deliverySummary, constraintsExtracted);
@@ -1300,6 +1386,7 @@ export default function RunResultBubble({
           towerUnavailable={towerUnavailable}
           runId={runId}
           narrative={narrative}
+          runReceipt={runReceipt}
         />
       )}
 

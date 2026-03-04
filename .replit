@@ -53,3 +53,4 @@ SUPERVISOR_EXECUTION_ENABLED = "true"
 
 [userenv.development]
 DEBUG_AFR = "true"
+VITE_SHOW_RECEIPT_COMPARISON = "true"

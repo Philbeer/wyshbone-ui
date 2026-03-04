@@ -34,7 +34,7 @@ import UserResultsView from "@/components/results/UserResultsView";
 import type { DeliverySummary, DeliveryLead } from "@/components/results/UserResultsView";
 import type { VerificationSummaryPayload, ConstraintsExtractedPayload, LeadVerificationEntry } from "@/components/results/CvlArtefactViews";
 import RunResultBubble from "@/components/results/RunResultBubble";
-import type { PolicySnapshot, ContactCounts } from "@/components/results/RunResultBubble";
+import type { PolicySnapshot, ContactCounts, RunReceipt } from "@/components/results/RunResultBubble";
 import { resolveCanonicalStatus, STATUS_CONFIG } from "@/utils/deliveryStatus";
 import { getGoogleQueryMode } from "@/components/GoogleQueryModeToggle";
 import { PreRunBanner } from "@/components/results/PreRunBanner";
@@ -63,6 +63,7 @@ type Message = ChatMessage & {
   towerProxyUsed?: string | null;
   towerStopTimePredicate?: boolean;
   contactCounts?: ContactCounts | null;
+  runReceipt?: RunReceipt | null;
   isClarifyMsg?: boolean;
   isClarifySuperseded?: boolean;
 };
@@ -697,6 +698,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     learningUpdate: LearningUpdate | null;
     searchQueryCompiled: SearchQueryCompiled | null;
     leadVerifications: LeadVerificationEntry[] | null;
+    runReceipt: RunReceipt | null;
   } {
     let vs: VerificationSummaryPayload | null = null;
     let ce: ConstraintsExtractedPayload | null = null;
@@ -706,7 +708,8 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     let searchQueryCompiled: SearchQueryCompiled | null = null;
     let fallbackRules: string[] | null = null;
     let leadVerifications: LeadVerificationEntry[] | null = null;
-    if (!Array.isArray(rows)) return { vs, ce, policySnapshot, policyApplied, learningUpdate, searchQueryCompiled, leadVerifications };
+    let runReceipt: RunReceipt | null = null;
+    if (!Array.isArray(rows)) return { vs, ce, policySnapshot, policyApplied, learningUpdate, searchQueryCompiled, leadVerifications, runReceipt };
     for (const row of rows) {
       if (row.type === 'verification_summary') {
         let p = row.payload_json;
@@ -764,6 +767,31 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
           fallbackRules = (p as any).rules_applied;
         }
       }
+      if (row.type === 'run_receipt' && !runReceipt) {
+        let p = row.payload_json;
+        if (typeof p === 'string') { try { p = JSON.parse(p); } catch { p = null; } }
+        if (p && typeof p === 'object') {
+          runReceipt = {
+            unique_email_count: (p as any).unique_email_count ?? null,
+            unique_phone_count: (p as any).unique_phone_count ?? null,
+            contacts_proven: (p as any).contacts_proven ?? null,
+            requested_count: (p as any).requested_count ?? null,
+            delivered_count: (p as any).delivered_count ?? null,
+            narrative_lines: Array.isArray((p as any).narrative_lines) ? (p as any).narrative_lines : null,
+          };
+        }
+      }
+    }
+    if (runReceipt) {
+      for (const row of rows) {
+        if (row.type === 'tower_judgement') {
+          let p = row.payload_json;
+          if (typeof p === 'string') { try { p = JSON.parse(p); } catch { p = null; } }
+          if (p && typeof p === 'object' && (p as any).artefact_type === 'run_receipt') {
+            runReceipt.tower_verdict = (p as any).verdict || (p as any).result || null;
+          }
+        }
+      }
     }
     if (!policySnapshot && fallbackRules && fallbackRules.length > 0) {
       policySnapshot = {
@@ -771,7 +799,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         applied_policies: fallbackRules.map(r => ({ rule_text: r, source: 'plan' })),
       };
     }
-    return { vs, ce, policySnapshot, policyApplied, learningUpdate, searchQueryCompiled, leadVerifications };
+    return { vs, ce, policySnapshot, policyApplied, learningUpdate, searchQueryCompiled, leadVerifications, runReceipt };
   }
 
   function persistStructuredResult(payload: any) {
@@ -861,7 +889,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
           }
         }
 
-        const { vs: provVs, ce: provCe, policySnapshot: provPs, policyApplied: provPa, learningUpdate: provLu, searchQueryCompiled: provSqc, leadVerifications: provLv } = parseSiblingArtefacts(rows);
+        const { vs: provVs, ce: provCe, policySnapshot: provPs, policyApplied: provPa, learningUpdate: provLu, searchQueryCompiled: provSqc, leadVerifications: provLv, runReceipt: provRR } = parseSiblingArtefacts(rows);
         const tower = resolveAuthoritativeTower(rows);
         const towerVerdict = tower.verdict;
         const towerProxyUsed = tower.proxyUsed;
@@ -920,6 +948,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
           towerProxyUsed: towerProxyUsed,
           towerStopTimePredicate,
           contactCounts: provCC,
+          runReceipt: provRR,
         };
         upsertResultMessage(finalMsg);
 
@@ -939,6 +968,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
           learningUpdate: provLu || null,
           searchQueryCompiled: provSqc || null,
           contactCounts: provCC || null,
+          runReceipt: provRR || null,
         });
 
         cleanupRunState(effectiveKey);
@@ -951,7 +981,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
       }
       if (!parsed || typeof parsed !== 'object') return;
 
-      const { vs, ce, policySnapshot, policyApplied, learningUpdate, searchQueryCompiled, leadVerifications } = parseSiblingArtefacts(rows);
+      const { vs, ce, policySnapshot, policyApplied, learningUpdate, searchQueryCompiled, leadVerifications, runReceipt } = parseSiblingArtefacts(rows);
 
       const tower2 = resolveAuthoritativeTower(rows);
       const dsPathTowerVerdict = tower2.verdict;
@@ -1001,6 +1031,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         towerProxyUsed: dsPathProxyUsed,
         towerStopTimePredicate: dsPathStopTimePredicate,
         contactCounts,
+        runReceipt,
       };
       upsertResultMessage(resultMessage);
 
@@ -1020,6 +1051,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         learningUpdate: learningUpdate || null,
         searchQueryCompiled: searchQueryCompiled || null,
         contactCounts: contactCounts || null,
+        runReceipt: runReceipt || null,
       });
 
       cleanupRunState(effectiveKey);
@@ -2952,6 +2984,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                           towerProxyUsed={chatMessage.towerProxyUsed}
                           towerStopTimePredicate={chatMessage.towerStopTimePredicate}
                           contactCounts={chatMessage.contactCounts}
+                          runReceipt={chatMessage.runReceipt}
                         />
                       </div>
                       <span className="text-xs text-muted-foreground mt-1">

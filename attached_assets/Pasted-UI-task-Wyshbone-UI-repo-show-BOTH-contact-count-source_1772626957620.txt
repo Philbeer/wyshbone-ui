@@ -1,0 +1,57 @@
+UI task (Wyshbone-UI repo): show BOTH contact count sources side-by-side (derived vs run_receipt) without changing the current behaviour
+
+Goal
+We currently compute the chat bubble summary counts by scanning artefacts (derived counts). We also now have a backend-produced run_receipt (Supervisor) plus Tower judgement for it.
+I do NOT want to switch the UI over yet and risk regression.
+
+Instead:
+- Keep the existing derived-count logic as the primary display for now.
+- ALSO display the counts from run_receipt in the chat UI (or in an “Evidence / Debug” expandable section) so we can compare them over multiple runs.
+- Highlight if they disagree.
+
+Hard requirements
+1) Do not remove or change the existing derived-count logic yet.
+   The chat bubble must continue to show whatever it shows today (derived counts).
+
+2) Fetch run_receipt for the current run (same runId the bubble is summarising).
+   - Locate the artefact where type="run_receipt".
+   - Parse fields:
+     - unique_email_count
+     - unique_phone_count
+     - contacts_proven
+     - requested_count, delivered_count (optional to display)
+     - narrative_lines (optional)
+
+3) Add a “Receipt” comparison display in the UI:
+   - Either directly under the current summary (small text), or in a collapsible “Details” section.
+   - Must show:
+     - Derived counts: emails=X, phones=Y
+     - Receipt counts: emails=A, phones=B (or “unknown” if contacts_proven=false or counts null)
+     - Proven flag: contacts_proven true/false
+   - If counts mismatch, show a clear warning badge/text:
+     “Mismatch: UI derived counts != run_receipt”
+     and show both numbers.
+
+4) Also surface Tower’s verdict for the receipt (if available in AFR as a tower_judgement linked to run_receipt):
+   - If Tower rejected/STOPped the receipt, show:
+     “Tower: receipt failed verification”
+   - If Tower accepted, show:
+     “Tower: receipt verified”
+   Keep it visually small and non-intrusive.
+
+5) Make the extra “Receipt comparison” UI gated behind a feature flag so we can enable/disable easily:
+   - Example: env var NEXT_PUBLIC_SHOW_RECEIPT_COMPARISON=true
+   - Default OFF in production if the flag is absent.
+
+6) No partial edits. Rewrite full files as needed so it is copy-pasteable.
+   Provide:
+   - files changed
+   - how to toggle the flag
+   - one screenshot-worthy description of what the UI now shows
+
+Acceptance tests (manual)
+- Run a query that produces contacts. Confirm derived counts and receipt counts are shown.
+- If receipt missing: show “Receipt not available” and do not break the chat bubble.
+- If contacts_proven=false: show “Receipt: unknown” counts and do not claim 0.
+- If mismatch: show warning and both values.
+- If Tower verdict exists: show badge/text reflecting it.
