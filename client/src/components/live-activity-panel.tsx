@@ -29,6 +29,7 @@ import {
   LeadVerificationView,
 } from "@/components/results/CvlArtefactViews";
 import { useToast } from "@/hooks/use-toast";
+import { resolveAuthoritativeTowerVerdict } from "@/utils/towerVerdictResolver";
 
 const IS_DEV = import.meta.env.DEV;
 
@@ -425,19 +426,27 @@ function TowerVerdictBadge({ verdict, score }: { verdict: string; score?: number
   const config: Record<string, { bg: string; text: string; label: string }> = {
     accept: { bg: 'bg-green-100 dark:bg-green-900/30', text: 'text-green-700 dark:text-green-300', label: 'Accepted' },
     continue: { bg: 'bg-green-100 dark:bg-green-900/30', text: 'text-green-700 dark:text-green-300', label: 'Accepted' },
+    pass: { bg: 'bg-green-100 dark:bg-green-900/30', text: 'text-green-700 dark:text-green-300', label: 'Passed' },
     revise: { bg: 'bg-amber-100 dark:bg-amber-900/30', text: 'text-amber-700 dark:text-amber-300', label: 'Revise' },
     change_plan: { bg: 'bg-amber-100 dark:bg-amber-900/30', text: 'text-amber-700 dark:text-amber-300', label: 'Plan Changed' },
     retry: { bg: 'bg-amber-100 dark:bg-amber-900/30', text: 'text-amber-700 dark:text-amber-300', label: 'Retrying' },
     abandon: { bg: 'bg-red-100 dark:bg-red-900/30', text: 'text-red-700 dark:text-red-300', label: 'Abandoned' },
     stop: { bg: 'bg-red-100 dark:bg-red-900/30', text: 'text-red-700 dark:text-red-300', label: 'Stopped' },
+    fail: { bg: 'bg-red-100 dark:bg-red-900/30', text: 'text-red-700 dark:text-red-300', label: 'Failed' },
+    error: { bg: 'bg-red-100 dark:bg-red-900/30', text: 'text-red-700 dark:text-red-300', label: 'Error' },
   };
   const v = verdict.toLowerCase();
-  const c = config[v] || { bg: 'bg-gray-100 dark:bg-gray-800/50', text: 'text-gray-700 dark:text-gray-300', label: verdict };
+  const isMixed = v.startsWith('mixed');
+  const baseVerdict = v.split(/[\s(]/)[0];
+  const c = isMixed
+    ? { bg: 'bg-amber-100 dark:bg-amber-900/30', text: 'text-amber-700 dark:text-amber-300', label: verdict }
+    : (config[v] || config[baseVerdict] || { bg: 'bg-gray-100 dark:bg-gray-800/50', text: 'text-gray-700 dark:text-gray-300', label: verdict });
+  const displayLabel = config[v] ? c.label : verdict;
 
   return (
     <div className={cn("inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold", c.bg, c.text)}>
       <Brain className="h-3.5 w-3.5" />
-      <span>Tower: {c.label}</span>
+      <span>Tower: {displayLabel}</span>
       {score != null && (
         <span className="ml-1 font-mono text-[10px] opacity-80">({Math.round(score * 100)}%)</span>
       )}
@@ -1346,6 +1355,7 @@ function EvidenceSection({ clientRequestId, runId, preloadedArtefacts }: { clien
     if (preloadedArtefacts && preloadedArtefacts.length > 0) {
       const tjs = preloadedArtefacts.filter(r => r.type === 'tower_judgement');
       if (tjs.length > 0) {
+        const resolved = resolveAuthoritativeTowerVerdict(preloadedArtefacts);
         const finalDelivery = tjs.filter(r => {
           let p = r.payload_json;
           if (typeof p === 'string') { try { p = JSON.parse(p); } catch { return false; } }
@@ -1354,23 +1364,8 @@ function EvidenceSection({ clientRequestId, runId, preloadedArtefacts }: { clien
         const authoritative = finalDelivery.length > 0 ? finalDelivery[finalDelivery.length - 1] : tjs[tjs.length - 1];
         let authP = authoritative.payload_json;
         if (typeof authP === 'string') { try { authP = JSON.parse(authP); } catch { authP = {}; } }
-        const authV = ((authP as any)?.verdict || '').toLowerCase();
-        const isFinalDeliveryPass = finalDelivery.length > 0 && ['pass', 'accept', 'accept_with_unverified'].includes(authV);
-        if (!isFinalDeliveryPass) {
-          const hasAnyFail = tjs.some(r => {
-            let p = r.payload_json;
-            if (typeof p === 'string') { try { p = JSON.parse(p); } catch { return false; } }
-            const v = (p?.verdict || '').toLowerCase();
-            return v === 'fail' || v === 'error';
-          });
-          if (hasAnyFail && ['pass', 'accept', 'accept_with_unverified'].includes(authV)) {
-            setJudgementArtefact({ ...authoritative, payload_json: { ...(typeof authP === 'object' ? authP : {}), verdict: 'fail' } });
-          } else {
-            setJudgementArtefact(authoritative);
-          }
-        } else {
-          setJudgementArtefact(authoritative);
-        }
+        const resolvedPayload = { ...(typeof authP === 'object' ? authP : {}), verdict: resolved.verdict, _towerLabel: resolved.label };
+        setJudgementArtefact({ ...authoritative, payload_json: resolvedPayload });
       }
     }
 
@@ -1393,6 +1388,7 @@ function EvidenceSection({ clientRequestId, runId, preloadedArtefacts }: { clien
           .then((rows: Artefact[]) => {
             const tjs = rows.filter(r => r.type === 'tower_judgement');
             if (tjs.length > 0) {
+              const resolved = resolveAuthoritativeTowerVerdict(rows);
               const finalDelivery = tjs.filter(r => {
                 let p = r.payload_json;
                 if (typeof p === 'string') { try { p = JSON.parse(p); } catch { return false; } }
@@ -1401,23 +1397,8 @@ function EvidenceSection({ clientRequestId, runId, preloadedArtefacts }: { clien
               const authoritative = finalDelivery.length > 0 ? finalDelivery[finalDelivery.length - 1] : tjs[tjs.length - 1];
               let authP = authoritative.payload_json;
               if (typeof authP === 'string') { try { authP = JSON.parse(authP); } catch { authP = {}; } }
-              const authV = ((authP as any)?.verdict || '').toLowerCase();
-              const isFinalDeliveryPass = finalDelivery.length > 0 && ['pass', 'accept', 'accept_with_unverified'].includes(authV);
-              if (!isFinalDeliveryPass) {
-                const hasAnyFail = tjs.some(r => {
-                  let p = r.payload_json;
-                  if (typeof p === 'string') { try { p = JSON.parse(p); } catch { return false; } }
-                  const v = (p?.verdict || '').toLowerCase();
-                  return v === 'fail' || v === 'error';
-                });
-                if (hasAnyFail && ['pass', 'accept', 'accept_with_unverified'].includes(authV)) {
-                  setJudgementArtefact({ ...authoritative, payload_json: { ...(typeof authP === 'object' ? authP : {}), verdict: 'fail' } });
-                } else {
-                  setJudgementArtefact(authoritative);
-                }
-              } else {
-                setJudgementArtefact(authoritative);
-              }
+              const resolvedPayload = { ...(typeof authP === 'object' ? authP : {}), verdict: resolved.verdict, _towerLabel: resolved.label };
+              setJudgementArtefact({ ...authoritative, payload_json: resolvedPayload });
             }
           })
           .catch(() => {});
@@ -1604,24 +1585,15 @@ function ResultsModal({ clientRequestId, runId, open, onOpenChange }: { clientRe
           const targetCount = leadsPayload?.target_count ?? leadsPayload?.requested ?? leadsPayload?.requested_count ?? null;
 
           const summaryPayload = artefacts.find(a => a.type === 'run_summary') ? parsePayload(artefacts.find(a => a.type === 'run_summary')!.payload_json) : null;
+          const resolvedTower = resolveAuthoritativeTowerVerdict(artefacts);
           const finalDeliveryTower = towerArtefacts.filter(a => {
             const tp = parsePayload(a.payload_json);
             return tp?.phase === 'final_delivery';
           });
           const authoritativeTowerArtefact = finalDeliveryTower.length > 0 ? finalDeliveryTower[finalDeliveryTower.length - 1] : verdictArtefact;
           let towerPayload = authoritativeTowerArtefact ? parsePayload(authoritativeTowerArtefact.payload_json) : null;
-          if (towerPayload && towerArtefacts.length > 1 && finalDeliveryTower.length === 0) {
-            const anyFail = towerArtefacts.some(a => {
-              const tp = parsePayload(a.payload_json);
-              const tv = (tp?.verdict || '').toLowerCase();
-              return tv === 'fail' || tv === 'error';
-            });
-            if (anyFail) {
-              const lv = (towerPayload.verdict || '').toLowerCase();
-              if (lv === 'pass' || lv === 'accept' || lv === 'accept_with_unverified') {
-                towerPayload = { ...towerPayload, verdict: 'fail' };
-              }
-            }
+          if (towerPayload && resolvedTower.verdict) {
+            towerPayload = { ...towerPayload, verdict: resolvedTower.verdict };
           }
 
           const cvlConstraints = artefacts.find(a => a.type === 'constraints_extracted');
@@ -1640,9 +1612,10 @@ function ResultsModal({ clientRequestId, runId, open, onOpenChange }: { clientRe
           return (
             <div className="space-y-2 mb-2">
               <div className="flex flex-wrap items-center gap-2">
-                {verdictSource && (() => {
-                  const p = parsePayload(verdictSource.payload_json);
-                  return <TowerVerdictBadge verdict={p.verdict} score={p.score ?? p.confidence} />;
+                {resolvedTower.verdict && (() => {
+                  const displayVerdict = resolvedTower.label || resolvedTower.verdict;
+                  const score = towerPayload?.score ?? towerPayload?.confidence ?? null;
+                  return <TowerVerdictBadge verdict={displayVerdict} score={score} />;
                 })()}
                 <span className={cn(
                   "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold",
@@ -1942,7 +1915,7 @@ function StopActionButtons() {
   );
 }
 
-function SequenceStatusRow({ status, clientRequestId, runId, towerVerdict, towerMissing, chatMode, towerRationale }: { status: "completed" | "failed" | "stopped" | "awaiting_judgement" | "replanning"; clientRequestId?: string | null; runId?: string | null; towerVerdict?: string | null; towerMissing?: boolean; chatMode?: boolean; towerRationale?: string | null }) {
+function SequenceStatusRow({ status, clientRequestId, runId, towerVerdict, towerLabel, towerMissing, chatMode, towerRationale }: { status: "completed" | "failed" | "stopped" | "awaiting_judgement" | "replanning"; clientRequestId?: string | null; runId?: string | null; towerVerdict?: string | null; towerLabel?: string | null; towerMissing?: boolean; chatMode?: boolean; towerRationale?: string | null }) {
   const [showResults, setShowResults] = useState(false);
   const [showUserResults, setShowUserResults] = useState(false);
   const [elapsed, setElapsed] = useState(0);
@@ -2040,9 +2013,11 @@ function SequenceStatusRow({ status, clientRequestId, runId, towerVerdict, tower
   const config: Record<string, { icon: typeof CheckCircle2; label: string; className: string }> = {
     completed: { 
       icon: CheckCircle2, 
-      label: towerVerdict
-        ? `Sequence complete — Tower: ${towerVerdict.toUpperCase()}`
-        : "Sequence complete", 
+      label: towerLabel
+        ? `Sequence complete — Tower: ${towerLabel}`
+        : towerVerdict
+          ? `Sequence complete — Tower: ${towerVerdict.toUpperCase()}`
+          : "Sequence complete", 
       className: "text-green-500/70" 
     },
     failed: { 
@@ -3040,6 +3015,7 @@ const TERMINAL_STATUSES = ['completed', 'failed', 'stopped'];
 
 interface TowerAwareResult {
   towerVerdict: string | null;
+  towerLabel: string | null;
   towerRationale: string | null;
   derivedStatus: OverallStatus | null;
   isLeadRun: boolean;
@@ -3048,6 +3024,7 @@ interface TowerAwareResult {
 
 function deriveTowerAwareStatus(events: StreamEvent[], serverTerminalState: 'completed' | 'failed' | 'stopped' | null, artefacts?: Array<{ type: string; payload_json?: any }>, chatMode?: boolean): TowerAwareResult {
   let lastTowerVerdict: string | null = null;
+  let lastTowerLabel: string | null = null;
   let lastTowerRationale: string | null = null;
   let hasRunCompleted = false;
   let hasRunStopped = false;
@@ -3064,27 +3041,12 @@ function deriveTowerAwareStatus(events: StreamEvent[], serverTerminalState: 'com
     if (towerArtefactList.length > 0) {
       hasTowerJudgement = true;
       hasTowerJudgementArtefact = true;
-      let anyFail = false;
-      let finalDeliveryArtefact: typeof towerArtefactList[0] | null = null;
-      for (const ta of towerArtefactList) {
-        const tp = ta.payload_json;
-        const tv = (tp?.verdict || '').toLowerCase();
-        if (tv === 'fail' || tv === 'error') anyFail = true;
-        if (tp?.phase === 'final_delivery') finalDeliveryArtefact = ta;
-      }
+      const resolvedTower = resolveAuthoritativeTowerVerdict(artefacts);
+      lastTowerVerdict = resolvedTower.verdict ? resolvedTower.verdict.toLowerCase() : '';
+      lastTowerLabel = resolvedTower.label;
+      const finalDeliveryArtefact = towerArtefactList.find(ta => ta.payload_json?.phase === 'final_delivery');
       const authoritativeTa = finalDeliveryArtefact || towerArtefactList[towerArtefactList.length - 1];
       const lp = authoritativeTa.payload_json;
-      let resolvedVerdict = (lp?.verdict && typeof lp.verdict === 'string') ? lp.verdict.toLowerCase() : '';
-      if (finalDeliveryArtefact) {
-        const fdv = resolvedVerdict;
-        if (fdv === 'pass' || fdv === 'accept' || fdv === 'accept_with_unverified') {
-          anyFail = false;
-        }
-      }
-      if (anyFail && (resolvedVerdict === 'pass' || resolvedVerdict === 'accept' || resolvedVerdict === 'accept_with_unverified')) {
-        resolvedVerdict = 'fail';
-      }
-      lastTowerVerdict = resolvedVerdict;
       if (lp?.rationale && typeof lp.rationale === 'string') {
         lastTowerRationale = lp.rationale;
       } else if (lp?.reason && typeof lp.reason === 'string') {
@@ -3117,31 +3079,31 @@ function deriveTowerAwareStatus(events: StreamEvent[], serverTerminalState: 'com
   }
 
   if (lastTowerVerdict === 'stop' || hasRunStopped) {
-    return { towerVerdict: lastTowerVerdict || 'stop', towerRationale: lastTowerRationale, derivedStatus: 'stopped', isLeadRun, towerMissing: !hasTowerJudgement };
+    return { towerVerdict: lastTowerVerdict || 'stop', towerLabel: lastTowerLabel, towerRationale: lastTowerRationale, derivedStatus: 'stopped', isLeadRun, towerMissing: !hasTowerJudgement };
   }
 
   if (serverTerminalState === 'stopped') {
-    return { towerVerdict: lastTowerVerdict || 'stop', towerRationale: lastTowerRationale, derivedStatus: 'stopped', isLeadRun, towerMissing: !hasTowerJudgement };
+    return { towerVerdict: lastTowerVerdict || 'stop', towerLabel: lastTowerLabel, towerRationale: lastTowerRationale, derivedStatus: 'stopped', isLeadRun, towerMissing: !hasTowerJudgement };
   }
 
   if (lastTowerVerdict === 'change_plan' || lastTowerVerdict === 'retry') {
-    return { towerVerdict: lastTowerVerdict, towerRationale: lastTowerRationale, derivedStatus: 'replanning', isLeadRun, towerMissing: false };
+    return { towerVerdict: lastTowerVerdict, towerLabel: lastTowerLabel, towerRationale: lastTowerRationale, derivedStatus: 'replanning', isLeadRun, towerMissing: false };
   }
 
   const isTerminal = serverTerminalState === 'completed' || hasRunCompleted;
 
   if (isTerminal) {
     if (hasTowerJudgement) {
-      return { towerVerdict: lastTowerVerdict, towerRationale: lastTowerRationale, derivedStatus: 'completed', isLeadRun, towerMissing: false };
+      return { towerVerdict: lastTowerVerdict, towerLabel: lastTowerLabel, towerRationale: lastTowerRationale, derivedStatus: 'completed', isLeadRun, towerMissing: false };
     }
-    return { towerVerdict: lastTowerVerdict, towerRationale: lastTowerRationale, derivedStatus: 'completed', isLeadRun, towerMissing: true };
+    return { towerVerdict: lastTowerVerdict, towerLabel: lastTowerLabel, towerRationale: lastTowerRationale, derivedStatus: 'completed', isLeadRun, towerMissing: true };
   }
 
   if (hasToolCompleted && !hasTowerJudgement && !serverTerminalState) {
-    return { towerVerdict: null, towerRationale: null, derivedStatus: 'awaiting_judgement', isLeadRun, towerMissing: true };
+    return { towerVerdict: null, towerLabel: null, towerRationale: null, derivedStatus: 'awaiting_judgement', isLeadRun, towerMissing: true };
   }
 
-  return { towerVerdict: lastTowerVerdict, towerRationale: lastTowerRationale, derivedStatus: null, isLeadRun, towerMissing: !hasTowerJudgement };
+  return { towerVerdict: lastTowerVerdict, towerLabel: lastTowerLabel, towerRationale: lastTowerRationale, derivedStatus: null, isLeadRun, towerMissing: !hasTowerJudgement };
 }
 
 export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: LiveActivityPanelProps) {
@@ -3886,13 +3848,13 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
             {hasEvents && (effectiveTerminal || towerAware.towerVerdict) && !towerAware.towerMissing && (
               <span className={cn(
                 "px-1.5 py-0.5 rounded text-[10px] font-medium",
-                towerAware.towerVerdict === 'accept'
+                (towerAware.towerVerdict === 'accept' || towerAware.towerVerdict === 'pass')
                   ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200"
-                  : towerAware.towerVerdict === 'stop'
+                  : (towerAware.towerVerdict === 'stop' || towerAware.towerVerdict === 'fail')
                     ? "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-200"
                     : "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-200"
               )}>
-                Tower: {(towerAware.towerVerdict || 'evaluated').toUpperCase()}
+                Tower: {towerAware.towerLabel || (towerAware.towerVerdict || 'evaluated').toUpperCase()}
               </span>
             )}
             {lastFetch && (
@@ -3982,7 +3944,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
             )}
             
             {effectiveTerminal && allRevealed && !transientPhase && (mappedStatus === 'completed' || mappedStatus === 'failed' || mappedStatus === 'stopped' || mappedStatus === 'awaiting_judgement' || mappedStatus === 'replanning') && (
-              <SequenceStatusRow status={mappedStatus as any} clientRequestId={activeClientRequestId} runId={canonicalRunId || stream?.run_id} towerVerdict={towerAware.towerVerdict} towerMissing={towerAware.towerMissing} chatMode={towerLoopChatMode} towerRationale={towerAware.towerRationale} />
+              <SequenceStatusRow status={mappedStatus as any} clientRequestId={activeClientRequestId} runId={canonicalRunId || stream?.run_id} towerVerdict={towerAware.towerVerdict} towerLabel={towerAware.towerLabel} towerMissing={towerAware.towerMissing} chatMode={towerLoopChatMode} towerRationale={towerAware.towerRationale} />
             )}
             {IS_DEV && activeClientRequestId && (
               <div className="mt-1 px-2 py-1 rounded bg-gray-100 dark:bg-gray-800/50 text-[10px] font-mono text-muted-foreground/70 space-y-0.5 overflow-hidden">

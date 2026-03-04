@@ -69,6 +69,7 @@ export interface RunResultBubbleProps {
   searchQueryCompiled?: SearchQueryCompiled | null;
   provisional?: boolean;
   towerVerdict?: string | null;
+  towerLabel?: string | null;
   towerProxyUsed?: string | null;
   towerStopTimePredicate?: boolean;
   planVersions?: PlanVersion[] | null;
@@ -790,6 +791,7 @@ function TechnicalDetails({
   learningUpdate,
   planVersions,
   towerVerdict,
+  towerLabel,
   towerProxyUsed,
   towerUnavailable,
   runId,
@@ -806,6 +808,7 @@ function TechnicalDetails({
   learningUpdate?: LearningUpdate | null;
   planVersions?: PlanVersion[] | null;
   towerVerdict?: string | null;
+  towerLabel?: string | null;
   towerProxyUsed?: string | null;
   towerUnavailable?: boolean;
   runId?: string | null;
@@ -814,12 +817,16 @@ function TechnicalDetails({
 }) {
   const [open, setOpen] = useState(false);
 
+  const displayLabel = towerLabel || (towerVerdict || '').toUpperCase();
   const tv = (towerVerdict || '').toUpperCase();
-  const tvColor = ['PASS', 'ACCEPT', 'ACCEPT_WITH_UNVERIFIED'].includes(tv)
-    ? 'text-green-700 dark:text-green-300'
-    : ['FAIL', 'ERROR', 'STOP'].includes(tv)
-      ? 'text-red-700 dark:text-red-300'
-      : 'text-muted-foreground';
+  const isMixed = displayLabel.startsWith('MIXED');
+  const tvColor = isMixed
+    ? 'text-amber-700 dark:text-amber-300'
+    : ['PASS', 'ACCEPT', 'ACCEPT_WITH_UNVERIFIED'].includes(tv)
+      ? 'text-green-700 dark:text-green-300'
+      : ['FAIL', 'ERROR', 'STOP'].includes(tv)
+        ? 'text-red-700 dark:text-red-300'
+        : 'text-muted-foreground';
 
   return (
     <div className="pt-1">
@@ -835,7 +842,7 @@ function TechnicalDetails({
           {towerVerdict && (
             <div className="flex items-center gap-2">
               <span className="text-muted-foreground font-medium">Verdict:</span>
-              <span className={cn("font-semibold", tvColor)}>{tv}</span>
+              <span className={cn("font-semibold", tvColor)}>{displayLabel}</span>
             </div>
           )}
           {towerProxyUsed && (
@@ -900,7 +907,7 @@ function TechnicalDetails({
               <span>candidates={narrative.candidateCount ?? 'n/a'}</span>
               <span>emails={narrative.emailFoundCount}</span>
               <span>phones={narrative.phoneFoundCount}</span>
-              {towerVerdict && <span>tower={towerVerdict}</span>}
+              {towerVerdict && <span>tower={towerVerdict}{towerLabel && towerLabel !== towerVerdict.toUpperCase() ? ` [${towerLabel}]` : ''}</span>}
               {runId && <span>run={runId.slice(0, 12)}</span>}
             </div>
             <div className="text-[10px] text-muted-foreground font-mono">
@@ -1237,6 +1244,7 @@ export default function RunResultBubble({
   searchQueryCompiled,
   provisional = false,
   towerVerdict,
+  towerLabel,
   towerProxyUsed,
   towerStopTimePredicate,
   planVersions,
@@ -1256,11 +1264,14 @@ export default function RunResultBubble({
   });
 
   const towerVerdictLower = (towerVerdict || '').toLowerCase();
-  const isFinalDeliveryPass = ['pass', 'accept', 'accept_with_unverified'].includes(towerVerdictLower);
+  const PASS_VERDICTS = ['pass', 'accept', 'accept_with_unverified'];
+  const isFinalDeliveryPass = PASS_VERDICTS.includes(towerVerdictLower);
   const isTrustFailure = !isFinalDeliveryPass && (
     canonical.status === "FAIL" ||
     (towerVerdict && ['fail', 'error'].includes(towerVerdictLower))
   );
+
+  const effectiveTowerDisplay = towerLabel || (towerVerdict ? towerVerdict.toUpperCase() : null);
 
   const isTimePredicateStop = !!(towerStopTimePredicate && (canonical.status === 'STOP' || canonical.status === 'FAIL'));
 
@@ -1323,7 +1334,7 @@ export default function RunResultBubble({
       )}
 
       {!provisional && isTrustFailure && deliverySummary.stop_reason !== 'artefacts_unavailable' && (
-        <TrustErrorBlock verdict={towerVerdict || deliverySummary.status || 'FAIL'} runId={runId} />
+        <TrustErrorBlock verdict={effectiveTowerDisplay || deliverySummary.status || 'FAIL'} runId={runId} />
       )}
 
       {!provisional && narrative && deliverySummary.stop_reason !== 'artefacts_unavailable' && (
@@ -1435,6 +1446,7 @@ export default function RunResultBubble({
           learningUpdate={learningUpdate}
           planVersions={planVersions}
           towerVerdict={towerVerdict}
+          towerLabel={towerLabel}
           towerProxyUsed={towerProxyUsed}
           towerUnavailable={towerUnavailable}
           runId={runId}

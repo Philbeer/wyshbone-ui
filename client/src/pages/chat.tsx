@@ -28,6 +28,7 @@ import { getCurrentVerticalId, AVAILABLE_VERTICALS } from "@/contexts/VerticalCo
 import { detectVerticalMismatch, getVerticalLabel } from "@/lib/verticalMismatch";
 import type { VerticalId } from "@/lib/verticals/types";
 import { WhatJustHappenedPanel } from "@/components/tower/WhatJustHappenedPanel";
+import { resolveAuthoritativeTowerVerdict, isTowerTrustFailure, type ResolvedTowerVerdict } from "@/utils/towerVerdictResolver";
 import { useResultsPanel } from "@/contexts/ResultsPanelContext";
 import { useCurrentRequest } from "@/contexts/CurrentRequestContext";
 import UserResultsView from "@/components/results/UserResultsView";
@@ -60,6 +61,7 @@ type Message = ChatMessage & {
   provisional?: boolean;
   isConfidence?: boolean;
   towerVerdict?: string | null;
+  towerLabel?: string | null;
   towerProxyUsed?: string | null;
   towerStopTimePredicate?: boolean;
   contactCounts?: ContactCounts | null;
@@ -463,57 +465,8 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     }
   }, [user.id, user.email, queryClient]);
 
-  function resolveAuthoritativeTower(rows: any[]): {
-    verdict: string | null;
-    proxyUsed: string | null;
-    stopTimePredicate: boolean;
-    hasAnyFail: boolean;
-  } {
-    const towerRows = rows.filter((r: any) => r.type === 'tower_judgement');
-    if (towerRows.length === 0) return { verdict: null, proxyUsed: null, stopTimePredicate: false, hasAnyFail: false };
-
-    let finalDeliveryVerdict: string | null = null;
-    let finalDeliveryProxyUsed: string | null = null;
-    let finalDeliveryStopTimePredicate = false;
-
-    let hasAnyFail = false;
-    let lastVerdict: string | null = null;
-    let lastProxyUsed: string | null = null;
-    let lastStopTimePredicate = false;
-
-    for (const row of towerRows) {
-      let p = row.payload_json;
-      if (typeof p === 'string') { try { p = JSON.parse(p); } catch { continue; } }
-      if (!p || typeof p !== 'object') continue;
-      const v = (p.verdict || '').toLowerCase();
-      if (v === 'fail' || v === 'error') hasAnyFail = true;
-      lastVerdict = p.verdict || null;
-      lastProxyUsed = p.proxy_used || null;
-      lastStopTimePredicate = p.stop_reason === 'time_predicate' || p.constraint_type === 'time_predicate';
-
-      if (p.phase === 'final_delivery') {
-        finalDeliveryVerdict = p.verdict || null;
-        finalDeliveryProxyUsed = p.proxy_used || null;
-        finalDeliveryStopTimePredicate = p.stop_reason === 'time_predicate' || p.constraint_type === 'time_predicate';
-      }
-    }
-
-    if (finalDeliveryVerdict) {
-      const fdv = finalDeliveryVerdict.toLowerCase();
-      if (fdv === 'pass' || fdv === 'accept' || fdv === 'accept_with_unverified') {
-        return { verdict: finalDeliveryVerdict, proxyUsed: finalDeliveryProxyUsed, stopTimePredicate: finalDeliveryStopTimePredicate, hasAnyFail: false };
-      }
-      return { verdict: finalDeliveryVerdict, proxyUsed: finalDeliveryProxyUsed, stopTimePredicate: finalDeliveryStopTimePredicate, hasAnyFail: true };
-    }
-
-    if (hasAnyFail && lastVerdict) {
-      const lv = lastVerdict.toLowerCase();
-      if (lv === 'pass' || lv === 'accept' || lv === 'accept_with_unverified') {
-        lastVerdict = 'fail';
-      }
-    }
-
-    return { verdict: lastVerdict, proxyUsed: lastProxyUsed, stopTimePredicate: lastStopTimePredicate, hasAnyFail };
+  function resolveAuthoritativeTower(rows: any[]): ResolvedTowerVerdict {
+    return resolveAuthoritativeTowerVerdict(rows);
   }
 
   const EMAIL_RE = /[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}/i;
@@ -892,10 +845,12 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         const { vs: provVs, ce: provCe, policySnapshot: provPs, policyApplied: provPa, learningUpdate: provLu, searchQueryCompiled: provSqc, leadVerifications: provLv, runReceipt: provRR } = parseSiblingArtefacts(rows);
         const tower = resolveAuthoritativeTower(rows);
         const towerVerdict = tower.verdict;
+        const towerLabel = tower.label;
         const towerProxyUsed = tower.proxyUsed;
         const towerStopTimePredicate = tower.stopTimePredicate;
 
         let synthesisedDs: DeliverySummary;
+        const towerVerdictLower = (towerVerdict || '').toLowerCase();
         if (provisionalLeads.length > 0) {
           const hasVs = provVs && typeof provVs === 'object' && (provVs as any).verified_exact_count > 0;
           synthesisedDs = {
@@ -906,13 +861,13 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
             stop_reason: hasVs ? undefined : 'no_delivery_summary',
           };
         } else {
-          const stopStatus = towerVerdict === 'stop' ? 'STOP' : (artefactTypes.includes('run_halted') ? 'STOP' : 'FAIL');
+          const stopStatus = towerVerdictLower === 'stop' ? 'STOP' : (artefactTypes.includes('run_halted') ? 'STOP' : 'FAIL');
           synthesisedDs = {
             status: stopStatus,
             delivered_exact: [],
             delivered_closest: [],
             delivered_count: 0,
-            stop_reason: towerVerdict === 'stop' ? 'tower_stopped' : (artefactTypes.includes('run_halted') ? 'run_halted' : 'no_results'),
+            stop_reason: towerVerdictLower === 'stop' ? 'tower_stopped' : (artefactTypes.includes('run_halted') ? 'run_halted' : 'no_results'),
           };
         }
         const provCC = extractContactCounts(rows, synthesisedDs);
@@ -945,6 +900,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
           runId: effectiveRunId || undefined,
           provisional: false,
           towerVerdict,
+          towerLabel,
           towerProxyUsed: towerProxyUsed,
           towerStopTimePredicate,
           contactCounts: provCC,
@@ -985,6 +941,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
 
       const tower2 = resolveAuthoritativeTower(rows);
       const dsPathTowerVerdict = tower2.verdict;
+      const dsPathTowerLabel = tower2.label;
       const dsPathProxyUsed = tower2.proxyUsed;
       const dsPathStopTimePredicate = tower2.stopTimePredicate;
 
@@ -992,7 +949,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
 
       const dsExact = Array.isArray(parsed.delivered_exact) ? parsed.delivered_exact.length : 0;
       const dsClosest = Array.isArray(parsed.delivered_closest) ? parsed.delivered_closest.length : 0;
-      console.log(`[Chat][finalizeRunUI] delivery_summary found for run=${effectiveKey}, status=${parsed.status}, verified_exact=${parsed.verified_exact_count ?? 'n/a'}, delivered_exact=${dsExact}, delivered_closest=${dsClosest}, leadVerifications=${leadVerifications?.length ?? 'none'}, towerVerdict=${dsPathTowerVerdict} (source=${source})`);
+      console.log(`[Chat][finalizeRunUI] delivery_summary found for run=${effectiveKey}, status=${parsed.status}, verified_exact=${parsed.verified_exact_count ?? 'n/a'}, delivered_exact=${dsExact}, delivered_closest=${dsClosest}, leadVerifications=${leadVerifications?.length ?? 'none'}, towerVerdict=${dsPathTowerVerdict}, towerLabel=${dsPathTowerLabel} (source=${source})`);
 
       lastRunFinalVerdictRef.current = dsPathTowerVerdict || parsed.status || 'UNKNOWN';
 
@@ -1004,11 +961,8 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         detail: { clientRequestId: effectiveCrid, runId: effectiveRunId || null },
       }));
 
-      const towerVerdictLower = (dsPathTowerVerdict || '').toLowerCase();
-      const isFinalDeliveryPass = ['pass', 'accept', 'accept_with_unverified'].includes(towerVerdictLower);
-      const isTrustFailure = !isFinalDeliveryPass && (
-        parsed.status?.toUpperCase() === 'FAIL' ||
-        (dsPathTowerVerdict && ['fail', 'error'].includes(towerVerdictLower))
+      const isTrustFailure = isTowerTrustFailure(tower2) || (
+        !dsPathTowerVerdict && parsed.status?.toUpperCase() === 'FAIL'
       );
 
       const resultMessage: Message = {
@@ -1028,6 +982,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         runId: effectiveRunId || undefined,
         provisional: false,
         towerVerdict: dsPathTowerVerdict,
+        towerLabel: dsPathTowerLabel,
         towerProxyUsed: dsPathProxyUsed,
         towerStopTimePredicate: dsPathStopTimePredicate,
         contactCounts,
@@ -3062,6 +3017,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                           searchQueryCompiled={chatMessage.searchQueryCompiled}
                           provisional={chatMessage.provisional}
                           towerVerdict={chatMessage.towerVerdict}
+                          towerLabel={chatMessage.towerLabel}
                           towerProxyUsed={chatMessage.towerProxyUsed}
                           towerStopTimePredicate={chatMessage.towerStopTimePredicate}
                           contactCounts={chatMessage.contactCounts}
