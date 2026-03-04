@@ -515,25 +515,54 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     return { verdict: lastVerdict, proxyUsed: lastProxyUsed, stopTimePredicate: lastStopTimePredicate, hasAnyFail };
   }
 
-  function normaliseEmail(raw: string): string {
-    return (raw || '').trim().toLowerCase();
+  const EMAIL_RE = /[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}/i;
+
+  function extractValidEmail(raw: string): string | null {
+    const trimmed = (raw || '').trim();
+    if (!trimmed || trimmed.includes(' ') || trimmed.length > 254) return null;
+    const match = trimmed.match(EMAIL_RE);
+    if (!match) return null;
+    const email = match[0].toLowerCase();
+    if ((email.match(/@/g) || []).length !== 1) return null;
+    return email;
   }
 
-  function normalisePhone(raw: string): string {
-    const stripped = (raw || '').replace(/[^\d+]/g, '');
-    return stripped.startsWith('+') ? stripped : stripped.replace(/^\+/, '');
+  function extractValidPhone(raw: string): string | null {
+    const stripped = (raw || '').replace(/[\s\-()]/g, '');
+    if (!stripped) return null;
+    const digitsOnly = stripped.replace(/[^\d]/g, '');
+    if (digitsOnly.length < 8) return null;
+    return stripped.startsWith('+') ? '+' + digitsOnly : digitsOnly;
   }
 
-  function extractContactCounts(rows: any[]): ContactCounts | null {
-    let firstLeadPackId: string | undefined;
-    let firstContactExtractId: string | undefined;
-    let leadPackCount = 0;
-    let contactExtractCount = 0;
+  function makeLeadKey(lead: { name?: string; address?: string; entity_id?: string; place_id?: string }): string {
+    const id = lead.entity_id || lead.place_id;
+    if (id) return `id:${id}`;
+    const name = (lead.name || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+    const addr = (lead.address || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+    return `na:${name}|${addr}`;
+  }
+
+  function extractContactCounts(rows: any[], deliverySummary?: any): ContactCounts | null {
+    const delivered = [
+      ...(deliverySummary?.delivered_exact || []),
+      ...(deliverySummary?.delivered_closest || []),
+    ];
+    const deliveredKeys = new Set(delivered.map((l: any) => makeLeadKey(l)));
+    const deliveredNames = new Set(delivered.map((l: any) => (l.name || '').trim().toLowerCase()).filter(Boolean));
+
+    let leadPackTotal = 0;
+    let contactExtractTotal = 0;
+    let leadPackMatched = 0;
+    let contactExtractMatched = 0;
 
     const emails = new Set<string>();
     const phones = new Set<string>();
     let leadsWithEmail = 0;
     let leadsWithPhone = 0;
+    const usedArtefactIds: string[] = [];
+    const emailList: string[] = [];
+    const phoneList: string[] = [];
     let usedLeadPack = false;
     let usedContactExtract = false;
 
@@ -543,12 +572,25 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
       if (!p || typeof p !== 'object') continue;
 
       if (row.type === 'lead_pack') {
-        leadPackCount++;
-        if (!firstLeadPackId) firstLeadPackId = row.id;
-
+        leadPackTotal++;
         const pack = p?.outputs?.lead_pack;
         if (!pack || typeof pack !== 'object') continue;
+
+        const identity = pack.identity;
+        const placeId = identity?.place_id;
+        const packName = (identity?.name || p?.inputs?.entity_name || '').trim().toLowerCase();
+
+        let isDelivered = false;
+        if (placeId && deliveredKeys.has(`id:${placeId}`)) {
+          isDelivered = true;
+        } else if (packName && deliveredNames.has(packName)) {
+          isDelivered = true;
+        }
+        if (!isDelivered) continue;
+
+        leadPackMatched++;
         usedLeadPack = true;
+        if (row.id) usedArtefactIds.push(row.id);
 
         let hasEmail = false;
         let hasPhone = false;
@@ -557,18 +599,26 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         if (contactBlock && typeof contactBlock === 'object') {
           if (Array.isArray(contactBlock.emails)) {
             for (const entry of contactBlock.emails) {
-              const val = typeof entry === 'object' && entry !== null ? entry.value : typeof entry === 'string' ? entry : null;
-              if (!val) continue;
-              const norm = normaliseEmail(val);
-              if (norm && norm.includes('@')) { emails.add(norm); hasEmail = true; }
+              const raw = typeof entry === 'object' && entry !== null ? entry.value : typeof entry === 'string' ? entry : null;
+              if (!raw) continue;
+              const valid = extractValidEmail(raw);
+              if (valid && !emails.has(valid)) {
+                emails.add(valid);
+                emailList.push(valid);
+                hasEmail = true;
+              }
             }
           }
           if (Array.isArray(contactBlock.phones)) {
             for (const entry of contactBlock.phones) {
-              const val = typeof entry === 'object' && entry !== null ? entry.value : typeof entry === 'string' ? entry : null;
-              if (!val) continue;
-              const norm = normalisePhone(val);
-              if (norm.length >= 5) { phones.add(norm); hasPhone = true; }
+              const raw = typeof entry === 'object' && entry !== null ? entry.value : typeof entry === 'string' ? entry : null;
+              if (!raw) continue;
+              const valid = extractValidPhone(raw);
+              if (valid && !phones.has(valid)) {
+                phones.add(valid);
+                phoneList.push(valid);
+                hasPhone = true;
+              }
             }
           }
         }
@@ -578,38 +628,62 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
       }
 
       if (row.type === 'contact_extract') {
-        contactExtractCount++;
-        if (!firstContactExtractId) firstContactExtractId = row.id;
+        contactExtractTotal++;
+        const entityName = (p?.inputs?.entity_name || '').trim().toLowerCase();
+        if (!entityName || !deliveredNames.has(entityName)) continue;
 
         const contactBlock = p?.outputs?.contacts;
         if (!contactBlock || typeof contactBlock !== 'object') continue;
+
+        contactExtractMatched++;
         usedContactExtract = true;
+        if (row.id) usedArtefactIds.push(row.id);
 
         if (Array.isArray(contactBlock.emails)) {
-          for (const val of contactBlock.emails) {
-            if (typeof val !== 'string') continue;
-            const norm = normaliseEmail(val);
-            if (norm && norm.includes('@')) emails.add(norm);
+          for (const raw of contactBlock.emails) {
+            if (typeof raw !== 'string') continue;
+            const valid = extractValidEmail(raw);
+            if (valid && !emails.has(valid)) {
+              emails.add(valid);
+              emailList.push(valid);
+            }
           }
         }
         if (Array.isArray(contactBlock.phones)) {
-          for (const val of contactBlock.phones) {
-            if (typeof val !== 'string') continue;
-            const norm = normalisePhone(val);
-            if (norm.length >= 5) phones.add(norm);
+          for (const raw of contactBlock.phones) {
+            if (typeof raw !== 'string') continue;
+            const valid = extractValidPhone(raw);
+            if (valid && !phones.has(valid)) {
+              phones.add(valid);
+              phoneList.push(valid);
+            }
           }
         }
       }
     }
 
-    const debugInfo = { leadPackCount, contactExtractCount, firstLeadPackId, firstContactExtractId };
+    const debugInfo = {
+      leadPackTotal,
+      contactExtractTotal,
+      leadPackMatched,
+      contactExtractMatched,
+      deliveredLeadCount: delivered.length,
+      usedArtefactIds,
+      mappingNote: (!usedLeadPack && !usedContactExtract && (leadPackTotal > 0 || contactExtractTotal > 0))
+        ? `Counts unknown: could not map ${leadPackTotal} lead_pack + ${contactExtractTotal} contact_extract artefacts to ${delivered.length} delivered leads`
+        : undefined,
+    };
 
     if (usedLeadPack) {
-      return { source: 'lead_pack', emailCount: emails.size, phoneCount: phones.size, leadsWithEmail, leadsWithPhone, debugInfo };
+      return { source: 'lead_pack', emailCount: emails.size, phoneCount: phones.size, leadsWithEmail, leadsWithPhone, emails: emailList, phones: phoneList, debugInfo };
     }
 
     if (usedContactExtract) {
-      return { source: 'contact_extract', emailCount: emails.size, phoneCount: phones.size, leadsWithEmail: emails.size, leadsWithPhone: phones.size, debugInfo };
+      return { source: 'contact_extract', emailCount: emails.size, phoneCount: phones.size, leadsWithEmail: emails.size, leadsWithPhone: phones.size, emails: emailList, phones: phoneList, debugInfo };
+    }
+
+    if (leadPackTotal > 0 || contactExtractTotal > 0) {
+      return { source: 'unknown', emailCount: 0, phoneCount: 0, leadsWithEmail: 0, leadsWithPhone: 0, emails: [], phones: [], debugInfo };
     }
 
     return null;
@@ -623,7 +697,6 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     learningUpdate: LearningUpdate | null;
     searchQueryCompiled: SearchQueryCompiled | null;
     leadVerifications: LeadVerificationEntry[] | null;
-    contactCounts: ContactCounts | null;
   } {
     let vs: VerificationSummaryPayload | null = null;
     let ce: ConstraintsExtractedPayload | null = null;
@@ -633,8 +706,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     let searchQueryCompiled: SearchQueryCompiled | null = null;
     let fallbackRules: string[] | null = null;
     let leadVerifications: LeadVerificationEntry[] | null = null;
-    const contactCounts = extractContactCounts(rows);
-    if (!Array.isArray(rows)) return { vs, ce, policySnapshot, policyApplied, learningUpdate, searchQueryCompiled, leadVerifications, contactCounts: null };
+    if (!Array.isArray(rows)) return { vs, ce, policySnapshot, policyApplied, learningUpdate, searchQueryCompiled, leadVerifications };
     for (const row of rows) {
       if (row.type === 'verification_summary') {
         let p = row.payload_json;
@@ -699,7 +771,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         applied_policies: fallbackRules.map(r => ({ rule_text: r, source: 'plan' })),
       };
     }
-    return { vs, ce, policySnapshot, policyApplied, learningUpdate, searchQueryCompiled, leadVerifications, contactCounts };
+    return { vs, ce, policySnapshot, policyApplied, learningUpdate, searchQueryCompiled, leadVerifications };
   }
 
   function persistStructuredResult(payload: any) {
@@ -789,7 +861,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
           }
         }
 
-        const { vs: provVs, ce: provCe, policySnapshot: provPs, policyApplied: provPa, learningUpdate: provLu, searchQueryCompiled: provSqc, leadVerifications: provLv, contactCounts: provCC } = parseSiblingArtefacts(rows);
+        const { vs: provVs, ce: provCe, policySnapshot: provPs, policyApplied: provPa, learningUpdate: provLu, searchQueryCompiled: provSqc, leadVerifications: provLv } = parseSiblingArtefacts(rows);
         const tower = resolveAuthoritativeTower(rows);
         const towerVerdict = tower.verdict;
         const towerProxyUsed = tower.proxyUsed;
@@ -815,6 +887,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
             stop_reason: towerVerdict === 'stop' ? 'tower_stopped' : (artefactTypes.includes('run_halted') ? 'run_halted' : 'no_results'),
           };
         }
+        const provCC = extractContactCounts(rows, synthesisedDs);
 
         console.log(`[Chat][finalizeRunUI] Synthesised DS for run=${effectiveKey}: status=${synthesisedDs.status}, leads=${provisionalLeads.length}, leadVerifications=${provLv?.length ?? 'none'} (source=${source})`);
         deliverySummaryRunIdsRef.current.add(effectiveKey);
@@ -878,12 +951,14 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
       }
       if (!parsed || typeof parsed !== 'object') return;
 
-      const { vs, ce, policySnapshot, policyApplied, learningUpdate, searchQueryCompiled, leadVerifications, contactCounts } = parseSiblingArtefacts(rows);
+      const { vs, ce, policySnapshot, policyApplied, learningUpdate, searchQueryCompiled, leadVerifications } = parseSiblingArtefacts(rows);
 
       const tower2 = resolveAuthoritativeTower(rows);
       const dsPathTowerVerdict = tower2.verdict;
       const dsPathProxyUsed = tower2.proxyUsed;
       const dsPathStopTimePredicate = tower2.stopTimePredicate;
+
+      const contactCounts = extractContactCounts(rows, parsed);
 
       const dsExact = Array.isArray(parsed.delivered_exact) ? parsed.delivered_exact.length : 0;
       const dsClosest = Array.isArray(parsed.delivered_closest) ? parsed.delivered_closest.length : 0;

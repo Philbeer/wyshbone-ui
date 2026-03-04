@@ -29,16 +29,21 @@ export interface PolicySnapshot {
 }
 
 export interface ContactCounts {
-  source: 'lead_pack' | 'contact_extract' | 'delivery_leads' | 'unknown';
+  source: 'lead_pack' | 'contact_extract' | 'unknown';
   emailCount: number;
   phoneCount: number;
   leadsWithEmail: number;
   leadsWithPhone: number;
-  debugInfo?: {
-    leadPackCount: number;
-    contactExtractCount: number;
-    firstLeadPackId?: string;
-    firstContactExtractId?: string;
+  emails: string[];
+  phones: string[];
+  debugInfo: {
+    leadPackTotal: number;
+    contactExtractTotal: number;
+    leadPackMatched: number;
+    contactExtractMatched: number;
+    deliveredLeadCount: number;
+    usedArtefactIds: string[];
+    mappingNote?: string;
   };
 }
 
@@ -547,33 +552,12 @@ export interface RunNarrative {
   candidateCount: number | null;
   towerVerdict: string | null;
   contactCountsSource: string;
-  contactDebugInfo?: {
-    leadPackCount: number;
-    contactExtractCount: number;
-    firstLeadPackId?: string;
-    firstContactExtractId?: string;
+  contactDebug?: ContactCounts['debugInfo'] & {
+    emails: string[];
+    phones: string[];
   };
 }
 
-function countContactsFromLeads(allLeads: DeliveryLead[]): { emailCount: number; phoneCount: number; leadsWithEmail: number; leadsWithPhone: number } {
-  let leadsWithEmail = 0;
-  let leadsWithPhone = 0;
-  for (const lead of allLeads) {
-    const emails = (lead as any).emails || (lead as any).email;
-    if (Array.isArray(emails) && emails.length > 0) {
-      leadsWithEmail++;
-    } else if (typeof emails === 'string' && emails.trim().length > 0) {
-      leadsWithEmail++;
-    }
-    const phone = lead.phone || (lead as any).phones;
-    if (Array.isArray(phone) && phone.length > 0) {
-      leadsWithPhone++;
-    } else if (typeof phone === 'string' && phone.trim().length > 0) {
-      leadsWithPhone++;
-    }
-  }
-  return { emailCount: leadsWithEmail, phoneCount: leadsWithPhone, leadsWithEmail, leadsWithPhone };
-}
 
 export function buildRunNarrative(
   deliverySummary: DeliverySummary,
@@ -598,23 +582,10 @@ export function buildRunNarrative(
   const query = searchQueryCompiled?.interpreted_query || '';
   const location = searchQueryCompiled?.interpreted_location || '';
 
-  let emailFoundCount: number;
-  let phoneFoundCount: number;
-  let contactCountsSource: string;
-
-  if (contactCounts && (contactCounts.source === 'lead_pack' || contactCounts.source === 'contact_extract')) {
-    emailFoundCount = contactCounts.emailCount;
-    phoneFoundCount = contactCounts.phoneCount;
-    contactCountsSource = contactCounts.source;
-  } else {
-    const fromLeads = countContactsFromLeads(allLeads);
-    emailFoundCount = fromLeads.leadsWithEmail;
-    phoneFoundCount = fromLeads.leadsWithPhone;
-    contactCountsSource = (fromLeads.leadsWithEmail > 0 || fromLeads.leadsWithPhone > 0) ? 'delivery_leads' : 'unknown';
-  }
-
+  const contactCountsSource: string = contactCounts?.source ?? 'unknown';
+  const emailFoundCount = contactCounts?.emailCount ?? 0;
+  const phoneFoundCount = contactCounts?.phoneCount ?? 0;
   const countsProven = contactCountsSource === 'lead_pack' || contactCountsSource === 'contact_extract';
-  const countsKnown = countsProven || (emailFoundCount > 0 || phoneFoundCount > 0);
 
   const tv = (towerVerdict || '').toLowerCase();
   const isTrustFailure = tv === 'fail' || tv === 'error' || tv === 'stop';
@@ -629,25 +600,21 @@ export function buildRunNarrative(
     lines.push(`I searched Google Places for ${entityWord}${locationPart}.`);
   }
 
-  lines.push('I checked websites where available to look for contact details.');
-
-  if (countsKnown) {
-    const contactParts: string[] = [];
-    if (emailFoundCount > 0) {
-      contactParts.push(`${emailFoundCount} public ${emailFoundCount === 1 ? 'email' : 'emails'}`);
-    }
-    if (phoneFoundCount > 0) {
-      contactParts.push(`${phoneFoundCount} phone ${phoneFoundCount === 1 ? 'number' : 'numbers'}`);
-    }
-    if (contactParts.length > 0) {
-      lines.push(`I found ${contactParts.join(' and ')}.`);
-    } else if (countsProven) {
-      lines.push('I checked but couldn\u2019t find any public contact details on the pages available.');
+  if (countsProven) {
+    if (emailFoundCount > 0 || phoneFoundCount > 0) {
+      const contactParts: string[] = [];
+      if (emailFoundCount > 0) {
+        contactParts.push(`${emailFoundCount} ${emailFoundCount === 1 ? 'email' : 'emails'}`);
+      }
+      if (phoneFoundCount > 0) {
+        contactParts.push(`${phoneFoundCount} phone ${phoneFoundCount === 1 ? 'number' : 'numbers'}`);
+      }
+      lines.push(`I found ${contactParts.join(' and ')} from the websites I checked.`);
     } else {
-      lines.push('Results varied by venue.');
+      lines.push('I checked the websites I could access, but didn\u2019t find public contact details for those venues.');
     }
-  } else if (deliveredCount > 0) {
-    lines.push('Results varied by venue.');
+  } else {
+    lines.push('I checked websites where available for contact details. Results varied by venue.');
   }
 
   if (isTrustFailure) {
@@ -672,7 +639,7 @@ export function buildRunNarrative(
     candidateCount,
     towerVerdict: towerVerdict || null,
     contactCountsSource,
-    contactDebugInfo: contactCounts?.debugInfo,
+    contactDebug: contactCounts ? { ...contactCounts.debugInfo, emails: contactCounts.emails, phones: contactCounts.phones } : undefined,
   };
 }
 
@@ -810,14 +777,30 @@ function TechnicalDetails({
             </div>
             <div className="text-[10px] text-muted-foreground font-mono">
               Contact counts source: <span className="font-semibold">{narrative.contactCountsSource}</span>
-              {narrative.contactCountsSource === 'unknown' && ' (no artefact data available, counts may be inaccurate)'}
+              {narrative.contactCountsSource === 'unknown' && ' (could not map artefacts to delivered leads)'}
             </div>
-            {narrative.contactDebugInfo && (
-              <div className="text-[10px] text-muted-foreground font-mono">
-                lead_pack rows={narrative.contactDebugInfo.leadPackCount}
-                {narrative.contactDebugInfo.firstLeadPackId && <> first={narrative.contactDebugInfo.firstLeadPackId.slice(0, 12)}</>}
-                {' '}contact_extract rows={narrative.contactDebugInfo.contactExtractCount}
-                {narrative.contactDebugInfo.firstContactExtractId && <> first={narrative.contactDebugInfo.firstContactExtractId.slice(0, 12)}</>}
+            {narrative.contactDebug && (
+              <div className="space-y-0.5 text-[10px] text-muted-foreground font-mono">
+                <div>
+                  lead_pack: {narrative.contactDebug.leadPackMatched}/{narrative.contactDebug.leadPackTotal} matched
+                  {' | '}contact_extract: {narrative.contactDebug.contactExtractMatched}/{narrative.contactDebug.contactExtractTotal} matched
+                  {' | '}delivered: {narrative.contactDebug.deliveredLeadCount}
+                </div>
+                {narrative.contactDebug.usedArtefactIds.length > 0 && (
+                  <div>artefact_ids: {narrative.contactDebug.usedArtefactIds.map(id => id.slice(0, 8)).join(', ')}</div>
+                )}
+                {narrative.contactDebug.emails.length > 0 && (
+                  <div>emails: {narrative.contactDebug.emails.map(e => {
+                    const parts = e.split('@');
+                    return parts.length === 2 ? `***@${parts[1]}` : '***';
+                  }).join(', ')}</div>
+                )}
+                {narrative.contactDebug.phones.length > 0 && (
+                  <div>phones: {narrative.contactDebug.phones.map(p => p.slice(0, -4).replace(/./g, '*') + p.slice(-4)).join(', ')}</div>
+                )}
+                {narrative.contactDebug.mappingNote && (
+                  <div className="text-amber-600 dark:text-amber-400">{narrative.contactDebug.mappingNote}</div>
+                )}
               </div>
             )}
           </div>

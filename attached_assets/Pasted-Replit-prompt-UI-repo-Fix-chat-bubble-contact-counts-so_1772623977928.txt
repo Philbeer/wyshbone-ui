@@ -1,0 +1,194 @@
+Replit prompt (UI repo): Fix chat bubble contact counts so it tells the truth
+
+You are working in the Wyshbone UI repo only.
+
+Problem
+
+The chat bubble summary currently claims things like “I found 9 public emails and 11 phone numbers”, but those numbers are unreliable because:
+
+We are counting from the wrong place sometimes (wrong artefact paths or missing artefacts).
+
+We may be counting across non-delivered leads.
+
+We may be counting corrupted strings as “emails”.
+
+The bubble must never claim “none found” unless proven.
+
+We are NOT using Google Places phone numbers for this feature. Ignore any phone/email fields from Google Places. This is strictly about emails/phones extracted from visiting websites (lead_pack + contact_extract artefacts).
+
+Required truth rules (must implement)
+
+The bubble must only display numeric counts if they are proven by counting extracted contacts from artefacts.
+
+If counts are unknown or artefacts missing, it must say something safe like:
+
+“I checked websites where available for contact details. Results varied by venue.”
+(No numbers, no “none found”.)
+
+It must NEVER say “I couldn’t find any emails/phones” unless it has:
+
+actually parsed the artefacts for delivered leads
+
+and after validation + cleaning the valid unique count is truly 0.
+
+Scope for counts (critical)
+
+Counts must be computed only from delivered leads (the 10 results shown to the user), not from all candidates (30).
+
+Artefact sources (priority order)
+
+A) lead_pack artefacts for delivered leads (preferred)
+B) contact_extract artefacts for delivered leads (fallback)
+C) Otherwise counts unknown
+
+Confirmed real payload paths (use these)
+
+From server-side diagnostics we already know the real structures:
+
+lead_pack emails: payload_json.outputs.lead_pack.contacts.emails[*].value
+
+lead_pack phones: payload_json.outputs.lead_pack.contacts.phones[*].value
+
+contact_extract emails: payload_json.outputs.contacts.emails[*] (string)
+
+contact_extract phones: payload_json.outputs.contacts.phones[*] (string)
+
+Also confirmed:
+
+delivery_summary.delivered_exact[*] does not contain email/phone fields.
+
+What to change (UI only)
+
+Implement a robust, truth-safe contact counting pipeline used by the chat bubble narrative:
+
+1) Build a Delivered Lead Identity Set
+
+From delivery_summary, build a set of identifiers for delivered leads.
+Use what’s available reliably, in this priority order:
+
+place_id / entity_id if present
+
+otherwise normalized name + normalized address
+
+Create a helper like:
+
+makeLeadKey({name, address, place_id/entity_id})
+
+2) Extract contacts from lead_pack + contact_extract, filtered to delivered leads
+
+Write a function that takes:
+
+rows (all artefacts from /api/afr/artefacts)
+
+deliverySummary (so we know delivered leads)
+and returns:
+
+emailCount, phoneCount
+
+emails[], phones[] (for debug details, redacted later)
+
+source: 'lead_pack' | 'contact_extract' | 'unknown'
+
+usedArtefactIds[] (debug only)
+
+deliveredLeadKeysUsed[] (debug only)
+
+Filtering:
+
+For lead_pack artefacts, link them to a delivered lead using:
+
+payload lead name/address if present in lead_pack outputs
+
+or sibling artefact metadata that indicates which lead it belongs to
+
+if no reliable mapping exists, do not count it (truth over convenience)
+
+For contact_extract artefacts, same rule.
+
+If mapping is imperfect, we must fall back to unknown rather than inventing counts.
+
+3) Email/Phone validation and cleaning rules (do not count garbage)
+
+Add strict-ish validators:
+
+Email:
+
+extract only real email tokens via regex from any string, like:
+
+find first match of something like [A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,} (case-insensitive)
+
+lowercase + trim
+
+discard if contains spaces, multiple @, or too long
+
+Phone:
+
+strip spaces, hyphens, parentheses
+
+accept + and digits
+
+discard if < 8 digits after stripping
+
+Deduplicate on the normalized value.
+
+4) Update buildRunNarrative to use “truth state”
+
+Replace the current logic that can produce “couldn’t find any…” incorrectly.
+
+New narrative rules:
+
+If contactCounts.source === 'lead_pack' || 'contact_extract':
+
+If valid unique counts > 0: say “I found X emails and Y phone numbers from the websites I checked.”
+
+If both are 0: say “I checked the websites I could access, but didn’t find public contact details for those venues.”
+
+If source === 'unknown':
+
+say “I checked websites where available for contact details. Results varied by venue.”
+
+no numbers, no “none found”
+
+5) Add “Show details” expander debug block (dev-focused)
+
+In the bubble, behind “Show details”, add:
+
+contactCountSource
+
+emailCount, phoneCount
+
+used artefact ids
+
+a redacted list of counted emails/phones (mask local-part, show domain only, e.g. ***@redlionarundel.com)
+
+and a note if mapping could not be proven (“Counts unknown: could not map artefacts to delivered leads”)
+
+This is for development and trust verification.
+
+Acceptance tests (must run)
+
+Pick a recent run where we know contact_extract / lead_pack exists.
+
+If artefacts exist and contain contacts:
+
+Bubble must show non-zero counts and they must match the deduped validated lists in “Show details”.
+
+If artefacts exist but contain no valid contacts:
+
+Bubble may say “didn’t find public contact details…” but must show 0 counts AND show the counted lists are empty.
+
+If artefacts cannot be mapped to delivered leads:
+
+Bubble must NOT show numbers and must NOT claim “none found”.
+
+It must use the safe “varied by venue” line and details must say source=unknown.
+
+Deliverable
+
+Implement changes in UI repo.
+
+Tell me which files you changed.
+
+Paste the exact “Show details” debug output for one run so we can sanity check it.
+
+Do not touch Supervisor or Tower in this task.
