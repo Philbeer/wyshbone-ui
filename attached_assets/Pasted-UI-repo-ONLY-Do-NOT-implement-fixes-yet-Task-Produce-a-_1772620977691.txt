@@ -1,0 +1,37 @@
+UI repo ONLY. Do NOT implement fixes yet.
+
+Task: Produce a “Current Behaviour Report” for the RunResultBubble narrative and contact counts, based on the code as it exists RIGHT NOW.
+
+Context
+The chat bubble summary is still saying:
+“I checked but couldn’t find any public contact details…”
+even though the backend run clearly did CONTACT_EXTRACT / LEAD_ENRICH and should have emails/phones in artefacts.
+
+What I need (report only, no code changes)
+1) Identify the exact function(s) that generate the human summary text shown in the chat bubble.
+   - file paths + function names
+   - inputs/props used
+   - what artefacts/data it reads to decide email/phone counts
+2) Trace the data flow from AFR artefacts -> parsed message object -> RunResultBubble props:
+   - where /api/afr/artefacts is fetched
+   - where artefacts are filtered/parsed (parseSiblingArtefacts etc)
+   - which artefact types are currently included/excluded
+   - where the “delivered leads” list comes from
+3) Explain precisely why, for the run in the screenshot (Find 10 pubs in Arundel and include email), the bubble ends up reporting 0 emails/0 phones.
+   - is it because lead_pack/contact_extract artefacts are not present?
+   - or present but not being parsed?
+   - or present but not being matched to delivered leads?
+   - or present but the fields are different than expected?
+4) Print a short “Expected artefact shape vs actual artefact shape” comparison:
+   - show the keys the UI code expects for emails/phones
+   - show the keys that actually exist in the artefacts (based on a real sample artefact payload from this run, pulled from the UI’s own fetched data)
+5) Provide a minimal, specific fix plan (still no code) with 2 options:
+   Option A: fix by parsing more artefacts and passing contactCounts into RunResultBubble
+   Option B: fix by computing counts inside RunResultBubble directly from sibling artefacts + delivered leads
+
+Acceptance criteria for the report
+- It must include file paths and line numbers.
+- It must include at least one real artefact example from the run (redacted is fine).
+- It must end with the single root cause sentence: “The bubble says 0 because ____”.
+
+Do not talk about future architecture. Only what the UI is doing today.
