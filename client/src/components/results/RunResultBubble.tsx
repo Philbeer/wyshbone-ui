@@ -34,6 +34,12 @@ export interface ContactCounts {
   phoneCount: number;
   leadsWithEmail: number;
   leadsWithPhone: number;
+  debugInfo?: {
+    leadPackCount: number;
+    contactExtractCount: number;
+    firstLeadPackId?: string;
+    firstContactExtractId?: string;
+  };
 }
 
 export interface RunResultBubbleProps {
@@ -541,6 +547,12 @@ export interface RunNarrative {
   candidateCount: number | null;
   towerVerdict: string | null;
   contactCountsSource: string;
+  contactDebugInfo?: {
+    leadPackCount: number;
+    contactExtractCount: number;
+    firstLeadPackId?: string;
+    firstContactExtractId?: string;
+  };
 }
 
 function countContactsFromLeads(allLeads: DeliveryLead[]): { emailCount: number; phoneCount: number; leadsWithEmail: number; leadsWithPhone: number } {
@@ -660,6 +672,7 @@ export function buildRunNarrative(
     candidateCount,
     towerVerdict: towerVerdict || null,
     contactCountsSource,
+    contactDebugInfo: contactCounts?.debugInfo,
   };
 }
 
@@ -799,6 +812,14 @@ function TechnicalDetails({
               Contact counts source: <span className="font-semibold">{narrative.contactCountsSource}</span>
               {narrative.contactCountsSource === 'unknown' && ' (no artefact data available, counts may be inaccurate)'}
             </div>
+            {narrative.contactDebugInfo && (
+              <div className="text-[10px] text-muted-foreground font-mono">
+                lead_pack rows={narrative.contactDebugInfo.leadPackCount}
+                {narrative.contactDebugInfo.firstLeadPackId && <> first={narrative.contactDebugInfo.firstLeadPackId.slice(0, 12)}</>}
+                {' '}contact_extract rows={narrative.contactDebugInfo.contactExtractCount}
+                {narrative.contactDebugInfo.firstContactExtractId && <> first={narrative.contactDebugInfo.firstContactExtractId.slice(0, 12)}</>}
+              </div>
+            )}
           </div>
         </div>
       )}

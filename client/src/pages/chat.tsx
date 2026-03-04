@@ -515,40 +515,27 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     return { verdict: lastVerdict, proxyUsed: lastProxyUsed, stopTimePredicate: lastStopTimePredicate, hasAnyFail };
   }
 
-  function extractContactCounts(rows: any[]): ContactCounts | null {
-    if (import.meta.env.DEV || (window as any).__WYSH_DEBUG_CONTACTS) {
-      const debugTypes = ['lead_pack', 'contact_extract', 'lead_enrich', 'LEAD_ENRICH', 'CONTACT_EXTRACT'];
-      const typeCounts: Record<string, number> = {};
-      for (const r of rows) {
-        typeCounts[r.type] = (typeCounts[r.type] || 0) + 1;
-      }
-      console.log('[WYSH_DEBUG_CONTACTS] artefact type counts:', typeCounts);
-      for (const r of rows) {
-        if (debugTypes.includes(r.type)) {
-          let p = r.payload_json;
-          if (typeof p === 'string') { try { p = JSON.parse(p); } catch { p = null; } }
-          const topKeys = p ? Object.keys(p) : [];
-          const shallowPreview: Record<string, any> = {};
-          if (p && typeof p === 'object') {
-            for (const k of topKeys.slice(0, 20)) {
-              const v = p[k];
-              if (Array.isArray(v)) {
-                shallowPreview[k] = `Array(${v.length})` + (v.length > 0 ? ` first=${JSON.stringify(v[0]).slice(0, 200)}` : '');
-              } else if (v && typeof v === 'object') {
-                shallowPreview[k] = `{${Object.keys(v).join(', ')}}`;
-              } else {
-                shallowPreview[k] = v;
-              }
-            }
-          }
-          console.log(`[WYSH_DEBUG_CONTACTS] type=${r.type} id=${r.id || 'n/a'} topKeys=[${topKeys.join(', ')}]`, shallowPreview);
-          break;
-        }
-      }
-    }
+  function normaliseEmail(raw: string): string {
+    return (raw || '').trim().toLowerCase();
+  }
 
-    const leadPacks: any[] = [];
-    const contactExtracts: any[] = [];
+  function normalisePhone(raw: string): string {
+    const stripped = (raw || '').replace(/[^\d+]/g, '');
+    return stripped.startsWith('+') ? stripped : stripped.replace(/^\+/, '');
+  }
+
+  function extractContactCounts(rows: any[]): ContactCounts | null {
+    let firstLeadPackId: string | undefined;
+    let firstContactExtractId: string | undefined;
+    let leadPackCount = 0;
+    let contactExtractCount = 0;
+
+    const emails = new Set<string>();
+    const phones = new Set<string>();
+    let leadsWithEmail = 0;
+    let leadsWithPhone = 0;
+    let usedLeadPack = false;
+    let usedContactExtract = false;
 
     for (const row of rows) {
       let p = row.payload_json;
@@ -556,79 +543,73 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
       if (!p || typeof p !== 'object') continue;
 
       if (row.type === 'lead_pack') {
-        const leads = Array.isArray(p) ? p : Array.isArray(p.leads) ? p.leads : [p];
-        leadPacks.push(...leads);
-      }
-      if (row.type === 'contact_extract') {
-        const contacts = Array.isArray(p) ? p
-          : Array.isArray(p.contacts) ? p.contacts
-          : Array.isArray(p.results) ? p.results
-          : (p.email || p.name) ? [p] : [];
-        contactExtracts.push(...contacts);
-      }
-    }
+        leadPackCount++;
+        if (!firstLeadPackId) firstLeadPackId = row.id;
 
-    if (leadPacks.length > 0) {
-      const emails = new Set<string>();
-      const phones = new Set<string>();
-      let leadsWithEmail = 0;
-      let leadsWithPhone = 0;
+        const pack = p?.outputs?.lead_pack;
+        if (!pack || typeof pack !== 'object') continue;
+        usedLeadPack = true;
 
-      for (const lp of leadPacks) {
         let hasEmail = false;
         let hasPhone = false;
 
-        const contactEmails: string[] = [];
-        if (lp.contact?.emails && Array.isArray(lp.contact.emails)) {
-          contactEmails.push(...lp.contact.emails);
-        }
-        if (lp.email && typeof lp.email === 'string') contactEmails.push(lp.email);
-        if (Array.isArray(lp.emails)) contactEmails.push(...lp.emails);
-        if (Array.isArray(lp.contacts)) {
-          for (const c of lp.contacts) {
-            if (c.email) contactEmails.push(c.email);
-            if (c.email_address) contactEmails.push(c.email_address);
+        const contactBlock = pack.contacts;
+        if (contactBlock && typeof contactBlock === 'object') {
+          if (Array.isArray(contactBlock.emails)) {
+            for (const entry of contactBlock.emails) {
+              const val = typeof entry === 'object' && entry !== null ? entry.value : typeof entry === 'string' ? entry : null;
+              if (!val) continue;
+              const norm = normaliseEmail(val);
+              if (norm && norm.includes('@')) { emails.add(norm); hasEmail = true; }
+            }
           }
-        }
-        for (const e of contactEmails) {
-          const norm = (e || '').trim().toLowerCase();
-          if (norm && norm.includes('@')) { emails.add(norm); hasEmail = true; }
-        }
-
-        const contactPhones: string[] = [];
-        if (lp.contact?.phones && Array.isArray(lp.contact.phones)) {
-          contactPhones.push(...lp.contact.phones);
-        }
-        if (lp.phone && typeof lp.phone === 'string') contactPhones.push(lp.phone);
-        if (lp.phone_number && typeof lp.phone_number === 'string') contactPhones.push(lp.phone_number);
-        if (Array.isArray(lp.phones)) contactPhones.push(...lp.phones);
-        for (const ph of contactPhones) {
-          const norm = (ph || '').trim();
-          if (norm.length >= 5) { phones.add(norm); hasPhone = true; }
+          if (Array.isArray(contactBlock.phones)) {
+            for (const entry of contactBlock.phones) {
+              const val = typeof entry === 'object' && entry !== null ? entry.value : typeof entry === 'string' ? entry : null;
+              if (!val) continue;
+              const norm = normalisePhone(val);
+              if (norm.length >= 5) { phones.add(norm); hasPhone = true; }
+            }
+          }
         }
 
         if (hasEmail) leadsWithEmail++;
         if (hasPhone) leadsWithPhone++;
       }
 
-      return { source: 'lead_pack', emailCount: emails.size, phoneCount: phones.size, leadsWithEmail, leadsWithPhone };
+      if (row.type === 'contact_extract') {
+        contactExtractCount++;
+        if (!firstContactExtractId) firstContactExtractId = row.id;
+
+        const contactBlock = p?.outputs?.contacts;
+        if (!contactBlock || typeof contactBlock !== 'object') continue;
+        usedContactExtract = true;
+
+        if (Array.isArray(contactBlock.emails)) {
+          for (const val of contactBlock.emails) {
+            if (typeof val !== 'string') continue;
+            const norm = normaliseEmail(val);
+            if (norm && norm.includes('@')) emails.add(norm);
+          }
+        }
+        if (Array.isArray(contactBlock.phones)) {
+          for (const val of contactBlock.phones) {
+            if (typeof val !== 'string') continue;
+            const norm = normalisePhone(val);
+            if (norm.length >= 5) phones.add(norm);
+          }
+        }
+      }
     }
 
-    if (contactExtracts.length > 0) {
-      const emails = new Set<string>();
-      const phones = new Set<string>();
+    const debugInfo = { leadPackCount, contactExtractCount, firstLeadPackId, firstContactExtractId };
 
-      for (const ce of contactExtracts) {
-        const email = ce.email || ce.email_address || '';
-        const norm = (email || '').trim().toLowerCase();
-        if (norm && norm.includes('@')) emails.add(norm);
+    if (usedLeadPack) {
+      return { source: 'lead_pack', emailCount: emails.size, phoneCount: phones.size, leadsWithEmail, leadsWithPhone, debugInfo };
+    }
 
-        const phone = ce.phone || ce.phone_number || '';
-        const pnorm = (phone || '').trim();
-        if (pnorm.length >= 5) phones.add(pnorm);
-      }
-
-      return { source: 'contact_extract', emailCount: emails.size, phoneCount: phones.size, leadsWithEmail: emails.size, leadsWithPhone: phones.size };
+    if (usedContactExtract) {
+      return { source: 'contact_extract', emailCount: emails.size, phoneCount: phones.size, leadsWithEmail: emails.size, leadsWithPhone: phones.size, debugInfo };
     }
 
     return null;
