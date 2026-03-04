@@ -1346,24 +1346,30 @@ function EvidenceSection({ clientRequestId, runId, preloadedArtefacts }: { clien
     if (preloadedArtefacts && preloadedArtefacts.length > 0) {
       const tjs = preloadedArtefacts.filter(r => r.type === 'tower_judgement');
       if (tjs.length > 0) {
-        const last = tjs[tjs.length - 1];
-        const hasAnyFail = tjs.some(r => {
+        const finalDelivery = tjs.filter(r => {
           let p = r.payload_json;
           if (typeof p === 'string') { try { p = JSON.parse(p); } catch { return false; } }
-          const v = (p?.verdict || '').toLowerCase();
-          return v === 'fail' || v === 'error';
+          return p?.phase === 'final_delivery';
         });
-        if (hasAnyFail) {
-          let lp = last.payload_json;
-          if (typeof lp === 'string') { try { lp = JSON.parse(lp); } catch { lp = {}; } }
-          const lv = ((lp as any)?.verdict || '').toLowerCase();
-          if (lv === 'pass' || lv === 'accept' || lv === 'accept_with_unverified') {
-            setJudgementArtefact({ ...last, payload_json: { ...(typeof lp === 'object' ? lp : {}), verdict: 'fail' } });
+        const authoritative = finalDelivery.length > 0 ? finalDelivery[finalDelivery.length - 1] : tjs[tjs.length - 1];
+        let authP = authoritative.payload_json;
+        if (typeof authP === 'string') { try { authP = JSON.parse(authP); } catch { authP = {}; } }
+        const authV = ((authP as any)?.verdict || '').toLowerCase();
+        const isFinalDeliveryPass = finalDelivery.length > 0 && ['pass', 'accept', 'accept_with_unverified'].includes(authV);
+        if (!isFinalDeliveryPass) {
+          const hasAnyFail = tjs.some(r => {
+            let p = r.payload_json;
+            if (typeof p === 'string') { try { p = JSON.parse(p); } catch { return false; } }
+            const v = (p?.verdict || '').toLowerCase();
+            return v === 'fail' || v === 'error';
+          });
+          if (hasAnyFail && ['pass', 'accept', 'accept_with_unverified'].includes(authV)) {
+            setJudgementArtefact({ ...authoritative, payload_json: { ...(typeof authP === 'object' ? authP : {}), verdict: 'fail' } });
           } else {
-            setJudgementArtefact(last);
+            setJudgementArtefact(authoritative);
           }
         } else {
-          setJudgementArtefact(last);
+          setJudgementArtefact(authoritative);
         }
       }
     }
@@ -1387,24 +1393,30 @@ function EvidenceSection({ clientRequestId, runId, preloadedArtefacts }: { clien
           .then((rows: Artefact[]) => {
             const tjs = rows.filter(r => r.type === 'tower_judgement');
             if (tjs.length > 0) {
-              const last = tjs[tjs.length - 1];
-              const hasAnyFail = tjs.some(r => {
+              const finalDelivery = tjs.filter(r => {
                 let p = r.payload_json;
                 if (typeof p === 'string') { try { p = JSON.parse(p); } catch { return false; } }
-                const v = (p?.verdict || '').toLowerCase();
-                return v === 'fail' || v === 'error';
+                return p?.phase === 'final_delivery';
               });
-              if (hasAnyFail) {
-                let lp = last.payload_json;
-                if (typeof lp === 'string') { try { lp = JSON.parse(lp); } catch { lp = {}; } }
-                const lv = ((lp as any)?.verdict || '').toLowerCase();
-                if (lv === 'pass' || lv === 'accept' || lv === 'accept_with_unverified') {
-                  setJudgementArtefact({ ...last, payload_json: { ...(typeof lp === 'object' ? lp : {}), verdict: 'fail' } });
+              const authoritative = finalDelivery.length > 0 ? finalDelivery[finalDelivery.length - 1] : tjs[tjs.length - 1];
+              let authP = authoritative.payload_json;
+              if (typeof authP === 'string') { try { authP = JSON.parse(authP); } catch { authP = {}; } }
+              const authV = ((authP as any)?.verdict || '').toLowerCase();
+              const isFinalDeliveryPass = finalDelivery.length > 0 && ['pass', 'accept', 'accept_with_unverified'].includes(authV);
+              if (!isFinalDeliveryPass) {
+                const hasAnyFail = tjs.some(r => {
+                  let p = r.payload_json;
+                  if (typeof p === 'string') { try { p = JSON.parse(p); } catch { return false; } }
+                  const v = (p?.verdict || '').toLowerCase();
+                  return v === 'fail' || v === 'error';
+                });
+                if (hasAnyFail && ['pass', 'accept', 'accept_with_unverified'].includes(authV)) {
+                  setJudgementArtefact({ ...authoritative, payload_json: { ...(typeof authP === 'object' ? authP : {}), verdict: 'fail' } });
                 } else {
-                  setJudgementArtefact(last);
+                  setJudgementArtefact(authoritative);
                 }
               } else {
-                setJudgementArtefact(last);
+                setJudgementArtefact(authoritative);
               }
             }
           })
@@ -1592,8 +1604,13 @@ function ResultsModal({ clientRequestId, runId, open, onOpenChange }: { clientRe
           const targetCount = leadsPayload?.target_count ?? leadsPayload?.requested ?? leadsPayload?.requested_count ?? null;
 
           const summaryPayload = artefacts.find(a => a.type === 'run_summary') ? parsePayload(artefacts.find(a => a.type === 'run_summary')!.payload_json) : null;
-          let towerPayload = verdictArtefact ? parsePayload(verdictArtefact.payload_json) : null;
-          if (towerPayload && towerArtefacts.length > 1) {
+          const finalDeliveryTower = towerArtefacts.filter(a => {
+            const tp = parsePayload(a.payload_json);
+            return tp?.phase === 'final_delivery';
+          });
+          const authoritativeTowerArtefact = finalDeliveryTower.length > 0 ? finalDeliveryTower[finalDeliveryTower.length - 1] : verdictArtefact;
+          let towerPayload = authoritativeTowerArtefact ? parsePayload(authoritativeTowerArtefact.payload_json) : null;
+          if (towerPayload && towerArtefacts.length > 1 && finalDeliveryTower.length === 0) {
             const anyFail = towerArtefacts.some(a => {
               const tp = parsePayload(a.payload_json);
               const tv = (tp?.verdict || '').toLowerCase();
@@ -3048,14 +3065,22 @@ function deriveTowerAwareStatus(events: StreamEvent[], serverTerminalState: 'com
       hasTowerJudgement = true;
       hasTowerJudgementArtefact = true;
       let anyFail = false;
+      let finalDeliveryArtefact: typeof towerArtefactList[0] | null = null;
       for (const ta of towerArtefactList) {
         const tp = ta.payload_json;
         const tv = (tp?.verdict || '').toLowerCase();
         if (tv === 'fail' || tv === 'error') anyFail = true;
+        if (tp?.phase === 'final_delivery') finalDeliveryArtefact = ta;
       }
-      const lastTa = towerArtefactList[towerArtefactList.length - 1];
-      const lp = lastTa.payload_json;
+      const authoritativeTa = finalDeliveryArtefact || towerArtefactList[towerArtefactList.length - 1];
+      const lp = authoritativeTa.payload_json;
       let resolvedVerdict = (lp?.verdict && typeof lp.verdict === 'string') ? lp.verdict.toLowerCase() : '';
+      if (finalDeliveryArtefact) {
+        const fdv = resolvedVerdict;
+        if (fdv === 'pass' || fdv === 'accept' || fdv === 'accept_with_unverified') {
+          anyFail = false;
+        }
+      }
       if (anyFail && (resolvedVerdict === 'pass' || resolvedVerdict === 'accept' || resolvedVerdict === 'accept_with_unverified')) {
         resolvedVerdict = 'fail';
       }

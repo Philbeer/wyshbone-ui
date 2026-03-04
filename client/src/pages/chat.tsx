@@ -470,6 +470,10 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     const towerRows = rows.filter((r: any) => r.type === 'tower_judgement');
     if (towerRows.length === 0) return { verdict: null, proxyUsed: null, stopTimePredicate: false, hasAnyFail: false };
 
+    let finalDeliveryVerdict: string | null = null;
+    let finalDeliveryProxyUsed: string | null = null;
+    let finalDeliveryStopTimePredicate = false;
+
     let hasAnyFail = false;
     let lastVerdict: string | null = null;
     let lastProxyUsed: string | null = null;
@@ -484,6 +488,20 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
       lastVerdict = p.verdict || null;
       lastProxyUsed = p.proxy_used || null;
       lastStopTimePredicate = p.stop_reason === 'time_predicate' || p.constraint_type === 'time_predicate';
+
+      if (p.phase === 'final_delivery') {
+        finalDeliveryVerdict = p.verdict || null;
+        finalDeliveryProxyUsed = p.proxy_used || null;
+        finalDeliveryStopTimePredicate = p.stop_reason === 'time_predicate' || p.constraint_type === 'time_predicate';
+      }
+    }
+
+    if (finalDeliveryVerdict) {
+      const fdv = finalDeliveryVerdict.toLowerCase();
+      if (fdv === 'pass' || fdv === 'accept' || fdv === 'accept_with_unverified') {
+        return { verdict: finalDeliveryVerdict, proxyUsed: finalDeliveryProxyUsed, stopTimePredicate: finalDeliveryStopTimePredicate, hasAnyFail: false };
+      }
+      return { verdict: finalDeliveryVerdict, proxyUsed: finalDeliveryProxyUsed, stopTimePredicate: finalDeliveryStopTimePredicate, hasAnyFail: true };
     }
 
     if (hasAnyFail && lastVerdict) {
@@ -776,8 +794,12 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         detail: { clientRequestId: effectiveCrid, runId: effectiveRunId || null },
       }));
 
-      const isTrustFailure = parsed.status?.toUpperCase() === 'FAIL' ||
-        (dsPathTowerVerdict && ['fail', 'error'].includes(dsPathTowerVerdict.toLowerCase()));
+      const towerVerdictLower = (dsPathTowerVerdict || '').toLowerCase();
+      const isFinalDeliveryPass = ['pass', 'accept', 'accept_with_unverified'].includes(towerVerdictLower);
+      const isTrustFailure = !isFinalDeliveryPass && (
+        parsed.status?.toUpperCase() === 'FAIL' ||
+        (dsPathTowerVerdict && ['fail', 'error'].includes(towerVerdictLower))
+      );
 
       const resultMessage: Message = {
         id: `ds-${effectiveKey}`,

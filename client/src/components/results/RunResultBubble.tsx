@@ -830,8 +830,12 @@ export default function RunResultBubble({
     verified_exact_count: verifiedExact,
   });
 
-  const isTrustFailure = canonical.status === "FAIL" ||
-    (towerVerdict && ['fail', 'error'].includes(towerVerdict.toLowerCase()));
+  const towerVerdictLower = (towerVerdict || '').toLowerCase();
+  const isFinalDeliveryPass = ['pass', 'accept', 'accept_with_unverified'].includes(towerVerdictLower);
+  const isTrustFailure = !isFinalDeliveryPass && (
+    canonical.status === "FAIL" ||
+    (towerVerdict && ['fail', 'error'].includes(towerVerdictLower))
+  );
 
   const isTimePredicateStop = !!(towerStopTimePredicate && (canonical.status === 'STOP' || canonical.status === 'FAIL'));
 
@@ -1037,6 +1041,12 @@ export default function RunResultBubble({
 
       {!provisional && !isTrustFailure && (
         <FeedbackButtons runId={runId} />
+      )}
+
+      {import.meta.env.DEV && (
+        <div className="mt-2 px-2 py-1 rounded bg-gray-100 dark:bg-gray-900 border border-dashed border-gray-300 dark:border-gray-700 text-[9px] font-mono text-muted-foreground" data-testid="dev-diagnostic">
+          runId={runId || 'n/a'} | tower={towerVerdict || 'none'} | trustState={isTrustFailure ? 'FAIL' : (isFinalDeliveryPass ? 'trusted' : 'neutral')} | canonical={effectiveCanonical.status}
+        </div>
       )}
     </div>
   );

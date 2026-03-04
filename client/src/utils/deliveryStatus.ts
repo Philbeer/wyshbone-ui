@@ -25,9 +25,11 @@ export function resolveCanonicalStatus(input: DeliveryStatusInput): CanonicalDel
     return { status: "ACCEPT_WITH_UNVERIFIED", stop_reason: null };
   }
 
-  if (raw === "PASS" || raw === "PARTIAL" || raw === "STOP" || raw === "FAIL") {
+  const accepted = raw === "ACCEPT" ? "PASS" : raw;
+  if (accepted === "PASS" || accepted === "PARTIAL" || accepted === "STOP" || accepted === "FAIL" || accepted === "COMPLETED") {
+    const effectiveStatus = (accepted === "COMPLETED" ? "PASS" : accepted) as CanonicalStatus;
     let stopReason: StopReason | null = null;
-    if ((raw === "STOP" || raw === "FAIL") && input.stop_reason) {
+    if ((effectiveStatus === "STOP" || effectiveStatus === "FAIL") && input.stop_reason) {
       if (typeof input.stop_reason === "string") {
         stopReason = { message: input.stop_reason };
       } else if (typeof input.stop_reason === "object" && input.stop_reason !== null) {
@@ -37,7 +39,7 @@ export function resolveCanonicalStatus(input: DeliveryStatusInput): CanonicalDel
         };
       }
     }
-    return { status: raw as CanonicalStatus, stop_reason: stopReason };
+    return { status: effectiveStatus, stop_reason: stopReason };
   }
 
   return { status: "UNAVAILABLE", stop_reason: null };

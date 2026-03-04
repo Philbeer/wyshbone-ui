@@ -64,9 +64,28 @@ function parsePayload(payload: any): any {
   return payload;
 }
 
+function formatConstraintLabel(c: CvlConstraint): string {
+  const fieldLabels: Record<string, string> = {
+    count: 'Count',
+    location: 'Location',
+    entity_type: 'Business type',
+    business_type: 'Business type',
+    attribute: 'Attribute',
+    radius: 'Radius',
+    category: 'Category',
+  };
+  const fieldLabel = fieldLabels[(c.field || '').toLowerCase()] || (c.field ? c.field.charAt(0).toUpperCase() + c.field.slice(1) : c.kind || 'Constraint');
+  if (c.value != null && c.value !== '') {
+    return `${fieldLabel}: ${c.value}`;
+  }
+  return fieldLabel;
+}
+
 function StatusBadge({ status }: { status: "yes" | "no" | "unknown" | string }) {
   const config: Record<string, { label: string; className: string; icon: typeof ShieldCheck }> = {
     yes: { label: "Verified", className: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200", icon: ShieldCheck },
+    search_bounded: { label: "Verified (search bounded)", className: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200", icon: ShieldCheck },
+    exact: { label: "Verified (exact)", className: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200", icon: ShieldCheck },
     no: { label: "Not met", className: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-200", icon: ShieldAlert },
     unknown: { label: "Not verified", className: "bg-gray-100 text-gray-600 dark:bg-gray-800/50 dark:text-gray-400", icon: ShieldQuestion },
   };
@@ -118,10 +137,10 @@ export function ConstraintsExtractedView({ payload }: { payload: any }) {
           <div key={c.id} className="px-3 py-2 flex items-center gap-2 text-xs">
             <div className="flex-1 min-w-0">
               <p className="font-medium text-foreground truncate">
-                {c.label || `${c.field} ${c.op} ${c.value}`}
+                {c.label || formatConstraintLabel(c)}
               </p>
               <p className="text-[10px] text-muted-foreground mt-0.5">
-                {c.kind} &middot; {c.field} {c.op} {String(c.value)}
+                {c.kind}{c.field ? ` · ${c.field}` : ''}{c.op ? ` ${c.op}` : ''} {String(c.value)}
               </p>
             </div>
             <HardnessBadge hardness={c.hardness} />
@@ -326,7 +345,7 @@ export function ConstraintsSectionInline({
             <div key={c.id} className="px-3 py-2 flex items-center gap-2 text-xs">
               <div className="flex-1 min-w-0">
                 <p className="font-medium text-foreground">
-                  {c.label || `${c.field} ${c.op} ${c.value}`}
+                  {c.label || formatConstraintLabel(c)}
                 </p>
               </div>
               <HardnessBadge hardness={c.hardness} />
