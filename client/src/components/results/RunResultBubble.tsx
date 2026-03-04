@@ -523,9 +523,8 @@ function NextActionButtons({
 }
 
 export interface RunNarrative {
-  queryLabel: string;
-  bullets: string[];
-  towerLine: { text: string; pass: boolean } | null;
+  lines: string[];
+  isTrustFailure: boolean;
   emailFoundCount: number;
   phoneFoundCount: number;
   deliveredCount: number;
@@ -543,7 +542,6 @@ export function buildRunNarrative(
   const exact = Array.isArray(deliverySummary.delivered_exact) ? deliverySummary.delivered_exact : [];
   const closest = Array.isArray(deliverySummary.delivered_closest) ? deliverySummary.delivered_closest : [];
   const allLeads = [...exact, ...closest];
-
   const deliveredCount = allLeads.length;
 
   const requestedCount = constraintsExtracted?.requested_count_user ??
@@ -556,29 +554,6 @@ export function buildRunNarrative(
   const titleCase = (s: string) => s.replace(/\b\w/g, c => c.toUpperCase());
   const query = searchQueryCompiled?.interpreted_query || '';
   const location = searchQueryCompiled?.interpreted_location || '';
-
-  const constraints = Array.isArray(constraintsExtracted?.constraints) ? constraintsExtracted!.constraints : [];
-  const emailConstraintWords = ['email', 'emails', 'contact', 'contact_email', 'include_email'];
-  const userAskedForEmail = constraints.some(c =>
-    emailConstraintWords.includes((c.field || '').toLowerCase()) ||
-    emailConstraintWords.includes((c.kind || '').toLowerCase()) ||
-    emailConstraintWords.includes((c.id || '').toLowerCase()) ||
-    String(c.value || '').toLowerCase().includes('email')
-  );
-
-  let queryLabel = 'Find results';
-  if (query && location) {
-    queryLabel = `Find${requestedCount ? ` ${requestedCount}` : ''} ${query} in ${titleCase(location)}`;
-  } else if (query) {
-    queryLabel = `Find${requestedCount ? ` ${requestedCount}` : ''} ${query}`;
-  } else if (location) {
-    queryLabel = `Find results in ${titleCase(location)}`;
-  } else if (requestedCount) {
-    queryLabel = `Find ${requestedCount} results`;
-  }
-  if (userAskedForEmail) {
-    queryLabel += ' and include email';
-  }
 
   let emailFoundCount = 0;
   let phoneFoundCount = 0;
@@ -597,48 +572,49 @@ export function buildRunNarrative(
     }
   }
 
-  const bullets: string[] = [];
-
-  if (candidateCount != null && candidateCount > 0) {
-    const entityWord = query || 'results';
-    const locationPart = location ? ` in ${titleCase(location)}` : '';
-    bullets.push(`Found ${candidateCount} ${entityWord}${locationPart}`);
-  }
-
-  bullets.push('Checked websites for contact details where available');
-
-  if (requestedCount != null && requestedCount > 0) {
-    bullets.push(`Delivered ${deliveredCount} of ${requestedCount} requested`);
-  } else if (deliveredCount > 0) {
-    bullets.push(`Delivered ${deliveredCount} ${deliveredCount === 1 ? 'result' : 'results'}`);
-  } else {
-    bullets.push('No results could be delivered');
-  }
-
-  if (userAskedForEmail) {
-    if (emailFoundCount > 0) {
-      bullets.push(`Emails found for ${emailFoundCount}/${deliveredCount}`);
-    } else {
-      bullets.push('No emails found on the public pages we checked');
-    }
-  }
-
-  if (phoneFoundCount > 0 && deliveredCount > 0) {
-    bullets.push(`Phone numbers found for ${phoneFoundCount}/${deliveredCount}`);
-  }
-
   const tv = (towerVerdict || '').toLowerCase();
-  let towerLine: RunNarrative['towerLine'] = null;
-  if (tv === 'pass' || tv === 'accept' || tv === 'accept_with_unverified') {
-    towerLine = { text: `Verified and delivered (Tower: ${towerVerdict!.toUpperCase()})`, pass: true };
-  } else if (tv === 'fail' || tv === 'error' || tv === 'stop') {
-    towerLine = { text: `Could not verify enough (Tower: ${towerVerdict!.toUpperCase()})`, pass: false };
+  const isTrustFailure = tv === 'fail' || tv === 'error' || tv === 'stop';
+
+  const lines: string[] = [];
+
+  const entityWord = query || 'businesses';
+  const locationPart = location ? ` in ${titleCase(location)}` : '';
+  if (candidateCount != null && candidateCount > 0) {
+    lines.push(`I searched Google Places for ${entityWord}${locationPart} and found ${candidateCount} possible ${candidateCount === 1 ? 'match' : 'matches'}.`);
+  } else {
+    lines.push(`I searched Google Places for ${entityWord}${locationPart}.`);
+  }
+
+  lines.push('I checked websites where available to look for contact details.');
+
+  const contactParts: string[] = [];
+  if (emailFoundCount > 0) {
+    contactParts.push(`${emailFoundCount} public ${emailFoundCount === 1 ? 'email' : 'emails'}`);
+  }
+  if (phoneFoundCount > 0) {
+    contactParts.push(`${phoneFoundCount} phone ${phoneFoundCount === 1 ? 'number' : 'numbers'}`);
+  }
+  if (contactParts.length > 0) {
+    lines.push(`I found ${contactParts.join(' and ')}.`);
+  } else if (deliveredCount > 0) {
+    lines.push('I found no public emails or phone numbers on the pages I checked.');
+  }
+
+  if (isTrustFailure) {
+    lines.push("I found some matches, but I couldn\u2019t verify everything, so I\u2019m not fully confident in these results.");
+  } else if (deliveredCount > 0) {
+    if (requestedCount != null && requestedCount > 0) {
+      lines.push(`I selected ${deliveredCount} ${entityWord} for you${requestedCount !== deliveredCount ? ` (you asked for ${requestedCount})` : ''}.`);
+    } else {
+      lines.push(`I selected ${deliveredCount} ${entityWord} for you.`);
+    }
+  } else {
+    lines.push('No results could be delivered for this search.');
   }
 
   return {
-    queryLabel,
-    bullets,
-    towerLine,
+    lines,
+    isTrustFailure,
     emailFoundCount,
     phoneFoundCount,
     deliveredCount,
@@ -648,72 +624,137 @@ export function buildRunNarrative(
   };
 }
 
-function WhatIDidSection({
-  narrative,
-  runId,
-}: {
-  narrative: RunNarrative;
-  runId?: string | null;
-}) {
+function HumanSummary({ narrative }: { narrative: RunNarrative }) {
   return (
-    <div className="rounded-lg border bg-muted/30 px-3 py-2.5 space-y-2" data-testid="what-i-did">
-      <p className="text-xs font-semibold text-foreground">
-        You asked: {narrative.queryLabel}
-      </p>
-      <ul className="space-y-0.5 text-xs text-muted-foreground list-disc list-inside">
-        {narrative.bullets.map((b, i) => (
-          <li key={i}>{b}</li>
-        ))}
-      </ul>
-      {narrative.towerLine && (
-        <div className={cn(
-          "flex items-center gap-1.5 text-xs font-medium rounded px-2 py-1 w-fit",
-          narrative.towerLine.pass
-            ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200"
-            : "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-200"
-        )}>
-          {narrative.towerLine.pass
-            ? <CheckCircle2 className="h-3 w-3" />
-            : <AlertTriangle className="h-3 w-3" />
-          }
-          {narrative.towerLine.text}
-        </div>
-      )}
-      {narrative.towerLine && !narrative.towerLine.pass && (
-        <div className="flex gap-2 pt-1">
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-7 text-xs gap-1.5"
-            onClick={() => {
-              dispatchFollowUp({
-                message: "Retry the search with a clean query.",
-                parentRunId: runId,
-                actionType: "retry_clean",
-              });
-            }}
-          >
-            <RefreshCw className="h-3 w-3" /> Retry
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-7 text-xs gap-1.5"
-            onClick={() => {
-              dispatchFollowUp({
-                message: "Ask me a clarification question about what I need.",
-                parentRunId: runId,
-                actionType: "ask_clarification",
-              });
-            }}
-          >
-            <HelpCircle className="h-3 w-3" /> Ask me a question
-          </Button>
-        </div>
-      )}
-      {import.meta.env.DEV && (
-        <div className="mt-1 px-2 py-1 rounded bg-gray-100 dark:bg-gray-900 border border-dashed border-gray-300 dark:border-gray-700 text-[9px] font-mono text-muted-foreground" data-testid="what-i-did-debug">
-          candidateCount={narrative.candidateCount ?? 'n/a'} deliveredCount={narrative.deliveredCount} emailFoundCount={narrative.emailFoundCount} phoneFoundCount={narrative.phoneFoundCount} towerVerdict={narrative.towerVerdict || 'none'}
+    <div className="space-y-1" data-testid="human-summary">
+      {narrative.lines.map((line, i) => (
+        <p key={i} className="text-sm text-foreground leading-relaxed">{line}</p>
+      ))}
+    </div>
+  );
+}
+
+function TechnicalDetails({
+  deliverySummary,
+  effectiveCanonical,
+  searchQueryCompiled,
+  constraintsExtracted,
+  verificationSummary,
+  policySnapshot,
+  policyApplied,
+  learningUpdate,
+  planVersions,
+  towerVerdict,
+  towerProxyUsed,
+  towerUnavailable,
+  runId,
+  narrative,
+}: {
+  deliverySummary: DeliverySummary;
+  effectiveCanonical: ReturnType<typeof resolveCanonicalStatus>;
+  searchQueryCompiled?: SearchQueryCompiled | null;
+  constraintsExtracted?: ConstraintsExtractedPayload | null;
+  verificationSummary?: VerificationSummaryPayload | null;
+  policySnapshot?: PolicySnapshot | null;
+  policyApplied?: PolicyApplied | null;
+  learningUpdate?: LearningUpdate | null;
+  planVersions?: PlanVersion[] | null;
+  towerVerdict?: string | null;
+  towerProxyUsed?: string | null;
+  towerUnavailable?: boolean;
+  runId?: string | null;
+  narrative: RunNarrative;
+}) {
+  const [open, setOpen] = useState(false);
+
+  const tv = (towerVerdict || '').toUpperCase();
+  const tvColor = ['PASS', 'ACCEPT', 'ACCEPT_WITH_UNVERIFIED'].includes(tv)
+    ? 'text-green-700 dark:text-green-300'
+    : ['FAIL', 'ERROR', 'STOP'].includes(tv)
+      ? 'text-red-700 dark:text-red-300'
+      : 'text-muted-foreground';
+
+  return (
+    <div className="pt-1">
+      <button
+        className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors font-medium"
+        onClick={() => setOpen(!open)}
+      >
+        {open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+        {open ? 'Hide details' : 'Show details'}
+      </button>
+      {open && (
+        <div className="mt-2 space-y-3 rounded-md border border-border bg-muted/20 px-3 py-2 text-xs" data-testid="technical-details">
+          {towerVerdict && (
+            <div className="flex items-center gap-2">
+              <span className="text-muted-foreground font-medium">Verdict:</span>
+              <span className={cn("font-semibold", tvColor)}>{tv}</span>
+            </div>
+          )}
+          {towerProxyUsed && (
+            <p className="text-muted-foreground">Time proxy used: {towerProxyUsed}</p>
+          )}
+          {towerUnavailable && (
+            <p className="text-muted-foreground">Quality check was not available for this run.</p>
+          )}
+
+          {searchQueryCompiled && (
+            <SearchSummaryBlock sqc={searchQueryCompiled} />
+          )}
+
+          {constraintsExtracted && Array.isArray(constraintsExtracted.constraints) && constraintsExtracted.constraints.length > 0 && (
+            <div>
+              <p className="text-muted-foreground font-medium mb-1">Constraints</p>
+              <div className="rounded border divide-y">
+                {constraintsExtracted.constraints.map(c => (
+                  <div key={c.id} className="px-2 py-1 flex items-center justify-between">
+                    <span>{c.label || `${c.field}${c.op ? ` ${c.op}` : ''} ${c.value}`}</span>
+                    <span className="text-[10px] text-muted-foreground">{c.hardness}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {verificationSummary && (
+            <div className="flex gap-3">
+              {verificationSummary.verified_exact_count != null && (
+                <span>Verified: <span className="font-semibold text-green-600 dark:text-green-400">{verificationSummary.verified_exact_count}</span></span>
+              )}
+              {verificationSummary.requested_count_user != null && (
+                <span>Requested: <span className="font-semibold">{verificationSummary.requested_count_user}</span></span>
+              )}
+              {verificationSummary.budget_used != null && verificationSummary.budget_total != null && (
+                <span>Budget: {verificationSummary.budget_used}/{verificationSummary.budget_total}</span>
+              )}
+            </div>
+          )}
+
+          {(effectiveCanonical.status === "STOP" || effectiveCanonical.status === "FAIL") && deliverySummary.stop_reason && deliverySummary.stop_reason !== 'artefacts_unavailable' && (
+            <StopReasonBadge stopReason={deliverySummary.stop_reason} />
+          )}
+
+          {planVersions && planVersions.length > 1 && (
+            <PlanVersionTimeline versions={planVersions} />
+          )}
+
+          {(policyApplied || (policySnapshot && (policySnapshot.why_short || (policySnapshot.max_replans != null && policySnapshot.max_replans !== DEFAULT_MAX_REPLANS)))) && (
+            <AppliedPolicySection policyApplied={policyApplied} snapshot={policySnapshot} />
+          )}
+
+          {learningUpdate && (
+            <LearningDeltaSection learningUpdate={learningUpdate} />
+          )}
+
+          <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-[10px] text-muted-foreground font-mono pt-1 border-t border-border">
+            <span>status={effectiveCanonical.status}</span>
+            <span>delivered={narrative.deliveredCount}</span>
+            <span>candidates={narrative.candidateCount ?? 'n/a'}</span>
+            <span>emails={narrative.emailFoundCount}</span>
+            <span>phones={narrative.phoneFoundCount}</span>
+            {towerVerdict && <span>tower={towerVerdict}</span>}
+            {runId && <span>run={runId.slice(0, 12)}</span>}
+          </div>
         </div>
       )}
     </div>
@@ -1065,9 +1106,6 @@ export default function RunResultBubble({
     console.log(`[RunResultBubble] Downgraded PASS → ACCEPT_WITH_UNVERIFIED: allLeads=${allLeads.length}, matches=${matches.length}, candidates=${candidates.length}, hasUnverifiedLeads=${hasUnverifiedLeads}`);
   }
 
-  const StatusIcon = STATUS_ICONS[effectiveCanonical.status];
-  const statusColor = STATUS_COLORS[effectiveCanonical.status];
-  const summaryText = buildSummaryText(deliverySummary, effectiveCanonical, verifiedExact, target, towerVerdict);
   const unverifiableAttr = extractUnverifiableAttribute(deliverySummary);
 
   const useLocationBuckets = hasLocationStatusData(allLeads);
@@ -1080,6 +1118,8 @@ export default function RunResultBubble({
   }
 
   console.log(`[RunResultBubble] render: status=${effectiveCanonical.status} (raw=${canonical.status}), verifiedExact=${verifiedExact}, requested=${target.hasTarget ? target.targetCount : 'any'}, allLeads=${allLeads.length}, matches=${matches.length}, candidates=${candidates.length}, leadVerifications=${leadVerifications?.length ?? 'none'}, verifiedIds=${verifiedIds.size}, locationBuckets=${useLocationBuckets ? `geo=${locationBuckets!.verifiedGeo.length},bounded=${locationBuckets!.searchBounded.length},out=${locationBuckets!.outOfArea.length},unknown=${locationBuckets!.unknown.length}` : 'none'}`);
+
+  const narrative = !provisional ? buildRunNarrative(deliverySummary, searchQueryCompiled, constraintsExtracted, towerVerdict) : null;
 
   return (
     <div className="space-y-3">
@@ -1100,32 +1140,9 @@ export default function RunResultBubble({
         <TrustErrorBlock verdict={towerVerdict || deliverySummary.status || 'FAIL'} runId={runId} />
       )}
 
-      {!provisional && !isTrustFailure && deliverySummary.stop_reason !== 'artefacts_unavailable' && (
-        <div className="flex items-start gap-2">
-          <StatusIcon className={cn("h-4 w-4 mt-0.5 shrink-0", statusColor)} />
-          <div>
-            <p className="text-sm text-foreground leading-relaxed">
-              {towerStopTimePredicate && (effectiveCanonical.status === 'STOP' || effectiveCanonical.status === 'FAIL')
-                ? "Stopped: can\u2019t verify opening date constraint without an acceptable proxy."
-                : summaryText}
-            </p>
-            {towerProxyUsed && (
-              <p className="text-xs text-muted-foreground mt-1" data-testid="proxy-used-line">
-                Time constraint handled via proxy: {towerProxyUsed}.
-              </p>
-            )}
-          </div>
-        </div>
+      {!provisional && narrative && deliverySummary.stop_reason !== 'artefacts_unavailable' && (
+        <HumanSummary narrative={narrative} />
       )}
-
-      {!provisional && searchQueryCompiled && (
-        <SearchSummaryBlock sqc={searchQueryCompiled} />
-      )}
-
-      {!provisional && (() => {
-        const narrative = buildRunNarrative(deliverySummary, searchQueryCompiled, constraintsExtracted, towerVerdict);
-        return <WhatIDidSection narrative={narrative} runId={runId} />;
-      })()}
 
       {provisional && allLeads.length > 0 && (
         <div className="space-y-0.5">
@@ -1140,7 +1157,7 @@ export default function RunResultBubble({
         </div>
       )}
 
-      {!provisional && !isTrustFailure && !isTimePredicateStop && useLocationBuckets && locationBuckets && (
+      {!provisional && useLocationBuckets && locationBuckets && (
         <>
           {locationBuckets.verifiedGeo.length > 0 && (
             <div className="space-y-0.5">
@@ -1193,10 +1210,10 @@ export default function RunResultBubble({
         </>
       )}
 
-      {!provisional && !isTrustFailure && !isTimePredicateStop && !useLocationBuckets && matches.length > 0 && (
+      {!provisional && !useLocationBuckets && matches.length > 0 && (
         <div className="space-y-0.5">
           <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-            {effectiveCanonical.status === "STOP" || effectiveCanonical.status === "PARTIAL" || effectiveCanonical.status === "ACCEPT_WITH_UNVERIFIED" ? `Results (${matches.length})` : `Matches (${matches.length})`}
+            Results ({matches.length})
           </h4>
           <div>
             {matches.map((lead, i) => (
@@ -1206,7 +1223,7 @@ export default function RunResultBubble({
         </div>
       )}
 
-      {!provisional && !isTrustFailure && !isTimePredicateStop && !useLocationBuckets && candidates.length > 0 && (
+      {!provisional && !useLocationBuckets && candidates.length > 0 && (
         <div className="space-y-0.5">
           <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{matches.length > 0 ? `Other results (${candidates.length})` : `Results (${candidates.length})`}</h4>
           <div>
@@ -1217,39 +1234,29 @@ export default function RunResultBubble({
         </div>
       )}
 
-      {!provisional && towerUnavailable && (
-        <div className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
-          <AlertTriangle className="h-3 w-3 text-muted-foreground" />
-          <span className="text-[11px] text-muted-foreground font-medium">Tower not available</span>
-        </div>
-      )}
-
-      {!provisional && (effectiveCanonical.status === "STOP" || effectiveCanonical.status === "FAIL") && deliverySummary.stop_reason && deliverySummary.stop_reason !== 'artefacts_unavailable' && (
-        <StopReasonBadge stopReason={deliverySummary.stop_reason} />
-      )}
-
-      {!provisional && planVersions && planVersions.length > 1 && (
-        <PlanVersionTimeline versions={planVersions} />
-      )}
-
-      {!provisional && (policyApplied || (policySnapshot && (policySnapshot.why_short || (policySnapshot.max_replans != null && policySnapshot.max_replans !== DEFAULT_MAX_REPLANS)))) && (
-        <AppliedPolicySection policyApplied={policyApplied} snapshot={policySnapshot} />
-      )}
-
-      {!provisional && learningUpdate && (
-        <LearningDeltaSection learningUpdate={learningUpdate} />
+      {!provisional && narrative && (
+        <TechnicalDetails
+          deliverySummary={deliverySummary}
+          effectiveCanonical={effectiveCanonical}
+          searchQueryCompiled={searchQueryCompiled}
+          constraintsExtracted={constraintsExtracted}
+          verificationSummary={verificationSummary}
+          policySnapshot={policySnapshot}
+          policyApplied={policyApplied}
+          learningUpdate={learningUpdate}
+          planVersions={planVersions}
+          towerVerdict={towerVerdict}
+          towerProxyUsed={towerProxyUsed}
+          towerUnavailable={towerUnavailable}
+          runId={runId}
+          narrative={narrative}
+        />
       )}
 
       {!provisional && <NextActionButtons ds={deliverySummary} canonical={effectiveCanonical} runId={runId} hasTarget={target.hasTarget} />}
 
       {!provisional && !isTrustFailure && (
         <FeedbackButtons runId={runId} />
-      )}
-
-      {import.meta.env.DEV && (
-        <div className="mt-2 px-2 py-1 rounded bg-gray-100 dark:bg-gray-900 border border-dashed border-gray-300 dark:border-gray-700 text-[9px] font-mono text-muted-foreground" data-testid="dev-diagnostic">
-          runId={runId || 'n/a'} | tower={towerVerdict || 'none'} | trustState={isTrustFailure ? 'FAIL' : (isFinalDeliveryPass ? 'trusted' : 'neutral')} | canonical={effectiveCanonical.status}
-        </div>
       )}
     </div>
   );
