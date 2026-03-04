@@ -516,6 +516,37 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
   }
 
   function extractContactCounts(rows: any[]): ContactCounts | null {
+    if (import.meta.env.DEV || (window as any).__WYSH_DEBUG_CONTACTS) {
+      const debugTypes = ['lead_pack', 'contact_extract', 'lead_enrich', 'LEAD_ENRICH', 'CONTACT_EXTRACT'];
+      const typeCounts: Record<string, number> = {};
+      for (const r of rows) {
+        typeCounts[r.type] = (typeCounts[r.type] || 0) + 1;
+      }
+      console.log('[WYSH_DEBUG_CONTACTS] artefact type counts:', typeCounts);
+      for (const r of rows) {
+        if (debugTypes.includes(r.type)) {
+          let p = r.payload_json;
+          if (typeof p === 'string') { try { p = JSON.parse(p); } catch { p = null; } }
+          const topKeys = p ? Object.keys(p) : [];
+          const shallowPreview: Record<string, any> = {};
+          if (p && typeof p === 'object') {
+            for (const k of topKeys.slice(0, 20)) {
+              const v = p[k];
+              if (Array.isArray(v)) {
+                shallowPreview[k] = `Array(${v.length})` + (v.length > 0 ? ` first=${JSON.stringify(v[0]).slice(0, 200)}` : '');
+              } else if (v && typeof v === 'object') {
+                shallowPreview[k] = `{${Object.keys(v).join(', ')}}`;
+              } else {
+                shallowPreview[k] = v;
+              }
+            }
+          }
+          console.log(`[WYSH_DEBUG_CONTACTS] type=${r.type} id=${r.id || 'n/a'} topKeys=[${topKeys.join(', ')}]`, shallowPreview);
+          break;
+        }
+      }
+    }
+
     const leadPacks: any[] = [];
     const contactExtracts: any[] = [];
 

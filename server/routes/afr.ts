@@ -421,6 +421,36 @@ export function createAfrRouter(_storage: typeof storage) {
 
       const types = rows.map((r: any) => r.type);
       console.log(`[AFR artefacts] Returning ${rows.length} artefact(s) for runId=${resolvedRunId} path=${lookupPath} — types: [${types.join(', ')}]`);
+
+      const debugContactTypes = ['lead_pack', 'contact_extract', 'lead_enrich', 'LEAD_ENRICH', 'CONTACT_EXTRACT', 'delivery_leads', 'delivery_summary'];
+      const typeCounts: Record<string, number> = {};
+      for (const r of rows) typeCounts[(r as any).type] = (typeCounts[(r as any).type] || 0) + 1;
+      if (DEBUG_AFR) console.log(`[WYSH_DEBUG_CONTACTS] type counts:`, JSON.stringify(typeCounts));
+      if (DEBUG_AFR) {
+        for (const r of rows) {
+          const row = r as any;
+          if (debugContactTypes.includes(row.type)) {
+            let p = row.payload_json;
+            if (typeof p === 'string') { try { p = JSON.parse(p); } catch { p = null; } }
+            const topKeys = p ? Object.keys(p) : [];
+            const preview: Record<string, any> = {};
+            if (p && typeof p === 'object') {
+              for (const k of topKeys.slice(0, 25)) {
+                const v = p[k];
+                if (Array.isArray(v)) {
+                  preview[k] = `Array(${v.length})` + (v.length > 0 ? ` keys=${JSON.stringify(Object.keys(v[0] || {}))}` : '');
+                } else if (v && typeof v === 'object') {
+                  preview[k] = `{${Object.keys(v).join(', ')}}`;
+                } else {
+                  preview[k] = typeof v === 'string' && v.length > 100 ? v.slice(0, 100) + '...' : v;
+                }
+              }
+            }
+            console.log(`[WYSH_DEBUG_CONTACTS] type=${row.type} topKeys=[${topKeys.join(', ')}] preview=`, JSON.stringify(preview));
+          }
+        }
+      }
+
       res.json(rows);
     } catch (error: any) {
       if (error?.message?.includes('does not exist')) {
