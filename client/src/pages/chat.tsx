@@ -1116,9 +1116,11 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     const runFirstSeen = new Map<string, number>();
     const SOFT_TIMEOUT_MS = 30_000;
     const HARD_TIMEOUT_MS = 90_000;
+    const ABSOLUTE_TIMEOUT_MS = 600_000;
     const consecutiveFailures = new Map<string, number>();
     const MAX_CONSECUTIVE_FAILURES = 20;
     const softTimeoutEmitted = new Set<string>();
+    const hardTimeoutEmitted = new Set<string>();
 
     async function fetchArtefactsWithRetry(runId: string | null, crid: string | null, maxRetries: number = 10): Promise<boolean> {
       for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -1188,32 +1190,57 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
           runFirstSeen.set(effectiveKey, Date.now());
         }
         const runElapsed = Date.now() - runFirstSeen.get(effectiveKey)!;
-        if (runElapsed > HARD_TIMEOUT_MS) {
-          console.warn(`[Chat][AFR-Poll] Hard timeout reached for ${effectiveKey} (${Math.round(runElapsed / 1000)}s). Emitting failure bubble.`);
+        if (runElapsed > ABSOLUTE_TIMEOUT_MS) {
+          console.warn(`[Chat][AFR-Poll] Absolute timeout (${Math.round(runElapsed / 1000)}s) for ${effectiveKey}. Giving up.`);
           emitRunFailureBubble(effectiveKey, runId, 'run_timeout');
           continue;
+        }
+        if (runElapsed > HARD_TIMEOUT_MS && !hardTimeoutEmitted.has(effectiveKey)) {
+          hardTimeoutEmitted.add(effectiveKey);
+          console.warn(`[Chat][AFR-Poll] Hard timeout banner for ${effectiveKey} (${Math.round(runElapsed / 1000)}s). Polling continues.`);
+          if (!deliverySummaryRunIdsRef.current.has(effectiveKey)) {
+            const bannerMsg: Message = {
+              id: `ds-${effectiveKey}`,
+              role: 'assistant',
+              content: '',
+              timestamp: new Date(),
+              source: 'supervisor',
+              deliverySummary: {
+                status: 'PENDING',
+                delivered_exact: [],
+                delivered_closest: [],
+                delivered_count: 0,
+                stop_reason: 'still_working',
+              } as DeliverySummary,
+              runId: runId || undefined,
+              provisional: false,
+            };
+            upsertResultMessage(bannerMsg);
+          }
         }
         const failCount = consecutiveFailures.get(effectiveKey) || 0;
         if (runElapsed > SOFT_TIMEOUT_MS && failCount >= 5 && !softTimeoutEmitted.has(effectiveKey)) {
           softTimeoutEmitted.add(effectiveKey);
           console.log(`[Chat][AFR-Poll] Soft timeout for ${effectiveKey} (${Math.round(runElapsed / 1000)}s, ${failCount} failures). Showing retrying bubble.`);
-          const softMsg: Message = {
-            id: `ds-${effectiveKey}`,
-            role: 'assistant',
-            content: '',
-            timestamp: new Date(),
-            source: 'supervisor',
-            deliverySummary: {
-              status: 'FAIL',
-              delivered_exact: [],
-              delivered_closest: [],
-              delivered_count: 0,
-              stop_reason: 'artefacts_unavailable',
-            } as DeliverySummary,
-            runId: runId || undefined,
-            provisional: false,
-          };
-          upsertResultMessage(softMsg);
+          if (!deliverySummaryRunIdsRef.current.has(effectiveKey)) {
+            const softMsg: Message = {
+              id: `ds-${effectiveKey}`,
+              role: 'assistant',
+              content: '',
+              timestamp: new Date(),
+              source: 'supervisor',
+              deliverySummary: {
+                status: 'PENDING',
+                delivered_exact: [],
+                delivered_closest: [],
+                delivered_count: 0,
+                stop_reason: 'still_working',
+              } as DeliverySummary,
+              runId: runId || undefined,
+              provisional: false,
+            };
+            upsertResultMessage(softMsg);
+          }
         }
 
         try {

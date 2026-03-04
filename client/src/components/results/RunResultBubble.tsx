@@ -1098,6 +1098,17 @@ function LearningDeltaSection({ learningUpdate }: { learningUpdate: LearningUpda
   );
 }
 
+function StillWorkingBlock() {
+  return (
+    <div className="flex items-center gap-2 rounded-md bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 px-3 py-2">
+      <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-600 dark:text-blue-400 shrink-0" />
+      <p className="text-xs text-blue-700 dark:text-blue-300 font-medium">
+        Still working — this search is taking longer than usual. Results will appear when ready.
+      </p>
+    </div>
+  );
+}
+
 function ArtefactsRetryBlock({ runId }: { runId?: string | null }) {
   const [retrying, setRetrying] = useState(false);
 
@@ -1385,6 +1396,10 @@ export default function RunResultBubble({
         </div>
       )}
 
+      {!provisional && deliverySummary.stop_reason === 'still_working' && (
+        <StillWorkingBlock />
+      )}
+
       {!provisional && deliverySummary.stop_reason === 'artefacts_unavailable' && (
         <ArtefactsRetryBlock runId={runId} />
       )}
@@ -1393,7 +1408,7 @@ export default function RunResultBubble({
         <RunTimeoutBlock stopReason={deliverySummary.stop_reason} />
       )}
 
-      {!provisional && isTrustFailure && deliverySummary.stop_reason !== 'artefacts_unavailable' && deliverySummary.stop_reason !== 'run_timeout' && deliverySummary.stop_reason !== 'run_not_persisted' && (
+      {!provisional && isTrustFailure && deliverySummary.stop_reason !== 'artefacts_unavailable' && deliverySummary.stop_reason !== 'run_timeout' && deliverySummary.stop_reason !== 'run_not_persisted' && deliverySummary.stop_reason !== 'still_working' && (
         <TrustErrorBlock verdict={effectiveTowerDisplay || deliverySummary.status || 'FAIL'} runId={runId} />
       )}
 
@@ -1415,7 +1430,7 @@ export default function RunResultBubble({
         </div>
       )}
 
-      {!provisional && narrative && deliverySummary.stop_reason !== 'artefacts_unavailable' && (
+      {!provisional && narrative && deliverySummary.stop_reason !== 'artefacts_unavailable' && deliverySummary.stop_reason !== 'still_working' && (
         <>
           <HumanSummary narrative={narrative} />
           <ReceiptInlineLine narrative={narrative} runReceipt={runReceipt} />
@@ -1512,7 +1527,7 @@ export default function RunResultBubble({
         </div>
       )}
 
-      {!provisional && narrative && (
+      {!provisional && narrative && deliverySummary.stop_reason !== 'still_working' && (
         <TechnicalDetails
           deliverySummary={deliverySummary}
           effectiveCanonical={effectiveCanonical}
@@ -1533,9 +1548,9 @@ export default function RunResultBubble({
         />
       )}
 
-      {!provisional && <NextActionButtons ds={deliverySummary} canonical={effectiveCanonical} runId={runId} hasTarget={target.hasTarget} />}
+      {!provisional && deliverySummary.stop_reason !== 'still_working' && <NextActionButtons ds={deliverySummary} canonical={effectiveCanonical} runId={runId} hasTarget={target.hasTarget} />}
 
-      {!provisional && !isTrustFailure && (
+      {!provisional && !isTrustFailure && deliverySummary.stop_reason !== 'still_working' && (
         <FeedbackButtons runId={runId} />
       )}
     </div>
