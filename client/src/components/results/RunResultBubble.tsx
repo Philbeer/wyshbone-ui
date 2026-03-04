@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { MapPin, Phone, Globe, CheckCircle2, CircleDot, OctagonX, HelpCircle, AlertTriangle, ChevronDown, ChevronRight, BookOpen, Copy, Loader2, RefreshCw, Radar, ArrowRight } from "lucide-react";
+import { MapPin, Phone, Globe, CheckCircle2, CircleDot, OctagonX, HelpCircle, AlertTriangle, ChevronDown, ChevronRight, BookOpen, Copy, Loader2, RefreshCw, Radar, ArrowRight, ShieldQuestion } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { resolveCanonicalStatus, type CanonicalStatus } from "@/utils/deliveryStatus";
@@ -863,7 +863,7 @@ function TechnicalDetails({
                 {constraintsExtracted.constraints.map(c => (
                   <div key={c.id} className="px-2 py-1 flex items-center justify-between">
                     <span>{c.label || `${c.field}${c.op ? ` ${c.op}` : ''} ${c.value}`}</span>
-                    <span className="text-[10px] text-muted-foreground">{c.hardness}</span>
+                    <span className="text-[10px] text-muted-foreground">{c.hardness || 'unknown'}</span>
                   </div>
                 ))}
               </div>
@@ -1112,9 +1112,9 @@ function ArtefactsRetryBlock({ runId }: { runId?: string | null }) {
   return (
     <div className="flex flex-col items-start gap-2 rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 px-3 py-2">
       <div className="flex items-center gap-2">
-        <AlertTriangle className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+        <Loader2 className="h-3.5 w-3.5 animate-spin text-amber-600 dark:text-amber-400 shrink-0" />
         <p className="text-xs text-amber-700 dark:text-amber-300 font-medium">
-          Results are still loading. This usually takes a few seconds.
+          Run still processing or persisting — retrying.
         </p>
       </div>
       <Button
@@ -1347,6 +1347,20 @@ export default function RunResultBubble({
 
   const unverifiableAttr = extractUnverifiableAttribute(deliverySummary);
 
+  const hasUnknownAttributeConstraints = (() => {
+    if (!isFinalDeliveryPass || isTrustFailure) return false;
+    if (!constraintsExtracted?.constraints?.length) return false;
+    if (!verificationSummary?.constraint_results?.length) return false;
+    const attrConstraintIds = new Set(
+      constraintsExtracted.constraints
+        .filter(c => (c.kind || '').toLowerCase() === 'has_attribute' || (c.field || '').toLowerCase() === 'attribute')
+        .map(c => c.id)
+    );
+    if (attrConstraintIds.size === 0) return false;
+    const attrResults = verificationSummary.constraint_results.filter(r => attrConstraintIds.has(r.constraint_id));
+    return attrResults.length > 0 && attrResults.every(r => r.status === 'unknown');
+  })();
+
   const useLocationBuckets = hasLocationStatusData(allLeads);
   const locationBuckets = useLocationBuckets ? splitLeadsByLocationStatus(allLeads) : null;
   const matchSetLower = new Set<string>();
@@ -1388,6 +1402,15 @@ export default function RunResultBubble({
           <AlertTriangle className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
           <p className="text-xs text-amber-700 dark:text-amber-300 font-medium">
             Some steps failed verification, but the run completed. Results may be partially unverified.
+          </p>
+        </div>
+      )}
+
+      {!provisional && !isTrustFailure && !isMixedVerdict && hasUnknownAttributeConstraints && (
+        <div className="flex items-center gap-2 rounded-md bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 px-3 py-2">
+          <ShieldQuestion className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
+          <p className="text-xs text-blue-700 dark:text-blue-300 font-medium">
+            I found results, but I couldn't verify which ones mention {unverifiableAttr ? `"${unverifiableAttr}"` : 'this attribute'} on their website.
           </p>
         </div>
       )}

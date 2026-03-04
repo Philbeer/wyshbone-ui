@@ -4,7 +4,7 @@ import { Shield, ShieldCheck, ShieldAlert, ShieldQuestion, FileText, ExternalLin
 export interface CvlConstraint {
   id: string;
   kind: string;
-  hardness: "hard" | "soft";
+  hardness?: "hard" | "soft" | string;
   field: string;
   op: string;
   value: any;
@@ -99,15 +99,21 @@ function StatusBadge({ status }: { status: "yes" | "no" | "unknown" | string }) 
   );
 }
 
-function HardnessBadge({ hardness }: { hardness: "hard" | "soft" | string }) {
+// Constraint hardness must come from backend artefacts — do not default.
+function HardnessBadge({ hardness }: { hardness?: "hard" | "soft" | string }) {
+  const normalized = (hardness || '').toLowerCase().trim();
+  const isHard = normalized === 'hard';
+  const isSoft = normalized === 'soft';
   return (
     <span className={cn(
       "inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium",
-      hardness === "hard"
+      isHard
         ? "bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-300"
-        : "bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300"
+        : isSoft
+          ? "bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300"
+          : "bg-gray-50 text-gray-600 dark:bg-gray-800/30 dark:text-gray-400"
     )}>
-      {hardness === "hard" ? "Hard" : "Soft"}
+      {isHard ? "Hard" : isSoft ? "Soft" : (hardness || "Unknown")}
     </span>
   );
 }

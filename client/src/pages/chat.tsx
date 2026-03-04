@@ -1114,9 +1114,11 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     const terminalDetected = new Set<string>();
     const clarifyDetected = new Set<string>();
     const runFirstSeen = new Map<string, number>();
-    const MAX_POLL_WAIT_MS = 90_000;
+    const SOFT_TIMEOUT_MS = 30_000;
+    const HARD_TIMEOUT_MS = 90_000;
     const consecutiveFailures = new Map<string, number>();
-    const MAX_CONSECUTIVE_FAILURES = 15;
+    const MAX_CONSECUTIVE_FAILURES = 20;
+    const softTimeoutEmitted = new Set<string>();
 
     async function fetchArtefactsWithRetry(runId: string | null, crid: string | null, maxRetries: number = 10): Promise<boolean> {
       for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -1186,10 +1188,32 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
           runFirstSeen.set(effectiveKey, Date.now());
         }
         const runElapsed = Date.now() - runFirstSeen.get(effectiveKey)!;
-        if (runElapsed > MAX_POLL_WAIT_MS) {
-          console.warn(`[Chat][AFR-Poll] Per-run timeout reached for ${effectiveKey} (${Math.round(runElapsed / 1000)}s). Emitting failure bubble.`);
+        if (runElapsed > HARD_TIMEOUT_MS) {
+          console.warn(`[Chat][AFR-Poll] Hard timeout reached for ${effectiveKey} (${Math.round(runElapsed / 1000)}s). Emitting failure bubble.`);
           emitRunFailureBubble(effectiveKey, runId, 'run_timeout');
           continue;
+        }
+        const failCount = consecutiveFailures.get(effectiveKey) || 0;
+        if (runElapsed > SOFT_TIMEOUT_MS && failCount >= 5 && !softTimeoutEmitted.has(effectiveKey)) {
+          softTimeoutEmitted.add(effectiveKey);
+          console.log(`[Chat][AFR-Poll] Soft timeout for ${effectiveKey} (${Math.round(runElapsed / 1000)}s, ${failCount} failures). Showing retrying bubble.`);
+          const softMsg: Message = {
+            id: `ds-${effectiveKey}`,
+            role: 'assistant',
+            content: '',
+            timestamp: new Date(),
+            source: 'supervisor',
+            deliverySummary: {
+              status: 'FAIL',
+              delivered_exact: [],
+              delivered_closest: [],
+              delivered_count: 0,
+              stop_reason: 'artefacts_unavailable',
+            } as DeliverySummary,
+            runId: runId || undefined,
+            provisional: false,
+          };
+          upsertResultMessage(softMsg);
         }
 
         try {
