@@ -590,7 +590,7 @@ export function buildRunNarrative(
   let phoneFoundCount: number;
   let contactCountsSource: string;
 
-  if (contactCounts && contactCounts.source !== 'unknown') {
+  if (contactCounts && (contactCounts.source === 'lead_pack' || contactCounts.source === 'contact_extract')) {
     emailFoundCount = contactCounts.emailCount;
     phoneFoundCount = contactCounts.phoneCount;
     contactCountsSource = contactCounts.source;
@@ -601,7 +601,8 @@ export function buildRunNarrative(
     contactCountsSource = (fromLeads.leadsWithEmail > 0 || fromLeads.leadsWithPhone > 0) ? 'delivery_leads' : 'unknown';
   }
 
-  const countsKnown = contactCountsSource !== 'unknown';
+  const countsProven = contactCountsSource === 'lead_pack' || contactCountsSource === 'contact_extract';
+  const countsKnown = countsProven || (emailFoundCount > 0 || phoneFoundCount > 0);
 
   const tv = (towerVerdict || '').toLowerCase();
   const isTrustFailure = tv === 'fail' || tv === 'error' || tv === 'stop';
@@ -628,11 +629,13 @@ export function buildRunNarrative(
     }
     if (contactParts.length > 0) {
       lines.push(`I found ${contactParts.join(' and ')}.`);
+    } else if (countsProven) {
+      lines.push('I checked but couldn\u2019t find any public contact details on the pages available.');
     } else {
-      lines.push('I couldn\u2019t find any public emails or phone numbers on the pages I checked.');
+      lines.push('Results varied by venue.');
     }
   } else if (deliveredCount > 0) {
-    lines.push('Contact details varied by venue.');
+    lines.push('Results varied by venue.');
   }
 
   if (isTrustFailure) {
