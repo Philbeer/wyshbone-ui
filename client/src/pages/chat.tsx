@@ -1157,6 +1157,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
 
     let stopped = false;
     const terminalDetected = new Set<string>();
+    const clarifyDetected = new Set<string>();
 
     async function fetchArtefactsWithRetry(runId: string | null, crid: string | null, maxRetries: number = 10): Promise<boolean> {
       for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -1206,6 +1207,86 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
           const status = data.status;
           const terminalState = data.terminal_state;
 
+
+          if (status === 'clarifying' && !clarifyDetected.has(effectiveKey)) {
+            clarifyDetected.add(effectiveKey);
+            console.log(`[Chat][AFR-Poll] Detected clarifying status for ${effectiveKey} — fetching clarify_gate artefact`);
+
+            try {
+              const artParams = new URLSearchParams();
+              if (crid) artParams.set('client_request_id', crid);
+              if (runId) artParams.set('runId', runId);
+              const artUrl = addDevAuthParams(buildApiUrl(`/api/afr/artefacts?${artParams.toString()}`));
+              const artRes = await fetch(artUrl, { credentials: 'include', cache: 'no-store' });
+              if (artRes.ok) {
+                const artRows = await artRes.json();
+                const gateRow = Array.isArray(artRows)
+                  ? artRows.find((r: any) => r.type === 'clarify_gate')
+                  : null;
+
+                if (gateRow) {
+                  let gatePayload = gateRow.payload_json;
+                  if (typeof gatePayload === 'string') {
+                    try { gatePayload = JSON.parse(gatePayload); } catch { gatePayload = null; }
+                  }
+
+                  const reason: string = gatePayload?.reason || gateRow.summary || 'I need a bit more information before I can search.';
+                  const options: string[] = Array.isArray(gatePayload?.options) ? gatePayload.options : [];
+                  const constraintType: string = gatePayload?.constraint_type || 'unknown';
+                  const constraintLabel: string = gatePayload?.constraint_label || constraintType;
+
+                  const contract: ConstraintContract = {
+                    type: constraintType === 'subjective_term' ? 'subjective'
+                        : constraintType === 'numeric_predicate' ? 'numeric_ambiguity'
+                        : constraintType === 'relationship_predicate' ? 'relationship_predicate'
+                        : constraintType === 'time_predicate' ? 'time_predicate'
+                        : constraintType,
+                    can_execute: false,
+                    why_blocked: reason,
+                    ...(constraintType === 'subjective_term' ? { subjective_options: options } : {}),
+                    ...(constraintType === 'numeric_predicate' ? { numeric_options: options } : {}),
+                    ...(constraintType === 'relationship_predicate' ? { relationship_options: options } : {}),
+                    ...(constraintType !== 'subjective_term' && constraintType !== 'numeric_predicate' && constraintType !== 'relationship_predicate' ? { proxy_options: options } : {}),
+                  };
+
+                  setClarifyContext({
+                    entityType: null,
+                    location: null,
+                    semanticConstraint: constraintLabel !== 'unknown' ? constraintLabel : null,
+                    count: null,
+                    missingFields: [],
+                    status: 'gathering',
+                    pendingQuestions: [reason],
+                    constraintContract: contract,
+                  });
+                  setIsClarifyingForRun(true);
+                  setLastLane("chat");
+
+                  const clarifyMsgId = `clarify-gate-${effectiveKey}`;
+                  setMessages((prev) => {
+                    if (prev.some(m => m.id === clarifyMsgId)) return prev;
+                    return [...prev, {
+                      id: clarifyMsgId,
+                      role: 'assistant' as const,
+                      content: reason,
+                      timestamp: new Date(),
+                      isClarifyMsg: true,
+                    }];
+                  });
+
+                  setMessages((prev) => prev.filter(m => !(m.deliverySummary && m.provisional === true && m.id === `ds-${effectiveKey}`)));
+
+                  console.log(`[Chat][AFR-Poll] Surfaced clarify_gate for ${effectiveKey}: type=${constraintType}, reason=${reason.slice(0, 80)}`);
+                } else {
+                  console.log(`[Chat][AFR-Poll] Run ${effectiveKey} is clarifying but no clarify_gate artefact found yet`);
+                  clarifyDetected.delete(effectiveKey);
+                }
+              }
+            } catch (err) {
+              console.warn(`[Chat][AFR-Poll] Error fetching clarify_gate for ${effectiveKey}:`, err);
+              clarifyDetected.delete(effectiveKey);
+            }
+          }
 
           if (isTerminal || status === 'completed' || status === 'failed' || 
               terminalState === 'PASS' || terminalState === 'FAIL' || terminalState === 'STOP') {
