@@ -1273,6 +1273,8 @@ export default function RunResultBubble({
 
   const effectiveTowerDisplay = towerLabel || (towerVerdict ? towerVerdict.toUpperCase() : null);
 
+  const isMixedVerdict = isFinalDeliveryPass && towerLabel && /mixed|step.*failed/i.test(towerLabel);
+
   const isTimePredicateStop = !!(towerStopTimePredicate && (canonical.status === 'STOP' || canonical.status === 'FAIL'));
 
   const hasUnverifiedLeads = !leadVerifications || leadVerifications.length === 0 || isTrustFailure || isTimePredicateStop;
@@ -1335,6 +1337,15 @@ export default function RunResultBubble({
 
       {!provisional && isTrustFailure && deliverySummary.stop_reason !== 'artefacts_unavailable' && (
         <TrustErrorBlock verdict={effectiveTowerDisplay || deliverySummary.status || 'FAIL'} runId={runId} />
+      )}
+
+      {!provisional && !isTrustFailure && isMixedVerdict && deliverySummary.stop_reason !== 'artefacts_unavailable' && (
+        <div className="flex items-center gap-2 rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 px-3 py-2">
+          <AlertTriangle className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+          <p className="text-xs text-amber-700 dark:text-amber-300 font-medium">
+            Some steps failed verification, but the run completed. Results may be partially unverified.
+          </p>
+        </div>
       )}
 
       {!provisional && narrative && deliverySummary.stop_reason !== 'artefacts_unavailable' && (
