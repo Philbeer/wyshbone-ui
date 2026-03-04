@@ -47,6 +47,12 @@ export interface ContactCounts {
   };
 }
 
+export interface ReceiptAttributeOutcome {
+  attribute_raw: string;
+  matched_count: number;
+  matched_place_ids?: string[];
+}
+
 export interface RunReceipt {
   unique_email_count?: number | null;
   unique_phone_count?: number | null;
@@ -55,6 +61,9 @@ export interface RunReceipt {
   delivered_count?: number | null;
   narrative_lines?: string[] | null;
   tower_verdict?: string | null;
+  outcomes?: {
+    attributes?: ReceiptAttributeOutcome[];
+  } | null;
 }
 
 export interface RunResultBubbleProps {
@@ -1400,6 +1409,14 @@ export default function RunResultBubble({
   const allLeads = [...exact, ...closest];
 
   const verifiedIds = buildVerifiedLeadIds(leadVerifications);
+  const receiptAttrsForIds = runReceipt?.outcomes?.attributes;
+  if (Array.isArray(receiptAttrsForIds)) {
+    for (const ra of receiptAttrsForIds) {
+      if (Array.isArray(ra.matched_place_ids)) {
+        for (const pid of ra.matched_place_ids) verifiedIds.add(pid);
+      }
+    }
+  }
   const { matches, candidates } = splitLeadsByVerification(allLeads, verifiedExact, verifiedIds);
 
   const verifiedExactCoversAll = verifiedExact >= allLeads.length && allLeads.length > 0;
@@ -1444,7 +1461,28 @@ export default function RunResultBubble({
   console.log(`[RunResultBubble] render: status=${effectiveCanonical.status} (raw=${canonical.status}), verifiedExact=${verifiedExact}, requested=${target.hasTarget ? target.targetCount : 'any'}, allLeads=${allLeads.length}, matches=${matches.length}, candidates=${candidates.length}, leadVerifications=${leadVerifications?.length ?? 'none'}, verifiedIds=${verifiedIds.size}, locationBuckets=${useLocationBuckets ? `geo=${locationBuckets!.verifiedGeo.length},bounded=${locationBuckets!.searchBounded.length},out=${locationBuckets!.outOfArea.length},unknown=${locationBuckets!.unknown.length}` : 'none'}`);
 
   const attrOutcomes = buildAttributeOutcomes(constraintsExtracted, leadVerifications);
-  const narrative = !provisional ? buildRunNarrative(deliverySummary, searchQueryCompiled, constraintsExtracted, towerVerdict, contactCounts, attrOutcomes) : null;
+
+  const receiptAttrs = runReceipt?.outcomes?.attributes;
+  const receiptAttrMatchIds = new Set<string>();
+  if (Array.isArray(receiptAttrs)) {
+    for (const ra of receiptAttrs) {
+      if (Array.isArray(ra.matched_place_ids)) {
+        for (const pid of ra.matched_place_ids) receiptAttrMatchIds.add(pid);
+      }
+    }
+  }
+
+  const effectiveAttrOutcomes = (Array.isArray(receiptAttrs) && receiptAttrs.length > 0)
+    ? receiptAttrs.map(ra => ({
+        attribute_raw: ra.attribute_raw,
+        matched_count: ra.matched_count,
+        unknown_count: 0,
+        total_checked: 0,
+        matched_lead_ids: ra.matched_place_ids ?? [],
+      } satisfies AttributeOutcome))
+    : attrOutcomes;
+
+  const narrative = !provisional ? buildRunNarrative(deliverySummary, searchQueryCompiled, constraintsExtracted, towerVerdict, contactCounts, effectiveAttrOutcomes) : null;
 
   return (
     <div className="space-y-3">

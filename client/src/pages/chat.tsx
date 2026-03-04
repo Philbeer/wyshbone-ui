@@ -731,6 +731,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
             requested_count: (p as any).requested_count ?? null,
             delivered_count: (p as any).delivered_count ?? null,
             narrative_lines: Array.isArray((p as any).narrative_lines) ? (p as any).narrative_lines : null,
+            outcomes: (p as any).outcomes && typeof (p as any).outcomes === 'object' ? (p as any).outcomes : null,
           };
         }
       }
