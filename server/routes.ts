@@ -73,7 +73,7 @@ import { getSummary, getFileContent } from './lib/exporter';
 import { randomBytes } from 'crypto';
 import { startRunLog, completeRunLog, logToolCall, isTowerLoggingEnabled } from './lib/towerClient';
 import { getUserGoal, setUserGoal, hasUserGoal } from './userGoalHelper';
-import { logUserMessageReceived, logRouterDecision, logRunCompleted, logRunFailed, transitionRunToExecuting, transitionRunToFinalizing, transitionRunToClarifying, persistClarifyGateArtefact, persistClarifyResolutionArtefact, type RouterDecision } from './lib/activity-logger';
+import { logUserMessageReceived, logRouterDecision, logRunCompleted, logRunFailed, transitionRunToExecuting, transitionRunToFinalizing, transitionRunToClarifying, persistClarifyGateArtefact, persistClarifyResolutionArtefact, persistIntentPreviewArtefact, type RouterDecision } from './lib/activity-logger';
 import { guardRoute } from './lib/assertNoExecutionInUI.js';
 
 // ============================================
@@ -1940,6 +1940,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }).catch(err => console.error('AFR router log error:', err.message));
 
           transitionRunToClarifying(clientRequestId).catch(err => console.error('AFR clarify transition error:', err.message));
+
+          const timeFilterMatch = latestUserText.match(/(?:in\s+the\s+(?:last|past)|within\s+the\s+(?:last|past))\s+\d+\s+(?:months?|years?|weeks?|days?)|(?:recently|this\s+year|this\s+month|last\s+year|last\s+month)/i);
+          persistIntentPreviewArtefact({
+            clientRequestId,
+            conversationId,
+            rawInput: latestUserText,
+            route: 'clarify_for_run',
+            parsedFields: {
+              business_type: effectiveEntityType || modeDecision.entityType || null,
+              location_text: effectiveLocation || modeDecision.location || null,
+              requested_count: modeDecision.requestedCount ?? null,
+              time_filter: timeFilterMatch ? timeFilterMatch[0].trim() : null,
+            },
+          }).catch(err => console.error('AFR intent preview artefact error:', err.message));
 
           if (activeConstraint) {
             persistClarifyGateArtefact({

@@ -449,6 +449,56 @@ export async function persistClarifyResolutionArtefact(params: {
   }
 }
 
+export async function persistIntentPreviewArtefact(params: {
+  clientRequestId: string;
+  conversationId: string;
+  rawInput: string;
+  route: string;
+  parsedFields: {
+    business_type: string | null;
+    location_text: string | null;
+    requested_count: number | null;
+    time_filter: string | null;
+  };
+}): Promise<void> {
+  try {
+    const run = await runManager.getRunByClientRequestId(params.clientRequestId);
+    if (!run) {
+      console.warn(`[ARTEFACT] No agent run for crid=${params.clientRequestId.slice(0, 12)}... — skipping intent preview`);
+      return;
+    }
+
+    const db = getDrizzleDb();
+    const payload = {
+      raw_input: params.rawInput,
+      route: params.route,
+      conversation_id: params.conversationId,
+      run_id: run.id,
+      parsed_fields: {
+        ...params.parsedFields,
+        extraction_method: 'regex',
+      },
+      note: 'Supervisor not started yet — preview only',
+    };
+
+    await db.execute(sql`
+      INSERT INTO artefacts (run_id, type, title, summary, payload_json)
+      VALUES (
+        ${run.id},
+        'diagnostic',
+        ${'Intent preview'},
+        ${'Preview extracted before clarification'},
+        ${JSON.stringify(payload)}::jsonb
+      )
+    `);
+
+    console.log(`📦 [ARTEFACT] Persisted intent preview for runId=${run.id} crid=${params.clientRequestId.slice(0, 12)}... route=${params.route}`);
+  } catch (err: any) {
+    const runId = (await runManager.getRunByClientRequestId(params.clientRequestId).catch(() => null))?.id ?? 'unknown';
+    console.warn(`[ARTEFACT] Failed to persist intent preview: runId=${runId} conversationId=${params.conversationId} error=${err.message}`);
+  }
+}
+
 export { runManager };
 
 function sanitizeParams(params: Record<string, any>): Record<string, any> {
