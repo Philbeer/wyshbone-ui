@@ -676,14 +676,14 @@ export function buildRunNarrative(
 
   for (const ao of outcomes) {
     if (ao.matched_count > 0) {
-      lines.push(`${ao.matched_count} of them mention "${ao.attribute_raw}" on their website.`);
+      lines.push(`${ao.matched_count} of ${ao.total_checked} mention '${ao.attribute_raw}' online.`);
     } else if (ao.unknown_count > 0 && ao.unknown_count === ao.total_checked) {
-      lines.push(`I wasn\u2019t able to verify which ones mention "${ao.attribute_raw}" on their website.`);
+      lines.push(`I wasn't able to confirm which ones mention '${ao.attribute_raw}' online.`);
     } else if (ao.unknown_count > 0) {
       const checked = ao.total_checked - ao.unknown_count;
-      lines.push(`I checked ${checked} website${checked !== 1 ? 's' : ''} but none mention "${ao.attribute_raw}". ${ao.unknown_count} could not be verified.`);
+      lines.push(`I checked ${checked} website${checked !== 1 ? 's' : ''} but none mention '${ao.attribute_raw}'. ${ao.unknown_count} could not be checked.`);
     } else if (ao.total_checked > 0) {
-      lines.push(`None of the ${ao.total_checked} websites I checked mention "${ao.attribute_raw}".`);
+      lines.push(`None of the ${ao.total_checked} websites I checked mention '${ao.attribute_raw}' online.`);
     }
   }
 
@@ -705,7 +705,7 @@ export function buildRunNarrative(
   }
 
   if (isTrustFailure && !receiptHasPositiveMatch) {
-    lines.push("I found some matches, but I couldn\u2019t verify everything, so I\u2019m not fully confident in these results.");
+    lines.push("I found some results but couldn't check everything. Some details may be incomplete.");
   } else if (deliveredCount === 0) {
     lines.push('No results could be delivered for this search.');
   }
@@ -1217,11 +1217,11 @@ function ArtefactsRetryBlock({ runId }: { runId?: string | null }) {
 
 function TrustErrorBlock({ verdict, runId }: { verdict: string; runId?: string | null }) {
   return (
-    <div className="flex flex-col items-start gap-2 rounded-md bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 px-3 py-2">
+    <div className="flex flex-col items-start gap-2 rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 px-3 py-2">
       <div className="flex items-center gap-2">
-        <AlertTriangle className="h-3.5 w-3.5 text-red-600 dark:text-red-400 shrink-0" />
-        <p className="text-xs text-red-700 dark:text-red-300 font-medium">
-          I can't trust these results because verification failed (Tower: {verdict.toUpperCase()}). Want me to retry with a cleaned query or ask a clarification question?
+        <AlertTriangle className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+        <p className="text-xs text-amber-700 dark:text-amber-300 font-medium">
+          Some results couldn't be fully checked. You may want to retry or refine your search.
         </p>
       </div>
       <div className="flex gap-2">
@@ -1626,41 +1626,46 @@ export default function RunResultBubble({
             </div>
           ) : null;
         }
-        const attrLabel = receiptAttrs![0]?.attribute_raw || 'attribute';
-        const attrMatched = allLeads.filter(l => {
-          const pid = (l as any).place_id || (l as any).id || '';
-          return receiptAttrMatchIds.has(pid);
-        });
-        const attrRest = allLeads.filter(l => {
-          const pid = (l as any).place_id || (l as any).id || '';
-          return !receiptAttrMatchIds.has(pid);
-        });
+        const getLeadId = (l: any) => l.place_id || l.id || '';
+        const anyMatchedIds = new Set<string>();
+        for (const ra of receiptAttrs!) {
+          for (const pid of ra.matched_place_ids ?? []) anyMatchedIds.add(pid);
+        }
         return (
           <>
-            {attrMatched.length > 0 && (
-              <div className="space-y-0.5">
-                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                  Mentions &lsquo;{attrLabel}&rsquo; ({attrMatched.length})
-                </h4>
-                <div>
-                  {attrMatched.map((lead, i) => (
-                    <LeadRow key={i} lead={lead} isVerified={true} unverifiableAttr={null} runId={runId} badgeStatus={defaultBadgeStatus} />
-                  ))}
+            {receiptAttrs!.map((ra, attrIdx) => {
+              const matchSet = new Set(ra.matched_place_ids ?? []);
+              const sectionLeads = allLeads.filter(l => matchSet.has(getLeadId(l)));
+              if (sectionLeads.length === 0) return null;
+              return (
+                <div key={attrIdx} className="space-y-0.5">
+                  <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                    Mentions &lsquo;{ra.attribute_raw}&rsquo; ({sectionLeads.length})
+                  </h4>
+                  <div>
+                    {sectionLeads.map((lead, i) => (
+                      <LeadRow key={i} lead={lead} isVerified={true} unverifiableAttr={null} runId={runId} badgeStatus={defaultBadgeStatus} />
+                    ))}
+                  </div>
                 </div>
-              </div>
-            )}
-            {attrRest.length > 0 && (
-              <div className="space-y-0.5">
-                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                  {attrMatched.length > 0 ? `Other results (${attrRest.length})` : `Results (${attrRest.length})`}
-                </h4>
-                <div>
-                  {attrRest.map((lead, i) => (
-                    <LeadRow key={i} lead={lead} isVerified={false} unverifiableAttr={unverifiableAttr} runId={runId} badgeStatus={defaultBadgeStatus} />
-                  ))}
+              );
+            })}
+            {(() => {
+              const remaining = allLeads.filter(l => !anyMatchedIds.has(getLeadId(l)));
+              if (remaining.length === 0) return null;
+              return (
+                <div className="space-y-0.5">
+                  <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                    {anyMatchedIds.size > 0 ? `Other results (${remaining.length})` : `Results (${remaining.length})`}
+                  </h4>
+                  <div>
+                    {remaining.map((lead, i) => (
+                      <LeadRow key={i} lead={lead} isVerified={false} unverifiableAttr={unverifiableAttr} runId={runId} badgeStatus={defaultBadgeStatus} />
+                    ))}
+                  </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
           </>
         );
       })()}
