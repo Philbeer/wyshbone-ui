@@ -1,0 +1,74 @@
+Implement Supervisor-owned clarification behind a feature flag, using the Clarify Flow Map we just produced.
+
+Rules
+- Production-grade, minimal change.
+- Do NOT delete the existing UI/server clarification system yet. Keep it as fallback.
+- Use a feature flag: SUPERVISOR_OWNS_CLARIFY (default OFF).
+- When flag is ON, the UI/server must never create an in-memory ClarifySession and must never early-return with CLARIFY_FOR_RUN.
+- Instead, it must delegate that exact same user message to Supervisor by creating a supervisor_tasks row (createSupervisorTask), the same way RUN_SUPERVISOR works.
+- Do NOT change Tower repo.
+
+What to change
+File: server/routes.ts in POST /api/chat handler.
+
+Current behaviour for CLARIFY_FOR_RUN:
+- builds descriptors
+- createClarifySession()
+- writes router_decision, transitionRunToClarifying, persistIntentPreviewArtefact, persistClarifyGateArtefact
+- emits SSE clarify_for_run + message
+- res.end(); return; (early return, Supervisor skipped)
+
+New behaviour when SUPERVISOR_OWNS_CLARIFY is ON:
+1) Still call decideChatMode() as today (keep it for now).
+2) If modeDecision.mode === 'CLARIFY_FOR_RUN' AND SUPERVISOR_OWNS_CLARIFY is true:
+   - DO NOT call createClarifySession()
+   - DO NOT call transitionRunToClarifying()
+   - DO NOT persistClarifyGateArtefact() from UI
+   - DO NOT emit clarify_for_run SSE
+   - DO NOT early-return
+
+   Instead:
+   - Build the same Supervisor task payload you use for RUN_SUPERVISOR:
+     - use detectSupervisorIntent(latestUserText) to get taskType and requestData
+     - call sanitizeBusinessType() as you do for RUN_SUPERVISOR
+     - include these extra fields in requestData so Supervisor can do a proper clarify preflight:
+       {
+         supervisor_preflight: {
+           requested_mode: "CLARIFY_FOR_RUN",
+           reason: modeDecision.reason,
+           entityType: modeDecision.entityType,
+           location: modeDecision.location
+         },
+         original_user_message: latestUserText
+       }
+   - Call createSupervisorTask(conversationId, user.id, taskType, requestData, { runId: agentRunId || runId, clientRequestId })
+   - Transition the run to executing (transitionRunToExecuting(clientRequestId)) exactly like RUN_SUPERVISOR does.
+   - Emit the same SSE events you emit for RUN_SUPERVISOR:
+     - supervisorTaskId event
+     - any standard “starting” message
+     - status completed
+     - [DONE]
+   - Return.
+
+3) If SUPERVISOR_OWNS_CLARIFY is OFF:
+   - keep existing CLARIFY_FOR_RUN behaviour exactly as it is today (no behavioural change).
+
+Important
+- This change must not break normal RUN_SUPERVISOR flow.
+- Keep logging consistent. Add one log line noting delegation:
+  [CHAT_ROUTE=CLARIFY_DELEGATED_TO_SUPERVISOR] conversationId, clientRequestId, runId
+
+Deliverables
+- Implement the flag read in one place (env var parsing).
+- Implement the delegated clarify branch described above.
+- Do not touch client code yet.
+- Leave TODO-free code.
+- Add a short comment block in routes.ts explaining the feature flag behaviour.
+
+Manual test checklist (add as a comment)
+With SUPERVISOR_OWNS_CLARIFY=false:
+- "find gyms in London that opened in the last 6 months" still produces clarify_for_run SSE and creates ClarifySession (old behaviour)
+
+With SUPERVISOR_OWNS_CLARIFY=true:
+- the same input must emit supervisorTaskId instead of clarify_for_run
+- AFR should later show clarify_gate created by Supervisor (after we implement Supervisor changes next)

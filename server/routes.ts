@@ -77,6 +77,17 @@ import { logUserMessageReceived, logRouterDecision, logRunCompleted, logRunFaile
 import { guardRoute } from './lib/assertNoExecutionInUI.js';
 
 // ============================================
+// FEATURE FLAG: SUPERVISOR_OWNS_CLARIFY
+// ============================================
+// When ON (true), CLARIFY_FOR_RUN messages are delegated to Supervisor
+// via createSupervisorTask instead of being handled locally with an
+// in-memory ClarifySession + early-return SSE. The Supervisor will own
+// the clarify preflight, gate artefact writes, and multi-turn flow.
+// When OFF (false, default), the existing UI/server clarification
+// system is used unchanged.
+const SUPERVISOR_OWNS_CLARIFY = process.env.SUPERVISOR_OWNS_CLARIFY === 'true';
+
+// ============================================
 // SSE HELPER FOR CHAT PROGRESS EVENTS
 // ============================================
 interface SseEvent {
@@ -1758,8 +1769,118 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
+      if (modeDecision.mode === 'CLARIFY_FOR_RUN' && SUPERVISOR_OWNS_CLARIFY) {
+        // ─── CLARIFY_FOR_RUN DELEGATED TO SUPERVISOR ───
+        // Feature flag SUPERVISOR_OWNS_CLARIFY is ON: skip in-memory ClarifySession,
+        // skip local artefact writes, delegate to Supervisor the same way RUN_SUPERVISOR does.
+        closeAllClarifySessions(conversationId);
+
+        try {
+          const intentResult = detectSupervisorIntent(latestUserText);
+          const taskType = intentResult.taskType || 'find_prospects';
+          const { sanitizeBusinessType } = await import('./lib/decideChatMode.js');
+          const rawBizType = modeDecision.entityType || intentResult.requestData?.search_query?.business_type || '';
+          const sanitizedBiz = sanitizeBusinessType(rawBizType);
+          const resolvedCount = modeDecision.requestedCount || sanitizedBiz.requestedCount || intentResult.requestData?.search_query?.requested_count;
+          const requestData: Record<string, any> = {
+            user_message: latestUserText,
+            original_user_message: latestUserText,
+            ...(intentResult.requestData || {}),
+            search_query: {
+              business_type: sanitizedBiz.businessType,
+              location: modeDecision.location || intentResult.requestData?.search_query?.location,
+              ...(resolvedCount !== undefined ? { requested_count: resolvedCount } : {}),
+            },
+            supervisor_preflight: {
+              requested_mode: 'CLARIFY_FOR_RUN',
+              reason: modeDecision.reason,
+              entityType: modeDecision.entityType,
+              location: modeDecision.location,
+            },
+          };
+
+          if (google_query_mode) requestData.google_query_mode = google_query_mode;
+          if (metadata) {
+            if (metadata.scenario) requestData.scenario = metadata.scenario;
+            if (metadata.constraints) requestData.constraints = metadata.constraints;
+            requestData.metadata = metadata;
+          }
+
+          emitSse({
+            type: 'status',
+            stage: 'planning',
+            message: 'Creating supervisor plan',
+            clientRequestId: clientRequestId || undefined,
+            conversationId,
+          });
+
+          if (clientRequestId) {
+            await logRouterDecision({
+              userId: user.id,
+              conversationId,
+              clientRequestId,
+              decision: 'supervisor_plan',
+              reason: `decideChatMode → CLARIFY_FOR_RUN delegated to Supervisor (SUPERVISOR_OWNS_CLARIFY=true) (${modeDecision.reason})`,
+              signals: { taskType, entityType: modeDecision.entityType, location: modeDecision.location, delegatedClarify: true },
+            }).catch(err => console.error('AFR router log error:', err.message));
+          }
+
+          const supervisorTask = await createSupervisorTask(
+            conversationId,
+            user.id,
+            taskType,
+            requestData,
+            {
+              runId: agentRunId || runId,
+              clientRequestId: clientRequestId || undefined,
+            }
+          );
+
+          res.write(`data: ${JSON.stringify({
+            supervisorTaskId: supervisorTask.id,
+            supervisorTaskType: taskType,
+          })}\n\n`);
+
+          if (clientRequestId) {
+            await transitionRunToExecuting(clientRequestId);
+          }
+
+          const sq = requestData.search_query;
+          const titleCaseDC = (s: string) => s.replace(/\b\w/g, c => c.toUpperCase());
+          const startingMsg = `Searching for ${sq.requested_count ? `${sq.requested_count} ` : ''}${sq.business_type || 'businesses'}${sq.location ? ` in ${titleCaseDC(sq.location)}` : ''}.`;
+
+          appendMessage(sessionId, { role: "assistant", content: startingMsg });
+          await saveMessage(conversationId, "assistant", startingMsg);
+
+          res.write(`data: ${JSON.stringify({ type: 'confidence', content: startingMsg })}\n\n`);
+
+          emitSse({
+            type: 'status',
+            stage: 'completed',
+            message: 'Delegated to Supervisor',
+            clientRequestId: clientRequestId || undefined,
+            conversationId,
+          });
+
+          console.log(`[CHAT_ROUTE=CLARIFY_DELEGATED_TO_SUPERVISOR] crid=${clientRequestId || 'none'} conversationId=${conversationId} run_id=${agentRunId || runId} taskId=${supervisorTask.id}`);
+          res.write(`data: [DONE]\n\n`);
+          res.end();
+          return;
+        } catch (error: any) {
+          console.error(`[CLARIFY_DELEGATE_ERROR] ${error.message} — falling back to CHAT_INFO`);
+          const errMsg = `I can't run searches right now because the system is temporarily unavailable. Please try again shortly.`;
+          appendMessage(sessionId, { role: "assistant", content: errMsg });
+          res.write(`data: ${JSON.stringify({ type: 'message', role: 'assistant', content: errMsg })}\n\n`);
+          emitSse({ type: 'status', stage: 'completed', message: 'System unavailable', clientRequestId: clientRequestId || undefined, conversationId });
+          res.write(`data: [DONE]\n\n`);
+          res.end();
+          return;
+        }
+      }
+
       if (modeDecision.mode === 'CLARIFY_FOR_RUN') {
         // ─── CLARIFY_FOR_RUN LANE: pure in-memory, no DB writes ───
+        // (Legacy path — used when SUPERVISOR_OWNS_CLARIFY is OFF)
         const { isKnownLocation, hasConcreteEntityNoun, hasOpenedTimePredicate: checkTimePred, hasExplicitProxy: checkProxy, hasNoProxyRefusal: checkNoProxy } = await import('./lib/decideChatMode.js');
 
         const isOpenedTimePred = checkTimePred(latestUserText);
