@@ -2736,9 +2736,11 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     setShowLocationSuggestions(false);
 
     const currentHistory = messages.filter((msg): msg is Message => !("type" in msg));
-    const intent = classifyIntent(messageContent, currentHistory);
+    const clarifyRun = pendingClarifyRunRef.current;
+    const isAnsweringClarify = isClarifyingForRun && !!clarifyRun;
+    const intent = isAnsweringClarify ? 'CONTINUE' : classifyIntent(messageContent, currentHistory);
 
-    console.log(`[Chat] Intent classified: ${intent} for message: "${messageContent.slice(0, 50)}..."`);
+    console.log(`[Chat] Intent classified: ${intent} for message: "${messageContent.slice(0, 50)}..."${isAnsweringClarify ? ' (forced CONTINUE: clarify answer)' : ''}`);
 
     const userMessage: Message = {
       id: crypto.randomUUID(),
@@ -2784,8 +2786,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
       conversationHistory = [...recentHistory, { role: userMessage.role, content: userMessage.content }];
     }
 
-    const clarifyRun = pendingClarifyRunRef.current;
-    if (isClarifyingForRun && clarifyRun) {
+    if (isAnsweringClarify && clarifyRun) {
       console.log(`[Chat][ClarifyContinuation] Replying to pending clarify run crid=${clarifyRun.crid.slice(0, 12)} runId=${clarifyRun.runId}`);
       pendingClarifyRunRef.current = null;
       setIsClarifyingForRun(false);
