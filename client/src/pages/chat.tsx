@@ -1115,6 +1115,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     let stopped = false;
     const terminalDetected = new Set<string>();
     const clarifyDetected = new Set<string>();
+    const lastKnownStatus = new Map<string, string>();
     const runFirstSeen = new Map<string, number>();
     const SOFT_TIMEOUT_MS = 30_000;
     const HARD_TIMEOUT_MS = 90_000;
@@ -1191,59 +1192,6 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         if (!runFirstSeen.has(effectiveKey)) {
           runFirstSeen.set(effectiveKey, Date.now());
         }
-        const runElapsed = Date.now() - runFirstSeen.get(effectiveKey)!;
-        if (runElapsed > ABSOLUTE_TIMEOUT_MS) {
-          console.warn(`[Chat][AFR-Poll] Absolute timeout (${Math.round(runElapsed / 1000)}s) for ${effectiveKey}. Giving up.`);
-          emitRunFailureBubble(effectiveKey, runId, 'run_timeout');
-          continue;
-        }
-        if (runElapsed > HARD_TIMEOUT_MS && !hardTimeoutEmitted.has(effectiveKey)) {
-          hardTimeoutEmitted.add(effectiveKey);
-          console.warn(`[Chat][AFR-Poll] Hard timeout banner for ${effectiveKey} (${Math.round(runElapsed / 1000)}s). Polling continues.`);
-          if (!deliverySummaryRunIdsRef.current.has(effectiveKey)) {
-            const bannerMsg: Message = {
-              id: `ds-${effectiveKey}`,
-              role: 'assistant',
-              content: '',
-              timestamp: new Date(),
-              source: 'supervisor',
-              deliverySummary: {
-                status: 'PENDING',
-                delivered_exact: [],
-                delivered_closest: [],
-                delivered_count: 0,
-                stop_reason: 'still_working',
-              } as DeliverySummary,
-              runId: runId || undefined,
-              provisional: false,
-            };
-            upsertResultMessage(bannerMsg);
-          }
-        }
-        const failCount = consecutiveFailures.get(effectiveKey) || 0;
-        if (runElapsed > SOFT_TIMEOUT_MS && failCount >= 5 && !softTimeoutEmitted.has(effectiveKey)) {
-          softTimeoutEmitted.add(effectiveKey);
-          console.log(`[Chat][AFR-Poll] Soft timeout for ${effectiveKey} (${Math.round(runElapsed / 1000)}s, ${failCount} failures). Showing retrying bubble.`);
-          if (!deliverySummaryRunIdsRef.current.has(effectiveKey)) {
-            const softMsg: Message = {
-              id: `ds-${effectiveKey}`,
-              role: 'assistant',
-              content: '',
-              timestamp: new Date(),
-              source: 'supervisor',
-              deliverySummary: {
-                status: 'PENDING',
-                delivered_exact: [],
-                delivered_closest: [],
-                delivered_count: 0,
-                stop_reason: 'still_working',
-              } as DeliverySummary,
-              runId: runId || undefined,
-              provisional: false,
-            };
-            upsertResultMessage(softMsg);
-          }
-        }
 
         try {
           const params = new URLSearchParams();
@@ -1266,6 +1214,64 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
           const isTerminal = data.is_terminal === true;
           const status = data.status;
           const terminalState = data.terminal_state;
+          if (status) lastKnownStatus.set(effectiveKey, status);
+
+          const runElapsed = Date.now() - runFirstSeen.get(effectiveKey)!;
+          const isClarifying = clarifyDetected.has(effectiveKey) || status === 'clarifying';
+          if (runElapsed > ABSOLUTE_TIMEOUT_MS && !isClarifying) {
+            console.warn(`[Chat][AFR-Poll] Absolute timeout (${Math.round(runElapsed / 1000)}s) for ${effectiveKey}. Giving up.`);
+            emitRunFailureBubble(effectiveKey, runId, 'run_timeout');
+            continue;
+          }
+          if (!isClarifying) {
+            if (runElapsed > HARD_TIMEOUT_MS && !hardTimeoutEmitted.has(effectiveKey)) {
+              hardTimeoutEmitted.add(effectiveKey);
+              console.warn(`[Chat][AFR-Poll] Hard timeout banner for ${effectiveKey} (${Math.round(runElapsed / 1000)}s). Polling continues.`);
+              if (!deliverySummaryRunIdsRef.current.has(effectiveKey)) {
+                const bannerMsg: Message = {
+                  id: `ds-${effectiveKey}`,
+                  role: 'assistant',
+                  content: '',
+                  timestamp: new Date(),
+                  source: 'supervisor',
+                  deliverySummary: {
+                    status: 'PENDING',
+                    delivered_exact: [],
+                    delivered_closest: [],
+                    delivered_count: 0,
+                    stop_reason: 'still_working',
+                  } as DeliverySummary,
+                  runId: runId || undefined,
+                  provisional: false,
+                };
+                upsertResultMessage(bannerMsg);
+              }
+            }
+            const failCount = consecutiveFailures.get(effectiveKey) || 0;
+            if (runElapsed > SOFT_TIMEOUT_MS && failCount >= 5 && !softTimeoutEmitted.has(effectiveKey)) {
+              softTimeoutEmitted.add(effectiveKey);
+              console.log(`[Chat][AFR-Poll] Soft timeout for ${effectiveKey} (${Math.round(runElapsed / 1000)}s, ${failCount} failures). Showing retrying bubble.`);
+              if (!deliverySummaryRunIdsRef.current.has(effectiveKey)) {
+                const softMsg: Message = {
+                  id: `ds-${effectiveKey}`,
+                  role: 'assistant',
+                  content: '',
+                  timestamp: new Date(),
+                  source: 'supervisor',
+                  deliverySummary: {
+                    status: 'PENDING',
+                    delivered_exact: [],
+                    delivered_closest: [],
+                    delivered_count: 0,
+                    stop_reason: 'still_working',
+                  } as DeliverySummary,
+                  runId: runId || undefined,
+                  provisional: false,
+                };
+                upsertResultMessage(softMsg);
+              }
+            }
+          }
 
 
           const shouldCheckClarifyGate =
@@ -1341,7 +1347,13 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                     }];
                   });
 
-                  setMessages((prev) => prev.filter(m => !(m.deliverySummary && m.provisional === true && m.id === `ds-${effectiveKey}`)));
+                  setMessages((prev) => prev.filter(m => {
+                    if (m.id === `ds-${effectiveKey}` && m.deliverySummary) {
+                      if (m.provisional === true) return false;
+                      if ((m.deliverySummary as any).stop_reason === 'still_working') return false;
+                    }
+                    return true;
+                  }));
 
                   console.log(`[Chat][AFR-Poll] Surfaced clarify_gate for ${effectiveKey}: type=${constraintType}, reason=${reason.slice(0, 80)}`);
                   continue;
