@@ -158,9 +158,19 @@ function resolveVerifiedCount(
 }
 
 function isLeadVerified(entry: LeadVerificationEntry): boolean {
+  if (entry.verified_exact === true) return true;
+  if (entry.all_hard_satisfied === true) return true;
   const checks = Array.isArray(entry.constraint_checks) ? entry.constraint_checks : [];
   if (checks.length === 0) return false;
-  return checks.every(c => c.status === 'yes');
+  const hardChecks = checks.filter(c => c.hard === true);
+  if (hardChecks.length > 0) {
+    return hardChecks.every(c => c.status === 'yes');
+  }
+  return checks.every(c => c.status === 'yes' || c.status === 'search_bounded');
+}
+
+function getLeadVerificationId(entry: LeadVerificationEntry): string {
+  return entry.lead_place_id || entry.lead_id || '';
 }
 
 function buildVerifiedLeadIds(lvEntries: LeadVerificationEntry[] | null | undefined): Set<string> {
@@ -168,7 +178,9 @@ function buildVerifiedLeadIds(lvEntries: LeadVerificationEntry[] | null | undefi
   if (!lvEntries) return ids;
   for (const entry of lvEntries) {
     if (isLeadVerified(entry)) {
-      ids.add(entry.lead_id);
+      const id = getLeadVerificationId(entry);
+      if (id) ids.add(id);
+      if (entry.lead_name) ids.add(entry.lead_name.toLowerCase().trim());
     }
   }
   return ids;
@@ -1412,24 +1424,6 @@ export default function RunResultBubble({
 
   const isTimePredicateStop = !!(towerStopTimePredicate && (canonical.status === 'STOP' || canonical.status === 'FAIL'));
 
-  const hasSemanticData = Array.isArray(semanticJudgements) && semanticJudgements.length > 0;
-  const hasUnverifiedLeads = ((!leadVerifications || leadVerifications.length === 0) && !hasSemanticData) || isTrustFailure || isTimePredicateStop;
-
-  const defaultBadgeStatus: LeadBadgeStatus = hasUnverifiedLeads ? 'unverified' : 'candidate';
-
-  function getLeadBadgeStatus(lead: DeliveryLead): LeadBadgeStatus {
-    if (!hasSemanticData) return defaultBadgeStatus;
-    const ids = matchLeadToId(lead);
-    const idsLower = ids.map(id => id.toLowerCase().trim());
-    for (const id of idsLower) {
-      if (verifiedIds.has(id)) return 'verified';
-    }
-    for (const id of idsLower) {
-      if (weakMatchIds.has(id)) return 'weak_match';
-    }
-    return defaultBadgeStatus;
-  }
-
   const towerVerdictUpper = (towerVerdict || "").toUpperCase().replace(/[\s-]/g, '_');
   const isExplicitAcceptWithUnverified = towerVerdictUpper === 'ACCEPT_WITH_UNVERIFIED';
 
@@ -1441,17 +1435,18 @@ export default function RunResultBubble({
 
   const verifiedIds = buildVerifiedLeadIds(leadVerifications);
   const weakMatchIds = new Set<string>();
-  if (Array.isArray(semanticJudgements)) {
-    for (const sj of semanticJudgements) {
-      const evidenceVerdict = sj.attribute_evidence?.verdict?.toLowerCase();
-      if (evidenceVerdict === 'yes' || evidenceVerdict === 'true') {
-        if (sj.tower_status === 'weak_match') {
-          weakMatchIds.add(sj.lead_id);
-          if (sj.lead_name) weakMatchIds.add(sj.lead_name.toLowerCase().trim());
-        } else {
-          verifiedIds.add(sj.lead_id);
-          if (sj.lead_name) verifiedIds.add(sj.lead_name.toLowerCase().trim());
-        }
+
+  const hasSemanticData = Array.isArray(semanticJudgements) && semanticJudgements.length > 0;
+  if (hasSemanticData) {
+    for (const sj of semanticJudgements!) {
+      const status = sj.tower_status?.toLowerCase();
+      const hasSnippets = Array.isArray(sj.matched_snippets) && sj.matched_snippets.length > 0;
+      if (status === 'weak_match') {
+        weakMatchIds.add(sj.lead_id);
+        if (sj.lead_name) weakMatchIds.add(sj.lead_name.toLowerCase().trim());
+      } else if (status === 'strong_match' || status === 'match' || (status !== 'no_evidence' && status !== 'stubbed' && hasSnippets)) {
+        verifiedIds.add(sj.lead_id);
+        if (sj.lead_name) verifiedIds.add(sj.lead_name.toLowerCase().trim());
       }
     }
   }
@@ -1467,6 +1462,23 @@ export default function RunResultBubble({
   verifiedIds.forEach(id => allPositiveIds.add(id));
   weakMatchIds.forEach(id => allPositiveIds.add(id));
   const { matches, candidates } = splitLeadsByVerification(allLeads, verifiedExact, allPositiveIds);
+
+  const hasVerificationData = (leadVerifications && leadVerifications.length > 0) || hasSemanticData;
+  const hasUnverifiedLeads = (!hasVerificationData) || isTrustFailure || isTimePredicateStop;
+
+  const defaultBadgeStatus: LeadBadgeStatus = hasUnverifiedLeads ? 'unverified' : 'candidate';
+
+  function getLeadBadgeStatus(lead: DeliveryLead): LeadBadgeStatus {
+    const ids = matchLeadToId(lead);
+    const idsLower = ids.map(id => id.toLowerCase().trim());
+    for (const id of idsLower) {
+      if (verifiedIds.has(id)) return 'verified';
+    }
+    for (const id of idsLower) {
+      if (weakMatchIds.has(id)) return 'weak_match';
+    }
+    return defaultBadgeStatus;
+  }
 
   const verifiedExactCoversAll = verifiedExact >= allLeads.length && allLeads.length > 0;
 

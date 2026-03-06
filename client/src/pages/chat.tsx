@@ -682,29 +682,72 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         let p = row.payload_json;
         if (typeof p === 'string') { try { p = JSON.parse(p); } catch { p = null; } }
         if (p && typeof p === 'object') {
-          const entries = Array.isArray(p) ? p : Array.isArray((p as any).leads) ? (p as any).leads : null;
-          if (entries) leadVerifications = entries as LeadVerificationEntry[];
+          if (Array.isArray(p)) {
+            if (!leadVerifications) leadVerifications = [];
+            for (const entry of p) {
+              if (entry && typeof entry === 'object') {
+                leadVerifications.push({
+                  lead_id: (entry as any).lead_place_id || (entry as any).lead_id || (entry as any).place_id || '',
+                  lead_place_id: (entry as any).lead_place_id || (entry as any).place_id,
+                  lead_name: (entry as any).lead_name,
+                  lead_index: (entry as any).lead_index,
+                  verified_exact: (entry as any).verified_exact,
+                  all_hard_satisfied: (entry as any).all_hard_satisfied,
+                  location_confidence: (entry as any).location_confidence,
+                  constraint_checks: Array.isArray((entry as any).constraint_checks) ? (entry as any).constraint_checks : undefined,
+                });
+              }
+            }
+          } else if (Array.isArray((p as any).leads)) {
+            if (!leadVerifications) leadVerifications = [];
+            for (const entry of (p as any).leads) {
+              if (entry && typeof entry === 'object') {
+                leadVerifications.push({
+                  lead_id: (entry as any).lead_place_id || (entry as any).lead_id || (entry as any).place_id || '',
+                  lead_place_id: (entry as any).lead_place_id || (entry as any).place_id,
+                  lead_name: (entry as any).lead_name,
+                  lead_index: (entry as any).lead_index,
+                  verified_exact: (entry as any).verified_exact,
+                  all_hard_satisfied: (entry as any).all_hard_satisfied,
+                  location_confidence: (entry as any).location_confidence,
+                  constraint_checks: Array.isArray((entry as any).constraint_checks) ? (entry as any).constraint_checks : undefined,
+                });
+              }
+            }
+          } else {
+            if (!leadVerifications) leadVerifications = [];
+            const placeId = (p as any).lead_place_id || (p as any).lead_id || (p as any).place_id || '';
+            leadVerifications.push({
+              lead_id: placeId,
+              lead_place_id: (p as any).lead_place_id || (p as any).place_id,
+              lead_name: (p as any).lead_name,
+              lead_index: (p as any).lead_index,
+              verified_exact: (p as any).verified_exact,
+              all_hard_satisfied: (p as any).all_hard_satisfied,
+              location_confidence: (p as any).location_confidence,
+              constraint_checks: Array.isArray((p as any).constraint_checks) ? (p as any).constraint_checks : undefined,
+            });
+          }
         }
       }
       if (row.type === 'tower_semantic_judgement') {
         let p = row.payload_json;
         if (typeof p === 'string') { try { p = JSON.parse(p); } catch { p = null; } }
         if (p && typeof p === 'object') {
-          const leadId = (p as any).lead_id || (p as any).place_id || (p as any).entity_id;
+          const leadId = (p as any).lead_place_id || (p as any).lead_id || (p as any).place_id || (p as any).entity_id;
           const leadName = (p as any).lead_name || (p as any).name || (p as any).entity_name;
           const towerStatus = (p as any).tower_status || (p as any).status || '';
-          const confidence = typeof (p as any).confidence === 'number' ? (p as any).confidence : 0;
-          const attrEvidence = (p as any).attribute_evidence;
+          const confidence = typeof (p as any).tower_confidence === 'number' ? (p as any).tower_confidence : (typeof (p as any).confidence === 'number' ? (p as any).confidence : 0);
+          const matchedSnippets = Array.isArray((p as any).tower_matched_snippets) ? (p as any).tower_matched_snippets : undefined;
           if (leadId && towerStatus) {
             semanticJudgements.push({
               lead_id: leadId,
               lead_name: leadName || undefined,
               tower_status: towerStatus,
               confidence,
-              attribute_evidence: attrEvidence && typeof attrEvidence === 'object' ? {
-                verdict: attrEvidence.verdict || '',
-                snippets: Array.isArray(attrEvidence.snippets) ? attrEvidence.snippets : undefined,
-              } : undefined,
+              source_url: (p as any).source_url || undefined,
+              constraint_to_check: (p as any).constraint_to_check || undefined,
+              matched_snippets: matchedSnippets,
             });
           }
         }

@@ -44,12 +44,30 @@ export interface VerificationEvidencePayload {
 
 export interface LeadConstraintCheck {
   constraint_id: string;
-  status: "yes" | "no" | "unknown";
+  status: string;
   evidence_ids?: string[];
+  hard?: boolean;
+  field?: string;
+  reason?: string;
+  confidence?: string;
+  evidence_id?: string | null;
+  constraint_type?: string;
+  geo_evidence?: {
+    lat?: number;
+    lng?: number;
+    method?: string;
+    region_key?: string | null;
+  };
 }
 
 export interface LeadVerificationEntry {
   lead_id: string;
+  lead_place_id?: string;
+  lead_name?: string;
+  lead_index?: number;
+  verified_exact?: boolean;
+  all_hard_satisfied?: boolean;
+  location_confidence?: string;
   constraint_checks?: LeadConstraintCheck[];
 }
 
@@ -62,10 +80,9 @@ export interface SemanticJudgementEntry {
   lead_name?: string;
   tower_status: string;
   confidence: number;
-  attribute_evidence?: {
-    verdict: string;
-    snippets?: string[];
-  };
+  source_url?: string;
+  constraint_to_check?: string;
+  matched_snippets?: string[];
 }
 
 function parsePayload(payload: any): any {
