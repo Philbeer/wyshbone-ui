@@ -22,6 +22,7 @@ import {
   Activity,
   ChevronDown,
   Package,
+  Download,
 } from 'lucide-react';
 import { authedFetch, addDevAuthParams } from '@/lib/queryClient';
 
@@ -438,6 +439,261 @@ function RunsList({ onRunClick }: { onRunClick: (run: AfrRun) => void }) {
   );
 }
 
+function escHtml(str: unknown): string {
+  const s = String(str ?? '');
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function formatTs(ts: string | number | null | undefined): string {
+  if (!ts) return '-';
+  try { return new Date(ts).toISOString(); } catch { return String(ts); }
+}
+
+function prettyJson(val: any): string {
+  if (val == null) return '';
+  if (typeof val === 'string') {
+    try { return JSON.stringify(JSON.parse(val), null, 2); } catch { return val; }
+  }
+  return JSON.stringify(val, null, 2);
+}
+
+async function exportRunAsHtml(
+  runId: string,
+  clientRequestId: string | null,
+) {
+  const fetchJson = async (path: string) => {
+    const url = addDevAuthParams(path);
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    return res.json();
+  };
+
+  let runData: any = null;
+  let events: StreamEvent[] = [];
+  let artefacts: Artefact[] = [];
+  let judgements: Judgement[] = [];
+
+  const streamPromise = clientRequestId
+    ? fetchJson(`/api/afr/stream?client_request_id=${encodeURIComponent(clientRequestId)}`)
+    : fetchJson(`/api/afr/runs/${encodeURIComponent(runId)}`);
+  const artefactsPromise = fetchJson(`/api/afr/runs/${encodeURIComponent(runId)}/artefacts`);
+  const judgementsPromise = fetchJson(`/api/afr/judgements?run_id=${encodeURIComponent(runId)}`);
+
+  const [streamResult, artefactsResult, judgementsResult] = await Promise.all([
+    streamPromise, artefactsPromise, judgementsPromise,
+  ]);
+
+  if (streamResult) {
+    if (streamResult.events) {
+      events = [...streamResult.events].sort(
+        (a: StreamEvent, b: StreamEvent) => new Date(a.ts).getTime() - new Date(b.ts).getTime()
+      );
+      runData = {
+        title: streamResult.title || 'Agent Run',
+        status: streamResult.status || 'unknown',
+        run_id: streamResult.run_id || runId,
+        client_request_id: streamResult.client_request_id || clientRequestId,
+        conversation_id: streamResult.conversation_id || null,
+        is_terminal: streamResult.is_terminal,
+        terminal_state: streamResult.terminal_state,
+        created_at: streamResult.created_at,
+        updated_at: streamResult.updated_at,
+        run_type: streamResult.run_type,
+      };
+    } else if (streamResult.run) {
+      const r = streamResult.run;
+      runData = {
+        title: r.goal_summary || 'Agent Run',
+        status: r.status || 'unknown',
+        run_id: runId,
+        client_request_id: r.client_request_id || clientRequestId,
+        conversation_id: r.conversation_id || null,
+        created_at: r.created_at,
+        updated_at: r.updated_at,
+        run_type: r.run_type || r.vertical,
+      };
+      events = (streamResult.activities || []).map((a: any) => ({
+        id: a.id,
+        ts: a.timestamp,
+        type: a.runType || a.type || 'activity',
+        summary: a.label || a.action || 'Activity',
+        details: {
+          action: a.action,
+          durationMs: a.durationMs,
+          error: a.error,
+          results: a.results ? (typeof a.results === 'string' ? a.results : JSON.stringify(a.results)) : null,
+        },
+        status: a.status,
+        run_id: runId,
+        client_request_id: null,
+      }));
+    }
+  }
+
+  if (artefactsResult) {
+    artefacts = Array.isArray(artefactsResult) ? artefactsResult : (artefactsResult?.rows ?? []);
+  }
+
+  if (judgementsResult?.judgements) {
+    judgements = judgementsResult.judgements;
+  }
+
+  const css = `
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 13px; color: #1a1a1a; padding: 32px; max-width: 1100px; margin: 0 auto; line-height: 1.5; }
+    h1 { font-size: 20px; margin-bottom: 4px; }
+    h2 { font-size: 16px; margin: 28px 0 12px; padding-bottom: 6px; border-bottom: 2px solid #e5e7eb; }
+    h3 { font-size: 14px; margin: 16px 0 8px; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 16px; }
+    th, td { border: 1px solid #d1d5db; padding: 6px 10px; text-align: left; vertical-align: top; font-size: 12px; }
+    th { background: #f3f4f6; font-weight: 600; }
+    .meta-grid { display: grid; grid-template-columns: 140px 1fr; gap: 4px 12px; margin-bottom: 16px; }
+    .meta-grid dt { font-weight: 600; color: #6b7280; }
+    .meta-grid dd { font-family: monospace; font-size: 12px; word-break: break-all; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+    .badge-completed, .badge-success, .badge-pass { background: #dcfce7; color: #166534; }
+    .badge-failed, .badge-fail { background: #fee2e2; color: #991b1b; }
+    .badge-running, .badge-executing, .badge-pending { background: #dbeafe; color: #1e40af; }
+    .badge-stopped, .badge-clarifying { background: #fef9c3; color: #854d0e; }
+    pre { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 4px; padding: 8px 12px; overflow-x: auto; white-space: pre-wrap; word-break: break-word; font-size: 11px; font-family: 'SF Mono', 'Fira Code', monospace; max-height: none; }
+    .event-row { border-bottom: 1px solid #e5e7eb; padding: 8px 0; }
+    .event-row:last-child { border-bottom: none; }
+    .section-empty { color: #9ca3af; font-style: italic; padding: 12px 0; }
+    @media print { body { padding: 16px; } h2 { break-before: auto; } pre { white-space: pre-wrap; } }
+    @page { margin: 1.5cm; }
+  `;
+
+  const badgeClass = (s: string) => {
+    const sl = (s || '').toLowerCase();
+    if (sl === 'completed' || sl === 'success' || sl === 'pass') return 'badge-completed';
+    if (sl === 'failed' || sl === 'fail') return 'badge-failed';
+    if (sl === 'running' || sl === 'executing' || sl === 'pending') return 'badge-running';
+    if (sl === 'stopped' || sl === 'clarifying') return 'badge-stopped';
+    return '';
+  };
+
+  let eventsHtml = '';
+  if (events.length === 0) {
+    eventsHtml = '<p class="section-empty">No events recorded.</p>';
+  } else {
+    eventsHtml = '<table><thead><tr><th>#</th><th>Timestamp</th><th>Type</th><th>Status</th><th>Summary</th></tr></thead><tbody>';
+    events.forEach((ev, i) => {
+      eventsHtml += `<tr>
+        <td>${i + 1}</td>
+        <td style="white-space:nowrap">${escHtml(formatTs(ev.ts))}</td>
+        <td><code>${escHtml(ev.type)}</code></td>
+        <td><span class="badge ${badgeClass(ev.status)}">${escHtml(ev.status)}</span></td>
+        <td>${escHtml(ev.summary)}</td>
+      </tr>`;
+    });
+    eventsHtml += '</tbody></table>';
+
+    const eventsWithDetails = events.filter(ev => ev.details && Object.values(ev.details).some(v => v != null));
+    if (eventsWithDetails.length > 0) {
+      eventsHtml += '<h3>Event Details / Raw Payloads</h3>';
+      eventsWithDetails.forEach((ev) => {
+        eventsHtml += `<div class="event-row">
+          <strong>${escHtml(ev.type)}</strong> &mdash; ${escHtml(formatTs(ev.ts))}`;
+        if (ev.details.action) eventsHtml += `<br/><strong>Action:</strong> <code>${escHtml(ev.details.action)}</code>`;
+        if (ev.details.durationMs != null) eventsHtml += `<br/><strong>Duration:</strong> ${ev.details.durationMs}ms`;
+        if (ev.details.error) eventsHtml += `<br/><strong>Error:</strong> <span style="color:#dc2626">${escHtml(ev.details.error)}</span>`;
+        if (ev.details.results) eventsHtml += `<br/><strong>Results:</strong><pre>${escHtml(ev.details.results)}</pre>`;
+        eventsHtml += `<br/><strong>Full payload:</strong><pre>${escHtml(prettyJson(ev.details))}</pre>`;
+        eventsHtml += '</div>';
+      });
+    }
+  }
+
+  let artefactsHtml = '';
+  if (artefacts.length === 0) {
+    artefactsHtml = '<p class="section-empty">No artefacts recorded.</p>';
+  } else {
+    artefacts.forEach((art, i) => {
+      artefactsHtml += `<div style="margin-bottom:20px; border:1px solid #e5e7eb; border-radius:6px; padding:12px;">
+        <h3 style="margin-top:0">${i + 1}. ${escHtml(art.title || 'Untitled')}</h3>
+        <dl class="meta-grid">
+          <dt>ID</dt><dd>${escHtml(art.id)}</dd>
+          <dt>Type</dt><dd>${escHtml(art.type)}</dd>
+          <dt>Created</dt><dd>${escHtml(formatTs(art.created_at))}</dd>
+          <dt>Run ID</dt><dd>${escHtml(art.run_id)}</dd>
+          ${art.summary ? `<dt>Summary</dt><dd>${escHtml(art.summary)}</dd>` : ''}
+        </dl>
+        <strong>Payload</strong>
+        <pre>${escHtml(prettyJson(art.payload_json))}</pre>
+      </div>`;
+    });
+  }
+
+  let judgementsHtml = '';
+  if (judgements.length === 0) {
+    judgementsHtml = '<p class="section-empty">No judgements recorded.</p>';
+  } else {
+    judgementsHtml = '<table><thead><tr><th>Evaluated At</th><th>Verdict</th><th>Reason Code</th><th>Explanation</th></tr></thead><tbody>';
+    judgements.forEach(j => {
+      judgementsHtml += `<tr>
+        <td style="white-space:nowrap">${escHtml(formatTs(j.evaluated_at))}</td>
+        <td><span class="badge ${badgeClass(j.verdict)}">${escHtml(j.verdict)}</span></td>
+        <td><code>${escHtml(j.reason_code)}</code></td>
+        <td>${escHtml(j.explanation)}</td>
+      </tr>`;
+    });
+    judgementsHtml += '</tbody></table>';
+    judgementsHtml += '<h3>Full Judgement Payloads</h3>';
+    judgements.forEach((j, i) => {
+      judgementsHtml += `<div style="margin-bottom:12px;">
+        <strong>${i + 1}. ${escHtml(j.verdict)} — ${escHtml(j.reason_code)}</strong>
+        <pre>${escHtml(prettyJson(j))}</pre>
+      </div>`;
+    });
+  }
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>AFR Run Export — ${escHtml(runId)}</title>
+<style>${css}</style>
+</head>
+<body>
+<h1>AFR Run Export</h1>
+<p style="color:#6b7280; margin-bottom:20px">Generated ${new Date().toISOString()}</p>
+
+<h2>1. Run Header</h2>
+<dl class="meta-grid">
+  <dt>Title / Goal</dt><dd>${escHtml(runData?.title || 'Unknown')}</dd>
+  <dt>Run ID</dt><dd>${escHtml(runData?.run_id || runId)}</dd>
+  <dt>Client Request ID</dt><dd>${escHtml(runData?.client_request_id || clientRequestId || '-')}</dd>
+  <dt>Conversation ID</dt><dd>${escHtml(runData?.conversation_id || '-')}</dd>
+  <dt>Status</dt><dd><span class="badge ${badgeClass(runData?.status || '')}">${escHtml(runData?.status || 'unknown')}</span></dd>
+  <dt>Terminal State</dt><dd>${escHtml(runData?.terminal_state || '-')}</dd>
+  <dt>Type</dt><dd>${escHtml(runData?.run_type || '-')}</dd>
+  <dt>Created</dt><dd>${escHtml(formatTs(runData?.created_at))}</dd>
+  <dt>Updated</dt><dd>${escHtml(formatTs(runData?.updated_at))}</dd>
+</dl>
+
+<h2>2. Event Timeline (${events.length} events)</h2>
+${eventsHtml}
+
+<h2>3. Artefacts (${artefacts.length})</h2>
+${artefactsHtml}
+
+<h2>4. Judgements (${judgements.length})</h2>
+${judgementsHtml}
+
+</body>
+</html>`;
+
+  const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `afr-run-${runId}.html`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(a.href);
+}
+
 function RunDetail({
   runId,
   clientRequestId,
@@ -453,6 +709,7 @@ function RunDetail({
   const [runMeta, setRunMeta] = useState<{ title: string; status: string; run_id: string | null } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
 
   const fetchDetail = useCallback(async () => {
     setLoading(true);
@@ -540,6 +797,25 @@ function RunDetail({
               </Button>
               <Button variant="outline" size="sm" onClick={onViewJudgements}>
                 <Gavel className="w-3 h-3 mr-1" /> Judgements
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={exporting || loading}
+                onClick={async () => {
+                  setExporting(true);
+                  try {
+                    await exportRunAsHtml(runId, clientRequestId);
+                  } catch (e: any) {
+                    console.error('[AFR Export] Failed:', e);
+                  } finally {
+                    setExporting(false);
+                  }
+                }}
+              >
+                {exporting
+                  ? <><Loader2 className="w-3 h-3 mr-1 animate-spin" /> Exporting...</>
+                  : <><Download className="w-3 h-3 mr-1" /> Export run</>}
               </Button>
             </div>
           </div>
