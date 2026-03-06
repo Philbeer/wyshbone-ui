@@ -1,0 +1,59 @@
+UI REPO TASK: fix Supervisor-owned clarification so the run pauses for user input instead of ending.
+
+Problem
+Supervisor now owns clarification correctly.
+AFR proves this because runs show:
+- Router: supervisor_plan
+- intent_extracted_shadow
+- constraints_extracted
+- constraint_capability_check
+- clarify_gate
+
+But the chat UI is wrong:
+- it does not properly show the clarify question in the main chat
+- it treats the run as stopped/ended/retrying instead of waiting for the user's clarification answer
+
+Goal
+When Supervisor returns mode:"clarify", the UI must:
+1) show the clarification question in the main chat
+2) show the options / quick actions if provided
+3) keep the conversation in a waiting-for-clarification state
+4) NOT mark the run as stopped, failed, or finished
+5) allow the user's next answer to continue the same clarification flow
+
+Rules
+- Minimal fix only
+- Do NOT bring back old first-pass UI clarify ownership
+- Supervisor remains the source of truth for clarification
+- Reuse existing clarify UI state/components if possible
+
+What to do
+1) Find where Supervisor task results are handled in the chat UI
+2) Detect the Supervisor clarify response:
+   - mode: "clarify"
+   - question
+   - options
+   - reason
+   - run_id
+3) When mode === "clarify":
+   - render the question as an assistant chat bubble
+   - populate the clarify UI panel/options if available
+   - set the UI state to something like "awaiting clarification"
+   - do NOT show retrying/stopped as the primary run outcome
+   - do NOT close/end the run in the UI
+4) Ensure the user's next message is treated as the clarification answer and sent through the existing conversation flow
+5) Keep the run/conversation linked so the clarify answer can continue correctly
+
+Success result
+For:
+"find gyms in London that opened in the last 6 months"
+
+The UI should:
+- show the clarification question in chat
+- show the proxy options
+- remain waiting for the user's answer
+- continue when the user answers
+
+Important
+This is now a UI state-handling bug, not a Supervisor ownership bug.
+AFR already shows the Supervisor clarify path is working.
