@@ -57,6 +57,17 @@ export interface LeadVerificationPayload {
   leads?: LeadVerificationEntry[];
 }
 
+export interface SemanticJudgementEntry {
+  lead_id: string;
+  lead_name?: string;
+  tower_status: string;
+  confidence: number;
+  attribute_evidence?: {
+    verdict: string;
+    snippets?: string[];
+  };
+}
+
 function parsePayload(payload: any): any {
   if (typeof payload === "string") {
     try { return JSON.parse(payload); } catch { return payload; }

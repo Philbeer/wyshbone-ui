@@ -1311,6 +1311,7 @@ const ARTEFACT_LABELS: Record<string, { label: string; icon: string }> = {
   verification_summary: { label: 'Verification', icon: '✅' },
   verification_evidence: { label: 'Evidence', icon: '📎' },
   lead_verification: { label: 'Lead Checks', icon: '🔎' },
+  tower_semantic_judgement: { label: 'Semantic Match', icon: '🎯' },
   web_search_results: { label: 'Web Search', icon: '🌐' },
   web_visit_pages: { label: 'Page Visits', icon: '📄' },
   contact_extract: { label: 'Contacts', icon: '👤' },
@@ -1502,7 +1503,7 @@ function ResultsModal({ clientRequestId, runId, open, onOpenChange }: { clientRe
 
         const hasFactory = rows.some(r => FACTORY_TYPES.has(r.type));
         const byType = new Map<string, Artefact>();
-        const typeOrder = ['run_configuration', 'plan', 'constraints_extracted', 'constraint_capability_check', 'run_summary', 'plan_update', 'tower_judgement', 'verification_summary', 'verification_evidence', 'lead_verification', 'web_search_results', 'web_visit_pages', 'contact_extract', 'deep_research_result', 'leads_list', 'lead_pack', 'ask_lead_question_result', 'delivery_summary', 'factory_timeline', 'email_drafts', 'plan_result', 'chat_response'];
+        const typeOrder = ['run_configuration', 'plan', 'constraints_extracted', 'constraint_capability_check', 'run_summary', 'plan_update', 'tower_judgement', 'verification_summary', 'verification_evidence', 'lead_verification', 'tower_semantic_judgement', 'web_search_results', 'web_visit_pages', 'contact_extract', 'deep_research_result', 'leads_list', 'lead_pack', 'ask_lead_question_result', 'delivery_summary', 'factory_timeline', 'email_drafts', 'plan_result', 'chat_response'];
 
         for (const row of rows) {
           if (FACTORY_TYPES.has(row.type)) continue;

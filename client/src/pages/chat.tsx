@@ -33,7 +33,7 @@ import { useResultsPanel } from "@/contexts/ResultsPanelContext";
 import { useCurrentRequest } from "@/contexts/CurrentRequestContext";
 import UserResultsView from "@/components/results/UserResultsView";
 import type { DeliverySummary, DeliveryLead } from "@/components/results/UserResultsView";
-import type { VerificationSummaryPayload, ConstraintsExtractedPayload, LeadVerificationEntry } from "@/components/results/CvlArtefactViews";
+import type { VerificationSummaryPayload, ConstraintsExtractedPayload, LeadVerificationEntry, SemanticJudgementEntry } from "@/components/results/CvlArtefactViews";
 import RunResultBubble from "@/components/results/RunResultBubble";
 import type { PolicySnapshot, ContactCounts, RunReceipt } from "@/components/results/RunResultBubble";
 import { resolveCanonicalStatus, STATUS_CONFIG } from "@/utils/deliveryStatus";
@@ -66,6 +66,7 @@ type Message = ChatMessage & {
   towerStopTimePredicate?: boolean;
   contactCounts?: ContactCounts | null;
   runReceipt?: RunReceipt | null;
+  semanticJudgements?: SemanticJudgementEntry[] | null;
   isClarifyMsg?: boolean;
   isClarifySuperseded?: boolean;
 };
@@ -653,6 +654,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     searchQueryCompiled: SearchQueryCompiled | null;
     leadVerifications: LeadVerificationEntry[] | null;
     runReceipt: RunReceipt | null;
+    semanticJudgements: SemanticJudgementEntry[] | null;
   } {
     let vs: VerificationSummaryPayload | null = null;
     let ce: ConstraintsExtractedPayload | null = null;
@@ -663,7 +665,8 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     let fallbackRules: string[] | null = null;
     let leadVerifications: LeadVerificationEntry[] | null = null;
     let runReceipt: RunReceipt | null = null;
-    if (!Array.isArray(rows)) return { vs, ce, policySnapshot, policyApplied, learningUpdate, searchQueryCompiled, leadVerifications, runReceipt };
+    const semanticJudgements: SemanticJudgementEntry[] = [];
+    if (!Array.isArray(rows)) return { vs, ce, policySnapshot, policyApplied, learningUpdate, searchQueryCompiled, leadVerifications, runReceipt, semanticJudgements: null };
     for (const row of rows) {
       if (row.type === 'verification_summary') {
         let p = row.payload_json;
@@ -681,6 +684,29 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         if (p && typeof p === 'object') {
           const entries = Array.isArray(p) ? p : Array.isArray((p as any).leads) ? (p as any).leads : null;
           if (entries) leadVerifications = entries as LeadVerificationEntry[];
+        }
+      }
+      if (row.type === 'tower_semantic_judgement') {
+        let p = row.payload_json;
+        if (typeof p === 'string') { try { p = JSON.parse(p); } catch { p = null; } }
+        if (p && typeof p === 'object') {
+          const leadId = (p as any).lead_id || (p as any).place_id || (p as any).entity_id;
+          const leadName = (p as any).lead_name || (p as any).name || (p as any).entity_name;
+          const towerStatus = (p as any).tower_status || (p as any).status || '';
+          const confidence = typeof (p as any).confidence === 'number' ? (p as any).confidence : 0;
+          const attrEvidence = (p as any).attribute_evidence;
+          if (leadId && towerStatus) {
+            semanticJudgements.push({
+              lead_id: leadId,
+              lead_name: leadName || undefined,
+              tower_status: towerStatus,
+              confidence,
+              attribute_evidence: attrEvidence && typeof attrEvidence === 'object' ? {
+                verdict: attrEvidence.verdict || '',
+                snippets: Array.isArray(attrEvidence.snippets) ? attrEvidence.snippets : undefined,
+              } : undefined,
+            });
+          }
         }
       }
       if ((row.type === 'policy_applications' || row.type === 'policy_application_snapshot') && !policySnapshot) {
@@ -754,7 +780,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         applied_policies: fallbackRules.map(r => ({ rule_text: r, source: 'plan' })),
       };
     }
-    return { vs, ce, policySnapshot, policyApplied, learningUpdate, searchQueryCompiled, leadVerifications, runReceipt };
+    return { vs, ce, policySnapshot, policyApplied, learningUpdate, searchQueryCompiled, leadVerifications, runReceipt, semanticJudgements: semanticJudgements.length > 0 ? semanticJudgements : null };
   }
 
   function persistStructuredResult(payload: any) {
@@ -844,7 +870,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
           }
         }
 
-        const { vs: provVs, ce: provCe, policySnapshot: provPs, policyApplied: provPa, learningUpdate: provLu, searchQueryCompiled: provSqc, leadVerifications: provLv, runReceipt: provRR } = parseSiblingArtefacts(rows);
+        const { vs: provVs, ce: provCe, policySnapshot: provPs, policyApplied: provPa, learningUpdate: provLu, searchQueryCompiled: provSqc, leadVerifications: provLv, runReceipt: provRR, semanticJudgements: provSJ } = parseSiblingArtefacts(rows);
         const tower = resolveAuthoritativeTower(rows);
         const towerVerdict = tower.verdict;
         const towerLabel = tower.label;
@@ -907,6 +933,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
           towerStopTimePredicate,
           contactCounts: provCC,
           runReceipt: provRR,
+          semanticJudgements: provSJ,
         };
         upsertResultMessage(finalMsg);
 
@@ -939,7 +966,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
       }
       if (!parsed || typeof parsed !== 'object') return;
 
-      const { vs, ce, policySnapshot, policyApplied, learningUpdate, searchQueryCompiled, leadVerifications, runReceipt } = parseSiblingArtefacts(rows);
+      const { vs, ce, policySnapshot, policyApplied, learningUpdate, searchQueryCompiled, leadVerifications, runReceipt, semanticJudgements } = parseSiblingArtefacts(rows);
 
       const tower2 = resolveAuthoritativeTower(rows);
       const dsPathTowerVerdict = tower2.verdict;
@@ -989,6 +1016,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         towerStopTimePredicate: dsPathStopTimePredicate,
         contactCounts,
         runReceipt,
+        semanticJudgements,
       };
       upsertResultMessage(resultMessage);
 
@@ -3224,6 +3252,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                           towerStopTimePredicate={chatMessage.towerStopTimePredicate}
                           contactCounts={chatMessage.contactCounts}
                           runReceipt={chatMessage.runReceipt}
+                          semanticJudgements={chatMessage.semanticJudgements}
                         />
                       </div>
                       <span className="text-xs text-muted-foreground mt-1">
