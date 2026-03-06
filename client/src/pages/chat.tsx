@@ -315,6 +315,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
   const [clarifyContext, setClarifyContext] = useState<ClarifyContext>(EMPTY_CLARIFY_CONTEXT);
   const prevClarifyMsgIdRef = useRef<string | null>(null);
   const latestClarifyMsgIdRef = useRef<string | null>(null);
+  const pendingClarifyRunRef = useRef<{ runId: string | null; crid: string } | null>(null);
 
   // Supervisor integration
   const [supervisorTaskId, setSupervisorTaskId] = useState<string | null>(null);
@@ -1326,6 +1327,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                   });
                   setIsClarifyingForRun(true);
                   setLastLane("chat");
+                  pendingClarifyRunRef.current = { runId: runId || null, crid: crid || effectiveKey };
 
                   const clarifyMsgId = `clarify-gate-${effectiveKey}`;
                   setMessages((prev) => {
@@ -1353,7 +1355,13 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
           }
 
           if (clarifyDetected.has(effectiveKey)) {
-            continue;
+            if (status === 'executing' || status === 'finalizing' || status === 'completed' || status === 'failed' || (status === 'stopped' && !data.clarify_gate)) {
+              clarifyDetected.delete(effectiveKey);
+              pendingClarifyRunRef.current = null;
+              console.log(`[Chat][AFR-Poll] Clarification resolved for ${effectiveKey}, status now ${status} — resuming normal poll`);
+            } else {
+              continue;
+            }
           }
 
           if (isTerminal || status === 'completed' || status === 'failed' || 
@@ -1898,6 +1906,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         setClarifyContext(EMPTY_CLARIFY_CONTEXT);
         prevClarifyMsgIdRef.current = null;
         latestClarifyMsgIdRef.current = null;
+        pendingClarifyRunRef.current = null;
         actionedSearchNowIds.current.clear();
         setActiveClientRequestId(null);
         setSupervisorTaskId(null);
@@ -1959,6 +1968,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         setClarifyContext(EMPTY_CLARIFY_CONTEXT);
         prevClarifyMsgIdRef.current = null;
         latestClarifyMsgIdRef.current = null;
+        pendingClarifyRunRef.current = null;
         actionedSearchNowIds.current.clear();
         setActiveClientRequestId(null);
         setSupervisorTaskId(null);
@@ -2040,8 +2050,8 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
   }, [onLoadConversation]);
 
 
-  const streamChatResponse = async (conversationMessages: ChatMessage[]) => {
-    if (inFlightRequestIdRef.current) {
+  const streamChatResponse = async (conversationMessages: ChatMessage[], clarifyContinuation?: { runId: string | null; crid: string }) => {
+    if (inFlightRequestIdRef.current && !clarifyContinuation) {
       return;
     }
     
@@ -2052,19 +2062,21 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     
     setIsStreaming(true);
     
-    const clientRequestId = crypto.randomUUID();
+    const clientRequestId = clarifyContinuation ? clarifyContinuation.crid : crypto.randomUUID();
     inFlightRequestIdRef.current = clientRequestId;
     
     setProgressStack([]);
     setExecutedToolsSummary(null);
     setActiveClientRequestId(clientRequestId);
     
-    setCurrentClientRequestId(clientRequestId);
-    const lastUserMsg = conversationMessages.filter(m => m.role === 'user').pop();
-    const runLabel = lastUserMsg?.content ? (lastUserMsg.content.length > 25 ? lastUserMsg.content.slice(0, 25) + '…' : lastUserMsg.content) : undefined;
-    addRecentRun(clientRequestId, runLabel);
-    if (!userPinned) {
-      setPinnedClientRequestId(clientRequestId);
+    if (!clarifyContinuation) {
+      setCurrentClientRequestId(clientRequestId);
+      const lastUserMsg = conversationMessages.filter(m => m.role === 'user').pop();
+      const runLabel = lastUserMsg?.content ? (lastUserMsg.content.length > 25 ? lastUserMsg.content.slice(0, 25) + '…' : lastUserMsg.content) : undefined;
+      addRecentRun(clientRequestId, runLabel);
+      if (!userPinned) {
+        setPinnedClientRequestId(clientRequestId);
+      }
     }
     setLastCompletedClientRequestId(null);
     
@@ -2094,6 +2106,10 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
           ...(pendingMetadataRef.current?.follow_up ? { follow_up: pendingMetadataRef.current.follow_up } : {}),
           google_query_mode: getGoogleQueryMode(),
           run_config_overrides: (runConfigOverrides.speed_mode !== "balanced" || runConfigOverrides.replan_ceiling !== undefined || runConfigOverrides.ignore_learned_policy) ? runConfigOverrides : undefined,
+          ...(clarifyContinuation ? {
+            clarify_run_id: clarifyContinuation.runId || undefined,
+            clarify_client_request_id: clarifyContinuation.crid,
+          } : {}),
         }),
         signal: abortControllerRef.current.signal,
         credentials: "include",
@@ -2726,7 +2742,16 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
       conversationHistory = [...recentHistory, { role: userMessage.role, content: userMessage.content }];
     }
 
-    streamChatResponse(conversationHistory);
+    const clarifyRun = pendingClarifyRunRef.current;
+    if (isClarifyingForRun && clarifyRun) {
+      console.log(`[Chat][ClarifyContinuation] Replying to pending clarify run crid=${clarifyRun.crid.slice(0, 12)} runId=${clarifyRun.runId}`);
+      pendingClarifyRunRef.current = null;
+      setIsClarifyingForRun(false);
+      setClarifyContext(EMPTY_CLARIFY_CONTEXT);
+      streamChatResponse(conversationHistory, clarifyRun);
+    } else {
+      streamChatResponse(conversationHistory);
+    }
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {

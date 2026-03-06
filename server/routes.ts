@@ -1189,7 +1189,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const validatedData = validation.data;
       user = validatedData.user;
-      const { messages, defaultCountry, conversationId: requestedConversationId, clientRequestId: _clientRequestId, metadata, google_query_mode } = validatedData;
+      const { messages, defaultCountry, conversationId: requestedConversationId, clientRequestId: _clientRequestId, metadata, google_query_mode, clarify_run_id, clarify_client_request_id } = validatedData;
       clientRequestId = _clientRequestId;
       console.log('📝 Chat request from user:', user.id, user.email, clientRequestId ? `(crid:${clientRequestId.slice(0,8)})` : '', metadata ? `metadata=${JSON.stringify(metadata).slice(0,200)}` : '', google_query_mode ? `gqm=${google_query_mode}` : '');
       
@@ -1253,6 +1253,110 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // 1) Save user's new message to database
       await saveMessage(conversationId, "user", latestUserText);
       console.log("💾 Saved user message to database");
+
+      // ═══════════════════════════════════════════════════════════════════════
+      // CLARIFY CONTINUATION: If this message is a reply to a Supervisor-owned
+      // clarify gate, continue the existing run instead of creating a new one.
+      // ═══════════════════════════════════════════════════════════════════════
+      if (clarify_run_id && clarify_client_request_id) {
+        console.log(`[CLARIFY_CONTINUATION] Continuing existing run=${clarify_run_id} crid=${clarify_client_request_id.slice(0, 12)} with answer: "${latestUserText.slice(0, 80)}"`);
+
+        try {
+          let targetRun = await storage.getAgentRun(clarify_run_id);
+          if (!targetRun) {
+            targetRun = await storage.getAgentRunByClientRequestId(clarify_client_request_id) || null;
+          }
+          if (!targetRun) {
+            console.warn(`[CLARIFY_CONTINUATION] Run ${clarify_run_id} not found — falling back to normal flow`);
+          } else if (targetRun.userId !== user.id) {
+            console.warn(`[CLARIFY_CONTINUATION] Run ${targetRun.id} belongs to user ${targetRun.userId}, not ${user.id} — rejecting`);
+            targetRun = null;
+          } else if (targetRun.status !== 'stopped' && targetRun.status !== 'executing') {
+            console.warn(`[CLARIFY_CONTINUATION] Run ${targetRun.id} status=${targetRun.status} — not in clarifiable state, falling back`);
+            targetRun = null;
+          }
+
+          if (targetRun) {
+            const runIdToTransition = targetRun.id;
+            await storage.updateAgentRun(runIdToTransition, {
+              status: 'executing',
+              terminalState: null,
+              error: null,
+              updatedAt: Date.now(),
+            });
+            console.log(`[CLARIFY_CONTINUATION] Force-transitioned run ${runIdToTransition} from ${targetRun.status} → executing`);
+          }
+        } catch (err: any) {
+          console.error(`[CLARIFY_CONTINUATION] Failed to transition run: ${err.message}`);
+        }
+
+        try {
+          const intentResult = detectSupervisorIntent(latestUserText);
+          const taskType = intentResult.taskType || 'find_prospects';
+          const requestData: Record<string, any> = {
+            user_message: latestUserText,
+            original_user_message: latestUserText,
+            ...(intentResult.requestData || {}),
+            clarify_answer: latestUserText,
+            continuation_of_run: clarify_run_id,
+          };
+          if (google_query_mode) requestData.google_query_mode = google_query_mode;
+          if (metadata) {
+            if (metadata.scenario) requestData.scenario = metadata.scenario;
+            if (metadata.constraints) requestData.constraints = metadata.constraints;
+            requestData.metadata = metadata;
+          }
+          const supervisorTask = await createSupervisorTask(
+            conversationId,
+            user.id,
+            taskType,
+            requestData,
+            {
+              runId: clarify_run_id,
+              clientRequestId: clarify_client_request_id,
+            }
+          );
+
+          emitSse({
+            type: 'status',
+            stage: 'planning',
+            message: 'Continuing with your clarification',
+            clientRequestId: clarify_client_request_id,
+            conversationId,
+          });
+
+          res.write(`data: ${JSON.stringify({
+            supervisorTaskId: supervisorTask.id,
+            supervisorTaskType: taskType,
+          })}\n\n`);
+
+          emitSse({
+            type: 'run_id',
+            runId: clarify_run_id,
+            clientRequestId: clarify_client_request_id,
+          });
+
+          const contMsg = `Continuing with your clarification — processing now.`;
+          appendMessage(sessionId, { role: "assistant", content: contMsg });
+          await saveMessage(conversationId, "assistant", contMsg);
+          res.write(`data: ${JSON.stringify({ type: 'confidence', content: contMsg })}\n\n`);
+
+          emitSse({
+            type: 'status',
+            stage: 'completed',
+            message: 'Delegated to Supervisor',
+            clientRequestId: clarify_client_request_id,
+            conversationId,
+          });
+
+          console.log(`[CHAT_ROUTE=CLARIFY_CONTINUATION] crid=${clarify_client_request_id.slice(0, 12)} run_id=${clarify_run_id} taskId=${supervisorTask.id}`);
+          res.write(`data: [DONE]\n\n`);
+          res.end();
+          return;
+        } catch (error: any) {
+          console.error(`[CLARIFY_CONTINUATION_ERROR] ${error.message} — falling back to normal flow`);
+        }
+      }
 
       // AFR: Log user message received with correlation ID — captures the agent run ID
       let agentRunId: string | null = null;
