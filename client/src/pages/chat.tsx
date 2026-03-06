@@ -1267,9 +1267,12 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
           const terminalState = data.terminal_state;
 
 
-          if (status === 'clarifying' && !clarifyDetected.has(effectiveKey)) {
-            clarifyDetected.add(effectiveKey);
-            console.log(`[Chat][AFR-Poll] Detected clarifying status for ${effectiveKey} — fetching clarify_gate artefact`);
+          const shouldCheckClarifyGate =
+            (status === 'clarifying' || status === 'executing' || status === 'stopped' || isTerminal) &&
+            !clarifyDetected.has(effectiveKey);
+
+          if (shouldCheckClarifyGate) {
+            console.log(`[Chat][AFR-Poll] Checking for clarify_gate artefact on ${effectiveKey} (status=${status})`);
 
             try {
               const artParams = new URLSearchParams();
@@ -1284,15 +1287,18 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                   : null;
 
                 if (gateRow) {
+                  clarifyDetected.add(effectiveKey);
                   let gatePayload = gateRow.payload_json;
                   if (typeof gatePayload === 'string') {
                     try { gatePayload = JSON.parse(gatePayload); } catch { gatePayload = null; }
                   }
 
-                  const reason: string = gatePayload?.reason || gateRow.summary || 'I need a bit more information before I can search.';
+                  const questions: string[] = Array.isArray(gatePayload?.questions) ? gatePayload.questions : [];
+                  const reason: string = (questions.length > 0 ? questions[0] : null) || gatePayload?.reason || gateRow.summary || 'I need a bit more information before I can search.';
                   const options: string[] = Array.isArray(gatePayload?.options) ? gatePayload.options : [];
-                  const constraintType: string = gatePayload?.constraint_type || 'unknown';
+                  const constraintType: string = gatePayload?.constraint_type || gatePayload?.reason || 'unknown';
                   const constraintLabel: string = gatePayload?.constraint_label || constraintType;
+                  const parsedFields = gatePayload?.parsed_fields || {};
 
                   const contract: ConstraintContract = {
                     type: constraintType === 'subjective_term' ? 'subjective'
@@ -1309,10 +1315,10 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                   };
 
                   setClarifyContext({
-                    entityType: null,
-                    location: null,
+                    entityType: parsedFields.business_type || null,
+                    location: parsedFields.location || null,
                     semanticConstraint: constraintLabel !== 'unknown' ? constraintLabel : null,
-                    count: null,
+                    count: parsedFields.count || null,
                     missingFields: [],
                     status: 'gathering',
                     pendingQuestions: [reason],
@@ -1336,15 +1342,18 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                   setMessages((prev) => prev.filter(m => !(m.deliverySummary && m.provisional === true && m.id === `ds-${effectiveKey}`)));
 
                   console.log(`[Chat][AFR-Poll] Surfaced clarify_gate for ${effectiveKey}: type=${constraintType}, reason=${reason.slice(0, 80)}`);
-                } else {
+                  continue;
+                } else if (status === 'clarifying') {
                   console.log(`[Chat][AFR-Poll] Run ${effectiveKey} is clarifying but no clarify_gate artefact found yet`);
-                  clarifyDetected.delete(effectiveKey);
                 }
               }
             } catch (err) {
               console.warn(`[Chat][AFR-Poll] Error fetching clarify_gate for ${effectiveKey}:`, err);
-              clarifyDetected.delete(effectiveKey);
             }
+          }
+
+          if (clarifyDetected.has(effectiveKey)) {
+            continue;
           }
 
           if (isTerminal || status === 'completed' || status === 'failed' || 

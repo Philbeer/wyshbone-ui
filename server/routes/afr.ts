@@ -919,8 +919,29 @@ export function createAfrRouter(_storage: typeof storage) {
         uiReady = agentRun.uiReady === 1;
         
         if (agentRun.terminalState) {
-          isTerminal = true;
-          terminalState = agentRun.terminalState as 'completed' | 'failed' | 'stopped';
+          if (agentRun.terminalState === 'stopped') {
+            let hasClarifyGate = false;
+            try {
+              const runIdsToCheck = [agentRun.id];
+              if ((agentRun as any).supervisorRunId) runIdsToCheck.push((agentRun as any).supervisorRunId);
+              for (const rid of runIdsToCheck) {
+                const gateCheck = await db.execute(sql`SELECT 1 FROM artefacts WHERE run_id = ${rid} AND type = 'clarify_gate' LIMIT 1`);
+                const found = Array.isArray(gateCheck) ? gateCheck.length > 0 : (gateCheck as any).rows?.length > 0;
+                if (found) { hasClarifyGate = true; break; }
+              }
+            } catch {}
+            if (hasClarifyGate) {
+              isTerminal = false;
+              terminalState = null;
+              overallStatus = 'clarifying';
+            } else {
+              isTerminal = true;
+              terminalState = 'stopped';
+            }
+          } else {
+            isTerminal = true;
+            terminalState = agentRun.terminalState as 'completed' | 'failed' | 'stopped';
+          }
         } else if (agentRun.status === 'completed' || agentRun.status === 'failed') {
           isTerminal = true;
           terminalState = agentRun.status === 'completed' ? 'completed' : 'failed';
@@ -930,20 +951,37 @@ export function createAfrRouter(_storage: typeof storage) {
           const updatedAt = agentRun.updatedAt ? new Date(agentRun.updatedAt).getTime() : 0;
           const age = Date.now() - updatedAt;
           if (age > STALE_RUN_TIMEOUT_MS && !isTerminal) {
-            console.log(`[AFR_STALE] Run ${agentRun.id} stale (${Math.round(age / 1000)}s since update). Auto-failing.`);
+            let hasClarifyGate = false;
             try {
-              await storage.updateAgentRun(agentRun.id, {
-                status: 'failed',
-                terminalState: 'failed',
-                error: `Supervisor did not respond within ${Math.round(STALE_RUN_TIMEOUT_MS / 60000)} minutes`,
-              });
-            } catch (e: any) {
-              console.error(`[AFR_STALE] Failed to update run: ${e.message}`);
+              const staleRunIds = [agentRun.id];
+              if ((agentRun as any).supervisorRunId) staleRunIds.push((agentRun as any).supervisorRunId);
+              for (const rid of staleRunIds) {
+                const gateCheck = await db.execute(sql`SELECT 1 FROM artefacts WHERE run_id = ${rid} AND type = 'clarify_gate' LIMIT 1`);
+                const found = Array.isArray(gateCheck) ? gateCheck.length > 0 : (gateCheck as any).rows?.length > 0;
+                if (found) { hasClarifyGate = true; break; }
+              }
+            } catch {}
+            if (hasClarifyGate) {
+              console.log(`[AFR_STALE] Run ${agentRun.id} has clarify_gate — exempt from stale timeout (${Math.round(age / 1000)}s)`);
+              isTerminal = false;
+              terminalState = null;
+              overallStatus = 'clarifying';
+            } else {
+              console.log(`[AFR_STALE] Run ${agentRun.id} stale (${Math.round(age / 1000)}s since update). Auto-failing.`);
+              try {
+                await storage.updateAgentRun(agentRun.id, {
+                  status: 'failed',
+                  terminalState: 'failed',
+                  error: `Supervisor did not respond within ${Math.round(STALE_RUN_TIMEOUT_MS / 60000)} minutes`,
+                });
+              } catch (e: any) {
+                console.error(`[AFR_STALE] Failed to update run: ${e.message}`);
+              }
+              overallStatus = 'failed';
+              isTerminal = true;
+              terminalState = 'failed';
+              uiReady = true;
             }
-            overallStatus = 'failed';
-            isTerminal = true;
-            terminalState = 'failed';
-            uiReady = true;
           }
         }
       } else {
