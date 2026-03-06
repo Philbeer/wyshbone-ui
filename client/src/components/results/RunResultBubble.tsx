@@ -1409,6 +1409,8 @@ export default function RunResultBubble({
   const closest = Array.isArray(deliverySummary.delivered_closest) ? deliverySummary.delivered_closest : [];
   const allLeads = [...exact, ...closest];
 
+  const hasResults = allLeads.length > 0 || (deliverySummary.delivered_count ?? 0) > 0;
+
   const verifiedIds = buildVerifiedLeadIds(leadVerifications);
   const receiptAttrsForIds = runReceipt?.outcomes?.attributes;
   if (Array.isArray(receiptAttrsForIds)) {
@@ -1497,15 +1499,15 @@ export default function RunResultBubble({
         </div>
       )}
 
-      {!provisional && deliverySummary.stop_reason === 'still_working' && (
+      {!provisional && deliverySummary.stop_reason === 'still_working' && !hasResults && (
         <StillWorkingBlock />
       )}
 
-      {!provisional && deliverySummary.stop_reason === 'artefacts_unavailable' && (
+      {!provisional && deliverySummary.stop_reason === 'artefacts_unavailable' && !hasResults && (
         <ArtefactsRetryBlock runId={runId} />
       )}
 
-      {!provisional && (deliverySummary.stop_reason === 'run_timeout' || deliverySummary.stop_reason === 'run_not_persisted') && (
+      {!provisional && (deliverySummary.stop_reason === 'run_timeout' || deliverySummary.stop_reason === 'run_not_persisted') && !hasResults && (
         <RunTimeoutBlock stopReason={deliverySummary.stop_reason} />
       )}
 
@@ -1538,7 +1540,7 @@ export default function RunResultBubble({
         </div>
       )}
 
-      {!provisional && narrative && deliverySummary.stop_reason !== 'artefacts_unavailable' && deliverySummary.stop_reason !== 'still_working' && (
+      {!provisional && narrative && (deliverySummary.stop_reason !== 'artefacts_unavailable' || hasResults) && (deliverySummary.stop_reason !== 'still_working' || hasResults) && (
         <>
           <HumanSummary narrative={narrative} />
           <ReceiptInlineLine narrative={narrative} runReceipt={runReceipt} />
@@ -1694,7 +1696,7 @@ export default function RunResultBubble({
         </div>
       )}
 
-      {!provisional && narrative && deliverySummary.stop_reason !== 'still_working' && (
+      {!provisional && narrative && (deliverySummary.stop_reason !== 'still_working' || hasResults) && (
         <TechnicalDetails
           deliverySummary={deliverySummary}
           effectiveCanonical={effectiveCanonical}
@@ -1715,9 +1717,9 @@ export default function RunResultBubble({
         />
       )}
 
-      {!provisional && deliverySummary.stop_reason !== 'still_working' && <NextActionButtons ds={deliverySummary} canonical={effectiveCanonical} runId={runId} hasTarget={target.hasTarget} />}
+      {!provisional && (deliverySummary.stop_reason !== 'still_working' || hasResults) && <NextActionButtons ds={deliverySummary} canonical={effectiveCanonical} runId={runId} hasTarget={target.hasTarget} />}
 
-      {!provisional && (!isTrustFailure || hasReceiptAttributes) && deliverySummary.stop_reason !== 'still_working' && (
+      {!provisional && (!isTrustFailure || hasReceiptAttributes) && (deliverySummary.stop_reason !== 'still_working' || hasResults) && (
         <FeedbackButtons runId={runId} />
       )}
     </div>

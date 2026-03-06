@@ -1133,6 +1133,8 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         if (effectiveKey && deliverySummaryRunIdsRef.current.has(effectiveKey)) {
           return true;
         }
+        if (runId && deliverySummaryRunIdsRef.current.has(runId)) return true;
+        if (crid && deliverySummaryRunIdsRef.current.has(crid)) return true;
         if (attempt < maxRetries) {
           await new Promise(r => setTimeout(r, 500));
         }
@@ -1141,6 +1143,21 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     }
 
     function emitRunFailureBubble(effectiveKey: string, runId: string | null, stopReason: string) {
+      if (deliverySummaryRunIdsRef.current.has(effectiveKey)) {
+        console.log(`[Chat][AFR-Poll] Suppressed failure bubble for ${effectiveKey} (reason=${stopReason}) — results already delivered`);
+        return;
+      }
+      const runsMap = inFlightSupervisorRunsRef.current;
+      const runsEntries = Array.from(runsMap.entries());
+      for (const [, run] of runsEntries) {
+        if ((run.runId && deliverySummaryRunIdsRef.current.has(run.runId)) ||
+            (run.crid && deliverySummaryRunIdsRef.current.has(run.crid))) {
+          if (run.runId === effectiveKey || run.crid === effectiveKey) {
+            console.log(`[Chat][AFR-Poll] Suppressed failure bubble for ${effectiveKey} (reason=${stopReason}) — results delivered under related key`);
+            return;
+          }
+        }
+      }
       console.warn(`[Chat][AFR-Poll] Emitting failure bubble for ${effectiveKey}, reason=${stopReason}`);
       const errorMsg: Message = {
         id: `ds-${effectiveKey}`,
@@ -1227,7 +1244,10 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
             if (runElapsed > HARD_TIMEOUT_MS && !hardTimeoutEmitted.has(effectiveKey)) {
               hardTimeoutEmitted.add(effectiveKey);
               console.warn(`[Chat][AFR-Poll] Hard timeout banner for ${effectiveKey} (${Math.round(runElapsed / 1000)}s). Polling continues.`);
-              if (!deliverySummaryRunIdsRef.current.has(effectiveKey)) {
+              const alreadyDelivered = deliverySummaryRunIdsRef.current.has(effectiveKey) ||
+                (runId && deliverySummaryRunIdsRef.current.has(runId)) ||
+                (crid && deliverySummaryRunIdsRef.current.has(crid));
+              if (!alreadyDelivered) {
                 const bannerMsg: Message = {
                   id: `ds-${effectiveKey}`,
                   role: 'assistant',
@@ -1251,7 +1271,10 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
             if (runElapsed > SOFT_TIMEOUT_MS && failCount >= 5 && !softTimeoutEmitted.has(effectiveKey)) {
               softTimeoutEmitted.add(effectiveKey);
               console.log(`[Chat][AFR-Poll] Soft timeout for ${effectiveKey} (${Math.round(runElapsed / 1000)}s, ${failCount} failures). Showing retrying bubble.`);
-              if (!deliverySummaryRunIdsRef.current.has(effectiveKey)) {
+              const alreadyDelivered2 = deliverySummaryRunIdsRef.current.has(effectiveKey) ||
+                (runId && deliverySummaryRunIdsRef.current.has(runId)) ||
+                (crid && deliverySummaryRunIdsRef.current.has(crid));
+              if (!alreadyDelivered2) {
                 const softMsg: Message = {
                   id: `ds-${effectiveKey}`,
                   role: 'assistant',
@@ -1382,37 +1405,44 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
 
             const finalized = await fetchArtefactsWithRetry(runId, crid);
             if (!finalized) {
-              console.warn(`[Chat][AFR-Poll] Phase 2 exhausted retries for ${effectiveKey}. Showing error bubble.`);
-              console.warn(`[DIAGNOSTIC][FAILURE] artefacts_unavailable for key=${effectiveKey}, runId=${runId}, crid=${crid}, convId=${conversationId}`);
-              try {
-                const diagParams = new URLSearchParams();
-                if (conversationId) diagParams.set('conversation_id', conversationId);
-                const diagUrl = addDevAuthParams(buildApiUrl(`/api/afr/run-diagnostic?${diagParams.toString()}`));
-                fetch(diagUrl, { credentials: 'include' }).then(r => r.json()).then(d => {
-                  console.warn(`[DIAGNOSTIC][FAILURE] DB snapshot:`, JSON.stringify(d, null, 2));
-                }).catch(() => {});
-              } catch {}
-              const errorMsg: Message = {
-                id: `ds-${effectiveKey}`,
-                role: 'assistant',
-                content: '',
-                timestamp: new Date(),
-                source: 'supervisor',
-                deliverySummary: {
-                  status: 'FAIL',
-                  delivered_exact: [],
-                  delivered_closest: [],
-                  delivered_count: 0,
-                  stop_reason: 'artefacts_unavailable',
-                } as DeliverySummary,
-                runId: runId || undefined,
-                provisional: false,
-              };
-              upsertResultMessage(errorMsg);
-              deliverySummaryRunIdsRef.current.add(effectiveKey);
-              cleanupRunState(effectiveKey);
-              setActiveClientRequestId(null);
-              setIsStreaming(false);
+              const alreadyDeliveredFinal = deliverySummaryRunIdsRef.current.has(effectiveKey) ||
+                (runId && deliverySummaryRunIdsRef.current.has(runId)) ||
+                (crid && deliverySummaryRunIdsRef.current.has(crid));
+              if (alreadyDeliveredFinal) {
+                console.log(`[Chat][AFR-Poll] Suppressed artefacts_unavailable for ${effectiveKey} — results already delivered under a related key`);
+              } else {
+                console.warn(`[Chat][AFR-Poll] Phase 2 exhausted retries for ${effectiveKey}. Showing error bubble.`);
+                console.warn(`[DIAGNOSTIC][FAILURE] artefacts_unavailable for key=${effectiveKey}, runId=${runId}, crid=${crid}, convId=${conversationId}`);
+                try {
+                  const diagParams = new URLSearchParams();
+                  if (conversationId) diagParams.set('conversation_id', conversationId);
+                  const diagUrl = addDevAuthParams(buildApiUrl(`/api/afr/run-diagnostic?${diagParams.toString()}`));
+                  fetch(diagUrl, { credentials: 'include' }).then(r => r.json()).then(d => {
+                    console.warn(`[DIAGNOSTIC][FAILURE] DB snapshot:`, JSON.stringify(d, null, 2));
+                  }).catch(() => {});
+                } catch {}
+                const errorMsg: Message = {
+                  id: `ds-${effectiveKey}`,
+                  role: 'assistant',
+                  content: '',
+                  timestamp: new Date(),
+                  source: 'supervisor',
+                  deliverySummary: {
+                    status: 'FAIL',
+                    delivered_exact: [],
+                    delivered_closest: [],
+                    delivered_count: 0,
+                    stop_reason: 'artefacts_unavailable',
+                  } as DeliverySummary,
+                  runId: runId || undefined,
+                  provisional: false,
+                };
+                upsertResultMessage(errorMsg);
+                deliverySummaryRunIdsRef.current.add(effectiveKey);
+                cleanupRunState(effectiveKey);
+                setActiveClientRequestId(null);
+                setIsStreaming(false);
+              }
             }
           }
         } catch (err) {
