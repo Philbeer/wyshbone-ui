@@ -1,0 +1,58 @@
+UI REPO TASK: render Supervisor-owned clarification properly in chat.
+
+Problem
+Supervisor is now correctly owning clarification.
+We can prove that because AFR shows:
+- Router: supervisor_plan
+- intent_extracted_shadow
+- constraints_extracted
+- constraint_capability_check
+- clarify_gate
+
+But the main chat UI is not showing the clarification question correctly.
+Instead it sits on retrying / stopped.
+
+Goal
+When Supervisor returns a clarification result, the chat must show the clarification question and options in the main chat, the same way the old UI clarify flow did.
+
+Rules
+- Minimal fix only.
+- Do NOT revert to the old UI clarify gate.
+- Do NOT reintroduce createClarifySession for first-pass clarify.
+- Keep Supervisor as the owner of clarify.
+- Reuse existing clarify UI components if possible.
+
+What to do
+1) Find where the UI handles supervisorTaskId completion / results coming back from Supervisor.
+2) Find the response shape coming back when Supervisor decides clarify. It should contain something like:
+   - mode: "clarify"
+   - question
+   - options
+   - reason
+   - run_id
+3) In the UI result-handling path:
+   - if mode === "clarify":
+     - render the assistant clarification question as a normal chat bubble
+     - populate the existing clarify UI panel / quick options if available
+     - stop showing "retrying" / "stopped" as the main outcome
+     - do NOT treat this as a failed run
+4) Make sure the run remains associated with the same conversation and can continue when the user answers.
+5) If there is already old clarify UI state, reuse it, but feed it from Supervisor result instead of the old clarify_for_run SSE path.
+
+Success result
+For:
+"find gyms in London that opened in the last 6 months"
+
+The chat should show something like:
+"Exact opening dates aren't reliably available. Which proxy would you like me to use instead?"
+
+with the options visible in the chat UI.
+
+Important
+AFR is already correct enough to prove Supervisor owns clarify.
+This fix is only about rendering the Supervisor clarify result in the main chat.
+
+Deliverable
+Make the code change directly.
+Keep it small and localized.
+No TODOs.
