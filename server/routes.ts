@@ -1147,6 +1147,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ===========================
+  // POST /api/chat/classify – server-side message classification
+  // ===========================
+  app.post("/api/chat/classify", async (req, res) => {
+    try {
+      const { message } = req.body;
+      if (!message || typeof message !== 'string') {
+        return res.status(400).json({ error: 'Missing or invalid "message" field' });
+      }
+      const { classifyMessage } = await import('./lib/classifyMessage.js');
+      const result = await classifyMessage(message);
+      console.log(`[CLASSIFY] route=${result.route} reason="${result.reason}" confidence=${result.confidence} msg="${message.slice(0, 80)}"`);
+      return res.json(result);
+    } catch (err: any) {
+      console.error(`[CLASSIFY_ERROR] ${err.message}`);
+      return res.status(500).json({ error: 'Classification failed', route: 'direct_response', reason: 'error fallback' });
+    }
+  });
+
+  // ===========================
   // POST /api/chat – streaming + MEMORY
   // ===========================
   app.post("/api/chat", async (req, res) => {
@@ -2206,6 +2225,119 @@ export async function registerRoutes(app: Express): Promise<Server> {
         res.write(`data: [DONE]\n\n`);
         res.end();
         return;
+      }
+
+      // ─── CLASSIFY GATE: catch monitoring/search intents that decideChatMode missed ───
+      // Only runs when decideChatMode returned CHAT_INFO — other modes are already handled above
+      if (modeDecision.mode === 'CHAT_INFO') {
+        try {
+        const { classifyMessage } = await import('./lib/classifyMessage.js');
+        const classification = await classifyMessage(latestUserText);
+        console.log(`🔎 [CLASSIFY_GATE] route=${classification.route} reason="${classification.reason}" confidence=${classification.confidence} crid=${clientRequestId || 'none'}`);
+
+        if (classification.route === 'supervisor_plan') {
+          closeAllClarifySessions(conversationId);
+
+          try {
+            const intentResult = detectSupervisorIntent(latestUserText);
+            const taskType = intentResult.taskType || 'find_prospects';
+            const bizType = intentResult.requestData?.search_query?.business_type || '';
+            const bizLocation = intentResult.requestData?.search_query?.location;
+            const resolvedCountClassify = intentResult.requestData?.search_query?.requested_count;
+            const requestDataClassify: Record<string, any> = {
+              user_message: latestUserText,
+              ...(intentResult.requestData || {}),
+              search_query: {
+                business_type: bizType,
+                location: bizLocation,
+                ...(resolvedCountClassify !== undefined ? { requested_count: resolvedCountClassify } : {}),
+              },
+              classify_override: {
+                original_mode: modeDecision.mode,
+                classify_route: classification.route,
+                classify_reason: classification.reason,
+                classify_confidence: classification.confidence,
+              },
+            };
+
+            if (google_query_mode) requestDataClassify.google_query_mode = google_query_mode;
+            if (metadata) {
+              if (metadata.scenario) requestDataClassify.scenario = metadata.scenario;
+              if (metadata.constraints) requestDataClassify.constraints = metadata.constraints;
+              requestDataClassify.metadata = metadata;
+            }
+
+            emitSse({
+              type: 'status',
+              stage: 'planning',
+              message: 'Creating supervisor plan',
+              clientRequestId: clientRequestId || undefined,
+              conversationId,
+            });
+
+            if (clientRequestId) {
+              await logRouterDecision({
+                userId: user.id,
+                conversationId,
+                clientRequestId,
+                decision: 'supervisor_plan',
+                reason: `CLASSIFY_GATE override: decideChatMode said ${modeDecision.mode} but classify says supervisor_plan (${classification.reason})`,
+                signals: { taskType, classifyReason: classification.reason, classifyConfidence: classification.confidence, originalMode: modeDecision.mode },
+              }).catch(err => console.error('AFR router log error:', err.message));
+            }
+
+            const supervisorTaskClassify = await createSupervisorTask(
+              conversationId,
+              user.id,
+              taskType,
+              requestDataClassify,
+              {
+                runId: agentRunId || runId,
+                clientRequestId: clientRequestId || undefined,
+              }
+            );
+
+            console.log(`[SUPERVISOR_TASK_CREATED_VIA_CLASSIFY] id=${supervisorTaskClassify.id} status=${supervisorTaskClassify.status} task_type=${supervisorTaskClassify.task_type} run_id=${supervisorTaskClassify.run_id || 'N/A'} client_request_id=${supervisorTaskClassify.client_request_id || 'N/A'}`);
+
+            res.write(`data: ${JSON.stringify({
+              supervisorTaskId: supervisorTaskClassify.id,
+              supervisorTaskType: taskType,
+            })}\n\n`);
+
+            if (clientRequestId) {
+              await transitionRunToExecuting(clientRequestId);
+            }
+
+            const sqClassify = requestDataClassify.search_query;
+            const titleCaseClassify = (s: string) => s.replace(/\b\w/g, c => c.toUpperCase());
+            const confidenceMsgClassify = sqClassify?.business_type
+              ? `Searching for ${sqClassify?.requested_count ? `${sqClassify.requested_count} ` : ''}${sqClassify.business_type}${sqClassify?.location ? ` in ${titleCaseClassify(sqClassify.location)}` : ''}.`
+              : `Working on your request — this has been sent to the Supervisor for processing.`;
+
+            appendMessage(sessionId, { role: "assistant", content: confidenceMsgClassify });
+            await saveMessage(conversationId, "assistant", confidenceMsgClassify);
+
+            res.write(`data: ${JSON.stringify({ type: 'confidence', content: confidenceMsgClassify })}\n\n`);
+
+            emitSse({
+              type: 'status',
+              stage: 'completed',
+              message: 'Delegated to Supervisor',
+              clientRequestId: clientRequestId || undefined,
+              conversationId,
+            });
+
+            console.log(`[CHAT_ROUTE=CLASSIFY_GATE_SUPERVISOR] crid=${clientRequestId || 'none'} run_id=${agentRunId || runId} taskId=${supervisorTaskClassify.id}`);
+            res.write(`data: [DONE]\n\n`);
+            res.end();
+            return;
+          } catch (error: any) {
+            console.error(`[CLASSIFY_GATE_SUPERVISOR_ERROR] crid=${clientRequestId || 'none'} error=${error.message} — falling through to CHAT_INFO`);
+          }
+        }
+        } catch (classifyErr: any) {
+          console.error(`[CLASSIFY_GATE_ERROR] Classification failed, falling through to CHAT_INFO: ${classifyErr.message}`);
+        }
       }
 
       // ─── CHAT_INFO LANE: normal GPT-5 streaming response ───
