@@ -1383,9 +1383,26 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
               const artRes = await fetch(artUrl, { credentials: 'include', cache: 'no-store' });
               if (artRes.ok) {
                 const artRows = await artRes.json();
-                const gateRow = Array.isArray(artRows)
-                  ? artRows.find((r: any) => r.type === 'clarify_gate')
-                  : null;
+                let gateRow: any = null;
+                let gateSource: 'clarify_gate' | 'constraint_gate_diagnostic' | null = null;
+
+                if (Array.isArray(artRows)) {
+                  gateRow = artRows.find((r: any) => r.type === 'clarify_gate');
+                  if (gateRow) {
+                    gateSource = 'clarify_gate';
+                  } else {
+                    gateRow = artRows.find((r: any) => {
+                      if (r.type !== 'diagnostic') return false;
+                      const t = (r.title || '').toLowerCase();
+                      if (t.includes('constraint gate') && t.includes('blocked')) return true;
+                      let pj = r.payload_json;
+                      if (typeof pj === 'string') { try { pj = JSON.parse(pj); } catch { return false; } }
+                      if (pj?.constraint_contract?.can_execute === false && pj?.constraint_contract?.clarify_questions?.length > 0) return true;
+                      return false;
+                    });
+                    if (gateRow) gateSource = 'constraint_gate_diagnostic';
+                  }
+                }
 
                 if (gateRow) {
                   clarifyDetected.add(effectiveKey);
@@ -1394,9 +1411,20 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                     try { gatePayload = JSON.parse(gatePayload); } catch { gatePayload = null; }
                   }
 
-                  const questions: string[] = Array.isArray(gatePayload?.questions) ? gatePayload.questions : [];
+                  const cc = gatePayload?.constraint_contract;
+                  const blockedConstraint = Array.isArray(cc?.constraints)
+                    ? cc.constraints.find((c: any) => c.can_execute === false && c.clarify_question)
+                    : null;
+
+                  const questions: string[] =
+                    Array.isArray(cc?.clarify_questions) ? cc.clarify_questions
+                    : Array.isArray(gatePayload?.questions) ? gatePayload.questions
+                    : [];
+
                   const reason: string =
                     (questions.length > 0 ? questions[0] : null)
+                    || blockedConstraint?.clarify_question
+                    || cc?.why_blocked
                     || gatePayload?.reason
                     || gatePayload?.why_blocked
                     || gatePayload?.question
@@ -1409,14 +1437,26 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                   const options: string[] =
                     Array.isArray(gatePayload?.options) ? gatePayload.options
                     : Array.isArray(gatePayload?.choices) ? gatePayload.choices
+                    : Array.isArray(cc?.options) ? cc.options
+                    : Array.isArray(blockedConstraint?.options) ? blockedConstraint.options
                     : Array.isArray(gatePayload?.subjective_options) ? gatePayload.subjective_options
                     : Array.isArray(gatePayload?.numeric_options) ? gatePayload.numeric_options
                     : Array.isArray(gatePayload?.relationship_options) ? gatePayload.relationship_options
                     : Array.isArray(gatePayload?.proxy_options) ? gatePayload.proxy_options
                     : [];
 
-                  const constraintType: string = gatePayload?.constraint_type || gatePayload?.type || 'unknown';
-                  const constraintLabel: string = gatePayload?.constraint_label || gatePayload?.label || constraintType;
+                  const constraintType: string =
+                    blockedConstraint?.type
+                    || gatePayload?.constraint_type
+                    || gatePayload?.type
+                    || (cc?.constraints?.[0]?.type)
+                    || 'unknown';
+                  const constraintLabel: string =
+                    gatePayload?.constraint_label
+                    || gatePayload?.label
+                    || blockedConstraint?.predicate
+                    || blockedConstraint?.attribute
+                    || constraintType;
                   const parsedFields = gatePayload?.parsed_fields || gatePayload?.fields || {};
 
                   const normalizedConstraintType =
@@ -1450,21 +1490,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                   setLastLane("chat");
                   pendingClarifyRunRef.current = { runId: runId || null, crid: crid || effectiveKey };
 
-                  let clarifyContent = '**Wyshbone needs clarification before continuing:**\n\n' + reason;
-                  if (options.length > 0) {
-                    const optionLetters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-                    clarifyContent += '\n\n';
-                    options.forEach((opt, i) => {
-                      const letter = i < optionLetters.length ? optionLetters[i] : `${i + 1}`;
-                      clarifyContent += `${letter}) ${opt}\n`;
-                    });
-                  }
-                  if (questions.length > 1) {
-                    clarifyContent += '\n---\n';
-                    for (let qi = 1; qi < questions.length; qi++) {
-                      clarifyContent += `\n${questions[qi]}`;
-                    }
-                  }
+                  let clarifyContent = reason;
 
                   const clarifyMsgId = `clarify-gate-${effectiveKey}`;
                   setMessages((prev) => {
@@ -1486,7 +1512,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                     return true;
                   }));
 
-                  console.log(`[Chat][AFR-Poll] Surfaced clarify_gate for ${effectiveKey}: type=${constraintType}, reason=${reason.slice(0, 80)}, options=${options.length}`);
+                  console.log(`[Chat][AFR-Poll] Surfaced ${gateSource} for ${effectiveKey}: type=${constraintType}, reason=${reason.slice(0, 80)}, options=${options.length}`);
                   continue;
                 } else if (status === 'clarifying') {
                   console.log(`[Chat][AFR-Poll] Run ${effectiveKey} is clarifying but no clarify_gate artefact found yet`);

@@ -926,7 +926,7 @@ export function createAfrRouter(_storage: typeof storage) {
               const runIdsToCheck = [agentRun.id];
               if ((agentRun as any).supervisorRunId) runIdsToCheck.push((agentRun as any).supervisorRunId);
               for (const rid of runIdsToCheck) {
-                const gateCheck = await db.execute(sql`SELECT 1 FROM artefacts WHERE run_id = ${rid} AND type = 'clarify_gate' LIMIT 1`);
+                const gateCheck = await db.execute(sql`SELECT 1 FROM artefacts WHERE run_id = ${rid} AND (type = 'clarify_gate' OR (type = 'diagnostic' AND title ILIKE '%constraint gate%BLOCKED%')) LIMIT 1`);
                 const found = Array.isArray(gateCheck) ? gateCheck.length > 0 : (gateCheck as any).rows?.length > 0;
                 if (found) { hasClarifyGate = true; break; }
               }
@@ -954,13 +954,13 @@ export function createAfrRouter(_storage: typeof storage) {
             const execRunIds = [agentRun.id];
             if ((agentRun as any).supervisorRunId) execRunIds.push((agentRun as any).supervisorRunId);
             for (const rid of execRunIds) {
-              const gateCheck = await db.execute(sql`SELECT 1 FROM artefacts WHERE run_id = ${rid} AND type = 'clarify_gate' LIMIT 1`);
+              const gateCheck = await db.execute(sql`SELECT 1 FROM artefacts WHERE run_id = ${rid} AND (type = 'clarify_gate' OR (type = 'diagnostic' AND title ILIKE '%constraint gate%BLOCKED%')) LIMIT 1`);
               const found = Array.isArray(gateCheck) ? gateCheck.length > 0 : (gateCheck as any).rows?.length > 0;
               if (found) { hasClarifyGateExecuting = true; break; }
             }
           } catch {}
           if (hasClarifyGateExecuting) {
-            console.log(`[AFR_STREAM] Run ${agentRun.id} (status=${agentRun.status}) has clarify_gate artefact — overriding to clarifying`);
+            console.log(`[AFR_STREAM] Run ${agentRun.id} (status=${agentRun.status}) has clarify_gate/constraint_gate BLOCKED artefact — overriding to clarifying`);
             isTerminal = false;
             terminalState = null;
             overallStatus = 'clarifying';
@@ -974,13 +974,13 @@ export function createAfrRouter(_storage: typeof storage) {
               const staleRunIds = [agentRun.id];
               if ((agentRun as any).supervisorRunId) staleRunIds.push((agentRun as any).supervisorRunId);
               for (const rid of staleRunIds) {
-                const gateCheck = await db.execute(sql`SELECT 1 FROM artefacts WHERE run_id = ${rid} AND type = 'clarify_gate' LIMIT 1`);
+                const gateCheck = await db.execute(sql`SELECT 1 FROM artefacts WHERE run_id = ${rid} AND (type = 'clarify_gate' OR (type = 'diagnostic' AND title ILIKE '%constraint gate%BLOCKED%')) LIMIT 1`);
                 const found = Array.isArray(gateCheck) ? gateCheck.length > 0 : (gateCheck as any).rows?.length > 0;
                 if (found) { hasClarifyGate = true; break; }
               }
             } catch {}
             if (hasClarifyGate) {
-              console.log(`[AFR_STALE] Run ${agentRun.id} has clarify_gate — exempt from stale timeout (${Math.round(age / 1000)}s)`);
+              console.log(`[AFR_STALE] Run ${agentRun.id} has clarify_gate/constraint_gate — exempt from stale timeout (${Math.round(age / 1000)}s)`);
               isTerminal = false;
               terminalState = null;
               overallStatus = 'clarifying';
