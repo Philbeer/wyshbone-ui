@@ -370,8 +370,9 @@ export function createAfrRouter(_storage: typeof storage) {
       let rows = Array.isArray(result) ? result : (result as any).rows ?? [];
       let lookupPath = 'direct';
 
+      const hasClarifyGateLocal = rows.some((r: any) => r.type === 'clarify_gate');
       const hasDeliverySummary = rows.some((r: any) => r.type === 'delivery_summary');
-      if (!hasDeliverySummary && resolvedRunId) {
+      if ((!hasDeliverySummary || !hasClarifyGateLocal) && resolvedRunId) {
         let supervisorRunId: string | undefined;
 
         const agentRunById = await storage.getAgentRun(resolvedRunId);
@@ -948,9 +949,26 @@ export function createAfrRouter(_storage: typeof storage) {
           uiReady = true;
           console.log(`[AFR_STREAM] Run ${agentRun.id} has status=${agentRun.status} but no terminalState — inferring terminal=${terminalState}`);
         } else if (agentRun.status !== 'clarifying') {
+          let hasClarifyGateExecuting = false;
+          try {
+            const execRunIds = [agentRun.id];
+            if ((agentRun as any).supervisorRunId) execRunIds.push((agentRun as any).supervisorRunId);
+            for (const rid of execRunIds) {
+              const gateCheck = await db.execute(sql`SELECT 1 FROM artefacts WHERE run_id = ${rid} AND type = 'clarify_gate' LIMIT 1`);
+              const found = Array.isArray(gateCheck) ? gateCheck.length > 0 : (gateCheck as any).rows?.length > 0;
+              if (found) { hasClarifyGateExecuting = true; break; }
+            }
+          } catch {}
+          if (hasClarifyGateExecuting) {
+            console.log(`[AFR_STREAM] Run ${agentRun.id} (status=${agentRun.status}) has clarify_gate artefact — overriding to clarifying`);
+            isTerminal = false;
+            terminalState = null;
+            overallStatus = 'clarifying';
+          }
+
           const updatedAt = agentRun.updatedAt ? new Date(agentRun.updatedAt).getTime() : 0;
           const age = Date.now() - updatedAt;
-          if (age > STALE_RUN_TIMEOUT_MS && !isTerminal) {
+          if (age > STALE_RUN_TIMEOUT_MS && !isTerminal && !hasClarifyGateExecuting) {
             let hasClarifyGate = false;
             try {
               const staleRunIds = [agentRun.id];

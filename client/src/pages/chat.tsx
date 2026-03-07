@@ -1395,39 +1395,76 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                   }
 
                   const questions: string[] = Array.isArray(gatePayload?.questions) ? gatePayload.questions : [];
-                  const reason: string = (questions.length > 0 ? questions[0] : null) || gatePayload?.reason || gateRow.summary || 'I need a bit more information before I can search.';
-                  const options: string[] = Array.isArray(gatePayload?.options) ? gatePayload.options : [];
-                  const constraintType: string = gatePayload?.constraint_type || gatePayload?.reason || 'unknown';
-                  const constraintLabel: string = gatePayload?.constraint_label || constraintType;
-                  const parsedFields = gatePayload?.parsed_fields || {};
+                  const reason: string =
+                    (questions.length > 0 ? questions[0] : null)
+                    || gatePayload?.reason
+                    || gatePayload?.why_blocked
+                    || gatePayload?.question
+                    || gatePayload?.prompt
+                    || gatePayload?.message
+                    || gatePayload?.description
+                    || gateRow.summary
+                    || 'I need a bit more information before I can search.';
+
+                  const options: string[] =
+                    Array.isArray(gatePayload?.options) ? gatePayload.options
+                    : Array.isArray(gatePayload?.choices) ? gatePayload.choices
+                    : Array.isArray(gatePayload?.subjective_options) ? gatePayload.subjective_options
+                    : Array.isArray(gatePayload?.numeric_options) ? gatePayload.numeric_options
+                    : Array.isArray(gatePayload?.relationship_options) ? gatePayload.relationship_options
+                    : Array.isArray(gatePayload?.proxy_options) ? gatePayload.proxy_options
+                    : [];
+
+                  const constraintType: string = gatePayload?.constraint_type || gatePayload?.type || 'unknown';
+                  const constraintLabel: string = gatePayload?.constraint_label || gatePayload?.label || constraintType;
+                  const parsedFields = gatePayload?.parsed_fields || gatePayload?.fields || {};
+
+                  const normalizedConstraintType =
+                    constraintType === 'subjective_term' || constraintType === 'subjective' ? 'subjective'
+                    : constraintType === 'numeric_predicate' || constraintType === 'numeric_ambiguity' ? 'numeric_ambiguity'
+                    : constraintType === 'relationship_predicate' || constraintType === 'relationship' ? 'relationship_predicate'
+                    : constraintType === 'time_predicate' ? 'time_predicate'
+                    : constraintType;
 
                   const contract: ConstraintContract = {
-                    type: constraintType === 'subjective_term' ? 'subjective'
-                        : constraintType === 'numeric_predicate' ? 'numeric_ambiguity'
-                        : constraintType === 'relationship_predicate' ? 'relationship_predicate'
-                        : constraintType === 'time_predicate' ? 'time_predicate'
-                        : constraintType,
+                    type: normalizedConstraintType,
                     can_execute: false,
                     why_blocked: reason,
-                    ...(constraintType === 'subjective_term' ? { subjective_options: options } : {}),
-                    ...(constraintType === 'numeric_predicate' ? { numeric_options: options } : {}),
-                    ...(constraintType === 'relationship_predicate' ? { relationship_options: options } : {}),
-                    ...(constraintType !== 'subjective_term' && constraintType !== 'numeric_predicate' && constraintType !== 'relationship_predicate' ? { proxy_options: options } : {}),
+                    ...(normalizedConstraintType === 'subjective' ? { subjective_options: options } : {}),
+                    ...(normalizedConstraintType === 'numeric_ambiguity' ? { numeric_options: options } : {}),
+                    ...(normalizedConstraintType === 'relationship_predicate' ? { relationship_options: options } : {}),
+                    ...(normalizedConstraintType !== 'subjective' && normalizedConstraintType !== 'numeric_ambiguity' && normalizedConstraintType !== 'relationship_predicate' ? { proxy_options: options } : {}),
                   };
 
                   setClarifyContext({
-                    entityType: parsedFields.business_type || null,
-                    location: parsedFields.location || null,
+                    entityType: parsedFields.business_type || parsedFields.entity_type || null,
+                    location: parsedFields.location || parsedFields.location_text || null,
                     semanticConstraint: constraintLabel !== 'unknown' ? constraintLabel : null,
-                    count: parsedFields.count || null,
+                    count: parsedFields.count || parsedFields.requested_count || null,
                     missingFields: [],
                     status: 'gathering',
-                    pendingQuestions: [reason],
+                    pendingQuestions: questions.length > 0 ? questions : [reason],
                     constraintContract: contract,
                   });
                   setIsClarifyingForRun(true);
                   setLastLane("chat");
                   pendingClarifyRunRef.current = { runId: runId || null, crid: crid || effectiveKey };
+
+                  let clarifyContent = '**Wyshbone needs clarification before continuing:**\n\n' + reason;
+                  if (options.length > 0) {
+                    const optionLetters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+                    clarifyContent += '\n\n';
+                    options.forEach((opt, i) => {
+                      const letter = i < optionLetters.length ? optionLetters[i] : `${i + 1}`;
+                      clarifyContent += `${letter}) ${opt}\n`;
+                    });
+                  }
+                  if (questions.length > 1) {
+                    clarifyContent += '\n---\n';
+                    for (let qi = 1; qi < questions.length; qi++) {
+                      clarifyContent += `\n${questions[qi]}`;
+                    }
+                  }
 
                   const clarifyMsgId = `clarify-gate-${effectiveKey}`;
                   setMessages((prev) => {
@@ -1435,7 +1472,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                     return [...prev, {
                       id: clarifyMsgId,
                       role: 'assistant' as const,
-                      content: reason,
+                      content: clarifyContent,
                       timestamp: new Date(),
                       isClarifyMsg: true,
                     }];
@@ -1449,7 +1486,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                     return true;
                   }));
 
-                  console.log(`[Chat][AFR-Poll] Surfaced clarify_gate for ${effectiveKey}: type=${constraintType}, reason=${reason.slice(0, 80)}`);
+                  console.log(`[Chat][AFR-Poll] Surfaced clarify_gate for ${effectiveKey}: type=${constraintType}, reason=${reason.slice(0, 80)}, options=${options.length}`);
                   continue;
                 } else if (status === 'clarifying') {
                   console.log(`[Chat][AFR-Poll] Run ${effectiveKey} is clarifying but no clarify_gate artefact found yet`);
