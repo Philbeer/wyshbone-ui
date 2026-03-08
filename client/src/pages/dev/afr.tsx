@@ -278,6 +278,8 @@ function RunsList({ onRunClick }: { onRunClick: (run: AfrRun) => void }) {
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [fetchMs, setFetchMs] = useState<number | null>(null);
   const mountRef = useRef(Date.now());
+  const [bulkExportCount, setBulkExportCount] = useState(5);
+  const [bulkExporting, setBulkExporting] = useState(false);
 
   const fetchRuns = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true); else setLoading(true);
@@ -363,6 +365,46 @@ function RunsList({ onRunClick }: { onRunClick: (run: AfrRun) => void }) {
           {fetchMs !== null && <span className="ml-1 opacity-60">({fetchMs}ms)</span>}
           {refreshing && <Loader2 className="w-3 h-3 inline ml-1 animate-spin" />}
         </span>
+
+        <div className="flex items-center gap-1.5 ml-auto border-l pl-3 border-border">
+          <span className="text-xs text-muted-foreground whitespace-nowrap">Export last</span>
+          <Input
+            type="number"
+            min={1}
+            max={BULK_EXPORT_MAX}
+            value={bulkExportCount}
+            onChange={e => {
+              const val = parseInt(e.target.value, 10);
+              if (isNaN(val)) return;
+              setBulkExportCount(Math.min(Math.max(1, val), BULK_EXPORT_MAX));
+            }}
+            onBlur={() => {
+              setBulkExportCount(c => Math.min(Math.max(1, c), BULK_EXPORT_MAX));
+            }}
+            className="w-14 h-7 text-xs text-center px-1"
+            disabled={bulkExporting}
+          />
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={bulkExporting || loading || filtered.length === 0}
+            className="h-7 text-xs"
+            onClick={async () => {
+              setBulkExporting(true);
+              try {
+                await exportMultipleRunsAsHtml(filtered, bulkExportCount);
+              } catch (e: any) {
+                console.error('[AFR Bulk Export] Failed:', e);
+              } finally {
+                setBulkExporting(false);
+              }
+            }}
+          >
+            {bulkExporting
+              ? <><Loader2 className="w-3 h-3 mr-1 animate-spin" /> Exporting...</>
+              : <><Download className="w-3 h-3 mr-1" /> Export {Math.min(bulkExportCount, filtered.length)} runs</>}
+          </Button>
+        </div>
       </div>
 
       {error && !runs.length ? (
@@ -457,10 +499,48 @@ function prettyJson(val: any): string {
   return JSON.stringify(val, null, 2);
 }
 
-async function exportRunAsHtml(
+const BULK_EXPORT_MAX = 15;
+
+const EXPORT_CSS = `
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 13px; color: #1a1a1a; padding: 32px; max-width: 1100px; margin: 0 auto; line-height: 1.5; }
+    h1 { font-size: 20px; margin-bottom: 4px; }
+    h2 { font-size: 16px; margin: 28px 0 12px; padding-bottom: 6px; border-bottom: 2px solid #e5e7eb; }
+    h3 { font-size: 14px; margin: 16px 0 8px; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 16px; }
+    th, td { border: 1px solid #d1d5db; padding: 6px 10px; text-align: left; vertical-align: top; font-size: 12px; }
+    th { background: #f3f4f6; font-weight: 600; }
+    .meta-grid { display: grid; grid-template-columns: 140px 1fr; gap: 4px 12px; margin-bottom: 16px; }
+    .meta-grid dt { font-weight: 600; color: #6b7280; }
+    .meta-grid dd { font-family: monospace; font-size: 12px; word-break: break-all; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+    .badge-completed, .badge-success, .badge-pass { background: #dcfce7; color: #166534; }
+    .badge-failed, .badge-fail { background: #fee2e2; color: #991b1b; }
+    .badge-running, .badge-executing, .badge-pending { background: #dbeafe; color: #1e40af; }
+    .badge-stopped, .badge-clarifying { background: #fef9c3; color: #854d0e; }
+    pre { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 4px; padding: 8px 12px; overflow-x: auto; white-space: pre-wrap; word-break: break-word; font-size: 11px; font-family: 'SF Mono', 'Fira Code', monospace; max-height: none; }
+    .event-row { border-bottom: 1px solid #e5e7eb; padding: 8px 0; }
+    .event-row:last-child { border-bottom: none; }
+    .section-empty { color: #9ca3af; font-style: italic; padding: 12px 0; }
+    .run-separator { border: none; border-top: 3px solid #6366f1; margin: 48px 0 32px; }
+    .run-header-bar { background: #f3f4f6; border: 1px solid #d1d5db; border-radius: 6px; padding: 12px 16px; margin-bottom: 16px; }
+    @media print { body { padding: 16px; } h2 { break-before: auto; } pre { white-space: pre-wrap; } .run-separator { break-before: page; } }
+    @page { margin: 1.5cm; }
+  `;
+
+function exportBadgeClass(s: string): string {
+  const sl = (s || '').toLowerCase();
+  if (sl === 'completed' || sl === 'success' || sl === 'pass') return 'badge-completed';
+  if (sl === 'failed' || sl === 'fail') return 'badge-failed';
+  if (sl === 'running' || sl === 'executing' || sl === 'pending') return 'badge-running';
+  if (sl === 'stopped' || sl === 'clarifying') return 'badge-stopped';
+  return '';
+}
+
+async function fetchRunExportData(
   runId: string,
   clientRequestId: string | null,
-) {
+): Promise<{ runData: any; events: StreamEvent[]; artefacts: Artefact[]; judgements: Judgement[] }> {
   const fetchJson = async (path: string) => {
     const url = addDevAuthParams(path);
     const res = await fetch(url);
@@ -538,40 +618,18 @@ async function exportRunAsHtml(
     judgements = judgementsResult.judgements;
   }
 
-  const css = `
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 13px; color: #1a1a1a; padding: 32px; max-width: 1100px; margin: 0 auto; line-height: 1.5; }
-    h1 { font-size: 20px; margin-bottom: 4px; }
-    h2 { font-size: 16px; margin: 28px 0 12px; padding-bottom: 6px; border-bottom: 2px solid #e5e7eb; }
-    h3 { font-size: 14px; margin: 16px 0 8px; }
-    table { width: 100%; border-collapse: collapse; margin-bottom: 16px; }
-    th, td { border: 1px solid #d1d5db; padding: 6px 10px; text-align: left; vertical-align: top; font-size: 12px; }
-    th { background: #f3f4f6; font-weight: 600; }
-    .meta-grid { display: grid; grid-template-columns: 140px 1fr; gap: 4px 12px; margin-bottom: 16px; }
-    .meta-grid dt { font-weight: 600; color: #6b7280; }
-    .meta-grid dd { font-family: monospace; font-size: 12px; word-break: break-all; }
-    .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
-    .badge-completed, .badge-success, .badge-pass { background: #dcfce7; color: #166534; }
-    .badge-failed, .badge-fail { background: #fee2e2; color: #991b1b; }
-    .badge-running, .badge-executing, .badge-pending { background: #dbeafe; color: #1e40af; }
-    .badge-stopped, .badge-clarifying { background: #fef9c3; color: #854d0e; }
-    pre { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 4px; padding: 8px 12px; overflow-x: auto; white-space: pre-wrap; word-break: break-word; font-size: 11px; font-family: 'SF Mono', 'Fira Code', monospace; max-height: none; }
-    .event-row { border-bottom: 1px solid #e5e7eb; padding: 8px 0; }
-    .event-row:last-child { border-bottom: none; }
-    .section-empty { color: #9ca3af; font-style: italic; padding: 12px 0; }
-    @media print { body { padding: 16px; } h2 { break-before: auto; } pre { white-space: pre-wrap; } }
-    @page { margin: 1.5cm; }
-  `;
+  return { runData, events, artefacts, judgements };
+}
 
-  const badgeClass = (s: string) => {
-    const sl = (s || '').toLowerCase();
-    if (sl === 'completed' || sl === 'success' || sl === 'pass') return 'badge-completed';
-    if (sl === 'failed' || sl === 'fail') return 'badge-failed';
-    if (sl === 'running' || sl === 'executing' || sl === 'pending') return 'badge-running';
-    if (sl === 'stopped' || sl === 'clarifying') return 'badge-stopped';
-    return '';
-  };
-
+function buildRunSectionHtml(
+  runData: any,
+  runId: string,
+  clientRequestId: string | null,
+  events: StreamEvent[],
+  artefacts: Artefact[],
+  judgements: Judgement[],
+  sectionPrefix: string,
+): string {
   let eventsHtml = '';
   if (events.length === 0) {
     eventsHtml = '<p class="section-empty">No events recorded.</p>';
@@ -582,7 +640,7 @@ async function exportRunAsHtml(
         <td>${i + 1}</td>
         <td style="white-space:nowrap">${escHtml(formatTs(ev.ts))}</td>
         <td><code>${escHtml(ev.type)}</code></td>
-        <td><span class="badge ${badgeClass(ev.status)}">${escHtml(ev.status)}</span></td>
+        <td><span class="badge ${exportBadgeClass(ev.status)}">${escHtml(ev.status)}</span></td>
         <td>${escHtml(ev.summary)}</td>
       </tr>`;
     });
@@ -632,7 +690,7 @@ async function exportRunAsHtml(
     judgements.forEach(j => {
       judgementsHtml += `<tr>
         <td style="white-space:nowrap">${escHtml(formatTs(j.evaluated_at))}</td>
-        <td><span class="badge ${badgeClass(j.verdict)}">${escHtml(j.verdict)}</span></td>
+        <td><span class="badge ${exportBadgeClass(j.verdict)}">${escHtml(j.verdict)}</span></td>
         <td><code>${escHtml(j.reason_code)}</code></td>
         <td>${escHtml(j.explanation)}</td>
       </tr>`;
@@ -647,51 +705,130 @@ async function exportRunAsHtml(
     });
   }
 
-  const html = `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>AFR Run Export — ${escHtml(runId)}</title>
-<style>${css}</style>
-</head>
-<body>
-<h1>AFR Run Export</h1>
-<p style="color:#6b7280; margin-bottom:20px">Generated ${new Date().toISOString()}</p>
-
-<h2>1. Run Header</h2>
+  return `
 <dl class="meta-grid">
   <dt>Title / Goal</dt><dd>${escHtml(runData?.title || 'Unknown')}</dd>
   <dt>Run ID</dt><dd>${escHtml(runData?.run_id || runId)}</dd>
   <dt>Client Request ID</dt><dd>${escHtml(runData?.client_request_id || clientRequestId || '-')}</dd>
   <dt>Conversation ID</dt><dd>${escHtml(runData?.conversation_id || '-')}</dd>
-  <dt>Status</dt><dd><span class="badge ${badgeClass(runData?.status || '')}">${escHtml(runData?.status || 'unknown')}</span></dd>
+  <dt>Status</dt><dd><span class="badge ${exportBadgeClass(runData?.status || '')}">${escHtml(runData?.status || 'unknown')}</span></dd>
   <dt>Terminal State</dt><dd>${escHtml(runData?.terminal_state || '-')}</dd>
   <dt>Type</dt><dd>${escHtml(runData?.run_type || '-')}</dd>
   <dt>Created</dt><dd>${escHtml(formatTs(runData?.created_at))}</dd>
   <dt>Updated</dt><dd>${escHtml(formatTs(runData?.updated_at))}</dd>
 </dl>
 
-<h2>2. Event Timeline (${events.length} events)</h2>
+<h2>${sectionPrefix}Event Timeline (${events.length} events)</h2>
 ${eventsHtml}
 
-<h2>3. Artefacts (${artefacts.length})</h2>
+<h2>${sectionPrefix}Artefacts (${artefacts.length})</h2>
 ${artefactsHtml}
 
-<h2>4. Judgements (${judgements.length})</h2>
-${judgementsHtml}
+<h2>${sectionPrefix}Judgements (${judgements.length})</h2>
+${judgementsHtml}`;
+}
 
-</body>
-</html>`;
-
+function triggerHtmlDownload(html: string, filename: string) {
   const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = `afr-run-${runId}.html`;
+  a.download = filename;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(a.href);
+}
+
+async function exportRunAsHtml(
+  runId: string,
+  clientRequestId: string | null,
+) {
+  const { runData, events, artefacts, judgements } = await fetchRunExportData(runId, clientRequestId);
+
+  const bodyHtml = buildRunSectionHtml(runData, runId, clientRequestId, events, artefacts, judgements, '');
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>AFR Run Export — ${escHtml(runId)}</title>
+<style>${EXPORT_CSS}</style>
+</head>
+<body>
+<h1>AFR Run Export</h1>
+<p style="color:#6b7280; margin-bottom:20px">Generated ${new Date().toISOString()}</p>
+
+<h2>Run Header</h2>
+${bodyHtml}
+
+</body>
+</html>`;
+
+  triggerHtmlDownload(html, `afr-run-${runId}.html`);
+}
+
+async function exportMultipleRunsAsHtml(
+  runs: AfrRun[],
+  count: number,
+): Promise<void> {
+  const safeCount = Math.min(Math.max(1, count), BULK_EXPORT_MAX);
+  const runsToExport = runs.slice(0, safeCount);
+
+  if (runsToExport.length === 0) {
+    throw new Error('No runs available to export');
+  }
+
+  const allRunData = await Promise.all(
+    runsToExport.map(run => fetchRunExportData(run.id, run.client_request_id || null))
+  );
+
+  let bodySections = '';
+  runsToExport.forEach((run, idx) => {
+    const { runData, events, artefacts, judgements } = allRunData[idx];
+    const prefix = `Run ${idx + 1}/${runsToExport.length} — `;
+    if (idx > 0) {
+      bodySections += '<hr class="run-separator" />';
+    }
+    bodySections += `<div class="run-header-bar"><h2 style="margin:0; border:none; padding:0;">Run ${idx + 1} of ${runsToExport.length}: ${escHtml(runData?.title || run.goal_summary || 'Untitled')}</h2><p style="margin-top:4px; color:#6b7280; font-size:12px;">ID: ${escHtml(run.id)} | Status: ${escHtml(run.status)} | Created: ${escHtml(formatTs(run.created_at))}</p></div>`;
+    bodySections += buildRunSectionHtml(runData, run.id, run.client_request_id || null, events, artefacts, judgements, prefix);
+  });
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>AFR Bulk Export — ${runsToExport.length} runs</title>
+<style>${EXPORT_CSS}</style>
+</head>
+<body>
+<h1>AFR Bulk Export — ${runsToExport.length} run${runsToExport.length !== 1 ? 's' : ''}</h1>
+<p style="color:#6b7280; margin-bottom:8px">Generated ${new Date().toISOString()}</p>
+<p style="color:#6b7280; margin-bottom:20px">Exported the ${runsToExport.length} most recent run${runsToExport.length !== 1 ? 's' : ''} from the current view.</p>
+
+<h2>Summary</h2>
+<table>
+<thead><tr><th>#</th><th>Run ID</th><th>Goal</th><th>Status</th><th>Type</th><th>Created</th></tr></thead>
+<tbody>
+${runsToExport.map((r, i) => `<tr>
+  <td>${i + 1}</td>
+  <td style="font-family:monospace; font-size:11px;">${escHtml(r.id.length > 12 ? r.id.slice(0, 12) + '...' : r.id)}</td>
+  <td>${escHtml(r.goal_summary || 'Untitled')}</td>
+  <td><span class="badge ${exportBadgeClass(r.status)}">${escHtml(r.status)}</span></td>
+  <td>${escHtml(r.run_type || '-')}</td>
+  <td style="white-space:nowrap">${escHtml(formatTs(r.created_at))}</td>
+</tr>`).join('')}
+</tbody>
+</table>
+
+${bodySections}
+
+</body>
+</html>`;
+
+  const dateStr = new Date().toISOString().slice(0, 10);
+  triggerHtmlDownload(html, `afr-bulk-export-${runsToExport.length}-runs-${dateStr}.html`);
 }
 
 function RunDetail({
