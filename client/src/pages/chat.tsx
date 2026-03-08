@@ -9,7 +9,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest, authedFetch, addDevAuthParams, buildApiUrl, handleApiError } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Send, User, CheckCircle2, Search, Building2, HelpCircle, Activity, Loader2, AlertTriangle } from "lucide-react";
+import { Send, User, CheckCircle2, Search, Building2, HelpCircle, Activity, Loader2, AlertTriangle, AlertCircle } from "lucide-react";
 import type { ChatMessage, AddNoteResponse, DeepResearchCreateRequest } from "@shared/schema";
 import wyshboneLogo from "@assets/wyshbone-logo_1759667581806.png";
 import { LocationSuggestions } from "@/components/LocationSuggestions";
@@ -69,6 +69,7 @@ type Message = ChatMessage & {
   semanticJudgements?: SemanticJudgementEntry[] | null;
   isClarifyMsg?: boolean;
   isClarifySuperseded?: boolean;
+  isClarifyResolved?: boolean;
 };
 
 type SystemMessage = {
@@ -1527,7 +1528,23 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
             if (status === 'executing' || status === 'finalizing' || status === 'completed' || status === 'failed' || (status === 'stopped' && !data.clarify_gate)) {
               clarifyDetected.delete(effectiveKey);
               pendingClarifyRunRef.current = null;
-              console.log(`[Chat][AFR-Poll] Clarification resolved for ${effectiveKey}, status now ${status} — resuming normal poll`);
+              setIsClarifyingForRun(false);
+              setClarifyContext(null);
+
+              const clarifyMsgId = `clarify-gate-${effectiveKey}`;
+              setMessages((prev) => prev.map(m => {
+                if (m.id === clarifyMsgId && m.isClarifyMsg) {
+                  return {
+                    ...m,
+                    content: m.content,
+                    isClarifyMsg: false,
+                    isClarifyResolved: true,
+                  };
+                }
+                return m;
+              }));
+
+              console.log(`[Chat][AFR-Poll] Clarification resolved for ${effectiveKey}, status now ${status} — cleared clarify UI state`);
             } else {
               continue;
             }
@@ -3497,11 +3514,27 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                       className={`rounded-lg px-4 py-3 ${
                         isUser
                           ? "bg-primary text-primary-foreground"
+                          : chatMessage.isClarifyMsg
+                          ? "bg-amber-50 dark:bg-amber-950/40 border-2 border-amber-400 dark:border-amber-600"
+                          : chatMessage.isClarifyResolved
+                          ? "bg-muted/50 border border-border opacity-70"
                           : isSupervisor
                           ? "bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-950 dark:to-blue-900 border border-blue-200 dark:border-blue-800"
                           : "bg-card border border-card-border"
                       }`}
                     >
+                      {!isUser && chatMessage.isClarifyResolved && (
+                        <div className="flex items-center gap-1.5 mb-2 text-xs text-muted-foreground">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-green-500" />
+                          <span>Clarification answered — search resumed</span>
+                        </div>
+                      )}
+                      {!isUser && chatMessage.isClarifyMsg && (
+                        <div className="flex items-center gap-1.5 mb-2 text-xs font-medium text-amber-700 dark:text-amber-400">
+                          <AlertCircle className="w-3.5 h-3.5" />
+                          <span>Action required — please answer below</span>
+                        </div>
+                      )}
                       {!isUser && (chatMessage.content.includes('# 📊') || chatMessage.content.includes('[') && chatMessage.content.includes('](')) ? (
                         <div className="text-[15px] leading-relaxed prose prose-sm dark:prose-invert max-w-none">
                           <ReactMarkdown
