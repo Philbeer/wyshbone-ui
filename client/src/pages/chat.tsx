@@ -318,6 +318,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
   const prevClarifyMsgIdRef = useRef<string | null>(null);
   const latestClarifyMsgIdRef = useRef<string | null>(null);
   const pendingClarifyRunRef = useRef<{ runId: string | null; crid: string } | null>(null);
+  const clarifyResolvedKeysRef = useRef<Set<string>>(new Set());
 
   // Supervisor integration
   const [supervisorTaskId, setSupervisorTaskId] = useState<string | null>(null);
@@ -1371,7 +1372,8 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
 
           const shouldCheckClarifyGate =
             (status === 'clarifying' || status === 'executing' || status === 'stopped' || isTerminal) &&
-            !clarifyDetected.has(effectiveKey);
+            !clarifyDetected.has(effectiveKey) &&
+            !clarifyResolvedKeysRef.current.has(effectiveKey);
 
           if (shouldCheckClarifyGate) {
             console.log(`[Chat][AFR-Poll] Checking for clarify_gate artefact on ${effectiveKey} (status=${status})`);
@@ -1403,6 +1405,14 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                     });
                     if (gateRow) gateSource = 'constraint_gate_diagnostic';
                   }
+                }
+
+                const hasResolution = Array.isArray(artRows) && artRows.some((r: any) => r.type === 'clarify_resolution');
+
+                if (gateRow && hasResolution) {
+                  console.log(`[Chat][AFR-Poll] Found clarify_gate but also clarify_resolution for ${effectiveKey} — clarification already resolved, skipping`);
+                  clarifyResolvedKeysRef.current.add(effectiveKey);
+                  gateRow = null;
                 }
 
                 if (gateRow) {
@@ -1527,6 +1537,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
           if (clarifyDetected.has(effectiveKey)) {
             if (status === 'executing' || status === 'finalizing' || status === 'completed' || status === 'failed' || (status === 'stopped' && !data.clarify_gate)) {
               clarifyDetected.delete(effectiveKey);
+              clarifyResolvedKeysRef.current.add(effectiveKey);
               pendingClarifyRunRef.current = null;
               setIsClarifyingForRun(false);
               setClarifyContext(null);
@@ -1553,6 +1564,12 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
           if (isTerminal || status === 'completed' || status === 'failed' || 
               terminalState === 'PASS' || terminalState === 'FAIL' || terminalState === 'STOP') {
             terminalDetected.add(effectiveKey);
+            clarifyResolvedKeysRef.current.add(effectiveKey);
+            if (clarifyDetected.has(effectiveKey)) {
+              clarifyDetected.delete(effectiveKey);
+            }
+            setIsClarifyingForRun(false);
+            setClarifyContext(null);
 
             const finalized = await fetchArtefactsWithRetry(runId, crid);
             if (!finalized) {
@@ -2097,6 +2114,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         setShowLocationSuggestions(false);
         setIsClarifyingForRun(false);
         setClarifyContext(EMPTY_CLARIFY_CONTEXT);
+        clarifyResolvedKeysRef.current.clear();
         prevClarifyMsgIdRef.current = null;
         latestClarifyMsgIdRef.current = null;
         pendingClarifyRunRef.current = null;
@@ -2159,6 +2177,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         setShowLocationSuggestions(false);
         setIsClarifyingForRun(false);
         setClarifyContext(EMPTY_CLARIFY_CONTEXT);
+        clarifyResolvedKeysRef.current.clear();
         prevClarifyMsgIdRef.current = null;
         latestClarifyMsgIdRef.current = null;
         pendingClarifyRunRef.current = null;
@@ -2454,6 +2473,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                 streamIsClarifying = false;
                 setIsClarifyingForRun(false);
                 setClarifyContext(EMPTY_CLARIFY_CONTEXT);
+                clarifyResolvedKeysRef.current.add(clientRequestId);
                 prevClarifyMsgIdRef.current = null;
                 latestClarifyMsgIdRef.current = null;
                 console.log('✅ Clarify session ended');
@@ -2496,6 +2516,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                 streamIsClarifying = false;
                 setIsClarifyingForRun(false);
                 setClarifyContext(EMPTY_CLARIFY_CONTEXT);
+                clarifyResolvedKeysRef.current.add(clientRequestId);
                 streamHasSupervisorTask = true;
                 isRunLane = true;
                 setLastLane("run");
@@ -2939,6 +2960,8 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
 
     if (isAnsweringClarify && clarifyRun) {
       console.log(`[Chat][ClarifyContinuation] Replying to pending clarify run crid=${clarifyRun.crid.slice(0, 12)} runId=${clarifyRun.runId}`);
+      clarifyResolvedKeysRef.current.add(clarifyRun.crid);
+      if (clarifyRun.runId) clarifyResolvedKeysRef.current.add(clarifyRun.runId);
       pendingClarifyRunRef.current = null;
       setIsClarifyingForRun(false);
       setClarifyContext(EMPTY_CLARIFY_CONTEXT);

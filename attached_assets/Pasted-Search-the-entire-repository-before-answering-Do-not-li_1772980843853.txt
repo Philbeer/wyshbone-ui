@@ -1,0 +1,54 @@
+Search the entire repository before answering. Do not limit to open files.
+
+We need a focused UI bug fix.
+
+Bug:
+The clarify / quick question box is still being shown after the run has already resumed or completed.
+
+Example bad behaviour:
+- User gets a clarification question
+- User answers it
+- Search resumes and results are shown
+- But the old yellow “Quick question” / clarify box still remains on screen at the bottom
+
+This is misleading and annoying.
+
+Goal:
+Make clarify UI state truthfully reflect the current run state.
+
+What should happen:
+1. If a clarification prompt is active and waiting for user input, show the clarify box.
+2. Once the user answers and the run resumes, the old clarify box should stop being shown as an active pending question.
+3. If the run completes, fails, or moves into normal execution/results mode, the old clarify box must not remain visible as an unresolved prompt.
+4. Historical clarify messages can still exist in chat history as past messages, but the special active clarify UI block / quick-question input state must clear.
+
+Important distinction:
+- Do not delete the historical chat content.
+- Do clear the special “active clarification needed” UI state.
+- The UI must not imply that the agent is still waiting for an answer if it is not.
+
+Implementation requirements:
+1. Find the source of truth for:
+   - active clarification state
+   - waiting-for-user-input state
+   - run resumed / run completed / execution in progress state
+2. Fix the rendering logic so the clarify box only appears when clarification is genuinely pending.
+3. If there is derived state or cached state that is not being cleared, fix that properly.
+4. If there is a “current clarify question” object that persists too long, clear or invalidate it when:
+   - user submits clarification answer
+   - run re-enters execution
+   - run reaches terminal state
+5. Keep this production-grade.
+   - No hacky timeout
+   - No DOM hiding workaround
+   - No fragile one-off patch
+
+Please also:
+- check whether this bug affects both the main chat area and any right-side activity / quick-actions area
+- make sure the fix is consistent across refresh/reload if state is reconstructed from persisted data
+
+What I want back:
+1. Exact files changed
+2. Root cause
+3. What state now controls clarify-box visibility
+4. Why it will no longer remain visible after the run resumes/completes
