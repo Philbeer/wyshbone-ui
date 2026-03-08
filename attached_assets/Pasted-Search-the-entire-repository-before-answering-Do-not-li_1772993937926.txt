@@ -1,0 +1,112 @@
+Search the entire repository before answering. Do not limit to open files.
+
+We already have a dev QA runner page. Now I want to turn it into a lightweight regression testing dashboard for Wyshbone.
+
+Goal:
+Allow me to run saved test suites and see pass/fail results in one place after code changes.
+
+This is an internal dev/debug tool only.
+
+==================================================
+WHAT TO BUILD
+==================================================
+
+Enhance the dev QA runner page into a regression dashboard.
+
+Add:
+
+1. Saved test suites
+Examples for v1:
+- Stage 1 Core
+- Website Evidence
+- Relationship Checks
+- Ranking
+
+2. Ability to select a suite and run it
+Button:
+Run Selected Suite
+
+3. Per-test definition fields
+Each test should support:
+- query
+- expected outcome
+- optional expected planner strategy
+- notes
+
+4. Per-test result rows
+For each completed test show:
+- query
+- run id
+- status
+- blocked yes/no
+- clarified yes/no
+- timed out yes/no
+- Tower verdict
+- short result summary
+- pass/fail outcome against expectation
+- link to AFR run if possible
+
+5. Summary scoreboard
+At the top or bottom show:
+- total tests
+- passed
+- failed
+- blocked
+- timed out
+- pass percentage
+
+==================================================
+EXPECTED OUTCOME TYPES
+==================================================
+
+Support simple expected outcomes such as:
+- pass
+- fail
+- blocked
+- clarify
+- blocked_or_clarify
+
+A test should be judged against its expected outcome.
+
+Examples:
+- "Find pubs in Arundel with Swan in the name" => expected pass
+- "Find organisations that work with the local authority in Blackpool" => expected blocked_or_clarify unless strategy already supplied
+- "Find the best dentists in Brighton" => expected pass or clarify depending current design
+
+Keep this simple and explicit.
+
+==================================================
+V1 SUITES
+==================================================
+
+Create a small built-in default set.
+
+Stage 1 Core:
+- Find pubs in Arundel with Swan in the name
+- Find pubs in Arundel that mention live music on their website
+- Find organisations that work with the local authority in Blackpool
+- Find the best dentists in Brighton
+
+Add 1–2 more small suites if easy, but do not overbuild.
+
+==================================================
+IMPLEMENTATION REQUIREMENTS
+==================================================
+
+1. Reuse the existing internal QA runner logic
+2. Keep the suite definitions in a clean internal config structure
+3. Keep the result evaluation logic deterministic and readable
+4. Keep this isolated to the dev/internal QA route
+5. If possible, persist the latest suite run results in local UI state for review
+6. Keep styling simple and consistent
+
+==================================================
+WHAT I WANT BACK
+==================================================
+
+1. Exact files changed
+2. Where suite definitions live
+3. How pass/fail is evaluated
+4. What expected outcome types are supported
+5. What the default built-in suites are
+6. Whether each result links back to AFR
