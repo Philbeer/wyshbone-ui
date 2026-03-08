@@ -404,6 +404,14 @@ function RunsList({ onRunClick }: { onRunClick: (run: AfrRun) => void }) {
               ? <><Loader2 className="w-3 h-3 mr-1 animate-spin" /> Exporting...</>
               : <><Download className="w-3 h-3 mr-1" /> Export {Math.min(bulkExportCount, filtered.length)} runs</>}
           </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 text-xs ml-2"
+            onClick={() => window.open('/dev/qa', '_blank')}
+          >
+            <Play className="w-3 h-3 mr-1" /> Open QA Test Runner
+          </Button>
         </div>
       </div>
 

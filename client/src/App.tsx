@@ -70,6 +70,7 @@ import AfrPage from "@/pages/dev/afr";
 import LearningPage from "@/pages/learning";
 import RunTracePage from "@/pages/dev/run-trace";
 import InjectionMouldingPage from "@/pages/dev/injection-moulding";
+import QaTestRunnerPage from "@/pages/dev/qa-test-runner";
 import WorkflowPage from "@/pages/workflow";
 import { LayoutToggle } from "@/components/LayoutToggle";
 import { GoogleQueryModeToggle } from "@/components/GoogleQueryModeToggle";
@@ -157,6 +158,7 @@ function AgentFirstRouter({
       <Route path="/dev/progress" component={DevProgressPage} />
       <Route path="/dev/inspector" component={InspectorPage} />
       <Route path="/dev/afr" component={AfrPage} />
+      <Route path="/dev/qa" component={QaTestRunnerPage} />
       <Route path="/dev/run-trace" component={RunTracePage} />
       <Route path="/dev/injection-moulding" component={InjectionMouldingPage} />
       <Route path="/admin/database-maintenance" component={DatabaseMaintenance} />
@@ -242,6 +244,7 @@ function Router({
       <Route path="/dev/progress" component={DevProgressPage} />
       <Route path="/dev/inspector" component={InspectorPage} />
       <Route path="/dev/afr" component={AfrPage} />
+      <Route path="/dev/qa" component={QaTestRunnerPage} />
       <Route path="/dev/run-trace" component={RunTracePage} />
       <Route path="/dev/injection-moulding" component={InjectionMouldingPage} />
       <Route path="/admin/database-maintenance" component={DatabaseMaintenance} />
