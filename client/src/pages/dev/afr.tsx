@@ -501,39 +501,307 @@ function prettyJson(val: any): string {
 
 const BULK_EXPORT_MAX = 15;
 
+const KEY_EVENT_TYPES = new Set([
+  'mission_extraction', 'mission_completeness_check', 'clarify_gate', 'constraint_gate',
+  'pre_execution_constraint_gate', 'plan_created', 'plan_update', 'tower_verdict',
+  'tower_call_started', 'stop', 'change_plan', 'block', 'execution_completed',
+  'run_completed', 'run_failed', 'router_decision', 'supervisor_delegation',
+  'clarify_resolution', 'run_started', 'search_places', 'deep_research',
+]);
+
+const IMPORTANT_ARTEFACT_TYPES = new Set([
+  'mission_extraction', 'constraints_extracted', 'constraint_capability_check',
+  'diagnostic', 'tower_judgement', 'clarify_gate', 'clarify_resolution',
+  'intent_preview', 'run_configuration', 'leads_list', 'plan', 'plan_result',
+  'plan_update',
+]);
+
+const HIGHLIGHT_PAYLOAD_FIELDS = [
+  'raw_input', 'user_input', 'raw_user_input',
+  'pass1_interpretation', 'semantic_interpretation', 'pass1',
+  'pass2_structured', 'structured_mission', 'pass2',
+  'constraint_types', 'constraints', 'constraint_type',
+  'dropped_concepts', 'dropped',
+  'recommended_action', 'action', 'recommended',
+  'blocking_reason', 'why_blocked', 'block_reason',
+  'clarify_question', 'question', 'questions', 'pending_questions',
+  'verdict', 'tower_verdict',
+  'suggested_changes', 'suggestions',
+  'stop_reason', 'reason',
+  'evidence_summary', 'evidence', 'rationale',
+  'entity_type', 'business_type', 'location', 'location_text',
+  'requested_count', 'count',
+  'route', 'mode', 'scenario',
+  'can_execute', 'explanation',
+  'proxy_used', 'confidence',
+];
+
 const EXPORT_CSS = `
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 13px; color: #1a1a1a; padding: 32px; max-width: 1100px; margin: 0 auto; line-height: 1.5; }
-    h1 { font-size: 20px; margin-bottom: 4px; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 13px; color: #1a1a1a; padding: 32px; max-width: 1200px; margin: 0 auto; line-height: 1.6; }
+    h1 { font-size: 22px; margin-bottom: 4px; }
     h2 { font-size: 16px; margin: 28px 0 12px; padding-bottom: 6px; border-bottom: 2px solid #e5e7eb; }
     h3 { font-size: 14px; margin: 16px 0 8px; }
     table { width: 100%; border-collapse: collapse; margin-bottom: 16px; }
     th, td { border: 1px solid #d1d5db; padding: 6px 10px; text-align: left; vertical-align: top; font-size: 12px; }
     th { background: #f3f4f6; font-weight: 600; }
-    .meta-grid { display: grid; grid-template-columns: 140px 1fr; gap: 4px 12px; margin-bottom: 16px; }
-    .meta-grid dt { font-weight: 600; color: #6b7280; }
+    .meta-grid { display: grid; grid-template-columns: 150px 1fr; gap: 4px 12px; margin-bottom: 16px; }
+    .meta-grid dt { font-weight: 600; color: #6b7280; font-size: 12px; }
     .meta-grid dd { font-family: monospace; font-size: 12px; word-break: break-all; }
     .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
-    .badge-completed, .badge-success, .badge-pass { background: #dcfce7; color: #166534; }
-    .badge-failed, .badge-fail { background: #fee2e2; color: #991b1b; }
-    .badge-running, .badge-executing, .badge-pending { background: #dbeafe; color: #1e40af; }
-    .badge-stopped, .badge-clarifying { background: #fef9c3; color: #854d0e; }
+    .badge-completed, .badge-success, .badge-pass, .badge-accept { background: #dcfce7; color: #166534; }
+    .badge-failed, .badge-fail, .badge-reject, .badge-error { background: #fee2e2; color: #991b1b; }
+    .badge-running, .badge-executing, .badge-pending, .badge-started { background: #dbeafe; color: #1e40af; }
+    .badge-stopped, .badge-clarifying, .badge-revise { background: #fef9c3; color: #854d0e; }
     pre { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 4px; padding: 8px 12px; overflow-x: auto; white-space: pre-wrap; word-break: break-word; font-size: 11px; font-family: 'SF Mono', 'Fira Code', monospace; max-height: none; }
+    .section-empty { color: #9ca3af; font-style: italic; padding: 12px 0; }
+
+    .run-separator { border: none; border-top: 4px solid #4f46e5; margin: 56px 0 32px; }
+    .run-header-block { background: linear-gradient(135deg, #eef2ff, #e0e7ff); border: 2px solid #818cf8; border-radius: 8px; padding: 16px 20px; margin-bottom: 20px; }
+    .run-header-block h2 { margin: 0; border: none; padding: 0; font-size: 18px; color: #312e81; }
+    .run-header-block .run-subtitle { margin-top: 6px; color: #4338ca; font-size: 12px; font-family: monospace; }
+    .run-header-block .run-meta-row { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 12px; font-size: 12px; color: #4b5563; }
+    .run-header-block .run-meta-row span { display: inline-flex; align-items: center; gap: 4px; }
+
+    .glance-box { background: #fffbeb; border: 1px solid #fbbf24; border-radius: 6px; padding: 14px 18px; margin-bottom: 20px; }
+    .glance-box h3 { margin: 0 0 10px; font-size: 14px; color: #92400e; border: none; }
+    .glance-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 6px 16px; font-size: 12px; }
+    .glance-grid .glance-item { display: flex; gap: 6px; }
+    .glance-grid .glance-label { font-weight: 600; color: #78716c; min-width: 100px; }
+    .glance-grid .glance-value { color: #1c1917; }
+    .glance-reason { margin-top: 10px; padding-top: 8px; border-top: 1px solid #fde68a; font-size: 12px; color: #92400e; }
+
+    .key-moments { background: #f0fdf4; border: 1px solid #86efac; border-radius: 6px; padding: 14px 18px; margin-bottom: 20px; }
+    .key-moments h3 { margin: 0 0 10px; font-size: 14px; color: #166534; border: none; }
+    .key-moments ol { padding-left: 20px; margin: 0; }
+    .key-moments li { margin-bottom: 4px; font-size: 12px; line-height: 1.5; }
+    .key-moments .km-type { font-weight: 600; color: #15803d; }
+    .key-moments .km-status { margin-left: 6px; }
+    .key-moments .km-time { color: #6b7280; font-size: 11px; margin-left: 6px; }
+
+    .event-row-important { background: #fefce8; }
+    .event-row-fail { background: #fef2f2; }
+    .event-row-clarify { background: #eff6ff; }
     .event-row { border-bottom: 1px solid #e5e7eb; padding: 8px 0; }
     .event-row:last-child { border-bottom: none; }
-    .section-empty { color: #9ca3af; font-style: italic; padding: 12px 0; }
-    .run-separator { border: none; border-top: 3px solid #6366f1; margin: 48px 0 32px; }
-    .run-header-bar { background: #f3f4f6; border: 1px solid #d1d5db; border-radius: 6px; padding: 12px 16px; margin-bottom: 16px; }
-    @media print { body { padding: 16px; } h2 { break-before: auto; } pre { white-space: pre-wrap; } .run-separator { break-before: page; } }
+
+    .artefact-card { margin-bottom: 20px; border: 1px solid #e5e7eb; border-radius: 6px; overflow: hidden; }
+    .artefact-card-important { border-color: #818cf8; border-width: 2px; }
+    .artefact-card-header { padding: 10px 14px; background: #f9fafb; border-bottom: 1px solid #e5e7eb; }
+    .artefact-card-important .artefact-card-header { background: #eef2ff; }
+    .artefact-card-header h3 { margin: 0; font-size: 13px; }
+    .artefact-type-label { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-left: 8px; }
+    .atl-mission { background: #dbeafe; color: #1e40af; }
+    .atl-constraint { background: #fce7f3; color: #9d174d; }
+    .atl-diagnostic { background: #e0e7ff; color: #3730a3; }
+    .atl-tower { background: #fef3c7; color: #92400e; }
+    .atl-clarify { background: #cffafe; color: #155e75; }
+    .atl-plan { background: #d1fae5; color: #065f46; }
+    .atl-leads { background: #dcfce7; color: #166534; }
+    .atl-config { background: #f3e8ff; color: #6b21a8; }
+    .artefact-card-body { padding: 12px 14px; }
+    .artefact-summary-fields { margin-bottom: 12px; padding: 10px 12px; background: #fefce8; border: 1px solid #fde68a; border-radius: 4px; font-size: 12px; }
+    .artefact-summary-fields dt { font-weight: 600; color: #78716c; margin-top: 4px; }
+    .artefact-summary-fields dt:first-child { margin-top: 0; }
+    .artefact-summary-fields dd { margin-left: 0; color: #1c1917; word-break: break-word; }
+    .raw-payload-toggle { font-size: 11px; color: #6b7280; margin-top: 8px; padding-top: 8px; border-top: 1px dashed #e5e7eb; }
+    .raw-payload-toggle summary { cursor: pointer; font-weight: 600; }
+
+    .toc { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 14px 18px; margin-bottom: 24px; }
+    .toc h3 { margin: 0 0 8px; font-size: 14px; color: #334155; border: none; }
+    .toc ol { padding-left: 20px; margin: 0; }
+    .toc li { margin-bottom: 3px; font-size: 12px; }
+    .toc a { color: #4f46e5; text-decoration: none; }
+    .toc a:hover { text-decoration: underline; }
+
+    @media print { body { padding: 16px; } h2 { break-before: auto; } pre { white-space: pre-wrap; } .run-separator { break-before: page; } details { open: true; } details[open] summary { display: none; } }
     @page { margin: 1.5cm; }
   `;
 
 function exportBadgeClass(s: string): string {
   const sl = (s || '').toLowerCase();
-  if (sl === 'completed' || sl === 'success' || sl === 'pass') return 'badge-completed';
-  if (sl === 'failed' || sl === 'fail') return 'badge-failed';
-  if (sl === 'running' || sl === 'executing' || sl === 'pending') return 'badge-running';
-  if (sl === 'stopped' || sl === 'clarifying') return 'badge-stopped';
+  if (sl === 'completed' || sl === 'success' || sl === 'pass' || sl === 'accept' || sl === 'accept_with_unverified') return 'badge-completed';
+  if (sl === 'failed' || sl === 'fail' || sl === 'reject' || sl === 'error') return 'badge-failed';
+  if (sl === 'running' || sl === 'executing' || sl === 'pending' || sl === 'started') return 'badge-running';
+  if (sl === 'stopped' || sl === 'clarifying' || sl === 'revise') return 'badge-stopped';
+  return '';
+}
+
+function artefactTypeLabel(type: string): string {
+  const t = (type || '').toLowerCase();
+  if (t.includes('mission') || t === 'intent_preview') return '<span class="artefact-type-label atl-mission">Mission</span>';
+  if (t.includes('constraint') || t === 'constraints_extracted' || t === 'constraint_capability_check') return '<span class="artefact-type-label atl-constraint">Constraint</span>';
+  if (t === 'diagnostic') return '<span class="artefact-type-label atl-diagnostic">Diagnostic</span>';
+  if (t.includes('tower') || t === 'tower_judgement') return '<span class="artefact-type-label atl-tower">Tower</span>';
+  if (t.includes('clarify')) return '<span class="artefact-type-label atl-clarify">Clarify</span>';
+  if (t.includes('plan')) return '<span class="artefact-type-label atl-plan">Plan</span>';
+  if (t.includes('leads') || t === 'leads_list') return '<span class="artefact-type-label atl-leads">Leads</span>';
+  if (t === 'run_configuration') return '<span class="artefact-type-label atl-config">Config</span>';
+  return '';
+}
+
+function extractHighlightFields(payload: any): Array<{ key: string; value: string }> {
+  if (!payload) return [];
+  const obj = typeof payload === 'string' ? (() => { try { return JSON.parse(payload); } catch { return null; } })() : payload;
+  if (!obj || typeof obj !== 'object') return [];
+  const results: Array<{ key: string; value: string }> = [];
+  for (const field of HIGHLIGHT_PAYLOAD_FIELDS) {
+    if (field in obj && obj[field] != null) {
+      const val = obj[field];
+      const display = typeof val === 'object' ? JSON.stringify(val, null, 1) : String(val);
+      if (display.length > 0 && display !== 'null' && display !== 'undefined') {
+        results.push({ key: field, value: display.length > 500 ? display.slice(0, 500) + '...' : display });
+      }
+    }
+  }
+  return results;
+}
+
+interface RunGlance {
+  goal: string;
+  status: string;
+  clarified: boolean;
+  blocked: boolean;
+  towerJudged: boolean;
+  towerVerdict: string | null;
+  missionCheckPassed: boolean | null;
+  eventCount: number;
+  artefactCount: number;
+  judgementCount: number;
+  keyReason: string | null;
+  terminalState: string | null;
+}
+
+function extractRunGlance(
+  runData: any,
+  events: StreamEvent[],
+  artefacts: Artefact[],
+  judgements: Judgement[],
+): RunGlance {
+  const clarifyEvents = events.filter(ev =>
+    ev.type?.toLowerCase().includes('clarify') || ev.status?.toLowerCase() === 'clarifying'
+  );
+  const blockEvents = events.filter(ev =>
+    ev.type?.toLowerCase().includes('block') || ev.summary?.toLowerCase().includes('block')
+  );
+  const towerEvents = events.filter(ev =>
+    ev.type?.toLowerCase().includes('tower')
+  );
+  const towerArtefacts = artefacts.filter(a => a.type === 'tower_judgement');
+
+  let towerVerdict: string | null = null;
+  if (towerArtefacts.length > 0) {
+    const lastTower = towerArtefacts[towerArtefacts.length - 1];
+    const p = typeof lastTower.payload_json === 'string'
+      ? (() => { try { return JSON.parse(lastTower.payload_json); } catch { return null; } })()
+      : lastTower.payload_json;
+    towerVerdict = p?.verdict || null;
+  }
+  if (!towerVerdict && judgements.length > 0) {
+    towerVerdict = judgements[judgements.length - 1].verdict || null;
+  }
+
+  const missionCheckArts = artefacts.filter(a =>
+    a.type === 'constraint_capability_check' || a.type === 'mission_completeness_check'
+  );
+  let missionCheckPassed: boolean | null = null;
+  if (missionCheckArts.length > 0) {
+    const last = missionCheckArts[missionCheckArts.length - 1];
+    const p = typeof last.payload_json === 'string'
+      ? (() => { try { return JSON.parse(last.payload_json); } catch { return null; } })()
+      : last.payload_json;
+    if (p?.can_execute !== undefined) missionCheckPassed = !!p.can_execute;
+    else if (p?.pass !== undefined) missionCheckPassed = !!p.pass;
+  }
+
+  let keyReason: string | null = null;
+  const stopEvent = events.find(ev => ev.type?.toLowerCase().includes('stop') || ev.type?.toLowerCase().includes('block'));
+  if (stopEvent) keyReason = stopEvent.summary || null;
+  if (!keyReason && blockEvents.length > 0) keyReason = blockEvents[0].summary || null;
+  const clarifyGate = artefacts.find(a => a.type === 'clarify_gate');
+  if (!keyReason && clarifyGate) {
+    const p = typeof clarifyGate.payload_json === 'string'
+      ? (() => { try { return JSON.parse(clarifyGate.payload_json); } catch { return null; } })()
+      : clarifyGate.payload_json;
+    keyReason = p?.reason || p?.constraint_label || clarifyGate.summary || null;
+  }
+
+  return {
+    goal: runData?.title || 'Unknown',
+    status: runData?.status || 'unknown',
+    clarified: clarifyEvents.length > 0 || artefacts.some(a => a.type?.includes('clarify')),
+    blocked: blockEvents.length > 0 || artefacts.some(a => {
+      if (a.type !== 'constraint_capability_check') return false;
+      const p = typeof a.payload_json === 'string'
+        ? (() => { try { return JSON.parse(a.payload_json); } catch { return null; } })()
+        : a.payload_json;
+      return p?.can_execute === false;
+    }),
+    towerJudged: towerEvents.length > 0 || towerArtefacts.length > 0 || judgements.length > 0,
+    towerVerdict,
+    missionCheckPassed,
+    eventCount: events.length,
+    artefactCount: artefacts.length,
+    judgementCount: judgements.length,
+    keyReason,
+    terminalState: runData?.terminal_state || null,
+  };
+}
+
+function buildGlanceHtml(glance: RunGlance): string {
+  const yesNo = (v: boolean) => v ? '<strong style="color:#15803d">Yes</strong>' : 'No';
+  const passFailNull = (v: boolean | null) => v === null ? '<span style="color:#9ca3af">N/A</span>' : v ? '<strong style="color:#15803d">Passed</strong>' : '<strong style="color:#dc2626">Failed</strong>';
+
+  return `<div class="glance-box">
+    <h3>At a Glance</h3>
+    <div class="glance-grid">
+      <div class="glance-item"><span class="glance-label">Goal:</span><span class="glance-value">${escHtml(glance.goal)}</span></div>
+      <div class="glance-item"><span class="glance-label">Final status:</span><span class="glance-value"><span class="badge ${exportBadgeClass(glance.status)}">${escHtml(glance.status)}</span></span></div>
+      <div class="glance-item"><span class="glance-label">Clarified:</span><span class="glance-value">${yesNo(glance.clarified)}</span></div>
+      <div class="glance-item"><span class="glance-label">Blocked:</span><span class="glance-value">${yesNo(glance.blocked)}</span></div>
+      <div class="glance-item"><span class="glance-label">Tower judged:</span><span class="glance-value">${yesNo(glance.towerJudged)}${glance.towerVerdict ? ` — <span class="badge ${exportBadgeClass(glance.towerVerdict)}">${escHtml(glance.towerVerdict)}</span>` : ''}</span></div>
+      <div class="glance-item"><span class="glance-label">Mission check:</span><span class="glance-value">${passFailNull(glance.missionCheckPassed)}</span></div>
+      <div class="glance-item"><span class="glance-label">Events:</span><span class="glance-value">${glance.eventCount}</span></div>
+      <div class="glance-item"><span class="glance-label">Artefacts:</span><span class="glance-value">${glance.artefactCount}</span></div>
+      <div class="glance-item"><span class="glance-label">Judgements:</span><span class="glance-value">${glance.judgementCount}</span></div>
+      ${glance.terminalState ? `<div class="glance-item"><span class="glance-label">Terminal state:</span><span class="glance-value">${escHtml(glance.terminalState)}</span></div>` : ''}
+    </div>
+    ${glance.keyReason ? `<div class="glance-reason"><strong>Key reason:</strong> ${escHtml(glance.keyReason)}</div>` : ''}
+  </div>`;
+}
+
+function buildKeyMomentsHtml(events: StreamEvent[]): string {
+  const keyEvents = events.filter(ev => {
+    const t = (ev.type || '').toLowerCase();
+    if (KEY_EVENT_TYPES.has(t)) return true;
+    const s = (ev.status || '').toLowerCase();
+    if (s === 'failed' || s === 'error' || s === 'stopped') return true;
+    const sum = (ev.summary || '').toLowerCase();
+    if (sum.includes('clarif') || sum.includes('block') || sum.includes('tower') || sum.includes('stop') || sum.includes('mission')) return true;
+    return false;
+  });
+
+  if (keyEvents.length === 0) {
+    return '';
+  }
+
+  let html = '<div class="key-moments"><h3>Key Moments</h3><ol>';
+  keyEvents.forEach(ev => {
+    const statusBadge = ev.status ? `<span class="km-status badge ${exportBadgeClass(ev.status)}">${escHtml(ev.status)}</span>` : '';
+    const time = ev.ts ? `<span class="km-time">${escHtml(formatTs(ev.ts))}</span>` : '';
+    const summary = ev.summary ? ` — ${escHtml(ev.summary.length > 120 ? ev.summary.slice(0, 120) + '...' : ev.summary)}` : '';
+    html += `<li><span class="km-type">${escHtml(ev.type)}</span>${summary} ${statusBadge} ${time}</li>`;
+  });
+  html += '</ol></div>';
+  return html;
+}
+
+function eventRowClass(ev: StreamEvent): string {
+  const t = (ev.type || '').toLowerCase();
+  const s = (ev.status || '').toLowerCase();
+  if (s === 'failed' || s === 'error') return 'event-row-fail';
+  if (t.includes('clarify') || s === 'clarifying') return 'event-row-clarify';
+  if (KEY_EVENT_TYPES.has(t) || t.includes('tower') || t.includes('stop') || t.includes('block')) return 'event-row-important';
   return '';
 }
 
@@ -629,34 +897,76 @@ function buildRunSectionHtml(
   artefacts: Artefact[],
   judgements: Judgement[],
   sectionPrefix: string,
+  runIndex?: number,
+  totalRuns?: number,
 ): string {
+  const glance = extractRunGlance(runData, events, artefacts, judgements);
+
+  const anchorId = `run-${runIndex ?? 0}`;
+  const headerLabel = (runIndex != null && totalRuns != null)
+    ? `Run ${runIndex + 1} of ${totalRuns}`
+    : 'Run Details';
+
+  let headerHtml = `<div class="run-header-block" id="${anchorId}">
+    <h2>${escHtml(headerLabel)}: ${escHtml(runData?.title || 'Untitled')}</h2>
+    <div class="run-subtitle">
+      Run ID: ${escHtml(runData?.run_id || runId)} &nbsp;|&nbsp;
+      CRID: ${escHtml(runData?.client_request_id || clientRequestId || '-')}
+    </div>
+    <div class="run-meta-row">
+      <span><strong>Status:</strong> <span class="badge ${exportBadgeClass(runData?.status || '')}">${escHtml(runData?.status || 'unknown')}</span></span>
+      ${runData?.terminal_state ? `<span><strong>Terminal:</strong> ${escHtml(runData.terminal_state)}</span>` : ''}
+      ${glance.towerVerdict ? `<span><strong>Verdict:</strong> <span class="badge ${exportBadgeClass(glance.towerVerdict)}">${escHtml(glance.towerVerdict)}</span></span>` : ''}
+      <span><strong>Type:</strong> ${escHtml(runData?.run_type || '-')}</span>
+      <span><strong>Created:</strong> ${escHtml(formatTs(runData?.created_at))}</span>
+      ${runData?.updated_at ? `<span><strong>Updated:</strong> ${escHtml(formatTs(runData.updated_at))}</span>` : ''}
+      ${runData?.conversation_id ? `<span><strong>Conv:</strong> ${escHtml(String(runData.conversation_id).slice(0, 12))}...</span>` : ''}
+    </div>
+  </div>`;
+
+  const glanceHtml = buildGlanceHtml(glance);
+  const keyMomentsHtml = buildKeyMomentsHtml(events);
+
   let eventsHtml = '';
   if (events.length === 0) {
     eventsHtml = '<p class="section-empty">No events recorded.</p>';
   } else {
     eventsHtml = '<table><thead><tr><th>#</th><th>Timestamp</th><th>Type</th><th>Status</th><th>Summary</th></tr></thead><tbody>';
     events.forEach((ev, i) => {
-      eventsHtml += `<tr>
+      const rowCls = eventRowClass(ev);
+      const summaryText = ev.summary || '';
+      const truncated = summaryText.length > 150 ? summaryText.slice(0, 150) + '...' : summaryText;
+      eventsHtml += `<tr class="${rowCls}">
         <td>${i + 1}</td>
-        <td style="white-space:nowrap">${escHtml(formatTs(ev.ts))}</td>
-        <td><code>${escHtml(ev.type)}</code></td>
+        <td style="white-space:nowrap; font-size:11px;">${escHtml(formatTs(ev.ts))}</td>
+        <td><code style="font-weight:${KEY_EVENT_TYPES.has((ev.type || '').toLowerCase()) ? '700' : '400'}">${escHtml(ev.type)}</code></td>
         <td><span class="badge ${exportBadgeClass(ev.status)}">${escHtml(ev.status)}</span></td>
-        <td>${escHtml(ev.summary)}</td>
+        <td title="${escHtml(summaryText)}">${escHtml(truncated)}</td>
       </tr>`;
     });
     eventsHtml += '</tbody></table>';
 
     const eventsWithDetails = events.filter(ev => ev.details && Object.values(ev.details).some(v => v != null));
     if (eventsWithDetails.length > 0) {
-      eventsHtml += '<h3>Event Details / Raw Payloads</h3>';
+      eventsHtml += '<h3>Event Details</h3>';
       eventsWithDetails.forEach((ev) => {
-        eventsHtml += `<div class="event-row">
+        const rowCls = eventRowClass(ev);
+        eventsHtml += `<div class="event-row ${rowCls}" style="padding:8px 0;">
           <strong>${escHtml(ev.type)}</strong> &mdash; ${escHtml(formatTs(ev.ts))}`;
         if (ev.details.action) eventsHtml += `<br/><strong>Action:</strong> <code>${escHtml(ev.details.action)}</code>`;
         if (ev.details.durationMs != null) eventsHtml += `<br/><strong>Duration:</strong> ${ev.details.durationMs}ms`;
-        if (ev.details.error) eventsHtml += `<br/><strong>Error:</strong> <span style="color:#dc2626">${escHtml(ev.details.error)}</span>`;
-        if (ev.details.results) eventsHtml += `<br/><strong>Results:</strong><pre>${escHtml(ev.details.results)}</pre>`;
-        eventsHtml += `<br/><strong>Full payload:</strong><pre>${escHtml(prettyJson(ev.details))}</pre>`;
+        if (ev.details.error) eventsHtml += `<br/><strong style="color:#dc2626">Error:</strong> <span style="color:#dc2626">${escHtml(ev.details.error)}</span>`;
+        if (ev.details.results) {
+          const highlighted = extractHighlightFields(ev.details.results);
+          if (highlighted.length > 0) {
+            eventsHtml += '<br/><div class="artefact-summary-fields"><dl style="margin:0">';
+            highlighted.forEach(h => {
+              eventsHtml += `<dt>${escHtml(h.key)}</dt><dd>${escHtml(h.value)}</dd>`;
+            });
+            eventsHtml += '</dl></div>';
+          }
+        }
+        eventsHtml += `<details class="raw-payload-toggle"><summary>Raw payload</summary><pre>${escHtml(prettyJson(ev.details))}</pre></details>`;
         eventsHtml += '</div>';
       });
     }
@@ -667,18 +977,32 @@ function buildRunSectionHtml(
     artefactsHtml = '<p class="section-empty">No artefacts recorded.</p>';
   } else {
     artefacts.forEach((art, i) => {
-      artefactsHtml += `<div style="margin-bottom:20px; border:1px solid #e5e7eb; border-radius:6px; padding:12px;">
-        <h3 style="margin-top:0">${i + 1}. ${escHtml(art.title || 'Untitled')}</h3>
-        <dl class="meta-grid">
-          <dt>ID</dt><dd>${escHtml(art.id)}</dd>
-          <dt>Type</dt><dd>${escHtml(art.type)}</dd>
-          <dt>Created</dt><dd>${escHtml(formatTs(art.created_at))}</dd>
-          <dt>Run ID</dt><dd>${escHtml(art.run_id)}</dd>
-          ${art.summary ? `<dt>Summary</dt><dd>${escHtml(art.summary)}</dd>` : ''}
-        </dl>
-        <strong>Payload</strong>
-        <pre>${escHtml(prettyJson(art.payload_json))}</pre>
-      </div>`;
+      const isImportant = IMPORTANT_ARTEFACT_TYPES.has(art.type);
+      const typeLabel = artefactTypeLabel(art.type);
+      const highlighted = extractHighlightFields(art.payload_json);
+
+      artefactsHtml += `<div class="artefact-card ${isImportant ? 'artefact-card-important' : ''}">
+        <div class="artefact-card-header">
+          <h3>${i + 1}. ${escHtml(art.title || 'Untitled')} ${typeLabel}</h3>
+          <div style="margin-top:4px; font-size:11px; color:#6b7280;">
+            Type: <code>${escHtml(art.type)}</code> &nbsp;|&nbsp;
+            Created: ${escHtml(formatTs(art.created_at))} &nbsp;|&nbsp;
+            ID: <code>${escHtml(String(art.id).slice(0, 12))}</code>
+            ${art.summary ? `<br/>Summary: ${escHtml(art.summary)}` : ''}
+          </div>
+        </div>
+        <div class="artefact-card-body">`;
+
+      if (highlighted.length > 0) {
+        artefactsHtml += '<div class="artefact-summary-fields"><dl style="margin:0">';
+        highlighted.forEach(h => {
+          artefactsHtml += `<dt>${escHtml(h.key)}</dt><dd>${escHtml(h.value)}</dd>`;
+        });
+        artefactsHtml += '</dl></div>';
+      }
+
+      artefactsHtml += `<details class="raw-payload-toggle"><summary>Full payload (JSON)</summary><pre>${escHtml(prettyJson(art.payload_json))}</pre></details>`;
+      artefactsHtml += '</div></div>';
     });
   }
 
@@ -696,27 +1020,18 @@ function buildRunSectionHtml(
       </tr>`;
     });
     judgementsHtml += '</tbody></table>';
-    judgementsHtml += '<h3>Full Judgement Payloads</h3>';
     judgements.forEach((j, i) => {
-      judgementsHtml += `<div style="margin-bottom:12px;">
-        <strong>${i + 1}. ${escHtml(j.verdict)} — ${escHtml(j.reason_code)}</strong>
+      judgementsHtml += `<details class="raw-payload-toggle" style="margin-bottom:12px;">
+        <summary>${i + 1}. ${escHtml(j.verdict)} — ${escHtml(j.reason_code)}</summary>
         <pre>${escHtml(prettyJson(j))}</pre>
-      </div>`;
+      </details>`;
     });
   }
 
   return `
-<dl class="meta-grid">
-  <dt>Title / Goal</dt><dd>${escHtml(runData?.title || 'Unknown')}</dd>
-  <dt>Run ID</dt><dd>${escHtml(runData?.run_id || runId)}</dd>
-  <dt>Client Request ID</dt><dd>${escHtml(runData?.client_request_id || clientRequestId || '-')}</dd>
-  <dt>Conversation ID</dt><dd>${escHtml(runData?.conversation_id || '-')}</dd>
-  <dt>Status</dt><dd><span class="badge ${exportBadgeClass(runData?.status || '')}">${escHtml(runData?.status || 'unknown')}</span></dd>
-  <dt>Terminal State</dt><dd>${escHtml(runData?.terminal_state || '-')}</dd>
-  <dt>Type</dt><dd>${escHtml(runData?.run_type || '-')}</dd>
-  <dt>Created</dt><dd>${escHtml(formatTs(runData?.created_at))}</dd>
-  <dt>Updated</dt><dd>${escHtml(formatTs(runData?.updated_at))}</dd>
-</dl>
+${headerHtml}
+${glanceHtml}
+${keyMomentsHtml}
 
 <h2>${sectionPrefix}Event Timeline (${events.length} events)</h2>
 ${eventsHtml}
@@ -745,21 +1060,20 @@ async function exportRunAsHtml(
 ) {
   const { runData, events, artefacts, judgements } = await fetchRunExportData(runId, clientRequestId);
 
-  const bodyHtml = buildRunSectionHtml(runData, runId, clientRequestId, events, artefacts, judgements, '');
+  const bodyHtml = buildRunSectionHtml(runData, runId, clientRequestId, events, artefacts, judgements, '', 0, 1);
 
   const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>AFR Run Export — ${escHtml(runId)}</title>
+<title>AFR Run Export — ${escHtml(runData?.title || runId)}</title>
 <style>${EXPORT_CSS}</style>
 </head>
 <body>
-<h1>AFR Run Export</h1>
-<p style="color:#6b7280; margin-bottom:20px">Generated ${new Date().toISOString()}</p>
+<h1>Wyshbone AFR — Single Run Export</h1>
+<p style="color:#6b7280; margin-bottom:20px">Generated ${new Date().toISOString()} &nbsp;|&nbsp; Run ID: <code>${escHtml(runId)}</code></p>
 
-<h2>Run Header</h2>
 ${bodyHtml}
 
 </body>
@@ -783,6 +1097,44 @@ async function exportMultipleRunsAsHtml(
     runsToExport.map(run => fetchRunExportData(run.id, run.client_request_id || null))
   );
 
+  const glances = allRunData.map(({ runData, events, artefacts, judgements }) =>
+    extractRunGlance(runData, events, artefacts, judgements)
+  );
+
+  let tocHtml = `<div class="toc"><h3>Contents</h3><ol>`;
+  runsToExport.forEach((run, i) => {
+    const goal = allRunData[i].runData?.title || run.goal_summary || 'Untitled';
+    const g = glances[i];
+    const flags = [
+      g.clarified ? 'clarified' : '',
+      g.blocked ? 'blocked' : '',
+      g.towerVerdict ? `tower:${g.towerVerdict}` : '',
+    ].filter(Boolean).join(', ');
+    tocHtml += `<li><a href="#run-${i}">Run ${i + 1} — ${escHtml(goal)}</a> <span class="badge ${exportBadgeClass(run.status)}">${escHtml(run.status)}</span>${flags ? ` <span style="color:#6b7280; font-size:11px;">(${escHtml(flags)})</span>` : ''}</li>`;
+  });
+  tocHtml += `</ol></div>`;
+
+  let summaryTableHtml = `<h2>Summary</h2>
+<table>
+<thead><tr><th>#</th><th>Run ID</th><th>Goal</th><th>Status</th><th>Type</th><th>Clarified</th><th>Blocked</th><th>Tower</th><th>Created</th></tr></thead>
+<tbody>
+${runsToExport.map((r, i) => {
+    const g = glances[i];
+    return `<tr>
+  <td><a href="#run-${i}" style="color:#4f46e5">${i + 1}</a></td>
+  <td style="font-family:monospace; font-size:11px;">${escHtml(r.id.length > 12 ? r.id.slice(0, 12) + '...' : r.id)}</td>
+  <td>${escHtml(r.goal_summary || 'Untitled')}</td>
+  <td><span class="badge ${exportBadgeClass(r.status)}">${escHtml(r.status)}</span></td>
+  <td>${escHtml(r.run_type || '-')}</td>
+  <td>${g.clarified ? '<strong style="color:#b45309">Yes</strong>' : 'No'}</td>
+  <td>${g.blocked ? '<strong style="color:#dc2626">Yes</strong>' : 'No'}</td>
+  <td>${g.towerJudged ? `<span class="badge ${exportBadgeClass(g.towerVerdict || '')}">${escHtml(g.towerVerdict || 'judged')}</span>` : '-'}</td>
+  <td style="white-space:nowrap">${escHtml(formatTs(r.created_at))}</td>
+</tr>`;
+  }).join('')}
+</tbody>
+</table>`;
+
   let bodySections = '';
   runsToExport.forEach((run, idx) => {
     const { runData, events, artefacts, judgements } = allRunData[idx];
@@ -790,8 +1142,7 @@ async function exportMultipleRunsAsHtml(
     if (idx > 0) {
       bodySections += '<hr class="run-separator" />';
     }
-    bodySections += `<div class="run-header-bar"><h2 style="margin:0; border:none; padding:0;">Run ${idx + 1} of ${runsToExport.length}: ${escHtml(runData?.title || run.goal_summary || 'Untitled')}</h2><p style="margin-top:4px; color:#6b7280; font-size:12px;">ID: ${escHtml(run.id)} | Status: ${escHtml(run.status)} | Created: ${escHtml(formatTs(run.created_at))}</p></div>`;
-    bodySections += buildRunSectionHtml(runData, run.id, run.client_request_id || null, events, artefacts, judgements, prefix);
+    bodySections += buildRunSectionHtml(runData, run.id, run.client_request_id || null, events, artefacts, judgements, prefix, idx, runsToExport.length);
   });
 
   const html = `<!DOCTYPE html>
@@ -799,28 +1150,17 @@ async function exportMultipleRunsAsHtml(
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>AFR Bulk Export — ${runsToExport.length} runs</title>
+<title>Wyshbone AFR — Bulk Export — ${runsToExport.length} runs</title>
 <style>${EXPORT_CSS}</style>
 </head>
 <body>
-<h1>AFR Bulk Export — ${runsToExport.length} run${runsToExport.length !== 1 ? 's' : ''}</h1>
+<h1>Wyshbone AFR — Bulk Export (${runsToExport.length} run${runsToExport.length !== 1 ? 's' : ''})</h1>
 <p style="color:#6b7280; margin-bottom:8px">Generated ${new Date().toISOString()}</p>
 <p style="color:#6b7280; margin-bottom:20px">Exported the ${runsToExport.length} most recent run${runsToExport.length !== 1 ? 's' : ''} from the current view.</p>
 
-<h2>Summary</h2>
-<table>
-<thead><tr><th>#</th><th>Run ID</th><th>Goal</th><th>Status</th><th>Type</th><th>Created</th></tr></thead>
-<tbody>
-${runsToExport.map((r, i) => `<tr>
-  <td>${i + 1}</td>
-  <td style="font-family:monospace; font-size:11px;">${escHtml(r.id.length > 12 ? r.id.slice(0, 12) + '...' : r.id)}</td>
-  <td>${escHtml(r.goal_summary || 'Untitled')}</td>
-  <td><span class="badge ${exportBadgeClass(r.status)}">${escHtml(r.status)}</span></td>
-  <td>${escHtml(r.run_type || '-')}</td>
-  <td style="white-space:nowrap">${escHtml(formatTs(r.created_at))}</td>
-</tr>`).join('')}
-</tbody>
-</table>
+${tocHtml}
+
+${summaryTableHtml}
 
 ${bodySections}
 

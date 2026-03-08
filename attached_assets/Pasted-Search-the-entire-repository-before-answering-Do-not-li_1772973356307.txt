@@ -1,0 +1,142 @@
+Search the entire repository before answering. Do not limit to open files.
+
+I want to improve the AFR bulk export HTML so it is much easier for ChatGPT and humans to read when I upload it for run analysis.
+
+This is a debugging/export readability task only. Do not change the underlying run data. Improve presentation and structure.
+
+Goal:
+Make the exported HTML easy to scan, easy to analyse, and easy to compare across runs.
+
+Context:
+I will be exporting multiple runs and then uploading the file for analysis. The export should therefore be optimized for:
+- fast visual scanning
+- clear run separation
+- clear chronology
+- easy identification of failures, clarifications, blocking gates, Tower verdicts, dropped concepts, and key artefacts
+- reduced noise
+- preserved raw detail when needed
+
+Requirements
+
+1. Add a clear run header block for every exported run
+Each run should begin with a strong visual header containing at minimum:
+- Run number of total
+- User goal / request
+- Run ID
+- Client Request ID
+- Status
+- Created time
+- Updated time if available
+- Top-level verdict / terminal outcome if available
+
+Make this header visually distinct and easy to spot when scrolling.
+
+2. Add an “At a glance” summary section per run
+At the top of each run, create a concise summary box showing:
+- user goal
+- final status
+- whether it clarified
+- whether it was blocked
+- whether Tower judged it
+- whether mission completeness check passed/failed
+- count of events
+- count of artefacts
+- count of judgements
+- key stop/block/clarify reason if present
+
+This should be the first thing visible after the run header.
+
+3. Add a “Key moments” section per run
+Before the full timeline, extract and show the most important events in order, such as:
+- mission extraction
+- mission completeness check
+- clarify gate
+- pre-execution constraint gate
+- plan created
+- Tower verdict
+- stop/change_plan/block events
+- execution completed
+
+This should be a short filtered summary, not the full event list.
+
+4. Improve the full timeline readability
+For the full event timeline:
+- keep chronological order
+- highlight important event types with stronger styling
+- make event type easy to scan
+- make status easy to scan
+- truncate long summaries in the table, but keep full detail below
+- visually emphasize failures, warnings, clarifications, blocked states, and stop reasons
+
+5. Make artefacts easier to scan
+For artefacts:
+- group or visually label important artefact types:
+  - mission_extraction
+  - constraints_extracted
+  - constraint_capability_check
+  - diagnostic
+  - tower_judgement
+  - clarify-related artefacts
+- add a short one-line summary above each raw payload
+- collapse visual noise where possible without losing data
+- keep raw payloads in the export, but make them clearly secondary to the summaries
+
+6. Highlight the fields most useful for run analysis
+For example:
+- raw user input
+- pass1 semantic interpretation
+- pass2 structured mission
+- constraint types
+- dropped concepts
+- recommended_action
+- blocking reason
+- clarify question
+- Tower verdict
+- suggested changes
+- stop reason
+- evidence summary
+
+If these fields exist in payloads, surface them in a cleaner summary section before the raw JSON.
+
+7. Keep raw JSON / payload detail
+Do NOT remove the full payloads.
+But format them so they are easy to distinguish from the higher-level summary.
+Think:
+summary first, raw detail second.
+
+8. Add anchor navigation at the top of the document
+At the top of the export file, add a contents/index section linking to each run, using labels like:
+- Run 1 — [short goal]
+- Run 2 — [short goal]
+This is especially important for exports with 5–15 runs.
+
+9. Preserve a good summary table at the top
+Keep the top-level summary table, but improve it slightly if helpful by adding:
+- clarified? yes/no
+- blocked? yes/no
+- tower judged? yes/no
+
+10. Keep it safe and simple
+- Do not add heavy client-side JS if it is not necessary
+- Prefer clean static HTML/CSS
+- Keep the file robust for local opening in browser
+- Keep print/export friendliness reasonably intact
+
+Design intent
+The output should feel like:
+- a forensic debugging report
+- readable by a human in a hurry
+- readable by ChatGPT when uploaded later
+- not just a raw dump
+
+Implementation expectations
+- Reuse existing export data structures
+- Add helper functions for summary extraction if needed
+- Keep the export generation code maintainable
+- Do not break the existing single-run export if it shares code
+
+What I want back
+1. Exact files changed
+2. Short explanation of the new export structure
+3. Any helper functions added for “at a glance” / “key moments” extraction
+4. Confirmation that full raw payloads are still preserved
