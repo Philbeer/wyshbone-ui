@@ -1,0 +1,152 @@
+You are fixing a truthfulness problem in the Wyshbone QA Regression Dashboard.
+
+IMPORTANT
+Do NOT change agent behaviour.
+Do NOT change Supervisor planning logic.
+Do NOT change Tower verdict logic.
+
+This task is only about QA scoring and UI truthfulness.
+
+Problem
+
+The current QA dashboard is too binary.
+
+It mainly treats the final Tower verdict as the benchmark result, which collapses very different outcomes into the same visible failure.
+
+Example of current bad behaviour:
+
+- discovery succeeds
+- leads are delivered
+- verification evidence is missing
+- Tower correctly fails
+- dashboard shows this like a general failed test
+
+This is misleading for debugging.
+
+We need the QA dashboard to show which layer succeeded and which layer failed.
+
+Goal
+
+Make benchmark results truthful and debuggable by showing per-layer status instead of only final pass/fail.
+
+What to implement
+
+PART 1 — Add per-run layer breakdown
+
+For each benchmark row, add a compact breakdown of these layers:
+
+- interpretation
+- planning
+- execution
+- discovery
+- delivery
+- verification
+- tower
+
+These should be derived from AFR / run artefacts / event stream, not guessed from UI text.
+
+Use simple status values:
+- pass
+- fail
+- blocked
+- timeout
+- unknown
+
+PART 2 — Add benchmark outcome categories
+
+Instead of treating everything as binary, classify the overall benchmark outcome into:
+
+- PASS
+- PARTIAL_SUCCESS
+- BLOCKED
+- TIMEOUT
+- FAIL
+
+Definitions:
+
+PASS
+The test achieved the intended outcome and Tower passed, or the expected outcome was blocked/clarify and that happened correctly.
+
+PARTIAL_SUCCESS
+Upstream layers succeeded meaningfully (for example discovery + delivery), but verification or Tower failed.
+
+BLOCKED
+The run was blocked before real execution.
+
+TIMEOUT
+The run timed out.
+
+FAIL
+The run did not meaningfully execute or clearly failed the intended task.
+
+PART 3 — Truthful scoring rules
+
+Implement explicit scoring logic:
+
+1. If discovery succeeded and delivery succeeded, but verification failed:
+   overall outcome = PARTIAL_SUCCESS
+
+2. If Tower failed because evidence was missing, but leads were delivered:
+   overall outcome = PARTIAL_SUCCESS
+
+3. If the query was expected to clarify/block and it did block correctly:
+   count as PASS, not failure
+
+4. If no meaningful execution occurred:
+   overall outcome = FAIL
+
+5. If timed out:
+   overall outcome = TIMEOUT
+
+PART 4 — UI display
+
+Update the QA dashboard to show:
+
+- current overall outcome
+- per-layer badges
+- keep existing Tower and judgement columns
+- do not remove existing AFR links
+
+For example a row might show:
+
+Interpretation PASS
+Planning PASS
+Execution PASS
+Discovery PASS
+Delivery PASS
+Verification FAIL
+Tower FAIL
+Overall PARTIAL_SUCCESS
+
+PART 5 — Summary cards
+
+Update the top summary cards to include:
+
+- Passed
+- Partial
+- Blocked
+- Timeout
+- Failed
+
+Recalculate pass rate truthfully.
+
+Do NOT hide partials inside fail.
+
+PART 6 — Preserve existing benchmark pack behaviour
+
+Do not change:
+- benchmark queries
+- sequential execution
+- stop button
+- AFR export
+- actual run logic
+
+Only improve QA result interpretation and UI display.
+
+PART 7 — Deliverables
+
+Provide:
+1. files changed
+2. how per-layer states are derived
+3. the rule for PARTIAL_SUCCESS
+4. what changed in the summary cards
