@@ -10,12 +10,12 @@ import { Button } from '@/components/ui/button';
 interface MetricRow {
   id: number;
   run_id: string;
-  timestamp: number;
+  timestamp: string | number;
   query: string;
   query_class: string | null;
   expected_mode: string | null;
   suite_id: string | null;
-  pack_timestamp: number | null;
+  pack_timestamp: string | number | null;
   benchmark_test_id: string | null;
   source: string;
   system_status: string;
@@ -28,6 +28,13 @@ interface MetricRow {
   behaviour_score: string;
   metadata: Record<string, unknown> | null;
   created_at: string;
+}
+
+function toNumericTs(val: string | number | null | undefined): number {
+  if (val === null || val === undefined) return 0;
+  if (typeof val === 'number') return val;
+  const n = parseInt(val, 10);
+  return isNaN(n) ? 0 : n;
 }
 
 interface ChartPoint {
@@ -81,8 +88,11 @@ function statusToScore(status: string, type: 'system' | 'tower' | 'behaviour' | 
   return null;
 }
 
-function formatTs(ts: number): string {
-  const d = new Date(ts);
+function formatTs(ts: string | number): string {
+  const n = toNumericTs(ts);
+  if (n === 0) return '—';
+  const d = new Date(n);
+  if (isNaN(d.getTime())) return '—';
   return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }) + ' ' +
     d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 }
@@ -125,7 +135,7 @@ export default function QaProgressPage() {
   }, [rows, suiteFilter, queryClassFilter, testIdFilter]);
 
   const chartData = useMemo<ChartPoint[]>(() => {
-    const sorted = [...filteredRows].sort((a, b) => a.timestamp - b.timestamp);
+    const sorted = [...filteredRows].sort((a, b) => toNumericTs(a.timestamp) - toNumericTs(b.timestamp));
 
     const UNKNOWN_STATUSES = ['UNKNOWN', 'NOT_APPLICABLE', 'TIMEOUT'];
     const behaviourScores = sorted.map(r => {
@@ -150,7 +160,7 @@ export default function QaProgressPage() {
 
     return sorted.map((r, i) => ({
       index: i + 1,
-      timestamp: r.timestamp,
+      timestamp: toNumericTs(r.timestamp),
       label: r.benchmark_test_id || r.query.slice(0, 30),
       behaviourScore: behaviourScores[i],
       systemScore: systemScores[i],
@@ -166,7 +176,7 @@ export default function QaProgressPage() {
   const uniqueTestIds = useMemo(() => [...new Set(rows.map(r => r.benchmark_test_id).filter(Boolean))], [rows]);
 
   const tableRows = useMemo(() => {
-    return [...filteredRows].sort((a, b) => b.timestamp - a.timestamp).slice(0, 50);
+    return [...filteredRows].sort((a, b) => toNumericTs(b.timestamp) - toNumericTs(a.timestamp)).slice(0, 50);
   }, [filteredRows]);
 
   return (
