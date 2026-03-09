@@ -321,7 +321,7 @@ export function createQaMetricsRouter(): Router {
             const v = payload?.verdict || payload?.tower_verdict || payload?.pass_fail;
             if (typeof v === "string") {
               const lower = v.toLowerCase();
-              if (lower.includes("pass")) towerVerdict = "PASS";
+              if (lower.includes("pass") || lower.includes("accept")) towerVerdict = "PASS";
               else if (lower.includes("fail") || lower.includes("stop") || lower.includes("error")) towerVerdict = "FAIL";
             }
           }

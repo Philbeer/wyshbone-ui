@@ -986,7 +986,7 @@ function loadHistory(): SuiteRunHistory[] {
 function towerVerdictToResult(verdict: string | null): 'PASS' | 'FAIL' | 'UNKNOWN' {
   if (!verdict) return 'UNKNOWN';
   const lower = verdict.toLowerCase();
-  if (lower.includes('pass')) return 'PASS';
+  if (lower.includes('pass') || lower.includes('accept')) return 'PASS';
   if (lower.includes('fail') || lower.includes('stop') || lower.includes('error')) return 'FAIL';
   return 'UNKNOWN';
 }
@@ -1122,10 +1122,9 @@ function computeHealthCounts(results: TestResult[]) {
       case 'TIMEOUT': timeout++; break;
     }
   }
-  const working = healthy + degraded;
-  const total = working + broken + timeout;
-  const reliability = total > 0 ? Math.round((working / total) * 100) : 0;
-  return { working, broken, timeout, reliability };
+  const total = healthy + degraded + broken + timeout;
+  const reliability = total > 0 ? Math.round(((healthy + degraded) / total) * 100) : 0;
+  return { healthy, degraded, broken, timeout, reliability };
 }
 
 function computeQualityCounts(results: TestResult[]) {
@@ -1148,8 +1147,9 @@ function systemHealthBadge(outcome: SystemHealthOutcome | null) {
   if (!outcome) return null;
   switch (outcome) {
     case 'HEALTHY':
+      return <Badge className="bg-green-100 text-green-700 border-green-200 text-[10px] px-1.5 py-0">Healthy</Badge>;
     case 'DEGRADED':
-      return <Badge className="bg-green-100 text-green-700 border-green-200 text-[10px] px-1.5 py-0">Working</Badge>;
+      return <Badge className="bg-amber-100 text-amber-800 border-amber-200 text-[10px] px-1.5 py-0">Degraded</Badge>;
     case 'BROKEN':
       return <Badge className="bg-red-100 text-red-700 border-red-200 text-[10px] px-1.5 py-0">Broken</Badge>;
     case 'TIMEOUT':
@@ -1161,8 +1161,9 @@ function agentQualityBadge(outcome: AgentQualityOutcome | null) {
   if (!outcome) return null;
   switch (outcome) {
     case 'PASS':
-    case 'NOT_APPLICABLE':
       return <Badge className="bg-green-100 text-green-700 border-green-200 text-[10px] px-1.5 py-0">Pass</Badge>;
+    case 'NOT_APPLICABLE':
+      return <Badge className="bg-gray-100 text-gray-500 border-gray-300 text-[10px] px-1.5 py-0">N/A</Badge>;
     case 'PARTIAL':
       return <Badge className="bg-yellow-100 text-yellow-800 border-yellow-200 text-[10px] px-1.5 py-0">Partial</Badge>;
     case 'FAIL':
@@ -1187,11 +1188,12 @@ function Scoreboard({ results }: { results: TestResult[] }) {
           <span className="text-xs text-gray-400">of {total} runs</span>
         </div>
         <div className="flex items-center gap-4 text-sm">
-          <span className="text-green-700 font-medium">{hc.working} working</span>
+          <span className="text-green-700 font-medium">{hc.healthy} healthy</span>
+          <span className="text-amber-700">{hc.degraded} degraded</span>
           <span className="text-gray-500">{hc.timeout} timeout</span>
           <span className="text-red-700">{hc.broken} broken</span>
         </div>
-        <div className="mt-2 text-[9px] text-gray-400">working runs / total runs</div>
+        <div className="mt-2 text-[9px] text-gray-400">(healthy + degraded) / total runs</div>
       </div>
       <div className="border rounded-lg p-4">
         <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Agent Performance</div>
@@ -1225,7 +1227,7 @@ interface BenchmarkProgress {
 interface BenchmarkSummary {
   total: number;
   durationMs: number;
-  system: { working: number; broken: number; timeout: number; reliability: number };
+  system: { healthy: number; degraded: number; broken: number; timeout: number; reliability: number };
   agent: { pass: number; partial: number; fail: number; unknown: number; successRate: number };
   behaviour: { pass: number; fail: number; unknown: number; score: number };
 }
@@ -1290,7 +1292,8 @@ function BenchmarkSummaryCard({ summary }: { summary: BenchmarkSummary }) {
             <span className={`text-2xl font-bold ml-auto ${s.reliability >= 80 ? 'text-green-700' : s.reliability >= 50 ? 'text-amber-700' : 'text-red-700'}`}>{s.reliability}%</span>
           </div>
           <div className="flex items-center gap-3 text-sm">
-            <span className="text-green-700 font-medium">{s.working} working</span>
+            <span className="text-green-700 font-medium">{s.healthy} healthy</span>
+            <span className="text-amber-700">{s.degraded} degraded</span>
             <span className="text-gray-500">{s.timeout} timeout</span>
             <span className="text-red-700">{s.broken} broken</span>
           </div>
