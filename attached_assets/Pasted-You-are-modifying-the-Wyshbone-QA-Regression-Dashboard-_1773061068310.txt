@@ -1,0 +1,135 @@
+You are modifying the Wyshbone QA Regression Dashboard UI.
+
+Goal:
+Expose clarification state clearly so it is obvious whether a run:
+
+• asked for clarification
+• received the clarification response
+• successfully completed after clarification
+
+Do not redesign the UI.
+Do not change layout or table structure.
+
+Only add a small clarification status display using information that already exists in AFR metadata.
+
+Where to display it
+
+In the Query row, under the query text (same place where this currently appears):
+
+Auto clarification response sent: United Kingdom
+post-clarify timeout
+
+Replace that text with structured badges.
+
+New clarification indicator
+
+Display a small block like this under the query:
+
+Clarification:
+✓ requested
+✓ answered
+✗ completed
+
+Example rendering:
+
+Clarification:
+✓ requested
+✓ answered
+✗ completed
+
+This means:
+
+• the agent asked for clarification
+• the QA runner responded
+• the run did not finish after clarification
+
+Badge states
+
+Determine the state from run metadata.
+
+Use these fields if present:
+
+clarification_requested
+clarification_response_sent
+clarification_continue_success
+
+Or infer from AFR artefacts if needed.
+
+State mapping
+Case 1 — No clarification
+
+Do not show the clarification block.
+
+Case 2 — Clarification requested but not answered
+Clarification:
+✓ requested
+✗ answered
+✗ completed
+Case 3 — Clarification requested and answered but run failed
+Clarification:
+✓ requested
+✓ answered
+✗ completed
+Case 4 — Clarification requested and run succeeded
+Clarification:
+✓ requested
+✓ answered
+✓ completed
+Visual style
+
+Use the same badge style used elsewhere in the dashboard.
+
+Examples:
+
+Green
+
+✓ requested
+✓ answered
+✓ completed
+
+Grey
+
+✗ completed
+
+or red if preferred.
+
+Do not introduce new component types.
+
+Example final row
+
+Before:
+
+Find breweries
+expect: clarify
+Auto clarification response sent: United Kingdom
+post-clarify timeout
+
+After:
+
+Find breweries
+expect: clarify
+
+Clarification:
+✓ requested
+✓ answered
+✗ completed
+Implementation constraints
+
+Do not change:
+
+• run scoring logic
+• tower judgement
+• behaviour scoring
+• dashboard layout
+
+Only add the clarification state rendering.
+
+Deliverables
+
+Return:
+
+Files modified
+
+Where clarification state is derived from
+
+Screenshot or example output showing the three badge states

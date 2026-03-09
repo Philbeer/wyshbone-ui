@@ -1522,12 +1522,33 @@ export default function QaTestRunnerPage() {
                       {expectedBadge(r.expected)}
                       {r.resultSummary && <span className="text-xs text-gray-400">{r.resultSummary}</span>}
                     </div>
-                    {r.autoClarified && (
-                      <div className="text-xs text-indigo-600 mt-0.5 flex items-center gap-1">
-                        <CheckCircle2 className="w-3 h-3" />
-                        Auto clarification response sent{r.clarifyResponseValue ? `: ${r.clarifyResponseValue}` : ''}
-                        {r.clarifyContinueSuccess && <span className="text-green-600 ml-1">— run resumed</span>}
-                        {r.postClarifyTimeout && <span className="text-amber-600 ml-1">— post-clarify timeout</span>}
+                    {r.clarified && (
+                      <div className="mt-1 flex items-center gap-1.5 flex-wrap">
+                        <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Clarification:</span>
+                        <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-medium border-0 bg-green-100 text-green-800">
+                          <CheckCircle2 className="w-2.5 h-2.5 mr-0.5" />requested
+                        </Badge>
+                        {r.autoClarified ? (
+                          <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-medium border-0 bg-green-100 text-green-800">
+                            <CheckCircle2 className="w-2.5 h-2.5 mr-0.5" />answered
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-medium border-0 bg-gray-100 text-gray-500">
+                            <XCircle className="w-2.5 h-2.5 mr-0.5" />answered
+                          </Badge>
+                        )}
+                        {r.clarifyContinueSuccess ? (
+                          <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-medium border-0 bg-green-100 text-green-800">
+                            <CheckCircle2 className="w-2.5 h-2.5 mr-0.5" />completed
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-medium border-0 bg-red-100 text-red-700">
+                            <XCircle className="w-2.5 h-2.5 mr-0.5" />completed
+                          </Badge>
+                        )}
+                        {r.clarifyResponseValue && (
+                          <span className="text-[10px] text-gray-400 ml-1">"{r.clarifyResponseValue}"</span>
+                        )}
                       </div>
                     )}
                     {r.error && <div className="text-xs text-red-500 mt-0.5">{r.error}</div>}
