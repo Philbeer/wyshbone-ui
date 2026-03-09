@@ -26,6 +26,7 @@ interface TestDefinition {
   expectedStrategy?: string;
   notes?: string;
   queryClass: QueryClass;
+  clarificationResponse?: string;
 }
 
 interface TestSuite {
@@ -79,36 +80,42 @@ const FULL_BENCHMARK_PACK: TestDefinition[] = [
     query: 'Find organisations that work with the local authority in Blackpool',
     expected: 'blocked_or_clarify',
     queryClass: 'clarification_required',
+    clarificationResponse: 'Any organisations that collaborate with Blackpool Council, such as partners, suppliers, or programme participants.',
     notes: 'Relationship discovery — local authority predicate.',
   },
   {
     query: 'Find companies that supply to NHS hospitals in Leeds',
     expected: 'blocked_or_clarify',
     queryClass: 'clarification_required',
+    clarificationResponse: 'Companies that provide goods or services to NHS hospitals in Leeds.',
     notes: 'Relationship discovery — supplier predicate.',
   },
   {
     query: 'Find the best dentists in Brighton',
     expected: 'blocked_or_clarify',
     queryClass: 'subjective_or_unverifiable',
+    clarificationResponse: 'Find highly rated dental practices in Brighton based on Google reviews.',
     notes: 'Ranking — subjective "best" should trigger clarification or pass through.',
   },
   {
     query: 'Find amazing vibes in London',
     expected: 'clarify',
     queryClass: 'subjective_or_unverifiable',
+    clarificationResponse: 'Find popular bars and nightlife venues in London.',
     notes: 'Honest failure — purely subjective entity type, no concrete noun.',
   },
   {
     query: 'Find pubs in Narnia',
     expected: 'clarify',
     queryClass: 'fictional_or_impossible',
+    clarificationResponse: 'Narnia is a fictional location. Please provide a real UK town or city.',
     notes: 'Honest failure — invalid/unknown location.',
   },
   {
     query: 'Find breweries',
     expected: 'clarify',
     queryClass: 'clarification_required',
+    clarificationResponse: 'United Kingdom',
     notes: 'Difficult case — missing location, should clarify.',
   },
 ];
@@ -142,6 +149,7 @@ const SUITES: TestSuite[] = [
         query: 'Find the best dentists in Brighton',
         expected: 'blocked_or_clarify',
         queryClass: 'subjective_or_unverifiable',
+        clarificationResponse: 'Find highly rated dental practices in Brighton based on Google reviews.',
         notes: 'Subjective "best" may trigger clarification or pass through — both are acceptable.',
       },
       {
@@ -186,12 +194,14 @@ const SUITES: TestSuite[] = [
         query: 'Find organisations that work with the local authority in Blackpool',
         expected: 'blocked_or_clarify',
         queryClass: 'clarification_required',
+        clarificationResponse: 'Any organisations that collaborate with Blackpool Council, such as partners, suppliers, or programme participants.',
         notes: 'Relationship predicate — should trigger constraint gate or clarification.',
       },
       {
         query: 'Find companies that supply to NHS hospitals in Leeds',
         expected: 'blocked_or_clarify',
         queryClass: 'clarification_required',
+        clarificationResponse: 'Companies that provide goods or services to NHS hospitals in Leeds.',
         notes: 'Supplier relationship predicate.',
       },
     ],
@@ -205,37 +215,32 @@ const SUITES: TestSuite[] = [
         query: 'Find amazing vibes in London',
         expected: 'clarify',
         queryClass: 'subjective_or_unverifiable',
+        clarificationResponse: 'Find popular bars and nightlife venues in London.',
         notes: 'Purely subjective entity type — should clarify for a concrete noun.',
       },
       {
         query: 'Find pubs in Narnia',
         expected: 'clarify',
         queryClass: 'fictional_or_impossible',
+        clarificationResponse: 'Narnia is a fictional location. Please provide a real UK town or city.',
         notes: 'Invalid/unknown location — should clarify.',
       },
       {
         query: 'Find breweries',
         expected: 'clarify',
         queryClass: 'clarification_required',
+        clarificationResponse: 'United Kingdom',
         notes: 'Missing location — should clarify.',
       },
     ],
   },
 ];
 
-const CLARIFY_AUTO_RESPONSES: Record<string, string> = {
-  'Find organisations that work with the local authority in Blackpool':
-    'Any organisations that collaborate with Blackpool Council, such as partners, suppliers, or programme participants.',
-  'Find companies that supply to NHS hospitals in Leeds':
-    'Companies that provide goods or services to NHS hospitals in Leeds.',
-  'Find the best dentists in Brighton':
-    'Find highly rated dental practices in Brighton based on Google reviews.',
-};
-
 const GENERIC_CLARIFY_RESPONSE = 'Use the most reasonable interpretation and continue.';
 
-function getClarifyAutoResponse(query: string): string {
-  return CLARIFY_AUTO_RESPONSES[query] || GENERIC_CLARIFY_RESPONSE;
+function getClarifyAutoResponse(query: string, definitionResponse?: string): string {
+  if (definitionResponse) return definitionResponse;
+  return GENERIC_CLARIFY_RESPONSE;
 }
 
 const PER_TEST_TIMEOUT_MS = 90_000;
@@ -279,6 +284,9 @@ interface TestResult {
   blocked: boolean;
   clarified: boolean;
   autoClarified: boolean;
+  clarifyResponseValue: string | null;
+  clarifyContinueSuccess: boolean;
+  postClarifyTimeout: boolean;
   towerVerdict: string | null;
   resultSummary: string | null;
   judgement: Judgement | null;
@@ -504,6 +512,7 @@ interface QaClarifyContext {
   query: string;
   user: { id: string; email: string };
   conversationId: string;
+  clarificationResponse?: string;
 }
 
 interface PollResult {
@@ -513,7 +522,12 @@ interface PollResult {
   finalRunId: string | null;
   wasClarifying: boolean;
   autoClarified: boolean;
+  clarifyResponseValue: string | null;
+  clarifyContinueSuccess: boolean;
+  postClarifyTimeout: boolean;
 }
+
+const POST_CLARIFY_EXTENSION_MS = 90_000;
 
 async function pollUntilTerminal(
   clientRequestId: string,
@@ -523,12 +537,17 @@ async function pollUntilTerminal(
   qaClarifyCtx?: QaClarifyContext,
 ): Promise<PollResult> {
   const start = Date.now();
+  let deadline = start + timeoutMs;
   let finalRunId = runId;
   let wasClarifying = false;
   let autoClarified = false;
   let clarifyResponseSent = false;
+  let clarifyResponseValue: string | null = null;
+  let clarifyContinueSuccess = false;
+  let postClarifyTimeout = false;
+  let clarifyResponseSentAt: number | null = null;
 
-  while (Date.now() - start < timeoutMs) {
+  while (Date.now() < deadline) {
     if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
 
     await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
@@ -556,7 +575,7 @@ async function pollUntilTerminal(
 
         if (qaClarifyCtx && !clarifyResponseSent && finalRunId) {
           try {
-            const autoResponse = getClarifyAutoResponse(qaClarifyCtx.query);
+            const autoResponse = getClarifyAutoResponse(qaClarifyCtx.query, qaClarifyCtx.clarificationResponse);
             await sendClarifyResponse(
               autoResponse,
               qaClarifyCtx.user,
@@ -567,6 +586,9 @@ async function pollUntilTerminal(
             );
             clarifyResponseSent = true;
             autoClarified = true;
+            clarifyResponseValue = autoResponse;
+            clarifyResponseSentAt = Date.now();
+            deadline = clarifyResponseSentAt + POST_CLARIFY_EXTENSION_MS;
           } catch (e: any) {
             if (e.name === 'AbortError') throw e;
           }
@@ -577,14 +599,16 @@ async function pollUntilTerminal(
       if (isTerminal || status === 'completed' || status === 'failed' || status === 'stopped' ||
           terminalState === 'PASS' || terminalState === 'FAIL' || terminalState === 'STOP' ||
           terminalState === 'completed' || terminalState === 'failed' || terminalState === 'stopped') {
-        return { terminal: true, status, timedOut: false, finalRunId, wasClarifying, autoClarified };
+        if (clarifyResponseSent) clarifyContinueSuccess = true;
+        return { terminal: true, status, timedOut: false, finalRunId, wasClarifying, autoClarified, clarifyResponseValue, clarifyContinueSuccess, postClarifyTimeout: false };
       }
     } catch (e: any) {
       if (e.name === 'AbortError') throw e;
     }
   }
 
-  return { terminal: false, status: 'timeout', timedOut: true, finalRunId, wasClarifying, autoClarified };
+  postClarifyTimeout = clarifyResponseSent;
+  return { terminal: false, status: 'timeout', timedOut: true, finalRunId, wasClarifying, autoClarified, clarifyResponseValue, clarifyContinueSuccess: false, postClarifyTimeout };
 }
 
 interface ArtefactInfo {
@@ -1163,6 +1187,9 @@ export default function QaTestRunnerPage() {
       blocked: false,
       clarified: false,
       autoClarified: false,
+      clarifyResponseValue: null,
+      clarifyContinueSuccess: false,
+      postClarifyTimeout: false,
       towerVerdict: null,
       resultSummary: null,
       judgement: null,
@@ -1254,7 +1281,7 @@ export default function QaTestRunnerPage() {
         updateResult(i, { runId });
         finalResults[i] = { ...finalResults[i], runId };
 
-        const qaClarifyCtx: QaClarifyContext = { query: test.query, user, conversationId: qaConversationId };
+        const qaClarifyCtx: QaClarifyContext = { query: test.query, user, conversationId: qaConversationId, clarificationResponse: test.clarificationResponse };
         const pollResult = await pollUntilTerminal(clientRequestId, runId, PER_TEST_TIMEOUT_MS, controller.signal, qaClarifyCtx);
         const duration = Date.now() - testStart;
 
@@ -1282,6 +1309,9 @@ export default function QaTestRunnerPage() {
           blocked: details.blocked,
           clarified: details.clarified,
           autoClarified: pollResult.autoClarified,
+          clarifyResponseValue: pollResult.clarifyResponseValue,
+          clarifyContinueSuccess: pollResult.clarifyContinueSuccess,
+          postClarifyTimeout: pollResult.postClarifyTimeout,
           towerVerdict: details.towerVerdict,
           resultSummary: details.resultSummary,
           layers: details.layers,
@@ -1495,7 +1525,9 @@ export default function QaTestRunnerPage() {
                     {r.autoClarified && (
                       <div className="text-xs text-indigo-600 mt-0.5 flex items-center gap-1">
                         <CheckCircle2 className="w-3 h-3" />
-                        Auto clarification response sent
+                        Auto clarification response sent{r.clarifyResponseValue ? `: ${r.clarifyResponseValue}` : ''}
+                        {r.clarifyContinueSuccess && <span className="text-green-600 ml-1">— run resumed</span>}
+                        {r.postClarifyTimeout && <span className="text-amber-600 ml-1">— post-clarify timeout</span>}
                       </div>
                     )}
                     {r.error && <div className="text-xs text-red-500 mt-0.5">{r.error}</div>}
