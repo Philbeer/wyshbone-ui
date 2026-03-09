@@ -933,7 +933,7 @@ export default function QaTestRunnerPage() {
         <div className="border rounded-lg p-6 mb-6 bg-gray-50">
           <h3 className="font-semibold text-gray-700 mb-2">{selectedSuite.name}</h3>
           <p className="text-sm text-gray-500 mb-4">{selectedSuite.description}</p>
-          <div className="space-y-2">
+          <div className="space-y-2 max-h-[400px] overflow-y-auto pr-1">
             {selectedSuite.tests.map((t, i) => (
               <div key={i} className="flex items-start gap-3 text-sm">
                 <span className="text-gray-400 font-mono w-6 text-right shrink-0">{i + 1}.</span>

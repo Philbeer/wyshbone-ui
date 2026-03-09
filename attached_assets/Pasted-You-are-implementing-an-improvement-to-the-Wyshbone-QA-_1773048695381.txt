@@ -1,0 +1,113 @@
+You are implementing an improvement to the Wyshbone QA Regression Dashboard.
+
+IMPORTANT
+Do NOT change agent logic.
+Do NOT modify Supervisor or Tower behaviour.
+
+This task only improves the QA test harness so benchmark tests can continue when clarification questions appear.
+
+------------------------------------
+
+Problem
+
+Some benchmark queries trigger clarification questions.
+
+Example:
+
+Find organisations that work with the local authority in Blackpool
+
+The system asks a clarification question.
+
+Because the QA runner sends only the initial query and never replies, the run stops and the test is marked as failed.
+
+In real usage, the user would answer the clarification and the run would continue.
+
+Therefore the QA harness must support automatic clarification responses.
+
+------------------------------------
+
+Goal
+
+Allow benchmark runs to automatically respond to clarification prompts so the agent can continue execution.
+
+------------------------------------
+
+PART 1 — Detect clarification prompts
+
+During a benchmark run, detect when the system returns a clarification request.
+
+This may appear as:
+
+- a clarify message
+- a clarification artefact
+- a UI clarification prompt
+- a structured clarify response from Supervisor
+
+Hook into the existing run polling / SSE stream where messages are processed.
+
+------------------------------------
+
+PART 2 — Add auto clarification responses
+
+If the current run is part of a QA benchmark suite and a clarification prompt appears:
+
+Automatically send a predefined clarification answer.
+
+Add a small mapping table:
+
+example:
+
+{
+  "Find organisations that work with the local authority in Blackpool":
+    "Any organisations that collaborate with Blackpool Council, such as partners, suppliers, or programme participants.",
+
+  "Find companies that supply to NHS hospitals in Leeds":
+    "Companies that provide goods or services to NHS hospitals in Leeds."
+}
+
+If no mapping exists, send a generic clarification response:
+
+"Use the most reasonable interpretation and continue."
+
+------------------------------------
+
+PART 3 — Continue the run
+
+After sending the clarification answer:
+
+- resume normal run polling
+- do not mark the test as failed
+- allow the agent to proceed normally
+
+------------------------------------
+
+PART 4 — UI visibility
+
+In the QA dashboard run log, display:
+
+Auto clarification response sent
+
+Example:
+
+Run 6
+Clarification requested
+Auto-response sent
+
+------------------------------------
+
+PART 5 — Safety
+
+Auto clarification must only trigger when:
+
+run_context == QA_benchmark
+
+It must not affect normal user chats.
+
+------------------------------------
+
+PART 6 — Deliverables
+
+1. Files changed
+2. How clarification detection works
+3. How auto responses are mapped
+4. Confirmation that normal chat behaviour is unchanged
