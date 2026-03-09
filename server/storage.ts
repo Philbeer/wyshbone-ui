@@ -1731,6 +1731,12 @@ export async function runStartupMigrations(): Promise<void> {
         run_id TEXT NOT NULL UNIQUE,
         timestamp BIGINT NOT NULL,
         query TEXT NOT NULL,
+        query_class TEXT,
+        expected_mode TEXT,
+        suite_id TEXT,
+        pack_timestamp BIGINT,
+        benchmark_test_id TEXT,
+        source TEXT NOT NULL DEFAULT 'heuristic',
         system_status TEXT NOT NULL,
         agent_status TEXT NOT NULL,
         tower_result TEXT NOT NULL,
@@ -1743,15 +1749,27 @@ export async function runStartupMigrations(): Promise<void> {
         created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
       );
     `;
+    await queryClient`ALTER TABLE public.qa_run_metrics ADD COLUMN IF NOT EXISTS query_class TEXT;`;
+    await queryClient`ALTER TABLE public.qa_run_metrics ADD COLUMN IF NOT EXISTS expected_mode TEXT;`;
+    await queryClient`ALTER TABLE public.qa_run_metrics ADD COLUMN IF NOT EXISTS suite_id TEXT;`;
+    await queryClient`ALTER TABLE public.qa_run_metrics ADD COLUMN IF NOT EXISTS pack_timestamp BIGINT;`;
+    await queryClient`ALTER TABLE public.qa_run_metrics ADD COLUMN IF NOT EXISTS benchmark_test_id TEXT;`;
+    await queryClient`ALTER TABLE public.qa_run_metrics ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'heuristic';`;
     await queryClient`
       CREATE INDEX IF NOT EXISTS qa_run_metrics_run_id_idx ON public.qa_run_metrics (run_id);
     `;
     await queryClient`
       CREATE INDEX IF NOT EXISTS qa_run_metrics_timestamp_idx ON public.qa_run_metrics (timestamp);
     `;
+    await queryClient`
+      CREATE INDEX IF NOT EXISTS qa_run_metrics_pack_timestamp_idx ON public.qa_run_metrics (pack_timestamp);
+    `;
+    await queryClient`
+      CREATE INDEX IF NOT EXISTS qa_run_metrics_source_idx ON public.qa_run_metrics (source);
+    `;
     console.log('✅ qa_run_metrics table ensured');
   } catch (error: any) {
-    if (error?.code !== '42710' && error?.code !== '42P07') {
+    if (error?.code !== '42710' && error?.code !== '42P07' && error?.code !== '42701') {
       console.error('⚠️ qa_run_metrics migration error (non-fatal):', error?.message || error);
     }
   }

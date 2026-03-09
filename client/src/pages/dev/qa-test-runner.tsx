@@ -983,6 +983,72 @@ function loadHistory(): SuiteRunHistory[] {
   } catch { return []; }
 }
 
+function towerVerdictToResult(verdict: string | null): 'PASS' | 'FAIL' | 'UNKNOWN' {
+  if (!verdict) return 'UNKNOWN';
+  const lower = verdict.toLowerCase();
+  if (lower.includes('pass')) return 'PASS';
+  if (lower.includes('fail') || lower.includes('stop') || lower.includes('error')) return 'FAIL';
+  return 'UNKNOWN';
+}
+
+async function persistQaMetric(
+  result: TestResult,
+  test: TestDefinition,
+  suiteId: string,
+  packTimestamp: number,
+): Promise<void> {
+  if (!result.runId) return;
+  if (result.status === 'queued' || result.status === 'running') return;
+
+  const systemHealth = result.systemHealth || deriveSystemHealth(result);
+  const agentQuality = result.agentQuality || deriveAgentQuality(result);
+  const tResult = towerVerdictToResult(result.towerVerdict);
+  const bResult = result.behaviourResult || deriveBehaviourResult(result);
+
+  const payload = {
+    runId: result.runId,
+    timestamp: Date.now(),
+    query: result.query,
+    queryClass: result.queryClass,
+    expectedMode: test.expectedMode,
+    suiteId,
+    packTimestamp,
+    benchmarkTestId: test.id,
+    source: 'benchmark' as const,
+    systemStatus: systemHealth,
+    agentStatus: agentQuality,
+    towerResult: tResult,
+    behaviourResult: bResult,
+    metadata: {
+      judgement: result.judgement,
+      benchmarkOutcome: result.benchmarkOutcome,
+      expected: result.expected,
+      durationMs: result.durationMs,
+      deliveredCount: result.deliveredCount,
+      blocked: result.blocked,
+      clarified: result.clarified,
+      towerVerdict: result.towerVerdict,
+      layers: result.layers,
+    },
+  };
+
+  try {
+    const url = buildApiUrl(addDevAuthParams('/api/qa-metrics/persist'));
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(payload),
+    });
+    if (!resp.ok) {
+      const body = await resp.json().catch(() => ({}));
+      console.error('[qa-metrics] persist failed:', resp.status, body);
+    }
+  } catch (err) {
+    console.error('[qa-metrics] persist network error:', err);
+  }
+}
+
 function outcomeBadge(outcome: BenchmarkOutcome | null) {
   if (!outcome) return null;
   switch (outcome) {
@@ -1428,22 +1494,21 @@ export default function QaTestRunnerPage() {
 
         finalResults[i] = { ...finalResults[i], ...patch };
         updateResult(i, patch);
+
+        persistQaMetric(finalResults[i], test, targetSuiteId, suiteStart);
       } catch (e: any) {
         const duration = Date.now() - testStart;
         if (e.name === 'AbortError') {
           const patch: Partial<TestResult> = { status: 'failed', error: 'Stopped by user', durationMs: duration, judgement: 'skip', benchmarkOutcome: 'TIMEOUT' as BenchmarkOutcome, systemHealth: 'TIMEOUT' as SystemHealthOutcome, agentQuality: 'UNKNOWN' as AgentQualityOutcome, behaviourResult: 'UNKNOWN' as BehaviourResult };
           finalResults[i] = { ...finalResults[i], ...patch };
           updateResult(i, patch);
-          for (let j = i + 1; j < suite.tests.length; j++) {
-            const skipped: Partial<TestResult> = { status: 'failed', error: 'Stopped by user', judgement: 'skip', benchmarkOutcome: 'TIMEOUT' as BenchmarkOutcome, systemHealth: 'TIMEOUT' as SystemHealthOutcome, agentQuality: 'UNKNOWN' as AgentQualityOutcome, behaviourResult: 'UNKNOWN' as BehaviourResult };
-            finalResults[j] = { ...finalResults[j], ...skipped };
-            updateResult(j, skipped);
-          }
+          persistQaMetric(finalResults[i], test, targetSuiteId, suiteStart);
           break;
         } else {
           const patch: Partial<TestResult> = { status: 'failed', error: e.message, durationMs: duration, judgement: 'mismatch', benchmarkOutcome: 'FAIL' as BenchmarkOutcome, systemHealth: 'BROKEN' as SystemHealthOutcome, agentQuality: 'UNKNOWN' as AgentQualityOutcome, behaviourResult: 'UNKNOWN' as BehaviourResult };
           finalResults[i] = { ...finalResults[i], ...patch };
           updateResult(i, patch);
+          persistQaMetric(finalResults[i], test, targetSuiteId, suiteStart);
         }
       }
     }

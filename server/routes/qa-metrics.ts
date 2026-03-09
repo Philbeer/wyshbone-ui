@@ -14,38 +14,42 @@ const VALID_SYSTEM_STATUSES: SystemStatus[] = ["HEALTHY", "DEGRADED", "BROKEN", 
 const VALID_AGENT_STATUSES: AgentQuality[] = ["PASS", "PARTIAL", "FAIL", "NOT_APPLICABLE", "UNKNOWN"];
 const VALID_TOWER_RESULTS: TowerResult[] = ["PASS", "FAIL", "UNKNOWN"];
 const VALID_BEHAVIOUR_RESULTS: BehaviourResult[] = ["PASS", "FAIL", "UNKNOWN"];
-const VALID_SCORES = [0, 0.5, 1];
+const VALID_QUERY_CLASSES = ["solvable", "website_evidence_required", "clarification_required", "relationship_required", "fictional_or_impossible", "subjective_or_unverifiable"];
+const VALID_EXPECTED_MODES = ["deliver_results", "clarify", "honest_refusal", "best_effort_honest"];
+const VALID_SOURCES = ["benchmark", "heuristic"] as const;
 
-function validateScore(val: unknown): val is number {
-  return typeof val === "number" && VALID_SCORES.includes(val);
-}
-
-function statusToScore(status: string, validValues: readonly string[], passValues: string[], partialValues: string[] = []): number {
+function statusToScore(status: string, passValues: string[], partialValues: string[] = []): number {
   if (passValues.includes(status)) return 1;
   if (partialValues.includes(status)) return 0.5;
   return 0;
 }
 
 export function systemStatusToScore(status: SystemStatus): number {
-  return statusToScore(status, VALID_SYSTEM_STATUSES, ["HEALTHY"], ["DEGRADED"]);
+  return statusToScore(status, ["HEALTHY"], ["DEGRADED"]);
 }
 
 export function agentStatusToScore(status: AgentQuality): number {
-  return statusToScore(status, VALID_AGENT_STATUSES, ["PASS"], ["PARTIAL"]);
+  return statusToScore(status, ["PASS"], ["PARTIAL"]);
 }
 
 export function towerResultToScore(result: TowerResult): number {
-  return statusToScore(result, VALID_TOWER_RESULTS, ["PASS"], []);
+  return statusToScore(result, ["PASS"], []);
 }
 
 export function behaviourResultToScore(result: BehaviourResult): number {
-  return statusToScore(result, VALID_BEHAVIOUR_RESULTS, ["PASS"], []);
+  return statusToScore(result, ["PASS"], []);
 }
 
 interface QaRunMetricInput {
   runId: string;
   timestamp: number;
   query: string;
+  queryClass?: string;
+  expectedMode?: string;
+  suiteId?: string;
+  packTimestamp?: number;
+  benchmarkTestId?: string;
+  source: "benchmark" | "heuristic";
   systemStatus: SystemStatus;
   agentStatus: AgentQuality;
   towerResult: TowerResult;
@@ -73,12 +77,35 @@ function validateMetricInput(input: unknown): { valid: true; data: QaRunMetricIn
   const br = obj.behaviourResult as string;
   if (!VALID_BEHAVIOUR_RESULTS.includes(br as BehaviourResult)) return { valid: false, error: `behaviourResult must be one of: ${VALID_BEHAVIOUR_RESULTS.join(", ")}` };
 
+  const source = (obj.source as string) || "heuristic";
+  if (!VALID_SOURCES.includes(source as typeof VALID_SOURCES[number])) return { valid: false, error: `source must be one of: ${VALID_SOURCES.join(", ")}` };
+
+  const queryClass = obj.queryClass as string | undefined;
+  if (queryClass && !VALID_QUERY_CLASSES.includes(queryClass)) return { valid: false, error: `queryClass must be one of: ${VALID_QUERY_CLASSES.join(", ")}` };
+
+  const expectedMode = obj.expectedMode as string | undefined;
+  if (expectedMode && !VALID_EXPECTED_MODES.includes(expectedMode)) return { valid: false, error: `expectedMode must be one of: ${VALID_EXPECTED_MODES.join(", ")}` };
+
+  if (source === "benchmark") {
+    if (!queryClass) return { valid: false, error: "queryClass is required for benchmark source" };
+    if (!expectedMode) return { valid: false, error: "expectedMode is required for benchmark source" };
+    if (typeof obj.suiteId !== "string" || !obj.suiteId) return { valid: false, error: "suiteId is required for benchmark source" };
+    if (typeof obj.packTimestamp !== "number" || obj.packTimestamp <= 0) return { valid: false, error: "packTimestamp must be a positive number for benchmark source" };
+    if (typeof obj.benchmarkTestId !== "string" || !obj.benchmarkTestId) return { valid: false, error: "benchmarkTestId is required for benchmark source" };
+  }
+
   return {
     valid: true,
     data: {
       runId: obj.runId as string,
       timestamp: obj.timestamp as number,
       query: obj.query as string,
+      queryClass: queryClass || undefined,
+      expectedMode: expectedMode || undefined,
+      suiteId: (obj.suiteId as string) || undefined,
+      packTimestamp: typeof obj.packTimestamp === "number" ? obj.packTimestamp : undefined,
+      benchmarkTestId: (obj.benchmarkTestId as string) || undefined,
+      source: source as "benchmark" | "heuristic",
       systemStatus: ss as SystemStatus,
       agentStatus: as_ as AgentQuality,
       towerResult: tr as TowerResult,
@@ -93,6 +120,12 @@ function inputToInsert(input: QaRunMetricInput): InsertQaRunMetric {
     runId: input.runId,
     timestamp: input.timestamp,
     query: input.query,
+    queryClass: input.queryClass ?? null,
+    expectedMode: input.expectedMode ?? null,
+    suiteId: input.suiteId ?? null,
+    packTimestamp: input.packTimestamp ?? null,
+    benchmarkTestId: input.benchmarkTestId ?? null,
+    source: input.source,
     systemStatus: input.systemStatus,
     agentStatus: input.agentStatus,
     towerResult: input.towerResult,
@@ -136,6 +169,12 @@ export function createQaMetricsRouter(): Router {
         set: {
           timestamp: row.timestamp,
           query: row.query,
+          queryClass: row.queryClass,
+          expectedMode: row.expectedMode,
+          suiteId: row.suiteId,
+          packTimestamp: row.packTimestamp,
+          benchmarkTestId: row.benchmarkTestId,
+          source: row.source,
           systemStatus: row.systemStatus,
           agentStatus: row.agentStatus,
           towerResult: row.towerResult,
@@ -183,6 +222,12 @@ export function createQaMetricsRouter(): Router {
             set: {
               timestamp: row.timestamp,
               query: row.query,
+              queryClass: row.queryClass,
+              expectedMode: row.expectedMode,
+              suiteId: row.suiteId,
+              packTimestamp: row.packTimestamp,
+              benchmarkTestId: row.benchmarkTestId,
+              source: row.source,
               systemStatus: row.systemStatus,
               agentStatus: row.agentStatus,
               towerResult: row.towerResult,
@@ -262,7 +307,6 @@ export function createQaMetricsRouter(): Router {
         let discoveryOk = false;
         let executionFail = false;
         let discoveryFail = false;
-        let verificationPass = false;
         let queryText = "";
 
         for (const a of artefacts) {
@@ -298,11 +342,6 @@ export function createQaMetricsRouter(): Router {
 
           if (a.type === "search_results" || a.type === "google_places_results") {
             discoveryOk = true;
-          }
-
-          if (a.type === "verification_results") {
-            const vResult = payload?.pass || payload?.verified;
-            if (vResult) verificationPass = true;
           }
 
           if (a.type === "execution_error" || (a.type === "diagnostic" && typeof a.title === "string" && a.title.toLowerCase().includes("execution error"))) {
@@ -363,12 +402,14 @@ export function createQaMetricsRouter(): Router {
             runId,
             timestamp: run.created_at,
             query: queryText,
+            source: "heuristic",
             systemStatus,
             agentStatus,
             towerResult: towerVerdict,
             behaviourResult,
             metadata: {
               backfilled: true,
+              heuristic: true,
               terminalState: run.terminal_state,
               supervisorRunId: run.supervisor_run_id,
               deliveredCount,
@@ -392,14 +433,22 @@ export function createQaMetricsRouter(): Router {
     }
   });
 
-  router.get("/history", async (_req, res) => {
+  router.get("/history", async (req, res) => {
     try {
       const db = getDrizzleDb();
-      const rows = await db.execute(sql`
-        SELECT * FROM qa_run_metrics
-        ORDER BY timestamp DESC
-        LIMIT 500
-      `);
+      const sourceFilter = req.query.source as string | undefined;
+      const rows = sourceFilter
+        ? await db.execute(sql`
+            SELECT * FROM qa_run_metrics
+            WHERE source = ${sourceFilter}
+            ORDER BY timestamp DESC
+            LIMIT 500
+          `)
+        : await db.execute(sql`
+            SELECT * FROM qa_run_metrics
+            ORDER BY timestamp DESC
+            LIMIT 500
+          `);
       return res.json(rows);
     } catch (error: any) {
       console.error("[qa-metrics] history error:", error?.message || error);

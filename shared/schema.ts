@@ -2767,11 +2767,23 @@ export type TowerResult = z.infer<typeof towerResultEnum>;
 export const behaviourResultEnum = z.enum(["PASS", "FAIL", "UNKNOWN"]);
 export type BehaviourResult = z.infer<typeof behaviourResultEnum>;
 
+export const queryClassEnum = z.enum(["solvable", "website_evidence_required", "clarification_required", "relationship_required", "fictional_or_impossible", "subjective_or_unverifiable"]);
+export type QueryClass = z.infer<typeof queryClassEnum>;
+
+export const expectedModeEnum = z.enum(["deliver_results", "clarify", "honest_refusal", "best_effort_honest"]);
+export type ExpectedMode = z.infer<typeof expectedModeEnum>;
+
 export const qaRunMetrics = pgTable("qa_run_metrics", {
   id: serial("id").primaryKey(),
   runId: text("run_id").notNull().unique(),
   timestamp: bigint("timestamp", { mode: "number" }).notNull(),
   query: text("query").notNull(),
+  queryClass: text("query_class"),
+  expectedMode: text("expected_mode"),
+  suiteId: text("suite_id"),
+  packTimestamp: bigint("pack_timestamp", { mode: "number" }),
+  benchmarkTestId: text("benchmark_test_id"),
+  source: text("source").notNull().default("heuristic"),
   systemStatus: text("system_status").notNull(),
   agentStatus: text("agent_status").notNull(),
   towerResult: text("tower_result").notNull(),
@@ -2785,6 +2797,8 @@ export const qaRunMetrics = pgTable("qa_run_metrics", {
 }, (table) => [
   index("qa_run_metrics_run_id_idx").on(table.runId),
   index("qa_run_metrics_timestamp_idx").on(table.timestamp),
+  index("qa_run_metrics_pack_timestamp_idx").on(table.packTimestamp),
+  index("qa_run_metrics_source_idx").on(table.source),
 ]);
 
 export const insertQaRunMetricSchema = createInsertSchema(qaRunMetrics);
