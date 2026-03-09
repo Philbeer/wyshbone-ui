@@ -17,12 +17,15 @@ import {
 import { buildApiUrl, addDevAuthParams } from '@/lib/queryClient';
 
 type ExpectedOutcome = 'pass' | 'fail' | 'blocked' | 'clarify' | 'blocked_or_clarify';
+type QueryClass = 'solvable' | 'clarification_required' | 'fictional_or_impossible' | 'subjective_or_unverifiable';
+type BehaviourResult = 'PASS' | 'FAIL' | 'UNKNOWN';
 
 interface TestDefinition {
   query: string;
   expected: ExpectedOutcome;
   expectedStrategy?: string;
   notes?: string;
+  queryClass: QueryClass;
 }
 
 interface TestSuite {
@@ -36,64 +39,76 @@ const FULL_BENCHMARK_PACK: TestDefinition[] = [
   {
     query: 'Find pubs in Arundel with Swan in the name',
     expected: 'pass',
+    queryClass: 'solvable',
     notes: 'Basic discovery — entity + location + name constraint.',
   },
   {
     query: 'Find 10 cafes in York',
     expected: 'pass',
+    queryClass: 'solvable',
     notes: 'Basic discovery — entity + location + explicit count.',
   },
   {
     query: 'Find restaurants in Bath that mention vegan options on their website',
     expected: 'pass',
     expectedStrategy: 'website_evidence',
+    queryClass: 'solvable',
     notes: 'Website evidence — semantic menu analysis.',
   },
   {
     query: 'Find hotels in Edinburgh that mention spa facilities on their website',
     expected: 'pass',
     expectedStrategy: 'website_evidence',
+    queryClass: 'solvable',
     notes: 'Website evidence — amenity extraction.',
   },
   {
     query: 'Find gyms in Manchester that offer personal training',
     expected: 'pass',
+    queryClass: 'solvable',
     notes: 'Website evidence — service attribute.',
   },
   {
     query: 'Find pubs in Arundel that mention live music on their website',
     expected: 'pass',
     expectedStrategy: 'website_evidence',
+    queryClass: 'solvable',
     notes: 'Website evidence — entertainment attribute.',
   },
   {
     query: 'Find organisations that work with the local authority in Blackpool',
     expected: 'blocked_or_clarify',
+    queryClass: 'clarification_required',
     notes: 'Relationship discovery — local authority predicate.',
   },
   {
     query: 'Find companies that supply to NHS hospitals in Leeds',
     expected: 'blocked_or_clarify',
+    queryClass: 'clarification_required',
     notes: 'Relationship discovery — supplier predicate.',
   },
   {
     query: 'Find the best dentists in Brighton',
     expected: 'blocked_or_clarify',
+    queryClass: 'subjective_or_unverifiable',
     notes: 'Ranking — subjective "best" should trigger clarification or pass through.',
   },
   {
     query: 'Find amazing vibes in London',
     expected: 'clarify',
+    queryClass: 'subjective_or_unverifiable',
     notes: 'Honest failure — purely subjective entity type, no concrete noun.',
   },
   {
     query: 'Find pubs in Narnia',
     expected: 'clarify',
+    queryClass: 'fictional_or_impossible',
     notes: 'Honest failure — invalid/unknown location.',
   },
   {
     query: 'Find breweries',
     expected: 'clarify',
+    queryClass: 'clarification_required',
     notes: 'Difficult case — missing location, should clarify.',
   },
 ];
@@ -113,22 +128,26 @@ const SUITES: TestSuite[] = [
       {
         query: 'Find pubs in Arundel with Swan in the name',
         expected: 'pass',
+        queryClass: 'solvable',
         notes: 'Simple entity + location + name filter. Should complete with results.',
       },
       {
         query: 'Find pubs in Arundel that mention live music on their website',
         expected: 'pass',
         expectedStrategy: 'website_evidence',
+        queryClass: 'solvable',
         notes: 'Entity + location + website evidence attribute.',
       },
       {
         query: 'Find the best dentists in Brighton',
         expected: 'blocked_or_clarify',
+        queryClass: 'subjective_or_unverifiable',
         notes: 'Subjective "best" may trigger clarification or pass through — both are acceptable.',
       },
       {
         query: 'Find 10 cafes in York',
         expected: 'pass',
+        queryClass: 'solvable',
         notes: 'Simple entity + location + explicit count.',
       },
     ],
@@ -141,16 +160,19 @@ const SUITES: TestSuite[] = [
       {
         query: 'Find restaurants in Bath that mention vegan options on their website',
         expected: 'pass',
+        queryClass: 'solvable',
         notes: 'Website evidence for vegan menu.',
       },
       {
         query: 'Find hotels in Edinburgh that mention spa facilities on their website',
         expected: 'pass',
+        queryClass: 'solvable',
         notes: 'Website evidence for spa/wellness.',
       },
       {
         query: 'Find gyms in Manchester that offer personal training',
         expected: 'pass',
+        queryClass: 'solvable',
         notes: 'Service attribute via website evidence.',
       },
     ],
@@ -163,11 +185,13 @@ const SUITES: TestSuite[] = [
       {
         query: 'Find organisations that work with the local authority in Blackpool',
         expected: 'blocked_or_clarify',
+        queryClass: 'clarification_required',
         notes: 'Relationship predicate — should trigger constraint gate or clarification.',
       },
       {
         query: 'Find companies that supply to NHS hospitals in Leeds',
         expected: 'blocked_or_clarify',
+        queryClass: 'clarification_required',
         notes: 'Supplier relationship predicate.',
       },
     ],
@@ -180,16 +204,19 @@ const SUITES: TestSuite[] = [
       {
         query: 'Find amazing vibes in London',
         expected: 'clarify',
+        queryClass: 'subjective_or_unverifiable',
         notes: 'Purely subjective entity type — should clarify for a concrete noun.',
       },
       {
         query: 'Find pubs in Narnia',
         expected: 'clarify',
+        queryClass: 'fictional_or_impossible',
         notes: 'Invalid/unknown location — should clarify.',
       },
       {
         query: 'Find breweries',
         expected: 'clarify',
+        queryClass: 'clarification_required',
         notes: 'Missing location — should clarify.',
       },
     ],
@@ -242,6 +269,7 @@ function emptyLayerBreakdown(): LayerBreakdown {
 interface TestResult {
   query: string;
   expected: ExpectedOutcome;
+  queryClass: QueryClass;
   notes?: string;
   status: TestStatus;
   runId: string | null;
@@ -258,6 +286,7 @@ interface TestResult {
   benchmarkOutcome: BenchmarkOutcome | null;
   systemHealth: SystemHealthOutcome | null;
   agentQuality: AgentQualityOutcome | null;
+  behaviourResult: BehaviourResult | null;
 }
 
 interface SuiteRunHistory {
@@ -749,6 +778,35 @@ function deriveAgentQuality(result: TestResult): AgentQualityOutcome {
   return 'FAIL';
 }
 
+function deriveBehaviourResult(result: TestResult): BehaviourResult {
+  if (result.status === 'timed_out') return 'UNKNOWN';
+  if (result.status === 'failed' && result.error === 'Stopped by user') return 'UNKNOWN';
+  if (result.status === 'queued' || result.status === 'running') return 'UNKNOWN';
+
+  const towerPass = result.towerVerdict?.toLowerCase().includes('pass') ?? false;
+  const towerFail = result.towerVerdict?.toLowerCase().includes('fail') ?? false;
+  const delivered = result.layers.delivery === 'pass';
+
+  switch (result.queryClass) {
+    case 'solvable':
+      return (delivered && towerPass) ? 'PASS' : 'FAIL';
+
+    case 'clarification_required':
+      return result.clarified ? 'PASS' : 'FAIL';
+
+    case 'fictional_or_impossible':
+      return (towerFail && !delivered) ? 'PASS'
+        : (result.blocked || result.clarified) ? 'PASS'
+        : 'FAIL';
+
+    case 'subjective_or_unverifiable':
+      return (towerFail || result.clarified) ? 'PASS' : 'FAIL';
+
+    default:
+      return 'UNKNOWN';
+  }
+}
+
 async function fetchRunDetails(runId: string): Promise<ArtefactInfo> {
   const info: ArtefactInfo = { blocked: false, clarified: false, towerVerdict: null, resultSummary: null, layers: emptyLayerBreakdown() };
   try {
@@ -982,6 +1040,7 @@ interface BenchmarkSummary {
   durationMs: number;
   system: { working: number; broken: number; timeout: number; reliability: number };
   agent: { pass: number; partial: number; fail: number; unknown: number; successRate: number };
+  behaviour: { pass: number; fail: number; unknown: number; score: number };
 }
 
 function BenchmarkProgressBar({ progress }: { progress: BenchmarkProgress }) {
@@ -1016,9 +1075,18 @@ function BenchmarkProgressBar({ progress }: { progress: BenchmarkProgress }) {
   );
 }
 
+function behaviourBadge(result: BehaviourResult | null) {
+  if (!result) return <span className="text-gray-300 text-xs">—</span>;
+  const cls = result === 'PASS' ? 'bg-green-100 text-green-800'
+    : result === 'FAIL' ? 'bg-red-100 text-red-800'
+    : 'bg-gray-100 text-gray-600';
+  return <Badge variant="outline" className={`text-[10px] px-1.5 py-0 font-medium border-0 ${cls}`}>{result}</Badge>;
+}
+
 function BenchmarkSummaryCard({ summary }: { summary: BenchmarkSummary }) {
   const s = summary.system;
   const a = summary.agent;
+  const b = summary.behaviour;
   return (
     <div className="border-2 rounded-lg p-5 mb-6 bg-gradient-to-r from-purple-50 to-indigo-50 border-purple-200">
       <div className="flex items-center gap-2 mb-4">
@@ -1028,7 +1096,7 @@ function BenchmarkSummaryCard({ summary }: { summary: BenchmarkSummary }) {
           {(summary.durationMs / 1000).toFixed(0)}s total
         </span>
       </div>
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-3 gap-4">
         <div>
           <div className="flex items-baseline gap-2 mb-2">
             <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">System Reliability</span>
@@ -1050,6 +1118,17 @@ function BenchmarkSummaryCard({ summary }: { summary: BenchmarkSummary }) {
             <span className="text-yellow-700">{a.partial} partial</span>
             <span className="text-red-700">{a.fail} fail</span>
             <span className="text-gray-500">{a.unknown} unknown</span>
+          </div>
+        </div>
+        <div>
+          <div className="flex items-baseline gap-2 mb-2">
+            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Behaviour Score</span>
+            <span className={`text-2xl font-bold ml-auto ${b.score >= 80 ? 'text-green-700' : b.score >= 50 ? 'text-amber-700' : 'text-red-700'}`}>{b.score}%</span>
+          </div>
+          <div className="flex items-center gap-3 text-sm">
+            <span className="text-green-700 font-medium">{b.pass} pass</span>
+            <span className="text-red-700">{b.fail} fail</span>
+            <span className="text-gray-500">{b.unknown} unknown</span>
           </div>
         </div>
       </div>
@@ -1074,6 +1153,7 @@ export default function QaTestRunnerPage() {
     return suite.tests.map(t => ({
       query: t.query,
       expected: t.expected,
+      queryClass: t.queryClass,
       notes: t.notes,
       status: 'queued',
       runId: null,
@@ -1090,6 +1170,7 @@ export default function QaTestRunnerPage() {
       benchmarkOutcome: null,
       systemHealth: null,
       agentQuality: null,
+      behaviourResult: null,
     }));
   }, []);
 
@@ -1144,7 +1225,7 @@ export default function QaTestRunnerPage() {
     for (let i = 0; i < suite.tests.length; i++) {
       if (controller.signal.aborted) {
         for (let j = i; j < suite.tests.length; j++) {
-          const skipped: Partial<TestResult> = { status: 'failed', error: 'Stopped by user', judgement: 'skip' };
+          const skipped: Partial<TestResult> = { status: 'failed', error: 'Stopped by user', judgement: 'skip', benchmarkOutcome: 'TIMEOUT' as BenchmarkOutcome, systemHealth: 'TIMEOUT' as SystemHealthOutcome, agentQuality: 'UNKNOWN' as AgentQualityOutcome, behaviourResult: 'UNKNOWN' as BehaviourResult };
           finalResults[j] = { ...finalResults[j], ...skipped };
           updateResult(j, skipped);
         }
@@ -1211,23 +1292,24 @@ export default function QaTestRunnerPage() {
         patch.benchmarkOutcome = deriveBenchmarkOutcome(tempResult as TestResult);
         patch.systemHealth = deriveSystemHealth(tempResult as TestResult);
         patch.agentQuality = deriveAgentQuality(tempResult as TestResult);
+        patch.behaviourResult = deriveBehaviourResult(tempResult as TestResult);
 
         finalResults[i] = { ...finalResults[i], ...patch };
         updateResult(i, patch);
       } catch (e: any) {
         const duration = Date.now() - testStart;
         if (e.name === 'AbortError') {
-          const patch: Partial<TestResult> = { status: 'failed', error: 'Stopped by user', durationMs: duration, judgement: 'skip', benchmarkOutcome: 'TIMEOUT' as BenchmarkOutcome, systemHealth: 'TIMEOUT' as SystemHealthOutcome, agentQuality: 'UNKNOWN' as AgentQualityOutcome };
+          const patch: Partial<TestResult> = { status: 'failed', error: 'Stopped by user', durationMs: duration, judgement: 'skip', benchmarkOutcome: 'TIMEOUT' as BenchmarkOutcome, systemHealth: 'TIMEOUT' as SystemHealthOutcome, agentQuality: 'UNKNOWN' as AgentQualityOutcome, behaviourResult: 'UNKNOWN' as BehaviourResult };
           finalResults[i] = { ...finalResults[i], ...patch };
           updateResult(i, patch);
           for (let j = i + 1; j < suite.tests.length; j++) {
-            const skipped: Partial<TestResult> = { status: 'failed', error: 'Stopped by user', judgement: 'skip', benchmarkOutcome: 'TIMEOUT' as BenchmarkOutcome, systemHealth: 'TIMEOUT' as SystemHealthOutcome, agentQuality: 'UNKNOWN' as AgentQualityOutcome };
+            const skipped: Partial<TestResult> = { status: 'failed', error: 'Stopped by user', judgement: 'skip', benchmarkOutcome: 'TIMEOUT' as BenchmarkOutcome, systemHealth: 'TIMEOUT' as SystemHealthOutcome, agentQuality: 'UNKNOWN' as AgentQualityOutcome, behaviourResult: 'UNKNOWN' as BehaviourResult };
             finalResults[j] = { ...finalResults[j], ...skipped };
             updateResult(j, skipped);
           }
           break;
         } else {
-          const patch: Partial<TestResult> = { status: 'failed', error: e.message, durationMs: duration, judgement: 'mismatch', benchmarkOutcome: 'FAIL' as BenchmarkOutcome, systemHealth: 'BROKEN' as SystemHealthOutcome, agentQuality: 'UNKNOWN' as AgentQualityOutcome };
+          const patch: Partial<TestResult> = { status: 'failed', error: e.message, durationMs: duration, judgement: 'mismatch', benchmarkOutcome: 'FAIL' as BenchmarkOutcome, systemHealth: 'BROKEN' as SystemHealthOutcome, agentQuality: 'UNKNOWN' as AgentQualityOutcome, behaviourResult: 'UNKNOWN' as BehaviourResult };
           finalResults[i] = { ...finalResults[i], ...patch };
           updateResult(i, patch);
         }
@@ -1243,11 +1325,16 @@ export default function QaTestRunnerPage() {
     if (isBenchmark) {
       const healthCounts = computeHealthCounts(finalResults);
       const qualityCounts = computeQualityCounts(finalResults);
+      const bPass = finalResults.filter(r => r.behaviourResult === 'PASS').length;
+      const bFail = finalResults.filter(r => r.behaviourResult === 'FAIL').length;
+      const bUnknown = finalResults.filter(r => r.behaviourResult === 'UNKNOWN' || r.behaviourResult === null).length;
+      const bScore = finalResults.length > 0 ? Math.round((bPass / finalResults.length) * 100) : 0;
       setBenchmarkSummary({
         total: finalResults.length,
         durationMs: Date.now() - suiteStart,
         system: healthCounts,
         agent: qualityCounts,
+        behaviour: { pass: bPass, fail: bFail, unknown: bUnknown, score: bScore },
       });
     }
 
@@ -1383,6 +1470,7 @@ export default function QaTestRunnerPage() {
                 <th className="text-left px-3 py-2 font-medium text-gray-600 w-20">System</th>
                 <th className="text-left px-3 py-2 font-medium text-gray-600 w-20">Agent</th>
                 <th className="text-left px-3 py-2 font-medium text-gray-600 w-20">Tower</th>
+                <th className="text-left px-3 py-2 font-medium text-gray-600 w-20">Behaviour</th>
                 <th className="text-left px-3 py-2 font-medium text-gray-600 w-16">Time</th>
                 <th className="text-left px-3 py-2 font-medium text-gray-600 w-16">AFR</th>
               </tr>
@@ -1426,6 +1514,9 @@ export default function QaTestRunnerPage() {
                         r.towerVerdict.toLowerCase().includes('fail') ? 'text-red-600' : 'text-gray-500'
                       }`}>{r.towerVerdict}</span>
                     ) : <span className="text-gray-300 text-xs">—</span>}
+                  </td>
+                  <td className="px-3 py-2.5">
+                    {behaviourBadge(r.behaviourResult)}
                   </td>
                   <td className="px-3 py-2.5 text-gray-500 font-mono text-xs">
                     {r.durationMs !== null ? `${(r.durationMs / 1000).toFixed(1)}s` : '—'}
