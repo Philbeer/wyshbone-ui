@@ -313,7 +313,7 @@ function getClarifyAutoResponse(query: string, definitionResponse?: string): str
 const PER_TEST_TIMEOUT_MS = 90_000;
 const POLL_INTERVAL_MS = 2_000;
 
-type TestStatus = 'queued' | 'running' | 'completed' | 'failed' | 'timed_out';
+type TestStatus = 'queued' | 'running' | 'completed' | 'failed' | 'timed_out' | 'poll_timeout_completed' | 'poll_timeout_running';
 type SuiteStatus = 'not_started' | 'running' | 'completed' | 'failed';
 type Judgement = 'pass' | 'fail' | 'skip' | 'mismatch';
 type LayerStatus = 'pass' | 'fail' | 'blocked' | 'timeout' | 'unknown';
@@ -384,7 +384,7 @@ function getUser(): { id: string; email: string } | null {
 }
 
 function evaluateJudgement(expected: ExpectedOutcome, result: TestResult): Judgement {
-  if (result.status === 'timed_out') return 'skip';
+  if (result.status === 'timed_out' || result.status === 'poll_timeout_running') return 'skip';
   if (result.status === 'failed' && result.error === 'Stopped by user') return 'skip';
 
   const actualOutcome = deriveActualOutcome(result);
@@ -408,9 +408,9 @@ function evaluateJudgement(expected: ExpectedOutcome, result: TestResult): Judge
 function deriveActualOutcome(result: TestResult): string {
   if (result.blocked) return 'blocked';
   if (result.clarified) return 'clarify';
-  if (result.status === 'completed') return 'pass';
+  if (result.status === 'completed' || result.status === 'poll_timeout_completed') return 'pass';
   if (result.status === 'failed') return 'fail';
-  if (result.status === 'timed_out') return 'timed_out';
+  if (result.status === 'timed_out' || result.status === 'poll_timeout_running') return 'timed_out';
   return 'unknown';
 }
 
@@ -441,7 +441,11 @@ function statusBadge(status: TestStatus | SuiteStatus) {
     case 'failed':
       return <Badge className="bg-red-100 text-red-700 border-red-200"><XCircle className="w-3 h-3 mr-1" />Failed</Badge>;
     case 'timed_out':
-      return <Badge className="bg-amber-100 text-amber-700 border-amber-200"><Clock className="w-3 h-3 mr-1" />Timed out</Badge>;
+      return <Badge className="bg-red-100 text-red-700 border-red-200"><Clock className="w-3 h-3 mr-1" />Timeout</Badge>;
+    case 'poll_timeout_completed':
+      return <Badge className="bg-green-100 text-green-700 border-green-200"><CheckCircle2 className="w-3 h-3 mr-1" />Completed (late)</Badge>;
+    case 'poll_timeout_running':
+      return <Badge className="bg-amber-100 text-amber-700 border-amber-200"><Clock className="w-3 h-3 mr-1" />Poll timeout (still running)</Badge>;
   }
 }
 
@@ -601,6 +605,12 @@ interface PollResult {
 
 const POST_CLARIFY_EXTENSION_MS = 90_000;
 
+function resolveCanonicalStatus(status: string, terminalState?: string): string {
+  if (status === 'completed' || terminalState === 'completed' || terminalState === 'PASS') return 'completed';
+  if (status === 'failed' || status === 'stopped' || terminalState === 'failed' || terminalState === 'stopped' || terminalState === 'FAIL' || terminalState === 'STOP') return 'failed';
+  return 'failed';
+}
+
 async function pollUntilTerminal(
   clientRequestId: string,
   runId: string | null,
@@ -674,7 +684,8 @@ async function pollUntilTerminal(
           terminalState === 'PASS' || terminalState === 'FAIL' || terminalState === 'STOP' ||
           terminalState === 'completed' || terminalState === 'failed' || terminalState === 'stopped') {
         if (clarifyResponseSent) clarifyContinueSuccess = true;
-        return { terminal: true, status, timedOut: false, finalRunId, wasClarifying, autoClarified, clarifyResponseValue, clarifyContinueSuccess, postClarifyTimeout: false };
+        const canonicalStatus = resolveCanonicalStatus(status, terminalState);
+        return { terminal: true, status: canonicalStatus, timedOut: false, finalRunId, wasClarifying, autoClarified, clarifyResponseValue, clarifyContinueSuccess, postClarifyTimeout: false };
       }
     } catch (e: any) {
       if (e.name === 'AbortError') throw e;
@@ -682,7 +693,37 @@ async function pollUntilTerminal(
   }
 
   postClarifyTimeout = clarifyResponseSent;
-  return { terminal: false, status: 'timeout', timedOut: true, finalRunId, wasClarifying, autoClarified, clarifyResponseValue, clarifyContinueSuccess: false, postClarifyTimeout };
+
+  if (finalRunId) {
+    try {
+      const params = new URLSearchParams();
+      params.set('client_request_id', clientRequestId);
+      params.set('runId', finalRunId);
+      const res = await fetch(
+        buildApiUrl(addDevAuthParams(`/api/afr/stream?${params.toString()}`)),
+        { credentials: 'include', cache: 'no-store' }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        const finalStatus = data.status || 'unknown';
+        const terminalState = data.terminal_state;
+        const isTerminal = data.is_terminal === true;
+
+        if (isTerminal || finalStatus === 'completed' || finalStatus === 'failed' || finalStatus === 'stopped' ||
+            terminalState === 'PASS' || terminalState === 'FAIL' || terminalState === 'STOP' ||
+            terminalState === 'completed' || terminalState === 'failed' || terminalState === 'stopped') {
+          const canonical = resolveCanonicalStatus(finalStatus, terminalState);
+          if (canonical === 'completed') {
+            return { terminal: true, status: 'poll_timeout_completed', timedOut: false, finalRunId, wasClarifying, autoClarified, clarifyResponseValue, clarifyContinueSuccess: clarifyResponseSent, postClarifyTimeout: false };
+          }
+          return { terminal: true, status: canonical, timedOut: false, finalRunId, wasClarifying, autoClarified, clarifyResponseValue, clarifyContinueSuccess: clarifyResponseSent, postClarifyTimeout: false };
+        }
+        return { terminal: false, status: 'poll_timeout_running', timedOut: true, finalRunId, wasClarifying, autoClarified, clarifyResponseValue, clarifyContinueSuccess: false, postClarifyTimeout };
+      }
+    } catch {}
+  }
+
+  return { terminal: false, status: 'poll_timeout_running', timedOut: true, finalRunId, wasClarifying, autoClarified, clarifyResponseValue, clarifyContinueSuccess: false, postClarifyTimeout };
 }
 
 interface ArtefactInfo {
@@ -791,7 +832,7 @@ function deriveLayers(artefacts: any[]): LayerBreakdown {
 }
 
 function deriveBenchmarkOutcome(result: TestResult): BenchmarkOutcome {
-  if (result.status === 'timed_out') return 'TIMEOUT';
+  if (result.status === 'timed_out' || result.status === 'poll_timeout_running') return 'TIMEOUT';
   if (result.status === 'failed' && result.error === 'Stopped by user') return 'TIMEOUT';
 
   if (result.blocked || result.clarified) {
@@ -814,27 +855,29 @@ function deriveBenchmarkOutcome(result: TestResult): BenchmarkOutcome {
   if (discoveryOk && deliveryOk && !towerOk) return 'PARTIAL_SUCCESS';
   if (discoveryOk && !deliveryOk) return 'PARTIAL_SUCCESS';
 
-  if (result.status === 'completed' && result.expected === 'pass') {
+  const isCompleted = result.status === 'completed' || result.status === 'poll_timeout_completed';
+
+  if (isCompleted && result.expected === 'pass') {
     if (towerOk) return 'PASS';
     if (discoveryOk) return 'PARTIAL_SUCCESS';
     return 'FAIL';
   }
 
-  if (result.status === 'completed') return 'PASS';
+  if (isCompleted) return 'PASS';
   return 'FAIL';
 }
 
 function deriveSystemHealth(result: TestResult): SystemHealthOutcome {
-  if (result.status === 'timed_out') return 'TIMEOUT';
+  if (result.status === 'timed_out' || result.status === 'poll_timeout_running') return 'TIMEOUT';
   if (result.status === 'failed' && result.error === 'Stopped by user') return 'TIMEOUT';
   if (result.status === 'failed' && result.error && result.error !== 'Stopped by user') return 'BROKEN';
-  if (result.status === 'completed') return 'HEALTHY';
+  if (result.status === 'completed' || result.status === 'poll_timeout_completed') return 'HEALTHY';
   if (result.blocked || result.clarified) return 'HEALTHY';
   return 'BROKEN';
 }
 
 function deriveAgentQuality(result: TestResult): AgentQualityOutcome {
-  if (result.status === 'timed_out') return 'UNKNOWN';
+  if (result.status === 'timed_out' || result.status === 'poll_timeout_running') return 'UNKNOWN';
   if (result.status === 'failed' && result.error === 'Stopped by user') return 'UNKNOWN';
   if (result.status === 'failed' && result.error) return 'UNKNOWN';
 
@@ -861,7 +904,7 @@ function deriveTowerResult(result: TestResult): TowerResult {
 }
 
 function deriveBehaviourResult(result: TestResult): BehaviourResult {
-  if (result.status === 'timed_out') return 'UNKNOWN';
+  if (result.status === 'timed_out' || result.status === 'poll_timeout_running') return 'UNKNOWN';
   if (result.status === 'failed' && result.error === 'Stopped by user') return 'UNKNOWN';
   if (result.status === 'queued' || result.status === 'running') return 'UNKNOWN';
 
@@ -1457,7 +1500,11 @@ export default function QaTestRunnerPage() {
         if (pollResult.wasClarifying) details.clarified = true;
 
         let testStatus: TestStatus;
-        if (pollResult.timedOut) {
+        if (pollResult.status === 'poll_timeout_completed') {
+          testStatus = 'poll_timeout_completed';
+        } else if (pollResult.status === 'poll_timeout_running') {
+          testStatus = 'poll_timeout_running';
+        } else if (pollResult.timedOut) {
           testStatus = 'timed_out';
         } else if (pollResult.status === 'failed' || pollResult.status === 'stopped') {
           testStatus = 'failed';

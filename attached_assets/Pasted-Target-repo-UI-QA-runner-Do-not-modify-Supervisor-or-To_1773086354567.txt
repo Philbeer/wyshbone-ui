@@ -1,0 +1,128 @@
+Target repo: UI / QA runner
+
+Do not modify Supervisor or Tower yet.
+
+Goal
+
+Fix the QA benchmark runner so it does not incorrectly report runs as timeouts when they actually completed.
+
+Currently the benchmark page marks many runs as timed out around 97–99 seconds, but AFR shows those same runs completed successfully.
+That means the QA runner is timing out its polling loop, not the actual agent run.
+So the QA page is currently misreporting run outcomes.
+
+We need to fix this before changing timeout durations.
+
+---
+
+TASK 1 — Fix QA timeout semantics
+
+Problem
+
+The QA runner currently behaves like:
+
+if polling exceeds timeout -> mark run timed out
+
+But the underlying run may still be:
+- running
+- completed shortly after
+- failed for real
+
+This creates false timeout labels.
+
+Required change
+
+Separate these states clearly:
+
+1. True timeout
+The agent run itself exceeded the allowed execution limit.
+
+Display:
+Timeout (agent exceeded limit)
+
+2. Poll timeout, completed later
+The QA runner stopped polling before the run finished, but AFR later shows the run completed.
+
+Display:
+Polling timeout (completed later)
+
+3. Poll timeout, still running
+The QA runner stopped polling and AFR still shows the run running.
+
+Display:
+Polling timeout (still running)
+
+4. Real failure
+Supervisor/AFR shows the run failed.
+
+Display:
+Failed
+
+Implementation guidance
+
+When the poll loop reaches its timeout:
+1. do a final AFR status fetch for that run
+2. if AFR says completed -> mark poll_timeout_completed
+3. if AFR says running/pending -> mark poll_timeout_running
+4. if AFR says failed -> mark failed
+5. only use true timeout if there is actual evidence the run exceeded execution limits rather than just polling expiry
+
+The benchmark table must show the real run state, not just the poll loop state.
+
+---
+
+TASK 2 — Keep persisted QA metrics truthful
+
+Make sure qa_run_metrics persistence uses the corrected final status.
+
+If a run was previously being persisted as timeout only because polling expired, that must be corrected.
+
+The persisted benchmark row should reflect:
+- completed
+- poll timeout completed later
+- poll timeout still running
+- failed
+- true timeout
+
+Do not let the QA chart/history treat completed-later runs as real timeouts.
+
+---
+
+TASK 3 — Keep UI wording honest and clear
+
+Update the QA runner display so the wording is unambiguous.
+
+Suggested labels:
+
+Completed
+Failed
+Timeout
+Polling timeout (completed later)
+Polling timeout (still running)
+
+You can keep badge styling compact, but the text must be truthful.
+
+---
+
+TASK 4 — Do not change timeout duration yet
+
+Do not increase the timeout threshold in this task.
+First make the harness truthful.
+We will only consider changing 90s to 120s later if needed.
+
+---
+
+Deliverables
+
+After implementing, provide:
+
+1. Files modified
+2. Old timeout logic
+3. New timeout logic
+4. Example of a run that would previously have shown timeout but now shows the correct state
+5. Confirmation that qa_run_metrics persistence now uses the corrected final state
+6. Confirmation that /dev/qa and /dev/qa-progress remain consistent
+
+Expected result
+
+The QA runner should stop lying about completed runs being timeouts.
+Benchmark results should become trustworthy again before any further optimisation work.
