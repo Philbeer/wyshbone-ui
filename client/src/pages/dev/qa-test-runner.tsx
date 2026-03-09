@@ -12,8 +12,6 @@ import {
   ArrowLeft,
   FlaskConical,
   ChevronDown,
-  AlertTriangle,
-  Shield,
   BarChart3,
 } from 'lucide-react';
 import { buildApiUrl, addDevAuthParams } from '@/lib/queryClient';
@@ -219,6 +217,25 @@ const POLL_INTERVAL_MS = 2_000;
 type TestStatus = 'queued' | 'running' | 'completed' | 'failed' | 'timed_out';
 type SuiteStatus = 'not_started' | 'running' | 'completed' | 'failed';
 type Judgement = 'pass' | 'fail' | 'skip' | 'mismatch';
+type LayerStatus = 'pass' | 'fail' | 'blocked' | 'timeout' | 'unknown';
+type BenchmarkOutcome = 'PASS' | 'PARTIAL_SUCCESS' | 'BLOCKED' | 'TIMEOUT' | 'FAIL';
+
+const LAYER_NAMES = ['interpretation', 'planning', 'execution', 'discovery', 'delivery', 'verification', 'tower'] as const;
+type LayerName = typeof LAYER_NAMES[number];
+
+type LayerBreakdown = Record<LayerName, LayerStatus>;
+
+function emptyLayerBreakdown(): LayerBreakdown {
+  return {
+    interpretation: 'unknown',
+    planning: 'unknown',
+    execution: 'unknown',
+    discovery: 'unknown',
+    delivery: 'unknown',
+    verification: 'unknown',
+    tower: 'unknown',
+  };
+}
 
 interface TestResult {
   query: string;
@@ -235,6 +252,8 @@ interface TestResult {
   towerVerdict: string | null;
   resultSummary: string | null;
   judgement: Judgement | null;
+  layers: LayerBreakdown;
+  benchmarkOutcome: BenchmarkOutcome | null;
 }
 
 interface SuiteRunHistory {
@@ -540,10 +559,140 @@ interface ArtefactInfo {
   clarified: boolean;
   towerVerdict: string | null;
   resultSummary: string | null;
+  layers: LayerBreakdown;
+}
+
+function deriveLayers(artefacts: any[]): LayerBreakdown {
+  const layers = emptyLayerBreakdown();
+
+  let hasClarifyGate = false;
+  let hasClarifyResolution = false;
+  let hasConstraintBlocked = false;
+  let hasLeadsList = false;
+  let hasDeliverySummary = false;
+  let deliveredCount = 0;
+  let hasTowerJudgement = false;
+  let towerPassed = false;
+  let hasLeadPack = false;
+  let hasPlanResult = false;
+  let hasStepResult = false;
+
+  for (const a of artefacts) {
+    const t = a.type;
+    const title = (typeof a.title === 'string' ? a.title : '').toLowerCase();
+
+    if (t === 'clarify_gate') hasClarifyGate = true;
+    if (t === 'clarify_resolution') hasClarifyResolution = true;
+    if (t === 'diagnostic' && title.includes('constraint gate') && title.includes('blocked')) hasConstraintBlocked = true;
+
+    if (t === 'leads_list') hasLeadsList = true;
+    if (t === 'lead_pack' || t === 'contact_extract' || t === 'lead_enrich') hasLeadPack = true;
+    if (t === 'plan_result' || t === 'step_result') {
+      hasPlanResult = true;
+      hasStepResult = true;
+    }
+
+    if (t === 'delivery_summary') {
+      hasDeliverySummary = true;
+      try {
+        const payload = typeof a.payload_json === 'string' ? JSON.parse(a.payload_json) : a.payload_json;
+        deliveredCount = payload?.delivered_exact?.length || payload?.delivered_count || 0;
+      } catch {}
+    }
+
+    if (t === 'tower_judgement') {
+      hasTowerJudgement = true;
+      try {
+        const payload = typeof a.payload_json === 'string' ? JSON.parse(a.payload_json) : a.payload_json;
+        const v = (payload?.verdict || payload?.tower_verdict || payload?.pass_fail || '').toString().toLowerCase();
+        if (v.includes('pass') || v.includes('accept')) towerPassed = true;
+      } catch {}
+    }
+  }
+
+  if (hasConstraintBlocked) {
+    layers.interpretation = 'blocked';
+    return layers;
+  }
+
+  if (hasClarifyGate && !hasClarifyResolution) {
+    layers.interpretation = 'blocked';
+    return layers;
+  }
+
+  layers.interpretation = 'pass';
+
+  if (hasPlanResult || hasStepResult || hasLeadsList || hasDeliverySummary) {
+    layers.planning = 'pass';
+    layers.execution = 'pass';
+  } else if (hasClarifyResolution) {
+    layers.planning = 'unknown';
+    layers.execution = 'unknown';
+  }
+
+  if (hasLeadsList || hasDeliverySummary) {
+    layers.discovery = 'pass';
+  } else if (layers.execution === 'pass') {
+    layers.discovery = 'fail';
+  }
+
+  if (hasDeliverySummary && deliveredCount > 0) {
+    layers.delivery = 'pass';
+  } else if (hasDeliverySummary) {
+    layers.delivery = 'fail';
+  } else if (layers.discovery === 'pass') {
+    layers.delivery = 'fail';
+  }
+
+  if (hasLeadPack && layers.delivery === 'pass') {
+    layers.verification = 'pass';
+  } else if (layers.delivery === 'pass') {
+    layers.verification = 'fail';
+  }
+
+  if (hasTowerJudgement) {
+    layers.tower = towerPassed ? 'pass' : 'fail';
+  }
+
+  return layers;
+}
+
+function deriveBenchmarkOutcome(result: TestResult): BenchmarkOutcome {
+  if (result.status === 'timed_out') return 'TIMEOUT';
+  if (result.status === 'failed' && result.error === 'Stopped by user') return 'TIMEOUT';
+
+  if (result.blocked || result.clarified) {
+    if (result.expected === 'blocked' || result.expected === 'clarify' || result.expected === 'blocked_or_clarify') {
+      return 'PASS';
+    }
+    return 'BLOCKED';
+  }
+
+  const l = result.layers;
+
+  if (l.interpretation === 'blocked') return 'BLOCKED';
+
+  const discoveryOk = l.discovery === 'pass';
+  const deliveryOk = l.delivery === 'pass';
+  const towerOk = l.tower === 'pass';
+
+  if (discoveryOk && deliveryOk && towerOk) return 'PASS';
+
+  if (discoveryOk && deliveryOk && !towerOk) return 'PARTIAL_SUCCESS';
+  if (discoveryOk && !deliveryOk) return 'PARTIAL_SUCCESS';
+
+  if (result.status === 'completed' && result.expected === 'pass') {
+    if (towerOk) return 'PASS';
+    if (discoveryOk) return 'PARTIAL_SUCCESS';
+    return 'FAIL';
+  }
+
+  if (result.status === 'completed') return 'PASS';
+  return 'FAIL';
 }
 
 async function fetchRunDetails(runId: string): Promise<ArtefactInfo> {
-  const info: ArtefactInfo = { blocked: false, clarified: false, towerVerdict: null, resultSummary: null };
+  const info: ArtefactInfo = { blocked: false, clarified: false, towerVerdict: null, resultSummary: null, layers: emptyLayerBreakdown() };
   try {
     const params = new URLSearchParams({ runId });
     const res = await fetch(
@@ -575,6 +724,8 @@ async function fetchRunDetails(runId: string): Promise<ArtefactInfo> {
         } catch {}
       }
     }
+
+    info.layers = deriveLayers(artefacts);
   } catch {}
   return info;
 }
@@ -595,41 +746,104 @@ function loadHistory(): SuiteRunHistory[] {
   } catch { return []; }
 }
 
+function outcomeBadge(outcome: BenchmarkOutcome | null) {
+  if (!outcome) return null;
+  switch (outcome) {
+    case 'PASS':
+      return <Badge className="bg-green-100 text-green-700 border-green-200 text-[10px] px-1.5 py-0">PASS</Badge>;
+    case 'PARTIAL_SUCCESS':
+      return <Badge className="bg-yellow-100 text-yellow-800 border-yellow-200 text-[10px] px-1.5 py-0">PARTIAL</Badge>;
+    case 'BLOCKED':
+      return <Badge className="bg-amber-100 text-amber-700 border-amber-200 text-[10px] px-1.5 py-0">BLOCKED</Badge>;
+    case 'TIMEOUT':
+      return <Badge variant="outline" className="text-gray-500 border-gray-300 text-[10px] px-1.5 py-0">TIMEOUT</Badge>;
+    case 'FAIL':
+      return <Badge className="bg-red-100 text-red-700 border-red-200 text-[10px] px-1.5 py-0">FAIL</Badge>;
+  }
+}
+
+function layerDot(status: LayerStatus) {
+  switch (status) {
+    case 'pass': return <span className="inline-block w-2 h-2 rounded-full bg-green-500" title="pass" />;
+    case 'fail': return <span className="inline-block w-2 h-2 rounded-full bg-red-500" title="fail" />;
+    case 'blocked': return <span className="inline-block w-2 h-2 rounded-full bg-amber-500" title="blocked" />;
+    case 'timeout': return <span className="inline-block w-2 h-2 rounded-full bg-gray-400" title="timeout" />;
+    case 'unknown': return <span className="inline-block w-2 h-2 rounded-full bg-gray-200" title="unknown" />;
+  }
+}
+
+const LAYER_ABBREV: Record<LayerName, string> = {
+  interpretation: 'Int',
+  planning: 'Plan',
+  execution: 'Exec',
+  discovery: 'Disc',
+  delivery: 'Dlvr',
+  verification: 'Vrfy',
+  tower: 'Twr',
+};
+
+function LayerStrip({ layers }: { layers: LayerBreakdown }) {
+  return (
+    <div className="flex items-center gap-1" title={LAYER_NAMES.map(l => `${LAYER_ABBREV[l]}: ${layers[l]}`).join(' · ')}>
+      {LAYER_NAMES.map(l => (
+        <div key={l} className="flex flex-col items-center gap-0.5">
+          {layerDot(layers[l])}
+          <span className="text-[8px] text-gray-400 leading-none">{LAYER_ABBREV[l]}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function computeOutcomeCounts(results: TestResult[]) {
+  let pass = 0, partial = 0, blocked = 0, timeout = 0, fail = 0;
+  for (const r of results) {
+    switch (r.benchmarkOutcome) {
+      case 'PASS': pass++; break;
+      case 'PARTIAL_SUCCESS': partial++; break;
+      case 'BLOCKED': blocked++; break;
+      case 'TIMEOUT': timeout++; break;
+      case 'FAIL': fail++; break;
+    }
+  }
+  return { pass, partial, blocked, timeout, fail };
+}
+
 function Scoreboard({ results }: { results: TestResult[] }) {
-  const finished = results.filter(r => r.judgement !== null);
-  const passed = finished.filter(r => r.judgement === 'pass').length;
-  const mismatched = finished.filter(r => r.judgement === 'mismatch').length;
-  const skipped = finished.filter(r => r.judgement === 'skip').length;
-  const blocked = results.filter(r => r.blocked).length;
-  const timedOut = results.filter(r => r.status === 'timed_out').length;
+  const withOutcome = results.filter(r => r.benchmarkOutcome !== null);
+  const oc = computeOutcomeCounts(withOutcome);
   const total = results.length;
-  const evaluated = passed + mismatched;
-  const pct = evaluated > 0 ? Math.round((passed / evaluated) * 100) : 0;
+  const evaluated = oc.pass + oc.partial + oc.fail;
+  const pct = evaluated > 0 ? Math.round(((oc.pass + oc.partial) / evaluated) * 100) : 0;
 
   return (
-    <div className="grid grid-cols-6 gap-3 mb-6">
+    <div className="grid grid-cols-7 gap-2 mb-6">
       <div className="border rounded-lg p-3 text-center">
         <div className="text-2xl font-bold">{total}</div>
         <div className="text-xs text-gray-500">Total</div>
       </div>
       <div className="border rounded-lg p-3 text-center bg-green-50">
-        <div className="text-2xl font-bold text-green-700">{passed}</div>
+        <div className="text-2xl font-bold text-green-700">{oc.pass}</div>
         <div className="text-xs text-green-600">Passed</div>
       </div>
-      <div className="border rounded-lg p-3 text-center bg-red-50">
-        <div className="text-2xl font-bold text-red-700">{mismatched}</div>
-        <div className="text-xs text-red-600">Mismatched</div>
+      <div className="border rounded-lg p-3 text-center bg-yellow-50">
+        <div className="text-2xl font-bold text-yellow-700">{oc.partial}</div>
+        <div className="text-xs text-yellow-600">Partial</div>
       </div>
       <div className="border rounded-lg p-3 text-center bg-amber-50">
-        <div className="text-2xl font-bold text-amber-700">{blocked}</div>
+        <div className="text-2xl font-bold text-amber-700">{oc.blocked}</div>
         <div className="text-xs text-amber-600">Blocked</div>
       </div>
       <div className="border rounded-lg p-3 text-center bg-gray-50">
-        <div className="text-2xl font-bold text-gray-700">{timedOut + skipped}</div>
-        <div className="text-xs text-gray-500">Skipped/Timeout</div>
+        <div className="text-2xl font-bold text-gray-600">{oc.timeout}</div>
+        <div className="text-xs text-gray-500">Timeout</div>
+      </div>
+      <div className="border rounded-lg p-3 text-center bg-red-50">
+        <div className="text-2xl font-bold text-red-700">{oc.fail}</div>
+        <div className="text-xs text-red-600">Failed</div>
       </div>
       <div className="border rounded-lg p-3 text-center bg-purple-50">
-        <div className="text-2xl font-bold text-purple-700">{pct}%</div>
+        <div className={`text-2xl font-bold ${pct >= 80 ? 'text-green-700' : pct >= 50 ? 'text-amber-700' : 'text-red-700'}`}>{pct}%</div>
         <div className="text-xs text-purple-600">Pass Rate</div>
       </div>
     </div>
@@ -640,20 +854,20 @@ interface BenchmarkProgress {
   currentIndex: number;
   totalCount: number;
   currentQuery: string;
-  passed: number;
-  mismatched: number;
+  pass: number;
+  partial: number;
   blocked: number;
-  timedOut: number;
-  skipped: number;
+  timeout: number;
+  fail: number;
 }
 
 interface BenchmarkSummary {
   total: number;
-  passed: number;
-  mismatched: number;
+  pass: number;
+  partial: number;
   blocked: number;
-  skipped: number;
-  timedOut: number;
+  timeout: number;
+  fail: number;
   passRate: number;
   durationMs: number;
 }
@@ -670,10 +884,11 @@ function BenchmarkProgressBar({ progress }: { progress: BenchmarkProgress }) {
           </span>
         </div>
         <div className="flex items-center gap-3 text-xs">
-          <span className="text-green-700">{progress.passed} passed</span>
-          <span className="text-red-700">{progress.mismatched} mismatch</span>
+          <span className="text-green-700">{progress.pass} pass</span>
+          <span className="text-yellow-700">{progress.partial} partial</span>
           <span className="text-amber-700">{progress.blocked} blocked</span>
-          <span className="text-gray-500">{progress.timedOut} timeout</span>
+          <span className="text-gray-500">{progress.timeout} timeout</span>
+          <span className="text-red-700">{progress.fail} fail</span>
         </div>
       </div>
       <div className="w-full bg-blue-100 rounded-full h-2 mb-2">
@@ -705,24 +920,24 @@ function BenchmarkSummaryCard({ summary }: { summary: BenchmarkSummary }) {
           <div className="text-xs text-gray-500">Total</div>
         </div>
         <div className="text-center">
-          <div className="text-2xl font-bold text-green-700">{summary.passed}</div>
+          <div className="text-2xl font-bold text-green-700">{summary.pass}</div>
           <div className="text-xs text-green-600">Passed</div>
         </div>
         <div className="text-center">
-          <div className="text-2xl font-bold text-red-700">{summary.mismatched}</div>
-          <div className="text-xs text-red-600">Mismatched</div>
+          <div className="text-2xl font-bold text-yellow-700">{summary.partial}</div>
+          <div className="text-xs text-yellow-600">Partial</div>
         </div>
         <div className="text-center">
           <div className="text-2xl font-bold text-amber-700">{summary.blocked}</div>
           <div className="text-xs text-amber-600">Blocked</div>
         </div>
         <div className="text-center">
-          <div className="text-2xl font-bold text-gray-600">{summary.skipped}</div>
-          <div className="text-xs text-gray-500">Skipped</div>
+          <div className="text-2xl font-bold text-gray-600">{summary.timeout}</div>
+          <div className="text-xs text-gray-500">Timeout</div>
         </div>
         <div className="text-center">
-          <div className="text-2xl font-bold text-orange-600">{summary.timedOut}</div>
-          <div className="text-xs text-orange-500">Timeout</div>
+          <div className="text-2xl font-bold text-red-700">{summary.fail}</div>
+          <div className="text-xs text-red-600">Failed</div>
         </div>
         <div className="text-center">
           <div className={`text-2xl font-bold ${summary.passRate >= 80 ? 'text-green-700' : summary.passRate >= 50 ? 'text-amber-700' : 'text-red-700'}`}>
@@ -764,6 +979,8 @@ export default function QaTestRunnerPage() {
       towerVerdict: null,
       resultSummary: null,
       judgement: null,
+      layers: emptyLayerBreakdown(),
+      benchmarkOutcome: null,
     }));
   }, []);
 
@@ -772,15 +989,7 @@ export default function QaTestRunnerPage() {
   }, []);
 
   const computeProgressCounts = useCallback((finalResults: TestResult[]) => {
-    let passed = 0, mismatched = 0, blocked = 0, timedOut = 0, skipped = 0;
-    for (const r of finalResults) {
-      if (r.judgement === 'pass') passed++;
-      else if (r.judgement === 'mismatch') mismatched++;
-      else if (r.judgement === 'skip') skipped++;
-      if (r.blocked) blocked++;
-      if (r.status === 'timed_out') timedOut++;
-    }
-    return { passed, mismatched, blocked, timedOut, skipped };
+    return computeOutcomeCounts(finalResults);
   }, []);
 
   const runSuite = useCallback(async (suiteIdOverride?: string) => {
@@ -810,7 +1019,7 @@ export default function QaTestRunnerPage() {
         currentIndex: 0,
         totalCount: suite.tests.length,
         currentQuery: suite.tests[0].query,
-        passed: 0, mismatched: 0, blocked: 0, timedOut: 0, skipped: 0,
+        pass: 0, partial: 0, blocked: 0, timeout: 0, fail: 0,
       });
     } else {
       setBenchmarkProgress(null);
@@ -859,7 +1068,7 @@ export default function QaTestRunnerPage() {
         const pollResult = await pollUntilTerminal(clientRequestId, runId, PER_TEST_TIMEOUT_MS, controller.signal, qaClarifyCtx);
         const duration = Date.now() - testStart;
 
-        let details: ArtefactInfo = { blocked: false, clarified: false, towerVerdict: null, resultSummary: null };
+        let details: ArtefactInfo = { blocked: false, clarified: false, towerVerdict: null, resultSummary: null, layers: emptyLayerBreakdown() };
         const effectiveRunId = pollResult.finalRunId || runId;
         if (effectiveRunId) {
           try { details = await fetchRunDetails(effectiveRunId); } catch {}
@@ -885,27 +1094,29 @@ export default function QaTestRunnerPage() {
           autoClarified: pollResult.autoClarified,
           towerVerdict: details.towerVerdict,
           resultSummary: details.resultSummary,
+          layers: details.layers,
         };
 
         const tempResult = { ...finalResults[i], ...patch };
         patch.judgement = evaluateJudgement(test.expected, tempResult as TestResult);
+        patch.benchmarkOutcome = deriveBenchmarkOutcome(tempResult as TestResult);
 
         finalResults[i] = { ...finalResults[i], ...patch };
         updateResult(i, patch);
       } catch (e: any) {
         const duration = Date.now() - testStart;
         if (e.name === 'AbortError') {
-          const patch: Partial<TestResult> = { status: 'failed', error: 'Stopped by user', durationMs: duration, judgement: 'skip' };
+          const patch: Partial<TestResult> = { status: 'failed', error: 'Stopped by user', durationMs: duration, judgement: 'skip', benchmarkOutcome: 'TIMEOUT' as BenchmarkOutcome };
           finalResults[i] = { ...finalResults[i], ...patch };
           updateResult(i, patch);
           for (let j = i + 1; j < suite.tests.length; j++) {
-            const skipped: Partial<TestResult> = { status: 'failed', error: 'Stopped by user', judgement: 'skip' };
+            const skipped: Partial<TestResult> = { status: 'failed', error: 'Stopped by user', judgement: 'skip', benchmarkOutcome: 'TIMEOUT' as BenchmarkOutcome };
             finalResults[j] = { ...finalResults[j], ...skipped };
             updateResult(j, skipped);
           }
           break;
         } else {
-          const patch: Partial<TestResult> = { status: 'failed', error: e.message, durationMs: duration, judgement: 'mismatch' };
+          const patch: Partial<TestResult> = { status: 'failed', error: e.message, durationMs: duration, judgement: 'mismatch', benchmarkOutcome: 'FAIL' as BenchmarkOutcome };
           finalResults[i] = { ...finalResults[i], ...patch };
           updateResult(i, patch);
         }
@@ -920,15 +1131,15 @@ export default function QaTestRunnerPage() {
 
     if (isBenchmark) {
       const counts = computeProgressCounts(finalResults);
-      const evaluated = counts.passed + counts.mismatched;
+      const evaluated = counts.pass + counts.partial + counts.fail;
       setBenchmarkSummary({
         total: finalResults.length,
-        passed: counts.passed,
-        mismatched: counts.mismatched,
+        pass: counts.pass,
+        partial: counts.partial,
         blocked: counts.blocked,
-        skipped: counts.skipped,
-        timedOut: counts.timedOut,
-        passRate: evaluated > 0 ? Math.round((counts.passed / evaluated) * 100) : 0,
+        timeout: counts.timeout,
+        fail: counts.fail,
+        passRate: evaluated > 0 ? Math.round(((counts.pass + counts.partial) / evaluated) * 100) : 0,
         durationMs: Date.now() - suiteStart,
       });
     }
@@ -1055,19 +1266,15 @@ export default function QaTestRunnerPage() {
       {hasResults && hasFinished && <Scoreboard results={results} />}
 
       {hasResults && (
-        <div className="border rounded-lg overflow-hidden">
-          <table className="w-full text-sm">
+        <div className="border rounded-lg overflow-x-auto">
+          <table className="w-full text-sm min-w-[900px]">
             <thead className="bg-gray-50 dark:bg-gray-800">
               <tr>
                 <th className="text-left px-3 py-2 font-medium text-gray-600 w-8">#</th>
                 <th className="text-left px-3 py-2 font-medium text-gray-600">Query</th>
                 <th className="text-left px-3 py-2 font-medium text-gray-600 w-24">Status</th>
-                <th className="text-center px-3 py-2 font-medium text-gray-600 w-12" title="Blocked">
-                  <Shield className="w-3.5 h-3.5 mx-auto" />
-                </th>
-                <th className="text-center px-3 py-2 font-medium text-gray-600 w-12" title="Clarified">
-                  <AlertTriangle className="w-3.5 h-3.5 mx-auto" />
-                </th>
+                <th className="text-left px-3 py-2 font-medium text-gray-600 w-[120px]">Layers</th>
+                <th className="text-left px-3 py-2 font-medium text-gray-600 w-20">Outcome</th>
                 <th className="text-left px-3 py-2 font-medium text-gray-600 w-20">Tower</th>
                 <th className="text-left px-3 py-2 font-medium text-gray-600 w-16">Time</th>
                 <th className="text-left px-3 py-2 font-medium text-gray-600 w-24">Judgement</th>
@@ -1100,11 +1307,13 @@ export default function QaTestRunnerPage() {
                     {r.error && <div className="text-xs text-red-500 mt-0.5">{r.error}</div>}
                   </td>
                   <td className="px-3 py-2.5">{statusBadge(r.status)}</td>
-                  <td className="px-3 py-2.5 text-center">
-                    {r.blocked ? <span className="text-amber-600 font-bold text-xs">Y</span> : <span className="text-gray-300 text-xs">—</span>}
+                  <td className="px-3 py-2.5">
+                    {r.status !== 'queued' && r.status !== 'running' ? (
+                      <LayerStrip layers={r.layers} />
+                    ) : <span className="text-gray-300 text-xs">—</span>}
                   </td>
-                  <td className="px-3 py-2.5 text-center">
-                    {r.clarified ? <span className="text-blue-600 font-bold text-xs">Y</span> : <span className="text-gray-300 text-xs">—</span>}
+                  <td className="px-3 py-2.5">
+                    {outcomeBadge(r.benchmarkOutcome)}
                   </td>
                   <td className="px-3 py-2.5">
                     {r.towerVerdict ? (
