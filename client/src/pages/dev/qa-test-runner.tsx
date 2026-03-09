@@ -34,7 +34,79 @@ interface TestSuite {
   tests: TestDefinition[];
 }
 
+const FULL_BENCHMARK_PACK: TestDefinition[] = [
+  {
+    query: 'Find pubs in Arundel with Swan in the name',
+    expected: 'pass',
+    notes: 'Basic discovery — entity + location + name constraint.',
+  },
+  {
+    query: 'Find 10 cafes in York',
+    expected: 'pass',
+    notes: 'Basic discovery — entity + location + explicit count.',
+  },
+  {
+    query: 'Find restaurants in Bath that mention vegan options on their website',
+    expected: 'pass',
+    expectedStrategy: 'website_evidence',
+    notes: 'Website evidence — semantic menu analysis.',
+  },
+  {
+    query: 'Find hotels in Edinburgh that mention spa facilities on their website',
+    expected: 'pass',
+    expectedStrategy: 'website_evidence',
+    notes: 'Website evidence — amenity extraction.',
+  },
+  {
+    query: 'Find gyms in Manchester that offer personal training',
+    expected: 'pass',
+    notes: 'Website evidence — service attribute.',
+  },
+  {
+    query: 'Find pubs in Arundel that mention live music on their website',
+    expected: 'pass',
+    expectedStrategy: 'website_evidence',
+    notes: 'Website evidence — entertainment attribute.',
+  },
+  {
+    query: 'Find organisations that work with the local authority in Blackpool',
+    expected: 'blocked_or_clarify',
+    notes: 'Relationship discovery — local authority predicate.',
+  },
+  {
+    query: 'Find companies that supply to NHS hospitals in Leeds',
+    expected: 'blocked_or_clarify',
+    notes: 'Relationship discovery — supplier predicate.',
+  },
+  {
+    query: 'Find the best dentists in Brighton',
+    expected: 'blocked_or_clarify',
+    notes: 'Ranking — subjective "best" should trigger clarification or pass through.',
+  },
+  {
+    query: 'Find amazing vibes in London',
+    expected: 'clarify',
+    notes: 'Honest failure — purely subjective entity type, no concrete noun.',
+  },
+  {
+    query: 'Find pubs in Narnia',
+    expected: 'clarify',
+    notes: 'Honest failure — invalid/unknown location.',
+  },
+  {
+    query: 'Find breweries',
+    expected: 'clarify',
+    notes: 'Difficult case — missing location, should clarify.',
+  },
+];
+
 const SUITES: TestSuite[] = [
+  {
+    id: 'full-benchmark',
+    name: 'Full Benchmark Pack',
+    description: 'Complete regression benchmark — 12 fixed queries covering basic discovery, website evidence, name constraints, relationship discovery, ranking, and honest failure cases.',
+    tests: FULL_BENCHMARK_PACK,
+  },
   {
     id: 'stage1-core',
     name: 'Stage 1 Core',
@@ -467,6 +539,105 @@ function Scoreboard({ results }: { results: TestResult[] }) {
   );
 }
 
+interface BenchmarkProgress {
+  currentIndex: number;
+  totalCount: number;
+  currentQuery: string;
+  passed: number;
+  mismatched: number;
+  blocked: number;
+  timedOut: number;
+  skipped: number;
+}
+
+interface BenchmarkSummary {
+  total: number;
+  passed: number;
+  mismatched: number;
+  blocked: number;
+  skipped: number;
+  timedOut: number;
+  passRate: number;
+  durationMs: number;
+}
+
+function BenchmarkProgressBar({ progress }: { progress: BenchmarkProgress }) {
+  const pct = Math.round((progress.currentIndex / progress.totalCount) * 100);
+  return (
+    <div className="border rounded-lg p-4 mb-4 bg-blue-50 border-blue-200">
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2">
+          <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
+          <span className="text-sm font-semibold text-blue-800">
+            Running {progress.currentIndex} of {progress.totalCount}
+          </span>
+        </div>
+        <div className="flex items-center gap-3 text-xs">
+          <span className="text-green-700">{progress.passed} passed</span>
+          <span className="text-red-700">{progress.mismatched} mismatch</span>
+          <span className="text-amber-700">{progress.blocked} blocked</span>
+          <span className="text-gray-500">{progress.timedOut} timeout</span>
+        </div>
+      </div>
+      <div className="w-full bg-blue-100 rounded-full h-2 mb-2">
+        <div
+          className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      <div className="text-xs text-blue-700 truncate">
+        Current: {progress.currentQuery}
+      </div>
+    </div>
+  );
+}
+
+function BenchmarkSummaryCard({ summary }: { summary: BenchmarkSummary }) {
+  return (
+    <div className="border-2 rounded-lg p-5 mb-6 bg-gradient-to-r from-purple-50 to-indigo-50 border-purple-200">
+      <div className="flex items-center gap-2 mb-4">
+        <BarChart3 className="w-5 h-5 text-purple-600" />
+        <h3 className="font-bold text-purple-900">Full Benchmark Pack — Complete</h3>
+        <span className="text-xs text-gray-500 ml-auto">
+          {(summary.durationMs / 1000).toFixed(0)}s total
+        </span>
+      </div>
+      <div className="grid grid-cols-7 gap-2">
+        <div className="text-center">
+          <div className="text-2xl font-bold text-gray-900">{summary.total}</div>
+          <div className="text-xs text-gray-500">Total</div>
+        </div>
+        <div className="text-center">
+          <div className="text-2xl font-bold text-green-700">{summary.passed}</div>
+          <div className="text-xs text-green-600">Passed</div>
+        </div>
+        <div className="text-center">
+          <div className="text-2xl font-bold text-red-700">{summary.mismatched}</div>
+          <div className="text-xs text-red-600">Mismatched</div>
+        </div>
+        <div className="text-center">
+          <div className="text-2xl font-bold text-amber-700">{summary.blocked}</div>
+          <div className="text-xs text-amber-600">Blocked</div>
+        </div>
+        <div className="text-center">
+          <div className="text-2xl font-bold text-gray-600">{summary.skipped}</div>
+          <div className="text-xs text-gray-500">Skipped</div>
+        </div>
+        <div className="text-center">
+          <div className="text-2xl font-bold text-orange-600">{summary.timedOut}</div>
+          <div className="text-xs text-orange-500">Timeout</div>
+        </div>
+        <div className="text-center">
+          <div className={`text-2xl font-bold ${summary.passRate >= 80 ? 'text-green-700' : summary.passRate >= 50 ? 'text-amber-700' : 'text-red-700'}`}>
+            {summary.passRate}%
+          </div>
+          <div className="text-xs text-purple-600">Pass Rate</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function QaTestRunnerPage() {
   const [selectedSuiteId, setSelectedSuiteId] = useState(SUITES[0].id);
   const [suiteStatus, setSuiteStatus] = useState<SuiteStatus>('not_started');
@@ -474,6 +645,9 @@ export default function QaTestRunnerPage() {
   const [history, setHistory] = useState<SuiteRunHistory[]>(() => loadHistory());
   const abortRef = useRef<AbortController | null>(null);
   const runningRef = useRef(false);
+  const [benchmarkProgress, setBenchmarkProgress] = useState<BenchmarkProgress | null>(null);
+  const [benchmarkSummary, setBenchmarkSummary] = useState<BenchmarkSummary | null>(null);
+  const isBenchmarkRunning = suiteStatus === 'running' && selectedSuiteId === 'full-benchmark';
 
   const selectedSuite = useMemo(() => SUITES.find(s => s.id === selectedSuiteId)!, [selectedSuiteId]);
 
@@ -499,23 +673,55 @@ export default function QaTestRunnerPage() {
     setResults(prev => prev.map((r, i) => i === idx ? { ...r, ...patch } : r));
   }, []);
 
-  const runSuite = useCallback(async () => {
+  const computeProgressCounts = useCallback((finalResults: TestResult[]) => {
+    let passed = 0, mismatched = 0, blocked = 0, timedOut = 0, skipped = 0;
+    for (const r of finalResults) {
+      if (r.judgement === 'pass') passed++;
+      else if (r.judgement === 'mismatch') mismatched++;
+      else if (r.judgement === 'skip') skipped++;
+      if (r.blocked) blocked++;
+      if (r.status === 'timed_out') timedOut++;
+    }
+    return { passed, mismatched, blocked, timedOut, skipped };
+  }, []);
+
+  const runSuite = useCallback(async (suiteIdOverride?: string) => {
     const user = getUser();
     if (!user) {
       alert('No user found in localStorage. Please load the main app first.');
       return;
     }
 
-    const suite = SUITES.find(s => s.id === selectedSuiteId)!;
+    const targetSuiteId = suiteIdOverride || selectedSuiteId;
+    const suite = SUITES.find(s => s.id === targetSuiteId)!;
+
+    if (suiteIdOverride) {
+      setSelectedSuiteId(targetSuiteId);
+    }
+
     const initialResults = initResults(suite);
+    const isBenchmark = targetSuiteId === 'full-benchmark';
 
     runningRef.current = true;
     setSuiteStatus('running');
     setResults(initialResults);
+    setBenchmarkSummary(null);
+
+    if (isBenchmark) {
+      setBenchmarkProgress({
+        currentIndex: 0,
+        totalCount: suite.tests.length,
+        currentQuery: suite.tests[0].query,
+        passed: 0, mismatched: 0, blocked: 0, timedOut: 0, skipped: 0,
+      });
+    } else {
+      setBenchmarkProgress(null);
+    }
 
     const controller = new AbortController();
     abortRef.current = controller;
 
+    const suiteStart = Date.now();
     const qaConversationId = `qa-${suite.id}-${crypto.randomUUID()}`;
     const finalResults = [...initialResults];
 
@@ -535,6 +741,16 @@ export default function QaTestRunnerPage() {
 
       updateResult(i, { status: 'running', clientRequestId });
       finalResults[i] = { ...finalResults[i], status: 'running', clientRequestId };
+
+      if (isBenchmark) {
+        const counts = computeProgressCounts(finalResults);
+        setBenchmarkProgress({
+          currentIndex: i + 1,
+          totalCount: suite.tests.length,
+          currentQuery: test.query,
+          ...counts,
+        });
+      }
 
       try {
         const { runId } = await submitQuery(test.query, user, qaConversationId, clientRequestId, controller.signal);
@@ -600,11 +816,27 @@ export default function QaTestRunnerPage() {
     runningRef.current = false;
     abortRef.current = null;
     setSuiteStatus(anyMismatch ? 'failed' : 'completed');
+    setBenchmarkProgress(null);
+
+    if (isBenchmark) {
+      const counts = computeProgressCounts(finalResults);
+      const evaluated = counts.passed + counts.mismatched;
+      setBenchmarkSummary({
+        total: finalResults.length,
+        passed: counts.passed,
+        mismatched: counts.mismatched,
+        blocked: counts.blocked,
+        skipped: counts.skipped,
+        timedOut: counts.timedOut,
+        passRate: evaluated > 0 ? Math.round((counts.passed / evaluated) * 100) : 0,
+        durationMs: Date.now() - suiteStart,
+      });
+    }
 
     const entry = { suiteId: suite.id, timestamp: Date.now(), results: finalResults };
     saveHistory(entry);
     setHistory(loadHistory());
-  }, [selectedSuiteId, initResults, updateResult]);
+  }, [selectedSuiteId, initResults, updateResult, computeProgressCounts]);
 
   const stopSuite = useCallback(() => {
     abortRef.current?.abort();
@@ -631,28 +863,15 @@ export default function QaTestRunnerPage() {
         Each test submits a query through the app's internal chat/run flow, polls for completion, then evaluates pass/fail.
       </p>
 
-      <div className="flex items-center gap-3 mb-6 flex-wrap">
-        <div className="flex items-center gap-2">
-          <label className="text-sm font-medium text-gray-600">Suite:</label>
-          <select
-            value={selectedSuiteId}
-            onChange={e => { setSelectedSuiteId(e.target.value); if (!runningRef.current) { setResults([]); setSuiteStatus('not_started'); } }}
-            disabled={suiteStatus === 'running'}
-            className="border rounded-md px-3 py-1.5 text-sm bg-white"
-          >
-            {SUITES.map(s => (
-              <option key={s.id} value={s.id}>{s.name} ({s.tests.length} tests)</option>
-            ))}
-          </select>
-        </div>
-
+      <div className="flex items-center gap-3 mb-4 flex-wrap">
         <Button
-          onClick={runSuite}
+          onClick={() => runSuite('full-benchmark')}
           disabled={suiteStatus === 'running'}
-          className="bg-purple-600 hover:bg-purple-700"
+          className="bg-indigo-600 hover:bg-indigo-700"
         >
-          <Play className="w-4 h-4 mr-2" />
-          Run Selected Suite
+          <FlaskConical className="w-4 h-4 mr-2" />
+          Run Full Benchmark Pack
+          <span className="ml-1 text-indigo-200 text-xs">({FULL_BENCHMARK_PACK.length})</span>
         </Button>
 
         {suiteStatus === 'running' && (
@@ -675,6 +894,40 @@ export default function QaTestRunnerPage() {
           Open AFR <ExternalLink className="w-3 h-3" />
         </a>
       </div>
+
+      <div className="flex items-center gap-3 mb-6 flex-wrap">
+        <div className="flex items-center gap-2">
+          <label className="text-sm font-medium text-gray-600">Or run a suite:</label>
+          <select
+            value={selectedSuiteId}
+            onChange={e => { setSelectedSuiteId(e.target.value); if (!runningRef.current) { setResults([]); setSuiteStatus('not_started'); setBenchmarkSummary(null); } }}
+            disabled={suiteStatus === 'running'}
+            className="border rounded-md px-3 py-1.5 text-sm bg-white"
+          >
+            {SUITES.map(s => (
+              <option key={s.id} value={s.id}>{s.name} ({s.tests.length} tests)</option>
+            ))}
+          </select>
+        </div>
+
+        <Button
+          onClick={() => runSuite()}
+          disabled={suiteStatus === 'running'}
+          variant="outline"
+          className="border-purple-300 text-purple-700 hover:bg-purple-50"
+        >
+          <Play className="w-4 h-4 mr-2" />
+          Run Selected Suite
+        </Button>
+      </div>
+
+      {benchmarkProgress && isBenchmarkRunning && (
+        <BenchmarkProgressBar progress={benchmarkProgress} />
+      )}
+
+      {benchmarkSummary && !isBenchmarkRunning && (
+        <BenchmarkSummaryCard summary={benchmarkSummary} />
+      )}
 
       {!hasResults && (
         <div className="border rounded-lg p-6 mb-6 bg-gray-50">
