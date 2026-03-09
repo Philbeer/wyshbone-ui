@@ -443,7 +443,7 @@ function statusBadge(status: TestStatus | SuiteStatus) {
     case 'timed_out':
       return <Badge className="bg-red-100 text-red-700 border-red-200"><Clock className="w-3 h-3 mr-1" />Timeout</Badge>;
     case 'poll_timeout_completed':
-      return <Badge className="bg-green-100 text-green-700 border-green-200"><CheckCircle2 className="w-3 h-3 mr-1" />Completed (late)</Badge>;
+      return <Badge className="bg-green-100 text-green-700 border-green-200"><CheckCircle2 className="w-3 h-3 mr-1" />Completed</Badge>;
     case 'poll_timeout_running':
       return <Badge className="bg-amber-100 text-amber-700 border-amber-200"><Clock className="w-3 h-3 mr-1" />Poll timeout (still running)</Badge>;
   }
@@ -607,7 +607,9 @@ const POST_CLARIFY_EXTENSION_MS = 90_000;
 
 function resolveCanonicalStatus(status: string, terminalState?: string): string {
   if (status === 'completed' || terminalState === 'completed' || terminalState === 'PASS') return 'completed';
-  if (status === 'failed' || status === 'stopped' || terminalState === 'failed' || terminalState === 'stopped' || terminalState === 'FAIL' || terminalState === 'STOP') return 'failed';
+  if (status === 'stopped' || terminalState === 'stopped' || terminalState === 'STOP') return 'stopped';
+  if (status === 'timed_out' || terminalState === 'timed_out') return 'timed_out';
+  if (status === 'failed' || terminalState === 'failed' || terminalState === 'FAIL') return 'failed';
   return 'failed';
 }
 
@@ -832,7 +834,8 @@ function deriveLayers(artefacts: any[]): LayerBreakdown {
 }
 
 function deriveBenchmarkOutcome(result: TestResult): BenchmarkOutcome {
-  if (result.status === 'timed_out' || result.status === 'poll_timeout_running') return 'TIMEOUT';
+  if (result.status === 'timed_out') return 'TIMEOUT';
+  if (result.status === 'poll_timeout_running') return 'BLOCKED';
   if (result.status === 'failed' && result.error === 'Stopped by user') return 'TIMEOUT';
 
   if (result.blocked || result.clarified) {
@@ -868,7 +871,8 @@ function deriveBenchmarkOutcome(result: TestResult): BenchmarkOutcome {
 }
 
 function deriveSystemHealth(result: TestResult): SystemHealthOutcome {
-  if (result.status === 'timed_out' || result.status === 'poll_timeout_running') return 'TIMEOUT';
+  if (result.status === 'timed_out') return 'TIMEOUT';
+  if (result.status === 'poll_timeout_running') return 'DEGRADED';
   if (result.status === 'failed' && result.error === 'Stopped by user') return 'TIMEOUT';
   if (result.status === 'failed' && result.error && result.error !== 'Stopped by user') return 'BROKEN';
   if (result.status === 'completed' || result.status === 'poll_timeout_completed') return 'HEALTHY';
@@ -877,7 +881,8 @@ function deriveSystemHealth(result: TestResult): SystemHealthOutcome {
 }
 
 function deriveAgentQuality(result: TestResult): AgentQualityOutcome {
-  if (result.status === 'timed_out' || result.status === 'poll_timeout_running') return 'UNKNOWN';
+  if (result.status === 'timed_out') return 'UNKNOWN';
+  if (result.status === 'poll_timeout_running') return 'UNKNOWN';
   if (result.status === 'failed' && result.error === 'Stopped by user') return 'UNKNOWN';
   if (result.status === 'failed' && result.error) return 'UNKNOWN';
 
@@ -904,7 +909,8 @@ function deriveTowerResult(result: TestResult): TowerResult {
 }
 
 function deriveBehaviourResult(result: TestResult): BehaviourResult {
-  if (result.status === 'timed_out' || result.status === 'poll_timeout_running') return 'UNKNOWN';
+  if (result.status === 'timed_out') return 'UNKNOWN';
+  if (result.status === 'poll_timeout_running') return 'UNKNOWN';
   if (result.status === 'failed' && result.error === 'Stopped by user') return 'UNKNOWN';
   if (result.status === 'queued' || result.status === 'running') return 'UNKNOWN';
 
@@ -1054,6 +1060,11 @@ async function persistQaMetric(
       clarified: result.clarified,
       towerVerdict: result.towerVerdict,
       layers: result.layers,
+      poll_expired: result.status === 'poll_timeout_completed' || result.status === 'poll_timeout_running',
+      afr_reconciled_status: result.status === 'poll_timeout_completed' ? 'completed'
+        : result.status === 'poll_timeout_running' ? 'still_running'
+        : undefined,
+      raw_observer_status: result.status,
     },
   };
 
@@ -1506,7 +1517,9 @@ export default function QaTestRunnerPage() {
           testStatus = 'poll_timeout_running';
         } else if (pollResult.timedOut) {
           testStatus = 'timed_out';
-        } else if (pollResult.status === 'failed' || pollResult.status === 'stopped') {
+        } else if (pollResult.status === 'stopped' || pollResult.status === 'timed_out') {
+          testStatus = 'timed_out';
+        } else if (pollResult.status === 'failed') {
           testStatus = 'failed';
         } else {
           testStatus = 'completed';

@@ -434,6 +434,170 @@ export function createQaMetricsRouter(): Router {
     }
   });
 
+  router.post("/reconcile-timeouts", async (req, res) => {
+    try {
+      const db = getDrizzleDb();
+      const limit = Math.min(Math.max(1, Number(req.body?.limit) || 50), MAX_BACKFILL_LIMIT);
+
+      const timeoutRows: any[] = await db.execute(sql`
+        SELECT id, run_id, system_status, metadata
+        FROM qa_run_metrics
+        WHERE system_status = 'TIMEOUT'
+          AND run_id IS NOT NULL
+        ORDER BY timestamp DESC
+        LIMIT ${limit}
+      `);
+
+      if (timeoutRows.length === 0) {
+        return res.json({ ok: true, reconciled: 0, unchanged: 0, message: "No TIMEOUT rows to reconcile" });
+      }
+
+      let reconciled = 0;
+      let unchanged = 0;
+
+      for (const row of timeoutRows) {
+        const runId = row.run_id;
+
+        const afrRows: any[] = await db.execute(sql`
+          SELECT status, terminal_state, error
+          FROM agent_runs
+          WHERE id = ${runId}
+          LIMIT 1
+        `);
+
+        if (afrRows.length === 0) {
+          unchanged++;
+          continue;
+        }
+
+        const afr = afrRows[0];
+        const ts = afr.terminal_state;
+
+        if (ts === "completed" || ts === "PASS") {
+          const artefacts: any[] = await db.execute(sql`
+            SELECT type, title, payload_json FROM artefacts
+            WHERE run_id = ${runId}
+            ORDER BY created_at ASC
+          `);
+
+          let towerVerdict: TowerResult = "UNKNOWN";
+          let deliveredCount = 0;
+          let hasDelivery = false;
+          let discoveryOk = false;
+          let blocked = false;
+          let clarified = false;
+
+          for (const a of artefacts) {
+            let payload: any = null;
+            try {
+              payload = typeof a.payload_json === "string" ? JSON.parse(a.payload_json) : a.payload_json;
+            } catch { continue; }
+
+            if (a.type === "tower_judgement") {
+              const v = payload?.verdict || payload?.tower_verdict || payload?.pass_fail;
+              if (typeof v === "string") {
+                const lower = v.toLowerCase();
+                if (lower.includes("pass") || lower.includes("accept")) towerVerdict = "PASS";
+                else if (lower.includes("fail") || lower.includes("stop") || lower.includes("error")) towerVerdict = "FAIL";
+              }
+            }
+            if (a.type === "delivery_summary") {
+              hasDelivery = true;
+              deliveredCount = payload?.delivered_exact?.length || payload?.delivered_count || 0;
+            }
+            if (a.type === "clarify_gate") clarified = true;
+            if (a.type === "diagnostic" && typeof a.title === "string" &&
+                a.title.toLowerCase().includes("constraint gate") &&
+                a.title.toLowerCase().includes("blocked")) {
+              blocked = true;
+            }
+            if (a.type === "search_results" || a.type === "google_places_results") discoveryOk = true;
+          }
+
+          const newSystem: SystemStatus = "HEALTHY";
+          let newAgent: AgentQuality;
+          if (blocked || clarified) newAgent = "PASS";
+          else if (discoveryOk && hasDelivery) newAgent = "PASS";
+          else if (discoveryOk) newAgent = "PARTIAL";
+          else newAgent = "FAIL";
+
+          if (blocked || clarified) towerVerdict = "NOT_APPLICABLE";
+
+          const newBehaviour: BehaviourResult = hasDelivery && deliveredCount > 0
+            ? "PASS" : (blocked || clarified) ? "PASS" : "UNKNOWN";
+
+          const existingMeta = (typeof row.metadata === "object" && row.metadata) ? row.metadata : {};
+          const newMeta = {
+            ...existingMeta,
+            reconciled: true,
+            reconciled_at: Date.now(),
+            previous_system_status: row.system_status,
+            poll_expired: true,
+            afr_reconciled_status: "completed",
+          };
+
+          await db.execute(sql`
+            UPDATE qa_run_metrics
+            SET system_status = ${newSystem},
+                system_score = ${systemStatusToScore(newSystem).toFixed(1)},
+                agent_status = ${newAgent},
+                agent_score = ${agentStatusToScore(newAgent).toFixed(1)},
+                tower_result = ${towerVerdict},
+                tower_score = ${towerResultToScore(towerVerdict).toFixed(1)},
+                behaviour_result = ${newBehaviour},
+                behaviour_score = ${behaviourResultToScore(newBehaviour).toFixed(1)},
+                metadata = ${JSON.stringify(newMeta)}::jsonb
+            WHERE id = ${row.id}
+          `);
+          reconciled++;
+        } else if (ts === "failed" || ts === "FAIL" || ts === "STOP" || ts === "stopped") {
+          const existingMeta = (typeof row.metadata === "object" && row.metadata) ? row.metadata : {};
+          const newMeta = {
+            ...existingMeta,
+            reconciled: true,
+            reconciled_at: Date.now(),
+            previous_system_status: row.system_status,
+            afr_reconciled_status: ts === "failed" || ts === "FAIL" ? "failed" : "stopped",
+          };
+
+          const newSystem: SystemStatus = (ts === "stopped" || ts === "STOP") ? "TIMEOUT" : "BROKEN";
+
+          await db.execute(sql`
+            UPDATE qa_run_metrics
+            SET system_status = ${newSystem},
+                system_score = ${systemStatusToScore(newSystem).toFixed(1)},
+                metadata = ${JSON.stringify(newMeta)}::jsonb
+            WHERE id = ${row.id}
+          `);
+          reconciled++;
+        } else {
+          const existingMeta = (typeof row.metadata === "object" && row.metadata) ? row.metadata : {};
+          const newMeta = {
+            ...existingMeta,
+            reconciled: true,
+            reconciled_at: Date.now(),
+            previous_system_status: row.system_status,
+            afr_reconciled_status: "still_running_or_unknown",
+          };
+          const newSystem: SystemStatus = "DEGRADED";
+          await db.execute(sql`
+            UPDATE qa_run_metrics
+            SET system_status = ${newSystem},
+                system_score = ${systemStatusToScore(newSystem).toFixed(1)},
+                metadata = ${JSON.stringify(newMeta)}::jsonb
+            WHERE id = ${row.id}
+          `);
+          reconciled++;
+        }
+      }
+
+      return res.json({ ok: true, reconciled, unchanged, totalChecked: timeoutRows.length });
+    } catch (error: any) {
+      console.error("[qa-metrics] reconcile-timeouts error:", error?.message || error);
+      return res.status(500).json({ ok: false, error: "Failed to reconcile timeouts" });
+    }
+  });
+
   router.get("/history", async (req, res) => {
     try {
       const db = getDrizzleDb();
