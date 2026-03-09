@@ -877,9 +877,10 @@ function computeHealthCounts(results: TestResult[]) {
       case 'TIMEOUT': timeout++; break;
     }
   }
-  const total = healthy + degraded + broken + timeout;
-  const rate = total > 0 ? Math.round(((healthy) / total) * 100) : 0;
-  return { healthy, degraded, broken, timeout, rate };
+  const nonTimeout = healthy + degraded + broken;
+  const workingRate = nonTimeout > 0 ? Math.round(((healthy + degraded) / nonTimeout) * 100) : 0;
+  const cleanRate = nonTimeout > 0 ? Math.round((healthy / nonTimeout) * 100) : 0;
+  return { healthy, degraded, broken, timeout, workingRate, cleanRate };
 }
 
 function computeQualityCounts(results: TestResult[]) {
@@ -960,9 +961,18 @@ function Scoreboard({ results }: { results: TestResult[] }) {
             <div className="text-[10px] text-gray-500">Timeout</div>
           </div>
         </div>
-        <div className="mt-2 text-right">
-          <span className={`text-sm font-bold ${hc.rate >= 80 ? 'text-green-700' : hc.rate >= 50 ? 'text-amber-700' : 'text-red-700'}`}>{hc.rate}%</span>
-          <span className="text-[10px] text-gray-500 ml-1">System Health Rate</span>
+        <div className="mt-2 flex items-center justify-end gap-4">
+          <div className="text-right">
+            <span className={`text-sm font-bold ${hc.workingRate >= 80 ? 'text-green-700' : hc.workingRate >= 50 ? 'text-amber-700' : 'text-red-700'}`}>{hc.workingRate}%</span>
+            <span className="text-[10px] text-gray-500 ml-1">System Working Rate</span>
+          </div>
+          <div className="text-right">
+            <span className={`text-sm font-bold ${hc.cleanRate >= 80 ? 'text-green-700' : hc.cleanRate >= 50 ? 'text-amber-700' : 'text-red-700'}`}>{hc.cleanRate}%</span>
+            <span className="text-[10px] text-gray-500 ml-1">Clean Run Rate</span>
+          </div>
+        </div>
+        <div className="mt-1 text-[9px] text-gray-400 text-right">
+          System Working = (healthy + degraded) / non-timeout runs · Clean = healthy only / non-timeout runs
         </div>
       </div>
       <div className="border rounded-lg p-3">
@@ -1022,7 +1032,7 @@ interface BenchmarkSummary {
   fail: number;
   passRate: number;
   durationMs: number;
-  systemHealth: { healthy: number; degraded: number; broken: number; timeout: number; rate: number };
+  systemHealth: { healthy: number; degraded: number; broken: number; timeout: number; workingRate: number; cleanRate: number };
   agentQuality: { pass: number; partial: number; fail: number; notApplicable: number; unknown: number; rate: number };
 }
 
@@ -1074,7 +1084,10 @@ function BenchmarkSummaryCard({ summary }: { summary: BenchmarkSummary }) {
         <div>
           <div className="flex items-center justify-between mb-1.5">
             <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">System Health</span>
-            <span className={`text-sm font-bold ${sh.rate >= 80 ? 'text-green-700' : sh.rate >= 50 ? 'text-amber-700' : 'text-red-700'}`}>{sh.rate}%</span>
+            <div className="flex items-center gap-3">
+              <span className={`text-sm font-bold ${sh.workingRate >= 80 ? 'text-green-700' : sh.workingRate >= 50 ? 'text-amber-700' : 'text-red-700'}`}>{sh.workingRate}% <span className="text-[9px] font-normal text-gray-500">working</span></span>
+              <span className={`text-sm font-bold ${sh.cleanRate >= 80 ? 'text-green-700' : sh.cleanRate >= 50 ? 'text-amber-700' : 'text-red-700'}`}>{sh.cleanRate}% <span className="text-[9px] font-normal text-gray-500">clean</span></span>
+            </div>
           </div>
           <div className="grid grid-cols-5 gap-2">
             <div className="text-center">
