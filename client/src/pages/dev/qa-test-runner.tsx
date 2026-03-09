@@ -219,6 +219,8 @@ type SuiteStatus = 'not_started' | 'running' | 'completed' | 'failed';
 type Judgement = 'pass' | 'fail' | 'skip' | 'mismatch';
 type LayerStatus = 'pass' | 'fail' | 'blocked' | 'timeout' | 'unknown';
 type BenchmarkOutcome = 'PASS' | 'PARTIAL_SUCCESS' | 'BLOCKED' | 'TIMEOUT' | 'FAIL';
+type SystemHealthOutcome = 'HEALTHY' | 'DEGRADED' | 'BROKEN' | 'TIMEOUT';
+type AgentQualityOutcome = 'PASS' | 'PARTIAL' | 'FAIL' | 'NOT_APPLICABLE' | 'UNKNOWN';
 
 const LAYER_NAMES = ['interpretation', 'planning', 'execution', 'discovery', 'delivery', 'verification', 'tower'] as const;
 type LayerName = typeof LAYER_NAMES[number];
@@ -254,6 +256,8 @@ interface TestResult {
   judgement: Judgement | null;
   layers: LayerBreakdown;
   benchmarkOutcome: BenchmarkOutcome | null;
+  systemHealth: SystemHealthOutcome | null;
+  agentQuality: AgentQualityOutcome | null;
 }
 
 interface SuiteRunHistory {
@@ -691,6 +695,60 @@ function deriveBenchmarkOutcome(result: TestResult): BenchmarkOutcome {
   return 'FAIL';
 }
 
+function deriveSystemHealth(result: TestResult): SystemHealthOutcome {
+  if (result.status === 'timed_out') return 'TIMEOUT';
+  if (result.status === 'failed' && result.error === 'Stopped by user') return 'TIMEOUT';
+
+  if (result.status === 'failed' && result.error && result.error !== 'Stopped by user') return 'BROKEN';
+
+  const l = result.layers;
+  if (l.interpretation === 'blocked' && (result.blocked || result.clarified)) {
+    return 'HEALTHY';
+  }
+
+  if (l.execution === 'fail' || l.discovery === 'fail') return 'DEGRADED';
+
+  if (l.delivery === 'fail' && l.discovery === 'pass') return 'DEGRADED';
+
+  if (l.verification === 'fail' && l.delivery === 'pass') return 'DEGRADED';
+
+  if (result.status === 'completed') return 'HEALTHY';
+
+  return 'BROKEN';
+}
+
+function deriveAgentQuality(result: TestResult): AgentQualityOutcome {
+  if (result.status === 'timed_out') return 'UNKNOWN';
+  if (result.status === 'failed' && result.error === 'Stopped by user') return 'UNKNOWN';
+
+  const systemHealth = deriveSystemHealth(result);
+  if (systemHealth === 'BROKEN' || systemHealth === 'TIMEOUT') return 'UNKNOWN';
+
+  if (result.blocked || result.clarified) {
+    if (result.expected === 'blocked' || result.expected === 'clarify' || result.expected === 'blocked_or_clarify') {
+      return 'NOT_APPLICABLE';
+    }
+    return 'FAIL';
+  }
+
+  const l = result.layers;
+
+  const discoveryOk = l.discovery === 'pass';
+  const deliveryOk = l.delivery === 'pass';
+  const towerOk = l.tower === 'pass';
+
+  if (discoveryOk && deliveryOk && towerOk) return 'PASS';
+
+  if (discoveryOk && deliveryOk && !towerOk) return 'PARTIAL';
+  if (discoveryOk && !deliveryOk) return 'PARTIAL';
+
+  if (result.status === 'completed' && towerOk) return 'PASS';
+
+  if (result.status === 'completed' && discoveryOk) return 'PARTIAL';
+
+  return 'FAIL';
+}
+
 async function fetchRunDetails(runId: string): Promise<ArtefactInfo> {
   const info: ArtefactInfo = { blocked: false, clarified: false, towerVerdict: null, resultSummary: null, layers: emptyLayerBreakdown() };
   try {
@@ -809,42 +867,136 @@ function computeOutcomeCounts(results: TestResult[]) {
   return { pass, partial, blocked, timeout, fail };
 }
 
+function computeHealthCounts(results: TestResult[]) {
+  let healthy = 0, degraded = 0, broken = 0, timeout = 0;
+  for (const r of results) {
+    switch (r.systemHealth) {
+      case 'HEALTHY': healthy++; break;
+      case 'DEGRADED': degraded++; break;
+      case 'BROKEN': broken++; break;
+      case 'TIMEOUT': timeout++; break;
+    }
+  }
+  const total = healthy + degraded + broken + timeout;
+  const rate = total > 0 ? Math.round(((healthy) / total) * 100) : 0;
+  return { healthy, degraded, broken, timeout, rate };
+}
+
+function computeQualityCounts(results: TestResult[]) {
+  let pass = 0, partial = 0, fail = 0, notApplicable = 0, unknown = 0;
+  for (const r of results) {
+    switch (r.agentQuality) {
+      case 'PASS': pass++; break;
+      case 'PARTIAL': partial++; break;
+      case 'FAIL': fail++; break;
+      case 'NOT_APPLICABLE': notApplicable++; break;
+      case 'UNKNOWN': unknown++; break;
+    }
+  }
+  const judged = pass + partial + fail;
+  const rate = judged > 0 ? Math.round((pass / judged) * 100) : 0;
+  return { pass, partial, fail, notApplicable, unknown, rate };
+}
+
+function systemHealthBadge(outcome: SystemHealthOutcome | null) {
+  if (!outcome) return null;
+  switch (outcome) {
+    case 'HEALTHY':
+      return <Badge className="bg-green-100 text-green-700 border-green-200 text-[10px] px-1.5 py-0">HEALTHY</Badge>;
+    case 'DEGRADED':
+      return <Badge className="bg-yellow-100 text-yellow-800 border-yellow-200 text-[10px] px-1.5 py-0">DEGRADED</Badge>;
+    case 'BROKEN':
+      return <Badge className="bg-red-100 text-red-700 border-red-200 text-[10px] px-1.5 py-0">BROKEN</Badge>;
+    case 'TIMEOUT':
+      return <Badge variant="outline" className="text-gray-500 border-gray-300 text-[10px] px-1.5 py-0">TIMEOUT</Badge>;
+  }
+}
+
+function agentQualityBadge(outcome: AgentQualityOutcome | null) {
+  if (!outcome) return null;
+  switch (outcome) {
+    case 'PASS':
+      return <Badge className="bg-green-100 text-green-700 border-green-200 text-[10px] px-1.5 py-0">PASS</Badge>;
+    case 'PARTIAL':
+      return <Badge className="bg-yellow-100 text-yellow-800 border-yellow-200 text-[10px] px-1.5 py-0">PARTIAL</Badge>;
+    case 'FAIL':
+      return <Badge className="bg-red-100 text-red-700 border-red-200 text-[10px] px-1.5 py-0">FAIL</Badge>;
+    case 'NOT_APPLICABLE':
+      return <Badge variant="outline" className="text-blue-500 border-blue-300 text-[10px] px-1.5 py-0">N/A</Badge>;
+    case 'UNKNOWN':
+      return <Badge variant="outline" className="text-gray-500 border-gray-300 text-[10px] px-1.5 py-0">UNKNOWN</Badge>;
+  }
+}
+
 function Scoreboard({ results }: { results: TestResult[] }) {
-  const withOutcome = results.filter(r => r.benchmarkOutcome !== null);
-  const oc = computeOutcomeCounts(withOutcome);
+  const withOutcome = results.filter(r => r.systemHealth !== null || r.agentQuality !== null);
+  const hc = computeHealthCounts(withOutcome);
+  const qc = computeQualityCounts(withOutcome);
   const total = results.length;
-  const evaluated = oc.pass + oc.partial + oc.fail;
-  const pct = evaluated > 0 ? Math.round(((oc.pass + oc.partial) / evaluated) * 100) : 0;
 
   return (
-    <div className="grid grid-cols-7 gap-2 mb-6">
-      <div className="border rounded-lg p-3 text-center">
-        <div className="text-2xl font-bold">{total}</div>
-        <div className="text-xs text-gray-500">Total</div>
+    <div className="space-y-3 mb-6">
+      <div className="border rounded-lg p-3">
+        <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">System Health</div>
+        <div className="grid grid-cols-5 gap-2">
+          <div className="border rounded-lg p-2.5 text-center">
+            <div className="text-xl font-bold">{total}</div>
+            <div className="text-[10px] text-gray-500">Total</div>
+          </div>
+          <div className="border rounded-lg p-2.5 text-center bg-green-50">
+            <div className="text-xl font-bold text-green-700">{hc.healthy}</div>
+            <div className="text-[10px] text-green-600">Healthy</div>
+          </div>
+          <div className="border rounded-lg p-2.5 text-center bg-yellow-50">
+            <div className="text-xl font-bold text-yellow-700">{hc.degraded}</div>
+            <div className="text-[10px] text-yellow-600">Degraded</div>
+          </div>
+          <div className="border rounded-lg p-2.5 text-center bg-red-50">
+            <div className="text-xl font-bold text-red-700">{hc.broken}</div>
+            <div className="text-[10px] text-red-600">Broken</div>
+          </div>
+          <div className="border rounded-lg p-2.5 text-center bg-gray-50">
+            <div className="text-xl font-bold text-gray-600">{hc.timeout}</div>
+            <div className="text-[10px] text-gray-500">Timeout</div>
+          </div>
+        </div>
+        <div className="mt-2 text-right">
+          <span className={`text-sm font-bold ${hc.rate >= 80 ? 'text-green-700' : hc.rate >= 50 ? 'text-amber-700' : 'text-red-700'}`}>{hc.rate}%</span>
+          <span className="text-[10px] text-gray-500 ml-1">System Health Rate</span>
+        </div>
       </div>
-      <div className="border rounded-lg p-3 text-center bg-green-50">
-        <div className="text-2xl font-bold text-green-700">{oc.pass}</div>
-        <div className="text-xs text-green-600">Passed</div>
-      </div>
-      <div className="border rounded-lg p-3 text-center bg-yellow-50">
-        <div className="text-2xl font-bold text-yellow-700">{oc.partial}</div>
-        <div className="text-xs text-yellow-600">Partial</div>
-      </div>
-      <div className="border rounded-lg p-3 text-center bg-amber-50">
-        <div className="text-2xl font-bold text-amber-700">{oc.blocked}</div>
-        <div className="text-xs text-amber-600">Blocked</div>
-      </div>
-      <div className="border rounded-lg p-3 text-center bg-gray-50">
-        <div className="text-2xl font-bold text-gray-600">{oc.timeout}</div>
-        <div className="text-xs text-gray-500">Timeout</div>
-      </div>
-      <div className="border rounded-lg p-3 text-center bg-red-50">
-        <div className="text-2xl font-bold text-red-700">{oc.fail}</div>
-        <div className="text-xs text-red-600">Failed</div>
-      </div>
-      <div className="border rounded-lg p-3 text-center bg-purple-50">
-        <div className={`text-2xl font-bold ${pct >= 80 ? 'text-green-700' : pct >= 50 ? 'text-amber-700' : 'text-red-700'}`}>{pct}%</div>
-        <div className="text-xs text-purple-600">Pass Rate</div>
+      <div className="border rounded-lg p-3">
+        <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Agent Quality</div>
+        <div className="grid grid-cols-6 gap-2">
+          <div className="border rounded-lg p-2.5 text-center">
+            <div className="text-xl font-bold">{total}</div>
+            <div className="text-[10px] text-gray-500">Total</div>
+          </div>
+          <div className="border rounded-lg p-2.5 text-center bg-green-50">
+            <div className="text-xl font-bold text-green-700">{qc.pass}</div>
+            <div className="text-[10px] text-green-600">Passed</div>
+          </div>
+          <div className="border rounded-lg p-2.5 text-center bg-yellow-50">
+            <div className="text-xl font-bold text-yellow-700">{qc.partial}</div>
+            <div className="text-[10px] text-yellow-600">Partial</div>
+          </div>
+          <div className="border rounded-lg p-2.5 text-center bg-red-50">
+            <div className="text-xl font-bold text-red-700">{qc.fail}</div>
+            <div className="text-[10px] text-red-600">Failed</div>
+          </div>
+          <div className="border rounded-lg p-2.5 text-center bg-blue-50">
+            <div className="text-xl font-bold text-blue-600">{qc.notApplicable}</div>
+            <div className="text-[10px] text-blue-500">N/A</div>
+          </div>
+          <div className="border rounded-lg p-2.5 text-center bg-gray-50">
+            <div className="text-xl font-bold text-gray-600">{qc.unknown}</div>
+            <div className="text-[10px] text-gray-500">Unknown</div>
+          </div>
+        </div>
+        <div className="mt-2 text-right">
+          <span className={`text-sm font-bold ${qc.rate >= 80 ? 'text-green-700' : qc.rate >= 50 ? 'text-amber-700' : 'text-red-700'}`}>{qc.rate}%</span>
+          <span className="text-[10px] text-gray-500 ml-1">Agent Quality Rate (PASS only, excludes N/A + Unknown)</span>
+        </div>
       </div>
     </div>
   );
@@ -870,6 +1022,8 @@ interface BenchmarkSummary {
   fail: number;
   passRate: number;
   durationMs: number;
+  systemHealth: { healthy: number; degraded: number; broken: number; timeout: number; rate: number };
+  agentQuality: { pass: number; partial: number; fail: number; notApplicable: number; unknown: number; rate: number };
 }
 
 function BenchmarkProgressBar({ progress }: { progress: BenchmarkProgress }) {
@@ -905,6 +1059,8 @@ function BenchmarkProgressBar({ progress }: { progress: BenchmarkProgress }) {
 }
 
 function BenchmarkSummaryCard({ summary }: { summary: BenchmarkSummary }) {
+  const sh = summary.systemHealth;
+  const aq = summary.agentQuality;
   return (
     <div className="border-2 rounded-lg p-5 mb-6 bg-gradient-to-r from-purple-50 to-indigo-50 border-purple-200">
       <div className="flex items-center gap-2 mb-4">
@@ -914,36 +1070,67 @@ function BenchmarkSummaryCard({ summary }: { summary: BenchmarkSummary }) {
           {(summary.durationMs / 1000).toFixed(0)}s total
         </span>
       </div>
-      <div className="grid grid-cols-7 gap-2">
-        <div className="text-center">
-          <div className="text-2xl font-bold text-gray-900">{summary.total}</div>
-          <div className="text-xs text-gray-500">Total</div>
-        </div>
-        <div className="text-center">
-          <div className="text-2xl font-bold text-green-700">{summary.pass}</div>
-          <div className="text-xs text-green-600">Passed</div>
-        </div>
-        <div className="text-center">
-          <div className="text-2xl font-bold text-yellow-700">{summary.partial}</div>
-          <div className="text-xs text-yellow-600">Partial</div>
-        </div>
-        <div className="text-center">
-          <div className="text-2xl font-bold text-amber-700">{summary.blocked}</div>
-          <div className="text-xs text-amber-600">Blocked</div>
-        </div>
-        <div className="text-center">
-          <div className="text-2xl font-bold text-gray-600">{summary.timeout}</div>
-          <div className="text-xs text-gray-500">Timeout</div>
-        </div>
-        <div className="text-center">
-          <div className="text-2xl font-bold text-red-700">{summary.fail}</div>
-          <div className="text-xs text-red-600">Failed</div>
-        </div>
-        <div className="text-center">
-          <div className={`text-2xl font-bold ${summary.passRate >= 80 ? 'text-green-700' : summary.passRate >= 50 ? 'text-amber-700' : 'text-red-700'}`}>
-            {summary.passRate}%
+      <div className="space-y-4">
+        <div>
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">System Health</span>
+            <span className={`text-sm font-bold ${sh.rate >= 80 ? 'text-green-700' : sh.rate >= 50 ? 'text-amber-700' : 'text-red-700'}`}>{sh.rate}%</span>
           </div>
-          <div className="text-xs text-purple-600">Pass Rate</div>
+          <div className="grid grid-cols-5 gap-2">
+            <div className="text-center">
+              <div className="text-lg font-bold text-gray-900">{summary.total}</div>
+              <div className="text-[10px] text-gray-500">Total</div>
+            </div>
+            <div className="text-center">
+              <div className="text-lg font-bold text-green-700">{sh.healthy}</div>
+              <div className="text-[10px] text-green-600">Healthy</div>
+            </div>
+            <div className="text-center">
+              <div className="text-lg font-bold text-yellow-700">{sh.degraded}</div>
+              <div className="text-[10px] text-yellow-600">Degraded</div>
+            </div>
+            <div className="text-center">
+              <div className="text-lg font-bold text-red-700">{sh.broken}</div>
+              <div className="text-[10px] text-red-600">Broken</div>
+            </div>
+            <div className="text-center">
+              <div className="text-lg font-bold text-gray-600">{sh.timeout}</div>
+              <div className="text-[10px] text-gray-500">Timeout</div>
+            </div>
+          </div>
+        </div>
+        <hr className="border-purple-200" />
+        <div>
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Agent Quality</span>
+            <span className={`text-sm font-bold ${aq.rate >= 80 ? 'text-green-700' : aq.rate >= 50 ? 'text-amber-700' : 'text-red-700'}`}>{aq.rate}%</span>
+          </div>
+          <div className="grid grid-cols-6 gap-2">
+            <div className="text-center">
+              <div className="text-lg font-bold text-gray-900">{summary.total}</div>
+              <div className="text-[10px] text-gray-500">Total</div>
+            </div>
+            <div className="text-center">
+              <div className="text-lg font-bold text-green-700">{aq.pass}</div>
+              <div className="text-[10px] text-green-600">Passed</div>
+            </div>
+            <div className="text-center">
+              <div className="text-lg font-bold text-yellow-700">{aq.partial}</div>
+              <div className="text-[10px] text-yellow-600">Partial</div>
+            </div>
+            <div className="text-center">
+              <div className="text-lg font-bold text-red-700">{aq.fail}</div>
+              <div className="text-[10px] text-red-600">Failed</div>
+            </div>
+            <div className="text-center">
+              <div className="text-lg font-bold text-blue-600">{aq.notApplicable}</div>
+              <div className="text-[10px] text-blue-500">N/A</div>
+            </div>
+            <div className="text-center">
+              <div className="text-lg font-bold text-gray-600">{aq.unknown}</div>
+              <div className="text-[10px] text-gray-500">Unknown</div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -981,6 +1168,8 @@ export default function QaTestRunnerPage() {
       judgement: null,
       layers: emptyLayerBreakdown(),
       benchmarkOutcome: null,
+      systemHealth: null,
+      agentQuality: null,
     }));
   }, []);
 
@@ -1100,23 +1289,25 @@ export default function QaTestRunnerPage() {
         const tempResult = { ...finalResults[i], ...patch };
         patch.judgement = evaluateJudgement(test.expected, tempResult as TestResult);
         patch.benchmarkOutcome = deriveBenchmarkOutcome(tempResult as TestResult);
+        patch.systemHealth = deriveSystemHealth(tempResult as TestResult);
+        patch.agentQuality = deriveAgentQuality(tempResult as TestResult);
 
         finalResults[i] = { ...finalResults[i], ...patch };
         updateResult(i, patch);
       } catch (e: any) {
         const duration = Date.now() - testStart;
         if (e.name === 'AbortError') {
-          const patch: Partial<TestResult> = { status: 'failed', error: 'Stopped by user', durationMs: duration, judgement: 'skip', benchmarkOutcome: 'TIMEOUT' as BenchmarkOutcome };
+          const patch: Partial<TestResult> = { status: 'failed', error: 'Stopped by user', durationMs: duration, judgement: 'skip', benchmarkOutcome: 'TIMEOUT' as BenchmarkOutcome, systemHealth: 'TIMEOUT' as SystemHealthOutcome, agentQuality: 'UNKNOWN' as AgentQualityOutcome };
           finalResults[i] = { ...finalResults[i], ...patch };
           updateResult(i, patch);
           for (let j = i + 1; j < suite.tests.length; j++) {
-            const skipped: Partial<TestResult> = { status: 'failed', error: 'Stopped by user', judgement: 'skip', benchmarkOutcome: 'TIMEOUT' as BenchmarkOutcome };
+            const skipped: Partial<TestResult> = { status: 'failed', error: 'Stopped by user', judgement: 'skip', benchmarkOutcome: 'TIMEOUT' as BenchmarkOutcome, systemHealth: 'TIMEOUT' as SystemHealthOutcome, agentQuality: 'UNKNOWN' as AgentQualityOutcome };
             finalResults[j] = { ...finalResults[j], ...skipped };
             updateResult(j, skipped);
           }
           break;
         } else {
-          const patch: Partial<TestResult> = { status: 'failed', error: e.message, durationMs: duration, judgement: 'mismatch', benchmarkOutcome: 'FAIL' as BenchmarkOutcome };
+          const patch: Partial<TestResult> = { status: 'failed', error: e.message, durationMs: duration, judgement: 'mismatch', benchmarkOutcome: 'FAIL' as BenchmarkOutcome, systemHealth: 'BROKEN' as SystemHealthOutcome, agentQuality: 'UNKNOWN' as AgentQualityOutcome };
           finalResults[i] = { ...finalResults[i], ...patch };
           updateResult(i, patch);
         }
@@ -1132,6 +1323,8 @@ export default function QaTestRunnerPage() {
     if (isBenchmark) {
       const counts = computeProgressCounts(finalResults);
       const evaluated = counts.pass + counts.partial + counts.fail;
+      const healthCounts = computeHealthCounts(finalResults);
+      const qualityCounts = computeQualityCounts(finalResults);
       setBenchmarkSummary({
         total: finalResults.length,
         pass: counts.pass,
@@ -1141,6 +1334,8 @@ export default function QaTestRunnerPage() {
         fail: counts.fail,
         passRate: evaluated > 0 ? Math.round(((counts.pass + counts.partial) / evaluated) * 100) : 0,
         durationMs: Date.now() - suiteStart,
+        systemHealth: healthCounts,
+        agentQuality: qualityCounts,
       });
     }
 
@@ -1267,13 +1462,15 @@ export default function QaTestRunnerPage() {
 
       {hasResults && (
         <div className="border rounded-lg overflow-x-auto">
-          <table className="w-full text-sm min-w-[900px]">
+          <table className="w-full text-sm min-w-[1100px]">
             <thead className="bg-gray-50 dark:bg-gray-800">
               <tr>
                 <th className="text-left px-3 py-2 font-medium text-gray-600 w-8">#</th>
                 <th className="text-left px-3 py-2 font-medium text-gray-600">Query</th>
                 <th className="text-left px-3 py-2 font-medium text-gray-600 w-24">Status</th>
                 <th className="text-left px-3 py-2 font-medium text-gray-600 w-[120px]">Layers</th>
+                <th className="text-left px-3 py-2 font-medium text-gray-600 w-20">Sys Health</th>
+                <th className="text-left px-3 py-2 font-medium text-gray-600 w-20">Agent Qual</th>
                 <th className="text-left px-3 py-2 font-medium text-gray-600 w-20">Outcome</th>
                 <th className="text-left px-3 py-2 font-medium text-gray-600 w-20">Tower</th>
                 <th className="text-left px-3 py-2 font-medium text-gray-600 w-16">Time</th>
@@ -1311,6 +1508,12 @@ export default function QaTestRunnerPage() {
                     {r.status !== 'queued' && r.status !== 'running' ? (
                       <LayerStrip layers={r.layers} />
                     ) : <span className="text-gray-300 text-xs">—</span>}
+                  </td>
+                  <td className="px-3 py-2.5">
+                    {systemHealthBadge(r.systemHealth)}
+                  </td>
+                  <td className="px-3 py-2.5">
+                    {agentQualityBadge(r.agentQuality)}
                   </td>
                   <td className="px-3 py-2.5">
                     {outcomeBadge(r.benchmarkOutcome)}
