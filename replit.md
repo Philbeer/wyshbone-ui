@@ -209,6 +209,7 @@ The UI never owns persistence. All artefacts, runs, judgements, and business dat
 - **Forward path (deterministic):** QA test runner (`client/src/pages/dev/qa-test-runner.tsx`) calls `POST /api/qa-metrics/persist` per completed test with `source='benchmark'` and all benchmark context. Server validates benchmark-source rows require all context fields.
 - **Historical path (heuristic):** `POST /api/qa-metrics/backfill-from-afr` reconstructs from AFR artefacts with `source='heuristic'` and `backfilled:true` in metadata. Cannot identify QA runs vs regular runs.
 - **API routes:** `server/routes/qa-metrics.ts` — `POST /persist`, `POST /backfill`, `POST /backfill-from-afr`, `GET /history` (supports `?source=` filter).
+- **Progress chart:** `client/src/pages/dev/qa-progress.tsx` at `/dev/qa-progress`. Uses Recharts ComposedChart with 20-run rolling averages for behaviour/system/tower scores, plus raw scatter dots. Default filter: source=benchmark. UNKNOWN/NOT_APPLICABLE/TIMEOUT statuses produce null scores excluded from averages. Table below shows last 50 rows with AFR links.
 - **localStorage:** Still used by QA runner for session display (last 10 runs). Supabase is the persistent store.
 
 ## External Dependencies

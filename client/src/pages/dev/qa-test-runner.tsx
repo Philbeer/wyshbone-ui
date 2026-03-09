@@ -1558,6 +1558,9 @@ export default function QaTestRunnerPage() {
         </a>
         <FlaskConical className="w-6 h-6 text-purple-600" />
         <h1 className="text-2xl font-bold">QA Regression Dashboard</h1>
+        <a href="/dev/qa-progress" className="text-xs text-purple-600 hover:text-purple-800 flex items-center gap-1 ml-2">
+          <BarChart3 className="w-3.5 h-3.5" /> Progress Chart
+        </a>
         <div className="ml-auto">{statusBadge(suiteStatus)}</div>
       </div>
 
