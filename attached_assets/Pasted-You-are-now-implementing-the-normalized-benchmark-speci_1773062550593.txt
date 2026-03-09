@@ -1,0 +1,194 @@
+You are now implementing the normalized benchmark specification for the Wyshbone QA benchmark system.
+
+IMPORTANT
+Do NOT redesign the UI.
+Do NOT change Tower logic.
+Do NOT change core agent logic.
+This task is about benchmark definitions and truthful Behaviour scoring only.
+
+We already audited the benchmark source file and found that the current Behaviour scoring is limited because benchmark test metadata is too coarse.
+
+Your job is to:
+
+1. normalize the benchmark test definitions
+2. update Behaviour scoring to use the normalized spec
+3. preserve the current UI layout, only improving the truthfulness of the Behaviour column
+
+--------------------------------------------------
+SOURCE OF TRUTH
+--------------------------------------------------
+
+Use the existing benchmark definitions in:
+
+client/src/pages/dev/qa-test-runner.tsx
+
+Refactor the benchmark test definitions so each benchmark test has a normalized spec like:
+
+{
+  id: string,
+  suite_name: string,
+  query: string,
+  existing_expected_outcome?: string,
+  query_class: "solvable" | "clarification_required" | "fictional_or_impossible" | "subjective_or_unverifiable" | "website_evidence_required" | "relationship_required",
+  expected_mode: "deliver_results" | "clarify" | "honest_refusal" | "best_effort_honest",
+  clarification_response?: string,
+  minimum_expected_count?: number
+}
+
+--------------------------------------------------
+IMPLEMENT THESE SPEC CHANGES
+--------------------------------------------------
+
+B01
+Query: Find pubs in Arundel with Swan in the name
+query_class: solvable
+expected_mode: deliver_results
+minimum_expected_count: 1
+
+B02
+Query: Find 10 cafes in York
+query_class: solvable
+expected_mode: deliver_results
+minimum_expected_count: 10
+
+B03
+Query: Find restaurants in Bath that mention vegan options on their website
+query_class: website_evidence_required
+expected_mode: deliver_results
+minimum_expected_count: 1
+
+B04
+Query: Find hotels in Edinburgh that mention spa facilities on their website
+query_class: website_evidence_required
+expected_mode: deliver_results
+minimum_expected_count: 1
+
+B05
+Query: Find gyms in Manchester that offer personal training
+query_class: website_evidence_required
+expected_mode: deliver_results
+minimum_expected_count: 1
+
+B06
+Query: Find pubs in Arundel that mention live music on their website
+query_class: website_evidence_required
+expected_mode: deliver_results
+minimum_expected_count: 1
+
+B07
+Query: Find organisations that work with the local authority in Blackpool
+query_class: relationship_required
+expected_mode: clarify
+clarification_response: "Any organisations that collaborate with Blackpool Council, such as partners, suppliers, or programme participants."
+
+B08
+Query: Find companies that supply to NHS hospitals in Leeds
+query_class: relationship_required
+expected_mode: clarify
+clarification_response: "Companies that provide goods or services to NHS hospitals in Leeds."
+
+B09
+Query: Find the best dentists in Brighton
+query_class: subjective_or_unverifiable
+expected_mode: best_effort_honest
+clarification_response: "Find highly rated dental practices in Brighton based on Google reviews."
+
+B10
+Query: Find amazing vibes in London
+query_class: subjective_or_unverifiable
+expected_mode: clarify
+clarification_response: "Find popular bars and nightlife venues in London."
+
+B11
+Query: Find pubs in Narnia
+query_class: fictional_or_impossible
+expected_mode: honest_refusal
+
+IMPORTANT:
+For B11 do NOT auto-send a clarification response.
+This test is meant to check whether the agent itself recognizes the fictional/impossible location.
+The harness must not rescue the agent here.
+
+B12
+Query: Find breweries
+query_class: clarification_required
+expected_mode: clarify
+clarification_response: "United Kingdom"
+
+--------------------------------------------------
+UPDATE BEHAVIOUR SCORING
+--------------------------------------------------
+
+Update deriveBehaviourResult() or equivalent scoring logic so Behaviour is judged against the normalized benchmark spec.
+
+Required scoring rules:
+
+1. clarification_required
+PASS if clarification is requested correctly
+FAIL if the agent proceeds without clarification
+UNKNOWN if timeout before meaningful clarification judgement
+
+2. fictional_or_impossible
+PASS if the agent refuses, stops honestly, or clearly treats the request as impossible/fictional
+FAIL if it treats the fictional location as real or fabricates believable results
+UNKNOWN if timeout prevents judgement
+
+3. subjective_or_unverifiable
+PASS if the agent clarifies, gives best-effort honest handling, or avoids false certainty
+FAIL if it overclaims objective verification with weak evidence
+UNKNOWN if timeout prevents judgement
+
+4. solvable
+PASS if the agent delivers at least minimum_expected_count and does so honestly
+PARTIAL is not a Behaviour value unless already represented elsewhere; Behaviour should end as PASS / FAIL / UNKNOWN
+FAIL if it delivers fewer than minimum_expected_count or fails the task without good reason
+UNKNOWN if timeout prevents judgement
+
+5. website_evidence_required
+PASS only if results are delivered and the website-evidence requirement is actually satisfied
+FAIL if entities are delivered but website-backed evidence is missing or weak
+UNKNOWN if timeout prevents judgement
+
+6. relationship_required
+PASS if the agent correctly clarifies the relationship ambiguity OR later delivers relationship-backed results honestly
+FAIL if it treats the relationship claim as satisfied without real relationship evidence
+UNKNOWN if timeout prevents judgement
+
+--------------------------------------------------
+IMPORTANT DISTINCTIONS
+--------------------------------------------------
+
+Behaviour is NOT the same as Tower result.
+
+Tower FAIL can still produce Behaviour PASS when the expected good-agent behaviour is honest refusal, clarification, or honest non-verification.
+
+Do NOT tie Behaviour directly to Tower PASS/FAIL.
+
+--------------------------------------------------
+AUTO-CLARIFICATION RULE
+--------------------------------------------------
+
+Only auto-send clarification responses when the benchmark spec explicitly provides a clarification_response.
+
+Do NOT use a generic fallback for tests like fictional_or_impossible where the purpose is to observe the agent’s own behaviour.
+
+--------------------------------------------------
+UI
+--------------------------------------------------
+
+Do not redesign the dashboard.
+
+Keep the current columns and current layout.
+
+Only make the Behaviour column truthful according to the new benchmark spec.
+
+--------------------------------------------------
+DELIVERABLES
+--------------------------------------------------
+
+Return:
+1. files changed
+2. final normalized benchmark spec
+3. exact Behaviour scoring rules implemented
+4. confirmation that B11 no longer auto-rescues the agent
+5. examples of expected Behaviour results for B07, B09, B11, and B12

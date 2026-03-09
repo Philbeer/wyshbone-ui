@@ -17,16 +17,20 @@ import {
 import { buildApiUrl, addDevAuthParams } from '@/lib/queryClient';
 
 type ExpectedOutcome = 'pass' | 'fail' | 'blocked' | 'clarify' | 'blocked_or_clarify';
-type QueryClass = 'solvable' | 'clarification_required' | 'fictional_or_impossible' | 'subjective_or_unverifiable';
+type QueryClass = 'solvable' | 'clarification_required' | 'fictional_or_impossible' | 'subjective_or_unverifiable' | 'website_evidence_required' | 'relationship_required';
+type ExpectedMode = 'deliver_results' | 'clarify' | 'honest_refusal' | 'best_effort_honest';
 type BehaviourResult = 'PASS' | 'FAIL' | 'UNKNOWN';
 
 interface TestDefinition {
+  id: string;
   query: string;
   expected: ExpectedOutcome;
   expectedStrategy?: string;
   notes?: string;
   queryClass: QueryClass;
+  expectedMode: ExpectedMode;
   clarificationResponse?: string;
+  minimumExpectedCount?: number;
 }
 
 interface TestSuite {
@@ -38,83 +42,113 @@ interface TestSuite {
 
 const FULL_BENCHMARK_PACK: TestDefinition[] = [
   {
+    id: 'B01',
     query: 'Find pubs in Arundel with Swan in the name',
     expected: 'pass',
     queryClass: 'solvable',
+    expectedMode: 'deliver_results',
+    minimumExpectedCount: 1,
     notes: 'Basic discovery — entity + location + name constraint.',
   },
   {
+    id: 'B02',
     query: 'Find 10 cafes in York',
     expected: 'pass',
     queryClass: 'solvable',
+    expectedMode: 'deliver_results',
+    minimumExpectedCount: 10,
     notes: 'Basic discovery — entity + location + explicit count.',
   },
   {
+    id: 'B03',
     query: 'Find restaurants in Bath that mention vegan options on their website',
     expected: 'pass',
     expectedStrategy: 'website_evidence',
-    queryClass: 'solvable',
+    queryClass: 'website_evidence_required',
+    expectedMode: 'deliver_results',
+    minimumExpectedCount: 1,
     notes: 'Website evidence — semantic menu analysis.',
   },
   {
+    id: 'B04',
     query: 'Find hotels in Edinburgh that mention spa facilities on their website',
     expected: 'pass',
     expectedStrategy: 'website_evidence',
-    queryClass: 'solvable',
+    queryClass: 'website_evidence_required',
+    expectedMode: 'deliver_results',
+    minimumExpectedCount: 1,
     notes: 'Website evidence — amenity extraction.',
   },
   {
+    id: 'B05',
     query: 'Find gyms in Manchester that offer personal training',
     expected: 'pass',
-    queryClass: 'solvable',
+    expectedStrategy: 'website_evidence',
+    queryClass: 'website_evidence_required',
+    expectedMode: 'deliver_results',
+    minimumExpectedCount: 1,
     notes: 'Website evidence — service attribute.',
   },
   {
+    id: 'B06',
     query: 'Find pubs in Arundel that mention live music on their website',
     expected: 'pass',
     expectedStrategy: 'website_evidence',
-    queryClass: 'solvable',
+    queryClass: 'website_evidence_required',
+    expectedMode: 'deliver_results',
+    minimumExpectedCount: 1,
     notes: 'Website evidence — entertainment attribute.',
   },
   {
+    id: 'B07',
     query: 'Find organisations that work with the local authority in Blackpool',
     expected: 'blocked_or_clarify',
-    queryClass: 'clarification_required',
+    queryClass: 'relationship_required',
+    expectedMode: 'clarify',
     clarificationResponse: 'Any organisations that collaborate with Blackpool Council, such as partners, suppliers, or programme participants.',
     notes: 'Relationship discovery — local authority predicate.',
   },
   {
+    id: 'B08',
     query: 'Find companies that supply to NHS hospitals in Leeds',
     expected: 'blocked_or_clarify',
-    queryClass: 'clarification_required',
+    queryClass: 'relationship_required',
+    expectedMode: 'clarify',
     clarificationResponse: 'Companies that provide goods or services to NHS hospitals in Leeds.',
     notes: 'Relationship discovery — supplier predicate.',
   },
   {
+    id: 'B09',
     query: 'Find the best dentists in Brighton',
     expected: 'blocked_or_clarify',
     queryClass: 'subjective_or_unverifiable',
+    expectedMode: 'best_effort_honest',
     clarificationResponse: 'Find highly rated dental practices in Brighton based on Google reviews.',
     notes: 'Ranking — subjective "best" should trigger clarification or pass through.',
   },
   {
+    id: 'B10',
     query: 'Find amazing vibes in London',
     expected: 'clarify',
     queryClass: 'subjective_or_unverifiable',
+    expectedMode: 'clarify',
     clarificationResponse: 'Find popular bars and nightlife venues in London.',
     notes: 'Honest failure — purely subjective entity type, no concrete noun.',
   },
   {
+    id: 'B11',
     query: 'Find pubs in Narnia',
     expected: 'clarify',
     queryClass: 'fictional_or_impossible',
-    clarificationResponse: 'Narnia is a fictional location. Please provide a real UK town or city.',
-    notes: 'Honest failure — invalid/unknown location.',
+    expectedMode: 'honest_refusal',
+    notes: 'Honest failure — invalid/unknown location. Agent must recognise this itself.',
   },
   {
+    id: 'B12',
     query: 'Find breweries',
     expected: 'clarify',
     queryClass: 'clarification_required',
+    expectedMode: 'clarify',
     clarificationResponse: 'United Kingdom',
     notes: 'Difficult case — missing location, should clarify.',
   },
@@ -133,29 +167,40 @@ const SUITES: TestSuite[] = [
     description: 'Basic entity-finding queries that should route and execute end-to-end.',
     tests: [
       {
+        id: 'S1-01',
         query: 'Find pubs in Arundel with Swan in the name',
         expected: 'pass',
         queryClass: 'solvable',
+        expectedMode: 'deliver_results',
+        minimumExpectedCount: 1,
         notes: 'Simple entity + location + name filter. Should complete with results.',
       },
       {
+        id: 'S1-02',
         query: 'Find pubs in Arundel that mention live music on their website',
         expected: 'pass',
         expectedStrategy: 'website_evidence',
-        queryClass: 'solvable',
+        queryClass: 'website_evidence_required',
+        expectedMode: 'deliver_results',
+        minimumExpectedCount: 1,
         notes: 'Entity + location + website evidence attribute.',
       },
       {
+        id: 'S1-03',
         query: 'Find the best dentists in Brighton',
         expected: 'blocked_or_clarify',
         queryClass: 'subjective_or_unverifiable',
+        expectedMode: 'best_effort_honest',
         clarificationResponse: 'Find highly rated dental practices in Brighton based on Google reviews.',
         notes: 'Subjective "best" may trigger clarification or pass through — both are acceptable.',
       },
       {
+        id: 'S1-04',
         query: 'Find 10 cafes in York',
         expected: 'pass',
         queryClass: 'solvable',
+        expectedMode: 'deliver_results',
+        minimumExpectedCount: 10,
         notes: 'Simple entity + location + explicit count.',
       },
     ],
@@ -166,21 +211,33 @@ const SUITES: TestSuite[] = [
     description: 'Queries requiring semantic website analysis and evidence extraction.',
     tests: [
       {
+        id: 'WE-01',
         query: 'Find restaurants in Bath that mention vegan options on their website',
         expected: 'pass',
-        queryClass: 'solvable',
+        expectedStrategy: 'website_evidence',
+        queryClass: 'website_evidence_required',
+        expectedMode: 'deliver_results',
+        minimumExpectedCount: 1,
         notes: 'Website evidence for vegan menu.',
       },
       {
+        id: 'WE-02',
         query: 'Find hotels in Edinburgh that mention spa facilities on their website',
         expected: 'pass',
-        queryClass: 'solvable',
+        expectedStrategy: 'website_evidence',
+        queryClass: 'website_evidence_required',
+        expectedMode: 'deliver_results',
+        minimumExpectedCount: 1,
         notes: 'Website evidence for spa/wellness.',
       },
       {
+        id: 'WE-03',
         query: 'Find gyms in Manchester that offer personal training',
         expected: 'pass',
-        queryClass: 'solvable',
+        expectedStrategy: 'website_evidence',
+        queryClass: 'website_evidence_required',
+        expectedMode: 'deliver_results',
+        minimumExpectedCount: 1,
         notes: 'Service attribute via website evidence.',
       },
     ],
@@ -191,16 +248,20 @@ const SUITES: TestSuite[] = [
     description: 'Queries involving relationship predicates that may trigger clarification or blocking.',
     tests: [
       {
+        id: 'RC-01',
         query: 'Find organisations that work with the local authority in Blackpool',
         expected: 'blocked_or_clarify',
-        queryClass: 'clarification_required',
+        queryClass: 'relationship_required',
+        expectedMode: 'clarify',
         clarificationResponse: 'Any organisations that collaborate with Blackpool Council, such as partners, suppliers, or programme participants.',
         notes: 'Relationship predicate — should trigger constraint gate or clarification.',
       },
       {
+        id: 'RC-02',
         query: 'Find companies that supply to NHS hospitals in Leeds',
         expected: 'blocked_or_clarify',
-        queryClass: 'clarification_required',
+        queryClass: 'relationship_required',
+        expectedMode: 'clarify',
         clarificationResponse: 'Companies that provide goods or services to NHS hospitals in Leeds.',
         notes: 'Supplier relationship predicate.',
       },
@@ -212,23 +273,28 @@ const SUITES: TestSuite[] = [
     description: 'Queries testing boundary conditions and error handling.',
     tests: [
       {
+        id: 'EC-01',
         query: 'Find amazing vibes in London',
         expected: 'clarify',
         queryClass: 'subjective_or_unverifiable',
+        expectedMode: 'clarify',
         clarificationResponse: 'Find popular bars and nightlife venues in London.',
         notes: 'Purely subjective entity type — should clarify for a concrete noun.',
       },
       {
+        id: 'EC-02',
         query: 'Find pubs in Narnia',
         expected: 'clarify',
         queryClass: 'fictional_or_impossible',
-        clarificationResponse: 'Narnia is a fictional location. Please provide a real UK town or city.',
-        notes: 'Invalid/unknown location — should clarify.',
+        expectedMode: 'honest_refusal',
+        notes: 'Invalid/unknown location — agent must recognise this itself.',
       },
       {
+        id: 'EC-03',
         query: 'Find breweries',
         expected: 'clarify',
         queryClass: 'clarification_required',
+        expectedMode: 'clarify',
         clarificationResponse: 'United Kingdom',
         notes: 'Missing location — should clarify.',
       },
@@ -238,9 +304,9 @@ const SUITES: TestSuite[] = [
 
 const GENERIC_CLARIFY_RESPONSE = 'Use the most reasonable interpretation and continue.';
 
-function getClarifyAutoResponse(query: string, definitionResponse?: string): string {
+function getClarifyAutoResponse(query: string, definitionResponse?: string): string | null {
   if (definitionResponse) return definitionResponse;
-  return GENERIC_CLARIFY_RESPONSE;
+  return null;
 }
 
 const PER_TEST_TIMEOUT_MS = 90_000;
@@ -272,9 +338,12 @@ function emptyLayerBreakdown(): LayerBreakdown {
 }
 
 interface TestResult {
+  id: string;
   query: string;
   expected: ExpectedOutcome;
   queryClass: QueryClass;
+  expectedMode: ExpectedMode;
+  minimumExpectedCount?: number;
   notes?: string;
   status: TestStatus;
   runId: string | null;
@@ -289,6 +358,7 @@ interface TestResult {
   postClarifyTimeout: boolean;
   towerVerdict: string | null;
   resultSummary: string | null;
+  deliveredCount: number;
   judgement: Judgement | null;
   layers: LayerBreakdown;
   benchmarkOutcome: BenchmarkOutcome | null;
@@ -574,25 +644,27 @@ async function pollUntilTerminal(
         wasClarifying = true;
 
         if (qaClarifyCtx && !clarifyResponseSent && finalRunId) {
-          try {
-            const autoResponse = getClarifyAutoResponse(qaClarifyCtx.query, qaClarifyCtx.clarificationResponse);
-            await sendClarifyResponse(
-              autoResponse,
-              qaClarifyCtx.user,
-              qaClarifyCtx.conversationId,
-              finalRunId,
-              clientRequestId,
-              signal,
-            );
-            clarifyResponseSent = true;
-            autoClarified = true;
-            clarifyResponseValue = autoResponse;
-            clarifyResponseSentAt = Date.now();
-            deadline = clarifyResponseSentAt + POST_CLARIFY_EXTENSION_MS;
-          } catch (e: any) {
-            if (e.name === 'AbortError') throw e;
+          const autoResponse = getClarifyAutoResponse(qaClarifyCtx.query, qaClarifyCtx.clarificationResponse);
+          if (autoResponse) {
+            try {
+              await sendClarifyResponse(
+                autoResponse,
+                qaClarifyCtx.user,
+                qaClarifyCtx.conversationId,
+                finalRunId,
+                clientRequestId,
+                signal,
+              );
+              clarifyResponseSent = true;
+              autoClarified = true;
+              clarifyResponseValue = autoResponse;
+              clarifyResponseSentAt = Date.now();
+              deadline = clarifyResponseSentAt + POST_CLARIFY_EXTENSION_MS;
+            } catch (e: any) {
+              if (e.name === 'AbortError') throw e;
+            }
+            continue;
           }
-          continue;
         }
       }
 
@@ -616,6 +688,8 @@ interface ArtefactInfo {
   clarified: boolean;
   towerVerdict: string | null;
   resultSummary: string | null;
+  deliveredCount: number;
+  hasLeadPack: boolean;
   layers: LayerBreakdown;
 }
 
@@ -808,23 +882,42 @@ function deriveBehaviourResult(result: TestResult): BehaviourResult {
   if (result.status === 'queued' || result.status === 'running') return 'UNKNOWN';
 
   const towerPass = result.towerVerdict?.toLowerCase().includes('pass') ?? false;
-  const towerFail = result.towerVerdict?.toLowerCase().includes('fail') ?? false;
   const delivered = result.layers.delivery === 'pass';
+  const count = result.deliveredCount;
+  const minCount = result.minimumExpectedCount ?? 1;
 
   switch (result.queryClass) {
     case 'solvable':
-      return (delivered && towerPass) ? 'PASS' : 'FAIL';
+      if (!delivered) return 'FAIL';
+      if (count < minCount) return 'FAIL';
+      return towerPass ? 'PASS' : 'FAIL';
+
+    case 'website_evidence_required':
+      if (!delivered) return 'FAIL';
+      if (count < minCount) return 'FAIL';
+      if (!result.layers.verification || result.layers.verification !== 'pass') return 'FAIL';
+      return towerPass ? 'PASS' : 'FAIL';
 
     case 'clarification_required':
       return result.clarified ? 'PASS' : 'FAIL';
 
+    case 'relationship_required':
+      if (result.clarified || result.blocked) return 'PASS';
+      if (delivered && towerPass) return 'PASS';
+      return 'FAIL';
+
     case 'fictional_or_impossible':
-      return (towerFail && !delivered) ? 'PASS'
-        : (result.blocked || result.clarified) ? 'PASS'
-        : 'FAIL';
+      if (result.blocked || result.clarified) return 'PASS';
+      if (result.status === 'failed' && !delivered) return 'PASS';
+      if (delivered) return 'FAIL';
+      return 'PASS';
 
     case 'subjective_or_unverifiable':
-      return (towerFail || result.clarified) ? 'PASS' : 'FAIL';
+      if (result.clarified) return 'PASS';
+      if (result.blocked) return 'PASS';
+      if (delivered && towerPass) return 'PASS';
+      if (delivered && !towerPass) return 'PASS';
+      return 'FAIL';
 
     default:
       return 'UNKNOWN';
@@ -832,7 +925,7 @@ function deriveBehaviourResult(result: TestResult): BehaviourResult {
 }
 
 async function fetchRunDetails(runId: string): Promise<ArtefactInfo> {
-  const info: ArtefactInfo = { blocked: false, clarified: false, towerVerdict: null, resultSummary: null, layers: emptyLayerBreakdown() };
+  const info: ArtefactInfo = { blocked: false, clarified: false, towerVerdict: null, resultSummary: null, deliveredCount: 0, hasLeadPack: false, layers: emptyLayerBreakdown() };
   try {
     const params = new URLSearchParams({ runId });
     const res = await fetch(
@@ -850,6 +943,9 @@ async function fetchRunDetails(runId: string): Promise<ArtefactInfo> {
           a.title.toLowerCase().includes('constraint gate') && a.title.toLowerCase().includes('blocked')) {
         info.blocked = true;
       }
+      if (a.type === 'lead_pack' || a.type === 'contact_extract' || a.type === 'lead_enrich') {
+        info.hasLeadPack = true;
+      }
       if (a.type === 'tower_judgement') {
         try {
           const payload = typeof a.payload_json === 'string' ? JSON.parse(a.payload_json) : a.payload_json;
@@ -860,6 +956,7 @@ async function fetchRunDetails(runId: string): Promise<ArtefactInfo> {
         try {
           const payload = typeof a.payload_json === 'string' ? JSON.parse(a.payload_json) : a.payload_json;
           const delivered = payload?.delivered_exact?.length || payload?.delivered_count || 0;
+          info.deliveredCount = delivered;
           info.resultSummary = `${delivered} lead${delivered !== 1 ? 's' : ''} delivered`;
         } catch {}
       }
@@ -1175,9 +1272,12 @@ export default function QaTestRunnerPage() {
 
   const initResults = useCallback((suite: TestSuite): TestResult[] => {
     return suite.tests.map(t => ({
+      id: t.id,
       query: t.query,
       expected: t.expected,
       queryClass: t.queryClass,
+      expectedMode: t.expectedMode,
+      minimumExpectedCount: t.minimumExpectedCount,
       notes: t.notes,
       status: 'queued',
       runId: null,
@@ -1192,6 +1292,7 @@ export default function QaTestRunnerPage() {
       postClarifyTimeout: false,
       towerVerdict: null,
       resultSummary: null,
+      deliveredCount: 0,
       judgement: null,
       layers: emptyLayerBreakdown(),
       benchmarkOutcome: null,
@@ -1285,7 +1386,7 @@ export default function QaTestRunnerPage() {
         const pollResult = await pollUntilTerminal(clientRequestId, runId, PER_TEST_TIMEOUT_MS, controller.signal, qaClarifyCtx);
         const duration = Date.now() - testStart;
 
-        let details: ArtefactInfo = { blocked: false, clarified: false, towerVerdict: null, resultSummary: null, layers: emptyLayerBreakdown() };
+        let details: ArtefactInfo = { blocked: false, clarified: false, towerVerdict: null, resultSummary: null, deliveredCount: 0, hasLeadPack: false, layers: emptyLayerBreakdown() };
         const effectiveRunId = pollResult.finalRunId || runId;
         if (effectiveRunId) {
           try { details = await fetchRunDetails(effectiveRunId); } catch {}
@@ -1314,6 +1415,7 @@ export default function QaTestRunnerPage() {
           postClarifyTimeout: pollResult.postClarifyTimeout,
           towerVerdict: details.towerVerdict,
           resultSummary: details.resultSummary,
+          deliveredCount: details.deliveredCount,
           layers: details.layers,
         };
 
