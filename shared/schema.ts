@@ -2754,3 +2754,40 @@ export const telemetryEvents = pgTable("telemetry_events", {
   index("telemetry_events_run_id_idx").on(table.runId),
   index("telemetry_events_event_type_idx").on(table.eventType),
 ]);
+
+export const systemStatusEnum = z.enum(["HEALTHY", "DEGRADED", "BROKEN", "TIMEOUT"]);
+export type SystemStatus = z.infer<typeof systemStatusEnum>;
+
+export const agentQualityEnum = z.enum(["PASS", "PARTIAL", "FAIL", "NOT_APPLICABLE", "UNKNOWN"]);
+export type AgentQuality = z.infer<typeof agentQualityEnum>;
+
+export const towerResultEnum = z.enum(["PASS", "FAIL", "UNKNOWN"]);
+export type TowerResult = z.infer<typeof towerResultEnum>;
+
+export const behaviourResultEnum = z.enum(["PASS", "FAIL", "UNKNOWN"]);
+export type BehaviourResult = z.infer<typeof behaviourResultEnum>;
+
+export const qaRunMetrics = pgTable("qa_run_metrics", {
+  id: serial("id").primaryKey(),
+  runId: text("run_id").notNull().unique(),
+  timestamp: bigint("timestamp", { mode: "number" }).notNull(),
+  query: text("query").notNull(),
+  systemStatus: text("system_status").notNull(),
+  agentStatus: text("agent_status").notNull(),
+  towerResult: text("tower_result").notNull(),
+  behaviourResult: text("behaviour_result").notNull(),
+  systemScore: numeric("system_score", { precision: 2, scale: 1 }).notNull(),
+  agentScore: numeric("agent_score", { precision: 2, scale: 1 }).notNull(),
+  towerScore: numeric("tower_score", { precision: 2, scale: 1 }).notNull(),
+  behaviourScore: numeric("behaviour_score", { precision: 2, scale: 1 }).notNull(),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  index("qa_run_metrics_run_id_idx").on(table.runId),
+  index("qa_run_metrics_timestamp_idx").on(table.timestamp),
+]);
+
+export const insertQaRunMetricSchema = createInsertSchema(qaRunMetrics);
+export const selectQaRunMetricSchema = createSelectSchema(qaRunMetrics);
+export type InsertQaRunMetric = typeof qaRunMetrics.$inferInsert;
+export type SelectQaRunMetric = typeof qaRunMetrics.$inferSelect;

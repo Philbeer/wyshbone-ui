@@ -1723,6 +1723,38 @@ export async function runStartupMigrations(): Promise<void> {
       console.error('⚠️ Messages metadata migration error (non-fatal):', error?.message || error);
     }
   }
+
+  try {
+    await queryClient`
+      CREATE TABLE IF NOT EXISTS public.qa_run_metrics (
+        id SERIAL PRIMARY KEY,
+        run_id TEXT NOT NULL UNIQUE,
+        timestamp BIGINT NOT NULL,
+        query TEXT NOT NULL,
+        system_status TEXT NOT NULL,
+        agent_status TEXT NOT NULL,
+        tower_result TEXT NOT NULL,
+        behaviour_result TEXT NOT NULL,
+        system_score NUMERIC(2,1) NOT NULL,
+        agent_score NUMERIC(2,1) NOT NULL,
+        tower_score NUMERIC(2,1) NOT NULL,
+        behaviour_score NUMERIC(2,1) NOT NULL,
+        metadata JSONB,
+        created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+      );
+    `;
+    await queryClient`
+      CREATE INDEX IF NOT EXISTS qa_run_metrics_run_id_idx ON public.qa_run_metrics (run_id);
+    `;
+    await queryClient`
+      CREATE INDEX IF NOT EXISTS qa_run_metrics_timestamp_idx ON public.qa_run_metrics (timestamp);
+    `;
+    console.log('✅ qa_run_metrics table ensured');
+  } catch (error: any) {
+    if (error?.code !== '42710' && error?.code !== '42P07') {
+      console.error('⚠️ qa_run_metrics migration error (non-fatal):', error?.message || error);
+    }
+  }
 }
 
 export class DbStorage implements IStorage {
