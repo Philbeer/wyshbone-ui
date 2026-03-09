@@ -1,0 +1,194 @@
+You are simplifying the Wyshbone QA Regression Dashboard so it is truthful and easy to understand.
+
+IMPORTANT
+Do NOT change agent logic.
+Do NOT change Supervisor behaviour.
+Do NOT change Tower behaviour.
+This task is UI simplification and metric presentation only.
+
+Problem
+
+The current QA dashboard is too complex and confusing.
+
+It currently shows too many overlapping metrics, including:
+- System Health
+- System Working Rate
+- Clean Run Rate
+- Agent Quality
+- Partial / Unknown / N/A
+- duplicate summary blocks
+
+This leads to contradictory-looking information such as:
+- 0 Healthy
+- 100% System Working
+
+Even if mathematically correct, this is confusing for a human operator.
+
+Goal
+
+Replace the current benchmark summary UI with a much simpler dashboard that clearly answers only two questions:
+
+1. Is the system functioning?
+2. Is the agent doing a good job?
+
+We want one clean top-level benchmark summary with:
+- System Reliability
+- Agent Success Rate
+- a simplified run table
+
+-----------------------------------
+NEW DASHBOARD DESIGN
+-----------------------------------
+
+TOP HEADER
+
+Show:
+
+FULL BENCHMARK PACK
+
+12 Tests Run
+
+SYSTEM RELIABILITY
+Working: X
+Timeout: Y
+Broken: Z
+Reliability: N%
+
+AGENT PERFORMANCE
+Pass: A
+Partial: B
+Fail: C
+Unknown: D
+Success Rate: M%
+
+-----------------------------------
+DEFINITIONS
+-----------------------------------
+
+SYSTEM RELIABILITY
+
+This answers:
+"Did the machinery run?"
+
+Use:
+Working = Healthy + Degraded
+
+Formula:
+System Reliability = Working / Total
+
+Timeout counts against reliability because the user experiences timeout as failure.
+
+Do NOT show:
+- Clean Run Rate
+- System Working Rate
+- separate Healthy vs Degraded headline percentages
+
+You may still keep Healthy / Degraded internally if needed, but do not surface them as primary metrics.
+
+Instead:
+collapse Healthy + Degraded into a single visible count called Working.
+
+BROKEN means actual broken run / invalid pipeline state.
+
+TIMEOUT means benchmark did not complete.
+
+-----------------------------------
+
+AGENT PERFORMANCE
+
+This answers:
+"Did the agent succeed at the task?"
+
+Use visible counts:
+- Pass
+- Partial
+- Fail
+- Unknown
+
+Formula:
+Agent Success Rate = Pass / (Pass + Partial + Fail)
+
+Unknown is excluded because the run did not complete enough to judge quality.
+
+Do NOT show:
+- N/A as a primary visible category
+
+If N/A exists internally, map it into Pass or Unknown depending on the benchmark expectation, or keep it hidden unless absolutely necessary.
+
+-----------------------------------
+
+RUN TABLE
+
+Simplify each row to show:
+
+- Query
+- Status
+- System
+- Agent
+- Tower
+- Time
+- AFR
+
+Definitions per row:
+
+System column:
+- Working
+- Timeout
+- Broken
+
+Agent column:
+- Pass
+- Partial
+- Fail
+- Unknown
+
+Keep the layer dots if useful, but make them secondary and visually quiet.
+
+Do NOT let the row-level metrics overwhelm the dashboard.
+
+-----------------------------------
+
+REMOVE / HIDE
+
+Remove or hide from the main QA dashboard:
+
+- duplicated system summary blocks
+- duplicated agent summary blocks
+- Clean Run Rate
+- System Working Rate
+- N/A as a large top-card metric
+- formula text clutter unless very small helper text is needed
+
+-----------------------------------
+
+OPTIONAL SMALL HELPER TEXT
+
+Allowed only if subtle:
+
+System Reliability = working runs / total runs
+Agent Success Rate = pass / judged runs
+
+Keep helper text small and non-dominant.
+
+-----------------------------------
+
+DESIGN PRINCIPLE
+
+This dashboard must feel operator-friendly, not engineer-heavy.
+
+The user should be able to understand the benchmark result in under 5 seconds.
+
+The dashboard must not show mathematically true but humanly confusing summaries.
+
+-----------------------------------
+
+DELIVERABLES
+
+Provide:
+
+1. files changed
+2. what was removed
+3. exact formulas now shown
+4. confirmation that the dashboard now clearly separates:
+   - system functioning
+   - agent performance

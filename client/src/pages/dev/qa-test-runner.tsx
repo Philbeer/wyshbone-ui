@@ -877,39 +877,38 @@ function computeHealthCounts(results: TestResult[]) {
       case 'TIMEOUT': timeout++; break;
     }
   }
-  const nonTimeout = healthy + degraded + broken;
-  const workingRate = nonTimeout > 0 ? Math.round(((healthy + degraded) / nonTimeout) * 100) : 0;
-  const cleanRate = nonTimeout > 0 ? Math.round((healthy / nonTimeout) * 100) : 0;
-  return { healthy, degraded, broken, timeout, workingRate, cleanRate };
+  const working = healthy + degraded;
+  const total = working + broken + timeout;
+  const reliability = total > 0 ? Math.round((working / total) * 100) : 0;
+  return { working, broken, timeout, reliability };
 }
 
 function computeQualityCounts(results: TestResult[]) {
-  let pass = 0, partial = 0, fail = 0, notApplicable = 0, unknown = 0;
+  let pass = 0, partial = 0, fail = 0, unknown = 0;
   for (const r of results) {
     switch (r.agentQuality) {
       case 'PASS': pass++; break;
+      case 'NOT_APPLICABLE': pass++; break;
       case 'PARTIAL': partial++; break;
       case 'FAIL': fail++; break;
-      case 'NOT_APPLICABLE': notApplicable++; break;
       case 'UNKNOWN': unknown++; break;
     }
   }
   const judged = pass + partial + fail;
-  const rate = judged > 0 ? Math.round((pass / judged) * 100) : 0;
-  return { pass, partial, fail, notApplicable, unknown, rate };
+  const successRate = judged > 0 ? Math.round((pass / judged) * 100) : 0;
+  return { pass, partial, fail, unknown, successRate };
 }
 
 function systemHealthBadge(outcome: SystemHealthOutcome | null) {
   if (!outcome) return null;
   switch (outcome) {
     case 'HEALTHY':
-      return <Badge className="bg-green-100 text-green-700 border-green-200 text-[10px] px-1.5 py-0">HEALTHY</Badge>;
     case 'DEGRADED':
-      return <Badge className="bg-yellow-100 text-yellow-800 border-yellow-200 text-[10px] px-1.5 py-0">DEGRADED</Badge>;
+      return <Badge className="bg-green-100 text-green-700 border-green-200 text-[10px] px-1.5 py-0">Working</Badge>;
     case 'BROKEN':
-      return <Badge className="bg-red-100 text-red-700 border-red-200 text-[10px] px-1.5 py-0">BROKEN</Badge>;
+      return <Badge className="bg-red-100 text-red-700 border-red-200 text-[10px] px-1.5 py-0">Broken</Badge>;
     case 'TIMEOUT':
-      return <Badge variant="outline" className="text-gray-500 border-gray-300 text-[10px] px-1.5 py-0">TIMEOUT</Badge>;
+      return <Badge variant="outline" className="text-gray-500 border-gray-300 text-[10px] px-1.5 py-0">Timeout</Badge>;
   }
 }
 
@@ -917,15 +916,14 @@ function agentQualityBadge(outcome: AgentQualityOutcome | null) {
   if (!outcome) return null;
   switch (outcome) {
     case 'PASS':
-      return <Badge className="bg-green-100 text-green-700 border-green-200 text-[10px] px-1.5 py-0">PASS</Badge>;
-    case 'PARTIAL':
-      return <Badge className="bg-yellow-100 text-yellow-800 border-yellow-200 text-[10px] px-1.5 py-0">PARTIAL</Badge>;
-    case 'FAIL':
-      return <Badge className="bg-red-100 text-red-700 border-red-200 text-[10px] px-1.5 py-0">FAIL</Badge>;
     case 'NOT_APPLICABLE':
-      return <Badge variant="outline" className="text-blue-500 border-blue-300 text-[10px] px-1.5 py-0">N/A</Badge>;
+      return <Badge className="bg-green-100 text-green-700 border-green-200 text-[10px] px-1.5 py-0">Pass</Badge>;
+    case 'PARTIAL':
+      return <Badge className="bg-yellow-100 text-yellow-800 border-yellow-200 text-[10px] px-1.5 py-0">Partial</Badge>;
+    case 'FAIL':
+      return <Badge className="bg-red-100 text-red-700 border-red-200 text-[10px] px-1.5 py-0">Fail</Badge>;
     case 'UNKNOWN':
-      return <Badge variant="outline" className="text-gray-500 border-gray-300 text-[10px] px-1.5 py-0">UNKNOWN</Badge>;
+      return <Badge variant="outline" className="text-gray-500 border-gray-300 text-[10px] px-1.5 py-0">Unknown</Badge>;
   }
 }
 
@@ -936,77 +934,33 @@ function Scoreboard({ results }: { results: TestResult[] }) {
   const total = results.length;
 
   return (
-    <div className="space-y-3 mb-6">
-      <div className="border rounded-lg p-3">
-        <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">System Health</div>
-        <div className="grid grid-cols-5 gap-2">
-          <div className="border rounded-lg p-2.5 text-center">
-            <div className="text-xl font-bold">{total}</div>
-            <div className="text-[10px] text-gray-500">Total</div>
-          </div>
-          <div className="border rounded-lg p-2.5 text-center bg-green-50">
-            <div className="text-xl font-bold text-green-700">{hc.healthy}</div>
-            <div className="text-[10px] text-green-600">Healthy</div>
-          </div>
-          <div className="border rounded-lg p-2.5 text-center bg-yellow-50">
-            <div className="text-xl font-bold text-yellow-700">{hc.degraded}</div>
-            <div className="text-[10px] text-yellow-600">Degraded</div>
-          </div>
-          <div className="border rounded-lg p-2.5 text-center bg-red-50">
-            <div className="text-xl font-bold text-red-700">{hc.broken}</div>
-            <div className="text-[10px] text-red-600">Broken</div>
-          </div>
-          <div className="border rounded-lg p-2.5 text-center bg-gray-50">
-            <div className="text-xl font-bold text-gray-600">{hc.timeout}</div>
-            <div className="text-[10px] text-gray-500">Timeout</div>
-          </div>
+    <div className="grid grid-cols-2 gap-3 mb-6">
+      <div className="border rounded-lg p-4">
+        <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">System Reliability</div>
+        <div className="flex items-baseline gap-2 mb-3">
+          <span className={`text-3xl font-bold ${hc.reliability >= 80 ? 'text-green-700' : hc.reliability >= 50 ? 'text-amber-700' : 'text-red-700'}`}>{hc.reliability}%</span>
+          <span className="text-xs text-gray-400">of {total} runs</span>
         </div>
-        <div className="mt-2 flex items-center justify-end gap-4">
-          <div className="text-right">
-            <span className={`text-sm font-bold ${hc.workingRate >= 80 ? 'text-green-700' : hc.workingRate >= 50 ? 'text-amber-700' : 'text-red-700'}`}>{hc.workingRate}%</span>
-            <span className="text-[10px] text-gray-500 ml-1">System Working Rate</span>
-          </div>
-          <div className="text-right">
-            <span className={`text-sm font-bold ${hc.cleanRate >= 80 ? 'text-green-700' : hc.cleanRate >= 50 ? 'text-amber-700' : 'text-red-700'}`}>{hc.cleanRate}%</span>
-            <span className="text-[10px] text-gray-500 ml-1">Clean Run Rate</span>
-          </div>
+        <div className="flex items-center gap-4 text-sm">
+          <span className="text-green-700 font-medium">{hc.working} working</span>
+          <span className="text-gray-500">{hc.timeout} timeout</span>
+          <span className="text-red-700">{hc.broken} broken</span>
         </div>
-        <div className="mt-1 text-[9px] text-gray-400 text-right">
-          System Working = (healthy + degraded) / non-timeout runs · Clean = healthy only / non-timeout runs
-        </div>
+        <div className="mt-2 text-[9px] text-gray-400">working runs / total runs</div>
       </div>
-      <div className="border rounded-lg p-3">
-        <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Agent Quality</div>
-        <div className="grid grid-cols-6 gap-2">
-          <div className="border rounded-lg p-2.5 text-center">
-            <div className="text-xl font-bold">{total}</div>
-            <div className="text-[10px] text-gray-500">Total</div>
-          </div>
-          <div className="border rounded-lg p-2.5 text-center bg-green-50">
-            <div className="text-xl font-bold text-green-700">{qc.pass}</div>
-            <div className="text-[10px] text-green-600">Passed</div>
-          </div>
-          <div className="border rounded-lg p-2.5 text-center bg-yellow-50">
-            <div className="text-xl font-bold text-yellow-700">{qc.partial}</div>
-            <div className="text-[10px] text-yellow-600">Partial</div>
-          </div>
-          <div className="border rounded-lg p-2.5 text-center bg-red-50">
-            <div className="text-xl font-bold text-red-700">{qc.fail}</div>
-            <div className="text-[10px] text-red-600">Failed</div>
-          </div>
-          <div className="border rounded-lg p-2.5 text-center bg-blue-50">
-            <div className="text-xl font-bold text-blue-600">{qc.notApplicable}</div>
-            <div className="text-[10px] text-blue-500">N/A</div>
-          </div>
-          <div className="border rounded-lg p-2.5 text-center bg-gray-50">
-            <div className="text-xl font-bold text-gray-600">{qc.unknown}</div>
-            <div className="text-[10px] text-gray-500">Unknown</div>
-          </div>
+      <div className="border rounded-lg p-4">
+        <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Agent Performance</div>
+        <div className="flex items-baseline gap-2 mb-3">
+          <span className={`text-3xl font-bold ${qc.successRate >= 80 ? 'text-green-700' : qc.successRate >= 50 ? 'text-amber-700' : 'text-red-700'}`}>{qc.successRate}%</span>
+          <span className="text-xs text-gray-400">success rate</span>
         </div>
-        <div className="mt-2 text-right">
-          <span className={`text-sm font-bold ${qc.rate >= 80 ? 'text-green-700' : qc.rate >= 50 ? 'text-amber-700' : 'text-red-700'}`}>{qc.rate}%</span>
-          <span className="text-[10px] text-gray-500 ml-1">Agent Quality Rate (PASS only, excludes N/A + Unknown)</span>
+        <div className="flex items-center gap-4 text-sm">
+          <span className="text-green-700 font-medium">{qc.pass} pass</span>
+          <span className="text-yellow-700">{qc.partial} partial</span>
+          <span className="text-red-700">{qc.fail} fail</span>
+          <span className="text-gray-500">{qc.unknown} unknown</span>
         </div>
+        <div className="mt-2 text-[9px] text-gray-400">pass / judged runs (excludes unknown)</div>
       </div>
     </div>
   );
@@ -1025,15 +979,9 @@ interface BenchmarkProgress {
 
 interface BenchmarkSummary {
   total: number;
-  pass: number;
-  partial: number;
-  blocked: number;
-  timeout: number;
-  fail: number;
-  passRate: number;
   durationMs: number;
-  systemHealth: { healthy: number; degraded: number; broken: number; timeout: number; workingRate: number; cleanRate: number };
-  agentQuality: { pass: number; partial: number; fail: number; notApplicable: number; unknown: number; rate: number };
+  system: { working: number; broken: number; timeout: number; reliability: number };
+  agent: { pass: number; partial: number; fail: number; unknown: number; successRate: number };
 }
 
 function BenchmarkProgressBar({ progress }: { progress: BenchmarkProgress }) {
@@ -1069,80 +1017,39 @@ function BenchmarkProgressBar({ progress }: { progress: BenchmarkProgress }) {
 }
 
 function BenchmarkSummaryCard({ summary }: { summary: BenchmarkSummary }) {
-  const sh = summary.systemHealth;
-  const aq = summary.agentQuality;
+  const s = summary.system;
+  const a = summary.agent;
   return (
     <div className="border-2 rounded-lg p-5 mb-6 bg-gradient-to-r from-purple-50 to-indigo-50 border-purple-200">
       <div className="flex items-center gap-2 mb-4">
         <BarChart3 className="w-5 h-5 text-purple-600" />
-        <h3 className="font-bold text-purple-900">Full Benchmark Pack — Complete</h3>
+        <h3 className="font-bold text-purple-900">Full Benchmark Pack — {summary.total} Tests</h3>
         <span className="text-xs text-gray-500 ml-auto">
           {(summary.durationMs / 1000).toFixed(0)}s total
         </span>
       </div>
-      <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-4">
         <div>
-          <div className="flex items-center justify-between mb-1.5">
-            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">System Health</span>
-            <div className="flex items-center gap-3">
-              <span className={`text-sm font-bold ${sh.workingRate >= 80 ? 'text-green-700' : sh.workingRate >= 50 ? 'text-amber-700' : 'text-red-700'}`}>{sh.workingRate}% <span className="text-[9px] font-normal text-gray-500">working</span></span>
-              <span className={`text-sm font-bold ${sh.cleanRate >= 80 ? 'text-green-700' : sh.cleanRate >= 50 ? 'text-amber-700' : 'text-red-700'}`}>{sh.cleanRate}% <span className="text-[9px] font-normal text-gray-500">clean</span></span>
-            </div>
+          <div className="flex items-baseline gap-2 mb-2">
+            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">System Reliability</span>
+            <span className={`text-2xl font-bold ml-auto ${s.reliability >= 80 ? 'text-green-700' : s.reliability >= 50 ? 'text-amber-700' : 'text-red-700'}`}>{s.reliability}%</span>
           </div>
-          <div className="grid grid-cols-5 gap-2">
-            <div className="text-center">
-              <div className="text-lg font-bold text-gray-900">{summary.total}</div>
-              <div className="text-[10px] text-gray-500">Total</div>
-            </div>
-            <div className="text-center">
-              <div className="text-lg font-bold text-green-700">{sh.healthy}</div>
-              <div className="text-[10px] text-green-600">Healthy</div>
-            </div>
-            <div className="text-center">
-              <div className="text-lg font-bold text-yellow-700">{sh.degraded}</div>
-              <div className="text-[10px] text-yellow-600">Degraded</div>
-            </div>
-            <div className="text-center">
-              <div className="text-lg font-bold text-red-700">{sh.broken}</div>
-              <div className="text-[10px] text-red-600">Broken</div>
-            </div>
-            <div className="text-center">
-              <div className="text-lg font-bold text-gray-600">{sh.timeout}</div>
-              <div className="text-[10px] text-gray-500">Timeout</div>
-            </div>
+          <div className="flex items-center gap-3 text-sm">
+            <span className="text-green-700 font-medium">{s.working} working</span>
+            <span className="text-gray-500">{s.timeout} timeout</span>
+            <span className="text-red-700">{s.broken} broken</span>
           </div>
         </div>
-        <hr className="border-purple-200" />
         <div>
-          <div className="flex items-center justify-between mb-1.5">
-            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Agent Quality</span>
-            <span className={`text-sm font-bold ${aq.rate >= 80 ? 'text-green-700' : aq.rate >= 50 ? 'text-amber-700' : 'text-red-700'}`}>{aq.rate}%</span>
+          <div className="flex items-baseline gap-2 mb-2">
+            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Agent Performance</span>
+            <span className={`text-2xl font-bold ml-auto ${a.successRate >= 80 ? 'text-green-700' : a.successRate >= 50 ? 'text-amber-700' : 'text-red-700'}`}>{a.successRate}%</span>
           </div>
-          <div className="grid grid-cols-6 gap-2">
-            <div className="text-center">
-              <div className="text-lg font-bold text-gray-900">{summary.total}</div>
-              <div className="text-[10px] text-gray-500">Total</div>
-            </div>
-            <div className="text-center">
-              <div className="text-lg font-bold text-green-700">{aq.pass}</div>
-              <div className="text-[10px] text-green-600">Passed</div>
-            </div>
-            <div className="text-center">
-              <div className="text-lg font-bold text-yellow-700">{aq.partial}</div>
-              <div className="text-[10px] text-yellow-600">Partial</div>
-            </div>
-            <div className="text-center">
-              <div className="text-lg font-bold text-red-700">{aq.fail}</div>
-              <div className="text-[10px] text-red-600">Failed</div>
-            </div>
-            <div className="text-center">
-              <div className="text-lg font-bold text-blue-600">{aq.notApplicable}</div>
-              <div className="text-[10px] text-blue-500">N/A</div>
-            </div>
-            <div className="text-center">
-              <div className="text-lg font-bold text-gray-600">{aq.unknown}</div>
-              <div className="text-[10px] text-gray-500">Unknown</div>
-            </div>
+          <div className="flex items-center gap-3 text-sm">
+            <span className="text-green-700 font-medium">{a.pass} pass</span>
+            <span className="text-yellow-700">{a.partial} partial</span>
+            <span className="text-red-700">{a.fail} fail</span>
+            <span className="text-gray-500">{a.unknown} unknown</span>
           </div>
         </div>
       </div>
@@ -1334,21 +1241,13 @@ export default function QaTestRunnerPage() {
     setBenchmarkProgress(null);
 
     if (isBenchmark) {
-      const counts = computeProgressCounts(finalResults);
-      const evaluated = counts.pass + counts.partial + counts.fail;
       const healthCounts = computeHealthCounts(finalResults);
       const qualityCounts = computeQualityCounts(finalResults);
       setBenchmarkSummary({
         total: finalResults.length,
-        pass: counts.pass,
-        partial: counts.partial,
-        blocked: counts.blocked,
-        timeout: counts.timeout,
-        fail: counts.fail,
-        passRate: evaluated > 0 ? Math.round(((counts.pass + counts.partial) / evaluated) * 100) : 0,
         durationMs: Date.now() - suiteStart,
-        systemHealth: healthCounts,
-        agentQuality: qualityCounts,
+        system: healthCounts,
+        agent: qualityCounts,
       });
     }
 
@@ -1471,24 +1370,21 @@ export default function QaTestRunnerPage() {
         </div>
       )}
 
-      {hasResults && hasFinished && <Scoreboard results={results} />}
+      {hasResults && hasFinished && !benchmarkSummary && <Scoreboard results={results} />}
 
       {hasResults && (
         <div className="border rounded-lg overflow-x-auto">
-          <table className="w-full text-sm min-w-[1100px]">
+          <table className="w-full text-sm min-w-[800px]">
             <thead className="bg-gray-50 dark:bg-gray-800">
               <tr>
                 <th className="text-left px-3 py-2 font-medium text-gray-600 w-8">#</th>
                 <th className="text-left px-3 py-2 font-medium text-gray-600">Query</th>
                 <th className="text-left px-3 py-2 font-medium text-gray-600 w-24">Status</th>
-                <th className="text-left px-3 py-2 font-medium text-gray-600 w-[120px]">Layers</th>
-                <th className="text-left px-3 py-2 font-medium text-gray-600 w-20">Sys Health</th>
-                <th className="text-left px-3 py-2 font-medium text-gray-600 w-20">Agent Qual</th>
-                <th className="text-left px-3 py-2 font-medium text-gray-600 w-20">Outcome</th>
+                <th className="text-left px-3 py-2 font-medium text-gray-600 w-20">System</th>
+                <th className="text-left px-3 py-2 font-medium text-gray-600 w-20">Agent</th>
                 <th className="text-left px-3 py-2 font-medium text-gray-600 w-20">Tower</th>
                 <th className="text-left px-3 py-2 font-medium text-gray-600 w-16">Time</th>
-                <th className="text-left px-3 py-2 font-medium text-gray-600 w-24">Judgement</th>
-                <th className="text-left px-3 py-2 font-medium text-gray-600 w-16">Run</th>
+                <th className="text-left px-3 py-2 font-medium text-gray-600 w-16">AFR</th>
               </tr>
             </thead>
             <tbody>
@@ -1518,18 +1414,10 @@ export default function QaTestRunnerPage() {
                   </td>
                   <td className="px-3 py-2.5">{statusBadge(r.status)}</td>
                   <td className="px-3 py-2.5">
-                    {r.status !== 'queued' && r.status !== 'running' ? (
-                      <LayerStrip layers={r.layers} />
-                    ) : <span className="text-gray-300 text-xs">—</span>}
-                  </td>
-                  <td className="px-3 py-2.5">
                     {systemHealthBadge(r.systemHealth)}
                   </td>
                   <td className="px-3 py-2.5">
                     {agentQualityBadge(r.agentQuality)}
-                  </td>
-                  <td className="px-3 py-2.5">
-                    {outcomeBadge(r.benchmarkOutcome)}
                   </td>
                   <td className="px-3 py-2.5">
                     {r.towerVerdict ? (
@@ -1542,7 +1430,6 @@ export default function QaTestRunnerPage() {
                   <td className="px-3 py-2.5 text-gray-500 font-mono text-xs">
                     {r.durationMs !== null ? `${(r.durationMs / 1000).toFixed(1)}s` : '—'}
                   </td>
-                  <td className="px-3 py-2.5">{judgementBadge(r.judgement)}</td>
                   <td className="px-3 py-2.5">
                     {r.runId ? (
                       <a
