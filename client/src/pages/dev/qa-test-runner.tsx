@@ -198,6 +198,21 @@ const SUITES: TestSuite[] = [
   },
 ];
 
+const CLARIFY_AUTO_RESPONSES: Record<string, string> = {
+  'Find organisations that work with the local authority in Blackpool':
+    'Any organisations that collaborate with Blackpool Council, such as partners, suppliers, or programme participants.',
+  'Find companies that supply to NHS hospitals in Leeds':
+    'Companies that provide goods or services to NHS hospitals in Leeds.',
+  'Find the best dentists in Brighton':
+    'Find highly rated dental practices in Brighton based on Google reviews.',
+};
+
+const GENERIC_CLARIFY_RESPONSE = 'Use the most reasonable interpretation and continue.';
+
+function getClarifyAutoResponse(query: string): string {
+  return CLARIFY_AUTO_RESPONSES[query] || GENERIC_CLARIFY_RESPONSE;
+}
+
 const PER_TEST_TIMEOUT_MS = 90_000;
 const POLL_INTERVAL_MS = 2_000;
 
@@ -216,6 +231,7 @@ interface TestResult {
   durationMs: number | null;
   blocked: boolean;
   clarified: boolean;
+  autoClarified: boolean;
   towerVerdict: string | null;
   resultSummary: string | null;
   judgement: Judgement | null;
@@ -382,12 +398,69 @@ async function submitQuery(
   return { runId };
 }
 
+async function sendClarifyResponse(
+  responseText: string,
+  user: { id: string; email: string },
+  conversationId: string,
+  clarifyRunId: string,
+  clarifyClientRequestId: string,
+  signal: AbortSignal,
+): Promise<void> {
+  const sessionId = localStorage.getItem('wyshbone_sid');
+  const newClientRequestId = crypto.randomUUID();
+  const response = await fetch(buildApiUrl(addDevAuthParams('/api/chat')), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(sessionId ? { 'x-session-id': sessionId } : {}),
+    },
+    body: JSON.stringify({
+      messages: [{ role: 'user', content: responseText }],
+      user: { id: user.id, email: user.email },
+      defaultCountry: 'GB',
+      conversationId,
+      clientRequestId: newClientRequestId,
+      clarify_run_id: clarifyRunId,
+      clarify_client_request_id: clarifyClientRequestId,
+      google_query_mode: 'BIASED_STABLE',
+    }),
+    signal,
+    credentials: 'include',
+  });
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ error: response.statusText }));
+    throw new Error(`Clarify response failed: ${err.error || err.message || response.status}`);
+  }
+
+  const reader = response.body?.getReader();
+  if (reader) {
+    try {
+      while (true) {
+        const { done } = await reader.read();
+        if (done) break;
+      }
+    } catch (e: any) {
+      if (e.name === 'AbortError') throw e;
+    } finally {
+      try { reader.cancel(); } catch {}
+    }
+  }
+}
+
+interface QaClarifyContext {
+  query: string;
+  user: { id: string; email: string };
+  conversationId: string;
+}
+
 interface PollResult {
   terminal: boolean;
   status: string;
   timedOut: boolean;
   finalRunId: string | null;
   wasClarifying: boolean;
+  autoClarified: boolean;
 }
 
 async function pollUntilTerminal(
@@ -395,10 +468,13 @@ async function pollUntilTerminal(
   runId: string | null,
   timeoutMs: number,
   signal: AbortSignal,
+  qaClarifyCtx?: QaClarifyContext,
 ): Promise<PollResult> {
   const start = Date.now();
   let finalRunId = runId;
   let wasClarifying = false;
+  let autoClarified = false;
+  let clarifyResponseSent = false;
 
   while (Date.now() - start < timeoutMs) {
     if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
@@ -423,19 +499,40 @@ async function pollUntilTerminal(
       const status = data.status || 'unknown';
       const terminalState = data.terminal_state;
 
-      if (status === 'clarifying') wasClarifying = true;
+      if (status === 'clarifying') {
+        wasClarifying = true;
+
+        if (qaClarifyCtx && !clarifyResponseSent && finalRunId) {
+          try {
+            const autoResponse = getClarifyAutoResponse(qaClarifyCtx.query);
+            await sendClarifyResponse(
+              autoResponse,
+              qaClarifyCtx.user,
+              qaClarifyCtx.conversationId,
+              finalRunId,
+              clientRequestId,
+              signal,
+            );
+            clarifyResponseSent = true;
+            autoClarified = true;
+          } catch (e: any) {
+            if (e.name === 'AbortError') throw e;
+          }
+          continue;
+        }
+      }
 
       if (isTerminal || status === 'completed' || status === 'failed' || status === 'stopped' ||
           terminalState === 'PASS' || terminalState === 'FAIL' || terminalState === 'STOP' ||
           terminalState === 'completed' || terminalState === 'failed' || terminalState === 'stopped') {
-        return { terminal: true, status, timedOut: false, finalRunId, wasClarifying };
+        return { terminal: true, status, timedOut: false, finalRunId, wasClarifying, autoClarified };
       }
     } catch (e: any) {
       if (e.name === 'AbortError') throw e;
     }
   }
 
-  return { terminal: false, status: 'timeout', timedOut: true, finalRunId, wasClarifying };
+  return { terminal: false, status: 'timeout', timedOut: true, finalRunId, wasClarifying, autoClarified };
 }
 
 interface ArtefactInfo {
@@ -663,6 +760,7 @@ export default function QaTestRunnerPage() {
       durationMs: null,
       blocked: false,
       clarified: false,
+      autoClarified: false,
       towerVerdict: null,
       resultSummary: null,
       judgement: null,
@@ -757,7 +855,8 @@ export default function QaTestRunnerPage() {
         updateResult(i, { runId });
         finalResults[i] = { ...finalResults[i], runId };
 
-        const pollResult = await pollUntilTerminal(clientRequestId, runId, PER_TEST_TIMEOUT_MS, controller.signal);
+        const qaClarifyCtx: QaClarifyContext = { query: test.query, user, conversationId: qaConversationId };
+        const pollResult = await pollUntilTerminal(clientRequestId, runId, PER_TEST_TIMEOUT_MS, controller.signal, qaClarifyCtx);
         const duration = Date.now() - testStart;
 
         let details: ArtefactInfo = { blocked: false, clarified: false, towerVerdict: null, resultSummary: null };
@@ -783,6 +882,7 @@ export default function QaTestRunnerPage() {
           durationMs: duration,
           blocked: details.blocked,
           clarified: details.clarified,
+          autoClarified: pollResult.autoClarified,
           towerVerdict: details.towerVerdict,
           resultSummary: details.resultSummary,
         };
@@ -990,6 +1090,12 @@ export default function QaTestRunnerPage() {
                       {expectedBadge(r.expected)}
                       {r.resultSummary && <span className="text-xs text-gray-400">{r.resultSummary}</span>}
                     </div>
+                    {r.autoClarified && (
+                      <div className="text-xs text-indigo-600 mt-0.5 flex items-center gap-1">
+                        <CheckCircle2 className="w-3 h-3" />
+                        Auto clarification response sent
+                      </div>
+                    )}
                     {r.error && <div className="text-xs text-red-500 mt-0.5">{r.error}</div>}
                   </td>
                   <td className="px-3 py-2.5">{statusBadge(r.status)}</td>
