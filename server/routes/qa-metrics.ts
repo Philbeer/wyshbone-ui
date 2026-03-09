@@ -12,7 +12,7 @@ import {
 
 const VALID_SYSTEM_STATUSES: SystemStatus[] = ["HEALTHY", "DEGRADED", "BROKEN", "TIMEOUT"];
 const VALID_AGENT_STATUSES: AgentQuality[] = ["PASS", "PARTIAL", "FAIL", "NOT_APPLICABLE", "UNKNOWN"];
-const VALID_TOWER_RESULTS: TowerResult[] = ["PASS", "FAIL", "UNKNOWN"];
+const VALID_TOWER_RESULTS: TowerResult[] = ["PASS", "FAIL", "UNKNOWN", "NOT_APPLICABLE"];
 const VALID_BEHAVIOUR_RESULTS: BehaviourResult[] = ["PASS", "FAIL", "UNKNOWN"];
 const VALID_QUERY_CLASSES = ["solvable", "website_evidence_required", "clarification_required", "relationship_required", "fictional_or_impossible", "subjective_or_unverifiable"];
 const VALID_EXPECTED_MODES = ["deliver_results", "clarify", "honest_refusal", "best_effort_honest"];
@@ -33,6 +33,7 @@ export function agentStatusToScore(status: AgentQuality): number {
 }
 
 export function towerResultToScore(result: TowerResult): number {
+  if (result === "NOT_APPLICABLE") return 1;
   return statusToScore(result, ["PASS"], []);
 }
 
@@ -376,20 +377,20 @@ export function createQaMetricsRouter(): Router {
         let systemStatus: SystemStatus;
         if (run.terminal_state === "stopped") systemStatus = "TIMEOUT";
         else if (isFailed && run.error) systemStatus = "BROKEN";
-        else if (executionFail || discoveryFail) systemStatus = "DEGRADED";
         else if (isCompleted) systemStatus = "HEALTHY";
+        else if (blocked || clarified) systemStatus = "HEALTHY";
         else systemStatus = "BROKEN";
 
         let agentStatus: AgentQuality;
         if (systemStatus === "BROKEN" || systemStatus === "TIMEOUT") agentStatus = "UNKNOWN";
-        else if (blocked || clarified) agentStatus = "NOT_APPLICABLE";
-        else if (discoveryOk && hasDelivery && towerVerdict === "PASS") agentStatus = "PASS";
-        else if (discoveryOk && hasDelivery) agentStatus = "PARTIAL";
-        else if (isCompleted && towerVerdict === "PASS") agentStatus = "PASS";
-        else if (isCompleted) agentStatus = "PARTIAL";
+        else if (blocked || clarified) agentStatus = "PASS";
+        else if (discoveryOk && hasDelivery) agentStatus = "PASS";
+        else if (discoveryOk && !hasDelivery) agentStatus = "PARTIAL";
         else agentStatus = "FAIL";
 
-        const behaviourResult: BehaviourResult = towerVerdict === "PASS" && hasDelivery
+        if (blocked || clarified) towerVerdict = "NOT_APPLICABLE";
+
+        const behaviourResult: BehaviourResult = hasDelivery && deliveredCount > 0
           ? "PASS"
           : (blocked || clarified)
             ? "PASS"

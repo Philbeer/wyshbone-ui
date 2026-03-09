@@ -2761,7 +2761,7 @@ export type SystemStatus = z.infer<typeof systemStatusEnum>;
 export const agentQualityEnum = z.enum(["PASS", "PARTIAL", "FAIL", "NOT_APPLICABLE", "UNKNOWN"]);
 export type AgentQuality = z.infer<typeof agentQualityEnum>;
 
-export const towerResultEnum = z.enum(["PASS", "FAIL", "UNKNOWN"]);
+export const towerResultEnum = z.enum(["PASS", "FAIL", "UNKNOWN", "NOT_APPLICABLE"]);
 export type TowerResult = z.infer<typeof towerResultEnum>;
 
 export const behaviourResultEnum = z.enum(["PASS", "FAIL", "UNKNOWN"]);

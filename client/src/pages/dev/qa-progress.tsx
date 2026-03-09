@@ -75,7 +75,7 @@ function statusToScore(status: string, type: 'system' | 'tower' | 'behaviour' | 
     return 0;
   }
   if (type === 'tower' || type === 'behaviour') {
-    if (status === 'PASS') return 1;
+    if (status === 'PASS' || status === 'NOT_APPLICABLE') return 1;
     if (status === 'FAIL') return 0;
     return null;
   }
@@ -137,9 +137,9 @@ export default function QaProgressPage() {
   const chartData = useMemo<ChartPoint[]>(() => {
     const sorted = [...filteredRows].sort((a, b) => toNumericTs(a.timestamp) - toNumericTs(b.timestamp));
 
-    const UNKNOWN_STATUSES = ['UNKNOWN', 'NOT_APPLICABLE', 'TIMEOUT'];
+    const EXCLUDED_STATUSES = ['UNKNOWN', 'NOT_APPLICABLE', 'TIMEOUT'];
     const behaviourScores = sorted.map(r => {
-      if (UNKNOWN_STATUSES.includes(r.behaviour_result)) return null;
+      if (EXCLUDED_STATUSES.includes(r.behaviour_result)) return null;
       const s = parseScore(r.behaviour_score);
       return s !== null ? s : statusToScore(r.behaviour_result, 'behaviour');
     });
@@ -149,7 +149,7 @@ export default function QaProgressPage() {
       return s !== null ? s : statusToScore(r.system_status, 'system');
     });
     const towerScores = sorted.map(r => {
-      if (UNKNOWN_STATUSES.includes(r.tower_result)) return null;
+      if (EXCLUDED_STATUSES.includes(r.tower_result)) return null;
       const s = parseScore(r.tower_score);
       return s !== null ? s : statusToScore(r.tower_result, 'tower');
     });

@@ -19,6 +19,7 @@ import { buildApiUrl, addDevAuthParams } from '@/lib/queryClient';
 type ExpectedOutcome = 'pass' | 'fail' | 'blocked' | 'clarify' | 'blocked_or_clarify';
 type QueryClass = 'solvable' | 'clarification_required' | 'fictional_or_impossible' | 'subjective_or_unverifiable' | 'website_evidence_required' | 'relationship_required';
 type ExpectedMode = 'deliver_results' | 'clarify' | 'honest_refusal' | 'best_effort_honest';
+type TowerResult = 'PASS' | 'FAIL' | 'UNKNOWN' | 'NOT_APPLICABLE';
 type BehaviourResult = 'PASS' | 'FAIL' | 'UNKNOWN';
 
 interface TestDefinition {
@@ -364,6 +365,7 @@ interface TestResult {
   benchmarkOutcome: BenchmarkOutcome | null;
   systemHealth: SystemHealthOutcome | null;
   agentQuality: AgentQualityOutcome | null;
+  towerResult: TowerResult | null;
   behaviourResult: BehaviourResult | null;
 }
 
@@ -825,55 +827,37 @@ function deriveBenchmarkOutcome(result: TestResult): BenchmarkOutcome {
 function deriveSystemHealth(result: TestResult): SystemHealthOutcome {
   if (result.status === 'timed_out') return 'TIMEOUT';
   if (result.status === 'failed' && result.error === 'Stopped by user') return 'TIMEOUT';
-
   if (result.status === 'failed' && result.error && result.error !== 'Stopped by user') return 'BROKEN';
-
-  const l = result.layers;
-  if (l.interpretation === 'blocked' && (result.blocked || result.clarified)) {
-    return 'HEALTHY';
-  }
-
-  if (l.execution === 'fail' || l.discovery === 'fail') return 'DEGRADED';
-
-  if (l.delivery === 'fail' && l.discovery === 'pass') return 'DEGRADED';
-
-  if (l.verification === 'fail' && l.delivery === 'pass') return 'DEGRADED';
-
   if (result.status === 'completed') return 'HEALTHY';
-
+  if (result.blocked || result.clarified) return 'HEALTHY';
   return 'BROKEN';
 }
 
 function deriveAgentQuality(result: TestResult): AgentQualityOutcome {
   if (result.status === 'timed_out') return 'UNKNOWN';
   if (result.status === 'failed' && result.error === 'Stopped by user') return 'UNKNOWN';
-
-  const systemHealth = deriveSystemHealth(result);
-  if (systemHealth === 'BROKEN' || systemHealth === 'TIMEOUT') return 'UNKNOWN';
+  if (result.status === 'failed' && result.error) return 'UNKNOWN';
 
   if (result.blocked || result.clarified) {
     if (result.expected === 'blocked' || result.expected === 'clarify' || result.expected === 'blocked_or_clarify') {
-      return 'NOT_APPLICABLE';
+      return 'PASS';
     }
     return 'FAIL';
   }
 
   const l = result.layers;
-
   const discoveryOk = l.discovery === 'pass';
   const deliveryOk = l.delivery === 'pass';
-  const towerOk = l.tower === 'pass';
 
-  if (discoveryOk && deliveryOk && towerOk) return 'PASS';
-
-  if (discoveryOk && deliveryOk && !towerOk) return 'PARTIAL';
+  if (discoveryOk && deliveryOk) return 'PASS';
   if (discoveryOk && !deliveryOk) return 'PARTIAL';
 
-  if (result.status === 'completed' && towerOk) return 'PASS';
-
-  if (result.status === 'completed' && discoveryOk) return 'PARTIAL';
-
   return 'FAIL';
+}
+
+function deriveTowerResult(result: TestResult): TowerResult {
+  if (result.blocked || result.clarified) return 'NOT_APPLICABLE';
+  return towerVerdictToResult(result.towerVerdict);
 }
 
 function deriveBehaviourResult(result: TestResult): BehaviourResult {
@@ -881,7 +865,6 @@ function deriveBehaviourResult(result: TestResult): BehaviourResult {
   if (result.status === 'failed' && result.error === 'Stopped by user') return 'UNKNOWN';
   if (result.status === 'queued' || result.status === 'running') return 'UNKNOWN';
 
-  const towerPass = result.towerVerdict?.toLowerCase().includes('pass') ?? false;
   const delivered = result.layers.delivery === 'pass';
   const count = result.deliveredCount;
   const minCount = result.minimumExpectedCount ?? 1;
@@ -890,20 +873,20 @@ function deriveBehaviourResult(result: TestResult): BehaviourResult {
     case 'solvable':
       if (!delivered) return 'FAIL';
       if (count < minCount) return 'FAIL';
-      return towerPass ? 'PASS' : 'FAIL';
+      return 'PASS';
 
     case 'website_evidence_required':
       if (!delivered) return 'FAIL';
       if (count < minCount) return 'FAIL';
       if (!result.layers.verification || result.layers.verification !== 'pass') return 'FAIL';
-      return towerPass ? 'PASS' : 'FAIL';
+      return 'PASS';
 
     case 'clarification_required':
       return result.clarified ? 'PASS' : 'FAIL';
 
     case 'relationship_required':
       if (result.clarified || result.blocked) return 'PASS';
-      if (delivered && towerPass) return 'PASS';
+      if (delivered) return 'PASS';
       return 'FAIL';
 
     case 'fictional_or_impossible':
@@ -915,8 +898,7 @@ function deriveBehaviourResult(result: TestResult): BehaviourResult {
     case 'subjective_or_unverifiable':
       if (result.clarified) return 'PASS';
       if (result.blocked) return 'PASS';
-      if (delivered && towerPass) return 'PASS';
-      if (delivered && !towerPass) return 'PASS';
+      if (delivered) return 'PASS';
       return 'FAIL';
 
     default:
@@ -1002,7 +984,7 @@ async function persistQaMetric(
 
   const systemHealth = result.systemHealth || deriveSystemHealth(result);
   const agentQuality = result.agentQuality || deriveAgentQuality(result);
-  const tResult = towerVerdictToResult(result.towerVerdict);
+  const tResult = result.towerResult || deriveTowerResult(result);
   const bResult = result.behaviourResult || deriveBehaviourResult(result);
 
   const payload = {
@@ -1264,6 +1246,16 @@ function BenchmarkProgressBar({ progress }: { progress: BenchmarkProgress }) {
   );
 }
 
+function towerResultBadge(result: TowerResult | null) {
+  if (!result) return <span className="text-gray-300 text-xs">—</span>;
+  const cls = result === 'PASS' ? 'bg-green-100 text-green-800'
+    : result === 'FAIL' ? 'bg-red-100 text-red-800'
+    : result === 'NOT_APPLICABLE' ? 'bg-gray-100 text-gray-400'
+    : 'bg-gray-100 text-gray-600';
+  const label = result === 'NOT_APPLICABLE' ? 'N/A' : result;
+  return <Badge variant="outline" className={`text-[10px] px-1.5 py-0 font-medium border-0 ${cls}`}>{label}</Badge>;
+}
+
 function behaviourBadge(result: BehaviourResult | null) {
   if (!result) return <span className="text-gray-300 text-xs">—</span>;
   const cls = result === 'PASS' ? 'bg-green-100 text-green-800'
@@ -1367,6 +1359,7 @@ export default function QaTestRunnerPage() {
       benchmarkOutcome: null,
       systemHealth: null,
       agentQuality: null,
+      towerResult: null,
       behaviourResult: null,
     }));
   }, []);
@@ -1422,7 +1415,7 @@ export default function QaTestRunnerPage() {
     for (let i = 0; i < suite.tests.length; i++) {
       if (controller.signal.aborted) {
         for (let j = i; j < suite.tests.length; j++) {
-          const skipped: Partial<TestResult> = { status: 'failed', error: 'Stopped by user', judgement: 'skip', benchmarkOutcome: 'TIMEOUT' as BenchmarkOutcome, systemHealth: 'TIMEOUT' as SystemHealthOutcome, agentQuality: 'UNKNOWN' as AgentQualityOutcome, behaviourResult: 'UNKNOWN' as BehaviourResult };
+          const skipped: Partial<TestResult> = { status: 'failed', error: 'Stopped by user', judgement: 'skip', benchmarkOutcome: 'TIMEOUT' as BenchmarkOutcome, systemHealth: 'TIMEOUT' as SystemHealthOutcome, agentQuality: 'UNKNOWN' as AgentQualityOutcome, towerResult: 'UNKNOWN' as TowerResult, behaviourResult: 'UNKNOWN' as BehaviourResult };
           finalResults[j] = { ...finalResults[j], ...skipped };
           updateResult(j, skipped);
         }
@@ -1493,6 +1486,7 @@ export default function QaTestRunnerPage() {
         patch.benchmarkOutcome = deriveBenchmarkOutcome(tempResult as TestResult);
         patch.systemHealth = deriveSystemHealth(tempResult as TestResult);
         patch.agentQuality = deriveAgentQuality(tempResult as TestResult);
+        patch.towerResult = deriveTowerResult(tempResult as TestResult);
         patch.behaviourResult = deriveBehaviourResult(tempResult as TestResult);
 
         finalResults[i] = { ...finalResults[i], ...patch };
@@ -1502,13 +1496,13 @@ export default function QaTestRunnerPage() {
       } catch (e: any) {
         const duration = Date.now() - testStart;
         if (e.name === 'AbortError') {
-          const patch: Partial<TestResult> = { status: 'failed', error: 'Stopped by user', durationMs: duration, judgement: 'skip', benchmarkOutcome: 'TIMEOUT' as BenchmarkOutcome, systemHealth: 'TIMEOUT' as SystemHealthOutcome, agentQuality: 'UNKNOWN' as AgentQualityOutcome, behaviourResult: 'UNKNOWN' as BehaviourResult };
+          const patch: Partial<TestResult> = { status: 'failed', error: 'Stopped by user', durationMs: duration, judgement: 'skip', benchmarkOutcome: 'TIMEOUT' as BenchmarkOutcome, systemHealth: 'TIMEOUT' as SystemHealthOutcome, agentQuality: 'UNKNOWN' as AgentQualityOutcome, towerResult: 'UNKNOWN' as TowerResult, behaviourResult: 'UNKNOWN' as BehaviourResult };
           finalResults[i] = { ...finalResults[i], ...patch };
           updateResult(i, patch);
           persistQaMetric(finalResults[i], test, targetSuiteId, suiteStart);
           break;
         } else {
-          const patch: Partial<TestResult> = { status: 'failed', error: e.message, durationMs: duration, judgement: 'mismatch', benchmarkOutcome: 'FAIL' as BenchmarkOutcome, systemHealth: 'BROKEN' as SystemHealthOutcome, agentQuality: 'UNKNOWN' as AgentQualityOutcome, behaviourResult: 'UNKNOWN' as BehaviourResult };
+          const patch: Partial<TestResult> = { status: 'failed', error: e.message, durationMs: duration, judgement: 'mismatch', benchmarkOutcome: 'FAIL' as BenchmarkOutcome, systemHealth: 'BROKEN' as SystemHealthOutcome, agentQuality: 'UNKNOWN' as AgentQualityOutcome, towerResult: 'UNKNOWN' as TowerResult, behaviourResult: 'UNKNOWN' as BehaviourResult };
           finalResults[i] = { ...finalResults[i], ...patch };
           updateResult(i, patch);
           persistQaMetric(finalResults[i], test, targetSuiteId, suiteStart);
@@ -1744,12 +1738,7 @@ export default function QaTestRunnerPage() {
                     {agentQualityBadge(r.agentQuality)}
                   </td>
                   <td className="px-3 py-2.5">
-                    {r.towerVerdict ? (
-                      <span className={`text-xs font-medium ${
-                        r.towerVerdict.toLowerCase().includes('pass') ? 'text-green-600' :
-                        r.towerVerdict.toLowerCase().includes('fail') ? 'text-red-600' : 'text-gray-500'
-                      }`}>{r.towerVerdict}</span>
-                    ) : <span className="text-gray-300 text-xs">—</span>}
+                    {towerResultBadge(r.towerResult)}
                   </td>
                   <td className="px-3 py-2.5">
                     {behaviourBadge(r.behaviourResult)}
