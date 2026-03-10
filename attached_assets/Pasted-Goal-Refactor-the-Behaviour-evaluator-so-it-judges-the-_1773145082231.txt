@@ -1,0 +1,234 @@
+Goal
+
+Refactor the Behaviour evaluator so it judges the FINAL OUTCOME of the agent run, not the internal judging machinery.
+
+Core rule:
+Behaviour is the external QA judge.
+It should answer:
+
+“Did the system actually do what the benchmark asked?”
+
+It must NOT be overly influenced by:
+- Tower verdict
+- internal constraint-check artefacts
+- internal scoring language
+- internal verification counters
+- internal process steps unless they are directly visible in the final user-facing outcome
+
+We want a clean separation:
+
+System = infrastructure reliability
+Agent = planning / decision quality
+Tower = internal evidence / constraint judge
+Behaviour = external whole-run outcome judge
+
+This means Behaviour should look at the run like a human reviewer would:
+- original query
+- expected benchmark outcome
+- final delivered results
+- user-visible evidence attached to those delivered results
+- final run state (completed / clarified / timed_out / failed)
+
+It should NOT primarily judge based on internal Tower machinery.
+
+Why we are changing this
+
+Right now the Behaviour packet includes internal fields like:
+- tower_result
+- internal observed summary language
+- verification counters / internal artefact-derived summaries
+
+That blurs the role of Behaviour and Tower.
+
+We want Behaviour to behave like an independent reviewer:
+Given the task, the expected outcome, and the final delivered results/evidence, did the run succeed or fail?
+
+This will let Behaviour flag when things look wrong overall, while we inspect Tower separately.
+
+Do NOT change:
+- Tower logic
+- Supervisor
+- benchmark definitions
+- scoring semantics
+- fallback logic
+- AFR structure beyond packet content if needed
+
+Only change how the Behaviour evaluation packet is built and what the Behaviour LLM is asked to judge.
+
+Files to inspect first
+
+- client/src/pages/dev/qa-test-runner.tsx
+- server/routes/behaviour-evaluator.ts
+- any helper that builds behaviour_eval_packet
+- any helper that builds behaviour_observed_summary / expected outcome text
+
+PART 1 — Redefine Behaviour packet to be outcome-facing, not process-facing
+
+Refactor behaviour_eval_packet so it contains only outcome-relevant fields.
+
+The packet should be built around these sections:
+
+1. original_query
+2. expected_outcome_text
+3. expected_behaviour_text
+4. final_run_outcome
+5. delivered_results
+6. delivered_result_evidence
+7. user_visible_summary
+
+Recommended structure:
+
+{
+  "benchmark_test_id": "...",
+  "original_query": "...",
+  "expected_outcome_text": "...",
+  "expected_behaviour_text": "...",
+  "final_run_outcome": {
+    "run_state": "completed | clarifying | timed_out | failed",
+    "clarified": true/false,
+    "clarify_question": "...",
+    "clarify_answer": "...",
+    "delivered_count": n
+  },
+  "delivered_results": [
+    {
+      "name": "...",
+      "location": "...",
+      "website": "...",
+      "delivered": true
+    }
+  ],
+  "delivered_result_evidence": [
+    {
+      "entity_name": "...",
+      "source_url": "...",
+      "quote": "...",
+      "matched_phrase": "...",
+      "constraint_type": "...",
+      "confidence": ...
+    }
+  ],
+  "user_visible_summary": "Short plain-English summary of what the run actually delivered to the user."
+}
+
+PART 2 — Remove internal-judge coupling from Behaviour packet
+
+Remove or stop relying on these fields inside the Behaviour packet:
+
+- tower_result
+- internal verification summaries that only make sense to Tower
+- internal artefact counts that are not user-visible
+- generic “3/10 checks passed” style counters unless they directly describe final delivered evidence
+- internal reasoning language that could bias Behaviour toward Tower’s view
+
+Important:
+Do not delete the stored Tower data from the app.
+Just stop feeding it into the Behaviour LLM packet as a primary judgement signal.
+
+Behaviour may still know the final run state (completed / clarify / failed / timed_out), because that is part of observable outcome.
+But it should not use Tower as its main signal.
+
+PART 3 — Make delivered evidence outcome-facing
+
+For Behaviour, evidence should mean:
+
+“what proof is attached to the final delivered entities/results?”
+
+Not:
+“what internal verification happened somewhere during execution?”
+
+So build delivered_result_evidence from evidence attached to entities that were actually delivered in the final output.
+
+If no delivered evidence exists, say so clearly.
+
+If only weak evidence exists, include that weak evidence honestly.
+
+If evidence exists for discarded entities, ignore it unless absolutely necessary.
+
+PART 4 — Rewrite Behaviour prompt to judge final outcome only
+
+Update the Behaviour evaluator prompt so it explicitly behaves as an external reviewer.
+
+The prompt should say things like:
+
+- You are evaluating whether the final outcome of the run satisfied the benchmark expectation.
+- Judge only from the original query, expected benchmark outcome, final run outcome, delivered results, and evidence attached to delivered results.
+- Do not rely on internal system judgements such as Tower verdicts.
+- Do not reward plausible results unless the delivered results and attached evidence actually satisfy the task.
+- If the run should have clarified and did so appropriately, that may pass if it matches the expected outcome.
+- If the run returned entities but the attached evidence does not prove the required condition, fail.
+- If the run met a simple count/location/name requirement based on the delivered results, pass.
+- If the run failed to produce sufficient evidence for a required website/relationship/date/property condition, fail.
+
+The prompt must preserve strictness.
+We are not making Behaviour looser.
+We are making it more independent and correctly scoped.
+
+PART 5 — Keep strict JSON output
+
+Keep the same structured Behaviour output schema, or an equivalent strict schema:
+
+{
+  "behaviour_result": "pass" | "fail",
+  "behaviour_reason": "...",
+  "expected_outcome_check": "...",
+  "observed_outcome_check": "...",
+  "key_failure_type": "...",
+  "confidence": 0.0-1.0
+}
+
+PART 6 — Update observed summary to describe final outcome
+
+Rewrite behaviour_observed_summary so it describes what the run actually delivered, in plain English, from an external viewpoint.
+
+Good examples:
+- "Returned 13 restaurants in Bath, but attached no website quotes showing vegan options."
+- "Returned 10 cafes in York and met the minimum count requirement."
+- "Asked for missing location before executing, which matched the benchmark expectation."
+- "Returned pubs in Arundel whose names included Swan."
+
+Bad examples:
+- "Tower verdict: fail"
+- "3/10 checks passed"
+- "verification_status not ready"
+- "semantic weak_match"
+
+Those are internal diagnostics, not Behaviour-facing outcome descriptions.
+
+PART 7 — Preserve fallback logic and AFR persistence
+
+Do not change:
+- fallback behaviour when LLM fails
+- persistence field names unless necessary
+- AFR export structure
+
+But ensure the persisted behaviour_eval_packet now reflects the new outcome-facing structure.
+
+PART 8 — Definition of Behaviour after this change
+
+After this refactor:
+
+Behaviour should answer:
+“Looking only at what the user asked, what the benchmark expected, what the system finally delivered, and what evidence was attached to those delivered results, did the system succeed?”
+
+Tower should remain:
+“Did the internal verification / evidence process satisfy the system’s internal standards?”
+
+That separation is critical.
+
+Definition of done
+
+1. Behaviour packet is outcome-facing, not process-facing.
+2. Behaviour prompt judges final run outcome, not internal Tower process.
+3. delivered_result_evidence is built from evidence attached to final delivered entities/results.
+4. behaviour_observed_summary is plain-English and externally scoped.
+5. Existing fallback and AFR export continue to work.
+6. Behaviour becomes a trustworthy external QA signal, while Tower remains the internal judge.
+
+At the end, report:
+- which fields were removed from the Behaviour packet
+- which fields were added or reshaped
+- the final Behaviour packet schema
+- the updated evaluator prompt logic in plain English
+- one example packet for a website-evidence query
+- one example packet for a simple discovery/count query

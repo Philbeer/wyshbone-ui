@@ -1147,26 +1147,41 @@ function deriveBehaviourDecision(result: TestResult): BehaviourDecision {
   return { result: bResult, reason, expected: expectedText, observed: observedText, decisionBasis: basis };
 }
 
-function buildBehaviourObservedSummary(result: TestResult, details: ArtefactInfo): string {
+function buildUserVisibleSummary(result: TestResult, details: ArtefactInfo): string {
   const parts: string[] = [];
-  if (result.clarified) parts.push('Clarified before execution.');
-  if (result.blocked) parts.push('Blocked by constraint gate.');
+
+  if (result.clarified) {
+    parts.push('Asked a clarifying question before executing.');
+  }
+  if (result.blocked) {
+    parts.push('Declined to execute because the query could not be satisfied.');
+  }
+
   if (details.deliveredCount > 0) {
-    parts.push(`Returned ${details.deliveredCount} result${details.deliveredCount !== 1 ? 's' : ''}.`);
+    const entityNames = details.deliveredEntities.slice(0, 5).map(e => e.name);
+    const nameList = entityNames.length > 0 ? `, including ${entityNames.join(', ')}` : '';
+    parts.push(`Returned ${details.deliveredCount} result${details.deliveredCount !== 1 ? 's' : ''}${nameList}.`);
   }
-  if (result.status === 'failed' && details.deliveredCount === 0) parts.push('Run failed with no results delivered.');
-  if (result.status === 'timed_out') parts.push('Run timed out.');
-  if (details.towerVerdict) parts.push(`Tower verdict: ${details.towerVerdict}.`);
-  if (details.deliveredEntities.length > 0) {
-    const names = details.deliveredEntities.slice(0, 5).map(e => e.name).join(', ');
-    parts.push(`Entities include: ${names}.`);
-  }
+
   if (details.evidenceSummary.length > 0) {
-    parts.push(`${details.evidenceSummary.length} evidence item(s) found.`);
+    const withQuotes = details.evidenceSummary.filter(e => e.matched_quote);
+    if (withQuotes.length > 0) {
+      parts.push(`${withQuotes.length} result${withQuotes.length !== 1 ? 's have' : ' has'} attached evidence with source quotes.`);
+    } else {
+      parts.push(`${details.evidenceSummary.length} evidence item${details.evidenceSummary.length !== 1 ? 's' : ''} found, but none include direct quotes.`);
+    }
   } else if (details.deliveredCount > 0) {
-    parts.push('No explicit evidence items captured.');
+    parts.push('No evidence was attached to the delivered results.');
   }
-  return parts.join(' ') || 'No observable behaviour recorded.';
+
+  if (result.status === 'failed' && details.deliveredCount === 0 && !result.clarified && !result.blocked) {
+    parts.push('Run failed with no results delivered.');
+  }
+  if (result.status === 'timed_out') {
+    parts.push('Run timed out before completing.');
+  }
+
+  return parts.join(' ') || 'No observable outcome recorded.';
 }
 
 function buildEvalPacket(
@@ -1186,15 +1201,43 @@ function buildEvalPacket(
     original_query: test.query,
     expected_outcome_text: buildExpectedOutcome(test),
     expected_behaviour_text: MODE_LABELS[test.expectedMode] || test.expectedMode,
-    actual_run_state: result.status,
-    clarified: result.clarified,
-    clarify_question: result.autoClarified ? 'Auto-clarification triggered' : undefined,
-    clarify_answer: result.clarifyResponseValue || undefined,
-    tower_result: result.towerVerdict || 'UNKNOWN',
-    delivered_count: details.deliveredCount,
-    delivered_entities: details.deliveredEntities,
-    evidence_summary: details.evidenceSummary,
-    behaviour_observed_summary: buildBehaviourObservedSummary(result, details),
+    final_run_outcome: {
+      run_state: result.status,
+      clarified: result.clarified,
+      clarify_question: result.autoClarified ? 'Auto-clarification triggered' : undefined,
+      clarify_answer: result.clarifyResponseValue || undefined,
+      delivered_count: details.deliveredCount,
+    },
+    delivered_results: details.deliveredEntities.slice(0, 20).map(e => ({
+      name: e.name,
+      location: e.location,
+      website: e.website,
+      delivered: true,
+    })),
+    delivered_result_evidence: (() => {
+      const deliveredNames = new Set(
+        details.deliveredEntities.map(e => (e.name || '').toLowerCase().trim())
+      );
+      return details.evidenceSummary
+        .filter(e => {
+          const eName = (e.entity_name || '').toLowerCase().trim();
+          if (deliveredNames.has(eName)) return true;
+          for (const dName of deliveredNames) {
+            if (dName && eName && (dName.includes(eName) || eName.includes(dName))) return true;
+          }
+          return false;
+        })
+        .slice(0, 15)
+        .map(e => ({
+          entity_name: e.entity_name,
+          source_url: e.source_url,
+          quote: e.matched_quote,
+          matched_phrase: e.matched_quote,
+          constraint_type: e.constraint_type,
+          confidence: e.confidence,
+        }));
+    })(),
+    user_visible_summary: buildUserVisibleSummary(result, details),
   };
 }
 
@@ -1449,11 +1492,14 @@ async function persistQaMetric(
             original_query: test.query,
             expected_outcome_text: buildExpectedOutcome(test),
             expected_behaviour_text: test.expectedMode,
-            actual_run_state: result.status,
-            clarified: result.clarified,
-            tower_result: result.towerVerdict || 'UNKNOWN',
-            delivered_count: result.deliveredCount,
-            behaviour_observed_summary: bDecision.observed || 'N/A',
+            final_run_outcome: {
+              run_state: result.status,
+              clarified: result.clarified,
+              delivered_count: result.deliveredCount,
+            },
+            delivered_results: [],
+            delivered_result_evidence: [],
+            user_visible_summary: bDecision.observed || 'N/A',
           },
       behaviour_llm_response: result.behaviourLLMDetail ? {
         behaviour_result: result.behaviourLLMDetail.behaviour_result,

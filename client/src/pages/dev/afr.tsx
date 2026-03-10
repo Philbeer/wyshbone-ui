@@ -989,22 +989,34 @@ function buildBenchmarkSectionHtml(bm: BenchmarkMeta): string {
   </div>`;
 
   if (evalPacket) {
-    const entities = Array.isArray(evalPacket.delivered_entities) ? evalPacket.delivered_entities : [];
-    const evidence = Array.isArray(evalPacket.evidence_summary) ? evalPacket.evidence_summary : [];
+    const outcome = evalPacket.final_run_outcome || {};
+    const runState = outcome.run_state || evalPacket.actual_run_state || '—';
+    const clarified = outcome.clarified ?? evalPacket.clarified ?? false;
+    const clarifyQ = outcome.clarify_question || evalPacket.clarify_question || '';
+    const clarifyA = outcome.clarify_answer || evalPacket.clarify_answer || '';
+    const deliveredCount = outcome.delivered_count ?? evalPacket.delivered_count ?? '—';
+
+    const entities = Array.isArray(evalPacket.delivered_results)
+      ? evalPacket.delivered_results
+      : Array.isArray(evalPacket.delivered_entities) ? evalPacket.delivered_entities : [];
+    const evidence = Array.isArray(evalPacket.delivered_result_evidence)
+      ? evalPacket.delivered_result_evidence
+      : Array.isArray(evalPacket.evidence_summary) ? evalPacket.evidence_summary : [];
+
+    const visibleSummary = evalPacket.user_visible_summary || evalPacket.behaviour_observed_summary || '';
 
     html += `<div class="behaviour-packet-section" style="margin:16px 0; padding:14px 18px; border:2px solid #ddd6fe; border-radius:8px; background:#f5f3ff;">
       <h3 style="margin:0 0 10px 0; color:#6d28d9; font-size:14px;">3. Behaviour Evaluation Packet</h3>
       <table style="width:auto; margin:0; font-size:12px; border-collapse:collapse;">
-        <tr><td style="${rowStyle}">Run state:</td><td style="${valStyle}"><code>${escHtml(evalPacket.actual_run_state || '—')}</code></td></tr>
-        <tr><td style="${rowStyle}">Clarified:</td><td style="${valStyle}">${evalPacket.clarified ? '<strong style="color:#b45309">Yes</strong>' : 'No'}</td></tr>
-        ${evalPacket.clarify_question ? `<tr><td style="${rowStyle}">Clarify question:</td><td style="${valStyle}">${escHtml(evalPacket.clarify_question)}</td></tr>` : ''}
-        ${evalPacket.clarify_answer ? `<tr><td style="${rowStyle}">Clarify answer:</td><td style="${valStyle}">${escHtml(evalPacket.clarify_answer)}</td></tr>` : ''}
-        <tr><td style="${rowStyle}">Tower result:</td><td style="${valStyle}"><code>${escHtml(evalPacket.tower_result || '—')}</code></td></tr>
-        <tr><td style="${rowStyle}">Delivered count:</td><td style="${valStyle}">${evalPacket.delivered_count ?? '—'}</td></tr>
+        <tr><td style="${rowStyle}">Run state:</td><td style="${valStyle}"><code>${escHtml(String(runState))}</code></td></tr>
+        <tr><td style="${rowStyle}">Clarified:</td><td style="${valStyle}">${clarified ? '<strong style="color:#b45309">Yes</strong>' : 'No'}</td></tr>
+        ${clarifyQ ? `<tr><td style="${rowStyle}">Clarify question:</td><td style="${valStyle}">${escHtml(clarifyQ)}</td></tr>` : ''}
+        ${clarifyA ? `<tr><td style="${rowStyle}">Clarify answer:</td><td style="${valStyle}">${escHtml(clarifyA)}</td></tr>` : ''}
+        <tr><td style="${rowStyle}">Delivered count:</td><td style="${valStyle}">${deliveredCount}</td></tr>
       </table>`;
 
     if (entities.length > 0) {
-      html += `<div style="margin-top:8px;"><strong style="font-size:12px; color:#4b5563;">Top delivered entities:</strong>
+      html += `<div style="margin-top:8px;"><strong style="font-size:12px; color:#4b5563;">Delivered results:</strong>
         <ul style="margin:4px 0 0 16px; padding:0; font-size:11px; color:#374151;">`;
       for (const e of entities.slice(0, 8)) {
         const name = e.name || e.entity_name || 'Unknown';
@@ -1016,11 +1028,11 @@ function buildBenchmarkSectionHtml(bm: BenchmarkMeta): string {
     }
 
     if (evidence.length > 0) {
-      html += `<div style="margin-top:8px;"><strong style="font-size:12px; color:#4b5563;">Top evidence items:</strong>
+      html += `<div style="margin-top:8px;"><strong style="font-size:12px; color:#4b5563;">Evidence attached to delivered results:</strong>
         <ul style="margin:4px 0 0 16px; padding:0; font-size:11px; color:#374151;">`;
       for (const ev of evidence.slice(0, 6)) {
         const name = ev.entity_name || 'Unknown';
-        const quote = ev.matched_quote || '';
+        const quote = ev.quote || ev.matched_quote || '';
         const url = ev.source_url || '';
         const cType = ev.constraint_type || '';
         html += `<li style="margin-bottom:3px;"><strong>${escHtml(name)}</strong>`;
@@ -1033,9 +1045,9 @@ function buildBenchmarkSectionHtml(bm: BenchmarkMeta): string {
       html += `</ul></div>`;
     }
 
-    if (evalPacket.behaviour_observed_summary) {
-      html += `<div style="margin-top:8px;"><strong style="font-size:12px; color:#4b5563;">Observed summary:</strong>
-        <p style="margin:2px 0 0 0; font-size:11px; color:#374151;">${escHtml(evalPacket.behaviour_observed_summary)}</p></div>`;
+    if (visibleSummary) {
+      html += `<div style="margin-top:8px;"><strong style="font-size:12px; color:#4b5563;">User-visible summary:</strong>
+        <p style="margin:2px 0 0 0; font-size:11px; color:#374151;">${escHtml(visibleSummary)}</p></div>`;
     }
 
     html += `</div>`;

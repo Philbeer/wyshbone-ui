@@ -8,27 +8,28 @@ export interface BehaviourEvalPacket {
   original_query: string;
   expected_outcome_text: string;
   expected_behaviour_text: string;
-  actual_run_state: string;
-  clarified: boolean;
-  clarify_question?: string;
-  clarify_answer?: string;
-  tower_result: string;
-  delivered_count: number;
-  delivered_entities: Array<{
+  final_run_outcome: {
+    run_state: string;
+    clarified: boolean;
+    clarify_question?: string;
+    clarify_answer?: string;
+    delivered_count: number;
+  };
+  delivered_results: Array<{
     name: string;
     location?: string;
     website?: string;
-    key_evidence?: string[];
-    verification_flags?: Record<string, boolean>;
+    delivered: boolean;
   }>;
-  evidence_summary: Array<{
+  delivered_result_evidence: Array<{
     entity_name: string;
-    matched_quote?: string;
     source_url?: string;
+    quote?: string;
+    matched_phrase?: string;
     constraint_type?: string;
     confidence?: number;
   }>;
-  behaviour_observed_summary: string;
+  user_visible_summary: string;
 }
 
 export interface BehaviourLLMJudgement {
@@ -51,49 +52,70 @@ export interface BehaviourLLMJudgement {
   confidence: number;
 }
 
-const BEHAVIOUR_EVAL_SYSTEM_PROMPT = `You are a strict benchmark evaluator for a business discovery system.
-You are judging whether a benchmark run genuinely satisfied the original user request.
+const BEHAVIOUR_EVAL_SYSTEM_PROMPT = `You are an independent external reviewer evaluating whether a business discovery system satisfied a benchmark query.
 
-Be strict. Be harsh. Do not reward plausible guesses. Do not infer missing evidence.
-Only pass if the returned result and evidence actually satisfy the benchmark expectation.
-If the result looks superficially reasonable but does not prove the requested predicate, fail.
+You are judging the FINAL OUTCOME of the run — what was actually delivered to the user — not the internal process used to get there.
+
+Your role:
+- You are the external QA judge.
+- You answer: "Did the system actually do what the benchmark asked?"
+- You judge from the perspective of a human reviewer looking at the final delivered results.
+
+What you judge from:
+- The original user query
+- The expected benchmark outcome
+- The final run state (completed / clarified / timed_out / failed)
+- The delivered results (entities returned to the user)
+- The evidence attached to those delivered results (quotes, URLs, matched phrases)
+- The user-visible summary of what happened
+
+What you do NOT judge from:
+- Internal system verdicts or scores
+- Internal verification counters or check-pass ratios
+- Internal constraint-check artefacts or process steps
+- Internal scoring language or diagnostic labels
 
 Rules:
-- Judge against the ORIGINAL QUERY, not just the returned list.
-- Judge against the EXPECTED BENCHMARK OUTCOME.
-- Do not reward vague or plausible results if the evidence does not satisfy the actual predicate.
-- If the benchmark required a relationship, attribute, name match, website claim, date constraint, or count, verify that specifically.
+- Be strict. Be harsh. Do not reward plausible guesses. Do not infer missing evidence.
+- Judge against the ORIGINAL QUERY and the EXPECTED BENCHMARK OUTCOME.
+- IMPORTANT: Not every query requires attached evidence. Match your strictness to what the query actually demands:
+  - Simple discovery/count queries (e.g. "Find 10 pubs in Arundel") pass if the correct number of relevant entities were delivered in the correct location. No external evidence is required for these.
+  - Name-match queries (e.g. "pubs with Swan in the name") pass if the delivered entity names satisfy the constraint. No external evidence beyond the name itself is needed.
+  - Website-evidence queries (e.g. "mention vegan options on their website") require attached evidence — quotes, URLs, or matched phrases — proving the website claim. Without such evidence, fail.
+  - Relationship queries (e.g. "work with the local authority") require attached evidence proving the relationship. Plausible entities alone must fail.
+- If the benchmark required a count and it was not met in the delivered results, fail.
 - If the system should have clarified and did not, fail.
 - If the system correctly clarified or correctly refused because proof was not possible, that can pass when consistent with the expected outcome.
-- If evidence is missing, weak, generic, or unrelated, fail.
-- If count was required and not met, fail.
-- If a known exact constraint like "name contains Swan" is satisfied in the returned entities/evidence, that should pass.
-- If the benchmark expected explicit relationship evidence (e.g. works with the local authority), plausible entities alone must fail.
+- If the benchmark expected explicit evidence (website, relationship, date) and none is attached to delivered results, fail.
+- If the benchmark only expected entities matching a type/location/count, delivered results are sufficient proof.
 
-Examples of correct judgement:
+Examples:
 
 1. "Find pubs in Arundel with Swan in the name"
-   Pass ONLY if returned pubs actually contain "Swan" in their name.
+   Pass ONLY if delivered pubs actually contain "Swan" in their name.
 
 2. "Find organisations that work with the local authority in Blackpool"
-   Pass ONLY if returned organisations have evidence showing that relationship.
-   Plausible Blackpool organisations WITHOUT that relationship evidence must FAIL.
+   Pass ONLY if delivered organisations have attached evidence showing that relationship.
 
-3. "Find 10 cafes in York"
-   Pass if at least 10 relevant cafes in York were returned and the count requirement was met.
+3. "Find restaurants in Bath that mention vegan options on their website"
+   Pass ONLY if delivered restaurants have attached evidence (quotes/URLs) showing vegan options from their websites.
+   Returning plausible restaurants WITHOUT website evidence must FAIL.
 
-4. "Find breweries" (when location is missing)
+4. "Find 10 cafes in York"
+   Pass if at least 10 relevant cafes in York were delivered.
+
+5. "Find breweries" (when location is missing)
    If benchmark expects clarification because location is missing, correct clarification can pass.
 
-5. "Find pubs in Narnia"
+6. "Find pubs in Narnia"
    If the system correctly refused or clarified because the location is fictional, that is a pass.
 
 You must respond with a JSON object matching this exact schema:
 {
   "behaviour_result": "pass" or "fail",
-  "behaviour_reason": "short human-readable explanation",
+  "behaviour_reason": "short human-readable explanation of why the final outcome passed or failed",
   "expected_outcome_check": "what the benchmark required",
-  "observed_outcome_check": "what the run actually did",
+  "observed_outcome_check": "what the run actually delivered to the user",
   "key_failure_type": one of: "missing_count", "missing_relationship_evidence", "weak_name_match", "unnecessary_clarification", "missing_location", "correct_refusal", "weak_evidence", "missing_website_evidence", "correct_clarification", "correct_delivery", "other",
   "confidence": 0.0 to 1.0
 }
@@ -101,37 +123,42 @@ You must respond with a JSON object matching this exact schema:
 Respond ONLY with the JSON object. No markdown, no explanation outside the JSON.`;
 
 function buildUserPrompt(packet: BehaviourEvalPacket): string {
-  const entityList =
-    packet.delivered_entities.length > 0
-      ? packet.delivered_entities
+  const outcome = packet.final_run_outcome;
+
+  const resultList =
+    packet.delivered_results.length > 0
+      ? packet.delivered_results
           .slice(0, 20)
           .map((e, i) => {
             const parts = [`  ${i + 1}. ${e.name}`];
             if (e.location) parts.push(`     Location: ${e.location}`);
             if (e.website) parts.push(`     Website: ${e.website}`);
-            if (e.key_evidence && e.key_evidence.length > 0)
-              parts.push(`     Evidence: ${e.key_evidence.join("; ")}`);
             return parts.join("\n");
           })
           .join("\n")
-      : "  (none)";
+      : "  (none delivered)";
 
   const evidenceList =
-    packet.evidence_summary.length > 0
-      ? packet.evidence_summary
+    packet.delivered_result_evidence.length > 0
+      ? packet.delivered_result_evidence
           .slice(0, 15)
           .map((e, i) => {
             const parts = [`  ${i + 1}. ${e.entity_name}`];
-            if (e.matched_quote) parts.push(`     Quote: "${e.matched_quote}"`);
-            if (e.source_url) parts.push(`     Source: ${e.source_url}`);
+            if (e.quote) parts.push(`     Quote: "${e.quote}"`);
+            if (e.matched_phrase) parts.push(`     Matched phrase: "${e.matched_phrase}"`);
+            if (e.source_url) parts.push(`     Source URL: ${e.source_url}`);
             if (e.constraint_type)
-              parts.push(`     Constraint: ${e.constraint_type}`);
+              parts.push(`     Constraint type: ${e.constraint_type}`);
             if (e.confidence != null)
               parts.push(`     Confidence: ${e.confidence}`);
             return parts.join("\n");
           })
           .join("\n")
-      : "  (none)";
+      : "  (no evidence attached to delivered results)";
+
+  const clarifyBlock = outcome.clarified
+    ? `\nCLARIFIED: yes${outcome.clarify_question ? `\nCLARIFY QUESTION: ${outcome.clarify_question}` : ""}${outcome.clarify_answer ? `\nCLARIFY ANSWER: ${outcome.clarify_answer}` : ""}`
+    : "\nCLARIFIED: no";
 
   return `BENCHMARK TEST: ${packet.benchmark_test_id}
 
@@ -144,21 +171,19 @@ ${packet.expected_outcome_text}
 EXPECTED BEHAVIOUR:
 ${packet.expected_behaviour_text}
 
-ACTUAL RUN STATE: ${packet.actual_run_state}
-CLARIFIED: ${packet.clarified}${packet.clarify_question ? `\nCLARIFY QUESTION: ${packet.clarify_question}` : ""}${packet.clarify_answer ? `\nCLARIFY ANSWER: ${packet.clarify_answer}` : ""}
-TOWER RESULT: ${packet.tower_result}
-DELIVERED COUNT: ${packet.delivered_count}
+FINAL RUN STATE: ${outcome.run_state}${clarifyBlock}
+DELIVERED COUNT: ${outcome.delivered_count}
 
-DELIVERED ENTITIES:
-${entityList}
+DELIVERED RESULTS:
+${resultList}
 
-EVIDENCE SUMMARY:
+EVIDENCE ATTACHED TO DELIVERED RESULTS:
 ${evidenceList}
 
-BEHAVIOUR OBSERVED:
-${packet.behaviour_observed_summary}
+USER-VISIBLE SUMMARY:
+${packet.user_visible_summary}
 
-Judge this run strictly. Return the JSON judgement.`;
+Judge this run strictly based on the final outcome. Return the JSON judgement.`;
 }
 
 export function createBehaviourEvaluatorRouter(): Router {
