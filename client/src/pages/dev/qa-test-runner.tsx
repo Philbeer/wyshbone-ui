@@ -305,8 +305,17 @@ const SUITES: TestSuite[] = [
 
 const GENERIC_CLARIFY_RESPONSE = 'Use the most reasonable interpretation and continue.';
 
-function getClarifyAutoResponse(query: string, definitionResponse?: string): string | null {
+const CLARIFY_PATTERNS: { pattern: RegExp; reply: string }[] = [
+  { pattern: /location/i, reply: 'United Kingdom' },
+];
+
+function getClarifyAutoResponse(query: string, definitionResponse?: string, clarifyQuestion?: string): string | null {
   if (definitionResponse) return definitionResponse;
+  if (clarifyQuestion) {
+    for (const { pattern, reply } of CLARIFY_PATTERNS) {
+      if (pattern.test(clarifyQuestion)) return reply;
+    }
+  }
   return null;
 }
 
@@ -590,6 +599,41 @@ async function sendClarifyResponse(
   }
 }
 
+function parsePayload(raw: unknown): Record<string, any> {
+  if (!raw) return {};
+  if (typeof raw === 'string') { try { return JSON.parse(raw); } catch { return {}; } }
+  if (typeof raw === 'object') return raw as Record<string, any>;
+  return {};
+}
+
+async function fetchClarifyQuestion(runId: string, signal: AbortSignal): Promise<string | undefined> {
+  try {
+    const params = new URLSearchParams({ runId });
+    const res = await fetch(
+      buildApiUrl(addDevAuthParams(`/api/afr/artefacts?${params.toString()}`)),
+      { credentials: 'include', signal }
+    );
+    if (!res.ok) return undefined;
+    const artefacts: any[] = await res.json();
+    for (const a of artefacts) {
+      if (a.type === 'clarify_gate') {
+        const p = parsePayload(a.payload_json) ?? parsePayload(a.payload);
+        return p.questions?.[0] ?? p.reason ?? p.question ?? p.prompt ?? p.message ?? undefined;
+      }
+      if (a.type === 'diagnostic' && typeof a.title === 'string' &&
+          a.title.toLowerCase().includes('constraint gate') && a.title.toLowerCase().includes('blocked')) {
+        const p = parsePayload(a.payload_json) ?? parsePayload(a.payload);
+        const cc = p.constraint_contract;
+        if (cc?.clarify_questions?.[0]) return cc.clarify_questions[0];
+        const blocked = (cc?.constraints ?? []).find((c: any) => c.status === 'blocked' || c.status === 'unresolved');
+        if (blocked?.clarify_question) return blocked.clarify_question;
+        if (cc?.why_blocked) return cc.why_blocked;
+      }
+    }
+  } catch {}
+  return undefined;
+}
+
 interface QaClarifyContext {
   query: string;
   user: { id: string; email: string };
@@ -664,7 +708,9 @@ async function pollUntilTerminal(
         wasClarifying = true;
 
         if (qaClarifyCtx && !clarifyResponseSent && finalRunId) {
-          const autoResponse = getClarifyAutoResponse(qaClarifyCtx.query, qaClarifyCtx.clarificationResponse);
+          let clarifyQuestion: string | undefined;
+          try { clarifyQuestion = await fetchClarifyQuestion(finalRunId, signal); } catch {}
+          const autoResponse = getClarifyAutoResponse(qaClarifyCtx.query, qaClarifyCtx.clarificationResponse, clarifyQuestion);
           if (autoResponse) {
             try {
               await sendClarifyResponse(
