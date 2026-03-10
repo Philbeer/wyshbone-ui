@@ -191,8 +191,7 @@ export function createBehaviourEvaluatorRouter(): Router {
         temperature: 0.1,
         max_tokens: 500,
         response_format: { type: "json_object" },
-        timeout: 25000,
-      });
+      }, { timeout: 25000 });
 
       const raw = response.choices[0]?.message?.content || "";
 
