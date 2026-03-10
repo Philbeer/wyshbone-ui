@@ -955,15 +955,26 @@ function buildBenchmarkSectionHtml(bm: BenchmarkMeta): string {
   const rowStyle = 'padding:3px 14px 3px 0; font-weight:600; color:#4b5563; vertical-align:top;';
   const valStyle = 'padding:3px 0; vertical-align:top;';
 
+  const driverLine = sourceOfTruth === 'llm'
+    ? 'Behaviour verdict shown in harness was driven by the LLM.'
+    : sourceOfTruth === 'fallback_legacy'
+    ? 'Behaviour verdict shown in harness was driven by fallback logic.'
+    : 'Behaviour verdict source could not be determined.';
+
   let html = `<div style="margin:16px 0 12px 0; padding:12px 18px; border:2px solid ${sourceBorder}; border-radius:8px; background:${sourceBg};">
     <div style="font-size:13px; color:${sourceColor}; line-height:1.6;">
       <strong>Behaviour source:</strong> ${escHtml(sourceLabel)}<br/>
       <strong>Behaviour result:</strong> <span class="badge ${exportBadgeClass(bResult)}" style="font-size:12px; font-weight:700;">${escHtml(bResult)}</span><br/>
       <strong>Why:</strong> ${escHtml(bReason)}
     </div>
-    <div style="margin-top:8px; padding-top:8px; border-top:1px solid ${sourceBorder}; font-size:11px; color:${sourceColor};">
-      Behaviour verdict shown in harness was driven by: <strong>${escHtml(sourceLabel)}</strong>
+    <div style="margin-top:8px; padding-top:8px; border-top:1px solid ${sourceBorder}; font-size:12px; color:${sourceColor}; font-weight:600;">
+      ${escHtml(driverLine)}
     </div>
+    <table style="width:auto; margin:6px 0 0 0; font-size:11px; border-collapse:collapse; color:${sourceColor};">
+      <tr><td style="padding:2px 10px 2px 0; font-weight:600;">behaviour_source_of_truth:</td><td><code>${escHtml(sourceOfTruth)}</code></td></tr>
+      <tr><td style="padding:2px 10px 2px 0; font-weight:600;">behaviour_eval_mode:</td><td><code>${escHtml(bEvalMode)}</code></td></tr>
+      <tr><td style="padding:2px 10px 2px 0; font-weight:600;">behaviour_eval_parse_ok:</td><td><code>${evalParseOk === true ? 'true' : evalParseOk === false ? 'false' : 'null'}</code></td></tr>
+    </table>
   </div>`;
 
   html += `<div class="benchmark-section" style="margin:16px 0; padding:14px 18px; border:2px solid #c7d2fe; border-radius:8px; background:#eef2ff;">
@@ -988,6 +999,10 @@ function buildBenchmarkSectionHtml(bm: BenchmarkMeta): string {
     </table>
   </div>`;
 
+  html += `<div class="behaviour-packet-section" style="margin:16px 0; padding:14px 18px; border:2px solid #ddd6fe; border-radius:8px; background:#f5f3ff;">
+    <h3 style="margin:0 0 4px 0; color:#6d28d9; font-size:14px;">3. Stored Behaviour Evaluation Packet</h3>
+    <div style="font-size:10px; color:#7c3aed; margin-bottom:10px;">Source: stored behaviour_eval_packet from qa_run_metrics</div>`;
+
   if (evalPacket) {
     const outcome = evalPacket.final_run_outcome || {};
     const runState = outcome.run_state || evalPacket.actual_run_state || '—';
@@ -1005,9 +1020,11 @@ function buildBenchmarkSectionHtml(bm: BenchmarkMeta): string {
 
     const visibleSummary = evalPacket.user_visible_summary || evalPacket.behaviour_observed_summary || '';
 
-    html += `<div class="behaviour-packet-section" style="margin:16px 0; padding:14px 18px; border:2px solid #ddd6fe; border-radius:8px; background:#f5f3ff;">
-      <h3 style="margin:0 0 10px 0; color:#6d28d9; font-size:14px;">3. Behaviour Evaluation Packet</h3>
-      <table style="width:auto; margin:0; font-size:12px; border-collapse:collapse;">
+    html += `<table style="width:auto; margin:0; font-size:12px; border-collapse:collapse;">
+        <tr><td style="${rowStyle}">original_query:</td><td style="${valStyle}">${escHtml(evalPacket.original_query || '—')}</td></tr>
+        <tr><td style="${rowStyle}">benchmark_test_id:</td><td style="${valStyle}">${escHtml(evalPacket.benchmark_test_id || '—')}</td></tr>
+        <tr><td style="${rowStyle}">expected_outcome_text:</td><td style="${valStyle}">${escHtml(evalPacket.expected_outcome_text || '—')}</td></tr>
+        <tr><td style="${rowStyle}">expected_behaviour_text:</td><td style="${valStyle}">${escHtml(evalPacket.expected_behaviour_text || '—')}</td></tr>
         <tr><td style="${rowStyle}">Run state:</td><td style="${valStyle}"><code>${escHtml(String(runState))}</code></td></tr>
         <tr><td style="${rowStyle}">Clarified:</td><td style="${valStyle}">${clarified ? '<strong style="color:#b45309">Yes</strong>' : 'No'}</td></tr>
         ${clarifyQ ? `<tr><td style="${rowStyle}">Clarify question:</td><td style="${valStyle}">${escHtml(clarifyQ)}</td></tr>` : ''}
@@ -1083,45 +1100,53 @@ function buildBenchmarkSectionHtml(bm: BenchmarkMeta): string {
         <p style="margin:2px 0 0 0; font-size:11px; color:#374151;">${escHtml(visibleSummary)}</p></div>`;
     }
 
+    html += `<details class="raw-payload-toggle" style="margin-top:10px;">
+      <summary style="font-size:11px; color:#6d28d9; cursor:pointer;">Raw behaviour_eval_packet (JSON)</summary>
+      <pre style="font-size:10px; max-height:400px; overflow:auto;">${escHtml(prettyJson(evalPacket))}</pre>
+    </details>`;
+
+    html += `</div>`;
+  } else {
+    html += `<div style="padding:12px; color:#9ca3af; font-style:italic; font-size:12px;">No stored Behaviour LLM packet found in qa_run_metrics.</div>`;
     html += `</div>`;
   }
 
+  html += `<div class="behaviour-llm-response-section" style="margin:16px 0; padding:14px 18px; border:2px solid #a7f3d0; border-radius:8px; background:#ecfdf5;">
+    <h3 style="margin:0 0 4px 0; color:#065f46; font-size:14px;">4. Stored Behaviour LLM Response</h3>
+    <div style="font-size:10px; color:#047857; margin-bottom:10px;">Source: stored behaviour_llm_response / behaviour_eval_response_raw from qa_run_metrics</div>`;
+
   const hasLlmResponse = !!(llmResp || evalResponseRaw);
   if (hasLlmResponse) {
-    html += `<div class="behaviour-llm-response-section" style="margin:16px 0; padding:14px 18px; border:2px solid #a7f3d0; border-radius:8px; background:#ecfdf5;">
-      <h3 style="margin:0 0 10px 0; color:#065f46; font-size:14px;">4. Behaviour LLM Response</h3>
-      <table style="width:auto; margin:0; font-size:12px; border-collapse:collapse;">
-        <tr><td style="${rowStyle}">Result:</td><td style="${valStyle}"><span class="badge ${exportBadgeClass(bResult)}" style="font-size:13px; font-weight:700;">${escHtml(bResult)}</span></td></tr>
-        <tr><td style="${rowStyle}">Reason:</td><td style="${valStyle} max-width:600px;">${escHtml(bReason)}</td></tr>
-        <tr><td style="${rowStyle}">Expected outcome check:</td><td style="${valStyle}">${escHtml(bExpectedCheck)}</td></tr>
-        <tr><td style="${rowStyle}">Observed outcome check:</td><td style="${valStyle}">${escHtml(bObservedCheck)}</td></tr>
-        <tr><td style="${rowStyle}">Key failure type:</td><td style="${valStyle}"><code>${escHtml(bFailureType)}</code></td></tr>
-        <tr><td style="${rowStyle}">Confidence:</td><td style="${valStyle}">${bConfidence != null ? String(bConfidence) : '—'}</td></tr>
-        <tr><td style="${rowStyle}">Parse OK?</td><td style="${valStyle}">${evalParseOk === true ? 'Yes' : evalParseOk === false ? '<strong style="color:#dc2626">No</strong>' : '—'}</td></tr>
-      </table>
-    </div>`;
-  }
+    html += `<table style="width:auto; margin:0; font-size:12px; border-collapse:collapse;">
+        <tr><td style="${rowStyle}">behaviour_result:</td><td style="${valStyle}"><span class="badge ${exportBadgeClass(bResult)}" style="font-size:13px; font-weight:700;">${escHtml(bResult)}</span></td></tr>
+        <tr><td style="${rowStyle}">behaviour_reason:</td><td style="${valStyle} max-width:600px;">${escHtml(bReason)}</td></tr>
+        <tr><td style="${rowStyle}">expected_outcome_check:</td><td style="${valStyle}">${escHtml(bExpectedCheck)}</td></tr>
+        <tr><td style="${rowStyle}">observed_outcome_check:</td><td style="${valStyle}">${escHtml(bObservedCheck)}</td></tr>
+        <tr><td style="${rowStyle}">key_failure_type:</td><td style="${valStyle}"><code>${escHtml(bFailureType)}</code></td></tr>
+        <tr><td style="${rowStyle}">confidence:</td><td style="${valStyle}">${bConfidence != null ? String(bConfidence) : '—'}</td></tr>
+        <tr><td style="${rowStyle}">parse_ok:</td><td style="${valStyle}">${evalParseOk === true ? 'Yes' : evalParseOk === false ? '<strong style="color:#dc2626">No</strong>' : '—'}</td></tr>
+      </table>`;
 
-  html += `<details class="raw-payload-toggle" style="margin-bottom:6px;">
-    <summary>Full behaviour_eval_packet (JSON)</summary>
-    <pre>${escHtml(prettyJson(evalPacket || { note: 'No eval packet persisted for this run' }))}</pre>
-  </details>`;
-
-  html += `<details class="raw-payload-toggle" style="margin-bottom:6px;">
-    <summary>Full parsed behaviour_eval_response (JSON)</summary>
-    <pre>${escHtml(prettyJson(llmResp || { note: 'No LLM response persisted for this run' }))}</pre>
-  </details>`;
-
-  if (evalResponseRaw) {
-    html += `<details class="raw-payload-toggle" style="margin-bottom:6px;">
-      <summary>Raw behaviour_eval_response_raw (text)</summary>
-      <pre>${escHtml(evalResponseRaw)}</pre>
+    html += `<details class="raw-payload-toggle" style="margin-top:10px;">
+      <summary style="font-size:11px; color:#065f46; cursor:pointer;">Raw behaviour_llm_response (JSON)</summary>
+      <pre style="font-size:10px; max-height:400px; overflow:auto;">${escHtml(prettyJson(llmResp || { note: 'No parsed LLM response stored' }))}</pre>
     </details>`;
+
+    if (evalResponseRaw) {
+      html += `<details class="raw-payload-toggle" style="margin-top:6px;">
+        <summary style="font-size:11px; color:#065f46; cursor:pointer;">Raw behaviour_eval_response_raw (text)</summary>
+        <pre style="font-size:10px; max-height:400px; overflow:auto; white-space:pre-wrap;">${escHtml(evalResponseRaw)}</pre>
+      </details>`;
+    }
+  } else {
+    html += `<div style="padding:12px; color:#9ca3af; font-style:italic; font-size:12px;">No stored Behaviour LLM response found in qa_run_metrics.</div>`;
   }
+
+  html += `</div>`;
 
   html += `<details class="raw-payload-toggle" style="margin-bottom:12px;">
-    <summary>Full benchmark metadata (JSON)</summary>
-    <pre>${escHtml(prettyJson({ benchmark_test_id: bm.benchmark_test_id, query: bm.query, query_class: bm.query_class, expected_mode: bm.expected_mode, behaviour_result: bm.behaviour_result, metadata: meta }))}</pre>
+    <summary style="font-size:11px; color:#6b7280; cursor:pointer;">Full benchmark metadata (JSON)</summary>
+    <pre style="font-size:10px; max-height:400px; overflow:auto;">${escHtml(prettyJson({ benchmark_test_id: bm.benchmark_test_id, query: bm.query, query_class: bm.query_class, expected_mode: bm.expected_mode, behaviour_result: bm.behaviour_result, metadata: meta }))}</pre>
   </details>`;
 
   return html;
