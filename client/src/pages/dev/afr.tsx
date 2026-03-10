@@ -1016,6 +1016,28 @@ function buildBenchmarkSectionHtml(bm: BenchmarkMeta): string {
     html += `</div>`;
   }
 
+  if (llmResp) {
+    const llmBorderColor = llmResp.behaviour_result === 'pass' ? '#a7f3d0' : llmResp.behaviour_result === 'fail' ? '#fca5a5' : '#d1d5db';
+    const llmBgColor = llmResp.behaviour_result === 'pass' ? '#ecfdf5' : llmResp.behaviour_result === 'fail' ? '#fef2f2' : '#f9fafb';
+    html += `<div class="behaviour-llm-response-section" style="margin:16px 0; padding:14px 18px; border:2px solid ${llmBorderColor}; border-radius:8px; background:${llmBgColor};">
+      <h3 style="margin:0 0 10px 0; color:#1e40af; font-size:14px;">Behaviour LLM Response</h3>
+      <table style="width:auto; margin:0; font-size:12px; border-collapse:collapse;">
+        <tr><td style="${rowStyle}">behaviour_result:</td><td style="${valStyle}"><strong>${escHtml(llmResp.behaviour_result || '—')}</strong></td></tr>
+        <tr><td style="${rowStyle}">behaviour_reason:</td><td style="${valStyle} max-width:600px;">${escHtml(llmResp.behaviour_reason || '—')}</td></tr>
+        <tr><td style="${rowStyle}">expected_outcome_check:</td><td style="${valStyle}">${escHtml(llmResp.expected_outcome_check || '—')}</td></tr>
+        <tr><td style="${rowStyle}">observed_outcome_check:</td><td style="${valStyle}">${escHtml(llmResp.observed_outcome_check || '—')}</td></tr>
+        <tr><td style="${rowStyle}">key_failure_type:</td><td style="${valStyle}"><code>${escHtml(llmResp.key_failure_type || 'none')}</code></td></tr>
+        <tr><td style="${rowStyle}">confidence:</td><td style="${valStyle}">${llmResp.confidence != null ? String(llmResp.confidence) : '—'}</td></tr>
+        <tr><td style="${rowStyle}">eval_mode:</td><td style="${valStyle}"><code>${escHtml(llmResp.eval_mode || '—')}</code></td></tr>
+      </table>
+    </div>`;
+  } else {
+    html += `<div class="behaviour-llm-response-section" style="margin:16px 0; padding:14px 18px; border:2px solid #e5e7eb; border-radius:8px; background:#f9fafb;">
+      <h3 style="margin:0 0 10px 0; color:#6b7280; font-size:14px;">Behaviour LLM Response</h3>
+      <p style="margin:0; font-size:12px; color:#9ca3af;">No LLM Behaviour response persisted for this run. Behaviour scoring used legacy heuristic fallback.</p>
+    </div>`;
+  }
+
   html += `<details class="raw-payload-toggle" style="margin-bottom:6px;">
     <summary>Raw Behaviour evaluation packet (JSON)</summary>
     <pre>${escHtml(prettyJson(evalPacket || { note: 'No eval packet persisted for this run' }))}</pre>
