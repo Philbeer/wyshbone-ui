@@ -1783,7 +1783,6 @@ export default function QaTestRunnerPage() {
               <tr>
                 <th className="text-left px-3 py-2 font-medium text-gray-600 w-8">#</th>
                 <th className="text-left px-3 py-2 font-medium text-gray-600">Query</th>
-                <th className="text-left px-3 py-2 font-medium text-gray-600 w-24">Status</th>
                 <th className="text-left px-3 py-2 font-medium text-gray-600 w-20" title="Did the run infrastructure behave reliably (no crash/timeout)?">System</th>
                 <th className="text-left px-3 py-2 font-medium text-gray-600 w-20" title="Did the agent make the correct decision about what to do?">Agent</th>
                 <th className="text-left px-3 py-2 font-medium text-gray-600 w-20" title="Was the mission execution result acceptable?">Tower</th>
@@ -1840,7 +1839,6 @@ export default function QaTestRunnerPage() {
                     )}
                     {r.error && <div className="text-xs text-red-500 mt-0.5">{r.error}</div>}
                   </td>
-                  <td className="px-3 py-2.5">{statusBadge(r.status)}</td>
                   <td className="px-3 py-2.5">
                     {systemHealthBadge(r.systemHealth)}
                   </td>
