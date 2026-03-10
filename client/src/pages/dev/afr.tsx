@@ -908,32 +908,127 @@ interface BenchmarkMeta {
 
 function buildBenchmarkSectionHtml(bm: BenchmarkMeta): string {
   const meta = typeof bm.metadata === 'string' ? (() => { try { return JSON.parse(bm.metadata); } catch { return {}; } })() : (bm.metadata || {});
+  const llmResp = meta.behaviour_llm_response || null;
+  const evalPacket = meta.behaviour_eval_packet || null;
   const bd = meta.behaviour_decision || {};
-  const expectedOutcome = meta.expectedOutcome || bm.expected_mode || '—';
+  const expectedOutcome = meta.expected_outcome_text || meta.expectedOutcome || bm.expected_mode || '—';
+  const expectedBehaviour = meta.expected_behaviour_text || bm.expected_mode || '—';
+
+  const bResult = llmResp?.behaviour_result?.toUpperCase() || bd.result || bm.behaviour_result || '—';
+  const bReason = meta.behaviour_reason || llmResp?.behaviour_reason || bd.reason || '—';
+  const bExpectedCheck = meta.behaviour_expected_outcome_check || llmResp?.expected_outcome_check || bd.expected || '—';
+  const bObservedCheck = meta.behaviour_observed_outcome_check || llmResp?.observed_outcome_check || bd.observed || '—';
+  const bFailureType = meta.behaviour_key_failure_type || llmResp?.key_failure_type || 'none';
+  const bConfidence = meta.behaviour_confidence ?? llmResp?.confidence ?? null;
+  const bEvalMode = meta.behaviour_eval_mode || llmResp?.eval_mode || 'unknown';
+
+  const isPass = bResult === 'PASS' || bResult === 'pass';
+  const isFail = bResult === 'FAIL' || bResult === 'fail';
+  const borderColor = isPass ? '#bbf7d0' : isFail ? '#fecaca' : '#e5e7eb';
+  const bgColor = isPass ? '#f0fdf4' : isFail ? '#fef2f2' : '#f9fafb';
+  const headingColor = isPass ? '#15803d' : isFail ? '#dc2626' : '#6b7280';
+
+  const MODE_LABELS: Record<string, string> = {
+    deliver_results: 'Deliver results matching the query',
+    clarify: 'Clarify before running (missing info)',
+    honest_refusal: 'Honest refusal (impossible/fictional)',
+    best_effort_honest: 'Best effort delivery or clarify',
+  };
+  const expectedBehaviourLabel = MODE_LABELS[expectedBehaviour] || expectedBehaviour;
+
+  const rowStyle = 'padding:3px 14px 3px 0; font-weight:600; color:#4b5563; vertical-align:top;';
+  const valStyle = 'padding:3px 0; vertical-align:top;';
 
   let html = `<div class="benchmark-section" style="margin:16px 0; padding:14px 18px; border:2px solid #c7d2fe; border-radius:8px; background:#eef2ff;">
     <h3 style="margin:0 0 10px 0; color:#4338ca; font-size:14px;">Benchmark Expectation</h3>
     <table style="width:auto; margin:0; font-size:12px; border-collapse:collapse;">
-      <tr><td style="padding:2px 12px 2px 0; font-weight:600; color:#4b5563;">Test ID:</td><td style="padding:2px 0;">${escHtml(bm.benchmark_test_id || '—')}</td></tr>
-      <tr><td style="padding:2px 12px 2px 0; font-weight:600; color:#4b5563;">Query class:</td><td style="padding:2px 0;">${escHtml(bm.query_class || '—')}</td></tr>
-      <tr><td style="padding:2px 12px 2px 0; font-weight:600; color:#4b5563;">Expected outcome:</td><td style="padding:2px 0;">${escHtml(expectedOutcome)}</td></tr>
+      <tr><td style="${rowStyle}">Test ID:</td><td style="${valStyle}">${escHtml(bm.benchmark_test_id || '—')}</td></tr>
+      <tr><td style="${rowStyle}">Original query:</td><td style="${valStyle}">${escHtml(evalPacket?.original_query || bm.query || '—')}</td></tr>
+      <tr><td style="${rowStyle}">Query class:</td><td style="${valStyle}">${escHtml(bm.query_class || '—')}</td></tr>
+      <tr><td style="${rowStyle}">Expected outcome:</td><td style="${valStyle}">${escHtml(expectedOutcome)}</td></tr>
+      <tr><td style="${rowStyle}">Expected behaviour:</td><td style="${valStyle}">${escHtml(expectedBehaviourLabel)}</td></tr>
     </table>
   </div>
 
-  <div class="behaviour-section" style="margin:16px 0; padding:14px 18px; border:2px solid ${bd.result === 'PASS' ? '#bbf7d0' : bd.result === 'FAIL' ? '#fecaca' : '#e5e7eb'}; border-radius:8px; background:${bd.result === 'PASS' ? '#f0fdf4' : bd.result === 'FAIL' ? '#fef2f2' : '#f9fafb'};">
-    <h3 style="margin:0 0 10px 0; color:${bd.result === 'PASS' ? '#15803d' : bd.result === 'FAIL' ? '#dc2626' : '#6b7280'}; font-size:14px;">Behaviour Decision</h3>
+  <div class="behaviour-eval-section" style="margin:16px 0; padding:14px 18px; border:2px solid ${borderColor}; border-radius:8px; background:${bgColor};">
+    <h3 style="margin:0 0 10px 0; color:${headingColor}; font-size:14px;">Behaviour Evaluation</h3>
     <table style="width:auto; margin:0; font-size:12px; border-collapse:collapse;">
-      <tr><td style="padding:2px 12px 2px 0; font-weight:600; color:#4b5563;">Result:</td><td style="padding:2px 0;"><span class="badge ${exportBadgeClass(bd.result || bm.behaviour_result || '')}">${escHtml(bd.result || bm.behaviour_result || '—')}</span></td></tr>
-      <tr><td style="padding:2px 12px 2px 0; font-weight:600; color:#4b5563;">Reason:</td><td style="padding:2px 0;">${escHtml(bd.reason || '—')}</td></tr>
-      <tr><td style="padding:2px 12px 2px 0; font-weight:600; color:#4b5563;">Expected:</td><td style="padding:2px 0;">${escHtml(bd.expected || bm.expected_mode || '—')}</td></tr>
-      <tr><td style="padding:2px 12px 2px 0; font-weight:600; color:#4b5563;">Observed:</td><td style="padding:2px 0;">${escHtml(bd.observed || '—')}</td></tr>
-      <tr><td style="padding:2px 12px 2px 0; font-weight:600; color:#4b5563;">Decision basis:</td><td style="padding:2px 0;"><code>${escHtml(bd.decision_basis || '—')}</code></td></tr>
+      <tr><td style="${rowStyle}">Result:</td><td style="${valStyle}"><span class="badge ${exportBadgeClass(bResult)}" style="font-size:13px; font-weight:700;">${escHtml(bResult)}</span></td></tr>
+      <tr><td style="${rowStyle}">Reason:</td><td style="${valStyle} max-width:600px;">${escHtml(bReason)}</td></tr>
+      <tr><td style="${rowStyle}">Expected check:</td><td style="${valStyle}">${escHtml(bExpectedCheck)}</td></tr>
+      <tr><td style="${rowStyle}">Observed check:</td><td style="${valStyle}">${escHtml(bObservedCheck)}</td></tr>
+      <tr><td style="${rowStyle}">Failure type:</td><td style="${valStyle}"><code>${escHtml(bFailureType)}</code></td></tr>
+      <tr><td style="${rowStyle}">Confidence:</td><td style="${valStyle}">${bConfidence != null ? String(bConfidence) : '—'}</td></tr>
+      <tr><td style="${rowStyle}">Eval mode:</td><td style="${valStyle}"><code>${escHtml(bEvalMode)}</code></td></tr>
     </table>
-  </div>
+  </div>`;
 
-  <details class="raw-payload-toggle" style="margin-bottom:12px;">
-    <summary>Raw benchmark metadata (JSON)</summary>
-    <pre>${escHtml(prettyJson({ benchmark_test_id: bm.benchmark_test_id, query_class: bm.query_class, expected_mode: bm.expected_mode, behaviour_result: bm.behaviour_result, expectedOutcome, behaviour_decision: bd, metadata: meta }))}</pre>
+  if (evalPacket) {
+    const entities = Array.isArray(evalPacket.delivered_entities) ? evalPacket.delivered_entities : [];
+    const evidence = Array.isArray(evalPacket.evidence_summary) ? evalPacket.evidence_summary : [];
+
+    html += `<div class="behaviour-packet-section" style="margin:16px 0; padding:14px 18px; border:2px solid #ddd6fe; border-radius:8px; background:#f5f3ff;">
+      <h3 style="margin:0 0 10px 0; color:#6d28d9; font-size:14px;">Behaviour Evaluation Packet</h3>
+      <table style="width:auto; margin:0; font-size:12px; border-collapse:collapse;">
+        <tr><td style="${rowStyle}">Clarified:</td><td style="${valStyle}">${evalPacket.clarified ? '<strong style="color:#b45309">Yes</strong>' : 'No'}</td></tr>
+        ${evalPacket.clarify_question ? `<tr><td style="${rowStyle}">Clarify question:</td><td style="${valStyle}">${escHtml(evalPacket.clarify_question)}</td></tr>` : ''}
+        ${evalPacket.clarify_answer ? `<tr><td style="${rowStyle}">Clarify answer:</td><td style="${valStyle}">${escHtml(evalPacket.clarify_answer)}</td></tr>` : ''}
+        <tr><td style="${rowStyle}">Tower result:</td><td style="${valStyle}"><code>${escHtml(evalPacket.tower_result || '—')}</code></td></tr>
+        <tr><td style="${rowStyle}">Run state:</td><td style="${valStyle}"><code>${escHtml(evalPacket.actual_run_state || '—')}</code></td></tr>
+        <tr><td style="${rowStyle}">Delivered count:</td><td style="${valStyle}">${evalPacket.delivered_count ?? '—'}</td></tr>
+      </table>`;
+
+    if (entities.length > 0) {
+      html += `<div style="margin-top:8px;"><strong style="font-size:12px; color:#4b5563;">Top delivered entities:</strong>
+        <ul style="margin:4px 0 0 16px; padding:0; font-size:11px; color:#374151;">`;
+      for (const e of entities.slice(0, 8)) {
+        const name = e.name || e.entity_name || 'Unknown';
+        const loc = e.location || e.address || '';
+        html += `<li style="margin-bottom:2px;">${escHtml(name)}${loc ? ` <span style="color:#6b7280;">(${escHtml(loc)})</span>` : ''}</li>`;
+      }
+      if (entities.length > 8) html += `<li style="color:#6b7280;">...and ${entities.length - 8} more</li>`;
+      html += `</ul></div>`;
+    }
+
+    if (evidence.length > 0) {
+      html += `<div style="margin-top:8px;"><strong style="font-size:12px; color:#4b5563;">Top evidence items:</strong>
+        <ul style="margin:4px 0 0 16px; padding:0; font-size:11px; color:#374151;">`;
+      for (const ev of evidence.slice(0, 6)) {
+        const name = ev.entity_name || 'Unknown';
+        const quote = ev.matched_quote || '';
+        const url = ev.source_url || '';
+        const cType = ev.constraint_type || '';
+        html += `<li style="margin-bottom:3px;"><strong>${escHtml(name)}</strong>`;
+        if (cType) html += ` <span style="color:#6b7280;">[${escHtml(cType)}]</span>`;
+        if (quote) html += `<br/><em style="color:#6b7280; font-size:10px;">"${escHtml(quote.length > 120 ? quote.slice(0, 120) + '...' : quote)}"</em>`;
+        if (url) html += `<br/><span style="color:#3b82f6; font-size:10px;">${escHtml(url.length > 80 ? url.slice(0, 80) + '...' : url)}</span>`;
+        html += `</li>`;
+      }
+      if (evidence.length > 6) html += `<li style="color:#6b7280;">...and ${evidence.length - 6} more</li>`;
+      html += `</ul></div>`;
+    }
+
+    if (evalPacket.behaviour_observed_summary) {
+      html += `<div style="margin-top:8px;"><strong style="font-size:12px; color:#4b5563;">Observed summary:</strong>
+        <p style="margin:2px 0 0 0; font-size:11px; color:#374151;">${escHtml(evalPacket.behaviour_observed_summary)}</p></div>`;
+    }
+
+    html += `</div>`;
+  }
+
+  html += `<details class="raw-payload-toggle" style="margin-bottom:6px;">
+    <summary>Raw Behaviour evaluation packet (JSON)</summary>
+    <pre>${escHtml(prettyJson(evalPacket || { note: 'No eval packet persisted for this run' }))}</pre>
+  </details>`;
+
+  html += `<details class="raw-payload-toggle" style="margin-bottom:6px;">
+    <summary>Raw Behaviour LLM response (JSON)</summary>
+    <pre>${escHtml(prettyJson(llmResp || { note: 'No LLM response persisted for this run' }))}</pre>
+  </details>`;
+
+  html += `<details class="raw-payload-toggle" style="margin-bottom:12px;">
+    <summary>Full benchmark metadata (JSON)</summary>
+    <pre>${escHtml(prettyJson({ benchmark_test_id: bm.benchmark_test_id, query: bm.query, query_class: bm.query_class, expected_mode: bm.expected_mode, behaviour_result: bm.behaviour_result, metadata: meta }))}</pre>
   </details>`;
 
   return html;

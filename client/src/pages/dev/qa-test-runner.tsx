@@ -1361,6 +1361,7 @@ async function persistQaMetric(
   packTimestamp: number,
   pollExpired: boolean = false,
   afrFinalState: string | null = null,
+  artefactDetails: ArtefactInfo | null = null,
 ): Promise<void> {
   if (!result.runId) return;
   if (result.status === 'queued' || result.status === 'running' || result.status === 'poll_expired_reconciling') return;
@@ -1415,6 +1416,28 @@ async function persistQaMetric(
       behaviour_observed_outcome_check: result.behaviourLLMDetail?.observed_outcome_check || bDecision.observed,
       behaviour_key_failure_type: result.behaviourLLMDetail?.key_failure_type || null,
       behaviour_confidence: result.behaviourLLMDetail?.confidence ?? null,
+      behaviour_eval_packet: artefactDetails
+        ? buildEvalPacket(test, result, artefactDetails)
+        : {
+            benchmark_test_id: test.id,
+            original_query: test.query,
+            expected_outcome_text: buildExpectedOutcome(test),
+            expected_behaviour_text: test.expectedMode,
+            actual_run_state: result.status,
+            clarified: result.clarified,
+            tower_result: result.towerVerdict || 'UNKNOWN',
+            delivered_count: result.deliveredCount,
+            behaviour_observed_summary: bDecision.observed || 'N/A',
+          },
+      behaviour_llm_response: result.behaviourLLMDetail ? {
+        behaviour_result: result.behaviourLLMDetail.behaviour_result,
+        behaviour_reason: result.behaviourLLMDetail.behaviour_reason,
+        expected_outcome_check: result.behaviourLLMDetail.expected_outcome_check,
+        observed_outcome_check: result.behaviourLLMDetail.observed_outcome_check,
+        key_failure_type: result.behaviourLLMDetail.key_failure_type,
+        confidence: result.behaviourLLMDetail.confidence,
+        eval_mode: result.behaviourLLMDetail.eval_mode,
+      } : null,
     },
   };
 
@@ -1956,7 +1979,7 @@ export default function QaTestRunnerPage() {
         finalResults[i] = { ...finalResults[i], ...patch };
         updateResult(i, patch);
 
-        persistQaMetric(finalResults[i], test, targetSuiteId, suiteStart, pollExpired, afrFinalState);
+        persistQaMetric(finalResults[i], test, targetSuiteId, suiteStart, pollExpired, afrFinalState, details);
       } catch (e: any) {
         const duration = Date.now() - testStart;
         if (e.name === 'AbortError') {
