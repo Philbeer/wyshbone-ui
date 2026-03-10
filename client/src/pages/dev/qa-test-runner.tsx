@@ -634,60 +634,32 @@ function parsePayload(raw: unknown): Record<string, any> {
   return {};
 }
 
-interface ClarifyGateInfo {
-  question: string | undefined;
-  isBlockedByConstraintGate: boolean;
-}
-
-async function fetchClarifyGateInfo(runId: string, signal: AbortSignal): Promise<ClarifyGateInfo> {
+async function fetchClarifyQuestion(runId: string, signal: AbortSignal): Promise<string | undefined> {
   try {
     const params = new URLSearchParams({ runId });
     const res = await fetch(
       buildApiUrl(addDevAuthParams(`/api/afr/artefacts?${params.toString()}`)),
       { credentials: 'include', signal }
     );
-    if (!res.ok) return { question: undefined, isBlockedByConstraintGate: false };
+    if (!res.ok) return undefined;
     const artefacts: any[] = await res.json();
-
-    let clarifyGateQuestion: string | undefined;
-    let blockedGateQuestion: string | undefined;
-    let foundBlockedGate = false;
-
     for (const a of artefacts) {
+      if (a.type === 'clarify_gate') {
+        const p = parsePayload(a.payload_json) ?? parsePayload(a.payload);
+        return p.questions?.[0] ?? p.reason ?? p.question ?? p.prompt ?? p.message ?? undefined;
+      }
       if (a.type === 'diagnostic' && typeof a.title === 'string' &&
           a.title.toLowerCase().includes('constraint gate') && a.title.toLowerCase().includes('blocked')) {
-        const raw = a.payload_json || a.payload;
-        const p = typeof raw === 'string' ? (() => { try { return JSON.parse(raw); } catch { return null; } })() : raw;
-        if (p) {
-          const cc = p.constraint_contract;
-          blockedGateQuestion = cc?.clarify_questions?.[0]
-            || (cc?.constraints ?? []).find((c: any) => c.status === 'blocked' || c.status === 'unresolved')?.clarify_question
-            || cc?.why_blocked;
-        }
-        foundBlockedGate = true;
+        const p = parsePayload(a.payload_json) ?? parsePayload(a.payload);
+        const cc = p.constraint_contract;
+        if (cc?.clarify_questions?.[0]) return cc.clarify_questions[0];
+        const blocked = (cc?.constraints ?? []).find((c: any) => c.status === 'blocked' || c.status === 'unresolved');
+        if (blocked?.clarify_question) return blocked.clarify_question;
+        if (cc?.why_blocked) return cc.why_blocked;
       }
-      if (a.type === 'clarify_gate' && !clarifyGateQuestion) {
-        const raw = a.payload_json || a.payload;
-        const p = typeof raw === 'string' ? (() => { try { return JSON.parse(raw); } catch { return null; } })() : raw;
-        if (p) {
-          clarifyGateQuestion = p.questions?.[0] ?? p.reason ?? p.question ?? p.prompt ?? p.message ?? undefined;
-        }
-      }
-    }
-
-    if (foundBlockedGate) {
-      return { question: blockedGateQuestion || clarifyGateQuestion, isBlockedByConstraintGate: true };
-    }
-    if (clarifyGateQuestion) {
-      return { question: clarifyGateQuestion, isBlockedByConstraintGate: false };
     }
   } catch {}
-  return { question: undefined, isBlockedByConstraintGate: false };
-}
-
-async function fetchClarifyQuestion(runId: string, signal: AbortSignal): Promise<string | undefined> {
-  const info = await fetchClarifyGateInfo(runId, signal);
-  return info.question;
+  return undefined;
 }
 
 interface QaClarifyContext {
@@ -764,14 +736,9 @@ async function pollUntilTerminal(
         wasClarifying = true;
 
         if (qaClarifyCtx && !clarifyResponseSent && finalRunId) {
-          let gateInfo: ClarifyGateInfo = { question: undefined, isBlockedByConstraintGate: false };
-          try { gateInfo = await fetchClarifyGateInfo(finalRunId, signal); } catch {}
-
-          if (gateInfo.isBlockedByConstraintGate) {
-            return { terminal: true, status: 'stopped', timedOut: false, finalRunId, wasClarifying: true, autoClarified: false, clarifyResponseValue: null, clarifyContinueSuccess: false, postClarifyTimeout: false };
-          }
-
-          const autoResponse = getClarifyAutoResponse(qaClarifyCtx.query, qaClarifyCtx.clarificationResponse, gateInfo.question);
+          let clarifyQuestion: string | undefined;
+          try { clarifyQuestion = await fetchClarifyQuestion(finalRunId, signal); } catch {}
+          const autoResponse = getClarifyAutoResponse(qaClarifyCtx.query, qaClarifyCtx.clarificationResponse, clarifyQuestion);
           if (autoResponse) {
             try {
               await sendClarifyResponse(
