@@ -847,7 +847,15 @@ interface ArtefactInfo {
   deliveredCount: number;
   hasLeadPack: boolean;
   layers: LayerBreakdown;
-  deliveredEntities: Array<{ name: string; location?: string; website?: string; key_evidence?: string[]; verification_flags?: Record<string, boolean> }>;
+  deliveredEntities: Array<{
+    name: string;
+    location?: string;
+    website?: string;
+    key_evidence?: string[];
+    match_reason?: string;
+    evidence_source_url?: string;
+    verification_flags?: Record<string, boolean>;
+  }>;
   evidenceSummary: Array<{ entity_name: string; matched_quote?: string; source_url?: string; constraint_type?: string; confidence?: number }>;
 }
 
@@ -1218,7 +1226,9 @@ function buildEvalPacket(
       location: e.location,
       website: e.website,
       delivered: true,
+      match_reason: e.match_reason || undefined,
       evidence: e.key_evidence && e.key_evidence.length > 0 ? e.key_evidence : undefined,
+      evidence_source_url: e.evidence_source_url || undefined,
     })),
     delivered_result_evidence: (() => {
       const entityEvidence: Array<Record<string, unknown>> = [];
@@ -1227,13 +1237,23 @@ function buildEvalPacket(
           for (const snippet of ent.key_evidence.slice(0, 3)) {
             entityEvidence.push({
               entity_name: ent.name,
-              source_url: ent.website || undefined,
+              match_reason: ent.match_reason || undefined,
+              source_url: ent.evidence_source_url || ent.website || undefined,
               quote: snippet,
               matched_phrase: snippet.length > 80 ? snippet.slice(0, 80) : snippet,
               constraint_type: 'entity_attached',
               confidence: undefined,
             });
           }
+        } else if (ent.match_reason) {
+          entityEvidence.push({
+            entity_name: ent.name,
+            match_reason: ent.match_reason,
+            source_url: ent.evidence_source_url || ent.website || undefined,
+            quote: undefined,
+            constraint_type: 'match_only',
+            confidence: undefined,
+          });
         }
       }
       if (entityEvidence.length > 0) return entityEvidence.slice(0, 15);
@@ -1385,6 +1405,35 @@ async function fetchRunDetails(runId: string): Promise<ArtefactInfo> {
       }
     }
 
+    const semanticByLead = new Map<string, { reason?: string; snippets?: string[]; sourceUrl?: string }>();
+    for (const a of artefacts) {
+      if (a.type === 'tower_semantic_judgement') {
+        try {
+          const p = typeof a.payload_json === 'string' ? JSON.parse(a.payload_json) : a.payload_json;
+          if (p && typeof p === 'object') {
+            const leadName = (p.lead_name || p.name || p.entity_name || '').toLowerCase().trim();
+            const leadId = p.lead_place_id || p.lead_id || p.place_id || '';
+            const constraint = p.constraint_to_check || '';
+            const status = (p.tower_status || p.status || '').toLowerCase();
+            const snippets = Array.isArray(p.tower_matched_snippets) ? p.tower_matched_snippets : [];
+            const sourceUrl = p.source_url || '';
+            const isMatch = status === 'strong_match' || status === 'match' || status === 'weak_match';
+            if (leadName || leadId) {
+              const key = leadName || leadId;
+              const existing = semanticByLead.get(key);
+              if (!existing || (isMatch && snippets.length > 0)) {
+                semanticByLead.set(key, {
+                  reason: constraint ? (isMatch ? `Matched: ${constraint}` : `${status}: ${constraint}`) : undefined,
+                  snippets: snippets.length > 0 ? snippets.slice(0, 3) : existing?.snippets,
+                  sourceUrl: sourceUrl || existing?.sourceUrl,
+                });
+              }
+            }
+          }
+        } catch {}
+      }
+    }
+
     for (const entity of deliveredExact.slice(0, 20)) {
       const e: ArtefactInfo['deliveredEntities'][number] = {
         name: entity.name || entity.entity_name || 'Unknown',
@@ -1395,6 +1444,21 @@ async function fetchRunDetails(runId: string): Promise<ArtefactInfo> {
         e.key_evidence = entity.evidence.slice(0, 3).map((ev: any) => typeof ev === 'string' ? ev : (ev.snippet || ev.quote || ev.summary || JSON.stringify(ev)));
       }
       if (entity.verification) e.verification_flags = entity.verification;
+
+      if (entity.match_reason) e.match_reason = entity.match_reason;
+      if (entity.match_summary) e.match_reason = e.match_reason || entity.match_summary;
+      if (entity.evidence_source_url) e.evidence_source_url = entity.evidence_source_url;
+
+      const nameKey = (e.name || '').toLowerCase().trim();
+      const semantic = semanticByLead.get(nameKey);
+      if (semantic) {
+        if (!e.match_reason && semantic.reason) e.match_reason = semantic.reason;
+        if (!e.evidence_source_url && semantic.sourceUrl) e.evidence_source_url = semantic.sourceUrl;
+        if (!e.key_evidence && semantic.snippets && semantic.snippets.length > 0) {
+          e.key_evidence = semantic.snippets;
+        }
+      }
+
       info.deliveredEntities.push(e);
     }
 

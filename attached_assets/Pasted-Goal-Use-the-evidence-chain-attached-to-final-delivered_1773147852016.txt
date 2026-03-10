@@ -1,0 +1,106 @@
+Goal
+
+Use the evidence chain attached to final delivered results everywhere the user and evaluator need it.
+
+Core rule:
+The UI must render final delivered results with the backward evidence chain:
+
+match
+→ why it matches
+→ what the evidence is
+→ where it came from
+
+The UI must use the final delivery payload from Supervisor as the source of truth.
+Do NOT rebuild or invent this chain separately if it already exists on delivered results.
+
+This is needed in:
+- user-facing chat/result bubble
+- Behaviour evaluation packet
+- AFR export
+
+Do NOT change:
+- Tower logic
+- benchmark semantics
+- fallback logic
+- general harness structure
+
+Inspect first
+
+- client/src/pages/dev/qa-test-runner.tsx
+- chat bubble / result rendering code
+- AFR export code
+- any code that builds behaviour_eval_packet
+- any code that reads final delivery payloads
+
+Tasks
+
+1. Surface the evidence chain in the user-facing result/chat bubble
+Where final results are shown to the user, render each delivered result with:
+
+- entity name
+- why it matched
+- evidence snippet / quote
+- source link / source URL if available
+
+Keep it compact and readable.
+
+Good format example:
+
+Result: Red Lion, Arundel
+Why it matched: Website mentions vegan dishes
+Evidence: "We offer several vegan dishes..."
+Source: redlionarundel.co.uk/menu
+
+2. Use the same final-delivery evidence chain in Behaviour packet
+Refactor behaviour_eval_packet so it reads from the final delivered results’ attached evidence chain.
+
+The Behaviour LLM must see:
+- what was delivered
+- why each result was considered valid
+- the actual evidence snippet/quote
+- where it came from
+
+Do not rely mainly on summary counters.
+
+3. Use the same final-delivery evidence chain in AFR export
+For benchmark runs, AFR should show:
+- delivered result
+- why it matched
+- evidence
+- source
+
+An external reviewer should be able to audit the run from the final output alone.
+
+4. Keep outcome-facing Behaviour design
+Behaviour should still judge the final outcome, not Tower’s internals.
+It may use the delivered result evidence chain, but not internal process language as primary input.
+
+5. Render missing evidence honestly
+If a delivered result has no supporting evidence attached, say so clearly:
+- "No supporting evidence attached"
+- "Website evidence not captured"
+
+Do not fake it.
+
+6. Keep the UI clean
+This is user-facing, so do not dump raw artefacts or technical jargon.
+Prefer:
+- result
+- why included
+- evidence
+- source
+
+Definition of done
+
+After the change:
+- chat bubble / result display shows the evidence chain
+- Behaviour packet reads the evidence chain from final delivered results
+- AFR export shows the same evidence chain
+- one delivered result can be audited backwards from match → why → evidence → source
+
+At the end, report:
+- which files changed
+- where the chat/result rendering now shows the evidence chain
+- where Behaviour packet now reads it
+- where AFR now renders it
+- one example rendered final result with the full chain

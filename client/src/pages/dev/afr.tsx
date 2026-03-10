@@ -1029,9 +1029,15 @@ function buildBenchmarkSectionHtml(bm: BenchmarkMeta): string {
         const name = e.name || e.entity_name || 'Unknown';
         const loc = e.location || e.address || '';
         const website = e.website || e.url || '';
-        html += `<li style="margin-bottom:6px;"><strong>${escHtml(name)}</strong>`;
+        const matchReason = e.match_reason || '';
+        const evidenceSourceUrl = e.evidence_source_url || '';
+        html += `<li style="margin-bottom:8px;"><strong>${escHtml(name)}</strong>`;
         if (loc) html += ` <span style="color:#6b7280;">(${escHtml(loc)})</span>`;
         if (website) html += `<br/><span style="color:#3b82f6; font-size:10px;">${escHtml(website.length > 80 ? website.slice(0, 80) + '...' : website)}</span>`;
+
+        if (matchReason) {
+          html += `<br/><span style="color:#059669; font-size:10px; font-weight:600;">Why: ${escHtml(matchReason)}</span>`;
+        }
 
         const rawEvidence: any[] = Array.isArray(e.evidence) ? e.evidence : [];
         const inlineSnippets: string[] = rawEvidence
@@ -1046,6 +1052,10 @@ function buildBenchmarkSectionHtml(bm: BenchmarkMeta): string {
           }
         } else if (matchedEvidence.length > 0) {
           for (const ev of matchedEvidence.slice(0, 2)) {
+            const matchR = ev.match_reason || '';
+            if (matchR && !matchReason) {
+              html += `<br/><span style="color:#059669; font-size:10px; font-weight:600;">Why: ${escHtml(matchR)}</span>`;
+            }
             const quote = ev.quote || ev.matched_quote || '';
             if (quote) {
               const display = quote.length > 140 ? quote.slice(0, 140) + '...' : quote;
@@ -1053,9 +1063,15 @@ function buildBenchmarkSectionHtml(bm: BenchmarkMeta): string {
             }
             if (ev.source_url) html += `<br/><span style="color:#3b82f6; font-size:10px;">Source: ${escHtml(ev.source_url.length > 80 ? ev.source_url.slice(0, 80) + '...' : ev.source_url)}</span>`;
           }
-        } else {
+        } else if (!matchReason) {
           html += `<br/><span style="color:#9ca3af; font-size:10px; font-style:italic;">No supporting evidence attached</span>`;
         }
+
+        const sourceUrl = evidenceSourceUrl || (matchedEvidence.length > 0 ? matchedEvidence[0].source_url : '');
+        if (sourceUrl && inlineSnippets.length > 0) {
+          html += `<br/><span style="color:#3b82f6; font-size:10px;">Source: ${escHtml(sourceUrl.length > 80 ? sourceUrl.slice(0, 80) + '...' : sourceUrl)}</span>`;
+        }
+
         html += `</li>`;
       }
       if (entities.length > 10) html += `<li style="color:#6b7280;">...and ${entities.length - 10} more</li>`;

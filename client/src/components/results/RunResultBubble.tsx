@@ -503,16 +503,35 @@ function LeadRow({ lead, isVerified, unverifiableAttr, runId, showLocationBadge,
         </div>
         {(() => {
           const ev = Array.isArray((lead as any).evidence) ? (lead as any).evidence : [];
-          if (ev.length === 0) return null;
-          const firstEvidence = ev[0];
-          const snippet = typeof firstEvidence === 'string'
-            ? firstEvidence
-            : (firstEvidence?.snippet || firstEvidence?.quote || firstEvidence?.summary || '');
-          if (!snippet) return null;
-          const display = snippet.length > 120 ? snippet.slice(0, 120) + '…' : snippet;
+          const matchReason = (lead as any).match_reason || (lead as any).match_summary || '';
+          const evidenceSourceUrl = (lead as any).evidence_source_url || '';
+
+          const firstEvidence = ev.length > 0 ? ev[0] : null;
+          const snippet = firstEvidence
+            ? (typeof firstEvidence === 'string'
+              ? firstEvidence
+              : (firstEvidence?.snippet || firstEvidence?.quote || firstEvidence?.summary || ''))
+            : '';
+
+          if (!snippet && !matchReason) return null;
+
           return (
-            <div className="mt-1 text-[11px] text-muted-foreground/80 italic leading-snug pl-0.5">
-              "{display}"
+            <div className="mt-1 space-y-0.5 pl-0.5">
+              {matchReason && (
+                <div className="text-[11px] text-emerald-600 dark:text-emerald-400 leading-snug">
+                  {matchReason}
+                </div>
+              )}
+              {snippet && (
+                <div className="text-[11px] text-muted-foreground/80 italic leading-snug">
+                  "{snippet.length > 120 ? snippet.slice(0, 120) + '…' : snippet}"
+                </div>
+              )}
+              {evidenceSourceUrl && (
+                <a href={evidenceSourceUrl.startsWith('http') ? evidenceSourceUrl : `https://${evidenceSourceUrl}`} target="_blank" rel="noopener noreferrer" className="text-[10px] text-blue-400 hover:underline truncate block max-w-[250px]">
+                  Source: {evidenceSourceUrl.replace(/^https?:\/\//, '').slice(0, 60)}
+                </a>
+              )}
             </div>
           );
         })()}
