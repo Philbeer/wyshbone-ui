@@ -1,0 +1,206 @@
+Goal
+
+Extend the AFR export / AFR HTML report so benchmark runs clearly include the FULL Behaviour LLM evaluation output and packet, not just the final pass/fail.
+
+Reason:
+Before trusting the app’s debugging outputs, we need the AFR export to expose exactly what the Behaviour evaluator saw and what it concluded, so the exported report can itself be audited externally.
+
+We already have or are adding:
+- expected benchmark outcome
+- expected behaviour / test expectation
+- Behaviour LLM evaluator
+- Behaviour result / reason / confidence / failure type
+
+Now I want the downloaded AFR report to show all of that clearly for benchmark runs.
+
+Do NOT change scoring logic.
+Do NOT change Tower.
+Do NOT change Supervisor.
+This is an AFR observability / export visibility improvement only.
+
+Files to inspect first
+
+- client/src/pages/dev/qa-test-runner.tsx
+- AFR export HTML generation code in the UI repo
+- any code that builds the bulk AFR export
+- any code that persists qa_run_metrics or benchmark metadata used by AFR export
+
+What to build
+
+PART 1 — Find the benchmark metadata already flowing into AFR/export
+
+Locate where benchmark run metadata is currently attached to exported AFR runs.
+
+Identify which of these fields already exist and which need to be added:
+- benchmark_test_id
+- original_query
+- expected_outcome_text
+- expected_behaviour_text
+- behaviour_result
+- behaviour_reason
+- behaviour_expected_outcome_check
+- behaviour_observed_outcome_check
+- behaviour_key_failure_type
+- behaviour_confidence
+- behaviour_eval_mode
+- behaviour_packet (normalized packet sent to the LLM)
+- behaviour_llm_response_raw (or parsed structured response)
+
+Do not duplicate fields unnecessarily.
+Reuse existing persisted fields where possible.
+
+PART 2 — Persist the normalized Behaviour evaluation packet
+
+Make sure the normalized packet sent to the Behaviour LLM is persisted in a form that AFR export can read.
+
+I want the exported report to show the actual evaluation packet contents, including:
+
+- benchmark_test_id
+- original_query
+- expected_outcome_text
+- expected_behaviour_text
+- actual_run_state
+- clarified
+- clarify_question
+- clarify_answer
+- tower_result
+- delivered_count
+- delivered_entities
+- evidence_summary
+- behaviour_observed_summary
+
+This does NOT need to be huge or raw.
+Keep it compact and readable.
+
+If a field is missing for a specific run, omit it or show “N/A”.
+
+PART 3 — Persist the LLM Behaviour judgement output
+
+Make sure the structured LLM judgement output is also persisted and available to AFR export, including:
+
+- behaviour_result
+- behaviour_reason
+- expected_outcome_check
+- observed_outcome_check
+- key_failure_type
+- confidence
+- behaviour_eval_mode
+
+If raw model text is available, keep it in raw/debug payload too, but the visible AFR report should prioritize the parsed structured version.
+
+PART 4 — Add visible sections to the AFR HTML report
+
+For benchmark/harness runs only, add two clearly visible sections near the top of each run summary, before or near QA Layer Summary:
+
+1. Benchmark Expectation
+Show:
+- Test ID
+- Original query
+- Expected outcome
+- Expected behaviour (if separate)
+
+2. Behaviour Evaluation
+Show:
+- Result: pass/fail
+- Reason
+- Expected check
+- Observed check
+- Failure type
+- Confidence
+- Eval mode
+
+3. Behaviour Evaluation Packet
+Show a compact readable summary of the packet the LLM judged:
+- clarified?
+- tower result
+- delivered count
+- top delivered entities
+- top evidence items
+- observed summary
+
+Use visible HTML sections, not only raw JSON.
+These sections should be easy to scan in the downloaded AFR report.
+
+PART 5 — Keep raw/debug payloads too
+
+Also include the full structured Behaviour packet and structured Behaviour LLM output in raw payload / expandable JSON sections so they can be inspected programmatically.
+
+This is important because I may later give the AFR export to another evaluator and need the exact packet content visible.
+
+PART 6 — Restrict to benchmark runs only
+
+Only show these sections when benchmark metadata exists.
+Do not clutter normal non-benchmark AFR exports with empty benchmark panels.
+
+PART 7 — Add “why Behaviour passed/failed” prominently
+
+The key requirement:
+When I open the AFR export, I should immediately see WHY Behaviour passed or failed.
+
+For example:
+
+Benchmark Expectation
+- Test ID: B11
+- Expected outcome: Return at least 10 cafes in York
+
+Behaviour Evaluation
+- Result: pass
+- Reason: Passed because delivered_count 10 met minimum expected count 10 and returned entities were relevant cafes in York.
+- Expected check: At least 10 cafes in York
+- Observed check: Returned 10 York cafes
+- Failure type: none
+- Confidence: 0.93
+
+Or:
+
+Benchmark Expectation
+- Test ID: B08
+- Expected outcome: Return organisations with evidence of working with the local authority in Blackpool
+
+Behaviour Evaluation
+- Result: fail
+- Reason: Failed because returned organisations were plausible Blackpool organisations but did not include evidence of working with Blackpool Council / the local authority.
+- Expected check: Explicit local-authority relationship evidence
+- Observed check: Blackpool entities returned without predicate proof
+- Failure type: missing_relationship_evidence
+- Confidence: 0.96
+
+PART 8 — Preserve existing AFR structure
+
+Do not break:
+- existing run summary blocks
+- tower verdict display
+- event timeline
+- artefact cards
+- QA Layer Summary
+- bulk export structure
+
+This is an additive improvement.
+
+PART 9 — Make the export useful for external audit
+
+The exported AFR should now be sufficient for an external reviewer to answer:
+- what the benchmark expected
+- what the system returned
+- what Behaviour judged
+- why Behaviour judged it that way
+- what evidence packet the LLM saw
+
+That is the core purpose of this change.
+
+Definition of done
+
+For benchmark runs, the AFR export clearly shows:
+- expected test outcome
+- expected behaviour
+- Behaviour pass/fail
+- exact reason for pass/fail
+- the normalized packet sent to the Behaviour evaluator
+- the parsed structured LLM response
+
+At the end, report:
+- which files changed
+- where the AFR HTML sections were added
+- which fields are now persisted for export
+- one example of the final rendered Benchmark Expectation section
+- one example of the final rendered Behaviour Evaluation section

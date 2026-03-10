@@ -24,6 +24,16 @@ type ExpectedMode = 'deliver_results' | 'clarify' | 'honest_refusal' | 'best_eff
 type TowerResult = 'PASS' | 'FAIL' | 'UNKNOWN' | 'NOT_APPLICABLE';
 type BehaviourResult = 'PASS' | 'FAIL' | 'UNKNOWN';
 
+interface BehaviourLLMDetail {
+  behaviour_result: 'pass' | 'fail';
+  behaviour_reason: string;
+  expected_outcome_check: string;
+  observed_outcome_check: string;
+  key_failure_type: string;
+  confidence: number;
+  eval_mode: string;
+}
+
 interface TestDefinition {
   id: string;
   query: string;
@@ -382,6 +392,7 @@ interface TestResult {
   agentQuality: AgentQualityOutcome | null;
   towerResult: TowerResult | null;
   behaviourResult: BehaviourResult | null;
+  behaviourLLMDetail: BehaviourLLMDetail | null;
 }
 
 interface SuiteRunHistory {
@@ -831,6 +842,8 @@ interface ArtefactInfo {
   deliveredCount: number;
   hasLeadPack: boolean;
   layers: LayerBreakdown;
+  deliveredEntities: Array<{ name: string; location?: string; website?: string; key_evidence?: string[]; verification_flags?: Record<string, boolean> }>;
+  evidenceSummary: Array<{ entity_name: string; matched_quote?: string; source_url?: string; constraint_type?: string; confidence?: number }>;
 }
 
 function deriveLayers(artefacts: any[]): LayerBreakdown {
@@ -1129,8 +1142,107 @@ function deriveBehaviourDecision(result: TestResult): BehaviourDecision {
   return { result: bResult, reason, expected: expectedText, observed: observedText, decisionBasis: basis };
 }
 
+function buildBehaviourObservedSummary(result: TestResult, details: ArtefactInfo): string {
+  const parts: string[] = [];
+  if (result.clarified) parts.push('Clarified before execution.');
+  if (result.blocked) parts.push('Blocked by constraint gate.');
+  if (details.deliveredCount > 0) {
+    parts.push(`Returned ${details.deliveredCount} result${details.deliveredCount !== 1 ? 's' : ''}.`);
+  }
+  if (result.status === 'failed' && details.deliveredCount === 0) parts.push('Run failed with no results delivered.');
+  if (result.status === 'timed_out') parts.push('Run timed out.');
+  if (details.towerVerdict) parts.push(`Tower verdict: ${details.towerVerdict}.`);
+  if (details.deliveredEntities.length > 0) {
+    const names = details.deliveredEntities.slice(0, 5).map(e => e.name).join(', ');
+    parts.push(`Entities include: ${names}.`);
+  }
+  if (details.evidenceSummary.length > 0) {
+    parts.push(`${details.evidenceSummary.length} evidence item(s) found.`);
+  } else if (details.deliveredCount > 0) {
+    parts.push('No explicit evidence items captured.');
+  }
+  return parts.join(' ') || 'No observable behaviour recorded.';
+}
+
+function buildEvalPacket(
+  test: TestDefinition,
+  result: TestResult,
+  details: ArtefactInfo,
+): Record<string, unknown> {
+  const MODE_LABELS: Record<string, string> = {
+    deliver_results: 'Deliver results matching the query',
+    clarify: 'Clarify before running (missing info)',
+    honest_refusal: 'Honest refusal (impossible/fictional)',
+    best_effort_honest: 'Best effort delivery or clarify',
+  };
+
+  return {
+    benchmark_test_id: test.id,
+    original_query: test.query,
+    expected_outcome_text: buildExpectedOutcome(test),
+    expected_behaviour_text: MODE_LABELS[test.expectedMode] || test.expectedMode,
+    actual_run_state: result.status,
+    clarified: result.clarified,
+    clarify_question: result.autoClarified ? 'Auto-clarification triggered' : undefined,
+    clarify_answer: result.clarifyResponseValue || undefined,
+    tower_result: result.towerVerdict || 'UNKNOWN',
+    delivered_count: details.deliveredCount,
+    delivered_entities: details.deliveredEntities,
+    evidence_summary: details.evidenceSummary,
+    behaviour_observed_summary: buildBehaviourObservedSummary(result, details),
+  };
+}
+
+async function evaluateBehaviourLLM(
+  test: TestDefinition,
+  result: TestResult,
+  details: ArtefactInfo,
+): Promise<{ behaviourResult: BehaviourResult; detail: BehaviourLLMDetail | null; evalMode: string }> {
+  try {
+    const packet = buildEvalPacket(test, result, details);
+    const url = buildApiUrl(addDevAuthParams('/api/behaviour-eval/evaluate'));
+    const evalAbort = new AbortController();
+    const evalTimeout = setTimeout(() => evalAbort.abort(), 30_000);
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(packet),
+      signal: evalAbort.signal,
+    });
+    clearTimeout(evalTimeout);
+
+    if (!resp.ok) {
+      return { behaviourResult: deriveBehaviourResult(result), detail: null, evalMode: 'fallback_legacy' };
+    }
+
+    const data = await resp.json();
+
+    if (data.ok && data.judgement) {
+      const j = data.judgement;
+      return {
+        behaviourResult: j.behaviour_result === 'pass' ? 'PASS' : 'FAIL',
+        detail: {
+          behaviour_result: j.behaviour_result,
+          behaviour_reason: j.behaviour_reason,
+          expected_outcome_check: j.expected_outcome_check,
+          observed_outcome_check: j.observed_outcome_check,
+          key_failure_type: j.key_failure_type,
+          confidence: j.confidence,
+          eval_mode: data.eval_mode || 'llm_v1',
+        },
+        evalMode: data.eval_mode || 'llm_v1',
+      };
+    }
+
+    return { behaviourResult: deriveBehaviourResult(result), detail: null, evalMode: data.eval_mode || 'fallback_legacy' };
+  } catch {
+    return { behaviourResult: deriveBehaviourResult(result), detail: null, evalMode: 'fallback_legacy' };
+  }
+}
+
 async function fetchRunDetails(runId: string): Promise<ArtefactInfo> {
-  const info: ArtefactInfo = { blocked: false, clarified: false, towerVerdict: null, resultSummary: null, deliveredCount: 0, hasLeadPack: false, layers: emptyLayerBreakdown() };
+  const info: ArtefactInfo = { blocked: false, clarified: false, towerVerdict: null, resultSummary: null, deliveredCount: 0, hasLeadPack: false, layers: emptyLayerBreakdown(), deliveredEntities: [], evidenceSummary: [] };
   try {
     const params = new URLSearchParams({ runId });
     const res = await fetch(
@@ -1139,6 +1251,8 @@ async function fetchRunDetails(runId: string): Promise<ArtefactInfo> {
     );
     if (!res.ok) return info;
     const artefacts: any[] = await res.json();
+
+    let deliveredExact: any[] = [];
 
     for (const a of artefacts) {
       if (a.type === 'clarify_gate') {
@@ -1155,14 +1269,58 @@ async function fetchRunDetails(runId: string): Promise<ArtefactInfo> {
         try {
           const payload = typeof a.payload_json === 'string' ? JSON.parse(a.payload_json) : a.payload_json;
           info.towerVerdict = payload?.verdict || payload?.tower_verdict || payload?.pass_fail || null;
+          if (payload?.evidence_items && Array.isArray(payload.evidence_items)) {
+            for (const ev of payload.evidence_items.slice(0, 10)) {
+              info.evidenceSummary.push({
+                entity_name: ev.entity_name || ev.name || 'Unknown',
+                matched_quote: ev.matched_quote || ev.quote || ev.snippet || undefined,
+                source_url: ev.source_url || ev.url || undefined,
+                constraint_type: ev.constraint_type || ev.type || undefined,
+                confidence: ev.confidence ?? undefined,
+              });
+            }
+          }
         } catch {}
       }
       if (a.type === 'delivery_summary') {
         try {
           const payload = typeof a.payload_json === 'string' ? JSON.parse(a.payload_json) : a.payload_json;
-          const delivered = payload?.delivered_exact?.length || payload?.delivered_count || 0;
+          deliveredExact = payload?.delivered_exact || [];
+          const delivered = deliveredExact.length || payload?.delivered_count || 0;
           info.deliveredCount = delivered;
           info.resultSummary = `${delivered} lead${delivered !== 1 ? 's' : ''} delivered`;
+        } catch {}
+      }
+    }
+
+    for (const entity of deliveredExact.slice(0, 20)) {
+      const e: ArtefactInfo['deliveredEntities'][number] = {
+        name: entity.name || entity.entity_name || 'Unknown',
+      };
+      if (entity.address || entity.location) e.location = entity.address || entity.location;
+      if (entity.website || entity.url) e.website = entity.website || entity.url;
+      if (entity.evidence && Array.isArray(entity.evidence)) {
+        e.key_evidence = entity.evidence.slice(0, 3).map((ev: any) => typeof ev === 'string' ? ev : (ev.snippet || ev.quote || ev.summary || JSON.stringify(ev)));
+      }
+      if (entity.verification) e.verification_flags = entity.verification;
+      info.deliveredEntities.push(e);
+    }
+
+    for (const a of artefacts) {
+      if (a.type === 'verification_result' || a.type === 'website_evidence') {
+        try {
+          const payload = typeof a.payload_json === 'string' ? JSON.parse(a.payload_json) : a.payload_json;
+          if (payload?.results && Array.isArray(payload.results)) {
+            for (const r of payload.results.slice(0, 5)) {
+              info.evidenceSummary.push({
+                entity_name: r.entity_name || r.name || 'Unknown',
+                matched_quote: r.matched_quote || r.snippet || r.evidence_text || undefined,
+                source_url: r.source_url || r.url || undefined,
+                constraint_type: r.constraint_type || 'website_evidence',
+                confidence: r.confidence ?? undefined,
+              });
+            }
+          }
         } catch {}
       }
     }
@@ -1249,6 +1407,14 @@ async function persistQaMetric(
         observed: bDecision.observed,
         decision_basis: bDecision.decisionBasis,
       },
+      behaviour_eval_mode: result.behaviourLLMDetail?.eval_mode || 'fallback_legacy',
+      behaviour_reason: result.behaviourLLMDetail?.behaviour_reason || bDecision.reason,
+      expected_outcome_text: buildExpectedOutcome(test),
+      expected_behaviour_text: test.expectedMode,
+      behaviour_expected_outcome_check: result.behaviourLLMDetail?.expected_outcome_check || bDecision.expected,
+      behaviour_observed_outcome_check: result.behaviourLLMDetail?.observed_outcome_check || bDecision.observed,
+      behaviour_key_failure_type: result.behaviourLLMDetail?.key_failure_type || null,
+      behaviour_confidence: result.behaviourLLMDetail?.confidence ?? null,
     },
   };
 
@@ -1502,6 +1668,28 @@ function behaviourBadge(result: BehaviourResult | null) {
   return <Badge variant="outline" className={`text-[10px] px-1.5 py-0 font-medium border-0 ${cls}`}>{result}</Badge>;
 }
 
+function BehaviourDetailBlock({ detail }: { detail: BehaviourLLMDetail }) {
+  const isFallback = detail.eval_mode.includes('fallback');
+  return (
+    <details className="mt-1 group">
+      <summary className="cursor-pointer select-none list-none flex items-center gap-1 text-[10px] text-gray-400 hover:text-gray-600">
+        <ChevronRight className="w-3 h-3 group-open:hidden" />
+        <ChevronDown className="w-3 h-3 hidden group-open:block" />
+        <span className="font-semibold uppercase tracking-wider">Behaviour detail</span>
+        {isFallback && <span className="text-amber-500 ml-1">(fallback)</span>}
+      </summary>
+      <div className="mt-1 text-[10px] bg-gray-50 dark:bg-gray-900 rounded px-2 py-1.5 space-y-1 border border-gray-200 dark:border-gray-700">
+        <div><span className="font-semibold text-gray-600">Reason:</span> <span className="text-gray-800 dark:text-gray-200">{detail.behaviour_reason}</span></div>
+        <div><span className="font-semibold text-gray-600">Expected:</span> <span className="text-gray-800 dark:text-gray-200">{detail.expected_outcome_check}</span></div>
+        <div><span className="font-semibold text-gray-600">Observed:</span> <span className="text-gray-800 dark:text-gray-200">{detail.observed_outcome_check}</span></div>
+        <div><span className="font-semibold text-gray-600">Failure type:</span> <span className="text-gray-800 dark:text-gray-200">{detail.key_failure_type}</span></div>
+        <div><span className="font-semibold text-gray-600">Confidence:</span> <span className="text-gray-800 dark:text-gray-200">{(detail.confidence * 100).toFixed(0)}%</span></div>
+        <div><span className="font-semibold text-gray-600">Eval mode:</span> <span className="text-gray-500">{detail.eval_mode}</span></div>
+      </div>
+    </details>
+  );
+}
+
 function BenchmarkSummaryCard({ summary }: { summary: BenchmarkSummary }) {
   const s = summary.system;
   const a = summary.agent;
@@ -1600,6 +1788,7 @@ export default function QaTestRunnerPage() {
       agentQuality: null,
       towerResult: null,
       behaviourResult: null,
+      behaviourLLMDetail: null,
     }));
   }, []);
 
@@ -1654,7 +1843,7 @@ export default function QaTestRunnerPage() {
     for (let i = 0; i < suite.tests.length; i++) {
       if (controller.signal.aborted) {
         for (let j = i; j < suite.tests.length; j++) {
-          const skipped: Partial<TestResult> = { status: 'failed', error: 'Stopped by user', judgement: 'skip', benchmarkOutcome: 'TIMEOUT' as BenchmarkOutcome, systemHealth: 'TIMEOUT' as SystemHealthOutcome, agentQuality: 'UNKNOWN' as AgentQualityOutcome, towerResult: 'UNKNOWN' as TowerResult, behaviourResult: 'UNKNOWN' as BehaviourResult };
+          const skipped: Partial<TestResult> = { status: 'failed', error: 'Stopped by user', judgement: 'skip', benchmarkOutcome: 'TIMEOUT' as BenchmarkOutcome, systemHealth: 'TIMEOUT' as SystemHealthOutcome, agentQuality: 'UNKNOWN' as AgentQualityOutcome, towerResult: 'UNKNOWN' as TowerResult, behaviourResult: 'UNKNOWN' as BehaviourResult, behaviourLLMDetail: null };
           finalResults[j] = { ...finalResults[j], ...skipped };
           updateResult(j, skipped);
         }
@@ -1717,7 +1906,7 @@ export default function QaTestRunnerPage() {
 
         const duration = Date.now() - testStart;
 
-        let details: ArtefactInfo = { blocked: false, clarified: false, towerVerdict: null, resultSummary: null, deliveredCount: 0, hasLeadPack: false, layers: emptyLayerBreakdown() };
+        let details: ArtefactInfo = { blocked: false, clarified: false, towerVerdict: null, resultSummary: null, deliveredCount: 0, hasLeadPack: false, layers: emptyLayerBreakdown(), deliveredEntities: [], evidenceSummary: [] };
         if (effectiveRunId) {
           try { details = await fetchRunDetails(effectiveRunId); } catch {}
         }
@@ -1747,7 +1936,22 @@ export default function QaTestRunnerPage() {
         patch.systemHealth = deriveSystemHealth(tempResult as TestResult);
         patch.agentQuality = deriveAgentQuality(tempResult as TestResult);
         patch.towerResult = deriveTowerResult(tempResult as TestResult);
-        patch.behaviourResult = deriveBehaviourResult(tempResult as TestResult);
+
+        const isTerminal = testStatus !== 'queued' && testStatus !== 'running' && testStatus !== 'poll_expired_reconciling';
+        if (isTerminal) {
+          const tempForEval = { ...finalResults[i], ...patch, behaviourResult: null, behaviourLLMDetail: null } as TestResult;
+          try {
+            const llmEval = await evaluateBehaviourLLM(test, tempForEval, details);
+            patch.behaviourResult = llmEval.behaviourResult;
+            patch.behaviourLLMDetail = llmEval.detail;
+          } catch {
+            patch.behaviourResult = deriveBehaviourResult(tempResult as TestResult);
+            patch.behaviourLLMDetail = null;
+          }
+        } else {
+          patch.behaviourResult = deriveBehaviourResult(tempResult as TestResult);
+          patch.behaviourLLMDetail = null;
+        }
 
         finalResults[i] = { ...finalResults[i], ...patch };
         updateResult(i, patch);
@@ -1756,13 +1960,13 @@ export default function QaTestRunnerPage() {
       } catch (e: any) {
         const duration = Date.now() - testStart;
         if (e.name === 'AbortError') {
-          const patch: Partial<TestResult> = { status: 'failed', error: 'Stopped by user', durationMs: duration, judgement: 'skip', benchmarkOutcome: 'TIMEOUT' as BenchmarkOutcome, systemHealth: 'TIMEOUT' as SystemHealthOutcome, agentQuality: 'UNKNOWN' as AgentQualityOutcome, towerResult: 'UNKNOWN' as TowerResult, behaviourResult: 'UNKNOWN' as BehaviourResult };
+          const patch: Partial<TestResult> = { status: 'failed', error: 'Stopped by user', durationMs: duration, judgement: 'skip', benchmarkOutcome: 'TIMEOUT' as BenchmarkOutcome, systemHealth: 'TIMEOUT' as SystemHealthOutcome, agentQuality: 'UNKNOWN' as AgentQualityOutcome, towerResult: 'UNKNOWN' as TowerResult, behaviourResult: 'UNKNOWN' as BehaviourResult, behaviourLLMDetail: null };
           finalResults[i] = { ...finalResults[i], ...patch };
           updateResult(i, patch);
           persistQaMetric(finalResults[i], test, targetSuiteId, suiteStart);
           break;
         } else {
-          const patch: Partial<TestResult> = { status: 'failed', error: e.message, durationMs: duration, judgement: 'mismatch', benchmarkOutcome: 'FAIL' as BenchmarkOutcome, systemHealth: 'BROKEN' as SystemHealthOutcome, agentQuality: 'UNKNOWN' as AgentQualityOutcome, towerResult: 'UNKNOWN' as TowerResult, behaviourResult: 'UNKNOWN' as BehaviourResult };
+          const patch: Partial<TestResult> = { status: 'failed', error: e.message, durationMs: duration, judgement: 'mismatch', benchmarkOutcome: 'FAIL' as BenchmarkOutcome, systemHealth: 'BROKEN' as SystemHealthOutcome, agentQuality: 'UNKNOWN' as AgentQualityOutcome, towerResult: 'UNKNOWN' as TowerResult, behaviourResult: 'UNKNOWN' as BehaviourResult, behaviourLLMDetail: null };
           finalResults[i] = { ...finalResults[i], ...patch };
           updateResult(i, patch);
           persistQaMetric(finalResults[i], test, targetSuiteId, suiteStart);
@@ -1930,7 +2134,7 @@ export default function QaTestRunnerPage() {
           <div><span className="font-medium text-gray-700">System</span> — Did the run infrastructure behave reliably (no crash/timeout)?</div>
           <div><span className="font-medium text-gray-700">Agent</span> — Did the agent make the correct decision about what to do?</div>
           <div><span className="font-medium text-gray-700">Tower</span> — Was the mission execution result acceptable?</div>
-          <div><span className="font-medium text-gray-700">Behaviour</span> — Did the system behave as the benchmark expected?</div>
+          <div><span className="font-medium text-gray-700">Behaviour</span> — LLM-judged: did the run genuinely satisfy the benchmark query? (strict)</div>
         </div>
       </div>
 
@@ -2024,6 +2228,10 @@ export default function QaTestRunnerPage() {
                   </td>
                   <td className="px-3 py-2.5">
                     {behaviourBadge(r.behaviourResult)}
+                    {r.behaviourLLMDetail && <BehaviourDetailBlock detail={r.behaviourLLMDetail} />}
+                    {r.behaviourResult && !r.behaviourLLMDetail && r.status !== 'queued' && r.status !== 'running' && r.behaviourResult !== 'UNKNOWN' && (
+                      <div className="text-[9px] text-amber-500 mt-0.5">fallback logic</div>
+                    )}
                   </td>
                   <td className="px-3 py-2.5 text-gray-500 font-mono text-xs">
                     {r.durationMs !== null ? `${(r.durationMs / 1000).toFixed(1)}s` : '—'}
