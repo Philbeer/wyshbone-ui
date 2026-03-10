@@ -913,20 +913,36 @@ function buildBenchmarkSectionHtml(bm: BenchmarkMeta): string {
   const bd = meta.behaviour_decision || {};
   const expectedOutcome = meta.expected_outcome_text || meta.expectedOutcome || bm.expected_mode || '—';
   const expectedBehaviour = meta.expected_behaviour_text || bm.expected_mode || '—';
+  const bEvalMode = meta.behaviour_eval_mode || llmResp?.eval_mode || 'unknown';
 
-  const bResult = llmResp?.behaviour_result?.toUpperCase() || bd.result || bm.behaviour_result || '—';
-  const bReason = meta.behaviour_reason || llmResp?.behaviour_reason || bd.reason || '—';
+  const derivedSource: string = meta.behaviour_source_of_truth || (bEvalMode.startsWith('llm') && !bEvalMode.includes('error') && !bEvalMode.includes('parse_error') ? 'llm' : bEvalMode === 'fallback_legacy' ? 'fallback_legacy' : 'unknown');
+  const bResult = derivedSource === 'llm'
+    ? (llmResp?.behaviour_result?.toUpperCase() || bm.behaviour_result || bd.result || '—')
+    : (bm.behaviour_result || bd.result || llmResp?.behaviour_result?.toUpperCase() || '—');
+  const bReason = derivedSource === 'llm'
+    ? (llmResp?.behaviour_reason || meta.behaviour_reason || bd.reason || '—')
+    : (meta.behaviour_reason || bd.reason || llmResp?.behaviour_reason || '—');
   const bExpectedCheck = meta.behaviour_expected_outcome_check || llmResp?.expected_outcome_check || bd.expected || '—';
   const bObservedCheck = meta.behaviour_observed_outcome_check || llmResp?.observed_outcome_check || bd.observed || '—';
   const bFailureType = meta.behaviour_key_failure_type || llmResp?.key_failure_type || 'none';
   const bConfidence = meta.behaviour_confidence ?? llmResp?.confidence ?? null;
-  const bEvalMode = meta.behaviour_eval_mode || llmResp?.eval_mode || 'unknown';
+
+  const sourceOfTruth: string = derivedSource;
+  const fallbackUsed: boolean = meta.behaviour_fallback_used ?? (sourceOfTruth !== 'llm');
+  const fallbackReason: string | null = meta.fallback_reason || null;
+  const evalParseOk: boolean | null = meta.behaviour_eval_parse_ok ?? (llmResp ? true : null);
+  const evalResponseRaw: string | null = meta.behaviour_eval_response_raw || null;
 
   const isPass = bResult === 'PASS' || bResult === 'pass';
   const isFail = bResult === 'FAIL' || bResult === 'fail';
   const borderColor = isPass ? '#bbf7d0' : isFail ? '#fecaca' : '#e5e7eb';
   const bgColor = isPass ? '#f0fdf4' : isFail ? '#fef2f2' : '#f9fafb';
   const headingColor = isPass ? '#15803d' : isFail ? '#dc2626' : '#6b7280';
+
+  const sourceLabel = sourceOfTruth === 'llm' ? 'LLM evaluator' : sourceOfTruth === 'fallback_legacy' ? 'Fallback legacy logic' : 'Unknown';
+  const sourceBg = sourceOfTruth === 'llm' ? '#dbeafe' : sourceOfTruth === 'fallback_legacy' ? '#fef3c7' : '#f3f4f6';
+  const sourceColor = sourceOfTruth === 'llm' ? '#1e40af' : sourceOfTruth === 'fallback_legacy' ? '#92400e' : '#6b7280';
+  const sourceBorder = sourceOfTruth === 'llm' ? '#93c5fd' : sourceOfTruth === 'fallback_legacy' ? '#fcd34d' : '#d1d5db';
 
   const MODE_LABELS: Record<string, string> = {
     deliver_results: 'Deliver results matching the query',
@@ -939,8 +955,19 @@ function buildBenchmarkSectionHtml(bm: BenchmarkMeta): string {
   const rowStyle = 'padding:3px 14px 3px 0; font-weight:600; color:#4b5563; vertical-align:top;';
   const valStyle = 'padding:3px 0; vertical-align:top;';
 
-  let html = `<div class="benchmark-section" style="margin:16px 0; padding:14px 18px; border:2px solid #c7d2fe; border-radius:8px; background:#eef2ff;">
-    <h3 style="margin:0 0 10px 0; color:#4338ca; font-size:14px;">Benchmark Expectation</h3>
+  let html = `<div style="margin:16px 0 12px 0; padding:12px 18px; border:2px solid ${sourceBorder}; border-radius:8px; background:${sourceBg};">
+    <div style="font-size:13px; color:${sourceColor}; line-height:1.6;">
+      <strong>Behaviour source:</strong> ${escHtml(sourceLabel)}<br/>
+      <strong>Behaviour result:</strong> <span class="badge ${exportBadgeClass(bResult)}" style="font-size:12px; font-weight:700;">${escHtml(bResult)}</span><br/>
+      <strong>Why:</strong> ${escHtml(bReason)}
+    </div>
+    <div style="margin-top:8px; padding-top:8px; border-top:1px solid ${sourceBorder}; font-size:11px; color:${sourceColor};">
+      Behaviour verdict shown in harness was driven by: <strong>${escHtml(sourceLabel)}</strong>
+    </div>
+  </div>`;
+
+  html += `<div class="benchmark-section" style="margin:16px 0; padding:14px 18px; border:2px solid #c7d2fe; border-radius:8px; background:#eef2ff;">
+    <h3 style="margin:0 0 10px 0; color:#4338ca; font-size:14px;">1. Benchmark Expectation</h3>
     <table style="width:auto; margin:0; font-size:12px; border-collapse:collapse;">
       <tr><td style="${rowStyle}">Test ID:</td><td style="${valStyle}">${escHtml(bm.benchmark_test_id || '—')}</td></tr>
       <tr><td style="${rowStyle}">Original query:</td><td style="${valStyle}">${escHtml(evalPacket?.original_query || bm.query || '—')}</td></tr>
@@ -948,18 +975,16 @@ function buildBenchmarkSectionHtml(bm: BenchmarkMeta): string {
       <tr><td style="${rowStyle}">Expected outcome:</td><td style="${valStyle}">${escHtml(expectedOutcome)}</td></tr>
       <tr><td style="${rowStyle}">Expected behaviour:</td><td style="${valStyle}">${escHtml(expectedBehaviourLabel)}</td></tr>
     </table>
-  </div>
+  </div>`;
 
-  <div class="behaviour-eval-section" style="margin:16px 0; padding:14px 18px; border:2px solid ${borderColor}; border-radius:8px; background:${bgColor};">
-    <h3 style="margin:0 0 10px 0; color:${headingColor}; font-size:14px;">Behaviour Evaluation</h3>
+  html += `<div class="behaviour-result-section" style="margin:16px 0; padding:14px 18px; border:2px solid ${borderColor}; border-radius:8px; background:${bgColor};">
+    <h3 style="margin:0 0 10px 0; color:${headingColor}; font-size:14px;">2. Behaviour Result</h3>
     <table style="width:auto; margin:0; font-size:12px; border-collapse:collapse;">
-      <tr><td style="${rowStyle}">Result:</td><td style="${valStyle}"><span class="badge ${exportBadgeClass(bResult)}" style="font-size:13px; font-weight:700;">${escHtml(bResult)}</span></td></tr>
-      <tr><td style="${rowStyle}">Reason:</td><td style="${valStyle} max-width:600px;">${escHtml(bReason)}</td></tr>
-      <tr><td style="${rowStyle}">Expected check:</td><td style="${valStyle}">${escHtml(bExpectedCheck)}</td></tr>
-      <tr><td style="${rowStyle}">Observed check:</td><td style="${valStyle}">${escHtml(bObservedCheck)}</td></tr>
-      <tr><td style="${rowStyle}">Failure type:</td><td style="${valStyle}"><code>${escHtml(bFailureType)}</code></td></tr>
-      <tr><td style="${rowStyle}">Confidence:</td><td style="${valStyle}">${bConfidence != null ? String(bConfidence) : '—'}</td></tr>
+      <tr><td style="${rowStyle}">Final result:</td><td style="${valStyle}"><span class="badge ${exportBadgeClass(bResult)}" style="font-size:13px; font-weight:700;">${escHtml(bResult)}</span></td></tr>
+      <tr><td style="${rowStyle}">Source of truth:</td><td style="${valStyle}"><strong style="color:${sourceColor};">${escHtml(sourceLabel)}</strong></td></tr>
       <tr><td style="${rowStyle}">Eval mode:</td><td style="${valStyle}"><code>${escHtml(bEvalMode)}</code></td></tr>
+      <tr><td style="${rowStyle}">Fallback used?</td><td style="${valStyle}">${fallbackUsed ? '<strong style="color:#b45309">Yes</strong>' : 'No'}</td></tr>
+      ${fallbackReason ? `<tr><td style="${rowStyle}">Fallback reason:</td><td style="${valStyle}">${escHtml(fallbackReason)}</td></tr>` : ''}
     </table>
   </div>`;
 
@@ -968,13 +993,13 @@ function buildBenchmarkSectionHtml(bm: BenchmarkMeta): string {
     const evidence = Array.isArray(evalPacket.evidence_summary) ? evalPacket.evidence_summary : [];
 
     html += `<div class="behaviour-packet-section" style="margin:16px 0; padding:14px 18px; border:2px solid #ddd6fe; border-radius:8px; background:#f5f3ff;">
-      <h3 style="margin:0 0 10px 0; color:#6d28d9; font-size:14px;">Behaviour Evaluation Packet</h3>
+      <h3 style="margin:0 0 10px 0; color:#6d28d9; font-size:14px;">3. Behaviour Evaluation Packet</h3>
       <table style="width:auto; margin:0; font-size:12px; border-collapse:collapse;">
+        <tr><td style="${rowStyle}">Run state:</td><td style="${valStyle}"><code>${escHtml(evalPacket.actual_run_state || '—')}</code></td></tr>
         <tr><td style="${rowStyle}">Clarified:</td><td style="${valStyle}">${evalPacket.clarified ? '<strong style="color:#b45309">Yes</strong>' : 'No'}</td></tr>
         ${evalPacket.clarify_question ? `<tr><td style="${rowStyle}">Clarify question:</td><td style="${valStyle}">${escHtml(evalPacket.clarify_question)}</td></tr>` : ''}
         ${evalPacket.clarify_answer ? `<tr><td style="${rowStyle}">Clarify answer:</td><td style="${valStyle}">${escHtml(evalPacket.clarify_answer)}</td></tr>` : ''}
         <tr><td style="${rowStyle}">Tower result:</td><td style="${valStyle}"><code>${escHtml(evalPacket.tower_result || '—')}</code></td></tr>
-        <tr><td style="${rowStyle}">Run state:</td><td style="${valStyle}"><code>${escHtml(evalPacket.actual_run_state || '—')}</code></td></tr>
         <tr><td style="${rowStyle}">Delivered count:</td><td style="${valStyle}">${evalPacket.delivered_count ?? '—'}</td></tr>
       </table>`;
 
@@ -1016,15 +1041,38 @@ function buildBenchmarkSectionHtml(bm: BenchmarkMeta): string {
     html += `</div>`;
   }
 
+  const hasLlmResponse = !!(llmResp || evalResponseRaw);
+  if (hasLlmResponse) {
+    html += `<div class="behaviour-llm-response-section" style="margin:16px 0; padding:14px 18px; border:2px solid #a7f3d0; border-radius:8px; background:#ecfdf5;">
+      <h3 style="margin:0 0 10px 0; color:#065f46; font-size:14px;">4. Behaviour LLM Response</h3>
+      <table style="width:auto; margin:0; font-size:12px; border-collapse:collapse;">
+        <tr><td style="${rowStyle}">Result:</td><td style="${valStyle}"><span class="badge ${exportBadgeClass(bResult)}" style="font-size:13px; font-weight:700;">${escHtml(bResult)}</span></td></tr>
+        <tr><td style="${rowStyle}">Reason:</td><td style="${valStyle} max-width:600px;">${escHtml(bReason)}</td></tr>
+        <tr><td style="${rowStyle}">Expected outcome check:</td><td style="${valStyle}">${escHtml(bExpectedCheck)}</td></tr>
+        <tr><td style="${rowStyle}">Observed outcome check:</td><td style="${valStyle}">${escHtml(bObservedCheck)}</td></tr>
+        <tr><td style="${rowStyle}">Key failure type:</td><td style="${valStyle}"><code>${escHtml(bFailureType)}</code></td></tr>
+        <tr><td style="${rowStyle}">Confidence:</td><td style="${valStyle}">${bConfidence != null ? String(bConfidence) : '—'}</td></tr>
+        <tr><td style="${rowStyle}">Parse OK?</td><td style="${valStyle}">${evalParseOk === true ? 'Yes' : evalParseOk === false ? '<strong style="color:#dc2626">No</strong>' : '—'}</td></tr>
+      </table>
+    </div>`;
+  }
+
   html += `<details class="raw-payload-toggle" style="margin-bottom:6px;">
-    <summary>Raw Behaviour evaluation packet (JSON)</summary>
+    <summary>Full behaviour_eval_packet (JSON)</summary>
     <pre>${escHtml(prettyJson(evalPacket || { note: 'No eval packet persisted for this run' }))}</pre>
   </details>`;
 
   html += `<details class="raw-payload-toggle" style="margin-bottom:6px;">
-    <summary>Raw Behaviour LLM response (JSON)</summary>
+    <summary>Full parsed behaviour_eval_response (JSON)</summary>
     <pre>${escHtml(prettyJson(llmResp || { note: 'No LLM response persisted for this run' }))}</pre>
   </details>`;
+
+  if (evalResponseRaw) {
+    html += `<details class="raw-payload-toggle" style="margin-bottom:6px;">
+      <summary>Raw behaviour_eval_response_raw (text)</summary>
+      <pre>${escHtml(evalResponseRaw)}</pre>
+    </details>`;
+  }
 
   html += `<details class="raw-payload-toggle" style="margin-bottom:12px;">
     <summary>Full benchmark metadata (JSON)</summary>
@@ -1087,6 +1135,28 @@ function buildRunSectionHtml(
   </div>`;
 
   const glanceHtml = buildGlanceHtml(glance);
+
+  let behaviourGlanceLine = '';
+  if (benchmarkMeta) {
+    const bmMeta = typeof benchmarkMeta.metadata === 'string' ? (() => { try { return JSON.parse(benchmarkMeta.metadata); } catch { return {}; } })() : (benchmarkMeta.metadata || {});
+    const bmLlmResp = bmMeta.behaviour_llm_response || null;
+    const bmBd = bmMeta.behaviour_decision || {};
+    const bmBResult = bmLlmResp?.behaviour_result?.toUpperCase() || bmBd.result || benchmarkMeta.behaviour_result || '—';
+    const bmBReason = bmMeta.behaviour_reason || bmLlmResp?.behaviour_reason || bmBd.reason || '—';
+    const bmEvalMode = bmMeta.behaviour_eval_mode || bmLlmResp?.eval_mode || 'unknown';
+    const bmSource = bmMeta.behaviour_source_of_truth || (bmEvalMode.startsWith('llm') && !bmEvalMode.includes('error') && !bmEvalMode.includes('parse_error') ? 'LLM' : bmEvalMode === 'fallback_legacy' ? 'Fallback legacy' : 'Unknown');
+    const bmSourceLabel = bmSource === 'llm' ? 'LLM' : bmSource === 'fallback_legacy' ? 'Fallback legacy' : bmSource;
+    const bmIsPass = bmBResult === 'PASS' || bmBResult === 'pass';
+    const bmIsFail = bmBResult === 'FAIL' || bmBResult === 'fail';
+    const bmLineColor = bmIsPass ? '#166534' : bmIsFail ? '#991b1b' : '#6b7280';
+    const bmLineBg = bmIsPass ? '#dcfce7' : bmIsFail ? '#fee2e2' : '#f3f4f6';
+    behaviourGlanceLine = `<div style="margin:-12px 0 20px 0; padding:8px 18px; border-radius:0 0 6px 6px; background:${bmLineBg}; border:1px solid ${bmIsPass ? '#bbf7d0' : bmIsFail ? '#fecaca' : '#d1d5db'}; border-top:none; font-size:12px; color:${bmLineColor}; line-height:1.5;">
+      <strong>Behaviour source:</strong> ${escHtml(bmSourceLabel)} &nbsp;|&nbsp;
+      <strong>Behaviour result:</strong> <span class="badge ${exportBadgeClass(bmBResult)}" style="font-weight:700;">${escHtml(bmBResult)}</span> &nbsp;|&nbsp;
+      <strong>Why:</strong> ${escHtml(bmBReason.length > 100 ? bmBReason.slice(0, 100) + '...' : bmBReason)}
+    </div>`;
+  }
+
   const keyMomentsHtml = buildKeyMomentsHtml(events);
 
   let eventsHtml = '';
@@ -1195,6 +1265,7 @@ function buildRunSectionHtml(
   return `
 ${headerHtml}
 ${glanceHtml}
+${behaviourGlanceLine}
 ${benchmarkHtml}
 ${keyMomentsHtml}
 

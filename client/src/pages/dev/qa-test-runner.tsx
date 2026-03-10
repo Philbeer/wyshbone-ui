@@ -32,6 +32,8 @@ interface BehaviourLLMDetail {
   key_failure_type: string;
   confidence: number;
   eval_mode: string;
+  raw_response?: string;
+  parse_ok?: boolean;
 }
 
 interface TestDefinition {
@@ -393,6 +395,9 @@ interface TestResult {
   towerResult: TowerResult | null;
   behaviourResult: BehaviourResult | null;
   behaviourLLMDetail: BehaviourLLMDetail | null;
+  behaviourSourceOfTruth: 'llm' | 'fallback_legacy' | 'unknown';
+  behaviourFallbackUsed: boolean;
+  fallbackReason: string | null;
 }
 
 interface SuiteRunHistory {
@@ -1197,7 +1202,14 @@ async function evaluateBehaviourLLM(
   test: TestDefinition,
   result: TestResult,
   details: ArtefactInfo,
-): Promise<{ behaviourResult: BehaviourResult; detail: BehaviourLLMDetail | null; evalMode: string }> {
+): Promise<{
+  behaviourResult: BehaviourResult;
+  detail: BehaviourLLMDetail | null;
+  evalMode: string;
+  behaviourSourceOfTruth: 'llm' | 'fallback_legacy' | 'unknown';
+  behaviourFallbackUsed: boolean;
+  fallbackReason: string | null;
+}> {
   try {
     const packet = buildEvalPacket(test, result, details);
     const url = buildApiUrl(addDevAuthParams('/api/behaviour-eval/evaluate'));
@@ -1213,7 +1225,7 @@ async function evaluateBehaviourLLM(
     clearTimeout(evalTimeout);
 
     if (!resp.ok) {
-      return { behaviourResult: deriveBehaviourResult(result), detail: null, evalMode: 'fallback_legacy' };
+      return { behaviourResult: deriveBehaviourResult(result), detail: null, evalMode: 'fallback_legacy', behaviourSourceOfTruth: 'fallback_legacy', behaviourFallbackUsed: true, fallbackReason: `HTTP ${resp.status} from behaviour evaluator` };
     }
 
     const data = await resp.json();
@@ -1230,14 +1242,28 @@ async function evaluateBehaviourLLM(
           key_failure_type: j.key_failure_type,
           confidence: j.confidence,
           eval_mode: data.eval_mode || 'llm_v1',
+          raw_response: data.raw_response || undefined,
+          parse_ok: data.parse_ok ?? true,
         },
         evalMode: data.eval_mode || 'llm_v1',
+        behaviourSourceOfTruth: 'llm',
+        behaviourFallbackUsed: false,
+        fallbackReason: null,
       };
     }
 
-    return { behaviourResult: deriveBehaviourResult(result), detail: null, evalMode: data.eval_mode || 'fallback_legacy' };
-  } catch {
-    return { behaviourResult: deriveBehaviourResult(result), detail: null, evalMode: 'fallback_legacy' };
+    const parseError = data.eval_mode === 'llm_v1_parse_error';
+    const fallbackResult = deriveBehaviourResult(result);
+    return {
+      behaviourResult: fallbackResult,
+      detail: parseError ? { behaviour_result: fallbackResult === 'PASS' ? 'pass' as const : 'fail' as const, behaviour_reason: `Fallback: ${deriveBehaviourDecision(result).reason} (LLM parse error)`, expected_outcome_check: '—', observed_outcome_check: '—', key_failure_type: 'other', confidence: 0, eval_mode: data.eval_mode || 'fallback_legacy', raw_response: data.raw_response || undefined, parse_ok: false } : null,
+      evalMode: data.eval_mode || 'fallback_legacy',
+      behaviourSourceOfTruth: 'fallback_legacy' as const,
+      behaviourFallbackUsed: true,
+      fallbackReason: parseError ? 'LLM response could not be parsed' : (data.error || 'LLM evaluator returned no judgement'),
+    };
+  } catch (err: any) {
+    return { behaviourResult: deriveBehaviourResult(result), detail: null, evalMode: 'fallback_legacy', behaviourSourceOfTruth: 'fallback_legacy', behaviourFallbackUsed: true, fallbackReason: err?.message || 'Network/timeout error calling behaviour evaluator' };
   }
 }
 
@@ -1438,6 +1464,11 @@ async function persistQaMetric(
         confidence: result.behaviourLLMDetail.confidence,
         eval_mode: result.behaviourLLMDetail.eval_mode,
       } : null,
+      behaviour_eval_response_raw: result.behaviourLLMDetail?.raw_response || null,
+      behaviour_eval_parse_ok: result.behaviourLLMDetail?.parse_ok ?? null,
+      behaviour_source_of_truth: result.behaviourSourceOfTruth || 'unknown',
+      behaviour_fallback_used: result.behaviourFallbackUsed || false,
+      fallback_reason: result.fallbackReason || null,
     },
   };
 
@@ -1812,6 +1843,9 @@ export default function QaTestRunnerPage() {
       towerResult: null,
       behaviourResult: null,
       behaviourLLMDetail: null,
+      behaviourSourceOfTruth: 'unknown',
+      behaviourFallbackUsed: false,
+      fallbackReason: null,
     }));
   }, []);
 
@@ -1866,7 +1900,7 @@ export default function QaTestRunnerPage() {
     for (let i = 0; i < suite.tests.length; i++) {
       if (controller.signal.aborted) {
         for (let j = i; j < suite.tests.length; j++) {
-          const skipped: Partial<TestResult> = { status: 'failed', error: 'Stopped by user', judgement: 'skip', benchmarkOutcome: 'TIMEOUT' as BenchmarkOutcome, systemHealth: 'TIMEOUT' as SystemHealthOutcome, agentQuality: 'UNKNOWN' as AgentQualityOutcome, towerResult: 'UNKNOWN' as TowerResult, behaviourResult: 'UNKNOWN' as BehaviourResult, behaviourLLMDetail: null };
+          const skipped: Partial<TestResult> = { status: 'failed', error: 'Stopped by user', judgement: 'skip', benchmarkOutcome: 'TIMEOUT' as BenchmarkOutcome, systemHealth: 'TIMEOUT' as SystemHealthOutcome, agentQuality: 'UNKNOWN' as AgentQualityOutcome, towerResult: 'UNKNOWN' as TowerResult, behaviourResult: 'UNKNOWN' as BehaviourResult, behaviourLLMDetail: null, behaviourSourceOfTruth: 'unknown', behaviourFallbackUsed: false, fallbackReason: null };
           finalResults[j] = { ...finalResults[j], ...skipped };
           updateResult(j, skipped);
         }
@@ -1962,18 +1996,27 @@ export default function QaTestRunnerPage() {
 
         const isTerminal = testStatus !== 'queued' && testStatus !== 'running' && testStatus !== 'poll_expired_reconciling';
         if (isTerminal) {
-          const tempForEval = { ...finalResults[i], ...patch, behaviourResult: null, behaviourLLMDetail: null } as TestResult;
+          const tempForEval = { ...finalResults[i], ...patch, behaviourResult: null, behaviourLLMDetail: null, behaviourSourceOfTruth: 'unknown' as const, behaviourFallbackUsed: false, fallbackReason: null } as TestResult;
           try {
             const llmEval = await evaluateBehaviourLLM(test, tempForEval, details);
             patch.behaviourResult = llmEval.behaviourResult;
             patch.behaviourLLMDetail = llmEval.detail;
+            patch.behaviourSourceOfTruth = llmEval.behaviourSourceOfTruth;
+            patch.behaviourFallbackUsed = llmEval.behaviourFallbackUsed;
+            patch.fallbackReason = llmEval.fallbackReason;
           } catch {
             patch.behaviourResult = deriveBehaviourResult(tempResult as TestResult);
             patch.behaviourLLMDetail = null;
+            patch.behaviourSourceOfTruth = 'fallback_legacy';
+            patch.behaviourFallbackUsed = true;
+            patch.fallbackReason = 'Exception during behaviour evaluation';
           }
         } else {
           patch.behaviourResult = deriveBehaviourResult(tempResult as TestResult);
           patch.behaviourLLMDetail = null;
+          patch.behaviourSourceOfTruth = 'fallback_legacy';
+          patch.behaviourFallbackUsed = true;
+          patch.fallbackReason = 'Run not yet terminal';
         }
 
         finalResults[i] = { ...finalResults[i], ...patch };
@@ -1983,13 +2026,13 @@ export default function QaTestRunnerPage() {
       } catch (e: any) {
         const duration = Date.now() - testStart;
         if (e.name === 'AbortError') {
-          const patch: Partial<TestResult> = { status: 'failed', error: 'Stopped by user', durationMs: duration, judgement: 'skip', benchmarkOutcome: 'TIMEOUT' as BenchmarkOutcome, systemHealth: 'TIMEOUT' as SystemHealthOutcome, agentQuality: 'UNKNOWN' as AgentQualityOutcome, towerResult: 'UNKNOWN' as TowerResult, behaviourResult: 'UNKNOWN' as BehaviourResult, behaviourLLMDetail: null };
+          const patch: Partial<TestResult> = { status: 'failed', error: 'Stopped by user', durationMs: duration, judgement: 'skip', benchmarkOutcome: 'TIMEOUT' as BenchmarkOutcome, systemHealth: 'TIMEOUT' as SystemHealthOutcome, agentQuality: 'UNKNOWN' as AgentQualityOutcome, towerResult: 'UNKNOWN' as TowerResult, behaviourResult: 'UNKNOWN' as BehaviourResult, behaviourLLMDetail: null, behaviourSourceOfTruth: 'unknown', behaviourFallbackUsed: false, fallbackReason: null };
           finalResults[i] = { ...finalResults[i], ...patch };
           updateResult(i, patch);
           persistQaMetric(finalResults[i], test, targetSuiteId, suiteStart);
           break;
         } else {
-          const patch: Partial<TestResult> = { status: 'failed', error: e.message, durationMs: duration, judgement: 'mismatch', benchmarkOutcome: 'FAIL' as BenchmarkOutcome, systemHealth: 'BROKEN' as SystemHealthOutcome, agentQuality: 'UNKNOWN' as AgentQualityOutcome, towerResult: 'UNKNOWN' as TowerResult, behaviourResult: 'UNKNOWN' as BehaviourResult, behaviourLLMDetail: null };
+          const patch: Partial<TestResult> = { status: 'failed', error: e.message, durationMs: duration, judgement: 'mismatch', benchmarkOutcome: 'FAIL' as BenchmarkOutcome, systemHealth: 'BROKEN' as SystemHealthOutcome, agentQuality: 'UNKNOWN' as AgentQualityOutcome, towerResult: 'UNKNOWN' as TowerResult, behaviourResult: 'UNKNOWN' as BehaviourResult, behaviourLLMDetail: null, behaviourSourceOfTruth: 'unknown', behaviourFallbackUsed: false, fallbackReason: null };
           finalResults[i] = { ...finalResults[i], ...patch };
           updateResult(i, patch);
           persistQaMetric(finalResults[i], test, targetSuiteId, suiteStart);

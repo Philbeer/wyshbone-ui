@@ -221,6 +221,7 @@ export function createBehaviourEvaluatorRouter(): Router {
           eval_mode: "llm_v1_parse_error",
           judgement: null,
           raw_response: raw,
+          parse_ok: false,
         });
       }
 
@@ -228,6 +229,8 @@ export function createBehaviourEvaluatorRouter(): Router {
         ok: true,
         eval_mode: "llm_v1",
         judgement,
+        raw_response: raw,
+        parse_ok: true,
       });
     } catch (err: any) {
       console.error("[behaviour-evaluator] LLM eval error:", err.message);
