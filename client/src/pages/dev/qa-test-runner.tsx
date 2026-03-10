@@ -1163,7 +1163,12 @@ function buildUserVisibleSummary(result: TestResult, details: ArtefactInfo): str
     parts.push(`Returned ${details.deliveredCount} result${details.deliveredCount !== 1 ? 's' : ''}${nameList}.`);
   }
 
-  if (details.evidenceSummary.length > 0) {
+  const entitiesWithEvidence = details.deliveredEntities.filter(e => e.key_evidence && e.key_evidence.length > 0);
+  if (entitiesWithEvidence.length > 0) {
+    const names = entitiesWithEvidence.slice(0, 3).map(e => e.name);
+    const nameStr = names.length > 0 ? `, including ${names.join(', ')}` : '';
+    parts.push(`${entitiesWithEvidence.length} result${entitiesWithEvidence.length !== 1 ? 's have' : ' has'} attached evidence with supporting quotes${nameStr}.`);
+  } else if (details.evidenceSummary.length > 0) {
     const withQuotes = details.evidenceSummary.filter(e => e.matched_quote);
     if (withQuotes.length > 0) {
       parts.push(`${withQuotes.length} result${withQuotes.length !== 1 ? 's have' : ' has'} attached evidence with source quotes.`);
@@ -1171,7 +1176,7 @@ function buildUserVisibleSummary(result: TestResult, details: ArtefactInfo): str
       parts.push(`${details.evidenceSummary.length} evidence item${details.evidenceSummary.length !== 1 ? 's' : ''} found, but none include direct quotes.`);
     }
   } else if (details.deliveredCount > 0) {
-    parts.push('No evidence was attached to the delivered results.');
+    parts.push('No supporting evidence attached to the delivered results.');
   }
 
   if (result.status === 'failed' && details.deliveredCount === 0 && !result.clarified && !result.blocked) {
@@ -1213,8 +1218,26 @@ function buildEvalPacket(
       location: e.location,
       website: e.website,
       delivered: true,
+      evidence: e.key_evidence && e.key_evidence.length > 0 ? e.key_evidence : undefined,
     })),
     delivered_result_evidence: (() => {
+      const entityEvidence: Array<Record<string, unknown>> = [];
+      for (const ent of details.deliveredEntities.slice(0, 20)) {
+        if (ent.key_evidence && ent.key_evidence.length > 0) {
+          for (const snippet of ent.key_evidence.slice(0, 3)) {
+            entityEvidence.push({
+              entity_name: ent.name,
+              source_url: ent.website || undefined,
+              quote: snippet,
+              matched_phrase: snippet.length > 80 ? snippet.slice(0, 80) : snippet,
+              constraint_type: 'entity_attached',
+              confidence: undefined,
+            });
+          }
+        }
+      }
+      if (entityEvidence.length > 0) return entityEvidence.slice(0, 15);
+
       const deliveredNames = new Set(
         details.deliveredEntities.map(e => (e.name || '').toLowerCase().trim())
       );

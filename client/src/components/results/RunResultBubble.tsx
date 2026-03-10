@@ -501,6 +501,21 @@ function LeadRow({ lead, isVerified, unverifiableAttr, runId, showLocationBadge,
             </span>
           )}
         </div>
+        {(() => {
+          const ev = Array.isArray((lead as any).evidence) ? (lead as any).evidence : [];
+          if (ev.length === 0) return null;
+          const firstEvidence = ev[0];
+          const snippet = typeof firstEvidence === 'string'
+            ? firstEvidence
+            : (firstEvidence?.snippet || firstEvidence?.quote || firstEvidence?.summary || '');
+          if (!snippet) return null;
+          const display = snippet.length > 120 ? snippet.slice(0, 120) + '…' : snippet;
+          return (
+            <div className="mt-1 text-[11px] text-muted-foreground/80 italic leading-snug pl-0.5">
+              "{display}"
+            </div>
+          );
+        })()}
       </div>
     </div>
   );

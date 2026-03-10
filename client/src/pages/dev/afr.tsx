@@ -1016,32 +1016,49 @@ function buildBenchmarkSectionHtml(bm: BenchmarkMeta): string {
       </table>`;
 
     if (entities.length > 0) {
+      const evidenceByEntity: Record<string, typeof evidence> = {};
+      for (const ev of evidence) {
+        const key = (ev.entity_name || '').toLowerCase().trim();
+        if (!evidenceByEntity[key]) evidenceByEntity[key] = [];
+        evidenceByEntity[key].push(ev);
+      }
+
       html += `<div style="margin-top:8px;"><strong style="font-size:12px; color:#4b5563;">Delivered results:</strong>
         <ul style="margin:4px 0 0 16px; padding:0; font-size:11px; color:#374151;">`;
-      for (const e of entities.slice(0, 8)) {
+      for (const e of entities.slice(0, 10)) {
         const name = e.name || e.entity_name || 'Unknown';
         const loc = e.location || e.address || '';
-        html += `<li style="margin-bottom:2px;">${escHtml(name)}${loc ? ` <span style="color:#6b7280;">(${escHtml(loc)})</span>` : ''}</li>`;
-      }
-      if (entities.length > 8) html += `<li style="color:#6b7280;">...and ${entities.length - 8} more</li>`;
-      html += `</ul></div>`;
-    }
+        const website = e.website || e.url || '';
+        html += `<li style="margin-bottom:6px;"><strong>${escHtml(name)}</strong>`;
+        if (loc) html += ` <span style="color:#6b7280;">(${escHtml(loc)})</span>`;
+        if (website) html += `<br/><span style="color:#3b82f6; font-size:10px;">${escHtml(website.length > 80 ? website.slice(0, 80) + '...' : website)}</span>`;
 
-    if (evidence.length > 0) {
-      html += `<div style="margin-top:8px;"><strong style="font-size:12px; color:#4b5563;">Evidence attached to delivered results:</strong>
-        <ul style="margin:4px 0 0 16px; padding:0; font-size:11px; color:#374151;">`;
-      for (const ev of evidence.slice(0, 6)) {
-        const name = ev.entity_name || 'Unknown';
-        const quote = ev.quote || ev.matched_quote || '';
-        const url = ev.source_url || '';
-        const cType = ev.constraint_type || '';
-        html += `<li style="margin-bottom:3px;"><strong>${escHtml(name)}</strong>`;
-        if (cType) html += ` <span style="color:#6b7280;">[${escHtml(cType)}]</span>`;
-        if (quote) html += `<br/><em style="color:#6b7280; font-size:10px;">"${escHtml(quote.length > 120 ? quote.slice(0, 120) + '...' : quote)}"</em>`;
-        if (url) html += `<br/><span style="color:#3b82f6; font-size:10px;">${escHtml(url.length > 80 ? url.slice(0, 80) + '...' : url)}</span>`;
+        const rawEvidence: any[] = Array.isArray(e.evidence) ? e.evidence : [];
+        const inlineSnippets: string[] = rawEvidence
+          .map((item: any) => typeof item === 'string' ? item : (item?.snippet || item?.quote || item?.summary || ''))
+          .filter((s: string) => s.length > 0);
+        const matchedEvidence = evidenceByEntity[(name || '').toLowerCase().trim()] || [];
+
+        if (inlineSnippets.length > 0) {
+          for (const snippet of inlineSnippets.slice(0, 2)) {
+            const display = snippet.length > 140 ? snippet.slice(0, 140) + '...' : snippet;
+            html += `<br/><em style="color:#059669; font-size:10px;">"${escHtml(display)}"</em>`;
+          }
+        } else if (matchedEvidence.length > 0) {
+          for (const ev of matchedEvidence.slice(0, 2)) {
+            const quote = ev.quote || ev.matched_quote || '';
+            if (quote) {
+              const display = quote.length > 140 ? quote.slice(0, 140) + '...' : quote;
+              html += `<br/><em style="color:#059669; font-size:10px;">"${escHtml(display)}"</em>`;
+            }
+            if (ev.source_url) html += `<br/><span style="color:#3b82f6; font-size:10px;">Source: ${escHtml(ev.source_url.length > 80 ? ev.source_url.slice(0, 80) + '...' : ev.source_url)}</span>`;
+          }
+        } else {
+          html += `<br/><span style="color:#9ca3af; font-size:10px; font-style:italic;">No supporting evidence attached</span>`;
+        }
         html += `</li>`;
       }
-      if (evidence.length > 6) html += `<li style="color:#6b7280;">...and ${evidence.length - 6} more</li>`;
+      if (entities.length > 10) html += `<li style="color:#6b7280;">...and ${entities.length - 10} more</li>`;
       html += `</ul></div>`;
     }
 

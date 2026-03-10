@@ -1,0 +1,86 @@
+Goal
+
+Use the evidence attached to final delivered results everywhere the user or evaluator needs to see why the run succeeded.
+
+Core rule:
+The UI must not show bare results with no supporting proof when the query required evidence.
+It should display the final delivered entities together with the evidence attached to them by the final delivery payload.
+
+Use the final delivery payload from Supervisor as the source of truth.
+Do NOT invent or reconstruct evidence separately in the UI if it already exists on the delivered results.
+
+Do NOT change:
+- Tower logic
+- benchmark semantics
+- fallback logic
+- general harness structure
+
+This is about surfacing the attached final-result evidence in the right places.
+
+Files to inspect first
+
+- client/src/pages/dev/qa-test-runner.tsx
+- AFR export code
+- result / chat bubble / delivery summary rendering code
+- any code that builds behaviour_eval_packet from final run results
+
+Tasks
+
+1. Update Behaviour packet builder
+Refactor behaviour_eval_packet so delivered_result_evidence is built from the evidence attached to the final delivered results, not from separate internal summaries.
+
+If the final delivered entity has:
+- match_evidence
+- match_summary
+
+then the Behaviour packet should include those.
+
+2. Update behaviour_observed_summary
+Make it describe the final delivered results and their attached evidence in plain English.
+
+Examples:
+- "Returned 3 pubs in Arundel, each with attached evidence showing name match and location."
+- "Returned 13 restaurants in Bath, but none had attached website evidence proving vegan options."
+- "Returned 2 organisations with attached quotes showing partnership with Blackpool Council."
+
+3. Surface evidence in the user-facing result/chat bubble
+Wherever the final results are shown to the user, include compact supporting proof per result.
+
+Good display examples:
+- entity name
+- website link if available
+- one short supporting quote/snippet
+- short reason summary
+
+Do not dump giant evidence blocks.
+Keep it readable.
+
+4. Surface evidence in AFR export
+For benchmark runs, AFR should show the final delivered results together with their attached evidence, so an external reviewer can see:
+- what was delivered
+- why it was considered a match
+
+5. Prefer final delivered evidence over internal process artefacts
+If the final delivered result already contains attached evidence, use that first.
+Do not let Behaviour or AFR depend mainly on internal verification counters or Tower wording.
+
+6. Preserve clean rendering
+If no evidence is attached, say so clearly.
+Do not fake it.
+Examples:
+- "No supporting evidence attached"
+- "Website evidence not captured"
+
+Definition of done
+
+After the change:
+- final user-facing results show supporting evidence
+- Behaviour packet sees attached evidence from final delivered results
+- AFR export shows final results plus supporting evidence
+- a run can be judged externally from the final output alone
+
+At the end, report:
+- which file(s) changed
+- where the chat/result rendering now shows evidence
+- where the Behaviour packet now reads final attached evidence
+- one example of a rendered final result with evidence
