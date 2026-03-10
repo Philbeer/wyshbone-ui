@@ -180,7 +180,8 @@ export default function QaProgressPage() {
   }, [filteredRows]);
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6 max-w-[1400px] mx-auto">
+    <div className="h-full overflow-y-auto bg-gray-50 p-6">
+    <div className="max-w-[1400px] mx-auto">
       <div className="flex items-center gap-3 mb-6">
         <a href="/dev/qa" className="text-gray-400 hover:text-gray-600">
           <ArrowLeft className="w-5 h-5" />
@@ -350,6 +351,7 @@ export default function QaProgressPage() {
         <p>Source: qa_run_metrics table (Supabase). Default filter: source=benchmark.</p>
         <p>Rolling window: {ROLLING_WINDOW} runs. Null/UNKNOWN scores excluded from averages.</p>
       </div>
+    </div>
     </div>
   );
 }
