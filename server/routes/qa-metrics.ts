@@ -598,6 +598,41 @@ export function createQaMetricsRouter(): Router {
     }
   });
 
+  router.get("/by-run", async (req, res) => {
+    try {
+      const runId = req.query.runId as string;
+      if (!runId) return res.status(400).json({ ok: false, error: "runId is required" });
+      const db = getDrizzleDb();
+      const rows = await db.execute(sql`
+        SELECT * FROM qa_run_metrics WHERE run_id = ${runId} AND source = 'benchmark' LIMIT 1
+      `);
+      const row = Array.isArray(rows) ? rows[0] : (rows as any)?.rows?.[0];
+      if (!row) return res.json({ ok: true, data: null });
+      return res.json({ ok: true, data: row });
+    } catch (error: any) {
+      console.error("[qa-metrics] by-run error:", error?.message || error);
+      return res.status(500).json({ ok: false, error: "Failed to fetch metric" });
+    }
+  });
+
+  router.post("/by-runs", async (req, res) => {
+    try {
+      const { runIds } = req.body as { runIds: string[] };
+      if (!Array.isArray(runIds) || runIds.length === 0) return res.json({ ok: true, data: {} });
+      const db = getDrizzleDb();
+      const rows = await db.execute(sql`
+        SELECT * FROM qa_run_metrics WHERE run_id = ANY(${runIds}) AND source = 'benchmark' LIMIT ${runIds.length}
+      `);
+      const results: Record<string, any> = {};
+      const arr = Array.isArray(rows) ? rows : (rows as any)?.rows ?? [];
+      for (const r of arr) { results[(r as any).run_id] = r; }
+      return res.json({ ok: true, data: results });
+    } catch (error: any) {
+      console.error("[qa-metrics] by-runs error:", error?.message || error);
+      return res.status(500).json({ ok: false, error: "Failed to fetch metrics" });
+    }
+  });
+
   router.get("/history", async (req, res) => {
     try {
       const db = getDrizzleDb();

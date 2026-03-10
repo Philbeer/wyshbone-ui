@@ -1,0 +1,104 @@
+Goal
+
+Improve the AFR export for benchmark/harness runs so the exported HTML clearly shows:
+
+1. the expected test outcome for each benchmark input
+2. the reason Behaviour was marked pass or fail
+
+This is for debugging benchmark runs after export. I want to be able to download the AFR bulk export and immediately see:
+- what the test expected
+- what Behaviour decided
+- why it decided that
+
+Do not change benchmark scoring logic yet.
+Do not change Tower logic.
+This is an AFR/export visibility improvement only.
+
+Files to inspect first:
+- client/src/pages/dev/qa-test-runner.tsx
+- any AFR bulk export / AFR HTML generation code in the UI repo
+- any code that persists qa_run_metrics or benchmark result metadata
+
+Tasks
+
+1. Find where the benchmark definitions live
+Locate FULL_BENCHMARK_PACK in qa-test-runner.tsx.
+For each test definition, identify the field(s) that represent:
+- expected outcome
+- expected behaviour / benchmark expectation
+Use the real field names already present in the code.
+
+2. Persist expected outcome metadata into the benchmark run result
+When each benchmark run is executed, make sure the row/result metadata includes:
+- benchmark_test_id
+- benchmark_query
+- expected_outcome_text
+- expected_behaviour_text (if separate)
+Do not invent new semantics. Reuse the actual benchmark definition text already in the file.
+
+3. Persist Behaviour decision reasoning
+Where Behaviour pass/fail is derived, add explicit diagnostic fields explaining the decision.
+I want metadata like:
+- behaviour_result: pass | fail | unknown
+- behaviour_reason: short human-readable sentence
+- behaviour_expected: what the benchmark expected
+- behaviour_observed: what the system actually did
+- behaviour_decision_basis: the exact rule that triggered the pass/fail if available
+
+Examples of good behaviour_reason text:
+- "Passed because delivered_count 10 met minimum expected count 10."
+- "Failed because clarify was triggered but benchmark expected direct execution."
+- "Failed because returned entities did not satisfy relationship constraint."
+- "Passed because mission correctly blocked on missing required location."
+
+Do not change the judgement itself. Only expose the reasoning already used.
+
+4. Surface this in the AFR export HTML
+In the bulk AFR export HTML for each run, add a clearly visible section near the top of the run summary:
+
+Benchmark Expectation
+- Test ID: Bxx
+- Expected outcome: ...
+- Expected behaviour: ...
+
+Behaviour Decision
+- Result: pass/fail
+- Reason: ...
+- Expected: ...
+- Observed: ...
+- Decision basis: ...
+
+This must appear in the exported HTML itself, not only hidden in raw JSON.
+
+5. Also include it in raw payload / diagnostic data
+Make sure the same fields are present in the exported JSON/raw payload sections so they can be inspected programmatically too.
+
+6. Restrict to benchmark/harness runs only
+If a run is not a benchmark harness run, do not show empty benchmark sections.
+Only render this section when benchmark metadata exists.
+
+7. Keep current AFR structure intact
+Do not break:
+- existing run summaries
+- tower verdict display
+- event timeline
+- artefact rendering
+- qa_run_metrics persistence
+- reconciliation logic
+
+End result
+
+When I export AFR runs from the benchmark harness, each run should clearly show:
+- the expected test outcome
+- the behaviour pass/fail result
+- the exact reason behaviour made that decision
+
+So for a run like:
+"Find organisations that work with the local authority in Blackpool"
+
+the export should make it obvious:
+- what the benchmark expected
+- why Behaviour passed or failed
+- why Tower passed or failed separately
+
+Do not alter scoring. Only improve observability and export clarity.

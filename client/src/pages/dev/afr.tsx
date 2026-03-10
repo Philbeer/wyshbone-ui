@@ -897,6 +897,64 @@ async function fetchRunExportData(
   return { runData, events, artefacts, judgements };
 }
 
+interface BenchmarkMeta {
+  benchmark_test_id: string | null;
+  query: string | null;
+  query_class: string | null;
+  expected_mode: string | null;
+  behaviour_result: string | null;
+  metadata: any;
+}
+
+function buildBenchmarkSectionHtml(bm: BenchmarkMeta): string {
+  const meta = typeof bm.metadata === 'string' ? (() => { try { return JSON.parse(bm.metadata); } catch { return {}; } })() : (bm.metadata || {});
+  const bd = meta.behaviour_decision || {};
+  const expectedOutcome = meta.expectedOutcome || bm.expected_mode || '—';
+
+  let html = `<div class="benchmark-section" style="margin:16px 0; padding:14px 18px; border:2px solid #c7d2fe; border-radius:8px; background:#eef2ff;">
+    <h3 style="margin:0 0 10px 0; color:#4338ca; font-size:14px;">Benchmark Expectation</h3>
+    <table style="width:auto; margin:0; font-size:12px; border-collapse:collapse;">
+      <tr><td style="padding:2px 12px 2px 0; font-weight:600; color:#4b5563;">Test ID:</td><td style="padding:2px 0;">${escHtml(bm.benchmark_test_id || '—')}</td></tr>
+      <tr><td style="padding:2px 12px 2px 0; font-weight:600; color:#4b5563;">Query class:</td><td style="padding:2px 0;">${escHtml(bm.query_class || '—')}</td></tr>
+      <tr><td style="padding:2px 12px 2px 0; font-weight:600; color:#4b5563;">Expected outcome:</td><td style="padding:2px 0;">${escHtml(expectedOutcome)}</td></tr>
+    </table>
+  </div>
+
+  <div class="behaviour-section" style="margin:16px 0; padding:14px 18px; border:2px solid ${bd.result === 'PASS' ? '#bbf7d0' : bd.result === 'FAIL' ? '#fecaca' : '#e5e7eb'}; border-radius:8px; background:${bd.result === 'PASS' ? '#f0fdf4' : bd.result === 'FAIL' ? '#fef2f2' : '#f9fafb'};">
+    <h3 style="margin:0 0 10px 0; color:${bd.result === 'PASS' ? '#15803d' : bd.result === 'FAIL' ? '#dc2626' : '#6b7280'}; font-size:14px;">Behaviour Decision</h3>
+    <table style="width:auto; margin:0; font-size:12px; border-collapse:collapse;">
+      <tr><td style="padding:2px 12px 2px 0; font-weight:600; color:#4b5563;">Result:</td><td style="padding:2px 0;"><span class="badge ${exportBadgeClass(bd.result || bm.behaviour_result || '')}">${escHtml(bd.result || bm.behaviour_result || '—')}</span></td></tr>
+      <tr><td style="padding:2px 12px 2px 0; font-weight:600; color:#4b5563;">Reason:</td><td style="padding:2px 0;">${escHtml(bd.reason || '—')}</td></tr>
+      <tr><td style="padding:2px 12px 2px 0; font-weight:600; color:#4b5563;">Expected:</td><td style="padding:2px 0;">${escHtml(bd.expected || bm.expected_mode || '—')}</td></tr>
+      <tr><td style="padding:2px 12px 2px 0; font-weight:600; color:#4b5563;">Observed:</td><td style="padding:2px 0;">${escHtml(bd.observed || '—')}</td></tr>
+      <tr><td style="padding:2px 12px 2px 0; font-weight:600; color:#4b5563;">Decision basis:</td><td style="padding:2px 0;"><code>${escHtml(bd.decision_basis || '—')}</code></td></tr>
+    </table>
+  </div>
+
+  <details class="raw-payload-toggle" style="margin-bottom:12px;">
+    <summary>Raw benchmark metadata (JSON)</summary>
+    <pre>${escHtml(prettyJson({ benchmark_test_id: bm.benchmark_test_id, query_class: bm.query_class, expected_mode: bm.expected_mode, behaviour_result: bm.behaviour_result, expectedOutcome, behaviour_decision: bd, metadata: meta }))}</pre>
+  </details>`;
+
+  return html;
+}
+
+async function fetchBenchmarkMetaForRuns(runIds: string[]): Promise<Record<string, BenchmarkMeta>> {
+  if (runIds.length === 0) return {};
+  try {
+    const resp = await authedFetch(addDevAuthParams('/api/qa-metrics/by-runs'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ runIds }),
+    });
+    if (!resp.ok) return {};
+    const json = await resp.json();
+    return json.data || {};
+  } catch {
+    return {};
+  }
+}
+
 function buildRunSectionHtml(
   runData: any,
   runId: string,
@@ -907,6 +965,7 @@ function buildRunSectionHtml(
   sectionPrefix: string,
   runIndex?: number,
   totalRuns?: number,
+  benchmarkMeta?: BenchmarkMeta | null,
 ): string {
   const glance = extractRunGlance(runData, events, artefacts, judgements);
 
@@ -1036,9 +1095,12 @@ function buildRunSectionHtml(
     });
   }
 
+  const benchmarkHtml = benchmarkMeta ? `<h2>${sectionPrefix}Benchmark</h2>\n${buildBenchmarkSectionHtml(benchmarkMeta)}` : '';
+
   return `
 ${headerHtml}
 ${glanceHtml}
+${benchmarkHtml}
 ${keyMomentsHtml}
 
 <h2>${sectionPrefix}Event Timeline (${events.length} events)</h2>
@@ -1066,9 +1128,13 @@ async function exportRunAsHtml(
   runId: string,
   clientRequestId: string | null,
 ) {
-  const { runData, events, artefacts, judgements } = await fetchRunExportData(runId, clientRequestId);
+  const [{ runData, events, artefacts, judgements }, bmMap] = await Promise.all([
+    fetchRunExportData(runId, clientRequestId),
+    fetchBenchmarkMetaForRuns([runId]),
+  ]);
+  const bm = bmMap[runId] || null;
 
-  const bodyHtml = buildRunSectionHtml(runData, runId, clientRequestId, events, artefacts, judgements, '', 0, 1);
+  const bodyHtml = buildRunSectionHtml(runData, runId, clientRequestId, events, artefacts, judgements, '', 0, 1, bm);
 
   const html = `<!DOCTYPE html>
 <html lang="en">
@@ -1101,9 +1167,11 @@ async function exportMultipleRunsAsHtml(
     throw new Error('No runs available to export');
   }
 
-  const allRunData = await Promise.all(
-    runsToExport.map(run => fetchRunExportData(run.id, run.client_request_id || null))
-  );
+  const [allRunDataArr, bmMap] = await Promise.all([
+    Promise.all(runsToExport.map(run => fetchRunExportData(run.id, run.client_request_id || null))),
+    fetchBenchmarkMetaForRuns(runsToExport.map(r => r.id)),
+  ]);
+  const allRunData = allRunDataArr;
 
   const glances = allRunData.map(({ runData, events, artefacts, judgements }) =>
     extractRunGlance(runData, events, artefacts, judgements)
@@ -1150,7 +1218,7 @@ ${runsToExport.map((r, i) => {
     if (idx > 0) {
       bodySections += '<hr class="run-separator" />';
     }
-    bodySections += buildRunSectionHtml(runData, run.id, run.client_request_id || null, events, artefacts, judgements, prefix, idx, runsToExport.length);
+    bodySections += buildRunSectionHtml(runData, run.id, run.client_request_id || null, events, artefacts, judgements, prefix, idx, runsToExport.length, bmMap[run.id] || null);
   });
 
   const html = `<!DOCTYPE html>

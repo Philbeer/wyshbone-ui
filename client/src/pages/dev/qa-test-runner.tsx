@@ -1052,6 +1052,83 @@ function deriveBehaviourResult(result: TestResult): BehaviourResult {
   }
 }
 
+interface BehaviourDecision {
+  result: BehaviourResult;
+  reason: string;
+  expected: string;
+  observed: string;
+  decisionBasis: string;
+}
+
+function deriveBehaviourDecision(result: TestResult): BehaviourDecision {
+  const bResult = deriveBehaviourResult(result);
+  const delivered = result.layers.delivery === 'pass';
+  const count = result.deliveredCount;
+  const minCount = result.minimumExpectedCount ?? 1;
+  const clarified = result.clarified;
+  const blocked = result.blocked;
+
+  const MODE_LABELS: Record<string, string> = {
+    deliver_results: 'deliver results',
+    clarify: 'clarify before running',
+    honest_refusal: 'honest refusal',
+    best_effort_honest: 'best effort or clarify',
+  };
+  const expectedText = MODE_LABELS[result.expectedMode] || result.expectedMode;
+  const observedParts: string[] = [];
+  if (delivered) observedParts.push(`delivered ${count} result${count !== 1 ? 's' : ''}`);
+  if (clarified) observedParts.push('clarified');
+  if (blocked) observedParts.push('blocked');
+  if (!delivered && !clarified && !blocked) observedParts.push(`status=${result.status}`);
+  const observedText = observedParts.join(', ');
+
+  if (bResult === 'UNKNOWN') {
+    return { result: bResult, reason: `Unknown — run did not reach a terminal state (status=${result.status}).`, expected: expectedText, observed: observedText, decisionBasis: 'non-terminal status' };
+  }
+
+  let reason = '';
+  let basis = '';
+  switch (result.queryClass) {
+    case 'solvable':
+      if (!delivered) { reason = 'Failed because delivery layer did not pass.'; basis = 'solvable: delivery required'; }
+      else if (count < minCount) { reason = `Failed because delivered_count ${count} did not meet minimum expected count ${minCount}.`; basis = `solvable: count >= ${minCount}`; }
+      else { reason = `Passed because delivered_count ${count} met minimum expected count ${minCount}.`; basis = `solvable: delivery pass + count >= ${minCount}`; }
+      break;
+    case 'website_evidence_required':
+      if (!delivered) { reason = 'Failed because delivery layer did not pass.'; basis = 'website_evidence: delivery required'; }
+      else if (count < minCount) { reason = `Failed because delivered_count ${count} did not meet minimum expected count ${minCount}.`; basis = `website_evidence: count >= ${minCount}`; }
+      else if (result.layers.verification !== 'pass') { reason = 'Failed because verification layer did not pass (website evidence not confirmed).'; basis = 'website_evidence: verification required'; }
+      else { reason = `Passed because delivered_count ${count} met minimum and verification layer passed.`; basis = `website_evidence: delivery + count + verification`; }
+      break;
+    case 'clarification_required':
+      if (clarified) { reason = 'Passed because agent correctly triggered clarification.'; basis = 'clarification_required: clarified=true'; }
+      else { reason = 'Failed because agent did not trigger clarification.'; basis = 'clarification_required: clarified=false'; }
+      break;
+    case 'relationship_required':
+      if (clarified) { reason = 'Passed because agent clarified the relationship constraint.'; basis = 'relationship: clarified'; }
+      else if (blocked) { reason = 'Passed because agent was blocked by relationship constraint.'; basis = 'relationship: blocked'; }
+      else if (delivered) { reason = 'Passed because agent delivered results despite relationship constraint.'; basis = 'relationship: delivered'; }
+      else { reason = 'Failed because agent neither clarified, blocked, nor delivered.'; basis = 'relationship: no valid outcome'; }
+      break;
+    case 'fictional_or_impossible':
+      if (blocked || clarified) { reason = 'Passed because agent correctly identified impossible query.'; basis = 'fictional: blocked or clarified'; }
+      else if (result.status === 'failed' && !delivered) { reason = 'Passed because run failed without delivering results for impossible query.'; basis = 'fictional: failed without delivery'; }
+      else if (delivered) { reason = 'Failed because agent claimed to deliver results for an impossible query.'; basis = 'fictional: should not deliver'; }
+      else { reason = 'Passed because agent did not deliver results for impossible query.'; basis = 'fictional: no delivery'; }
+      break;
+    case 'subjective_or_unverifiable':
+      if (clarified) { reason = 'Passed because agent clarified the subjective query.'; basis = 'subjective: clarified'; }
+      else if (blocked) { reason = 'Passed because agent blocked on subjective query.'; basis = 'subjective: blocked'; }
+      else if (delivered) { reason = 'Passed because agent delivered best-effort results.'; basis = 'subjective: best-effort delivery accepted'; }
+      else { reason = 'Failed because agent neither clarified, blocked, nor delivered.'; basis = 'subjective: no valid outcome'; }
+      break;
+    default:
+      reason = 'Unknown query class.'; basis = 'unknown';
+  }
+
+  return { result: bResult, reason, expected: expectedText, observed: observedText, decisionBasis: basis };
+}
+
 async function fetchRunDetails(runId: string): Promise<ArtefactInfo> {
   const info: ArtefactInfo = { blocked: false, clarified: false, towerVerdict: null, resultSummary: null, deliveredCount: 0, hasLeadPack: false, layers: emptyLayerBreakdown() };
   try {
@@ -1134,6 +1211,7 @@ async function persistQaMetric(
   const agentQuality = result.agentQuality || deriveAgentQuality(result);
   const tResult = result.towerResult || deriveTowerResult(result);
   const bResult = result.behaviourResult || deriveBehaviourResult(result);
+  const bDecision = deriveBehaviourDecision(result);
 
   const payload = {
     runId: result.runId,
@@ -1163,6 +1241,14 @@ async function persistQaMetric(
       afr_final_state: afrFinalState,
       afr_reconciled: pollExpired,
       raw_observer_status: result.status,
+      expectedOutcome: result.expectedOutcome,
+      behaviour_decision: {
+        result: bDecision.result,
+        reason: bDecision.reason,
+        expected: bDecision.expected,
+        observed: bDecision.observed,
+        decision_basis: bDecision.decisionBasis,
+      },
     },
   };
 
