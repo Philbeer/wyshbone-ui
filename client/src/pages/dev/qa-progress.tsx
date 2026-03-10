@@ -1,11 +1,14 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, type ReactNode } from 'react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Scatter, ComposedChart, Legend,
 } from 'recharts';
 import { buildApiUrl, addDevAuthParams } from '@/lib/queryClient';
-import { ExternalLink, ArrowLeft, RefreshCw, TrendingUp } from 'lucide-react';
+import { ExternalLink, ArrowLeft, RefreshCw, TrendingUp, X, ChevronDown, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle,
+} from '@/components/ui/dialog';
 
 interface MetricRow {
   id: number;
@@ -97,6 +100,246 @@ function formatTs(ts: string | number): string {
     d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 }
 
+function prettyJson(obj: unknown): string {
+  try { return JSON.stringify(obj, null, 2); } catch { return String(obj); }
+}
+
+function ExpandableJson({ label, data }: { label: string; data: unknown }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="mt-2">
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-1 text-[11px] text-gray-500 hover:text-gray-700 font-medium"
+      >
+        {open ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+        {label}
+      </button>
+      {open && (
+        <pre className="mt-1 p-3 bg-gray-50 border rounded text-[10px] font-mono overflow-auto max-h-[300px] whitespace-pre-wrap">
+          {typeof data === 'string' ? data : prettyJson(data)}
+        </pre>
+      )}
+    </div>
+  );
+}
+
+function MetaField({ label, value }: { label: string; value: ReactNode }) {
+  const display = value === null || value === undefined ? '—' : value;
+  return (
+    <tr>
+      <td className="pr-3 py-0.5 text-gray-500 font-medium whitespace-nowrap align-top text-[11px]">{label}</td>
+      <td className="py-0.5 text-gray-800 text-[11px] break-all">{display}</td>
+    </tr>
+  );
+}
+
+function BehaviourInspectModal({ row, open, onClose }: { row: MetricRow | null; open: boolean; onClose: () => void }) {
+  if (!row) return null;
+
+  const meta: Record<string, any> = typeof row.metadata === 'string'
+    ? (() => { try { return JSON.parse(row.metadata as string); } catch { return {}; } })()
+    : (row.metadata || {});
+
+  const sourceOfTruth = meta.behaviour_source_of_truth || null;
+  const evalMode = meta.behaviour_eval_mode || null;
+  const parseOk = meta.behaviour_eval_parse_ok ?? null;
+  const fallbackUsed = meta.behaviour_fallback_used ?? null;
+  const fallbackReason = meta.fallback_reason || null;
+
+  const evalPacket = meta.behaviour_eval_packet || null;
+  const llmResp = meta.behaviour_llm_response || null;
+  const rawResp = meta.behaviour_eval_response_raw || null;
+
+  const driverLabel = sourceOfTruth === 'llm'
+    ? 'LLM'
+    : sourceOfTruth === 'fallback_legacy'
+    ? 'Fallback logic'
+    : evalMode?.startsWith('llm') && parseOk !== false
+    ? 'LLM (inferred)'
+    : 'Unknown';
+
+  const driverColor = driverLabel.startsWith('LLM') ? 'text-green-700' : driverLabel === 'Fallback logic' ? 'text-amber-700' : 'text-gray-500';
+
+  const hasPacket = !!evalPacket;
+  const hasLlmResp = !!(llmResp || rawResp);
+  const hasAnyMeta = hasPacket || hasLlmResp || sourceOfTruth || evalMode;
+
+  const titleParts: string[] = [];
+  if (row.benchmark_test_id) titleParts.push(row.benchmark_test_id);
+  titleParts.push(row.query.length > 60 ? row.query.slice(0, 57) + '...' : row.query);
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
+      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="text-sm font-semibold leading-snug">
+            {titleParts.join(' — ')}
+          </DialogTitle>
+          <div className="text-[11px] text-gray-400 mt-0.5">{formatTs(row.timestamp)}</div>
+        </DialogHeader>
+
+        {!hasAnyMeta ? (
+          <div className="py-8 text-center text-sm text-gray-400">
+            No Behaviour metadata stored for this run.
+          </div>
+        ) : (
+          <div className="space-y-4 mt-2">
+            <section>
+              <h4 className="text-xs font-semibold text-gray-600 uppercase tracking-wider mb-2 border-b pb-1">
+                A. Behaviour Driver
+              </h4>
+              <table className="text-[11px]">
+                <tbody>
+                  <MetaField label="Driven by" value={<span className={`font-semibold ${driverColor}`}>{driverLabel}</span>} />
+                  <MetaField label="behaviour_source_of_truth" value={sourceOfTruth} />
+                  <MetaField label="behaviour_eval_mode" value={evalMode} />
+                  <MetaField label="behaviour_eval_parse_ok" value={parseOk === true ? 'true' : parseOk === false ? 'false' : '—'} />
+                  <MetaField label="behaviour_fallback_used" value={fallbackUsed === true ? 'true' : fallbackUsed === false ? 'false' : '—'} />
+                  {fallbackReason && <MetaField label="fallback_reason" value={fallbackReason} />}
+                </tbody>
+              </table>
+            </section>
+
+            <section>
+              <h4 className="text-xs font-semibold text-gray-600 uppercase tracking-wider mb-2 border-b pb-1">
+                B. Packet Sent to Behaviour LLM
+              </h4>
+              {hasPacket ? (
+                <>
+                  <table className="text-[11px]">
+                    <tbody>
+                      <MetaField label="original_query" value={evalPacket.original_query} />
+                      <MetaField label="benchmark_test_id" value={evalPacket.benchmark_test_id} />
+                      <MetaField label="expected_outcome_text" value={evalPacket.expected_outcome_text} />
+                      <MetaField label="expected_behaviour_text" value={evalPacket.expected_behaviour_text} />
+                    </tbody>
+                  </table>
+
+                  {evalPacket.final_run_outcome && (
+                    <div className="mt-2">
+                      <div className="text-[11px] font-medium text-gray-500 mb-1">final_run_outcome:</div>
+                      <table className="text-[11px] ml-2">
+                        <tbody>
+                          <MetaField label="run_state" value={evalPacket.final_run_outcome.run_state || evalPacket.actual_run_state} />
+                          <MetaField label="clarified" value={String(evalPacket.final_run_outcome.clarified ?? evalPacket.clarified ?? false)} />
+                          {(evalPacket.final_run_outcome.clarify_question || evalPacket.clarify_question) &&
+                            <MetaField label="clarify_question" value={evalPacket.final_run_outcome.clarify_question || evalPacket.clarify_question} />}
+                          {(evalPacket.final_run_outcome.clarify_answer || evalPacket.clarify_answer) &&
+                            <MetaField label="clarify_answer" value={evalPacket.final_run_outcome.clarify_answer || evalPacket.clarify_answer} />}
+                          <MetaField label="delivered_count" value={evalPacket.final_run_outcome.delivered_count ?? evalPacket.delivered_count ?? '—'} />
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+
+                  {(() => {
+                    const entities = Array.isArray(evalPacket.delivered_results)
+                      ? evalPacket.delivered_results
+                      : Array.isArray(evalPacket.delivered_entities) ? evalPacket.delivered_entities : [];
+                    if (entities.length === 0) return null;
+                    return (
+                      <div className="mt-2">
+                        <div className="text-[11px] font-medium text-gray-500 mb-1">
+                          delivered_results ({entities.length}):
+                        </div>
+                        <div className="ml-2 space-y-0.5 max-h-[120px] overflow-y-auto">
+                          {entities.map((e: any, i: number) => (
+                            <div key={i} className="text-[10px] text-gray-600">
+                              {i + 1}. <span className="font-medium">{e.name || e.lead_name || '(unnamed)'}</span>
+                              {e.location && <span className="text-gray-400 ml-1">— {e.location}</span>}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {(() => {
+                    const evidence = Array.isArray(evalPacket.delivered_result_evidence)
+                      ? evalPacket.delivered_result_evidence
+                      : Array.isArray(evalPacket.evidence_summary) ? evalPacket.evidence_summary : [];
+                    if (evidence.length === 0) return null;
+                    return (
+                      <div className="mt-2">
+                        <div className="text-[11px] font-medium text-gray-500 mb-1">
+                          delivered_result_evidence ({evidence.length}):
+                        </div>
+                        <div className="ml-2 space-y-1 max-h-[120px] overflow-y-auto">
+                          {evidence.map((ev: any, i: number) => (
+                            <div key={i} className="text-[10px] text-gray-600">
+                              <span className="font-medium">{ev.lead_name || ev.name || `#${i + 1}`}</span>
+                              {ev.match_reason && <span className="text-green-700 ml-1">({ev.match_reason})</span>}
+                              {ev.evidence && <span className="text-gray-400 italic ml-1">"{ev.evidence}"</span>}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {(evalPacket.user_visible_summary || evalPacket.behaviour_observed_summary) && (
+                    <div className="mt-2">
+                      <div className="text-[11px] font-medium text-gray-500">user_visible_summary:</div>
+                      <div className="text-[11px] text-gray-700 mt-0.5">
+                        {evalPacket.user_visible_summary || evalPacket.behaviour_observed_summary}
+                      </div>
+                    </div>
+                  )}
+
+                  <ExpandableJson label="Raw behaviour_eval_packet (JSON)" data={evalPacket} />
+                </>
+              ) : (
+                <div className="text-[11px] text-gray-400 italic py-2">No stored Behaviour packet in qa_run_metrics.</div>
+              )}
+            </section>
+
+            <section>
+              <h4 className="text-xs font-semibold text-gray-600 uppercase tracking-wider mb-2 border-b pb-1">
+                C. Behaviour LLM Response
+              </h4>
+              {hasLlmResp ? (
+                <>
+                  {llmResp && (
+                    <table className="text-[11px]">
+                      <tbody>
+                        <MetaField label="behaviour_result" value={
+                          <StatusBadge value={String(llmResp.behaviour_result || '—').toUpperCase()} type="behaviour" />
+                        } />
+                        <MetaField label="behaviour_reason" value={llmResp.behaviour_reason} />
+                        <MetaField label="expected_outcome_check" value={llmResp.expected_outcome_check} />
+                        <MetaField label="observed_outcome_check" value={llmResp.observed_outcome_check} />
+                        <MetaField label="key_failure_type" value={llmResp.key_failure_type} />
+                        <MetaField label="confidence" value={llmResp.confidence} />
+                      </tbody>
+                    </table>
+                  )}
+                  {llmResp && <ExpandableJson label="Raw behaviour_llm_response (JSON)" data={llmResp} />}
+                  {rawResp && <ExpandableJson label="Raw behaviour_eval_response_raw (text)" data={rawResp} />}
+                </>
+              ) : (
+                <div className="text-[11px] text-gray-400 italic py-2">No stored Behaviour LLM response in qa_run_metrics.</div>
+              )}
+            </section>
+
+            <section>
+              <h4 className="text-xs font-semibold text-gray-600 uppercase tracking-wider mb-2 border-b pb-1">
+                D. Final Displayed Verdict
+              </h4>
+              <div className="flex items-center gap-3">
+                <StatusBadge value={row.behaviour_result} type="behaviour" />
+                <span className="text-[11px] text-gray-500">
+                  (as shown in the progress table for this run)
+                </span>
+              </div>
+            </section>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export default function QaProgressPage() {
   const [rows, setRows] = useState<MetricRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -105,6 +348,7 @@ export default function QaProgressPage() {
   const [suiteFilter, setSuiteFilter] = useState<string>('');
   const [queryClassFilter, setQueryClassFilter] = useState<string>('');
   const [testIdFilter, setTestIdFilter] = useState<string>('');
+  const [inspectRow, setInspectRow] = useState<MetricRow | null>(null);
 
   const fetchData = async () => {
     setLoading(true);
@@ -310,7 +554,11 @@ export default function QaProgressPage() {
             </thead>
             <tbody>
               {tableRows.map(r => (
-                <tr key={r.id} className="border-b last:border-0 hover:bg-gray-50">
+                <tr
+                  key={r.id}
+                  className="border-b last:border-0 hover:bg-purple-50/50 cursor-pointer transition-colors"
+                  onClick={() => setInspectRow(r)}
+                >
                   <td className="px-3 py-2 text-gray-500 whitespace-nowrap font-mono">{formatTs(r.timestamp)}</td>
                   <td className="px-3 py-2 font-medium text-purple-700">{r.benchmark_test_id || '—'}</td>
                   <td className="px-3 py-2 max-w-[200px] truncate" title={r.query}>{r.query}</td>
@@ -335,6 +583,7 @@ export default function QaProgressPage() {
                         target="_blank"
                         rel="noopener noreferrer"
                         className="text-purple-600 hover:text-purple-800 flex items-center gap-0.5"
+                        onClick={e => e.stopPropagation()}
                       >
                         AFR <ExternalLink className="w-3 h-3" />
                       </a>
@@ -350,8 +599,15 @@ export default function QaProgressPage() {
       <div className="mt-4 text-xs text-gray-400">
         <p>Source: qa_run_metrics table (Supabase). Default filter: source=benchmark.</p>
         <p>Rolling window: {ROLLING_WINDOW} runs. Null/UNKNOWN scores excluded from averages.</p>
+        <p>Click any row to inspect stored Behaviour evaluation data.</p>
       </div>
     </div>
+
+    <BehaviourInspectModal
+      row={inspectRow}
+      open={!!inspectRow}
+      onClose={() => setInspectRow(null)}
+    />
     </div>
   );
 }

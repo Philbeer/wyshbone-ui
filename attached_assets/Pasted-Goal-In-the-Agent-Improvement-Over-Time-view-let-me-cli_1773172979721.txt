@@ -1,0 +1,126 @@
+Goal
+
+In the "Agent Improvement Over Time" view, let me click on an individual run row and open a popup/modal that shows exactly what the Behaviour LLM call saw and what it returned.
+
+This is for debugging and trust.
+
+Core rule:
+When I click a run row in Agent Improvement Over Time, I want to see the actual stored Behaviour evaluation data for that run, not reconstructed guesses.
+
+The popup must show:
+
+1. Whether Behaviour was driven by:
+- LLM
+- fallback logic
+
+2. The exact Behaviour evaluation packet that was sent to the LLM
+Including:
+- original_query
+- benchmark_test_id
+- expected_outcome_text
+- expected_behaviour_text
+- final_run_outcome
+- delivered_results
+- delivered_result_evidence
+- user_visible_summary
+
+3. The exact Behaviour response returned by the LLM
+Including:
+- behaviour_result
+- behaviour_reason
+- expected_outcome_check
+- observed_outcome_check
+- key_failure_type
+- confidence
+
+4. The raw LLM response text too, if present
+
+5. Clear empty states if data is missing:
+- No stored Behaviour packet
+- No stored Behaviour response
+- Behaviour used fallback logic
+
+Do NOT change:
+- Behaviour scoring logic
+- fallback logic
+- AFR export
+- benchmark scoring semantics
+- Supervisor
+- Tower
+
+This is purely a UI inspection feature for the Agent Improvement Over Time table/chart.
+
+Files to inspect first
+
+- the page/component that renders "Agent Improvement Over Time"
+- any component that renders the run rows in that view
+- any existing data fetch used for qa_run_metrics / benchmark history
+- any modal/dialog component patterns already used in the UI
+
+Source of truth
+
+Use the stored qa_run_metrics metadata as source of truth.
+Do NOT rebuild the Behaviour packet from artefacts if the stored metadata already exists.
+
+Use these stored fields if available:
+- behaviour_source_of_truth
+- behaviour_eval_mode
+- behaviour_eval_parse_ok
+- behaviour_eval_packet
+- behaviour_llm_response
+- behaviour_eval_response_raw
+- behaviour_fallback_used
+- fallback_reason
+
+Interaction requirements
+
+1. In Agent Improvement Over Time, make each run row clickable
+2. Clicking a row opens a modal/popup
+3. Modal title should include:
+- benchmark test id
+- query
+- run timestamp if available
+
+4. Inside the modal, show sections in this order:
+
+Section A: Behaviour Driver
+- source of truth
+- eval mode
+- parse ok
+- fallback used
+- fallback reason
+
+Section B: Packet sent to Behaviour LLM
+- readable formatted summary
+- expandable raw JSON
+
+Section C: Behaviour LLM response
+- readable formatted summary
+- expandable parsed JSON
+- expandable raw response text
+
+Section D: Final displayed verdict
+- final behaviour pass/fail shown in the UI for that run
+
+UI requirements
+
+- Keep it clean and readable
+- Use existing modal/dialog styles if present
+- Use expandable JSON blocks for raw payloads
+- Do not make me leave the page
+- Modal should be easy to close
+- If the row has no Behaviour metadata, show that honestly
+
+Definition of done
+
+When I click a run row in Agent Improvement Over Time, I can inspect:
+- exactly what packet was sent to the Behaviour LLM
+- exactly what evidence was included in that packet
+- exactly what the LLM returned
+- whether the row verdict came from LLM or fallback
+
+At the end, report:
+- which files changed
+- which component now handles row click
+- where the modal gets its data from
+- one example of the modal sections shown
