@@ -312,8 +312,11 @@ function getClarifyAutoResponse(query: string, definitionResponse?: string): str
 
 const PER_TEST_TIMEOUT_MS = 90_000;
 const POLL_INTERVAL_MS = 2_000;
+const AFR_RECONCILE_TIMEOUT_MS = 120_000;
+const AFR_RECONCILE_INTERVAL_MS = 5_000;
+const SUPERVISOR_EXECUTION_TIMEOUT_MS = 300_000;
 
-type TestStatus = 'queued' | 'running' | 'completed' | 'failed' | 'timed_out' | 'poll_timeout_completed' | 'poll_timeout_running';
+type TestStatus = 'queued' | 'running' | 'completed' | 'failed' | 'timed_out' | 'poll_timeout_completed' | 'poll_timeout_running' | 'poll_expired_reconciling';
 type SuiteStatus = 'not_started' | 'running' | 'completed' | 'failed';
 type Judgement = 'pass' | 'fail' | 'skip' | 'mismatch';
 type LayerStatus = 'pass' | 'fail' | 'blocked' | 'timeout' | 'unknown';
@@ -384,7 +387,8 @@ function getUser(): { id: string; email: string } | null {
 }
 
 function evaluateJudgement(expected: ExpectedOutcome, result: TestResult): Judgement {
-  if (result.status === 'timed_out' || result.status === 'poll_timeout_running') return 'skip';
+  if (result.status === 'timed_out') return 'skip';
+  if (result.status === 'poll_expired_reconciling') return 'skip';
   if (result.status === 'failed' && result.error === 'Stopped by user') return 'skip';
 
   const actualOutcome = deriveActualOutcome(result);
@@ -410,7 +414,7 @@ function deriveActualOutcome(result: TestResult): string {
   if (result.clarified) return 'clarify';
   if (result.status === 'completed' || result.status === 'poll_timeout_completed') return 'pass';
   if (result.status === 'failed') return 'fail';
-  if (result.status === 'timed_out' || result.status === 'poll_timeout_running') return 'timed_out';
+  if (result.status === 'timed_out') return 'timed_out';
   return 'unknown';
 }
 
@@ -445,7 +449,9 @@ function statusBadge(status: TestStatus | SuiteStatus) {
     case 'poll_timeout_completed':
       return <Badge className="bg-green-100 text-green-700 border-green-200"><CheckCircle2 className="w-3 h-3 mr-1" />Completed</Badge>;
     case 'poll_timeout_running':
-      return <Badge className="bg-amber-100 text-amber-700 border-amber-200"><Clock className="w-3 h-3 mr-1" />Poll timeout (still running)</Badge>;
+      return <Badge className="bg-amber-100 text-amber-700 border-amber-200"><Clock className="w-3 h-3 mr-1" />Timeout</Badge>;
+    case 'poll_expired_reconciling':
+      return <Badge className="bg-blue-100 text-blue-700 border-blue-200"><Loader2 className="w-3 h-3 mr-1 animate-spin" />Polling expired – reconciling with AFR</Badge>;
   }
 }
 
@@ -696,36 +702,62 @@ async function pollUntilTerminal(
 
   postClarifyTimeout = clarifyResponseSent;
 
-  if (finalRunId) {
+  return { terminal: false, status: 'poll_expired_reconciling' as any, timedOut: true, finalRunId, wasClarifying, autoClarified, clarifyResponseValue, clarifyContinueSuccess: false, postClarifyTimeout };
+}
+
+interface ReconcileResult {
+  status: TestStatus;
+  terminal: boolean;
+  afrFinalState: string | null;
+}
+
+async function reconcileWithAfr(
+  clientRequestId: string,
+  runId: string | null,
+  runStartTime: number,
+  signal?: AbortSignal,
+): Promise<ReconcileResult> {
+  const supervisorDeadline = runStartTime + SUPERVISOR_EXECUTION_TIMEOUT_MS;
+
+  while (Date.now() < supervisorDeadline) {
+    if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+
     try {
       const params = new URLSearchParams();
       params.set('client_request_id', clientRequestId);
-      params.set('runId', finalRunId);
+      if (runId) params.set('runId', runId);
       const res = await fetch(
         buildApiUrl(addDevAuthParams(`/api/afr/stream?${params.toString()}`)),
-        { credentials: 'include', cache: 'no-store' }
+        { credentials: 'include', cache: 'no-store', signal }
       );
       if (res.ok) {
         const data = await res.json();
-        const finalStatus = data.status || 'unknown';
+        const status = data.status || 'unknown';
         const terminalState = data.terminal_state;
         const isTerminal = data.is_terminal === true;
 
-        if (isTerminal || finalStatus === 'completed' || finalStatus === 'failed' || finalStatus === 'stopped' ||
+        if (isTerminal || status === 'completed' || status === 'failed' || status === 'stopped' ||
             terminalState === 'PASS' || terminalState === 'FAIL' || terminalState === 'STOP' ||
             terminalState === 'completed' || terminalState === 'failed' || terminalState === 'stopped') {
-          const canonical = resolveCanonicalStatus(finalStatus, terminalState);
-          if (canonical === 'completed') {
-            return { terminal: true, status: 'poll_timeout_completed', timedOut: false, finalRunId, wasClarifying, autoClarified, clarifyResponseValue, clarifyContinueSuccess: clarifyResponseSent, postClarifyTimeout: false };
-          }
-          return { terminal: true, status: canonical, timedOut: false, finalRunId, wasClarifying, autoClarified, clarifyResponseValue, clarifyContinueSuccess: clarifyResponseSent, postClarifyTimeout: false };
+          const canonical = resolveCanonicalStatus(status, terminalState);
+          if (canonical === 'completed') return { status: 'completed', terminal: true, afrFinalState: 'completed' };
+          if (canonical === 'failed') return { status: 'failed', terminal: true, afrFinalState: 'failed' };
+          if (canonical === 'stopped') return { status: 'timed_out', terminal: true, afrFinalState: 'stopped' };
+          return { status: canonical as TestStatus, terminal: true, afrFinalState: canonical };
         }
-        return { terminal: false, status: 'poll_timeout_running', timedOut: true, finalRunId, wasClarifying, autoClarified, clarifyResponseValue, clarifyContinueSuccess: false, postClarifyTimeout };
+
+        if (status === 'clarifying') {
+          return { status: 'failed', terminal: true, afrFinalState: 'clarifying' };
+        }
       }
-    } catch {}
+    } catch (e: any) {
+      if (e?.name === 'AbortError') throw e;
+    }
+
+    await new Promise(r => setTimeout(r, AFR_RECONCILE_INTERVAL_MS));
   }
 
-  return { terminal: false, status: 'poll_timeout_running', timedOut: true, finalRunId, wasClarifying, autoClarified, clarifyResponseValue, clarifyContinueSuccess: false, postClarifyTimeout };
+  return { status: 'timed_out', terminal: true, afrFinalState: 'timeout_exceeded' };
 }
 
 interface ArtefactInfo {
@@ -835,7 +867,7 @@ function deriveLayers(artefacts: any[]): LayerBreakdown {
 
 function deriveBenchmarkOutcome(result: TestResult): BenchmarkOutcome {
   if (result.status === 'timed_out') return 'TIMEOUT';
-  if (result.status === 'poll_timeout_running') return 'BLOCKED';
+  if (result.status === 'poll_timeout_running') return 'TIMEOUT';
   if (result.status === 'failed' && result.error === 'Stopped by user') return 'TIMEOUT';
 
   if (result.blocked || result.clarified) {
@@ -872,7 +904,7 @@ function deriveBenchmarkOutcome(result: TestResult): BenchmarkOutcome {
 
 function deriveSystemHealth(result: TestResult): SystemHealthOutcome {
   if (result.status === 'timed_out') return 'TIMEOUT';
-  if (result.status === 'poll_timeout_running') return 'DEGRADED';
+  if (result.status === 'poll_timeout_running') return 'TIMEOUT';
   if (result.status === 'failed' && result.error === 'Stopped by user') return 'TIMEOUT';
   if (result.status === 'failed' && result.error && result.error !== 'Stopped by user') return 'BROKEN';
   if (result.status === 'completed' || result.status === 'poll_timeout_completed') return 'HEALTHY';
@@ -883,6 +915,7 @@ function deriveSystemHealth(result: TestResult): SystemHealthOutcome {
 function deriveAgentQuality(result: TestResult): AgentQualityOutcome {
   if (result.status === 'timed_out') return 'UNKNOWN';
   if (result.status === 'poll_timeout_running') return 'UNKNOWN';
+  if (result.status === 'poll_expired_reconciling') return 'UNKNOWN';
   if (result.status === 'failed' && result.error === 'Stopped by user') return 'UNKNOWN';
   if (result.status === 'failed' && result.error) return 'UNKNOWN';
 
@@ -911,6 +944,7 @@ function deriveTowerResult(result: TestResult): TowerResult {
 function deriveBehaviourResult(result: TestResult): BehaviourResult {
   if (result.status === 'timed_out') return 'UNKNOWN';
   if (result.status === 'poll_timeout_running') return 'UNKNOWN';
+  if (result.status === 'poll_expired_reconciling') return 'UNKNOWN';
   if (result.status === 'failed' && result.error === 'Stopped by user') return 'UNKNOWN';
   if (result.status === 'queued' || result.status === 'running') return 'UNKNOWN';
 
@@ -1027,9 +1061,11 @@ async function persistQaMetric(
   test: TestDefinition,
   suiteId: string,
   packTimestamp: number,
+  pollExpired: boolean = false,
+  afrFinalState: string | null = null,
 ): Promise<void> {
   if (!result.runId) return;
-  if (result.status === 'queued' || result.status === 'running') return;
+  if (result.status === 'queued' || result.status === 'running' || result.status === 'poll_expired_reconciling') return;
 
   const systemHealth = result.systemHealth || deriveSystemHealth(result);
   const agentQuality = result.agentQuality || deriveAgentQuality(result);
@@ -1060,10 +1096,9 @@ async function persistQaMetric(
       clarified: result.clarified,
       towerVerdict: result.towerVerdict,
       layers: result.layers,
-      poll_expired: result.status === 'poll_timeout_completed' || result.status === 'poll_timeout_running',
-      afr_reconciled_status: result.status === 'poll_timeout_completed' ? 'completed'
-        : result.status === 'poll_timeout_running' ? 'still_running'
-        : undefined,
+      poll_expired: pollExpired,
+      afr_final_state: afrFinalState,
+      afr_reconciled: pollExpired,
       raw_observer_status: result.status,
     },
   };
@@ -1500,21 +1535,26 @@ export default function QaTestRunnerPage() {
 
         const qaClarifyCtx: QaClarifyContext = { query: test.query, user, conversationId: qaConversationId, clarificationResponse: test.clarificationResponse };
         const pollResult = await pollUntilTerminal(clientRequestId, runId, PER_TEST_TIMEOUT_MS, controller.signal, qaClarifyCtx);
-        const duration = Date.now() - testStart;
 
-        let details: ArtefactInfo = { blocked: false, clarified: false, towerVerdict: null, resultSummary: null, deliveredCount: 0, hasLeadPack: false, layers: emptyLayerBreakdown() };
         const effectiveRunId = pollResult.finalRunId || runId;
-        if (effectiveRunId) {
-          try { details = await fetchRunDetails(effectiveRunId); } catch {}
-        }
-
-        if (pollResult.wasClarifying) details.clarified = true;
 
         let testStatus: TestStatus;
-        if (pollResult.status === 'poll_timeout_completed') {
-          testStatus = 'poll_timeout_completed';
-        } else if (pollResult.status === 'poll_timeout_running') {
-          testStatus = 'poll_timeout_running';
+        let afrFinalState: string | null = null;
+        let pollExpired = false;
+
+        if (pollResult.status === 'poll_expired_reconciling') {
+          pollExpired = true;
+          updateResult(i, { status: 'poll_expired_reconciling' as TestStatus, runId: effectiveRunId });
+          finalResults[i] = { ...finalResults[i], status: 'poll_expired_reconciling' as TestStatus, runId: effectiveRunId };
+
+          const reconciled = await reconcileWithAfr(
+            clientRequestId,
+            effectiveRunId || null,
+            testStart,
+            controller.signal,
+          );
+          testStatus = reconciled.status;
+          afrFinalState = reconciled.afrFinalState;
         } else if (pollResult.timedOut) {
           testStatus = 'timed_out';
         } else if (pollResult.status === 'stopped' || pollResult.status === 'timed_out') {
@@ -1524,6 +1564,16 @@ export default function QaTestRunnerPage() {
         } else {
           testStatus = 'completed';
         }
+
+        const duration = Date.now() - testStart;
+
+        let details: ArtefactInfo = { blocked: false, clarified: false, towerVerdict: null, resultSummary: null, deliveredCount: 0, hasLeadPack: false, layers: emptyLayerBreakdown() };
+        if (effectiveRunId) {
+          try { details = await fetchRunDetails(effectiveRunId); } catch {}
+        }
+
+        if (pollResult.wasClarifying) details.clarified = true;
+        if (afrFinalState === 'clarifying') details.clarified = true;
 
         const patch: Partial<TestResult> = {
           status: testStatus,
@@ -1552,7 +1602,7 @@ export default function QaTestRunnerPage() {
         finalResults[i] = { ...finalResults[i], ...patch };
         updateResult(i, patch);
 
-        persistQaMetric(finalResults[i], test, targetSuiteId, suiteStart);
+        persistQaMetric(finalResults[i], test, targetSuiteId, suiteStart, pollExpired, afrFinalState);
       } catch (e: any) {
         const duration = Date.now() - testStart;
         if (e.name === 'AbortError') {
