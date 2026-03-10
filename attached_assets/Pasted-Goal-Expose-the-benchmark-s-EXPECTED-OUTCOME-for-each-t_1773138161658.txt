@@ -1,0 +1,143 @@
+Goal
+
+Expose the benchmark's EXPECTED OUTCOME for each test case directly in the QA harness UI so developers can see what the test is supposed to achieve.
+
+Right now the harness shows:
+- query
+- system/agent/tower/behaviour results
+- run status
+
+But the expected outcome for the benchmark input is hidden in the test definition.
+
+We want to surface that expected outcome under each test input row.
+
+Do NOT change the benchmark definitions or scoring logic. This is a read-only UI improvement.
+
+---
+
+Step 1 — Locate benchmark definitions
+
+Find the file:
+
+client/src/pages/dev/qa-test-runner.tsx
+
+Inside this file locate the constant:
+
+FULL_BENCHMARK_PACK
+
+Each test object contains fields like:
+
+{
+  id: "B01",
+  query: "...",
+  clarificationResponse: "...",
+  expectedOutcome: "...",
+  behaviourExpectation: "...",
+  ...
+}
+
+We want to surface the expected outcome text.
+
+If the field name differs (for example expectedOutcome, expected_result, or behaviourExpectation), detect the correct one and use it.
+
+---
+
+Step 2 — Add expected outcome to harness row state
+
+When the harness loads benchmark tests, extend the row state object to include:
+
+expectedOutcome
+
+Example:
+
+{
+  id,
+  query,
+  expectedOutcome
+}
+
+Do not modify the existing execution logic.
+
+---
+
+Step 3 — Display expected outcome in the harness UI
+
+In the harness row component (the table row that shows each test):
+
+Under the query text add a small section:
+
+Expected outcome:
+<text>
+
+UI rules:
+
+- small grey text
+- monospaced or code style
+- collapsible if long
+- never truncate the query
+
+Example layout:
+
+Query
+Find organisations that work with the local authority in Blackpool
+
+Expected outcome
+System should return organisations with explicit evidence of working with Blackpool Council.
+
+System: PASS
+Agent: PASS
+Tower: FAIL
+Behaviour: PASS
+
+---
+
+Step 4 — Ensure this is visible before the run
+
+The expected outcome should be visible:
+
+- before the run starts
+- during the run
+- after the run
+
+This allows developers to compare results vs expectations.
+
+---
+
+Step 5 — Add optional highlight
+
+If behaviour result != expected outcome logic:
+
+show a small indicator:
+
+Expected vs Behaviour mismatch
+
+But do NOT change behaviour scoring logic.
+
+This is purely diagnostic.
+
+---
+
+Constraints
+
+Do NOT modify:
+- scoring logic
+- behaviour evaluation
+- tower logic
+- benchmark definitions
+
+This is purely a harness UI improvement.
+
+---
+
+Expected result
+
+Each benchmark row in the QA harness will show:
+
+Query
+Expected outcome
+System result
+Agent result
+Tower result
+Behaviour result
+
+This makes debugging failures much easier.

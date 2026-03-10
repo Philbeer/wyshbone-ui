@@ -12,7 +12,9 @@ import {
   ArrowLeft,
   FlaskConical,
   ChevronDown,
+  ChevronRight,
   BarChart3,
+  AlertTriangle,
 } from 'lucide-react';
 import { buildApiUrl, addDevAuthParams } from '@/lib/queryClient';
 
@@ -356,6 +358,7 @@ interface TestResult {
   expected: ExpectedOutcome;
   queryClass: QueryClass;
   expectedMode: ExpectedMode;
+  expectedOutcome: string;
   minimumExpectedCount?: number;
   notes?: string;
   status: TestStatus;
@@ -393,6 +396,20 @@ function getUser(): { id: string; email: string } | null {
     if (raw) return JSON.parse(raw);
   } catch {}
   return null;
+}
+
+function buildExpectedOutcome(t: TestDefinition): string {
+  const MODE_LABELS: Record<ExpectedMode, string> = {
+    deliver_results: 'Deliver results',
+    clarify: 'Clarify before running',
+    honest_refusal: 'Honest refusal',
+    best_effort_honest: 'Best effort or clarify',
+  };
+  const parts: string[] = [MODE_LABELS[t.expectedMode] || t.expectedMode];
+  if (t.expectedStrategy) parts.push(`strategy: ${t.expectedStrategy}`);
+  if (t.minimumExpectedCount != null) parts.push(`min ${t.minimumExpectedCount} results`);
+  if (t.notes) parts.push(t.notes);
+  return parts.join(' · ');
 }
 
 function evaluateJudgement(expected: ExpectedOutcome, result: TestResult): Judgement {
@@ -1473,6 +1490,7 @@ export default function QaTestRunnerPage() {
       expected: t.expected,
       queryClass: t.queryClass,
       expectedMode: t.expectedMode,
+      expectedOutcome: buildExpectedOutcome(t),
       minimumExpectedCount: t.minimumExpectedCount,
       notes: t.notes,
       status: 'queued',
@@ -1798,10 +1816,18 @@ export default function QaTestRunnerPage() {
                 <span className="text-gray-400 font-mono w-6 text-right shrink-0">{i + 1}.</span>
                 <div className="flex-1">
                   <span className="text-gray-800">{t.query}</span>
+                  <details className="mt-1 group">
+                    <summary className="cursor-pointer select-none list-none flex items-center gap-1 text-[10px] text-gray-400 hover:text-gray-600">
+                      <ChevronRight className="w-3 h-3 group-open:hidden" />
+                      <ChevronDown className="w-3 h-3 hidden group-open:block" />
+                      <span className="font-semibold uppercase tracking-wider">Expected outcome</span>
+                    </summary>
+                    <div className="mt-0.5 text-[11px] text-gray-500 dark:text-gray-400 font-mono bg-white dark:bg-gray-900 rounded px-2 py-1 whitespace-pre-wrap">
+                      {buildExpectedOutcome(t)}
+                    </div>
+                  </details>
                   <div className="flex items-center gap-2 mt-0.5">
                     {expectedBadge(t.expected)}
-                    {t.expectedStrategy && <span className="text-xs text-indigo-500 font-mono">strategy: {t.expectedStrategy}</span>}
-                    {t.notes && <span className="text-xs text-gray-400">{t.notes}</span>}
                   </div>
                 </div>
               </div>
@@ -1850,6 +1876,22 @@ export default function QaTestRunnerPage() {
                   <td className="px-3 py-2.5 text-gray-400 font-mono">{i + 1}</td>
                   <td className="px-3 py-2.5">
                     <div className="font-medium text-gray-800 dark:text-gray-200 text-xs">{r.query}</div>
+                    <details className="mt-1 group">
+                      <summary className="cursor-pointer select-none list-none flex items-center gap-1 text-[10px] text-gray-400 hover:text-gray-600">
+                        <ChevronRight className="w-3 h-3 group-open:hidden" />
+                        <ChevronDown className="w-3 h-3 hidden group-open:block" />
+                        <span className="font-semibold uppercase tracking-wider">Expected outcome</span>
+                      </summary>
+                      <div className="mt-0.5 text-[11px] text-gray-500 dark:text-gray-400 font-mono bg-gray-50 dark:bg-gray-900 rounded px-2 py-1 whitespace-pre-wrap">
+                        {r.expectedOutcome}
+                      </div>
+                    </details>
+                    {r.behaviourResult === 'FAIL' && (
+                      <div className="mt-0.5 flex items-center gap-1 text-[10px] text-amber-600">
+                        <AlertTriangle className="w-3 h-3" />
+                        <span>Expected vs Behaviour mismatch</span>
+                      </div>
+                    )}
                     <div className="flex items-center gap-2 mt-0.5">
                       {expectedBadge(r.expected)}
                       {r.resultSummary && <span className="text-xs text-gray-400">{r.resultSummary}</span>}
