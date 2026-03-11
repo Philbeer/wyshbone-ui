@@ -248,8 +248,13 @@ function matchLeadToId(lead: DeliveryLead): string[] {
 function splitLeadsByVerification(
   allLeads: DeliveryLead[],
   verifiedExact: number,
-  verifiedIds: Set<string>
+  verifiedIds: Set<string>,
+  hasVerificationData: boolean,
 ): { matches: DeliveryLead[]; candidates: DeliveryLead[] } {
+  if (!hasVerificationData && verifiedIds.size === 0 && verifiedExact === 0) {
+    return { matches: allLeads, candidates: [] };
+  }
+
   if (verifiedIds.size === 0 && verifiedExact === 0) {
     return { matches: [], candidates: allLeads };
   }
@@ -385,9 +390,10 @@ function buildSummaryText(
   }
 }
 
-type LeadBadgeStatus = 'verified' | 'weak_match' | 'candidate' | 'unverified';
+type LeadBadgeStatus = 'verified' | 'weak_match' | 'candidate' | 'unverified' | 'none';
 
 function LeadBadge({ isVerified, unverifiableAttr, badgeStatus }: { isVerified: boolean; unverifiableAttr: string | null; badgeStatus?: LeadBadgeStatus }) {
+  if (badgeStatus === 'none') return null;
   const effectiveStatus: LeadBadgeStatus =
     isVerified ? 'verified' :
     badgeStatus === 'weak_match' ? 'weak_match' :
@@ -1547,11 +1553,11 @@ export default function RunResultBubble({
   const allPositiveIds = new Set<string>();
   verifiedIds.forEach(id => allPositiveIds.add(id));
   weakMatchIds.forEach(id => allPositiveIds.add(id));
-  const { matches, candidates } = splitLeadsByVerification(allLeads, verifiedExact, allPositiveIds);
 
   const hasReceiptAttrData = Array.isArray(receiptAttrsForIds) && receiptAttrsForIds.length > 0;
   const hasVerificationData = (leadVerifications && leadVerifications.length > 0) || hasSemanticData || hasReceiptAttrData;
-  const hasUnverifiedLeads = (!hasVerificationData) || isTrustFailure || isTimePredicateStop;
+  const { matches, candidates } = splitLeadsByVerification(allLeads, verifiedExact, allPositiveIds, hasVerificationData);
+  const hasUnverifiedLeads = hasVerificationData && (isTrustFailure || isTimePredicateStop || candidates.length > 0);
 
   const defaultBadgeStatus: LeadBadgeStatus = hasUnverifiedLeads ? 'unverified' : 'candidate';
 
@@ -1606,7 +1612,7 @@ export default function RunResultBubble({
     });
   }
 
-  console.log(`[RunResultBubble] render: status=${effectiveCanonical.status} (raw=${canonical.status}), verifiedExact=${verifiedExact}, requested=${target.hasTarget ? target.targetCount : 'any'}, allLeads=${allLeads.length}, matches=${matches.length}, candidates=${candidates.length}, leadVerifications=${leadVerifications?.length ?? 'none'}, verifiedIds=${verifiedIds.size}, locationBuckets=${useLocationBuckets ? `geo=${locationBuckets!.verifiedGeo.length},bounded=${locationBuckets!.searchBounded.length},out=${locationBuckets!.outOfArea.length},unknown=${locationBuckets!.unknown.length}` : 'none'}`);
+  console.log(`[RunResultBubble] render: status=${effectiveCanonical.status} (raw=${canonical.status}), verifiedExact=${verifiedExact}, requested=${target.hasTarget ? target.targetCount : 'any'}, allLeads=${allLeads.length}, matches=${matches.length}, candidates=${candidates.length}, hasVerificationData=${hasVerificationData}, hasReceiptAttrData=${hasReceiptAttrData}, hasSemanticData=${hasSemanticData}, leadVerifications=${leadVerifications?.length ?? 'none'}, semanticJudgements=${semanticJudgements?.length ?? 'none'}, verifiedIds=${verifiedIds.size}, weakMatchIds=${weakMatchIds.size}, hasUnverifiedLeads=${hasUnverifiedLeads}, defaultBadgeStatus=${defaultBadgeStatus}, useLocationBuckets=${useLocationBuckets}, renderBranch=${provisional ? 'provisional' : useLocationBuckets ? 'location-buckets' : hasReceiptAttrData ? 'receipt-attrs' : 'default'}`);
 
   const attrOutcomes = buildAttributeOutcomes(constraintsExtracted, leadVerifications);
 
@@ -1714,7 +1720,7 @@ export default function RunResultBubble({
               </h4>
               <div>
                 {locationBuckets.verifiedGeo.map((lead, i) => (
-                  <LeadRow key={i} lead={lead} isVerified={isLeadInMatchSet(lead, matchSetLower) || matchSetLower.size === 0} unverifiableAttr={null} runId={runId} showLocationBadge badgeStatus={getLeadBadgeStatus(lead)} />
+                  <LeadRow key={i} lead={lead} isVerified={hasVerificationData && (isLeadInMatchSet(lead, matchSetLower) || matchSetLower.size === 0)} unverifiableAttr={null} runId={runId} showLocationBadge badgeStatus={hasVerificationData ? getLeadBadgeStatus(lead) : 'none'} />
                 ))}
               </div>
             </div>
@@ -1726,7 +1732,7 @@ export default function RunResultBubble({
               </h4>
               <div>
                 {locationBuckets.searchBounded.map((lead, i) => (
-                  <LeadRow key={i} lead={lead} isVerified={isLeadInMatchSet(lead, matchSetLower)} unverifiableAttr={null} runId={runId} showLocationBadge badgeStatus={getLeadBadgeStatus(lead)} />
+                  <LeadRow key={i} lead={lead} isVerified={hasVerificationData && isLeadInMatchSet(lead, matchSetLower)} unverifiableAttr={null} runId={runId} showLocationBadge badgeStatus={hasVerificationData ? getLeadBadgeStatus(lead) : 'none'} />
                 ))}
               </div>
             </div>
@@ -1738,7 +1744,7 @@ export default function RunResultBubble({
               </h4>
               <div>
                 {locationBuckets.outOfArea.map((lead, i) => (
-                  <LeadRow key={i} lead={lead} isVerified={false} unverifiableAttr={null} runId={runId} showLocationBadge badgeStatus={getLeadBadgeStatus(lead)} />
+                  <LeadRow key={i} lead={lead} isVerified={false} unverifiableAttr={null} runId={runId} showLocationBadge badgeStatus={hasVerificationData ? getLeadBadgeStatus(lead) : 'none'} />
                 ))}
               </div>
             </div>
@@ -1750,7 +1756,7 @@ export default function RunResultBubble({
               </h4>
               <div>
                 {locationBuckets.unknown.map((lead, i) => (
-                  <LeadRow key={i} lead={lead} isVerified={isLeadInMatchSet(lead, matchSetLower)} unverifiableAttr={isLeadInMatchSet(lead, matchSetLower) ? null : unverifiableAttr} runId={runId} showLocationBadge badgeStatus={getLeadBadgeStatus(lead)} />
+                  <LeadRow key={i} lead={lead} isVerified={hasVerificationData && isLeadInMatchSet(lead, matchSetLower)} unverifiableAttr={hasVerificationData && isLeadInMatchSet(lead, matchSetLower) ? null : (hasVerificationData ? unverifiableAttr : null)} runId={runId} showLocationBadge badgeStatus={hasVerificationData ? getLeadBadgeStatus(lead) : 'none'} />
                 ))}
               </div>
             </div>
@@ -1812,7 +1818,7 @@ export default function RunResultBubble({
           </h4>
           <div>
             {matches.map((lead, i) => (
-              <LeadRow key={i} lead={lead} isVerified={true} unverifiableAttr={null} runId={runId} badgeStatus={getLeadBadgeStatus(lead)} />
+              <LeadRow key={i} lead={lead} isVerified={hasVerificationData} unverifiableAttr={null} runId={runId} badgeStatus={hasVerificationData ? getLeadBadgeStatus(lead) : 'none'} />
             ))}
           </div>
         </div>
