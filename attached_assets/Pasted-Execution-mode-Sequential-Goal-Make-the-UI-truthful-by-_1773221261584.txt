@@ -1,0 +1,125 @@
+Execution mode: Sequential
+
+Goal
+Make the UI truthful by showing verified delivered truth as the primary result set, not raw discovery/candidate leads.
+
+Context
+
+The UI audit found three concrete causes of misleading output:
+
+1. chat.tsx fallback synthesis path:
+   - if delivery_summary is missing or arrives late, the UI synthesises from leads_list artefacts
+   - this can treat all discovered candidates as delivered results
+
+2. RunResultBubble.tsx narrative/count logic:
+   - the “I found N ...” line can use total displayed leads (exact + closest / matches + candidates)
+   - that can show 5 when backend verified truth is 3
+
+3. RunResultBubble.tsx rendering branches:
+   - both the receipt-attributes branch (~1708-1765)
+   - and the default branch (~1767-1789)
+   can show unmatched / unverified candidates in the main bubble
+   - badge is currently the main differentiator, which is not truthful enough
+
+We want the smallest clean production fix, not a full redesign.
+
+Required changes
+
+1. Harden chat.tsx fallback synthesis
+File:
+- client/src/pages/chat.tsx
+
+Change:
+- when delivery_summary is missing, do NOT blindly dump all leads_list candidates into delivered truth
+- if leadVerifications / semanticJudgements / runReceipt attribute outcomes exist:
+  - only verified leads should populate delivered_exact
+  - non-verified leads should populate delivered_closest
+- if there is insufficient truth to distinguish delivered vs candidate:
+  - prefer a conservative state over pretending all candidates were delivered
+
+2. Fix headline / narrative counts
+File:
+- client/src/components/results/RunResultBubble.tsx
+
+Change:
+- when verification data exists, the primary narrative count must reflect verified matches, not total candidates
+- the user-facing line should align with the primary truth shown in the list
+- do the same for buildSummaryText so summary language does not treat candidate count as delivered count
+
+3. Fix both result rendering branches in RunResultBubble.tsx
+File:
+- client/src/components/results/RunResultBubble.tsx
+
+Branches to update:
+- receipt-attributes branch (~1708-1765)
+- default branch (~1767-1789)
+
+Change:
+- primary visible section should show verified matches first
+- unverified / unmatched / candidate leads should move into a collapsed section:
+  “Other candidates (not verified)”
+- collapsed by default
+- clear explanatory copy:
+  these were found in discovery but could not be verified against the user’s requirement
+
+4. Align UserResultsView.tsx with the same truth model
+File:
+- client/src/components/results/UserResultsView.tsx
+
+Change:
+- apply the same verified-first separation in the full results panel
+- do not let the panel disagree with the chat bubble
+
+5. Preserve evidence visibility for verified results
+- verified results should continue showing:
+  - evidence snippet
+  - source URL
+  - reason text
+- do not hide evidence for verified items
+
+Desired end behaviour
+
+For a hard-evidence query like:
+“Find 5 pubs in Arundel that mention live music on their website”
+
+If backend truth is:
+- 3 verified
+- 2 unverified candidates
+
+The UI should show something like:
+
+I found 3 verified matches.
+
+Verified matches (3)
+- [3 verified rows with evidence]
+
+Other candidates (2) [collapsed]
+- these were found in discovery but could not be verified
+
+Not:
+- “I found 5”
+- followed by 5 mixed rows in the same main section
+
+Deliverables
+
+1. Code changes in:
+- client/src/pages/chat.tsx
+- client/src/components/results/RunResultBubble.tsx
+- client/src/components/results/UserResultsView.tsx
+
+2. A short markdown file:
+UI_RESULTS_TRUTH_FIX.md
+
+That file should include:
+- previous misleading behaviour
+- exact branches changed
+- how counts now work
+- how verified vs candidate separation now works
+- any remaining known limitations
+
+Rules
+
+- Do not redesign the whole UI architecture
+- Do not change backend contracts
+- Make the smallest production-grade fix that makes the chat/results truthful
+- Use the audit findings directly, not assumptions

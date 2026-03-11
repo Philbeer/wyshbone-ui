@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { MapPin, Phone, Globe, Info, CheckCircle2, CircleDot, OctagonX, HelpCircle, ThumbsUp, RotateCcw, X, Download, Loader2, AlertTriangle } from "lucide-react";
+import { MapPin, Phone, Globe, Info, CheckCircle2, CircleDot, OctagonX, HelpCircle, ThumbsUp, RotateCcw, X, Download, Loader2, AlertTriangle, ChevronDown, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { ConstraintsSectionInline, VerificationSectionInline } from "@/components/results/CvlArtefactViews";
@@ -214,6 +214,33 @@ function FeedbackButtons({ goalId, runId }: { goalId?: string | null; runId?: st
   );
 }
 
+function ClosestResultsCollapsed({ closest }: { closest: DeliveryLead[] }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <section className="space-y-2">
+      <button
+        className="flex items-center gap-1 text-sm font-semibold text-muted-foreground hover:text-foreground transition-colors w-full text-left"
+        onClick={() => setOpen(!open)}
+      >
+        {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+        Other candidates — not verified ({closest.length})
+      </button>
+      {open && (
+        <div className="pl-3 border-l border-border/50">
+          <p className="text-xs text-muted-foreground mb-2">
+            These were found in discovery but could not be verified against your requirements.
+          </p>
+          <div className="space-y-2">
+            {closest.map((lead, i) => (
+              <LeadCard key={i} lead={lead} showViolations />
+            ))}
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
 export default function UserResultsView({
   deliverySummary,
   onClose,
@@ -302,7 +329,7 @@ export default function UserResultsView({
       {exact.length > 0 && hasVerifiedExact && (
         <section className="space-y-2">
           <div>
-            <h3 className="text-sm font-semibold text-foreground">Matches</h3>
+            <h3 className="text-sm font-semibold text-foreground">Verified matches ({exact.length})</h3>
             <p className="text-xs text-muted-foreground mt-0.5">These meet all your stated requirements.</p>
           </div>
           <div className="space-y-2">
@@ -327,7 +354,11 @@ export default function UserResultsView({
         </section>
       )}
 
-      {closest.length > 0 && (
+      {closest.length > 0 && hasVerifiedExact && (
+        <ClosestResultsCollapsed closest={closest} />
+      )}
+
+      {closest.length > 0 && !hasVerifiedExact && (
         <section className="space-y-2">
           <div>
             <h3 className="text-sm font-semibold text-foreground">Closest results</h3>

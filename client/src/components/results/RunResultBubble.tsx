@@ -326,11 +326,16 @@ function buildSummaryText(
     case "PARTIAL":
       if (target.hasTarget) {
         if (isPartialOrStop) {
-          return `Found ${totalDelivered} ${totalDelivered === 1 ? "candidate" : "candidates"}, but could not verify the requirement. Returned ${verifiedExact} of ${target.targetCount} requested.`;
+          const candidateNote = totalDelivered > verifiedExact ? ` (${totalDelivered - verifiedExact} other ${totalDelivered - verifiedExact === 1 ? "candidate was" : "candidates were"} found but not verified)` : "";
+          return `Found ${verifiedExact} verified ${verifiedExact === 1 ? "match" : "matches"} of ${target.targetCount} requested${candidateNote}.`;
         }
-        return `Returned ${verifiedExact} of ${target.targetCount} requested. You can search more or broaden the criteria to try to reach ${target.targetCount}.`;
+        return `Returned ${verifiedExact} verified of ${target.targetCount} requested. You can search more or broaden the criteria to try to reach ${target.targetCount}.`;
       }
       if (isPartialOrStop) {
+        if (verifiedExact > 0) {
+          const candidateNote = totalDelivered > verifiedExact ? ` ${totalDelivered - verifiedExact} other ${totalDelivered - verifiedExact === 1 ? "candidate was" : "candidates were"} found but not verified.` : "";
+          return `I found ${verifiedExact} verified ${verifiedExact === 1 ? "match" : "matches"}.${candidateNote}`;
+        }
         return `Found ${totalDelivered} ${totalDelivered === 1 ? "candidate" : "candidates"}, but could not verify the requirement.`;
       }
       return `I found ${totalDelivered} ${totalDelivered === 1 ? "result" : "results"} for your search.`;
@@ -358,6 +363,13 @@ function buildSummaryText(
     case "ACCEPT_WITH_UNVERIFIED": {
       const totalItems = (Array.isArray(ds.delivered_exact) ? ds.delivered_exact.length : 0) +
         (Array.isArray(ds.delivered_closest) ? ds.delivered_closest.length : 0);
+      const unverifiedCount = totalItems - verifiedExact;
+      if (verifiedExact > 0 && unverifiedCount > 0) {
+        if (target.hasTarget) {
+          return `Found ${verifiedExact} verified ${verifiedExact === 1 ? "match" : "matches"} of ${target.targetCount} requested. ${unverifiedCount} other ${unverifiedCount === 1 ? "candidate" : "candidates"} could not be verified.`;
+        }
+        return `I found ${verifiedExact} verified ${verifiedExact === 1 ? "match" : "matches"}. ${unverifiedCount} other ${unverifiedCount === 1 ? "candidate" : "candidates"} could not be verified.`;
+      }
       if (target.hasTarget) {
         return `Returned ${totalItems} ${totalItems === 1 ? "result" : "results"} for ${target.targetCount} requested, but not all could be verified against your requirements.`;
       }
@@ -693,11 +705,16 @@ export function buildRunNarrative(
   contactCounts?: ContactCounts | null,
   attributeOutcomes?: AttributeOutcome[] | null,
   hasReceiptAttributes?: boolean,
+  verifiedMatchCount?: number,
 ): RunNarrative {
   const exact = Array.isArray(deliverySummary.delivered_exact) ? deliverySummary.delivered_exact : [];
   const closest = Array.isArray(deliverySummary.delivered_closest) ? deliverySummary.delivered_closest : [];
   const allLeads = [...exact, ...closest];
   const deliveredCount = allLeads.length;
+
+  const hasVerificationTruth = typeof verifiedMatchCount === 'number' && verifiedMatchCount >= 0;
+  const primaryCount = hasVerificationTruth && verifiedMatchCount > 0 ? verifiedMatchCount : deliveredCount;
+  const candidateOnlyCount = hasVerificationTruth ? deliveredCount - verifiedMatchCount : 0;
 
   const requestedCount = constraintsExtracted?.requested_count_user ??
     deliverySummary.requested_count ??
@@ -725,8 +742,13 @@ export function buildRunNarrative(
   const entityWord = query || 'businesses';
   const locationPart = location ? ` in ${titleCase(location)}` : '';
 
-  if (deliveredCount > 0) {
-    lines.push(`I found ${deliveredCount} ${entityWord}${locationPart}.`);
+  if (hasVerificationTruth && verifiedMatchCount > 0) {
+    lines.push(`I found ${verifiedMatchCount} verified ${verifiedMatchCount === 1 ? 'match' : 'matches'}${locationPart}.`);
+    if (candidateOnlyCount > 0) {
+      lines.push(`${candidateOnlyCount} other ${candidateOnlyCount === 1 ? 'candidate was' : 'candidates were'} found but could not be verified.`);
+    }
+  } else if (primaryCount > 0) {
+    lines.push(`I found ${primaryCount} ${entityWord}${locationPart}.`);
   } else if (candidateCount != null && candidateCount > 0) {
     lines.push(`I searched Google Places for ${entityWord}${locationPart} and found ${candidateCount} possible ${candidateCount === 1 ? 'match' : 'matches'}.`);
   } else {
@@ -1412,6 +1434,36 @@ function SearchSummaryBlock({ sqc }: { sqc: SearchQueryCompiled }) {
   );
 }
 
+function CollapsedCandidates({ leads, unverifiableAttr, runId, getLeadBadgeStatus }: {
+  leads: DeliveryLead[];
+  unverifiableAttr: string | null;
+  runId?: string | null;
+  getLeadBadgeStatus: (lead: DeliveryLead) => LeadBadgeStatus;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="space-y-0.5">
+      <button
+        className="flex items-center gap-1 text-xs font-semibold text-muted-foreground uppercase tracking-wide hover:text-foreground transition-colors w-full text-left"
+        onClick={() => setOpen(!open)}
+      >
+        {open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+        Other candidates — not verified ({leads.length})
+      </button>
+      {open && (
+        <div className="pl-4 border-l border-border/50">
+          <p className="text-[11px] text-muted-foreground mb-1">
+            These were found in discovery but could not be verified against your requirements.
+          </p>
+          {leads.map((lead, i) => (
+            <LeadRow key={i} lead={lead} isVerified={false} unverifiableAttr={unverifiableAttr} runId={runId} badgeStatus={getLeadBadgeStatus(lead)} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function RunResultBubble({
   deliverySummary,
   verificationSummary,
@@ -1497,7 +1549,8 @@ export default function RunResultBubble({
   weakMatchIds.forEach(id => allPositiveIds.add(id));
   const { matches, candidates } = splitLeadsByVerification(allLeads, verifiedExact, allPositiveIds);
 
-  const hasVerificationData = (leadVerifications && leadVerifications.length > 0) || hasSemanticData;
+  const hasReceiptAttrData = Array.isArray(receiptAttrsForIds) && receiptAttrsForIds.length > 0;
+  const hasVerificationData = (leadVerifications && leadVerifications.length > 0) || hasSemanticData || hasReceiptAttrData;
   const hasUnverifiedLeads = (!hasVerificationData) || isTrustFailure || isTimePredicateStop;
 
   const defaultBadgeStatus: LeadBadgeStatus = hasUnverifiedLeads ? 'unverified' : 'candidate';
@@ -1578,7 +1631,7 @@ export default function RunResultBubble({
       } satisfies AttributeOutcome))
     : attrOutcomes;
 
-  const narrative = !provisional ? buildRunNarrative(deliverySummary, searchQueryCompiled, constraintsExtracted, towerVerdict, contactCounts, effectiveAttrOutcomes, hasReceiptAttributes) : null;
+  const narrative = !provisional ? buildRunNarrative(deliverySummary, searchQueryCompiled, constraintsExtracted, towerVerdict, contactCounts, effectiveAttrOutcomes, hasReceiptAttributes, hasVerificationData ? matches.length : undefined) : null;
 
   return (
     <div className="space-y-3">
@@ -1725,6 +1778,7 @@ export default function RunResultBubble({
         for (const ra of receiptAttrs!) {
           for (const pid of ra.matched_place_ids ?? []) anyMatchedIds.add(pid);
         }
+        const remaining = allLeads.filter(l => !anyMatchedIds.has(getLeadId(l)));
         return (
           <>
             {receiptAttrs!.map((ra, attrIdx) => {
@@ -1734,7 +1788,7 @@ export default function RunResultBubble({
               return (
                 <div key={attrIdx} className="space-y-0.5">
                   <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                    Mentions &lsquo;{ra.attribute_raw}&rsquo; ({sectionLeads.length})
+                    Verified &mdash; mentions &lsquo;{ra.attribute_raw}&rsquo; ({sectionLeads.length})
                   </h4>
                   <div>
                     {sectionLeads.map((lead, i) => (
@@ -1744,22 +1798,9 @@ export default function RunResultBubble({
                 </div>
               );
             })}
-            {(() => {
-              const remaining = allLeads.filter(l => !anyMatchedIds.has(getLeadId(l)));
-              if (remaining.length === 0) return null;
-              return (
-                <div className="space-y-0.5">
-                  <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                    {anyMatchedIds.size > 0 ? `Other results (${remaining.length})` : `Results (${remaining.length})`}
-                  </h4>
-                  <div>
-                    {remaining.map((lead, i) => (
-                      <LeadRow key={i} lead={lead} isVerified={false} unverifiableAttr={unverifiableAttr} runId={runId} badgeStatus={getLeadBadgeStatus(lead)} />
-                    ))}
-                  </div>
-                </div>
-              );
-            })()}
+            {remaining.length > 0 && (
+              <CollapsedCandidates leads={remaining} unverifiableAttr={unverifiableAttr} runId={runId} getLeadBadgeStatus={getLeadBadgeStatus} />
+            )}
           </>
         );
       })()}
@@ -1767,7 +1808,7 @@ export default function RunResultBubble({
       {!provisional && !useLocationBuckets && !hasReceiptAttributes && matches.length > 0 && (
         <div className="space-y-0.5">
           <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-            Results ({matches.length})
+            {hasVerificationData ? `Verified matches (${matches.length})` : `Results (${matches.length})`}
           </h4>
           <div>
             {matches.map((lead, i) => (
@@ -1778,14 +1819,18 @@ export default function RunResultBubble({
       )}
 
       {!provisional && !useLocationBuckets && !hasReceiptAttributes && candidates.length > 0 && (
-        <div className="space-y-0.5">
-          <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{matches.length > 0 ? `Other results (${candidates.length})` : `Results (${candidates.length})`}</h4>
-          <div>
-            {candidates.map((lead, i) => (
-              <LeadRow key={i} lead={lead} isVerified={false} unverifiableAttr={unverifiableAttr} runId={runId} badgeStatus={getLeadBadgeStatus(lead)} />
-            ))}
+        hasVerificationData && matches.length > 0 ? (
+          <CollapsedCandidates leads={candidates} unverifiableAttr={unverifiableAttr} runId={runId} getLeadBadgeStatus={getLeadBadgeStatus} />
+        ) : (
+          <div className="space-y-0.5">
+            <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Results ({candidates.length})</h4>
+            <div>
+              {candidates.map((lead, i) => (
+                <LeadRow key={i} lead={lead} isVerified={false} unverifiableAttr={unverifiableAttr} runId={runId} badgeStatus={getLeadBadgeStatus(lead)} />
+              ))}
+            </div>
           </div>
-        </div>
+        )
       )}
 
       {!provisional && narrative && (deliverySummary.stop_reason !== 'still_working' || hasResults) && (

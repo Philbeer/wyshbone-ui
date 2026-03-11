@@ -925,13 +925,77 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         let synthesisedDs: DeliverySummary;
         const towerVerdictLower = (towerVerdict || '').toLowerCase();
         if (provisionalLeads.length > 0) {
-          const hasVs = provVs && typeof provVs === 'object' && (provVs as any).verified_exact_count > 0;
+          const verifiedLeads: DeliveryLead[] = [];
+          const unverifiedLeads: DeliveryLead[] = [];
+
+          const hasVerificationData = (provLv && provLv.length > 0) ||
+            (provSJ && provSJ.length > 0) ||
+            (provRR?.outcomes?.attributes && provRR.outcomes.attributes.length > 0);
+
+          if (hasVerificationData) {
+            const verifiedIds = new Set<string>();
+
+            if (provLv) {
+              for (const entry of provLv) {
+                let isVerified = false;
+                if (entry.verified_exact === true || entry.all_hard_satisfied === true) {
+                  isVerified = true;
+                } else if (Array.isArray(entry.constraint_checks) && entry.constraint_checks.length > 0) {
+                  const hardChecks = entry.constraint_checks.filter((c: any) => c.hard === true);
+                  if (hardChecks.length > 0) {
+                    isVerified = hardChecks.every((c: any) => c.status === 'yes');
+                  } else {
+                    isVerified = entry.constraint_checks.every((c: any) => c.status === 'yes' || c.status === 'search_bounded');
+                  }
+                }
+                if (isVerified) {
+                  const id = entry.lead_place_id || entry.lead_id || '';
+                  if (id) verifiedIds.add(id);
+                  if (entry.lead_name) verifiedIds.add(entry.lead_name.toLowerCase().trim());
+                }
+              }
+            }
+
+            if (provSJ) {
+              for (const sj of provSJ) {
+                const status = sj.tower_status?.toLowerCase();
+                const hasSnippets = Array.isArray(sj.matched_snippets) && sj.matched_snippets.length > 0;
+                if (status === 'strong_match' || status === 'match' || (status !== 'no_evidence' && status !== 'stubbed' && status !== 'weak_match' && hasSnippets)) {
+                  verifiedIds.add(sj.lead_id);
+                  if (sj.lead_name) verifiedIds.add(sj.lead_name.toLowerCase().trim());
+                }
+              }
+            }
+
+            if (provRR?.outcomes?.attributes) {
+              for (const ra of provRR.outcomes.attributes) {
+                if (Array.isArray(ra.matched_place_ids)) {
+                  for (const pid of ra.matched_place_ids) verifiedIds.add(pid);
+                }
+              }
+            }
+
+            for (const lead of provisionalLeads) {
+              const placeId = (lead as any).place_id || (lead as any).placeId || '';
+              const name = lead.name?.toLowerCase().trim() || '';
+              if ((placeId && verifiedIds.has(placeId)) || (name && verifiedIds.has(name))) {
+                verifiedLeads.push(lead);
+              } else {
+                unverifiedLeads.push(lead);
+              }
+            }
+          } else {
+            unverifiedLeads.push(...provisionalLeads);
+          }
+
+          const hasVerified = verifiedLeads.length > 0;
           synthesisedDs = {
-            status: hasVs ? 'PASS' : 'STOP',
-            delivered_exact: hasVs ? provisionalLeads : [],
-            delivered_closest: hasVs ? [] : provisionalLeads,
-            delivered_count: provisionalLeads.length,
-            stop_reason: hasVs ? undefined : 'no_delivery_summary',
+            status: hasVerified ? (unverifiedLeads.length > 0 ? 'PARTIAL' : 'PASS') : 'STOP',
+            delivered_exact: verifiedLeads,
+            delivered_closest: unverifiedLeads,
+            delivered_count: verifiedLeads.length,
+            verified_exact_count: verifiedLeads.length,
+            stop_reason: hasVerified ? undefined : 'no_delivery_summary',
           };
         } else {
           const stopStatus = towerVerdictLower === 'stop' ? 'STOP' : (artefactTypes.includes('run_halted') ? 'STOP' : 'FAIL');
