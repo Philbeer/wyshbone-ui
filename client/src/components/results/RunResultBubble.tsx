@@ -1,5 +1,6 @@
-import { useState, useCallback } from "react";
-import { MapPin, Phone, Globe, CheckCircle2, CircleDot, OctagonX, HelpCircle, AlertTriangle, ChevronDown, ChevronRight, BookOpen, Copy, Loader2, RefreshCw, Radar, ArrowRight, ShieldQuestion } from "lucide-react";
+/* PHASE_6 */
+import { useState, useCallback, useMemo } from "react";
+import { MapPin, Phone, Globe, CheckCircle2, CircleDot, OctagonX, HelpCircle, AlertTriangle, ChevronDown, ChevronRight, BookOpen, Copy, Loader2, RefreshCw, Radar, ArrowRight, ShieldQuestion, Check, Minus, X as XIcon, RotateCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { resolveCanonicalStatus, type CanonicalStatus } from "@/utils/deliveryStatus";
@@ -112,23 +113,166 @@ function dispatchFollowUp(params: {
   );
 }
 
+/* PHASE_6: Updated status icons and colours for new status model */
 const STATUS_ICONS: Record<CanonicalStatus, typeof CheckCircle2> = {
   PASS: CheckCircle2,
   PARTIAL: CircleDot,
   STOP: OctagonX,
   FAIL: AlertTriangle,
   ACCEPT_WITH_UNVERIFIED: AlertTriangle,
+  CHANGE_PLAN: RotateCw,
+  ERROR: AlertTriangle,
   UNAVAILABLE: HelpCircle,
 };
 
 const STATUS_COLORS: Record<CanonicalStatus, string> = {
   PASS: "text-green-600 dark:text-green-400",
-  PARTIAL: "text-blue-600 dark:text-blue-400",
+  PARTIAL: "text-amber-600 dark:text-amber-400",
   STOP: "text-red-600 dark:text-red-400",
   FAIL: "text-red-600 dark:text-red-400",
   ACCEPT_WITH_UNVERIFIED: "text-amber-600 dark:text-amber-400",
+  CHANGE_PLAN: "text-amber-600 dark:text-amber-400",
+  ERROR: "text-red-600 dark:text-red-400",
   UNAVAILABLE: "text-muted-foreground",
 };
+
+/* PHASE_6: Constraint verdict type from backend lead_verification artefacts */
+type ConstraintVerdict = 'VERIFIED' | 'PLAUSIBLE' | 'UNSUPPORTED' | 'CONTRADICTED' | 'UNKNOWN';
+
+function toConstraintVerdict(status: string | undefined): ConstraintVerdict {
+  if (!status) return 'UNKNOWN';
+  const upper = status.toUpperCase().trim();
+  if (upper === 'YES' || upper === 'VERIFIED' || upper === 'EXACT' || upper === 'SEARCH_BOUNDED') return 'VERIFIED';
+  if (upper === 'PLAUSIBLE' || upper === 'LIKELY' || upper === 'WEAK_MATCH') return 'PLAUSIBLE';
+  if (upper === 'NO' || upper === 'CONTRADICTED' || upper === 'FAILED') return 'CONTRADICTED';
+  if (upper === 'UNSUPPORTED' || upper === 'NOT_FOUND') return 'UNSUPPORTED';
+  return 'UNKNOWN';
+}
+
+/* PHASE_6: Map source tier strings to human-readable labels */
+function formatSourceTier(sourceTier: string | undefined): string | null {
+  if (!sourceTier) return null;
+  const lower = sourceTier.toLowerCase().trim();
+  const map: Record<string, string> = {
+    first_party_website: "their website",
+    website: "their website",
+    search_snippet: "search result",
+    snippet: "search result",
+    directory_field: "directory listing",
+    directory: "directory listing",
+    lead_field: "listing data",
+    listing: "listing data",
+    external_source: "third-party source",
+    external: "third-party source",
+  };
+  return map[lower] || sourceTier;
+}
+
+/* PHASE_6: Compact per-constraint verdict row for a single lead */
+function ConstraintVerdictRow({ constraintId, verdict, isHard, reason, sourceTier }: {
+  constraintId: string;
+  verdict: ConstraintVerdict;
+  isHard: boolean;
+  reason?: string;
+  sourceTier?: string | null;
+}) {
+  const sourceLabel = formatSourceTier(sourceTier || undefined);
+  const isFailure = verdict === 'UNSUPPORTED' || verdict === 'CONTRADICTED';
+  const isHardFailure = isHard && isFailure;
+
+  const config: Record<ConstraintVerdict, { icon: typeof Check; color: string; symbol: string }> = {
+    VERIFIED: { icon: Check, color: "text-green-600 dark:text-green-400", symbol: "✓" },
+    PLAUSIBLE: { icon: Minus, color: "text-amber-600 dark:text-amber-400", symbol: "~" },
+    UNSUPPORTED: { icon: Minus, color: "text-gray-400 dark:text-gray-500", symbol: "–" },
+    CONTRADICTED: { icon: XIcon, color: "text-red-600 dark:text-red-400", symbol: "✗" },
+    UNKNOWN: { icon: HelpCircle, color: "text-gray-400 dark:text-gray-500", symbol: "?" },
+  };
+
+  const c = config[verdict];
+  const Icon = c.icon;
+
+  const label = constraintId
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, ch => ch.toUpperCase());
+
+  return (
+    <div className={cn(
+      "flex items-center gap-1.5 text-[11px] leading-tight",
+      isHardFailure && "font-semibold"
+    )}>
+      <Icon className={cn("h-3 w-3 shrink-0", c.color)} />
+      <span className={cn(
+        isHardFailure ? "text-red-700 dark:text-red-300" : "text-foreground/80",
+      )}>
+        {label}
+      </span>
+      {sourceLabel && (verdict === 'VERIFIED' || verdict === 'PLAUSIBLE') && (
+        <span className="text-[10px] text-muted-foreground">
+          — from {sourceLabel}
+        </span>
+      )}
+      {isHard && (
+        <span className="text-[9px] px-1 py-px rounded bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400">
+          hard
+        </span>
+      )}
+    </div>
+  );
+}
+
+/* PHASE_6: Per-lead constraint breakdown using lead_verification artefact data */
+function ConstraintBreakdown({ checks }: { checks: import("@/components/results/CvlArtefactViews").LeadConstraintCheck[] }) {
+  if (!checks || checks.length === 0) return null;
+
+  const sorted = [...checks].sort((a, b) => {
+    if (a.hard && !b.hard) return -1;
+    if (!a.hard && b.hard) return 1;
+    return 0;
+  });
+
+  return (
+    <div className="mt-1.5 space-y-0.5 pl-0.5 border-l-2 border-border/40 ml-0.5 pl-2">
+      {sorted.map((check, i) => (
+        <ConstraintVerdictRow
+          key={check.constraint_id || i}
+          constraintId={check.constraint_id || `Constraint ${i + 1}`}
+          verdict={toConstraintVerdict((check as any).constraint_verdict || check.status)}
+          isHard={check.hard === true}
+          reason={check.reason}
+          sourceTier={(check as any).source_tier || (check as any).evidence_source}
+        />
+      ))}
+    </div>
+  );
+}
+
+/* PHASE_6: Prominent stop-reason block showing failing constraint details */
+function FailingConstraintBanner({ deliverySummary }: { deliverySummary: DeliverySummary }) {
+  const stopReason = deliverySummary.stop_reason;
+  if (!stopReason) return null;
+
+  const sr = typeof stopReason === 'string' ? { message: stopReason } : stopReason as any;
+  const failingId = sr.failing_constraint_id || sr.constraint_id || null;
+  const failingReason = sr.failing_constraint_reason || sr.reason || sr.message || null;
+
+  if (!failingReason && !failingId) return null;
+
+  return (
+    <div className="flex items-start gap-2 rounded-md bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 px-3 py-2">
+      <OctagonX className="h-4 w-4 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
+      <div className="space-y-0.5">
+        <p className="text-xs font-semibold text-red-700 dark:text-red-300">
+          Stopped{failingId ? `: ${failingId.replace(/_/g, ' ')}` : ''}
+        </p>
+        {failingReason && (
+          <p className="text-[11px] text-red-600 dark:text-red-400 leading-snug">
+            {failingReason}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function extractUnverifiableAttribute(ds: DeliverySummary): string | null {
   const stopReason = ds.stop_reason;
@@ -384,6 +528,13 @@ function buildSummaryText(
     case "FAIL":
       return `Search could not be completed. Results were not verified.`;
 
+    /* PHASE_6: Handle new status types */
+    case "CHANGE_PLAN":
+      return "The search plan is being revised. Results will update when ready.";
+
+    case "ERROR":
+      return "An error occurred during the search. You can try again.";
+
     case "UNAVAILABLE":
     default:
       return "Results are being processed.";
@@ -469,7 +620,8 @@ function LocationBadge({ status }: { status: LocationStatus }) {
   }
 }
 
-function LeadRow({ lead, isVerified, unverifiableAttr, runId, showLocationBadge, badgeStatus }: { lead: DeliveryLead; isVerified: boolean; unverifiableAttr: string | null; runId?: string | null; showLocationBadge?: boolean; badgeStatus?: LeadBadgeStatus }) {
+/* PHASE_6: LeadRow now accepts optional leadVerificationEntry for per-constraint breakdown */
+function LeadRow({ lead, isVerified, unverifiableAttr, runId, showLocationBadge, badgeStatus, leadVerificationEntry }: { lead: DeliveryLead; isVerified: boolean; unverifiableAttr: string | null; runId?: string | null; showLocationBadge?: boolean; badgeStatus?: LeadBadgeStatus; leadVerificationEntry?: import("@/components/results/CvlArtefactViews").LeadVerificationEntry | null }) {
   const area = lead.location || "";
   const placeId = (lead as any).place_id || (lead as any).placeId;
   const mapsLink = placeId
@@ -553,6 +705,10 @@ function LeadRow({ lead, isVerified, unverifiableAttr, runId, showLocationBadge,
             </div>
           );
         })()}
+        {/* PHASE_6: Per-constraint breakdown from lead_verification artefact */}
+        {leadVerificationEntry && Array.isArray(leadVerificationEntry.constraint_checks) && leadVerificationEntry.constraint_checks.length > 0 && (
+          <ConstraintBreakdown checks={leadVerificationEntry.constraint_checks} />
+        )}
       </div>
     </div>
   );
@@ -1013,16 +1169,53 @@ function TechnicalDetails({
             <SearchSummaryBlock sqc={searchQueryCompiled} />
           )}
 
+          {/* PHASE_6: Upgraded constraint summary with richer verdicts */}
           {constraintsExtracted && Array.isArray(constraintsExtracted.constraints) && constraintsExtracted.constraints.length > 0 && (
             <div>
               <p className="text-muted-foreground font-medium mb-1">Constraints</p>
               <div className="rounded border divide-y">
-                {constraintsExtracted.constraints.map(c => (
-                  <div key={c.id} className="px-2 py-1 flex items-center justify-between">
-                    <span>{c.label || `${c.field}${c.op ? ` ${c.op}` : ''} ${c.value}`}</span>
-                    <span className="text-[10px] text-muted-foreground">{c.hardness || 'unknown'}</span>
-                  </div>
-                ))}
+                {constraintsExtracted.constraints.map(c => {
+                  const vsResult = verificationSummary?.constraint_results?.find((r: any) => r.constraint_id === c.id);
+                  const verdict = vsResult ? toConstraintVerdict((vsResult as any).constraint_verdict || (vsResult as any).status) : null;
+                  const failureReason = vsResult ? ((vsResult as any).reason || (vsResult as any).failing_constraint_reason) : null;
+                  const verdictConfig: Record<ConstraintVerdict, { label: string; cls: string }> = {
+                    VERIFIED: { label: "Verified", cls: "text-green-700 dark:text-green-300 bg-green-50 dark:bg-green-900/20" },
+                    PLAUSIBLE: { label: "Plausible", cls: "text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20" },
+                    UNSUPPORTED: { label: "Unsupported", cls: "text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-800/30" },
+                    CONTRADICTED: { label: "Contradicted", cls: "text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-900/20" },
+                    UNKNOWN: { label: "Unknown", cls: "text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-800/30" },
+                  };
+                  const vc = verdict ? verdictConfig[verdict] : null;
+                  const evidenceReq = (c as any).evidence_requirement || (c as any).evidence_source;
+                  return (
+                    <div key={c.id} className="px-2 py-1.5 space-y-0.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="flex-1 min-w-0 truncate">{c.label || `${c.field}${c.op ? ` ${c.op}` : ''} ${c.value}`}</span>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {vc && (
+                            <span className={cn("inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium", vc.cls)}>
+                              {vc.label}
+                            </span>
+                          )}
+                          <span className={cn(
+                            "inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium",
+                            c.hardness === 'hard' ? "bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-300" :
+                            c.hardness === 'soft' ? "bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300" :
+                            "bg-gray-50 text-gray-600 dark:bg-gray-800/30 dark:text-gray-400"
+                          )}>
+                            {c.hardness || 'unknown'}
+                          </span>
+                        </div>
+                      </div>
+                      {evidenceReq && (
+                        <p className="text-[10px] text-muted-foreground pl-0.5">requires {evidenceReq} evidence</p>
+                      )}
+                      {failureReason && (verdict === 'UNSUPPORTED' || verdict === 'CONTRADICTED' || verdict === 'UNKNOWN') && (
+                        <p className="text-[10px] text-red-600 dark:text-red-400 pl-0.5">{failureReason}</p>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -1440,11 +1633,13 @@ function SearchSummaryBlock({ sqc }: { sqc: SearchQueryCompiled }) {
   );
 }
 
-function CollapsedCandidates({ leads, unverifiableAttr, runId, getLeadBadgeStatus }: {
+/* PHASE_6: CollapsedCandidates now accepts findLeadVerification for per-constraint breakdown */
+function CollapsedCandidates({ leads, unverifiableAttr, runId, getLeadBadgeStatus, findLeadVerification }: {
   leads: DeliveryLead[];
   unverifiableAttr: string | null;
   runId?: string | null;
   getLeadBadgeStatus: (lead: DeliveryLead) => LeadBadgeStatus;
+  findLeadVerification?: (lead: DeliveryLead) => import("@/components/results/CvlArtefactViews").LeadVerificationEntry | null;
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -1462,7 +1657,7 @@ function CollapsedCandidates({ leads, unverifiableAttr, runId, getLeadBadgeStatu
             These were found in discovery but could not be verified against your requirements.
           </p>
           {leads.map((lead, i) => (
-            <LeadRow key={i} lead={lead} isVerified={false} unverifiableAttr={unverifiableAttr} runId={runId} badgeStatus={getLeadBadgeStatus(lead)} />
+            <LeadRow key={i} lead={lead} isVerified={false} unverifiableAttr={unverifiableAttr} runId={runId} badgeStatus={getLeadBadgeStatus(lead)} leadVerificationEntry={findLeadVerification?.(lead) ?? null} />
           ))}
         </div>
       )}
@@ -1612,6 +1807,34 @@ export default function RunResultBubble({
     });
   }
 
+  /* PHASE_6: Build lookup map for lead_verification entries by lead ID/name */
+  const leadVerificationMap = useMemo(() => {
+    const map = new Map<string, import("@/components/results/CvlArtefactViews").LeadVerificationEntry>();
+    if (!leadVerifications) return map;
+    for (const entry of leadVerifications) {
+      if (entry.lead_place_id) map.set(entry.lead_place_id.toLowerCase().trim(), entry);
+      if (entry.lead_id) map.set(entry.lead_id.toLowerCase().trim(), entry);
+      if (entry.lead_name) map.set(entry.lead_name.toLowerCase().trim(), entry);
+    }
+    return map;
+  }, [leadVerifications]);
+
+  /* PHASE_6: Look up lead_verification entry for a given lead */
+  function findLeadVerification(lead: DeliveryLead): import("@/components/results/CvlArtefactViews").LeadVerificationEntry | null {
+    const ids = matchLeadToId(lead);
+    for (const id of ids) {
+      const entry = leadVerificationMap.get(id.toLowerCase().trim());
+      if (entry) return entry;
+    }
+    return null;
+  }
+
+  /* PHASE_6: Ensure no green on runs with zero verified leads */
+  const hasZeroVerifiedLeads = hasVerificationData && verifiedIds.size === 0 && matches.length === 0;
+  if (hasZeroVerifiedLeads && effectiveCanonical.status === 'PASS') {
+    effectiveCanonical = { status: "PARTIAL", stop_reason: null };
+  }
+
   console.log(`[RunResultBubble] render: status=${effectiveCanonical.status} (raw=${canonical.status}), verifiedExact=${verifiedExact}, requested=${target.hasTarget ? target.targetCount : 'any'}, allLeads=${allLeads.length}, matches=${matches.length}, candidates=${candidates.length}, hasVerificationData=${hasVerificationData}, hasReceiptAttrData=${hasReceiptAttrData}, hasSemanticData=${hasSemanticData}, leadVerifications=${leadVerifications?.length ?? 'none'}, semanticJudgements=${semanticJudgements?.length ?? 'none'}, verifiedIds=${verifiedIds.size}, weakMatchIds=${weakMatchIds.size}, hasUnverifiedLeads=${hasUnverifiedLeads}, defaultBadgeStatus=${defaultBadgeStatus}, useLocationBuckets=${useLocationBuckets}, renderBranch=${provisional ? 'provisional' : useLocationBuckets ? 'location-buckets' : hasReceiptAttrData ? 'receipt-attrs' : 'default'}`);
 
   const attrOutcomes = buildAttributeOutcomes(constraintsExtracted, leadVerifications);
@@ -1662,6 +1885,11 @@ export default function RunResultBubble({
         <RunTimeoutBlock stopReason={deliverySummary.stop_reason} />
       )}
 
+      {/* PHASE_6: Prominent stop-reason with failing constraint details */}
+      {!provisional && effectiveCanonical.status === 'STOP' && deliverySummary.stop_reason && deliverySummary.stop_reason !== 'still_working' && deliverySummary.stop_reason !== 'artefacts_unavailable' && deliverySummary.stop_reason !== 'run_timeout' && deliverySummary.stop_reason !== 'run_not_persisted' && (
+        <FailingConstraintBanner deliverySummary={deliverySummary} />
+      )}
+
       {!provisional && isTrustFailure && !hasReceiptAttributes && deliverySummary.stop_reason !== 'artefacts_unavailable' && deliverySummary.stop_reason !== 'run_timeout' && deliverySummary.stop_reason !== 'run_not_persisted' && deliverySummary.stop_reason !== 'still_working' && (
         <TrustErrorBlock verdict={effectiveTowerDisplay || deliverySummary.status || 'FAIL'} runId={runId} />
       )}
@@ -1698,6 +1926,7 @@ export default function RunResultBubble({
         </>
       )}
 
+      {/* PHASE_6: All LeadRow calls now pass leadVerificationEntry for per-constraint breakdown */}
       {provisional && allLeads.length > 0 && (
         <div className="space-y-0.5">
           <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
@@ -1720,7 +1949,7 @@ export default function RunResultBubble({
               </h4>
               <div>
                 {locationBuckets.verifiedGeo.map((lead, i) => (
-                  <LeadRow key={i} lead={lead} isVerified={hasVerificationData && (isLeadInMatchSet(lead, matchSetLower) || matchSetLower.size === 0)} unverifiableAttr={null} runId={runId} showLocationBadge badgeStatus={hasVerificationData ? getLeadBadgeStatus(lead) : 'none'} />
+                  <LeadRow key={i} lead={lead} isVerified={hasVerificationData && (isLeadInMatchSet(lead, matchSetLower) || matchSetLower.size === 0)} unverifiableAttr={null} runId={runId} showLocationBadge badgeStatus={hasVerificationData ? getLeadBadgeStatus(lead) : 'none'} leadVerificationEntry={findLeadVerification(lead)} />
                 ))}
               </div>
             </div>
@@ -1732,7 +1961,7 @@ export default function RunResultBubble({
               </h4>
               <div>
                 {locationBuckets.searchBounded.map((lead, i) => (
-                  <LeadRow key={i} lead={lead} isVerified={hasVerificationData && isLeadInMatchSet(lead, matchSetLower)} unverifiableAttr={null} runId={runId} showLocationBadge badgeStatus={hasVerificationData ? getLeadBadgeStatus(lead) : 'none'} />
+                  <LeadRow key={i} lead={lead} isVerified={hasVerificationData && isLeadInMatchSet(lead, matchSetLower)} unverifiableAttr={null} runId={runId} showLocationBadge badgeStatus={hasVerificationData ? getLeadBadgeStatus(lead) : 'none'} leadVerificationEntry={findLeadVerification(lead)} />
                 ))}
               </div>
             </div>
@@ -1744,7 +1973,7 @@ export default function RunResultBubble({
               </h4>
               <div>
                 {locationBuckets.outOfArea.map((lead, i) => (
-                  <LeadRow key={i} lead={lead} isVerified={false} unverifiableAttr={null} runId={runId} showLocationBadge badgeStatus={hasVerificationData ? getLeadBadgeStatus(lead) : 'none'} />
+                  <LeadRow key={i} lead={lead} isVerified={false} unverifiableAttr={null} runId={runId} showLocationBadge badgeStatus={hasVerificationData ? getLeadBadgeStatus(lead) : 'none'} leadVerificationEntry={findLeadVerification(lead)} />
                 ))}
               </div>
             </div>
@@ -1756,7 +1985,7 @@ export default function RunResultBubble({
               </h4>
               <div>
                 {locationBuckets.unknown.map((lead, i) => (
-                  <LeadRow key={i} lead={lead} isVerified={hasVerificationData && isLeadInMatchSet(lead, matchSetLower)} unverifiableAttr={hasVerificationData && isLeadInMatchSet(lead, matchSetLower) ? null : (hasVerificationData ? unverifiableAttr : null)} runId={runId} showLocationBadge badgeStatus={hasVerificationData ? getLeadBadgeStatus(lead) : 'none'} />
+                  <LeadRow key={i} lead={lead} isVerified={hasVerificationData && isLeadInMatchSet(lead, matchSetLower)} unverifiableAttr={hasVerificationData && isLeadInMatchSet(lead, matchSetLower) ? null : (hasVerificationData ? unverifiableAttr : null)} runId={runId} showLocationBadge badgeStatus={hasVerificationData ? getLeadBadgeStatus(lead) : 'none'} leadVerificationEntry={findLeadVerification(lead)} />
                 ))}
               </div>
             </div>
@@ -1773,7 +2002,7 @@ export default function RunResultBubble({
               </h4>
               <div>
                 {allLeads.map((lead, i) => (
-                  <LeadRow key={i} lead={lead} isVerified={false} unverifiableAttr={unverifiableAttr} runId={runId} badgeStatus={getLeadBadgeStatus(lead)} />
+                  <LeadRow key={i} lead={lead} isVerified={false} unverifiableAttr={unverifiableAttr} runId={runId} badgeStatus={getLeadBadgeStatus(lead)} leadVerificationEntry={findLeadVerification(lead)} />
                 ))}
               </div>
             </div>
@@ -1798,14 +2027,14 @@ export default function RunResultBubble({
                   </h4>
                   <div>
                     {sectionLeads.map((lead, i) => (
-                      <LeadRow key={i} lead={lead} isVerified={true} unverifiableAttr={null} runId={runId} badgeStatus={getLeadBadgeStatus(lead)} />
+                      <LeadRow key={i} lead={lead} isVerified={true} unverifiableAttr={null} runId={runId} badgeStatus={getLeadBadgeStatus(lead)} leadVerificationEntry={findLeadVerification(lead)} />
                     ))}
                   </div>
                 </div>
               );
             })}
             {remaining.length > 0 && (
-              <CollapsedCandidates leads={remaining} unverifiableAttr={unverifiableAttr} runId={runId} getLeadBadgeStatus={getLeadBadgeStatus} />
+              <CollapsedCandidates leads={remaining} unverifiableAttr={unverifiableAttr} runId={runId} getLeadBadgeStatus={getLeadBadgeStatus} findLeadVerification={findLeadVerification} />
             )}
           </>
         );
@@ -1818,7 +2047,7 @@ export default function RunResultBubble({
           </h4>
           <div>
             {matches.map((lead, i) => (
-              <LeadRow key={i} lead={lead} isVerified={hasVerificationData} unverifiableAttr={null} runId={runId} badgeStatus={hasVerificationData ? getLeadBadgeStatus(lead) : 'none'} />
+              <LeadRow key={i} lead={lead} isVerified={hasVerificationData} unverifiableAttr={null} runId={runId} badgeStatus={hasVerificationData ? getLeadBadgeStatus(lead) : 'none'} leadVerificationEntry={findLeadVerification(lead)} />
             ))}
           </div>
         </div>
@@ -1826,13 +2055,13 @@ export default function RunResultBubble({
 
       {!provisional && !useLocationBuckets && !hasReceiptAttributes && candidates.length > 0 && (
         hasVerificationData && matches.length > 0 ? (
-          <CollapsedCandidates leads={candidates} unverifiableAttr={unverifiableAttr} runId={runId} getLeadBadgeStatus={getLeadBadgeStatus} />
+          <CollapsedCandidates leads={candidates} unverifiableAttr={unverifiableAttr} runId={runId} getLeadBadgeStatus={getLeadBadgeStatus} findLeadVerification={findLeadVerification} />
         ) : (
           <div className="space-y-0.5">
             <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Results ({candidates.length})</h4>
             <div>
               {candidates.map((lead, i) => (
-                <LeadRow key={i} lead={lead} isVerified={false} unverifiableAttr={unverifiableAttr} runId={runId} badgeStatus={getLeadBadgeStatus(lead)} />
+                <LeadRow key={i} lead={lead} isVerified={false} unverifiableAttr={unverifiableAttr} runId={runId} badgeStatus={getLeadBadgeStatus(lead)} leadVerificationEntry={findLeadVerification(lead)} />
               ))}
             </div>
           </div>
