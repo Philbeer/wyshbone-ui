@@ -135,39 +135,36 @@ function MetaField({ label, value }: { label: string; value: ReactNode }) {
 }
 
 function BehaviourInspectModal({ row, open, onClose }: { row: MetricRow | null; open: boolean; onClose: () => void }) {
+  const [judgeB, setJudgeB] = useState<{
+    outcome: string;
+    confidence: number | null;
+    reason: string | null;
+    tower_verdict: string | null;
+    delivered_count: number | null;
+    requested_count: number | null;
+  } | null>(null);
+  const [judgeBLoading, setJudgeBLoading] = useState(false);
+
+  useEffect(() => {
+    if (!open || !row?.run_id) { setJudgeB(null); return; }
+    setJudgeBLoading(true);
+    setJudgeB(null);
+    fetch(buildApiUrl(addDevAuthParams(`/api/afr/behaviour-judge?run_id=${encodeURIComponent(row.run_id)}`)), { credentials: 'include' })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { setJudgeB(data || null); })
+      .catch(() => { setJudgeB(null); })
+      .finally(() => setJudgeBLoading(false));
+  }, [open, row?.run_id]);
+
   if (!row) return null;
-
-  const meta: Record<string, any> = typeof row.metadata === 'string'
-    ? (() => { try { return JSON.parse(row.metadata as string); } catch { return {}; } })()
-    : (row.metadata || {});
-
-  const sourceOfTruth = meta.behaviour_source_of_truth || null;
-  const evalMode = meta.behaviour_eval_mode || null;
-  const parseOk = meta.behaviour_eval_parse_ok ?? null;
-  const fallbackUsed = meta.behaviour_fallback_used ?? null;
-  const fallbackReason = meta.fallback_reason || null;
-
-  const evalPacket = meta.behaviour_eval_packet || null;
-  const llmResp = meta.behaviour_llm_response || null;
-  const rawResp = meta.behaviour_eval_response_raw || null;
-
-  const driverLabel = sourceOfTruth === 'llm'
-    ? 'LLM'
-    : sourceOfTruth === 'fallback_legacy'
-    ? 'Fallback logic'
-    : evalMode?.startsWith('llm') && parseOk !== false
-    ? 'LLM (inferred)'
-    : 'Unknown';
-
-  const driverColor = driverLabel.startsWith('LLM') ? 'text-green-700' : driverLabel === 'Fallback logic' ? 'text-amber-700' : 'text-gray-500';
-
-  const hasPacket = !!evalPacket;
-  const hasLlmResp = !!(llmResp || rawResp);
-  const hasAnyMeta = hasPacket || hasLlmResp || sourceOfTruth || evalMode;
 
   const titleParts: string[] = [];
   if (row.benchmark_test_id) titleParts.push(row.benchmark_test_id);
   titleParts.push(row.query.length > 60 ? row.query.slice(0, 57) + '...' : row.query);
+
+  const outcome = (judgeB?.outcome || '').toUpperCase();
+  const isPass = outcome === 'PASS';
+  const isFail = outcome !== '' && outcome !== 'UNKNOWN' && !isPass;
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
@@ -179,162 +176,75 @@ function BehaviourInspectModal({ row, open, onClose }: { row: MetricRow | null; 
           <div className="text-[11px] text-gray-400 mt-0.5">{formatTs(row.timestamp)}</div>
         </DialogHeader>
 
-        {!hasAnyMeta ? (
-          <div className="py-8 text-center text-sm text-gray-400">
-            No Behaviour metadata stored for this run.
-          </div>
-        ) : (
-          <div className="space-y-4 mt-2">
-            <section>
-              <h4 className="text-xs font-semibold text-gray-600 uppercase tracking-wider mb-2 border-b pb-1">
-                A. Behaviour Driver
-              </h4>
-              <table className="text-[11px]">
-                <tbody>
-                  <MetaField label="Driven by" value={<span className={`font-semibold ${driverColor}`}>{driverLabel}</span>} />
-                  <MetaField label="behaviour_source_of_truth" value={sourceOfTruth} />
-                  <MetaField label="behaviour_eval_mode" value={evalMode} />
-                  <MetaField label="behaviour_eval_parse_ok" value={parseOk === true ? 'true' : parseOk === false ? 'false' : '—'} />
-                  <MetaField label="behaviour_fallback_used" value={fallbackUsed === true ? 'true' : fallbackUsed === false ? 'false' : '—'} />
-                  {fallbackReason && <MetaField label="fallback_reason" value={fallbackReason} />}
-                </tbody>
-              </table>
-            </section>
-
-            <section>
-              <h4 className="text-xs font-semibold text-gray-600 uppercase tracking-wider mb-2 border-b pb-1">
-                B. Packet Sent to Behaviour LLM
-              </h4>
-              {hasPacket ? (
-                <>
-                  <table className="text-[11px]">
-                    <tbody>
-                      <MetaField label="original_query" value={evalPacket.original_query} />
-                      <MetaField label="benchmark_test_id" value={evalPacket.benchmark_test_id} />
-                      <MetaField label="expected_outcome_text" value={evalPacket.expected_outcome_text} />
-                      <MetaField label="expected_behaviour_text" value={evalPacket.expected_behaviour_text} />
-                    </tbody>
-                  </table>
-
-                  {evalPacket.final_run_outcome && (
-                    <div className="mt-2">
-                      <div className="text-[11px] font-medium text-gray-500 mb-1">final_run_outcome:</div>
-                      <table className="text-[11px] ml-2">
-                        <tbody>
-                          <MetaField label="run_state" value={evalPacket.final_run_outcome.run_state || evalPacket.actual_run_state} />
-                          <MetaField label="clarified" value={String(evalPacket.final_run_outcome.clarified ?? evalPacket.clarified ?? false)} />
-                          {(evalPacket.final_run_outcome.clarify_question || evalPacket.clarify_question) &&
-                            <MetaField label="clarify_question" value={evalPacket.final_run_outcome.clarify_question || evalPacket.clarify_question} />}
-                          {(evalPacket.final_run_outcome.clarify_answer || evalPacket.clarify_answer) &&
-                            <MetaField label="clarify_answer" value={evalPacket.final_run_outcome.clarify_answer || evalPacket.clarify_answer} />}
-                          <MetaField label="delivered_count" value={evalPacket.final_run_outcome.delivered_count ?? evalPacket.delivered_count ?? '—'} />
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-
-                  {(() => {
-                    const entities = Array.isArray(evalPacket.delivered_results)
-                      ? evalPacket.delivered_results
-                      : Array.isArray(evalPacket.delivered_entities) ? evalPacket.delivered_entities : [];
-                    if (entities.length === 0) return null;
-                    return (
-                      <div className="mt-2">
-                        <div className="text-[11px] font-medium text-gray-500 mb-1">
-                          delivered_results ({entities.length}):
-                        </div>
-                        <div className="ml-2 space-y-0.5 max-h-[120px] overflow-y-auto">
-                          {entities.map((e: any, i: number) => (
-                            <div key={i} className="text-[10px] text-gray-600">
-                              {i + 1}. <span className="font-medium">{e.name || e.lead_name || '(unnamed)'}</span>
-                              {e.location && <span className="text-gray-400 ml-1">— {e.location}</span>}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    );
-                  })()}
-
-                  {(() => {
-                    const evidence = Array.isArray(evalPacket.delivered_result_evidence)
-                      ? evalPacket.delivered_result_evidence
-                      : Array.isArray(evalPacket.evidence_summary) ? evalPacket.evidence_summary : [];
-                    if (evidence.length === 0) return null;
-                    return (
-                      <div className="mt-2">
-                        <div className="text-[11px] font-medium text-gray-500 mb-1">
-                          delivered_result_evidence ({evidence.length}):
-                        </div>
-                        <div className="ml-2 space-y-1 max-h-[120px] overflow-y-auto">
-                          {evidence.map((ev: any, i: number) => (
-                            <div key={i} className="text-[10px] text-gray-600">
-                              <span className="font-medium">{ev.lead_name || ev.name || `#${i + 1}`}</span>
-                              {ev.match_reason && <span className="text-green-700 ml-1">({ev.match_reason})</span>}
-                              {ev.evidence && <span className="text-gray-400 italic ml-1">"{ev.evidence}"</span>}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    );
-                  })()}
-
-                  {(evalPacket.user_visible_summary || evalPacket.behaviour_observed_summary) && (
-                    <div className="mt-2">
-                      <div className="text-[11px] font-medium text-gray-500">user_visible_summary:</div>
-                      <div className="text-[11px] text-gray-700 mt-0.5">
-                        {evalPacket.user_visible_summary || evalPacket.behaviour_observed_summary}
-                      </div>
-                    </div>
-                  )}
-
-                  <ExpandableJson label="Raw behaviour_eval_packet (JSON)" data={evalPacket} />
-                </>
-              ) : (
-                <div className="text-[11px] text-gray-400 italic py-2">No stored Behaviour packet in qa_run_metrics.</div>
-              )}
-            </section>
-
-            <section>
-              <h4 className="text-xs font-semibold text-gray-600 uppercase tracking-wider mb-2 border-b pb-1">
-                C. Behaviour LLM Response
-              </h4>
-              {hasLlmResp ? (
-                <>
-                  {llmResp && (
-                    <table className="text-[11px]">
-                      <tbody>
-                        <MetaField label="behaviour_result" value={
-                          <StatusBadge value={String(llmResp.behaviour_result || '—').toUpperCase()} type="behaviour" />
-                        } />
-                        <MetaField label="behaviour_reason" value={llmResp.behaviour_reason} />
-                        <MetaField label="expected_outcome_check" value={llmResp.expected_outcome_check} />
-                        <MetaField label="observed_outcome_check" value={llmResp.observed_outcome_check} />
-                        <MetaField label="key_failure_type" value={llmResp.key_failure_type} />
-                        <MetaField label="confidence" value={llmResp.confidence} />
-                      </tbody>
-                    </table>
-                  )}
-                  {llmResp && <ExpandableJson label="Raw behaviour_llm_response (JSON)" data={llmResp} />}
-                  {rawResp && <ExpandableJson label="Raw behaviour_eval_response_raw (text)" data={rawResp} />}
-                </>
-              ) : (
-                <div className="text-[11px] text-gray-400 italic py-2">No stored Behaviour LLM response in qa_run_metrics.</div>
-              )}
-            </section>
-
-            <section>
-              <h4 className="text-xs font-semibold text-gray-600 uppercase tracking-wider mb-2 border-b pb-1">
-                D. Final Displayed Verdict
-              </h4>
-              <div className="flex items-center gap-3">
-                <StatusBadge value={row.behaviour_result} type="behaviour" />
-                <span className="text-[11px] text-gray-500">
-                  (as shown in the progress table for this run)
-                </span>
+        <div className="space-y-4 mt-2">
+          <section>
+            <h4 className="text-xs font-semibold text-gray-600 uppercase tracking-wider mb-2 border-b pb-1">
+              Behaviour Judge (Judge B)
+            </h4>
+            {judgeBLoading ? (
+              <div className="text-[11px] text-gray-400 py-2">Loading…</div>
+            ) : !judgeB ? (
+              <div className="text-[11px] text-gray-400 italic py-2">
+                No Judge B result in behaviour_judge_results for this run.
               </div>
-            </section>
-          </div>
-        )}
+            ) : (
+              <div className="space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className={`inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold ${
+                    isPass ? 'bg-green-100 text-green-800' : isFail ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-700'
+                  }`}>
+                    {outcome || '—'}
+                  </span>
+                  {judgeB.confidence != null && (
+                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-600">
+                      {Math.round(judgeB.confidence * 100)}% confidence
+                    </span>
+                  )}
+                  {judgeB.tower_verdict && (
+                    <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                      judgeB.tower_verdict.toLowerCase() === 'accept'
+                        ? 'bg-green-100 text-green-700'
+                        : 'bg-amber-100 text-amber-700'
+                    }`}>
+                      Tower: {judgeB.tower_verdict}
+                    </span>
+                  )}
+                  {(judgeB.delivered_count != null || judgeB.requested_count != null) && (
+                    <span className="text-[10px] text-gray-500 font-mono">
+                      {judgeB.delivered_count ?? '?'}{judgeB.requested_count != null ? `/${judgeB.requested_count}` : ''} delivered
+                    </span>
+                  )}
+                </div>
+                {judgeB.reason && (
+                  <p className="text-[11px] text-gray-700 leading-relaxed">{judgeB.reason}</p>
+                )}
+                <table className="text-[11px] mt-1">
+                  <tbody>
+                    <MetaField label="outcome" value={outcome || '—'} />
+                    {judgeB.confidence != null && (
+                      <MetaField label="confidence" value={`${judgeB.confidence} (${Math.round(judgeB.confidence * 100)}%)`} />
+                    )}
+                    {judgeB.tower_verdict && <MetaField label="tower_verdict" value={judgeB.tower_verdict} />}
+                    {judgeB.delivered_count != null && <MetaField label="delivered_count" value={String(judgeB.delivered_count)} />}
+                    {judgeB.requested_count != null && <MetaField label="requested_count" value={String(judgeB.requested_count)} />}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+
+          <section>
+            <h4 className="text-xs font-semibold text-gray-600 uppercase tracking-wider mb-2 border-b pb-1">
+              Final Displayed Verdict
+            </h4>
+            <div className="flex items-center gap-3">
+              <StatusBadge value={row.behaviour_result} type="behaviour" />
+              <span className="text-[11px] text-gray-500">
+                (as shown in the progress table for this run)
+              </span>
+            </div>
+          </section>
+        </div>
       </DialogContent>
     </Dialog>
   );

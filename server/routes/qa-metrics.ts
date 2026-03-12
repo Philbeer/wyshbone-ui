@@ -654,7 +654,7 @@ export function createQaMetricsRouter(): Router {
       const rowsArray: any[] = Array.isArray(rawRows) ? rawRows : (rawRows as any)?.rows ?? [];
 
       if (rowsArray.length > 0 && isSupabaseConfigured()) {
-        const needsJudge = rowsArray.filter((r: any) => !r.behaviour_result || r.behaviour_result === 'UNKNOWN');
+        const needsJudge = rowsArray;
         if (needsJudge.length > 0) {
           const runIds = needsJudge.map((r: any) => r.run_id).filter(Boolean) as string[];
           if (runIds.length > 0) {
