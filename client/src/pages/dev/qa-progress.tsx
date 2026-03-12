@@ -148,6 +148,8 @@ interface LeadEvidence {
   quote?: string;
   quotes?: string[];
   matched_phrase?: string;
+  context_snippet?: string;
+  context?: string;
   tower_status?: string;
   constraint_type?: string;
 }
@@ -265,13 +267,12 @@ function BehaviourInspectModal({ row, open, onClose }: { row: MetricRow | null; 
                 <div className="space-y-1">
                   {evidence.map((item, idx) => {
                     const displayName = item.lead_name || item.business_name || item.entity_name || item.name || `Lead ${idx + 1}`;
-                    const siteUrl = item.url || item.source_url || item.website_url;
+                    const siteUrl = item.url || item.source_url || item.website_url || '';
                     const isExpanded = expandedEvidence.has(idx);
                     const allQuotes: string[] = [
                       ...(item.quotes ?? []),
                       ...(item.quote ? [item.quote] : []),
                     ];
-                    const hasExpandContent = !!(siteUrl || allQuotes.length > 0 || item.matched_phrase || item.constraint_type);
                     const verifiedDefined = item.verified !== undefined && item.verified !== null;
                     const towerStatus = item.tower_status || '';
                     const towerCls = towerStatus.toUpperCase() === 'VERIFIED'
@@ -281,12 +282,12 @@ function BehaviourInspectModal({ row, open, onClose }: { row: MetricRow | null; 
                         : towerStatus === 'no_evidence'
                           ? 'bg-red-100 text-red-700'
                           : 'bg-gray-100 text-gray-600';
+                    const contextSnippet = item.context_snippet || item.context || '';
                     return (
                       <div key={idx} className="border rounded-md overflow-hidden text-[11px]">
                         <button
                           className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left hover:bg-gray-50 transition-colors"
                           onClick={() => {
-                            if (!hasExpandContent) return;
                             setExpandedEvidence(prev => {
                               const next = new Set(prev);
                               next.has(idx) ? next.delete(idx) : next.add(idx);
@@ -316,36 +317,53 @@ function BehaviourInspectModal({ row, open, onClose }: { row: MetricRow | null; 
                                 {item.constraint_type}
                               </span>
                             )}
-                            {hasExpandContent && (
-                              <span className="text-gray-400 text-[10px]">{isExpanded ? '▲' : '▼'}</span>
-                            )}
+                            <span className="text-gray-400 text-[10px]">{isExpanded ? '▲' : '▼'}</span>
                           </div>
                         </button>
-                        {isExpanded && hasExpandContent && (
+                        {isExpanded && (
                           <div className="border-t bg-gray-50 px-3 py-2 space-y-1.5">
-                            {siteUrl && (
-                              <div>
-                                <span className="text-gray-500 font-medium">URL: </span>
-                                <a href={siteUrl} target="_blank" rel="noopener noreferrer"
-                                  className="text-blue-600 hover:underline break-all">{siteUrl}</a>
-                              </div>
-                            )}
-                            {allQuotes.length > 0 && (
-                              <div>
-                                <span className="text-gray-500 font-medium">Quotes:</span>
-                                <div className="mt-0.5 space-y-1">
-                                  {allQuotes.map((q, qi) => (
-                                    <blockquote key={qi} className="border-l-2 border-gray-300 pl-2 text-gray-700 italic">{q}</blockquote>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-                            {item.matched_phrase && (
-                              <div>
-                                <span className="text-gray-500 font-medium">Matched phrase: </span>
-                                <span className="text-gray-800 font-mono bg-yellow-50 px-1 rounded">{item.matched_phrase}</span>
-                              </div>
-                            )}
+                            <div>
+                              <span className="text-gray-500 font-medium">URL visited: </span>
+                              {siteUrl
+                                ? <a href={siteUrl} target="_blank" rel="noopener noreferrer"
+                                    className="text-blue-600 hover:underline break-all">{siteUrl}</a>
+                                : <span className="text-gray-400 italic">not captured</span>
+                              }
+                            </div>
+                            <div>
+                              <span className="text-gray-500 font-medium">Quotes found: </span>
+                              {allQuotes.length > 0
+                                ? (
+                                  <div className="mt-0.5 space-y-1">
+                                    {allQuotes.map((q, qi) => (
+                                      <blockquote key={qi} className="border-l-2 border-gray-300 pl-2 text-gray-700 italic">{q}</blockquote>
+                                    ))}
+                                  </div>
+                                )
+                                : <span className="text-gray-400 italic">not captured</span>
+                              }
+                            </div>
+                            <div>
+                              <span className="text-gray-500 font-medium">Matched phrase: </span>
+                              {item.matched_phrase
+                                ? <span className="text-gray-800 font-mono bg-yellow-50 px-1 rounded">{item.matched_phrase}</span>
+                                : <span className="text-gray-400 italic">not captured</span>
+                              }
+                            </div>
+                            <div>
+                              <span className="text-gray-500 font-medium">Context snippet: </span>
+                              {contextSnippet
+                                ? <span className="text-gray-700">{contextSnippet}</span>
+                                : <span className="text-gray-400 italic">not captured</span>
+                              }
+                            </div>
+                            <div>
+                              <span className="text-gray-500 font-medium">Tower verdict: </span>
+                              {towerStatus
+                                ? <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${towerCls}`}>{towerStatus}</span>
+                                : <span className="text-gray-400 italic">not captured</span>
+                              }
+                            </div>
                           </div>
                         )}
                       </div>
