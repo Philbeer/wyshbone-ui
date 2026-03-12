@@ -1768,6 +1768,22 @@ export default function QaTestRunnerPage() {
 
   const selectedSuite = useMemo(() => SUITES.find(s => s.id === selectedSuiteId)!, [selectedSuiteId]);
 
+  const [selectedTestIds, setSelectedTestIds] = useState<Set<string>>(
+    () => new Set(SUITES[0].tests.map(t => t.id))
+  );
+
+  const selectedTests = useMemo(
+    () => selectedSuite.tests.filter(t => selectedTestIds.has(t.id)),
+    [selectedSuite, selectedTestIds]
+  );
+  const allSelected = selectedTests.length === selectedSuite.tests.length;
+  const noneSelected = selectedTests.length === 0;
+  const runBtnLabel = allSelected
+    ? `Run Selected Suite (${selectedTests.length})`
+    : selectedTests.length === 1
+      ? 'Run 1 Test'
+      : `Run ${selectedTests.length} Tests`;
+
   const initResults = useCallback((suite: TestSuite): TestResult[] => {
     return suite.tests.map(t => ({
       id: t.id,
@@ -1814,7 +1830,7 @@ export default function QaTestRunnerPage() {
     return computeOutcomeCounts(finalResults);
   }, []);
 
-  const runSuite = useCallback(async (suiteIdOverride?: string) => {
+  const runSuite = useCallback(async (suiteIdOverride?: string, testsOverride?: TestDefinition[]) => {
     const user = getUser();
     if (!user) {
       alert('No user found in localStorage. Please load the main app first.');
@@ -1828,7 +1844,8 @@ export default function QaTestRunnerPage() {
       setSelectedSuiteId(targetSuiteId);
     }
 
-    const initialResults = initResults(suite);
+    const testsToRun: TestDefinition[] = testsOverride ?? suite.tests;
+    const initialResults = initResults({ ...suite, tests: testsToRun });
     const isBenchmark = targetSuiteId === 'full-benchmark';
 
     runningRef.current = true;
@@ -1840,8 +1857,8 @@ export default function QaTestRunnerPage() {
     if (isBenchmark) {
       setBenchmarkProgress({
         currentIndex: 0,
-        totalCount: suite.tests.length,
-        currentQuery: suite.tests[0].query,
+        totalCount: testsToRun.length,
+        currentQuery: testsToRun[0]?.query ?? '',
         pass: 0, partial: 0, blocked: 0, timeout: 0, fail: 0,
         behaviourPass: 0, behaviourFail: 0, behaviourUnknown: 0, behaviourScore: 0,
       });
@@ -1893,9 +1910,9 @@ export default function QaTestRunnerPage() {
       })();
     };
 
-    for (let i = 0; i < suite.tests.length; i++) {
+    for (let i = 0; i < testsToRun.length; i++) {
       if (controller.signal.aborted) {
-        for (let j = i; j < suite.tests.length; j++) {
+        for (let j = i; j < testsToRun.length; j++) {
           const skipped: Partial<TestResult> = { status: 'failed', error: 'Stopped by user', judgement: 'skip', benchmarkOutcome: 'TIMEOUT' as BenchmarkOutcome, systemHealth: 'TIMEOUT' as SystemHealthOutcome, agentQuality: 'UNKNOWN' as AgentQualityOutcome, towerResult: 'UNKNOWN' as TowerResult, behaviourResult: 'UNKNOWN' as BehaviourResult, behaviourLLMDetail: null, behaviourSourceOfTruth: 'unknown', behaviourFallbackUsed: false, fallbackReason: null };
           finalResults[j] = { ...finalResults[j], ...skipped };
           updateResult(j, skipped);
@@ -1903,7 +1920,7 @@ export default function QaTestRunnerPage() {
         break;
       }
 
-      const test = suite.tests[i];
+      const test = testsToRun[i];
       const clientRequestId = crypto.randomUUID();
       const testStart = Date.now();
 
@@ -1918,7 +1935,7 @@ export default function QaTestRunnerPage() {
         const bScoreCalc = finalResults.length > 0 ? Math.round((bPass / finalResults.length) * 100) : 0;
         setBenchmarkProgress({
           currentIndex: i + 1,
-          totalCount: suite.tests.length,
+          totalCount: testsToRun.length,
           currentQuery: test.query,
           ...counts,
           behaviourPass: bPass,
@@ -2129,7 +2146,13 @@ export default function QaTestRunnerPage() {
           <label className="text-sm font-medium text-gray-600">Or run a suite:</label>
           <select
             value={selectedSuiteId}
-            onChange={e => { setSelectedSuiteId(e.target.value); if (!runningRef.current) { setResults([]); setSuiteStatus('not_started'); setBenchmarkSummary(null); } }}
+            onChange={e => {
+              const newId = e.target.value;
+              setSelectedSuiteId(newId);
+              if (!runningRef.current) { setResults([]); setSuiteStatus('not_started'); setBenchmarkSummary(null); }
+              const newSuite = SUITES.find(s => s.id === newId);
+              if (newSuite) setSelectedTestIds(new Set(newSuite.tests.map(t => t.id)));
+            }}
             disabled={suiteStatus === 'running'}
             className="border rounded-md px-3 py-1.5 text-sm bg-white"
           >
@@ -2140,13 +2163,13 @@ export default function QaTestRunnerPage() {
         </div>
 
         <Button
-          onClick={() => runSuite()}
-          disabled={suiteStatus === 'running'}
+          onClick={() => runSuite(undefined, selectedTests)}
+          disabled={suiteStatus === 'running' || noneSelected}
           variant="outline"
           className="border-purple-300 text-purple-700 hover:bg-purple-50"
         >
           <Play className="w-4 h-4 mr-2" />
-          Run Selected Suite
+          {runBtnLabel}
         </Button>
       </div>
 
@@ -2160,20 +2183,49 @@ export default function QaTestRunnerPage() {
 
       {!hasResults && (
         <div className="border rounded-lg p-6 mb-6 bg-gray-50">
-          <h3 className="font-semibold text-gray-700 mb-2">{selectedSuite.name}</h3>
+          <div className="flex items-center justify-between mb-1">
+            <h3 className="font-semibold text-gray-700">{selectedSuite.name}</h3>
+            <button
+              className="text-xs text-purple-600 hover:text-purple-800 disabled:opacity-40"
+              disabled={suiteStatus === 'running'}
+              onClick={() => {
+                if (allSelected) setSelectedTestIds(new Set());
+                else setSelectedTestIds(new Set(selectedSuite.tests.map(t => t.id)));
+              }}
+            >
+              {allSelected ? 'Uncheck all' : 'Check all'}
+            </button>
+          </div>
           <p className="text-sm text-gray-500 mb-4">{selectedSuite.description}</p>
-          <div className="space-y-2 max-h-[400px] overflow-y-auto pr-1">
-            {selectedSuite.tests.map((t, i) => (
-              <div key={i} className="flex items-start gap-3 text-sm">
-                <span className="text-gray-400 font-mono w-6 text-right shrink-0">{i + 1}.</span>
-                <div className="flex-1">
-                  <span className="text-gray-800">{t.query}</span>
-                  <div className="flex items-center gap-2 mt-0.5">
-                    {expectedBadge(t.expected)}
+          <div className="space-y-1.5 max-h-[400px] overflow-y-auto pr-1">
+            {selectedSuite.tests.map((t, i) => {
+              const isChecked = selectedTestIds.has(t.id);
+              return (
+                <label key={i} className="flex items-start gap-2.5 text-sm cursor-pointer group">
+                  <input
+                    type="checkbox"
+                    checked={isChecked}
+                    disabled={suiteStatus === 'running'}
+                    onChange={e => {
+                      setSelectedTestIds(prev => {
+                        const next = new Set(prev);
+                        if (e.target.checked) next.add(t.id);
+                        else next.delete(t.id);
+                        return next;
+                      });
+                    }}
+                    className="mt-0.5 w-4 h-4 accent-purple-600 shrink-0"
+                  />
+                  <span className="text-gray-400 font-mono w-5 text-right shrink-0">{i + 1}.</span>
+                  <div className="flex-1">
+                    <span className={`${isChecked ? 'text-gray-800' : 'text-gray-400'}`}>{t.query}</span>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      {expectedBadge(t.expected)}
+                    </div>
                   </div>
-                </div>
-              </div>
-            ))}
+                </label>
+              );
+            })}
           </div>
         </div>
       )}
