@@ -1639,8 +1639,16 @@ function towerResultBadge(result: TowerResult | null) {
   return <Badge variant="outline" className={`text-[10px] px-1.5 py-0 font-medium border-0 ${cls}`}>{label}</Badge>;
 }
 
-function behaviourBadge(result: BehaviourResult | null) {
+function behaviourBadge(result: BehaviourResult | null, isPending = false) {
   if (!result) return <span className="text-gray-300 text-xs">—</span>;
+  if (isPending && result === 'UNKNOWN') {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0 font-medium text-gray-500 bg-gray-100 rounded">
+        <Loader2 className="w-2.5 h-2.5 animate-spin" />
+        PENDING
+      </span>
+    );
+  }
   const cls = result === 'PASS' ? 'bg-green-100 text-green-800'
     : result === 'FAIL' ? 'bg-red-100 text-red-800'
     : 'bg-gray-100 text-gray-600';
@@ -2252,7 +2260,7 @@ export default function QaTestRunnerPage() {
                     {towerResultBadge(r.towerResult)}
                   </td>
                   <td className="px-3 py-2.5">
-                    {behaviourBadge(r.behaviourResult)}
+                    {behaviourBadge(r.behaviourResult, r.behaviourResult === 'UNKNOWN' && !!r.runId && isBenchmarkRunning)}
                   </td>
                   <td className="px-3 py-2.5 text-gray-500 font-mono text-xs">
                     {r.durationMs !== null ? `${(r.durationMs / 1000).toFixed(1)}s` : '—'}
