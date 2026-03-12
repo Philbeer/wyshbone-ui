@@ -1030,131 +1030,6 @@ function deriveTowerResult(result: TestResult): TowerResult {
   return towerVerdictToResult(result.towerVerdict);
 }
 
-function deriveBehaviourResult(result: TestResult): BehaviourResult {
-  if (result.status === 'timed_out') return 'UNKNOWN';
-  if (result.status === 'poll_timeout_running') return 'UNKNOWN';
-  if (result.status === 'poll_expired_reconciling') return 'UNKNOWN';
-  if (result.status === 'failed' && result.error === 'Stopped by user') return 'UNKNOWN';
-  if (result.status === 'queued' || result.status === 'running') return 'UNKNOWN';
-
-  const delivered = result.layers.delivery === 'pass';
-  const count = result.deliveredCount;
-  const minCount = result.minimumExpectedCount ?? 1;
-
-  switch (result.queryClass) {
-    case 'solvable':
-      if (!delivered) return 'FAIL';
-      if (count < minCount) return 'FAIL';
-      return 'PASS';
-
-    case 'website_evidence_required':
-      if (!delivered) return 'FAIL';
-      if (count < minCount) return 'FAIL';
-      if (!result.layers.verification || result.layers.verification !== 'pass') return 'FAIL';
-      return 'PASS';
-
-    case 'clarification_required':
-      return result.clarified ? 'PASS' : 'FAIL';
-
-    case 'relationship_required':
-      if (result.clarified || result.blocked) return 'PASS';
-      if (delivered) return 'PASS';
-      return 'FAIL';
-
-    case 'fictional_or_impossible':
-      if (result.blocked || result.clarified) return 'PASS';
-      if (result.status === 'failed' && !delivered) return 'PASS';
-      if (delivered) return 'FAIL';
-      return 'PASS';
-
-    case 'subjective_or_unverifiable':
-      if (result.clarified) return 'PASS';
-      if (result.blocked) return 'PASS';
-      if (delivered) return 'PASS';
-      return 'FAIL';
-
-    default:
-      return 'UNKNOWN';
-  }
-}
-
-interface BehaviourDecision {
-  result: BehaviourResult;
-  reason: string;
-  expected: string;
-  observed: string;
-  decisionBasis: string;
-}
-
-function deriveBehaviourDecision(result: TestResult): BehaviourDecision {
-  const bResult = deriveBehaviourResult(result);
-  const delivered = result.layers.delivery === 'pass';
-  const count = result.deliveredCount;
-  const minCount = result.minimumExpectedCount ?? 1;
-  const clarified = result.clarified;
-  const blocked = result.blocked;
-
-  const MODE_LABELS: Record<string, string> = {
-    deliver_results: 'deliver results',
-    clarify: 'clarify before running',
-    honest_refusal: 'honest refusal',
-    best_effort_honest: 'best effort or clarify',
-  };
-  const expectedText = MODE_LABELS[result.expectedMode] || result.expectedMode;
-  const observedParts: string[] = [];
-  if (delivered) observedParts.push(`delivered ${count} result${count !== 1 ? 's' : ''}`);
-  if (clarified) observedParts.push('clarified');
-  if (blocked) observedParts.push('blocked');
-  if (!delivered && !clarified && !blocked) observedParts.push(`status=${result.status}`);
-  const observedText = observedParts.join(', ');
-
-  if (bResult === 'UNKNOWN') {
-    return { result: bResult, reason: `Unknown — run did not reach a terminal state (status=${result.status}).`, expected: expectedText, observed: observedText, decisionBasis: 'non-terminal status' };
-  }
-
-  let reason = '';
-  let basis = '';
-  switch (result.queryClass) {
-    case 'solvable':
-      if (!delivered) { reason = 'Failed because delivery layer did not pass.'; basis = 'solvable: delivery required'; }
-      else if (count < minCount) { reason = `Failed because delivered_count ${count} did not meet minimum expected count ${minCount}.`; basis = `solvable: count >= ${minCount}`; }
-      else { reason = `Passed because delivered_count ${count} met minimum expected count ${minCount}.`; basis = `solvable: delivery pass + count >= ${minCount}`; }
-      break;
-    case 'website_evidence_required':
-      if (!delivered) { reason = 'Failed because delivery layer did not pass.'; basis = 'website_evidence: delivery required'; }
-      else if (count < minCount) { reason = `Failed because delivered_count ${count} did not meet minimum expected count ${minCount}.`; basis = `website_evidence: count >= ${minCount}`; }
-      else if (result.layers.verification !== 'pass') { reason = 'Failed because verification layer did not pass (website evidence not confirmed).'; basis = 'website_evidence: verification required'; }
-      else { reason = `Passed because delivered_count ${count} met minimum and verification layer passed.`; basis = `website_evidence: delivery + count + verification`; }
-      break;
-    case 'clarification_required':
-      if (clarified) { reason = 'Passed because agent correctly triggered clarification.'; basis = 'clarification_required: clarified=true'; }
-      else { reason = 'Failed because agent did not trigger clarification.'; basis = 'clarification_required: clarified=false'; }
-      break;
-    case 'relationship_required':
-      if (clarified) { reason = 'Passed because agent clarified the relationship constraint.'; basis = 'relationship: clarified'; }
-      else if (blocked) { reason = 'Passed because agent was blocked by relationship constraint.'; basis = 'relationship: blocked'; }
-      else if (delivered) { reason = 'Passed because agent delivered results despite relationship constraint.'; basis = 'relationship: delivered'; }
-      else { reason = 'Failed because agent neither clarified, blocked, nor delivered.'; basis = 'relationship: no valid outcome'; }
-      break;
-    case 'fictional_or_impossible':
-      if (blocked || clarified) { reason = 'Passed because agent correctly identified impossible query.'; basis = 'fictional: blocked or clarified'; }
-      else if (result.status === 'failed' && !delivered) { reason = 'Passed because run failed without delivering results for impossible query.'; basis = 'fictional: failed without delivery'; }
-      else if (delivered) { reason = 'Failed because agent claimed to deliver results for an impossible query.'; basis = 'fictional: should not deliver'; }
-      else { reason = 'Passed because agent did not deliver results for impossible query.'; basis = 'fictional: no delivery'; }
-      break;
-    case 'subjective_or_unverifiable':
-      if (clarified) { reason = 'Passed because agent clarified the subjective query.'; basis = 'subjective: clarified'; }
-      else if (blocked) { reason = 'Passed because agent blocked on subjective query.'; basis = 'subjective: blocked'; }
-      else if (delivered) { reason = 'Passed because agent delivered best-effort results.'; basis = 'subjective: best-effort delivery accepted'; }
-      else { reason = 'Failed because agent neither clarified, blocked, nor delivered.'; basis = 'subjective: no valid outcome'; }
-      break;
-    default:
-      reason = 'Unknown query class.'; basis = 'unknown';
-  }
-
-  return { result: bResult, reason, expected: expectedText, observed: observedText, decisionBasis: basis };
-}
-
 function buildUserVisibleSummary(result: TestResult, details: ArtefactInfo): string {
   const parts: string[] = [];
 
@@ -1282,75 +1157,6 @@ function buildEvalPacket(
     })(),
     user_visible_summary: buildUserVisibleSummary(result, details),
   };
-}
-
-async function evaluateBehaviourLLM(
-  test: TestDefinition,
-  result: TestResult,
-  details: ArtefactInfo,
-): Promise<{
-  behaviourResult: BehaviourResult;
-  detail: BehaviourLLMDetail | null;
-  evalMode: string;
-  behaviourSourceOfTruth: 'llm' | 'fallback_legacy' | 'unknown';
-  behaviourFallbackUsed: boolean;
-  fallbackReason: string | null;
-}> {
-  try {
-    const packet = buildEvalPacket(test, result, details);
-    const url = buildApiUrl(addDevAuthParams('/api/behaviour-eval/evaluate'));
-    const evalAbort = new AbortController();
-    const evalTimeout = setTimeout(() => evalAbort.abort(), 30_000);
-    const resp = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify(packet),
-      signal: evalAbort.signal,
-    });
-    clearTimeout(evalTimeout);
-
-    if (!resp.ok) {
-      return { behaviourResult: deriveBehaviourResult(result), detail: null, evalMode: 'fallback_legacy', behaviourSourceOfTruth: 'fallback_legacy', behaviourFallbackUsed: true, fallbackReason: `HTTP ${resp.status} from behaviour evaluator` };
-    }
-
-    const data = await resp.json();
-
-    if (data.ok && data.judgement) {
-      const j = data.judgement;
-      return {
-        behaviourResult: j.behaviour_result === 'pass' ? 'PASS' : 'FAIL',
-        detail: {
-          behaviour_result: j.behaviour_result,
-          behaviour_reason: j.behaviour_reason,
-          expected_outcome_check: j.expected_outcome_check,
-          observed_outcome_check: j.observed_outcome_check,
-          key_failure_type: j.key_failure_type,
-          confidence: j.confidence,
-          eval_mode: data.eval_mode || 'llm_v1',
-          raw_response: data.raw_response || undefined,
-          parse_ok: data.parse_ok ?? true,
-        },
-        evalMode: data.eval_mode || 'llm_v1',
-        behaviourSourceOfTruth: 'llm',
-        behaviourFallbackUsed: false,
-        fallbackReason: null,
-      };
-    }
-
-    const parseError = data.eval_mode === 'llm_v1_parse_error';
-    const fallbackResult = deriveBehaviourResult(result);
-    return {
-      behaviourResult: fallbackResult,
-      detail: parseError ? { behaviour_result: fallbackResult === 'PASS' ? 'pass' as const : 'fail' as const, behaviour_reason: `Fallback: ${deriveBehaviourDecision(result).reason} (LLM parse error)`, expected_outcome_check: '—', observed_outcome_check: '—', key_failure_type: 'other', confidence: 0, eval_mode: data.eval_mode || 'fallback_legacy', raw_response: data.raw_response || undefined, parse_ok: false } : null,
-      evalMode: data.eval_mode || 'fallback_legacy',
-      behaviourSourceOfTruth: 'fallback_legacy' as const,
-      behaviourFallbackUsed: true,
-      fallbackReason: parseError ? 'LLM response could not be parsed' : (data.error || 'LLM evaluator returned no judgement'),
-    };
-  } catch (err: any) {
-    return { behaviourResult: deriveBehaviourResult(result), detail: null, evalMode: 'fallback_legacy', behaviourSourceOfTruth: 'fallback_legacy', behaviourFallbackUsed: true, fallbackReason: err?.message || 'Network/timeout error calling behaviour evaluator' };
-  }
 }
 
 async function fetchRunDetails(runId: string): Promise<ArtefactInfo> {
@@ -1525,8 +1331,7 @@ async function persistQaMetric(
   const systemHealth = result.systemHealth || deriveSystemHealth(result);
   const agentQuality = result.agentQuality || deriveAgentQuality(result);
   const tResult = result.towerResult || deriveTowerResult(result);
-  const bResult = result.behaviourResult || deriveBehaviourResult(result);
-  const bDecision = deriveBehaviourDecision(result);
+  const bResult = result.behaviourResult || 'UNKNOWN';
 
   const payload = {
     runId: result.runId,
@@ -1557,21 +1362,8 @@ async function persistQaMetric(
       afr_reconciled: pollExpired,
       raw_observer_status: result.status,
       expectedOutcome: result.expectedOutcome,
-      behaviour_decision: {
-        result: bDecision.result,
-        reason: bDecision.reason,
-        expected: bDecision.expected,
-        observed: bDecision.observed,
-        decision_basis: bDecision.decisionBasis,
-      },
-      behaviour_eval_mode: result.behaviourLLMDetail?.eval_mode || 'fallback_legacy',
-      behaviour_reason: result.behaviourLLMDetail?.behaviour_reason || bDecision.reason,
       expected_outcome_text: buildExpectedOutcome(test),
       expected_behaviour_text: test.expectedMode,
-      behaviour_expected_outcome_check: result.behaviourLLMDetail?.expected_outcome_check || bDecision.expected,
-      behaviour_observed_outcome_check: result.behaviourLLMDetail?.observed_outcome_check || bDecision.observed,
-      behaviour_key_failure_type: result.behaviourLLMDetail?.key_failure_type || null,
-      behaviour_confidence: result.behaviourLLMDetail?.confidence ?? null,
       behaviour_eval_packet: artefactDetails
         ? buildEvalPacket(test, result, artefactDetails)
         : {
@@ -1586,22 +1378,9 @@ async function persistQaMetric(
             },
             delivered_results: [],
             delivered_result_evidence: [],
-            user_visible_summary: bDecision.observed || 'N/A',
+            user_visible_summary: 'N/A',
           },
-      behaviour_llm_response: result.behaviourLLMDetail ? {
-        behaviour_result: result.behaviourLLMDetail.behaviour_result,
-        behaviour_reason: result.behaviourLLMDetail.behaviour_reason,
-        expected_outcome_check: result.behaviourLLMDetail.expected_outcome_check,
-        observed_outcome_check: result.behaviourLLMDetail.observed_outcome_check,
-        key_failure_type: result.behaviourLLMDetail.key_failure_type,
-        confidence: result.behaviourLLMDetail.confidence,
-        eval_mode: result.behaviourLLMDetail.eval_mode,
-      } : null,
-      behaviour_eval_response_raw: result.behaviourLLMDetail?.raw_response || null,
-      behaviour_eval_parse_ok: result.behaviourLLMDetail?.parse_ok ?? null,
-      behaviour_source_of_truth: result.behaviourSourceOfTruth || 'unknown',
-      behaviour_fallback_used: result.behaviourFallbackUsed || false,
-      fallback_reason: result.fallbackReason || null,
+      behaviour_source_of_truth: 'judge_b_pending',
     },
   };
 
@@ -2129,27 +1908,38 @@ export default function QaTestRunnerPage() {
 
         const isTerminal = testStatus !== 'queued' && testStatus !== 'running' && testStatus !== 'poll_expired_reconciling';
         if (isTerminal) {
-          const tempForEval = { ...finalResults[i], ...patch, behaviourResult: null, behaviourLLMDetail: null, behaviourSourceOfTruth: 'unknown' as const, behaviourFallbackUsed: false, fallbackReason: null } as TestResult;
-          try {
-            const llmEval = await evaluateBehaviourLLM(test, tempForEval, details);
-            patch.behaviourResult = llmEval.behaviourResult;
-            patch.behaviourLLMDetail = llmEval.detail;
-            patch.behaviourSourceOfTruth = llmEval.behaviourSourceOfTruth;
-            patch.behaviourFallbackUsed = llmEval.behaviourFallbackUsed;
-            patch.fallbackReason = llmEval.fallbackReason;
-          } catch {
-            patch.behaviourResult = deriveBehaviourResult(tempResult as TestResult);
-            patch.behaviourLLMDetail = null;
-            patch.behaviourSourceOfTruth = 'fallback_legacy';
-            patch.behaviourFallbackUsed = true;
-            patch.fallbackReason = 'Exception during behaviour evaluation';
+          const runId = finalResults[i].runId;
+          let judgeBOutcome: BehaviourResult = 'UNKNOWN';
+          if (runId) {
+            const pollDeadline = Date.now() + 30_000;
+            while (Date.now() < pollDeadline) {
+              await new Promise<void>(resolve => setTimeout(resolve, 2_000));
+              try {
+                const bjResp = await fetch(
+                  buildApiUrl(addDevAuthParams(`/api/afr/behaviour-judge?run_id=${encodeURIComponent(runId)}`)),
+                  { credentials: 'include' }
+                );
+                if (bjResp.ok) {
+                  const bjData = await bjResp.json();
+                  if (bjData && bjData.outcome) {
+                    judgeBOutcome = bjData.outcome.toUpperCase() as BehaviourResult;
+                    break;
+                  }
+                }
+              } catch { /* continue polling */ }
+            }
           }
-        } else {
-          patch.behaviourResult = deriveBehaviourResult(tempResult as TestResult);
+          patch.behaviourResult = judgeBOutcome;
           patch.behaviourLLMDetail = null;
-          patch.behaviourSourceOfTruth = 'fallback_legacy';
-          patch.behaviourFallbackUsed = true;
-          patch.fallbackReason = 'Run not yet terminal';
+          patch.behaviourSourceOfTruth = 'unknown';
+          patch.behaviourFallbackUsed = false;
+          patch.fallbackReason = null;
+        } else {
+          patch.behaviourResult = 'UNKNOWN';
+          patch.behaviourLLMDetail = null;
+          patch.behaviourSourceOfTruth = 'unknown';
+          patch.behaviourFallbackUsed = false;
+          patch.fallbackReason = null;
         }
 
         finalResults[i] = { ...finalResults[i], ...patch };
@@ -2427,10 +2217,6 @@ export default function QaTestRunnerPage() {
                   </td>
                   <td className="px-3 py-2.5">
                     {behaviourBadge(r.behaviourResult)}
-                    {r.behaviourLLMDetail && <BehaviourDetailBlock detail={r.behaviourLLMDetail} />}
-                    {r.behaviourResult && !r.behaviourLLMDetail && r.status !== 'queued' && r.status !== 'running' && r.behaviourResult !== 'UNKNOWN' && (
-                      <div className="text-[9px] text-amber-500 mt-0.5">fallback logic</div>
-                    )}
                   </td>
                   <td className="px-3 py-2.5 text-gray-500 font-mono text-xs">
                     {r.durationMs !== null ? `${(r.durationMs / 1000).toFixed(1)}s` : '—'}
