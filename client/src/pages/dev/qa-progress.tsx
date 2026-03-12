@@ -77,7 +77,15 @@ function statusToScore(status: string, type: 'system' | 'tower' | 'behaviour' | 
     if (status === 'DEGRADED') return 0.5;
     return 0;
   }
-  if (type === 'tower' || type === 'behaviour') {
+  if (type === 'behaviour') {
+    if (status === 'PASS') return 1.0;
+    if (status === 'HONEST_PARTIAL') return 0.8;
+    if (status === 'BATCH_EXHAUSTED') return 0.6;
+    if (status === 'CAPABILITY_FAIL') return 0.2;
+    if (status === 'WRONG_DECISION') return 0.0;
+    return null;
+  }
+  if (type === 'tower') {
     if (status === 'PASS' || status === 'NOT_APPLICABLE') return 1;
     if (status === 'FAIL') return 0;
     return null;
