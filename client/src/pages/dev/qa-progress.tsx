@@ -154,6 +154,14 @@ interface LeadEvidence {
   constraint_type?: string;
 }
 
+interface DeliveryLeadEvidence {
+  url: string;
+  quotes: string[];
+  matched_phrase: string;
+  context_snippet: string;
+  verification_status: string;
+}
+
 function BehaviourInspectModal({ row, open, onClose }: { row: MetricRow | null; open: boolean; onClose: () => void }) {
   const [judgeB, setJudgeB] = useState<{
     outcome: string;
@@ -166,17 +174,31 @@ function BehaviourInspectModal({ row, open, onClose }: { row: MetricRow | null; 
   } | null>(null);
   const [judgeBLoading, setJudgeBLoading] = useState(false);
   const [expandedEvidence, setExpandedEvidence] = useState<Set<number>>(new Set());
+  const [deliveryEvidence, setDeliveryEvidence] = useState<Record<string, DeliveryLeadEvidence>>({});
 
   useEffect(() => {
-    if (!open || !row?.run_id) { setJudgeB(null); setExpandedEvidence(new Set()); return; }
+    if (!open || !row?.run_id) {
+      setJudgeB(null);
+      setExpandedEvidence(new Set());
+      setDeliveryEvidence({});
+      return;
+    }
     setJudgeBLoading(true);
     setJudgeB(null);
     setExpandedEvidence(new Set());
-    fetch(buildApiUrl(addDevAuthParams(`/api/afr/behaviour-judge?run_id=${encodeURIComponent(row.run_id)}`)), { credentials: 'include' })
-      .then(r => r.ok ? r.json() : null)
-      .then(data => { setJudgeB(data || null); })
-      .catch(() => { setJudgeB(null); })
-      .finally(() => setJudgeBLoading(false));
+    setDeliveryEvidence({});
+    const runId = encodeURIComponent(row.run_id);
+    Promise.all([
+      fetch(buildApiUrl(addDevAuthParams(`/api/afr/behaviour-judge?run_id=${runId}`)), { credentials: 'include' })
+        .then(r => r.ok ? r.json() : null)
+        .catch(() => null),
+      fetch(buildApiUrl(addDevAuthParams(`/api/afr/delivery-evidence?run_id=${runId}`)), { credentials: 'include' })
+        .then(r => r.ok ? r.json() : {})
+        .catch(() => ({})),
+    ]).then(([judgeData, evidenceData]) => {
+      setJudgeB(judgeData || null);
+      setDeliveryEvidence(evidenceData || {});
+    }).finally(() => setJudgeBLoading(false));
   }, [open, row?.run_id]);
 
   if (!row) return null;
@@ -267,14 +289,17 @@ function BehaviourInspectModal({ row, open, onClose }: { row: MetricRow | null; 
                 <div className="space-y-1">
                   {evidence.map((item, idx) => {
                     const displayName = item.lead_name || item.business_name || item.entity_name || item.name || `Lead ${idx + 1}`;
-                    const siteUrl = item.url || item.source_url || item.website_url || '';
                     const isExpanded = expandedEvidence.has(idx);
-                    const allQuotes: string[] = [
-                      ...(item.quotes ?? []),
-                      ...(item.quote ? [item.quote] : []),
-                    ];
                     const verifiedDefined = item.verified !== undefined && item.verified !== null;
-                    const towerStatus = item.tower_status || '';
+                    // Merge delivery_summary evidence (rich) with any fields on the input_snapshot item (legacy fallback)
+                    const rich = deliveryEvidence[displayName.toLowerCase().trim()] ?? null;
+                    const siteUrl = rich?.url || item.url || item.source_url || item.website_url || '';
+                    const allQuotes: string[] = rich?.quotes?.length
+                      ? rich.quotes
+                      : [...(item.quotes ?? []), ...(item.quote ? [item.quote] : [])];
+                    const matchedPhrase = rich?.matched_phrase || item.matched_phrase || '';
+                    const contextSnippet = rich?.context_snippet || item.context_snippet || item.context || '';
+                    const towerStatus = rich?.verification_status || item.tower_status || '';
                     const towerCls = towerStatus.toUpperCase() === 'VERIFIED'
                       ? 'bg-green-100 text-green-700'
                       : towerStatus === 'weak_match'
@@ -282,7 +307,6 @@ function BehaviourInspectModal({ row, open, onClose }: { row: MetricRow | null; 
                         : towerStatus === 'no_evidence'
                           ? 'bg-red-100 text-red-700'
                           : 'bg-gray-100 text-gray-600';
-                    const contextSnippet = item.context_snippet || item.context || '';
                     return (
                       <div key={idx} className="border rounded-md overflow-hidden text-[11px]">
                         <button
@@ -345,8 +369,8 @@ function BehaviourInspectModal({ row, open, onClose }: { row: MetricRow | null; 
                             </div>
                             <div>
                               <span className="text-gray-500 font-medium">Matched phrase: </span>
-                              {item.matched_phrase
-                                ? <span className="text-gray-800 font-mono bg-yellow-50 px-1 rounded">{item.matched_phrase}</span>
+                              {matchedPhrase
+                                ? <span className="text-gray-800 font-mono bg-yellow-50 px-1 rounded">{matchedPhrase}</span>
                                 : <span className="text-gray-400 italic">not captured</span>
                               }
                             </div>

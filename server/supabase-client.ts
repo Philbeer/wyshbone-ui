@@ -454,6 +454,49 @@ export async function getBehaviourJudgeResult(runId: string): Promise<BehaviourJ
   return data as BehaviourJudgeResult | null;
 }
 
+export interface LeadDeliveryEvidence {
+  url: string;
+  quotes: string[];
+  matched_phrase: string;
+  context_snippet: string;
+  verification_status: string;
+}
+
+export async function getDeliveryEvidence(runId: string): Promise<Record<string, LeadDeliveryEvidence>> {
+  if (!isSupabaseConfigured()) return {};
+  const client = ensureSupabaseClient();
+  const { data, error } = await client
+    .from('artefacts')
+    .select('payload_json')
+    .eq('run_id', runId)
+    .eq('type', 'delivery_summary')
+    .limit(1)
+    .maybeSingle();
+  if (error || !data) return {};
+  const payload = data.payload_json as any;
+  const allDelivered: any[] = [
+    ...(payload.delivered_exact || []),
+    ...(payload.delivered_closest || []),
+  ];
+  const evidenceMap: Record<string, LeadDeliveryEvidence> = {};
+  for (const lead of allDelivered) {
+    const name = (lead.name || '').toLowerCase().trim();
+    if (!name) continue;
+    const items: any[] = (lead.match_evidence?.length ? lead.match_evidence : null)
+      ?? (lead.supporting_evidence?.length ? lead.supporting_evidence : null)
+      ?? [];
+    if (items.length === 0) continue;
+    evidenceMap[name] = {
+      url: items[0].source_url || '',
+      quotes: items.map((e: any) => e.quote).filter(Boolean),
+      matched_phrase: items[0].matched_phrase || '',
+      context_snippet: items[0].context_snippet || '',
+      verification_status: items[0].verification_status || '',
+    };
+  }
+  return evidenceMap;
+}
+
 export async function getBehaviourJudgeResults(runIds: string[]): Promise<Record<string, BehaviourJudgeResult>> {
   if (!isSupabaseConfigured() || runIds.length === 0) return {};
   const client = ensureSupabaseClient();
