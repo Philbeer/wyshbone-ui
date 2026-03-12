@@ -135,6 +135,10 @@ function MetaField({ label, value }: { label: string; value: ReactNode }) {
 }
 
 interface LeadEvidence {
+  lead_name?: string;
+  verified?: boolean;
+  source_tier?: string;
+  // legacy / richer fields (may be present in some rows)
   business_name?: string;
   entity_name?: string;
   name?: string;
@@ -260,9 +264,15 @@ function BehaviourInspectModal({ row, open, onClose }: { row: MetricRow | null; 
                 </h4>
                 <div className="space-y-1">
                   {evidence.map((item, idx) => {
-                    const displayName = item.business_name || item.entity_name || item.name || `Lead ${idx + 1}`;
+                    const displayName = item.lead_name || item.business_name || item.entity_name || item.name || `Lead ${idx + 1}`;
                     const siteUrl = item.url || item.source_url || item.website_url;
                     const isExpanded = expandedEvidence.has(idx);
+                    const allQuotes: string[] = [
+                      ...(item.quotes ?? []),
+                      ...(item.quote ? [item.quote] : []),
+                    ];
+                    const hasExpandContent = !!(siteUrl || allQuotes.length > 0 || item.matched_phrase || item.constraint_type);
+                    const verifiedDefined = item.verified !== undefined && item.verified !== null;
                     const towerStatus = item.tower_status || '';
                     const towerCls = towerStatus.toUpperCase() === 'VERIFIED'
                       ? 'bg-green-100 text-green-700'
@@ -271,22 +281,31 @@ function BehaviourInspectModal({ row, open, onClose }: { row: MetricRow | null; 
                         : towerStatus === 'no_evidence'
                           ? 'bg-red-100 text-red-700'
                           : 'bg-gray-100 text-gray-600';
-                    const allQuotes: string[] = [
-                      ...(item.quotes ?? []),
-                      ...(item.quote ? [item.quote] : []),
-                    ];
                     return (
                       <div key={idx} className="border rounded-md overflow-hidden text-[11px]">
                         <button
                           className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left hover:bg-gray-50 transition-colors"
-                          onClick={() => setExpandedEvidence(prev => {
-                            const next = new Set(prev);
-                            next.has(idx) ? next.delete(idx) : next.add(idx);
-                            return next;
-                          })}
+                          onClick={() => {
+                            if (!hasExpandContent) return;
+                            setExpandedEvidence(prev => {
+                              const next = new Set(prev);
+                              next.has(idx) ? next.delete(idx) : next.add(idx);
+                              return next;
+                            });
+                          }}
                         >
                           <span className="font-medium text-gray-800 truncate flex-1">{displayName}</span>
                           <div className="flex items-center gap-1.5 shrink-0">
+                            {verifiedDefined && (
+                              <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${item.verified ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                                {item.verified ? '✓ verified' : '✗ unverified'}
+                              </span>
+                            )}
+                            {item.source_tier && (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-100 text-blue-700">
+                                {item.source_tier}
+                              </span>
+                            )}
                             {towerStatus && (
                               <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${towerCls}`}>
                                 {towerStatus}
@@ -297,10 +316,12 @@ function BehaviourInspectModal({ row, open, onClose }: { row: MetricRow | null; 
                                 {item.constraint_type}
                               </span>
                             )}
-                            <span className="text-gray-400 text-[10px]">{isExpanded ? '▲' : '▼'}</span>
+                            {hasExpandContent && (
+                              <span className="text-gray-400 text-[10px]">{isExpanded ? '▲' : '▼'}</span>
+                            )}
                           </div>
                         </button>
-                        {isExpanded && (
+                        {isExpanded && hasExpandContent && (
                           <div className="border-t bg-gray-50 px-3 py-2 space-y-1.5">
                             {siteUrl && (
                               <div>
