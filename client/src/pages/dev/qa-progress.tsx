@@ -134,6 +134,20 @@ function MetaField({ label, value }: { label: string; value: ReactNode }) {
   );
 }
 
+interface LeadEvidence {
+  business_name?: string;
+  entity_name?: string;
+  name?: string;
+  url?: string;
+  source_url?: string;
+  website_url?: string;
+  quote?: string;
+  quotes?: string[];
+  matched_phrase?: string;
+  tower_status?: string;
+  constraint_type?: string;
+}
+
 function BehaviourInspectModal({ row, open, onClose }: { row: MetricRow | null; open: boolean; onClose: () => void }) {
   const [judgeB, setJudgeB] = useState<{
     outcome: string;
@@ -142,13 +156,16 @@ function BehaviourInspectModal({ row, open, onClose }: { row: MetricRow | null; 
     tower_verdict: string | null;
     delivered_count: number | null;
     requested_count: number | null;
+    input_snapshot?: { leads_evidence?: LeadEvidence[]; [key: string]: unknown } | null;
   } | null>(null);
   const [judgeBLoading, setJudgeBLoading] = useState(false);
+  const [expandedEvidence, setExpandedEvidence] = useState<Set<number>>(new Set());
 
   useEffect(() => {
-    if (!open || !row?.run_id) { setJudgeB(null); return; }
+    if (!open || !row?.run_id) { setJudgeB(null); setExpandedEvidence(new Set()); return; }
     setJudgeBLoading(true);
     setJudgeB(null);
+    setExpandedEvidence(new Set());
     fetch(buildApiUrl(addDevAuthParams(`/api/afr/behaviour-judge?run_id=${encodeURIComponent(row.run_id)}`)), { credentials: 'include' })
       .then(r => r.ok ? r.json() : null)
       .then(data => { setJudgeB(data || null); })
@@ -232,6 +249,91 @@ function BehaviourInspectModal({ row, open, onClose }: { row: MetricRow | null; 
               </div>
             )}
           </section>
+
+          {(() => {
+            const evidence = judgeB?.input_snapshot?.leads_evidence;
+            if (!evidence || evidence.length === 0) return null;
+            return (
+              <section>
+                <h4 className="text-xs font-semibold text-gray-600 uppercase tracking-wider mb-2 border-b pb-1">
+                  Evidence Found Per Lead
+                </h4>
+                <div className="space-y-1">
+                  {evidence.map((item, idx) => {
+                    const displayName = item.business_name || item.entity_name || item.name || `Lead ${idx + 1}`;
+                    const siteUrl = item.url || item.source_url || item.website_url;
+                    const isExpanded = expandedEvidence.has(idx);
+                    const towerStatus = item.tower_status || '';
+                    const towerCls = towerStatus.toUpperCase() === 'VERIFIED'
+                      ? 'bg-green-100 text-green-700'
+                      : towerStatus === 'weak_match'
+                        ? 'bg-amber-100 text-amber-700'
+                        : towerStatus === 'no_evidence'
+                          ? 'bg-red-100 text-red-700'
+                          : 'bg-gray-100 text-gray-600';
+                    const allQuotes: string[] = [
+                      ...(item.quotes ?? []),
+                      ...(item.quote ? [item.quote] : []),
+                    ];
+                    return (
+                      <div key={idx} className="border rounded-md overflow-hidden text-[11px]">
+                        <button
+                          className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left hover:bg-gray-50 transition-colors"
+                          onClick={() => setExpandedEvidence(prev => {
+                            const next = new Set(prev);
+                            next.has(idx) ? next.delete(idx) : next.add(idx);
+                            return next;
+                          })}
+                        >
+                          <span className="font-medium text-gray-800 truncate flex-1">{displayName}</span>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            {towerStatus && (
+                              <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${towerCls}`}>
+                                {towerStatus}
+                              </span>
+                            )}
+                            {item.constraint_type && (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-100 text-purple-700">
+                                {item.constraint_type}
+                              </span>
+                            )}
+                            <span className="text-gray-400 text-[10px]">{isExpanded ? '▲' : '▼'}</span>
+                          </div>
+                        </button>
+                        {isExpanded && (
+                          <div className="border-t bg-gray-50 px-3 py-2 space-y-1.5">
+                            {siteUrl && (
+                              <div>
+                                <span className="text-gray-500 font-medium">URL: </span>
+                                <a href={siteUrl} target="_blank" rel="noopener noreferrer"
+                                  className="text-blue-600 hover:underline break-all">{siteUrl}</a>
+                              </div>
+                            )}
+                            {allQuotes.length > 0 && (
+                              <div>
+                                <span className="text-gray-500 font-medium">Quotes:</span>
+                                <div className="mt-0.5 space-y-1">
+                                  {allQuotes.map((q, qi) => (
+                                    <blockquote key={qi} className="border-l-2 border-gray-300 pl-2 text-gray-700 italic">{q}</blockquote>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            {item.matched_phrase && (
+                              <div>
+                                <span className="text-gray-500 font-medium">Matched phrase: </span>
+                                <span className="text-gray-800 font-mono bg-yellow-50 px-1 rounded">{item.matched_phrase}</span>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+            );
+          })()}
 
           <section>
             <h4 className="text-xs font-semibold text-gray-600 uppercase tracking-wider mb-2 border-b pb-1">

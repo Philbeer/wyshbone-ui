@@ -410,6 +410,20 @@ export async function persistLeadsToSupabase(
 // Behaviour Judge Results (Judge B)
 // ============================================
 
+export interface BehaviourJudgeLeadEvidence {
+  business_name?: string;
+  entity_name?: string;
+  name?: string;
+  url?: string;
+  source_url?: string;
+  website_url?: string;
+  quote?: string;
+  quotes?: string[];
+  matched_phrase?: string;
+  tower_status?: string;
+  constraint_type?: string;
+}
+
 export interface BehaviourJudgeResult {
   run_id: string;
   outcome: string;
@@ -419,6 +433,10 @@ export interface BehaviourJudgeResult {
   delivered_count: number | null;
   requested_count: number | null;
   created_at: string | null;
+  input_snapshot?: {
+    leads_evidence?: BehaviourJudgeLeadEvidence[];
+    [key: string]: unknown;
+  } | null;
 }
 
 export async function getBehaviourJudgeResult(runId: string): Promise<BehaviourJudgeResult | null> {
