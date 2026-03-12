@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, type ReactNode } from 'react';
+import { useState, useEffect, useMemo, useRef, type ReactNode } from 'react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Scatter, ComposedChart, Legend,
@@ -379,6 +379,18 @@ export default function QaProgressPage() {
       setLoading(false);
     }
   };
+
+  const fetchDataRef = useRef(fetchData);
+  useEffect(() => { fetchDataRef.current = fetchData; });
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (localStorage.getItem('qa_benchmark_running') === 'true') {
+        fetchDataRef.current();
+      }
+    }, 10_000);
+    return () => clearInterval(id);
+  }, []);
 
   useEffect(() => { fetchData(); }, [sourceFilter]);
 

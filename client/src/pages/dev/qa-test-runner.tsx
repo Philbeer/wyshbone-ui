@@ -1809,6 +1809,7 @@ export default function QaTestRunnerPage() {
 
     runningRef.current = true;
     setSuiteStatus('running');
+    localStorage.setItem('qa_benchmark_running', 'true');
     setResults(initialResults);
     setBenchmarkSummary(null);
 
@@ -2010,6 +2011,7 @@ export default function QaTestRunnerPage() {
     const anyMismatch = finalResults.some(r => r.judgement === 'mismatch');
     runningRef.current = false;
     abortRef.current = null;
+    localStorage.removeItem('qa_benchmark_running');
     setSuiteStatus(anyMismatch ? 'failed' : 'completed');
     setBenchmarkProgress(null);
 
@@ -2037,6 +2039,7 @@ export default function QaTestRunnerPage() {
   const stopSuite = useCallback(() => {
     abortRef.current?.abort();
     runningRef.current = false;
+    localStorage.removeItem('qa_benchmark_running');
     setSuiteStatus('failed');
   }, []);
 
