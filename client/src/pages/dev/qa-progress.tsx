@@ -660,7 +660,14 @@ export default function QaProgressPage() {
                   <td className="px-3 py-2 text-gray-500">{r.query_class || '—'}</td>
                   <td className="px-3 py-2 text-gray-500">{r.suite_id || '—'}</td>
                   <td className="px-3 py-2">
-                    <StatusBadge value={r.system_status} type="system" />
+                    {(() => {
+                      const delivered = typeof r.metadata?.deliveredCount === 'number' ? r.metadata.deliveredCount : null;
+                      const requested = typeof r.metadata?.requestedCount === 'number' ? r.metadata.requestedCount : null;
+                      if (delivered === null || requested === null) return <span className="text-gray-400 text-xs">—</span>;
+                      const pct = requested === 0 ? 100 : Math.min(100, Math.round((delivered / requested) * 100));
+                      const cls = pct === 100 ? 'bg-green-100 text-green-800' : pct >= 60 ? 'bg-amber-100 text-amber-800' : 'bg-red-100 text-red-700';
+                      return <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${cls}`}>{pct}%</span>;
+                    })()}
                   </td>
                   <td className="px-3 py-2">
                     <StatusBadge value={r.agent_status} type="agent" />

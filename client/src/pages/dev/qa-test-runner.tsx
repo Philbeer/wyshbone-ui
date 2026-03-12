@@ -1353,6 +1353,7 @@ async function persistQaMetric(
       expected: result.expected,
       durationMs: result.durationMs,
       deliveredCount: result.deliveredCount,
+      requestedCount: result.minimumExpectedCount ?? null,
       blocked: result.blocked,
       clarified: result.clarified,
       towerVerdict: result.towerVerdict,
@@ -1495,6 +1496,33 @@ function computeQualityCounts(results: TestResult[]) {
   return { pass, partial, fail, unknown, successRate };
 }
 
+function computeCompletionPct(r: TestResult): number | null {
+  if (r.status === 'queued' || r.status === 'running') return null;
+  const isNonDelivery = r.expected === 'clarify' || r.expected === 'blocked' || r.expected === 'blocked_or_clarify';
+  if (isNonDelivery) {
+    if (r.blocked || r.clarified) return 100;
+    if (r.systemHealth === 'BROKEN' || r.systemHealth === 'TIMEOUT') return 0;
+    return null;
+  }
+  const total = r.minimumExpectedCount ?? null;
+  const delivered = r.deliveredCount ?? 0;
+  if (total == null || total === 0) {
+    if (r.systemHealth === 'HEALTHY' || r.systemHealth === 'DEGRADED') return 100;
+    if (r.systemHealth === 'BROKEN') return 0;
+    return null;
+  }
+  return Math.min(100, Math.round((delivered / total) * 100));
+}
+
+function completionPctBadge(r: TestResult) {
+  const pct = computeCompletionPct(r);
+  if (pct === null) return <span className="text-gray-300 text-xs">—</span>;
+  const cls = pct === 100 ? 'bg-green-100 text-green-700 border-green-200'
+    : pct >= 60 ? 'bg-amber-100 text-amber-800 border-amber-200'
+    : 'bg-red-100 text-red-700 border-red-200';
+  return <Badge variant="outline" className={`text-[10px] px-1.5 py-0 font-medium border-0 ${cls}`}>{pct}%</Badge>;
+}
+
 function systemHealthBadge(outcome: SystemHealthOutcome | null) {
   if (!outcome) return null;
   switch (outcome) {
@@ -1527,25 +1555,23 @@ function agentQualityBadge(outcome: AgentQualityOutcome | null) {
 
 function Scoreboard({ results }: { results: TestResult[] }) {
   const withOutcome = results.filter(r => r.systemHealth !== null || r.agentQuality !== null);
-  const hc = computeHealthCounts(withOutcome);
   const qc = computeQualityCounts(withOutcome);
   const total = results.length;
+  const completionPcts = results.map(computeCompletionPct).filter((v): v is number => v !== null);
+  const avgCompletion = completionPcts.length > 0 ? Math.round(completionPcts.reduce((a, b) => a + b, 0) / completionPcts.length) : null;
 
   return (
     <div className="grid grid-cols-2 gap-3 mb-6">
       <div className="border rounded-lg p-4">
         <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">System Reliability</div>
         <div className="flex items-baseline gap-2 mb-3">
-          <span className={`text-3xl font-bold ${hc.reliability >= 80 ? 'text-green-700' : hc.reliability >= 50 ? 'text-amber-700' : 'text-red-700'}`}>{hc.reliability}%</span>
-          <span className="text-xs text-gray-400">of {total} runs</span>
+          {avgCompletion !== null
+            ? <span className={`text-3xl font-bold ${avgCompletion === 100 ? 'text-green-700' : avgCompletion >= 60 ? 'text-amber-700' : 'text-red-700'}`}>{avgCompletion}%</span>
+            : <span className="text-3xl font-bold text-gray-400">—</span>
+          }
+          <span className="text-xs text-gray-400">avg completion across {total} runs</span>
         </div>
-        <div className="flex items-center gap-4 text-sm">
-          <span className="text-green-700 font-medium">{hc.healthy} healthy</span>
-          <span className="text-amber-700">{hc.degraded} degraded</span>
-          <span className="text-gray-500">{hc.timeout} timeout</span>
-          <span className="text-red-700">{hc.broken} broken</span>
-        </div>
-        <div className="mt-2 text-[9px] text-gray-400">(healthy + degraded) / total runs</div>
+        <div className="mt-2 text-[9px] text-gray-400">completed leads / leads requested per run</div>
       </div>
       <div className="border rounded-lg p-4">
         <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Agent Performance</div>
@@ -1583,7 +1609,7 @@ interface BenchmarkProgress {
 interface BenchmarkSummary {
   total: number;
   durationMs: number;
-  system: { healthy: number; degraded: number; broken: number; timeout: number; reliability: number };
+  system: { healthy: number; degraded: number; broken: number; timeout: number; reliability: number; completionPct: number | null };
   agent: { pass: number; partial: number; fail: number; unknown: number; successRate: number };
   behaviour: { pass: number; fail: number; unknown: number; score: number };
 }
@@ -1694,14 +1720,12 @@ function BenchmarkSummaryCard({ summary }: { summary: BenchmarkSummary }) {
         <div>
           <div className="flex items-baseline gap-2 mb-2">
             <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">System Reliability</span>
-            <span className={`text-2xl font-bold ml-auto ${s.reliability >= 80 ? 'text-green-700' : s.reliability >= 50 ? 'text-amber-700' : 'text-red-700'}`}>{s.reliability}%</span>
+            {s.completionPct !== null
+              ? <span className={`text-2xl font-bold ml-auto ${s.completionPct === 100 ? 'text-green-700' : s.completionPct >= 60 ? 'text-amber-700' : 'text-red-700'}`}>{s.completionPct}%</span>
+              : <span className="text-2xl font-bold ml-auto text-gray-400">—</span>
+            }
           </div>
-          <div className="flex items-center gap-3 text-sm">
-            <span className="text-green-700 font-medium">{s.healthy} healthy</span>
-            <span className="text-amber-700">{s.degraded} degraded</span>
-            <span className="text-gray-500">{s.timeout} timeout</span>
-            <span className="text-red-700">{s.broken} broken</span>
-          </div>
+          <div className="text-[10px] text-gray-400">avg completion across {summary.total} tests</div>
         </div>
         <div>
           <div className="flex items-baseline gap-2 mb-2">
@@ -2022,10 +2046,12 @@ export default function QaTestRunnerPage() {
       const bFail = finalResults.filter(r => r.behaviourResult === 'FAIL').length;
       const bUnknown = finalResults.filter(r => r.behaviourResult === 'UNKNOWN' || r.behaviourResult === null).length;
       const bScore = finalResults.length > 0 ? Math.round((bPass / finalResults.length) * 100) : 0;
+      const cPcts = finalResults.map(computeCompletionPct).filter((v): v is number => v !== null);
+      const avgCompletionPct = cPcts.length > 0 ? Math.round(cPcts.reduce((a, b) => a + b, 0) / cPcts.length) : null;
       setBenchmarkSummary({
         total: finalResults.length,
         durationMs: Date.now() - suiteStart,
-        system: healthCounts,
+        system: { ...healthCounts, completionPct: avgCompletionPct },
         agent: qualityCounts,
         behaviour: { pass: bPass, fail: bFail, unknown: bUnknown, score: bScore },
       });
@@ -2234,7 +2260,7 @@ export default function QaTestRunnerPage() {
                     {r.error && <div className="text-xs text-red-500 mt-0.5">{r.error}</div>}
                   </td>
                   <td className="px-3 py-2.5">
-                    {systemHealthBadge(r.systemHealth)}
+                    {completionPctBadge(r)}
                   </td>
                   <td className="px-3 py-2.5">
                     {agentQualityBadge(r.agentQuality)}
