@@ -2142,16 +2142,6 @@ export default function QaTestRunnerPage() {
                 <span className="text-gray-400 font-mono w-6 text-right shrink-0">{i + 1}.</span>
                 <div className="flex-1">
                   <span className="text-gray-800">{t.query}</span>
-                  <details className="mt-1 group">
-                    <summary className="cursor-pointer select-none list-none flex items-center gap-1 text-[10px] text-gray-400 hover:text-gray-600">
-                      <ChevronRight className="w-3 h-3 group-open:hidden" />
-                      <ChevronDown className="w-3 h-3 hidden group-open:block" />
-                      <span className="font-semibold uppercase tracking-wider">Expected outcome</span>
-                    </summary>
-                    <div className="mt-0.5 text-[11px] text-gray-500 dark:text-gray-400 font-mono bg-white dark:bg-gray-900 rounded px-2 py-1 whitespace-pre-wrap">
-                      {buildExpectedOutcome(t)}
-                    </div>
-                  </details>
                   <div className="flex items-center gap-2 mt-0.5">
                     {expectedBadge(t.expected)}
                   </div>
