@@ -2199,16 +2199,6 @@ export default function QaTestRunnerPage() {
                   <td className="px-3 py-2.5 text-gray-400 font-mono">{i + 1}</td>
                   <td className="px-3 py-2.5">
                     <div className="font-medium text-gray-800 dark:text-gray-200 text-xs">{r.query}</div>
-                    <details className="mt-1 group">
-                      <summary className="cursor-pointer select-none list-none flex items-center gap-1 text-[10px] text-gray-400 hover:text-gray-600">
-                        <ChevronRight className="w-3 h-3 group-open:hidden" />
-                        <ChevronDown className="w-3 h-3 hidden group-open:block" />
-                        <span className="font-semibold uppercase tracking-wider">Expected outcome</span>
-                      </summary>
-                      <div className="mt-0.5 text-[11px] text-gray-500 dark:text-gray-400 font-mono bg-gray-50 dark:bg-gray-900 rounded px-2 py-1 whitespace-pre-wrap">
-                        {r.expectedOutcome}
-                      </div>
-                    </details>
                     {r.behaviourResult === 'FAIL' && (
                       <div className="mt-0.5 flex items-center gap-1 text-[10px] text-amber-600">
                         <AlertTriangle className="w-3 h-3" />
