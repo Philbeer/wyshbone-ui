@@ -1574,6 +1574,10 @@ interface BenchmarkProgress {
   blocked: number;
   timeout: number;
   fail: number;
+  behaviourPass: number;
+  behaviourFail: number;
+  behaviourUnknown: number;
+  behaviourScore: number;
 }
 
 interface BenchmarkSummary {
@@ -1611,6 +1615,15 @@ function BenchmarkProgressBar({ progress }: { progress: BenchmarkProgress }) {
       </div>
       <div className="text-xs text-blue-700 truncate">
         Current: {progress.currentQuery}
+      </div>
+      <div className="flex items-center gap-3 mt-1 text-[11px] text-gray-500 border-t border-blue-100 pt-1">
+        <span className="font-medium">Judge B:</span>
+        <span className={`font-bold ${progress.behaviourScore >= 80 ? 'text-green-700' : progress.behaviourScore >= 50 ? 'text-amber-700' : 'text-gray-500'}`}>
+          {progress.behaviourScore}%
+        </span>
+        <span className="text-green-700">{progress.behaviourPass} pass</span>
+        <span className="text-red-700">{progress.behaviourFail} fail</span>
+        <span className="text-gray-400">{progress.behaviourUnknown} pending</span>
       </div>
     </div>
   );
@@ -1797,6 +1810,7 @@ export default function QaTestRunnerPage() {
         totalCount: suite.tests.length,
         currentQuery: suite.tests[0].query,
         pass: 0, partial: 0, blocked: 0, timeout: 0, fail: 0,
+        behaviourPass: 0, behaviourFail: 0, behaviourUnknown: 0, behaviourScore: 0,
       });
     } else {
       setBenchmarkProgress(null);
@@ -1808,6 +1822,43 @@ export default function QaTestRunnerPage() {
     const suiteStart = Date.now();
     const qaConversationId = `qa-${suite.id}-${crypto.randomUUID()}`;
     const finalResults = [...initialResults];
+
+    const pollJudgeBInBackground = (index: number, runId: string): void => {
+      void (async () => {
+        const pollDeadline = Date.now() + 30_000;
+        while (Date.now() < pollDeadline) {
+          await new Promise<void>(resolve => setTimeout(resolve, 3_000));
+          try {
+            const resp = await fetch(
+              buildApiUrl(addDevAuthParams(`/api/afr/behaviour-judge?run_id=${encodeURIComponent(runId)}`)),
+              { credentials: 'include' }
+            );
+            if (resp.ok) {
+              const data = await resp.json();
+              if (data && data.outcome) {
+                const outcome = data.outcome.toUpperCase() as BehaviourResult;
+                finalResults[index] = { ...finalResults[index], behaviourResult: outcome };
+                updateResult(index, { behaviourResult: outcome });
+                if (isBenchmark) {
+                  const bPass = finalResults.filter(r => r.behaviourResult === 'PASS').length;
+                  const bFail = finalResults.filter(r => r.behaviourResult === 'FAIL').length;
+                  const bUnknown = finalResults.filter(r => r.behaviourResult === 'UNKNOWN' || r.behaviourResult === null).length;
+                  const bScore = finalResults.length > 0 ? Math.round((bPass / finalResults.length) * 100) : 0;
+                  setBenchmarkProgress(prev => prev ? {
+                    ...prev,
+                    behaviourPass: bPass,
+                    behaviourFail: bFail,
+                    behaviourUnknown: bUnknown,
+                    behaviourScore: bScore,
+                  } : null);
+                }
+                return;
+              }
+            }
+          } catch { /* continue polling */ }
+        }
+      })();
+    };
 
     for (let i = 0; i < suite.tests.length; i++) {
       if (controller.signal.aborted) {
@@ -1828,11 +1879,19 @@ export default function QaTestRunnerPage() {
 
       if (isBenchmark) {
         const counts = computeProgressCounts(finalResults);
+        const bPass = finalResults.filter(r => r.behaviourResult === 'PASS').length;
+        const bFail = finalResults.filter(r => r.behaviourResult === 'FAIL').length;
+        const bUnknown = finalResults.filter(r => r.behaviourResult === 'UNKNOWN' || r.behaviourResult === null).length;
+        const bScoreCalc = finalResults.length > 0 ? Math.round((bPass / finalResults.length) * 100) : 0;
         setBenchmarkProgress({
           currentIndex: i + 1,
           totalCount: suite.tests.length,
           currentQuery: test.query,
           ...counts,
+          behaviourPass: bPass,
+          behaviourFail: bFail,
+          behaviourUnknown: bUnknown,
+          behaviourScore: bScoreCalc,
         });
       }
 
@@ -1907,39 +1966,16 @@ export default function QaTestRunnerPage() {
         patch.towerResult = deriveTowerResult(tempResult as TestResult);
 
         const isTerminal = testStatus !== 'queued' && testStatus !== 'running' && testStatus !== 'poll_expired_reconciling';
+        patch.behaviourResult = 'UNKNOWN';
+        patch.behaviourLLMDetail = null;
+        patch.behaviourSourceOfTruth = 'unknown';
+        patch.behaviourFallbackUsed = false;
+        patch.fallbackReason = null;
         if (isTerminal) {
           const runId = finalResults[i].runId;
-          let judgeBOutcome: BehaviourResult = 'UNKNOWN';
           if (runId) {
-            const pollDeadline = Date.now() + 30_000;
-            while (Date.now() < pollDeadline) {
-              await new Promise<void>(resolve => setTimeout(resolve, 2_000));
-              try {
-                const bjResp = await fetch(
-                  buildApiUrl(addDevAuthParams(`/api/afr/behaviour-judge?run_id=${encodeURIComponent(runId)}`)),
-                  { credentials: 'include' }
-                );
-                if (bjResp.ok) {
-                  const bjData = await bjResp.json();
-                  if (bjData && bjData.outcome) {
-                    judgeBOutcome = bjData.outcome.toUpperCase() as BehaviourResult;
-                    break;
-                  }
-                }
-              } catch { /* continue polling */ }
-            }
+            pollJudgeBInBackground(i, runId);
           }
-          patch.behaviourResult = judgeBOutcome;
-          patch.behaviourLLMDetail = null;
-          patch.behaviourSourceOfTruth = 'unknown';
-          patch.behaviourFallbackUsed = false;
-          patch.fallbackReason = null;
-        } else {
-          patch.behaviourResult = 'UNKNOWN';
-          patch.behaviourLLMDetail = null;
-          patch.behaviourSourceOfTruth = 'unknown';
-          patch.behaviourFallbackUsed = false;
-          patch.fallbackReason = null;
         }
 
         finalResults[i] = { ...finalResults[i], ...patch };
