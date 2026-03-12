@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { getDrizzleDb } from "../storage";
 import { sql } from "drizzle-orm";
+import { getBehaviourJudgeResults, isSupabaseConfigured } from "../supabase-client";
 import {
   qaRunMetrics,
   type InsertQaRunMetric,
@@ -637,7 +638,7 @@ export function createQaMetricsRouter(): Router {
     try {
       const db = getDrizzleDb();
       const sourceFilter = req.query.source as string | undefined;
-      const rows = sourceFilter
+      const rawRows = sourceFilter
         ? await db.execute(sql`
             SELECT * FROM qa_run_metrics
             WHERE source = ${sourceFilter}
@@ -649,7 +650,30 @@ export function createQaMetricsRouter(): Router {
             ORDER BY timestamp DESC
             LIMIT 500
           `);
-      return res.json(rows);
+
+      const rowsArray: any[] = Array.isArray(rawRows) ? rawRows : (rawRows as any)?.rows ?? [];
+
+      if (rowsArray.length > 0 && isSupabaseConfigured()) {
+        const needsJudge = rowsArray.filter((r: any) => !r.behaviour_result || r.behaviour_result === 'UNKNOWN');
+        if (needsJudge.length > 0) {
+          const runIds = needsJudge.map((r: any) => r.run_id).filter(Boolean) as string[];
+          if (runIds.length > 0) {
+            const judgeMap = await getBehaviourJudgeResults(runIds);
+            for (const row of rowsArray) {
+              const judge = judgeMap[row.run_id];
+              if (judge && (!row.behaviour_result || row.behaviour_result === 'UNKNOWN')) {
+                const outcome = (judge.outcome || '').toUpperCase();
+                if (outcome) {
+                  row.behaviour_result = outcome;
+                  row.behaviour_score = outcome === 'PASS' ? '1.0' : '0.0';
+                }
+              }
+            }
+          }
+        }
+      }
+
+      return res.json(rowsArray);
     } catch (error: any) {
       console.error("[qa-metrics] history error:", error?.message || error);
       return res.status(500).json({ error: "Failed to fetch history" });

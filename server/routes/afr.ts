@@ -3,6 +3,7 @@ import { storage, getDrizzleDb } from "../storage";
 import { sql, eq } from "drizzle-orm";
 import { agentActivities, deepResearchRuns as deepResearchRunsTable } from "../../shared/schema";
 import type { Run, RuleUpdate, RunBundle } from "../../client/src/types/afr";
+import { getBehaviourJudgeResult, isSupabaseConfigured } from "../supabase-client";
 
 // Debug flag for AFR run lifecycle logging
 const DEBUG_AFR = process.env.DEBUG_AFR === 'true' || process.env.DEBUG === 'true';
@@ -1255,6 +1256,23 @@ export function createAfrRouter(_storage: typeof storage) {
     } catch (error: any) {
       console.error("AFR /run-diagnostic error:", error);
       res.status(500).json({ error: error.message });
+    }
+  });
+
+  router.get("/behaviour-judge", async (req, res) => {
+    try {
+      const runId = req.query.run_id as string | undefined;
+      if (!runId) {
+        return res.status(400).json({ error: "run_id query parameter is required" });
+      }
+      if (!isSupabaseConfigured()) {
+        return res.json(null);
+      }
+      const row = await getBehaviourJudgeResult(runId);
+      return res.json(row ?? null);
+    } catch (error: any) {
+      console.error("[AFR behaviour-judge] error:", error.message);
+      return res.status(500).json({ error: "Failed to fetch behaviour judge result" });
     }
   });
 

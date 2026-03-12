@@ -1468,12 +1468,72 @@ function EvidenceSection({ clientRequestId, runId, preloadedArtefacts }: { clien
 
 const FACTORY_TYPES = new Set(['factory_state', 'factory_decision']);
 
+interface BehaviourJudgeRow {
+  run_id: string;
+  outcome: string;
+  confidence: number | null;
+  reason: string | null;
+  tower_verdict: string | null;
+  delivered_count: number | null;
+  requested_count: number | null;
+  created_at: string | null;
+}
+
+function BehaviourJudgeCard({ judge }: { judge: BehaviourJudgeRow }) {
+  const outcome = (judge.outcome || '').toUpperCase();
+  const isPass = outcome === 'PASS';
+  const isFail = outcome !== '' && outcome !== 'UNKNOWN' && !isPass;
+  return (
+    <div className={cn(
+      "rounded-lg border px-3 py-2.5 space-y-1.5",
+      isPass ? "border-green-200 bg-green-50/60 dark:border-green-800/40 dark:bg-green-900/10"
+        : isFail ? "border-red-200 bg-red-50/60 dark:border-red-800/40 dark:bg-red-900/10"
+        : "border-gray-200 bg-gray-50/60 dark:border-gray-700 dark:bg-gray-800/20"
+    )}>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className={cn(
+          "inline-flex items-center px-2 py-0.5 rounded-md text-xs font-bold",
+          isPass ? "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-200"
+            : isFail ? "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200"
+            : "bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300"
+        )}>
+          {outcome || '—'}
+        </span>
+        {judge.confidence != null && (
+          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400">
+            {Math.round(judge.confidence * 100)}% confidence
+          </span>
+        )}
+        {judge.tower_verdict && (
+          <span className={cn(
+            "inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium",
+            judge.tower_verdict.toLowerCase() === 'accept'
+              ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300"
+              : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
+          )}>
+            Tower: {judge.tower_verdict}
+          </span>
+        )}
+        {(judge.delivered_count != null || judge.requested_count != null) && (
+          <span className="text-[10px] text-muted-foreground font-mono">
+            {judge.delivered_count ?? '?'}{judge.requested_count != null ? `/${judge.requested_count}` : ''} delivered
+          </span>
+        )}
+      </div>
+      {judge.reason && (
+        <p className="text-xs text-foreground/80 leading-relaxed">{judge.reason}</p>
+      )}
+    </div>
+  );
+}
+
 function ResultsModal({ clientRequestId, runId, open, onOpenChange }: { clientRequestId?: string | null; runId?: string | null; open: boolean; onOpenChange: (open: boolean) => void }) {
   const [artefacts, setArtefacts] = useState<Artefact[]>([]);
   const [allArtefacts, setAllArtefacts] = useState<Artefact[]>([]);
   const [activeTab, setActiveTab] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [behaviourJudge, setBehaviourJudge] = useState<BehaviourJudgeRow | null>(null);
 
   useEffect(() => {
     if (!open || (!runId && !clientRequestId)) return;
@@ -1482,6 +1542,7 @@ function ResultsModal({ clientRequestId, runId, open, onOpenChange }: { clientRe
     setArtefacts([]);
     setAllArtefacts([]);
     setActiveTab('');
+    setBehaviourJudge(null);
 
     const url = runId
       ? `/api/afr/artefacts?runId=${encodeURIComponent(runId)}`
@@ -1526,6 +1587,14 @@ function ResultsModal({ clientRequestId, runId, open, onOpenChange }: { clientRe
         setArtefacts(sorted);
         if (sorted.length > 0) {
           setActiveTab(sorted[0].type);
+        }
+
+        const resolvedRunId = runId || rows[0]?.run_id;
+        if (resolvedRunId) {
+          fetch(`/api/afr/behaviour-judge?run_id=${encodeURIComponent(resolvedRunId)}`)
+            .then(r => r.ok ? r.json() : null)
+            .then(data => { if (data) setBehaviourJudge(data as BehaviourJudgeRow); })
+            .catch(() => {});
         }
       })
       .catch(() => setError('Could not load results.'))
@@ -1664,6 +1733,9 @@ function ResultsModal({ clientRequestId, runId, open, onOpenChange }: { clientRe
             </div>
           );
         })()}
+        {behaviourJudge && (
+          <BehaviourJudgeCard judge={behaviourJudge} />
+        )}
         {!loading && !error && artefacts.length > 0 && !artefacts.some(a => a.type === 'leads_list') && !artefacts.some(a => a.type === 'delivery_summary') && !artefacts.some(a => a.type === 'deep_research_result') && !artefacts.some(a => a.type === 'run_summary') && !artefacts.some(a => a.type === 'plan_update') && !artefacts.some(a => a.type === 'tower_judgement') && (() => {
           const delegationArtefact = artefacts.find(a => {
             const p = parsePayload(a.payload_json);

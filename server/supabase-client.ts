@@ -405,3 +405,51 @@ export async function persistLeadsToSupabase(
   
   return result;
 }
+
+// ============================================
+// Behaviour Judge Results (Judge B)
+// ============================================
+
+export interface BehaviourJudgeResult {
+  run_id: string;
+  outcome: string;
+  confidence: number | null;
+  reason: string | null;
+  tower_verdict: string | null;
+  delivered_count: number | null;
+  requested_count: number | null;
+  created_at: string | null;
+}
+
+export async function getBehaviourJudgeResult(runId: string): Promise<BehaviourJudgeResult | null> {
+  if (!isSupabaseConfigured()) return null;
+  const client = ensureSupabaseClient();
+  const { data, error } = await client
+    .from('behaviour_judge_results')
+    .select('*')
+    .eq('run_id', runId)
+    .maybeSingle();
+  if (error) {
+    console.error('[behaviour-judge] lookup error:', error.message);
+    return null;
+  }
+  return data as BehaviourJudgeResult | null;
+}
+
+export async function getBehaviourJudgeResults(runIds: string[]): Promise<Record<string, BehaviourJudgeResult>> {
+  if (!isSupabaseConfigured() || runIds.length === 0) return {};
+  const client = ensureSupabaseClient();
+  const { data, error } = await client
+    .from('behaviour_judge_results')
+    .select('run_id, outcome, confidence, reason')
+    .in('run_id', runIds);
+  if (error) {
+    console.error('[behaviour-judge] bulk lookup error:', error.message);
+    return {};
+  }
+  const map: Record<string, BehaviourJudgeResult> = {};
+  for (const row of (data || [])) {
+    map[(row as any).run_id] = row as BehaviourJudgeResult;
+  }
+  return map;
+}
