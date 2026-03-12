@@ -197,7 +197,7 @@ function BehaviourInspectModal({ row, open, onClose }: { row: MetricRow | null; 
                   </span>
                   {judgeB.confidence != null && (
                     <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-600">
-                      {Math.round(judgeB.confidence * 100)}% confidence
+                      {judgeB.confidence > 1 ? Math.round(judgeB.confidence) : Math.round(judgeB.confidence * 100)}% confidence
                     </span>
                   )}
                   {judgeB.tower_verdict && (
@@ -222,7 +222,7 @@ function BehaviourInspectModal({ row, open, onClose }: { row: MetricRow | null; 
                   <tbody>
                     <MetaField label="outcome" value={outcome || '—'} />
                     {judgeB.confidence != null && (
-                      <MetaField label="confidence" value={`${judgeB.confidence} (${Math.round(judgeB.confidence * 100)}%)`} />
+                      <MetaField label="confidence" value={`${judgeB.confidence > 1 ? Math.round(judgeB.confidence) : Math.round(judgeB.confidence * 100)}%`} />
                     )}
                     {judgeB.tower_verdict && <MetaField label="tower_verdict" value={judgeB.tower_verdict} />}
                     {judgeB.delivered_count != null && <MetaField label="delivered_count" value={String(judgeB.delivered_count)} />}

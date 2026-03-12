@@ -498,7 +498,7 @@ function RunSummaryView({ payload }: { payload: any }) {
           {confidence != null && (
             <div className="flex-1 rounded-lg border bg-muted/30 p-3 text-center">
               <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Confidence</p>
-              <p className="text-2xl font-bold text-foreground mt-0.5">{typeof confidence === 'number' && confidence <= 1 ? `${Math.round(confidence * 100)}%` : confidence}</p>
+              <p className="text-2xl font-bold text-foreground mt-0.5">{typeof confidence === 'number' ? `${confidence > 1 ? Math.round(confidence) : Math.round(confidence * 100)}%` : confidence}</p>
             </div>
           )}
         </div>
@@ -1194,7 +1194,7 @@ function AskLeadQuestionResultView({ payload }: { payload: any }) {
                 : confidence === 'low' ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300"
                 : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
             )}>
-              {typeof confidence === 'number' ? `${Math.round(confidence * 100)}%` : confidence}
+              {typeof confidence === 'number' ? `${confidence > 1 ? Math.round(confidence) : Math.round(confidence * 100)}%` : confidence}
             </span>
           )}
         </div>
@@ -1501,7 +1501,7 @@ function BehaviourJudgeCard({ judge }: { judge: BehaviourJudgeRow }) {
         </span>
         {judge.confidence != null && (
           <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400">
-            {Math.round(judge.confidence * 100)}% confidence
+            {judge.confidence > 1 ? Math.round(judge.confidence) : Math.round(judge.confidence * 100)}% confidence
           </span>
         )}
         {judge.tower_verdict && (
@@ -2651,7 +2651,7 @@ function TimelineEvent({ event, isFirst = false, isLast, isTerminal }: { event: 
                   )}
                   {confidence != null && (
                     <span className="text-[10px] text-muted-foreground">
-                      confidence: {Math.round(confidence * 100)}%
+                      confidence: {confidence > 1 ? Math.round(confidence) : Math.round(confidence * 100)}%
                     </span>
                   )}
                 </div>
