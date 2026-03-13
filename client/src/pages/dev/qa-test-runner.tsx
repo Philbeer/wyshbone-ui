@@ -115,6 +115,16 @@ const FULL_BENCHMARK_PACK: TestDefinition[] = [
     notes: 'Website evidence — entertainment attribute.',
   },
   {
+    id: 'B06b',
+    query: 'Find pubs in Arundel that mention live music on their website and have the word red in the name',
+    expected: 'pass',
+    expectedStrategy: 'website_evidence',
+    queryClass: 'website_evidence_required',
+    expectedMode: 'deliver_results',
+    minimumExpectedCount: 1,
+    notes: 'Website evidence + name constraint — The Red Lion should satisfy both.',
+  },
+  {
     id: 'B07',
     query: 'Find organisations that work with the local authority in Blackpool',
     expected: 'blocked_or_clarify',
@@ -173,7 +183,7 @@ const SUITES: TestSuite[] = [
   {
     id: 'full-benchmark',
     name: 'Full Benchmark Pack',
-    description: 'Complete regression benchmark — 12 fixed queries covering basic discovery, website evidence, name constraints, relationship discovery, ranking, and honest failure cases.',
+    description: 'Complete regression benchmark — 13 fixed queries covering basic discovery, website evidence, name constraints, relationship discovery, ranking, and honest failure cases.',
     tests: FULL_BENCHMARK_PACK,
   },
   {
