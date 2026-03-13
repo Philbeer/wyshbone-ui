@@ -144,7 +144,7 @@ function MetaField({ label, value }: { label: string; value: ReactNode }) {
 
 interface ConstraintVerdict {
   constraint: string;
-  verdict: 'verified' | 'unverified' | 'unreachable';
+  verdict: string;
 }
 
 interface LeadEvidence {
@@ -181,6 +181,12 @@ type ResolvedBadge = {
   verdict: 'verified' | 'unverified' | 'unreachable';
 };
 
+function normalizeVerdict(v: string): ResolvedBadge['verdict'] {
+  if (v === 'verified') return 'verified';
+  if (v === 'unreachable') return 'unreachable';
+  return 'unverified';
+}
+
 function resolveConstraintBadges(
   item: LeadEvidence,
   verifiableConstraints: string[],
@@ -195,7 +201,7 @@ function resolveConstraintBadges(
     const showLabel = verifiableConstraints.length > 1;
     return item.constraint_verdicts.map(cv => ({
       label: showLabel ? cv.constraint : null,
-      verdict: cv.verdict,
+      verdict: normalizeVerdict(cv.verdict),
     }));
   }
 
