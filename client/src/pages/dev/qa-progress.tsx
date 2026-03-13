@@ -266,6 +266,7 @@ export function BehaviourInspectContent({ runId, query, timestamp }: {
   }>({ evidenceMap: {}, verifiableConstraints: [] });
 
   useEffect(() => {
+    console.log('[BIC] runId received:', runId);
     if (!runId) {
       setJudgeB(null);
       setExpandedEvidence(new Set());
@@ -285,6 +286,8 @@ export function BehaviourInspectContent({ runId, query, timestamp }: {
         .then(r => r.ok ? r.json() : { evidenceMap: {}, verifiableConstraints: [] })
         .catch(() => ({ evidenceMap: {}, verifiableConstraints: [] })),
     ]).then(([judgeData, evidenceData]) => {
+      console.log('[BIC] behaviour-judge result:', JSON.stringify(judgeData));
+      console.log('[BIC] delivery-evidence result:', JSON.stringify(evidenceData));
       setJudgeB(judgeData || null);
       setDeliveryEvidence(evidenceData || { evidenceMap: {}, verifiableConstraints: [] });
     }).finally(() => setJudgeBLoading(false));
