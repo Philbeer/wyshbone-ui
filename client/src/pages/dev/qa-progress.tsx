@@ -142,10 +142,16 @@ function MetaField({ label, value }: { label: string; value: ReactNode }) {
   );
 }
 
+interface ConstraintVerdict {
+  constraint: string;
+  verdict: 'verified' | 'unverified' | 'unreachable';
+}
+
 interface LeadEvidence {
   lead_name?: string;
   verified?: boolean;
   source_tier?: string;
+  constraint_verdicts?: ConstraintVerdict[];
   // legacy / richer fields (may be present in some rows)
   business_name?: string;
   entity_name?: string;
@@ -170,6 +176,61 @@ interface DeliveryLeadEvidence {
   verification_status: string;
 }
 
+type ResolvedBadge = {
+  label: string | null;
+  verdict: 'verified' | 'unverified' | 'unreachable';
+};
+
+function resolveConstraintBadges(
+  item: LeadEvidence,
+  verifiableConstraints: string[],
+  verificationPolicy: string | undefined,
+): ResolvedBadge[] {
+  const noVerification =
+    verificationPolicy === 'DIRECTORY_VERIFIED' ||
+    verifiableConstraints.length === 0;
+  if (noVerification) return [];
+
+  if (item.constraint_verdicts && item.constraint_verdicts.length > 0) {
+    const showLabel = verifiableConstraints.length > 1;
+    return item.constraint_verdicts.map(cv => ({
+      label: showLabel ? cv.constraint : null,
+      verdict: cv.verdict,
+    }));
+  }
+
+  if (item.verified !== undefined && item.verified !== null) {
+    return [{ label: null, verdict: item.verified ? 'verified' : 'unverified' }];
+  }
+
+  return [];
+}
+
+function LeadConstraintBadges({ badges }: { badges: ResolvedBadge[] }) {
+  if (badges.length === 0) return null;
+  return (
+    <div className="flex items-center gap-1 flex-wrap shrink-0">
+      {badges.map((b, i) => {
+        const verdictCls =
+          b.verdict === 'verified'
+            ? 'bg-green-100 text-green-700'
+            : b.verdict === 'unreachable'
+              ? 'bg-amber-100 text-amber-700'
+              : 'bg-red-100 text-red-700';
+        const icon = b.verdict === 'verified' ? '✓' : b.verdict === 'unreachable' ? '~' : '✗';
+        return (
+          <span
+            key={i}
+            className={`px-1.5 py-0.5 rounded text-[10px] font-medium whitespace-nowrap ${verdictCls}`}
+          >
+            {b.label ? `${b.label}: ${icon} ${b.verdict}` : `${icon} ${b.verdict}`}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
 function BehaviourInspectModal({ row, open, onClose }: { row: MetricRow | null; open: boolean; onClose: () => void }) {
   const [judgeB, setJudgeB] = useState<{
     outcome: string;
@@ -178,7 +239,12 @@ function BehaviourInspectModal({ row, open, onClose }: { row: MetricRow | null; 
     tower_verdict: string | null;
     delivered_count: number | null;
     requested_count: number | null;
-    input_snapshot?: { leads_evidence?: LeadEvidence[]; [key: string]: unknown } | null;
+    input_snapshot?: {
+      leads_evidence?: LeadEvidence[];
+      verification_policy?: string;
+      verifiable_constraints?: string[];
+      [key: string]: unknown;
+    } | null;
   } | null>(null);
   const [judgeBLoading, setJudgeBLoading] = useState(false);
   const [expandedEvidence, setExpandedEvidence] = useState<Set<number>>(new Set());
@@ -289,6 +355,8 @@ function BehaviourInspectModal({ row, open, onClose }: { row: MetricRow | null; 
           {(() => {
             const evidence = judgeB?.input_snapshot?.leads_evidence;
             if (!evidence || evidence.length === 0) return null;
+            const verificationPolicy = judgeB?.input_snapshot?.verification_policy;
+            const verifiableConstraints: string[] = judgeB?.input_snapshot?.verifiable_constraints ?? [];
             return (
               <section>
                 <h4 className="text-xs font-semibold text-gray-600 uppercase tracking-wider mb-2 border-b pb-1">
@@ -298,7 +366,7 @@ function BehaviourInspectModal({ row, open, onClose }: { row: MetricRow | null; 
                   {evidence.map((item, idx) => {
                     const displayName = item.lead_name || item.business_name || item.entity_name || item.name || `Lead ${idx + 1}`;
                     const isExpanded = expandedEvidence.has(idx);
-                    const verifiedDefined = item.verified !== undefined && item.verified !== null;
+                    const badges = resolveConstraintBadges(item, verifiableConstraints, verificationPolicy);
                     // Merge delivery_summary evidence (rich) with any fields on the input_snapshot item (legacy fallback)
                     const rich = deliveryEvidence[displayName.toLowerCase().trim()] ?? null;
                     const siteUrl = rich?.url || item.url || item.source_url || item.website_url || '';
@@ -329,24 +397,10 @@ function BehaviourInspectModal({ row, open, onClose }: { row: MetricRow | null; 
                         >
                           <span className="font-medium text-gray-800 truncate flex-1">{displayName}</span>
                           <div className="flex items-center gap-1.5 shrink-0">
-                            {verifiedDefined && (
-                              <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${item.verified ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                                {item.verified ? '✓ verified' : '✗ unverified'}
-                              </span>
-                            )}
+                            <LeadConstraintBadges badges={badges} />
                             {item.source_tier && (
                               <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-100 text-blue-700">
                                 {item.source_tier}
-                              </span>
-                            )}
-                            {towerStatus && (
-                              <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${towerCls}`}>
-                                {towerStatus}
-                              </span>
-                            )}
-                            {item.constraint_type && (
-                              <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-100 text-purple-700">
-                                {item.constraint_type}
                               </span>
                             )}
                             <span className="text-gray-400 text-[10px]">{isExpanded ? '▲' : '▼'}</span>
