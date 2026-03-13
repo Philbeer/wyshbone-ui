@@ -174,6 +174,7 @@ interface DeliveryLeadEvidence {
   matched_phrase: string;
   context_snippet: string;
   verification_status: string;
+  constraint_verdicts: { constraint: string; verdict: string }[];
 }
 
 type ResolvedBadge = {
@@ -255,30 +256,35 @@ function BehaviourInspectModal({ row, open, onClose }: { row: MetricRow | null; 
   } | null>(null);
   const [judgeBLoading, setJudgeBLoading] = useState(false);
   const [expandedEvidence, setExpandedEvidence] = useState<Set<number>>(new Set());
-  const [deliveryEvidence, setDeliveryEvidence] = useState<Record<string, DeliveryLeadEvidence>>({});
+  const [deliveryEvidence, setDeliveryEvidence] = useState<{
+    evidenceMap: Record<string, DeliveryLeadEvidence>;
+    verifiableConstraints: string[];
+  }>({ evidenceMap: {}, verifiableConstraints: [] });
 
   useEffect(() => {
     if (!open || !row?.run_id) {
       setJudgeB(null);
       setExpandedEvidence(new Set());
-      setDeliveryEvidence({});
+      setDeliveryEvidence({ evidenceMap: {}, verifiableConstraints: [] });
       return;
     }
     setJudgeBLoading(true);
     setJudgeB(null);
     setExpandedEvidence(new Set());
-    setDeliveryEvidence({});
+    setDeliveryEvidence({ evidenceMap: {}, verifiableConstraints: [] });
     const runId = encodeURIComponent(row.run_id);
     Promise.all([
       fetch(buildApiUrl(addDevAuthParams(`/api/afr/behaviour-judge?run_id=${runId}`)), { credentials: 'include' })
         .then(r => r.ok ? r.json() : null)
         .catch(() => null),
       fetch(buildApiUrl(addDevAuthParams(`/api/afr/delivery-evidence?run_id=${runId}`)), { credentials: 'include' })
-        .then(r => r.ok ? r.json() : {})
-        .catch(() => ({})),
+        .then(r => r.ok ? r.json() : { evidenceMap: {}, verifiableConstraints: [] })
+        .catch(() => ({ evidenceMap: {}, verifiableConstraints: [] })),
     ]).then(([judgeData, evidenceData]) => {
+      console.log('[BehaviourInspectModal] judgeB input_snapshot:', judgeData?.input_snapshot);
+      console.log('[BehaviourInspectModal] delivery evidenceData:', evidenceData);
       setJudgeB(judgeData || null);
-      setDeliveryEvidence(evidenceData || {});
+      setDeliveryEvidence(evidenceData || { evidenceMap: {}, verifiableConstraints: [] });
     }).finally(() => setJudgeBLoading(false));
   }, [open, row?.run_id]);
 
@@ -365,7 +371,11 @@ function BehaviourInspectModal({ row, open, onClose }: { row: MetricRow | null; 
               ?? [];
             if (evidence.length === 0) return null;
             const verificationPolicy = judgeB?.input_snapshot?.verification_policy;
-            const verifiableConstraints: string[] = judgeB?.input_snapshot?.verifiable_constraints ?? [];
+            const verifiableConstraints: string[] =
+              deliveryEvidence.verifiableConstraints.length > 0
+                ? deliveryEvidence.verifiableConstraints
+                : (judgeB?.input_snapshot?.verifiable_constraints ?? []);
+            console.log('[BehaviourInspectModal] verifiableConstraints:', verifiableConstraints, '| verificationPolicy:', verificationPolicy, '| evidence count:', evidence.length);
             return (
               <section>
                 <h4 className="text-xs font-semibold text-gray-600 uppercase tracking-wider mb-2 border-b pb-1">
@@ -375,9 +385,17 @@ function BehaviourInspectModal({ row, open, onClose }: { row: MetricRow | null; 
                   {evidence.map((item, idx) => {
                     const displayName = item.lead_name || item.business_name || item.entity_name || item.name || `Lead ${idx + 1}`;
                     const isExpanded = expandedEvidence.has(idx);
-                    const badges = resolveConstraintBadges(item, verifiableConstraints, verificationPolicy);
                     // Merge delivery_summary evidence (rich) with any fields on the input_snapshot item (legacy fallback)
-                    const rich = deliveryEvidence[displayName.toLowerCase().trim()] ?? null;
+                    const rich = deliveryEvidence.evidenceMap[displayName.toLowerCase().trim()] ?? null;
+                    // Prefer constraint_verdicts from delivery artefact; fall back to item's own field
+                    const itemWithVerdicts: LeadEvidence = {
+                      ...item,
+                      constraint_verdicts: rich?.constraint_verdicts?.length
+                        ? rich.constraint_verdicts
+                        : (item.constraint_verdicts ?? []),
+                    };
+                    const badges = resolveConstraintBadges(itemWithVerdicts, verifiableConstraints, verificationPolicy);
+                    if (idx === 0) console.log('[BehaviourInspectModal] lead[0]:', displayName, '| rich:', rich, '| badges:', badges);
                     const siteUrl = rich?.url || item.url || item.source_url || item.website_url || '';
                     const allQuotes: string[] = rich?.quotes?.length
                       ? rich.quotes

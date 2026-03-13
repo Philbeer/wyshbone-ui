@@ -460,10 +460,16 @@ export interface LeadDeliveryEvidence {
   matched_phrase: string;
   context_snippet: string;
   verification_status: string;
+  constraint_verdicts: { constraint: string; verdict: string }[];
 }
 
-export async function getDeliveryEvidence(runId: string): Promise<Record<string, LeadDeliveryEvidence>> {
-  if (!isSupabaseConfigured()) return {};
+export interface DeliveryEvidenceResult {
+  evidenceMap: Record<string, LeadDeliveryEvidence>;
+  verifiableConstraints: string[];
+}
+
+export async function getDeliveryEvidence(runId: string): Promise<DeliveryEvidenceResult> {
+  if (!isSupabaseConfigured()) return { evidenceMap: {}, verifiableConstraints: [] };
   const client = ensureSupabaseClient();
   const { data, error } = await client
     .from('artefacts')
@@ -472,29 +478,47 @@ export async function getDeliveryEvidence(runId: string): Promise<Record<string,
     .eq('type', 'delivery_summary')
     .limit(1)
     .maybeSingle();
-  if (error || !data) return {};
+  if (error || !data) return { evidenceMap: {}, verifiableConstraints: [] };
   const payload = data.payload_json as any;
+
+  console.log('[delivery-evidence] raw payload keys:', Object.keys(payload || {}));
+
+  const verifiableConstraints: string[] = Array.isArray(payload.verifiable_constraints)
+    ? payload.verifiable_constraints
+    : [];
+
   const allDelivered: any[] = [
     ...(payload.delivered_exact || []),
     ...(payload.delivered_closest || []),
+    ...(payload.leads || []),
   ];
+
+  console.log('[delivery-evidence] allDelivered count:', allDelivered.length, '| verifiable_constraints:', verifiableConstraints);
+
+  const seen = new Set<string>();
   const evidenceMap: Record<string, LeadDeliveryEvidence> = {};
   for (const lead of allDelivered) {
     const name = (lead.name || '').toLowerCase().trim();
-    if (!name) continue;
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
     const items: any[] = (lead.match_evidence?.length ? lead.match_evidence : null)
       ?? (lead.supporting_evidence?.length ? lead.supporting_evidence : null)
       ?? [];
-    if (items.length === 0) continue;
+    const constraint_verdicts: { constraint: string; verdict: string }[] =
+      Array.isArray(lead.constraint_verdicts) ? lead.constraint_verdicts : [];
     evidenceMap[name] = {
-      url: items[0].source_url || '',
+      url: items[0]?.source_url || lead.url || '',
       quotes: items.map((e: any) => e.quote).filter(Boolean),
-      matched_phrase: items[0].matched_phrase || '',
-      context_snippet: items[0].context_snippet || '',
-      verification_status: items[0].verification_status || '',
+      matched_phrase: items[0]?.matched_phrase || '',
+      context_snippet: items[0]?.context_snippet || '',
+      verification_status: items[0]?.verification_status || '',
+      constraint_verdicts,
     };
   }
-  return evidenceMap;
+
+  console.log('[delivery-evidence] evidenceMap keys:', Object.keys(evidenceMap), '| first entry constraint_verdicts:', Object.values(evidenceMap)[0]?.constraint_verdicts);
+
+  return { evidenceMap, verifiableConstraints };
 }
 
 export async function getBehaviourJudgeResults(runIds: string[]): Promise<Record<string, BehaviourJudgeResult>> {

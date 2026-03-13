@@ -1282,8 +1282,8 @@ export function createAfrRouter(_storage: typeof storage) {
       if (!runId) {
         return res.status(400).json({ error: "run_id query parameter is required" });
       }
-      const evidenceMap = await getDeliveryEvidence(runId);
-      return res.json(evidenceMap);
+      const result = await getDeliveryEvidence(runId);
+      return res.json(result);
     } catch (error: any) {
       console.error("[AFR delivery-evidence] error:", error.message);
       return res.status(500).json({ error: "Failed to fetch delivery evidence" });
