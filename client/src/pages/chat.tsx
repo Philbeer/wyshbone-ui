@@ -3444,6 +3444,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
               const isSupervisor = chatMessage.source === 'supervisor';
 
               if (chatMessage.deliverySummary) {
+                if (chatMessage.provisional) return null;
                 return (
                   <div
                     key={chatMessage.id}
@@ -3455,14 +3456,12 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                     </div>
                     <div className="flex flex-col items-start max-w-3xl lg:max-w-none w-full">
                       <div className="rounded-lg px-4 py-4 bg-card border border-card-border w-full">
-                        {chatMessage.runId && !chatMessage.provisional ? (
+                        {chatMessage.runId ? (
                           <BehaviourInspectContent
                             runId={chatMessage.runId}
                             query={chatMessage.content || undefined}
                             timestamp={chatMessage.timestamp}
                           />
-                        ) : chatMessage.provisional ? (
-                          <div className="text-[11px] text-gray-400 py-2">Finalising results…</div>
                         ) : (
                           <RunResultBubble
                             deliverySummary={chatMessage.deliverySummary}
