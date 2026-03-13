@@ -1768,21 +1768,6 @@ export default function RunResultBubble({
     return defaultBadgeStatus;
   }
 
-  const hasWebsiteEvidenceConstraint = Array.isArray(constraintsExtracted?.constraints) &&
-    constraintsExtracted!.constraints!.some(c =>
-      c.kind === 'website_evidence' ||
-      (c.field || '').toLowerCase() === 'website'
-    );
-  const verificationPolicy: string | null = (constraintsExtracted as any)?.verification_policy ?? null;
-  const showEvidenceBadges =
-    hasWebsiteEvidenceConstraint ||
-    (verificationPolicy !== null && verificationPolicy !== 'DIRECTORY_VERIFIED') ||
-    hasVerificationData;
-
-  function effectiveGetLeadBadgeStatus(lead: DeliveryLead): LeadBadgeStatus {
-    return showEvidenceBadges ? getLeadBadgeStatus(lead) : 'none';
-  }
-
   const verifiedExactCoversAll = verifiedExact >= allLeads.length && allLeads.length > 0;
 
   const hasAnyUnverifiedResults = allLeads.length > 0 && !verifiedExactCoversAll && (
