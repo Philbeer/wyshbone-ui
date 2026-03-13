@@ -1916,6 +1916,15 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     };
 
     loadHistory();
+
+    const handleRefetchHistory = () => {
+      hasLoadedHistoryRef.current = false;
+      loadHistory();
+    };
+    window.addEventListener('wyshbone:refetch_history', handleRefetchHistory);
+    return () => {
+      window.removeEventListener('wyshbone:refetch_history', handleRefetchHistory);
+    };
   }, []); // Empty deps - only run ONCE on mount
 
   useEffect(() => {

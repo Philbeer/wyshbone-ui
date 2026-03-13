@@ -584,11 +584,11 @@ async function submitQuery(
         if (raw === '[DONE]') continue;
         try {
           const parsed = JSON.parse(raw);
+          if (parsed.conversationId) {
+            localStorage.setItem('currentConversationId', parsed.conversationId);
+          }
           if (parsed.type === 'run_id' && parsed.content) {
             runId = parsed.content;
-          }
-          if (parsed.type === 'supervisorTaskId') {
-            break;
           }
         } catch {}
       }
@@ -599,6 +599,7 @@ async function submitQuery(
     try { reader.cancel(); } catch {}
   }
 
+  window.dispatchEvent(new CustomEvent('wyshbone:refetch_history'));
   return { runId };
 }
 
