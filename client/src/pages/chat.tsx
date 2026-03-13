@@ -3455,12 +3455,14 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                     </div>
                     <div className="flex flex-col items-start max-w-3xl lg:max-w-none w-full">
                       <div className="rounded-lg px-4 py-4 bg-card border border-card-border w-full">
-                        {chatMessage.runId ? (
+                        {chatMessage.runId && !chatMessage.provisional ? (
                           <BehaviourInspectContent
                             runId={chatMessage.runId}
                             query={chatMessage.content || undefined}
                             timestamp={chatMessage.timestamp}
                           />
+                        ) : chatMessage.provisional ? (
+                          <div className="text-[11px] text-gray-400 py-2">Finalising results…</div>
                         ) : (
                           <RunResultBubble
                             deliverySummary={chatMessage.deliverySummary}
@@ -3746,7 +3748,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
             );
           })()}
 
-          {showPreRunBanner && isWaitingForSupervisor && (
+          {false && showPreRunBanner && isWaitingForSupervisor && (
             <div className="flex gap-3 flex-row mb-2" data-testid="pre-run-banner">
               <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0">
                 <img src={wyshboneLogo} alt="Wyshbone" className="w-full h-full object-cover" />
