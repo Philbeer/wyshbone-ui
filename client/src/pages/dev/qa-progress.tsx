@@ -199,7 +199,7 @@ function resolveConstraintBadges(
   if (noVerification) return [];
 
   if (item.constraint_verdicts && item.constraint_verdicts.length > 0) {
-    const showLabel = verifiableConstraints.length > 1;
+    const showLabel = item.constraint_verdicts.length > 1;
     return item.constraint_verdicts.map(cv => ({
       label: showLabel ? cv.constraint : null,
       verdict: normalizeVerdict(cv.verdict),
