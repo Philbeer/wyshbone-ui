@@ -238,7 +238,11 @@ function LeadConstraintBadges({ badges }: { badges: ResolvedBadge[] }) {
   );
 }
 
-function BehaviourInspectModal({ row, open, onClose }: { row: MetricRow | null; open: boolean; onClose: () => void }) {
+export function BehaviourInspectContent({ runId, query, timestamp }: {
+  runId: string;
+  query?: string;
+  timestamp?: string | number | Date;
+}) {
   const [judgeB, setJudgeB] = useState<{
     outcome: string;
     confidence: number | null;
@@ -262,7 +266,7 @@ function BehaviourInspectModal({ row, open, onClose }: { row: MetricRow | null; 
   }>({ evidenceMap: {}, verifiableConstraints: [] });
 
   useEffect(() => {
-    if (!open || !row?.run_id) {
+    if (!runId) {
       setJudgeB(null);
       setExpandedEvidence(new Set());
       setDeliveryEvidence({ evidenceMap: {}, verifiableConstraints: [] });
@@ -272,31 +276,228 @@ function BehaviourInspectModal({ row, open, onClose }: { row: MetricRow | null; 
     setJudgeB(null);
     setExpandedEvidence(new Set());
     setDeliveryEvidence({ evidenceMap: {}, verifiableConstraints: [] });
-    const runId = encodeURIComponent(row.run_id);
+    const encoded = encodeURIComponent(runId);
     Promise.all([
-      fetch(buildApiUrl(addDevAuthParams(`/api/afr/behaviour-judge?run_id=${runId}`)), { credentials: 'include' })
+      fetch(buildApiUrl(addDevAuthParams(`/api/afr/behaviour-judge?run_id=${encoded}`)), { credentials: 'include' })
         .then(r => r.ok ? r.json() : null)
         .catch(() => null),
-      fetch(buildApiUrl(addDevAuthParams(`/api/afr/delivery-evidence?run_id=${runId}`)), { credentials: 'include' })
+      fetch(buildApiUrl(addDevAuthParams(`/api/afr/delivery-evidence?run_id=${encoded}`)), { credentials: 'include' })
         .then(r => r.ok ? r.json() : { evidenceMap: {}, verifiableConstraints: [] })
         .catch(() => ({ evidenceMap: {}, verifiableConstraints: [] })),
     ]).then(([judgeData, evidenceData]) => {
-      console.log('[BehaviourInspectModal] judgeB input_snapshot:', judgeData?.input_snapshot);
-      console.log('[BehaviourInspectModal] delivery evidenceData:', evidenceData);
       setJudgeB(judgeData || null);
       setDeliveryEvidence(evidenceData || { evidenceMap: {}, verifiableConstraints: [] });
     }).finally(() => setJudgeBLoading(false));
-  }, [open, row?.run_id]);
+  }, [runId]);
 
+  const outcome = (judgeB?.outcome || '').toUpperCase();
+  const isPass = outcome === 'PASS';
+  const isFail = outcome !== '' && outcome !== 'UNKNOWN' && !isPass;
+
+  const tsNum = timestamp instanceof Date
+    ? timestamp.getTime()
+    : typeof timestamp === 'number' || typeof timestamp === 'string'
+      ? toNumericTs(timestamp as string | number)
+      : 0;
+
+  return (
+    <div className="space-y-4">
+      {(query || tsNum > 0) && (
+        <div>
+          {query && (
+            <p className="text-[12px] font-medium text-gray-800 leading-snug">
+              {query.length > 120 ? query.slice(0, 117) + '…' : query}
+            </p>
+          )}
+          {tsNum > 0 && (
+            <div className="text-[11px] text-gray-400 mt-0.5">{formatTs(tsNum)}</div>
+          )}
+        </div>
+      )}
+
+      <section>
+        <h4 className="text-xs font-semibold text-gray-600 uppercase tracking-wider mb-2 border-b pb-1">
+          Behaviour Judge (Judge B)
+        </h4>
+        {judgeBLoading ? (
+          <div className="text-[11px] text-gray-400 py-2">Loading…</div>
+        ) : !judgeB ? (
+          <div className="text-[11px] text-gray-400 italic py-2">
+            No Judge B result in behaviour_judge_results for this run.
+          </div>
+        ) : (
+          <div className="space-y-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className={`inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold ${
+                isPass ? 'bg-green-100 text-green-800' : isFail ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-700'
+              }`}>
+                {outcome || '—'}
+              </span>
+              {judgeB.confidence != null && (
+                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-600">
+                  {judgeB.confidence > 1 ? Math.round(judgeB.confidence) : Math.round(judgeB.confidence * 100)}% confidence
+                </span>
+              )}
+              {judgeB.tower_verdict && (
+                <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                  judgeB.tower_verdict.toLowerCase() === 'accept'
+                    ? 'bg-green-100 text-green-700'
+                    : 'bg-amber-100 text-amber-700'
+                }`}>
+                  Tower: {judgeB.tower_verdict}
+                </span>
+              )}
+              {(judgeB.delivered_count != null || judgeB.requested_count != null) && (
+                <span className="text-[10px] text-gray-500 font-mono">
+                  {judgeB.delivered_count ?? '?'}{judgeB.requested_count != null ? `/${judgeB.requested_count}` : ''} delivered
+                </span>
+              )}
+            </div>
+            {judgeB.reason && (
+              <p className="text-[11px] text-gray-700 leading-relaxed">{judgeB.reason}</p>
+            )}
+            <table className="text-[11px] mt-1">
+              <tbody>
+                <MetaField label="outcome" value={outcome || '—'} />
+                {judgeB.confidence != null && (
+                  <MetaField label="confidence" value={`${judgeB.confidence > 1 ? Math.round(judgeB.confidence) : Math.round(judgeB.confidence * 100)}%`} />
+                )}
+                {judgeB.tower_verdict && <MetaField label="tower_verdict" value={judgeB.tower_verdict} />}
+                {judgeB.delivered_count != null && <MetaField label="delivered_count" value={String(judgeB.delivered_count)} />}
+                {judgeB.requested_count != null && <MetaField label="requested_count" value={String(judgeB.requested_count)} />}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      {(() => {
+        const evidence = judgeB?.input_snapshot?.leads_evidence
+          ?? judgeB?.input_snapshot?.leads
+          ?? [];
+        if (evidence.length === 0) return null;
+        const verificationPolicy = judgeB?.input_snapshot?.verification_policy;
+        const verifiableConstraints: string[] =
+          deliveryEvidence.verifiableConstraints.length > 0
+            ? deliveryEvidence.verifiableConstraints
+            : (judgeB?.input_snapshot?.verifiable_constraints ?? []);
+        return (
+          <section>
+            <h4 className="text-xs font-semibold text-gray-600 uppercase tracking-wider mb-2 border-b pb-1">
+              Evidence Found Per Lead
+            </h4>
+            <div className="space-y-1">
+              {evidence.map((item, idx) => {
+                const displayName = item.lead_name || item.business_name || item.entity_name || item.name || `Lead ${idx + 1}`;
+                const isExpanded = expandedEvidence.has(idx);
+                const rich = deliveryEvidence.evidenceMap[displayName.toLowerCase().trim()] ?? null;
+                const itemWithVerdicts: LeadEvidence = {
+                  ...item,
+                  constraint_verdicts: rich?.constraint_verdicts?.length
+                    ? rich.constraint_verdicts
+                    : (item.constraint_verdicts ?? []),
+                };
+                const badges = resolveConstraintBadges(itemWithVerdicts, verifiableConstraints, verificationPolicy);
+                const siteUrl = rich?.url || item.url || item.source_url || item.website_url || '';
+                const allQuotes: string[] = rich?.quotes?.length
+                  ? rich.quotes
+                  : [...(item.quotes ?? []), ...(item.quote ? [item.quote] : [])];
+                const matchedPhrase = rich?.matched_phrase || item.matched_phrase || '';
+                const contextSnippet = rich?.context_snippet || item.context_snippet || item.context || '';
+                const towerStatus = rich?.verification_status || item.tower_status || '';
+                const towerCls = towerStatus.toUpperCase() === 'VERIFIED'
+                  ? 'bg-green-100 text-green-700'
+                  : towerStatus === 'weak_match'
+                    ? 'bg-amber-100 text-amber-700'
+                    : towerStatus === 'no_evidence'
+                      ? 'bg-red-100 text-red-700'
+                      : 'bg-gray-100 text-gray-600';
+                return (
+                  <div key={idx} className="border rounded-md overflow-hidden text-[11px]">
+                    <button
+                      className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left hover:bg-gray-50 transition-colors"
+                      onClick={() => {
+                        setExpandedEvidence(prev => {
+                          const next = new Set(prev);
+                          next.has(idx) ? next.delete(idx) : next.add(idx);
+                          return next;
+                        });
+                      }}
+                    >
+                      <span className="font-medium text-gray-800 truncate flex-1">{displayName}</span>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <LeadConstraintBadges badges={badges} />
+                        {item.source_tier && (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-100 text-blue-700">
+                            {item.source_tier}
+                          </span>
+                        )}
+                        <span className="text-gray-400 text-[10px]">{isExpanded ? '▲' : '▼'}</span>
+                      </div>
+                    </button>
+                    {isExpanded && (
+                      <div className="border-t bg-gray-50 px-3 py-2 space-y-1.5">
+                        <div>
+                          <span className="text-gray-500 font-medium">URL visited: </span>
+                          {siteUrl
+                            ? <a href={siteUrl} target="_blank" rel="noopener noreferrer"
+                                className="text-blue-600 hover:underline break-all">{siteUrl}</a>
+                            : <span className="text-gray-400 italic">not captured</span>
+                          }
+                        </div>
+                        <div>
+                          <span className="text-gray-500 font-medium">Quotes found: </span>
+                          {allQuotes.length > 0
+                            ? (
+                              <div className="mt-0.5 space-y-1">
+                                {allQuotes.map((q, qi) => (
+                                  <blockquote key={qi} className="border-l-2 border-gray-300 pl-2 text-gray-700 italic">{q}</blockquote>
+                                ))}
+                              </div>
+                            )
+                            : <span className="text-gray-400 italic">not captured</span>
+                          }
+                        </div>
+                        <div>
+                          <span className="text-gray-500 font-medium">Matched phrase: </span>
+                          {matchedPhrase
+                            ? <span className="text-gray-800 font-mono bg-yellow-50 px-1 rounded">{matchedPhrase}</span>
+                            : <span className="text-gray-400 italic">not captured</span>
+                          }
+                        </div>
+                        <div>
+                          <span className="text-gray-500 font-medium">Context snippet: </span>
+                          {contextSnippet
+                            ? <span className="text-gray-700">{contextSnippet}</span>
+                            : <span className="text-gray-400 italic">not captured</span>
+                          }
+                        </div>
+                        <div>
+                          <span className="text-gray-500 font-medium">Tower verdict: </span>
+                          {towerStatus
+                            ? <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${towerCls}`}>{towerStatus}</span>
+                            : <span className="text-gray-400 italic">not captured</span>
+                          }
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        );
+      })()}
+    </div>
+  );
+}
+
+function BehaviourInspectModal({ row, open, onClose }: { row: MetricRow | null; open: boolean; onClose: () => void }) {
   if (!row) return null;
 
   const titleParts: string[] = [];
   if (row.benchmark_test_id) titleParts.push(row.benchmark_test_id);
   titleParts.push(row.query.length > 60 ? row.query.slice(0, 57) + '...' : row.query);
-
-  const outcome = (judgeB?.outcome || '').toUpperCase();
-  const isPass = outcome === 'PASS';
-  const isFail = outcome !== '' && outcome !== 'UNKNOWN' && !isPass;
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
@@ -308,186 +509,15 @@ function BehaviourInspectModal({ row, open, onClose }: { row: MetricRow | null; 
           <div className="text-[11px] text-gray-400 mt-0.5">{formatTs(row.timestamp)}</div>
         </DialogHeader>
 
-        <div className="space-y-4 mt-2">
-          <section>
-            <h4 className="text-xs font-semibold text-gray-600 uppercase tracking-wider mb-2 border-b pb-1">
-              Behaviour Judge (Judge B)
-            </h4>
-            {judgeBLoading ? (
-              <div className="text-[11px] text-gray-400 py-2">Loading…</div>
-            ) : !judgeB ? (
-              <div className="text-[11px] text-gray-400 italic py-2">
-                No Judge B result in behaviour_judge_results for this run.
-              </div>
-            ) : (
-              <div className="space-y-2">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className={`inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold ${
-                    isPass ? 'bg-green-100 text-green-800' : isFail ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-700'
-                  }`}>
-                    {outcome || '—'}
-                  </span>
-                  {judgeB.confidence != null && (
-                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-600">
-                      {judgeB.confidence > 1 ? Math.round(judgeB.confidence) : Math.round(judgeB.confidence * 100)}% confidence
-                    </span>
-                  )}
-                  {judgeB.tower_verdict && (
-                    <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                      judgeB.tower_verdict.toLowerCase() === 'accept'
-                        ? 'bg-green-100 text-green-700'
-                        : 'bg-amber-100 text-amber-700'
-                    }`}>
-                      Tower: {judgeB.tower_verdict}
-                    </span>
-                  )}
-                  {(judgeB.delivered_count != null || judgeB.requested_count != null) && (
-                    <span className="text-[10px] text-gray-500 font-mono">
-                      {judgeB.delivered_count ?? '?'}{judgeB.requested_count != null ? `/${judgeB.requested_count}` : ''} delivered
-                    </span>
-                  )}
-                </div>
-                {judgeB.reason && (
-                  <p className="text-[11px] text-gray-700 leading-relaxed">{judgeB.reason}</p>
-                )}
-                <table className="text-[11px] mt-1">
-                  <tbody>
-                    <MetaField label="outcome" value={outcome || '—'} />
-                    {judgeB.confidence != null && (
-                      <MetaField label="confidence" value={`${judgeB.confidence > 1 ? Math.round(judgeB.confidence) : Math.round(judgeB.confidence * 100)}%`} />
-                    )}
-                    {judgeB.tower_verdict && <MetaField label="tower_verdict" value={judgeB.tower_verdict} />}
-                    {judgeB.delivered_count != null && <MetaField label="delivered_count" value={String(judgeB.delivered_count)} />}
-                    {judgeB.requested_count != null && <MetaField label="requested_count" value={String(judgeB.requested_count)} />}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </section>
-
-          {(() => {
-            const evidence = judgeB?.input_snapshot?.leads_evidence
-              ?? judgeB?.input_snapshot?.leads
-              ?? [];
-            if (evidence.length === 0) return null;
-            const verificationPolicy = judgeB?.input_snapshot?.verification_policy;
-            const verifiableConstraints: string[] =
-              deliveryEvidence.verifiableConstraints.length > 0
-                ? deliveryEvidence.verifiableConstraints
-                : (judgeB?.input_snapshot?.verifiable_constraints ?? []);
-            console.log('[BehaviourInspectModal] verifiableConstraints:', verifiableConstraints, '| verificationPolicy:', verificationPolicy, '| evidence count:', evidence.length);
-            return (
-              <section>
-                <h4 className="text-xs font-semibold text-gray-600 uppercase tracking-wider mb-2 border-b pb-1">
-                  Evidence Found Per Lead
-                </h4>
-                <div className="space-y-1">
-                  {evidence.map((item, idx) => {
-                    const displayName = item.lead_name || item.business_name || item.entity_name || item.name || `Lead ${idx + 1}`;
-                    const isExpanded = expandedEvidence.has(idx);
-                    // Merge delivery_summary evidence (rich) with any fields on the input_snapshot item (legacy fallback)
-                    const rich = deliveryEvidence.evidenceMap[displayName.toLowerCase().trim()] ?? null;
-                    // Prefer constraint_verdicts from delivery artefact; fall back to item's own field
-                    const itemWithVerdicts: LeadEvidence = {
-                      ...item,
-                      constraint_verdicts: rich?.constraint_verdicts?.length
-                        ? rich.constraint_verdicts
-                        : (item.constraint_verdicts ?? []),
-                    };
-                    const badges = resolveConstraintBadges(itemWithVerdicts, verifiableConstraints, verificationPolicy);
-                    if (idx === 0) console.log('[BehaviourInspectModal] lead[0]:', displayName, '| rich:', rich, '| badges:', badges);
-                    const siteUrl = rich?.url || item.url || item.source_url || item.website_url || '';
-                    const allQuotes: string[] = rich?.quotes?.length
-                      ? rich.quotes
-                      : [...(item.quotes ?? []), ...(item.quote ? [item.quote] : [])];
-                    const matchedPhrase = rich?.matched_phrase || item.matched_phrase || '';
-                    const contextSnippet = rich?.context_snippet || item.context_snippet || item.context || '';
-                    const towerStatus = rich?.verification_status || item.tower_status || '';
-                    const towerCls = towerStatus.toUpperCase() === 'VERIFIED'
-                      ? 'bg-green-100 text-green-700'
-                      : towerStatus === 'weak_match'
-                        ? 'bg-amber-100 text-amber-700'
-                        : towerStatus === 'no_evidence'
-                          ? 'bg-red-100 text-red-700'
-                          : 'bg-gray-100 text-gray-600';
-                    return (
-                      <div key={idx} className="border rounded-md overflow-hidden text-[11px]">
-                        <button
-                          className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left hover:bg-gray-50 transition-colors"
-                          onClick={() => {
-                            setExpandedEvidence(prev => {
-                              const next = new Set(prev);
-                              next.has(idx) ? next.delete(idx) : next.add(idx);
-                              return next;
-                            });
-                          }}
-                        >
-                          <span className="font-medium text-gray-800 truncate flex-1">{displayName}</span>
-                          <div className="flex items-center gap-1.5 shrink-0">
-                            <LeadConstraintBadges badges={badges} />
-                            {item.source_tier && (
-                              <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-100 text-blue-700">
-                                {item.source_tier}
-                              </span>
-                            )}
-                            <span className="text-gray-400 text-[10px]">{isExpanded ? '▲' : '▼'}</span>
-                          </div>
-                        </button>
-                        {isExpanded && (
-                          <div className="border-t bg-gray-50 px-3 py-2 space-y-1.5">
-                            <div>
-                              <span className="text-gray-500 font-medium">URL visited: </span>
-                              {siteUrl
-                                ? <a href={siteUrl} target="_blank" rel="noopener noreferrer"
-                                    className="text-blue-600 hover:underline break-all">{siteUrl}</a>
-                                : <span className="text-gray-400 italic">not captured</span>
-                              }
-                            </div>
-                            <div>
-                              <span className="text-gray-500 font-medium">Quotes found: </span>
-                              {allQuotes.length > 0
-                                ? (
-                                  <div className="mt-0.5 space-y-1">
-                                    {allQuotes.map((q, qi) => (
-                                      <blockquote key={qi} className="border-l-2 border-gray-300 pl-2 text-gray-700 italic">{q}</blockquote>
-                                    ))}
-                                  </div>
-                                )
-                                : <span className="text-gray-400 italic">not captured</span>
-                              }
-                            </div>
-                            <div>
-                              <span className="text-gray-500 font-medium">Matched phrase: </span>
-                              {matchedPhrase
-                                ? <span className="text-gray-800 font-mono bg-yellow-50 px-1 rounded">{matchedPhrase}</span>
-                                : <span className="text-gray-400 italic">not captured</span>
-                              }
-                            </div>
-                            <div>
-                              <span className="text-gray-500 font-medium">Context snippet: </span>
-                              {contextSnippet
-                                ? <span className="text-gray-700">{contextSnippet}</span>
-                                : <span className="text-gray-400 italic">not captured</span>
-                              }
-                            </div>
-                            <div>
-                              <span className="text-gray-500 font-medium">Tower verdict: </span>
-                              {towerStatus
-                                ? <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${towerCls}`}>{towerStatus}</span>
-                                : <span className="text-gray-400 italic">not captured</span>
-                              }
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </section>
-            );
-          })()}
-
-          <section>
+        <div className="mt-2">
+          {open && (
+            <BehaviourInspectContent
+              runId={row.run_id}
+              query={row.query}
+              timestamp={row.timestamp}
+            />
+          )}
+          <section className="mt-4">
             <h4 className="text-xs font-semibold text-gray-600 uppercase tracking-wider mb-2 border-b pb-1">
               Final Displayed Verdict
             </h4>
