@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { getDrizzleDb } from "../storage";
-import { sql } from "drizzle-orm";
+import { sql, inArray, and, eq } from "drizzle-orm";
 import { getBehaviourJudgeResults, isSupabaseConfigured } from "../supabase-client";
 import {
   qaRunMetrics,
@@ -621,12 +621,11 @@ export function createQaMetricsRouter(): Router {
       const { runIds } = req.body as { runIds: string[] };
       if (!Array.isArray(runIds) || runIds.length === 0) return res.json({ ok: true, data: {} });
       const db = getDrizzleDb();
-      const rows = await db.execute(sql`
-        SELECT * FROM qa_run_metrics WHERE run_id = ANY(${runIds}) AND source = 'benchmark' LIMIT ${runIds.length}
-      `);
+      const rows = await db.select().from(qaRunMetrics)
+        .where(and(inArray(qaRunMetrics.runId, runIds), eq(qaRunMetrics.source, 'benchmark')))
+        .limit(runIds.length);
       const results: Record<string, any> = {};
-      const arr = Array.isArray(rows) ? rows : (rows as any)?.rows ?? [];
-      for (const r of arr) { results[(r as any).run_id] = r; }
+      for (const r of rows) { results[r.runId] = r; }
       return res.json({ ok: true, data: results });
     } catch (error: any) {
       console.error("[qa-metrics] by-runs error:", error?.message || error);

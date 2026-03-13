@@ -1809,15 +1809,42 @@ function AdHocRunner() {
       const effectiveRunId = pollResult.finalRunId || runId;
       let towerVerdict: string | null = null;
       let deliveredCount = 0;
+      let detailsBlocked = false;
+      let detailsClarified = false;
       if (effectiveRunId) {
         try {
           const d = await fetchRunDetails(effectiveRunId);
           towerVerdict = d.towerVerdict;
           deliveredCount = d.deliveredCount;
+          detailsBlocked = d.blocked;
+          detailsClarified = d.clarified;
         } catch {}
       }
       setResult({ towerVerdict, deliveredCount, runId: effectiveRunId, durationMs: Date.now() - start });
       setStatus('done');
+      if (effectiveRunId) {
+        const ps = pollResult.status;
+        const sysStatus = ps === 'completed' ? 'HEALTHY' : (ps === 'stopped' || ps === 'timed_out') ? 'TIMEOUT' : 'BROKEN';
+        const towerRes = towerVerdictToResult(towerVerdict);
+        const agentStatus = detailsBlocked || detailsClarified ? 'PASS' : deliveredCount > 0 ? 'PASS' : towerRes === 'PASS' ? 'PASS' : 'UNKNOWN';
+        const persistUrl = buildApiUrl(addDevAuthParams('/api/qa-metrics/persist'));
+        fetch(persistUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            runId: effectiveRunId,
+            timestamp: Date.now(),
+            query: query.trim(),
+            source: 'heuristic',
+            systemStatus: sysStatus,
+            agentStatus,
+            towerResult: towerRes,
+            behaviourResult: 'UNKNOWN',
+            metadata: { adhoc: true, deliveredCount, durationMs: Date.now() - start, blocked: detailsBlocked, clarified: detailsClarified },
+          }),
+        }).catch(() => {});
+      }
     } catch (e: any) {
       if (e?.name === 'AbortError') {
         setStatus('idle');
