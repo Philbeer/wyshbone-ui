@@ -483,17 +483,28 @@ export async function getDeliveryEvidence(runId: string): Promise<DeliveryEviden
 
   console.log('[delivery-evidence] raw payload keys:', Object.keys(payload || {}));
 
-  const verifiableConstraints: string[] = Array.isArray(payload.verifiable_constraints)
-    ? payload.verifiable_constraints
-    : [];
+  const verifiableConstraints: string[] =
+    Array.isArray(payload.verifiable_constraints) ? payload.verifiable_constraints :
+    Array.isArray(payload.hard_constraints) && payload.hard_constraints.every((c: any) => typeof c === 'string') ? payload.hard_constraints :
+    [];
 
+  // Build a verdict map from payload.leads first — these entries carry constraint_verdicts
+  const verdictMap: Record<string, { constraint: string; verdict: string }[]> = {};
+  for (const lead of (payload.leads || [])) {
+    const name = (lead.name || '').toLowerCase().trim();
+    if (name && Array.isArray(lead.constraint_verdicts) && lead.constraint_verdicts.length > 0) {
+      verdictMap[name] = lead.constraint_verdicts;
+    }
+  }
+
+  // Combine all lead sources; leads first so their richer data wins deduplication
   const allDelivered: any[] = [
+    ...(payload.leads || []),
     ...(payload.delivered_exact || []),
     ...(payload.delivered_closest || []),
-    ...(payload.leads || []),
   ];
 
-  console.log('[delivery-evidence] allDelivered count:', allDelivered.length, '| verifiable_constraints:', verifiableConstraints);
+  console.log('[delivery-evidence] allDelivered count:', allDelivered.length, '| verifiable_constraints:', verifiableConstraints, '| verdictMap keys:', Object.keys(verdictMap));
 
   const seen = new Set<string>();
   const evidenceMap: Record<string, LeadDeliveryEvidence> = {};
@@ -504,7 +515,9 @@ export async function getDeliveryEvidence(runId: string): Promise<DeliveryEviden
     const items: any[] = (lead.match_evidence?.length ? lead.match_evidence : null)
       ?? (lead.supporting_evidence?.length ? lead.supporting_evidence : null)
       ?? [];
+    // Prefer verdictMap (from leads) over anything on the lead object itself
     const constraint_verdicts: { constraint: string; verdict: string }[] =
+      verdictMap[name]?.length ? verdictMap[name] :
       Array.isArray(lead.constraint_verdicts) ? lead.constraint_verdicts : [];
     evidenceMap[name] = {
       url: items[0]?.source_url || lead.url || '',
