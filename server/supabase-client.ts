@@ -483,42 +483,60 @@ export async function getDeliveryEvidence(runId: string): Promise<DeliveryEviden
 
   console.log('[delivery-evidence] raw payload keys:', Object.keys(payload || {}));
 
-  const verifiableConstraints: string[] =
-    Array.isArray(payload.verifiable_constraints) ? payload.verifiable_constraints :
-    Array.isArray(payload.hard_constraints) && payload.hard_constraints.every((c: any) => typeof c === 'string') ? payload.hard_constraints :
-    [];
-
-  // Build a verdict map from payload.leads first — these entries carry constraint_verdicts
-  const verdictMap: Record<string, { constraint: string; verdict: string }[]> = {};
-  for (const lead of (payload.leads || [])) {
-    const name = (lead.name || '').toLowerCase().trim();
-    if (name && Array.isArray(lead.constraint_verdicts) && lead.constraint_verdicts.length > 0) {
-      verdictMap[name] = lead.constraint_verdicts;
-    }
-  }
-
-  // Combine all lead sources; leads first so their richer data wins deduplication
+  // Combine all lead sources; payload.leads first so its richer data wins deduplication
   const allDelivered: any[] = [
     ...(payload.leads || []),
     ...(payload.delivered_exact || []),
     ...(payload.delivered_closest || []),
   ];
 
-  console.log('[delivery-evidence] allDelivered count:', allDelivered.length, '| verifiable_constraints:', verifiableConstraints, '| verdictMap keys:', Object.keys(verdictMap));
+  console.log('[delivery-evidence] allDelivered count:', allDelivered.length);
 
+  // Collect verifiable constraint values and build evidence map in one pass
   const seen = new Set<string>();
   const evidenceMap: Record<string, LeadDeliveryEvidence> = {};
+  const constraintValueSet = new Set<string>();
+
   for (const lead of allDelivered) {
     const name = (lead.name || '').toLowerCase().trim();
     if (!name || seen.has(name)) continue;
     seen.add(name);
+
     const items: any[] = (lead.match_evidence?.length ? lead.match_evidence : null)
       ?? (lead.supporting_evidence?.length ? lead.supporting_evidence : null)
       ?? [];
-    // Prefer verdictMap (from leads) over anything on the lead object itself
-    const constraint_verdicts: { constraint: string; verdict: string }[] =
-      verdictMap[name]?.length ? verdictMap[name] :
-      Array.isArray(lead.constraint_verdicts) ? lead.constraint_verdicts : [];
+
+    // Derive constraint_verdicts: prefer explicit field, then derive from match_basis[], then from match_evidence[]
+    let constraint_verdicts: { constraint: string; verdict: string }[] = [];
+    if (Array.isArray(lead.constraint_verdicts) && lead.constraint_verdicts.length > 0) {
+      constraint_verdicts = lead.constraint_verdicts;
+    } else if (Array.isArray(lead.match_basis) && lead.match_basis.length > 0) {
+      constraint_verdicts = lead.match_basis
+        .filter((mb: any) => mb.constraint_value)
+        .map((mb: any) => ({
+          constraint: mb.constraint_value,
+          verdict: mb.valid ? 'verified' : 'unverified',
+        }));
+    } else {
+      // Fall back to one entry per unique matched_phrase in match_evidence
+      const seen_phrases = new Set<string>();
+      for (const ev of items) {
+        const phrase = ev.matched_phrase || ev.constraint_value;
+        if (phrase && !seen_phrases.has(phrase)) {
+          seen_phrases.add(phrase);
+          constraint_verdicts.push({
+            constraint: phrase,
+            verdict: ev.verification_status === 'verified' ? 'verified' : 'unverified',
+          });
+        }
+      }
+    }
+
+    // Accumulate constraint values for top-level verifiableConstraints
+    for (const cv of constraint_verdicts) {
+      if (cv.constraint) constraintValueSet.add(cv.constraint);
+    }
+
     evidenceMap[name] = {
       url: items[0]?.source_url || lead.url || '',
       quotes: items.map((e: any) => e.quote).filter(Boolean),
@@ -529,7 +547,13 @@ export async function getDeliveryEvidence(runId: string): Promise<DeliveryEviden
     };
   }
 
-  console.log('[delivery-evidence] evidenceMap keys:', Object.keys(evidenceMap), '| first entry constraint_verdicts:', Object.values(evidenceMap)[0]?.constraint_verdicts);
+  // verifiableConstraints: prefer explicit payload field, else union of all constraint values seen across leads
+  const verifiableConstraints: string[] =
+    Array.isArray(payload.verifiable_constraints) && payload.verifiable_constraints.length > 0
+      ? payload.verifiable_constraints
+      : Array.from(constraintValueSet);
+
+  console.log('[delivery-evidence] evidenceMap keys:', Object.keys(evidenceMap), '| verifiableConstraints:', verifiableConstraints, '| first entry constraint_verdicts:', Object.values(evidenceMap)[0]?.constraint_verdicts);
 
   return { evidenceMap, verifiableConstraints };
 }
