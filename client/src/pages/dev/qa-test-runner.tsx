@@ -1775,6 +1775,130 @@ function BenchmarkSummaryCard({ summary }: { summary: BenchmarkSummary }) {
   );
 }
 
+function AdHocRunner() {
+  const [query, setQuery] = useState('');
+  const [status, setStatus] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
+  const [result, setResult] = useState<{
+    towerVerdict: string | null;
+    deliveredCount: number;
+    runId: string | null;
+    durationMs: number;
+  } | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+
+  const handleRun = async () => {
+    if (!query.trim() || status === 'running') return;
+    const user = getUser();
+    if (!user) {
+      setErrorMsg('No user found in localStorage. Load the main app first.');
+      setStatus('error');
+      return;
+    }
+    setStatus('running');
+    setResult(null);
+    setErrorMsg(null);
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const start = Date.now();
+    try {
+      const conversationId = `adhoc-${crypto.randomUUID()}`;
+      const clientRequestId = crypto.randomUUID();
+      const { runId } = await submitQuery(query.trim(), user, conversationId, clientRequestId, controller.signal);
+      const pollResult = await pollUntilTerminal(clientRequestId, runId, PER_TEST_TIMEOUT_MS, controller.signal);
+      const effectiveRunId = pollResult.finalRunId || runId;
+      let towerVerdict: string | null = null;
+      let deliveredCount = 0;
+      if (effectiveRunId) {
+        try {
+          const d = await fetchRunDetails(effectiveRunId);
+          towerVerdict = d.towerVerdict;
+          deliveredCount = d.deliveredCount;
+        } catch {}
+      }
+      setResult({ towerVerdict, deliveredCount, runId: effectiveRunId, durationMs: Date.now() - start });
+      setStatus('done');
+    } catch (e: any) {
+      if (e?.name === 'AbortError') {
+        setStatus('idle');
+      } else {
+        setErrorMsg(e?.message || 'Unknown error');
+        setStatus('error');
+      }
+    }
+  };
+
+  return (
+    <div className="border rounded-lg p-4 mb-6 bg-white shadow-sm">
+      <h2 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+        <Play className="w-4 h-4 text-purple-500" />
+        Ad-hoc Test Runner
+      </h2>
+      <div className="flex gap-2">
+        <input
+          type="text"
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') handleRun(); }}
+          placeholder="Enter a test query..."
+          disabled={status === 'running'}
+          className="flex-1 text-sm border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-purple-400 disabled:bg-gray-50 disabled:text-gray-400"
+        />
+        <Button
+          onClick={status === 'running' ? () => { abortRef.current?.abort(); setStatus('idle'); } : handleRun}
+          disabled={status !== 'running' && !query.trim()}
+          className={status === 'running' ? 'bg-red-600 hover:bg-red-700 shrink-0' : 'bg-purple-600 hover:bg-purple-700 shrink-0'}
+        >
+          {status === 'running'
+            ? <><Square className="w-4 h-4 mr-1.5" />Stop</>
+            : <><Play className="w-4 h-4 mr-1.5" />Run Test</>}
+        </Button>
+      </div>
+
+      {status === 'running' && (
+        <div className="mt-3 flex items-center gap-2 text-sm text-gray-500">
+          <Loader2 className="w-4 h-4 animate-spin text-purple-500" />
+          Running query…
+        </div>
+      )}
+
+      {status === 'error' && errorMsg && (
+        <div className="mt-3 text-sm text-red-600 flex items-center gap-1.5">
+          <XCircle className="w-4 h-4 shrink-0" />{errorMsg}
+        </div>
+      )}
+
+      {status === 'done' && result && (
+        <div className="mt-3 flex items-center gap-5 text-sm flex-wrap border-t pt-3">
+          <span className="flex items-center gap-1.5">
+            <span className="text-gray-500">Tower:</span>
+            <span className={
+              result.towerVerdict === 'PASS' ? 'font-semibold text-green-700' :
+              result.towerVerdict === 'FAIL' ? 'font-semibold text-red-700' :
+              'text-gray-400'
+            }>{result.towerVerdict ?? 'N/A'}</span>
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="text-gray-500">Delivered:</span>
+            <span className="font-semibold">{result.deliveredCount}</span>
+          </span>
+          <span className="text-gray-400">{(result.durationMs / 1000).toFixed(1)}s</span>
+          {result.runId && (
+            <a
+              href={`/dev/afr?run_id=${result.runId}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1 text-purple-600 hover:text-purple-800 font-medium"
+            >
+              <ExternalLink className="w-3.5 h-3.5" />View AFR
+            </a>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function QaTestRunnerPage() {
   const [selectedSuiteId, setSelectedSuiteId] = useState(SUITES[0].id);
   const [suiteStatus, setSuiteStatus] = useState<SuiteStatus>('not_started');
@@ -2128,6 +2252,8 @@ export default function QaTestRunnerPage() {
         Run saved test suites against Wyshbone and compare actual outcomes against expected results.
         Each test submits a query through the app's internal chat/run flow, polls for completion, then evaluates pass/fail.
       </p>
+
+      <AdHocRunner />
 
       <div className="flex items-center gap-3 mb-4 flex-wrap">
         <Button
