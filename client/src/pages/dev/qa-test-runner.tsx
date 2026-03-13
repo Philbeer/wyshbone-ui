@@ -1802,7 +1802,7 @@ function AdHocRunner() {
     abortRef.current = controller;
     const start = Date.now();
     try {
-      const conversationId = `adhoc-${crypto.randomUUID()}`;
+      const conversationId = localStorage.getItem('currentConversationId') || `adhoc-${crypto.randomUUID()}`;
       const clientRequestId = crypto.randomUUID();
       const { runId } = await submitQuery(query.trim(), user, conversationId, clientRequestId, controller.signal);
       const pollResult = await pollUntilTerminal(clientRequestId, runId, PER_TEST_TIMEOUT_MS, controller.signal);
