@@ -277,20 +277,43 @@ export function BehaviourInspectContent({ runId, query, timestamp }: {
     setJudgeB(null);
     setExpandedEvidence(new Set());
     setDeliveryEvidence({ evidenceMap: {}, verifiableConstraints: [] });
+
+    let cancelled = false;
+    const MAX_RETRIES = 8;
+    const RETRY_INTERVAL_MS = 2500;
+
     const encoded = encodeURIComponent(runId);
-    Promise.all([
-      fetch(buildApiUrl(addDevAuthParams(`/api/afr/behaviour-judge?run_id=${encoded}`)), { credentials: 'include' })
-        .then(r => r.ok ? r.json() : null)
-        .catch(() => null),
+
+    const fetchEvidence = () =>
       fetch(buildApiUrl(addDevAuthParams(`/api/afr/delivery-evidence?run_id=${encoded}`)), { credentials: 'include' })
         .then(r => r.ok ? r.json() : { evidenceMap: {}, verifiableConstraints: [] })
-        .catch(() => ({ evidenceMap: {}, verifiableConstraints: [] })),
-    ]).then(([judgeData, evidenceData]) => {
-      console.log('[BIC] behaviour-judge result:', JSON.stringify(judgeData));
+        .catch(() => ({ evidenceMap: {}, verifiableConstraints: [] }));
+
+    const fetchJudge = () =>
+      fetch(buildApiUrl(addDevAuthParams(`/api/afr/behaviour-judge?run_id=${encoded}`)), { credentials: 'include' })
+        .then(r => r.ok ? r.json() : null)
+        .catch(() => null);
+
+    const attempt = async (retriesLeft: number) => {
+      if (cancelled) return;
+      const [judgeData, evidenceData] = await Promise.all([fetchJudge(), fetchEvidence()]);
+      if (cancelled) return;
+      console.log(`[BIC] behaviour-judge result (retriesLeft=${retriesLeft}):`, JSON.stringify(judgeData));
       console.log('[BIC] delivery-evidence result:', JSON.stringify(evidenceData));
-      setJudgeB(judgeData || null);
       setDeliveryEvidence(evidenceData || { evidenceMap: {}, verifiableConstraints: [] });
-    }).finally(() => setJudgeBLoading(false));
+      if (judgeData) {
+        setJudgeB(judgeData);
+        setJudgeBLoading(false);
+      } else if (retriesLeft > 0) {
+        setTimeout(() => attempt(retriesLeft - 1), RETRY_INTERVAL_MS);
+      } else {
+        setJudgeB(null);
+        setJudgeBLoading(false);
+      }
+    };
+
+    attempt(MAX_RETRIES);
+    return () => { cancelled = true; };
   }, [runId]);
 
   const outcome = (judgeB?.outcome || '').toUpperCase();
@@ -323,7 +346,7 @@ export function BehaviourInspectContent({ runId, query, timestamp }: {
           Behaviour Judge (Judge B)
         </h4>
         {judgeBLoading ? (
-          <div className="text-[11px] text-gray-400 py-2">Loading…</div>
+          <div className="text-[11px] text-gray-400 py-2">Awaiting Judge B…</div>
         ) : !judgeB ? (
           <div className="text-[11px] text-gray-400 italic py-2">
             No Judge B result in behaviour_judge_results for this run.
