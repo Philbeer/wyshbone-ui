@@ -247,6 +247,7 @@ function BehaviourInspectModal({ row, open, onClose }: { row: MetricRow | null; 
     requested_count: number | null;
     input_snapshot?: {
       leads_evidence?: LeadEvidence[];
+      leads?: LeadEvidence[];
       verification_policy?: string;
       verifiable_constraints?: string[];
       [key: string]: unknown;
@@ -359,8 +360,10 @@ function BehaviourInspectModal({ row, open, onClose }: { row: MetricRow | null; 
           </section>
 
           {(() => {
-            const evidence = judgeB?.input_snapshot?.leads_evidence;
-            if (!evidence || evidence.length === 0) return null;
+            const evidence = judgeB?.input_snapshot?.leads_evidence
+              ?? judgeB?.input_snapshot?.leads
+              ?? [];
+            if (evidence.length === 0) return null;
             const verificationPolicy = judgeB?.input_snapshot?.verification_policy;
             const verifiableConstraints: string[] = judgeB?.input_snapshot?.verifiable_constraints ?? [];
             return (
