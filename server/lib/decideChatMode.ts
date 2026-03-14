@@ -34,6 +34,10 @@ const LLM_ROUTER_SYSTEM_PROMPT = `You are a routing classifier for a lead genera
 - direct_response: conversational, informational, or no search intent.
 - refuse: fictional location, impossible request, or clearly nonsensical.
 
+IMPORTANT: If the message contains a clear entity type AND a clear location, always return agent_run — even if there is a commercial context phrase like "to sell my product", "for my business", "to find stockists", or "to reach customers". These phrases describe why the user wants the results, not missing information. They do not require clarification.
+
+Only return clarify_before_run if the entity type OR the location is genuinely missing or impossible to infer.
+
 Respond with JSON only:
 { "route": "agent_run|clarify_before_run|direct_response|refuse", "reason": "one sentence", "missing_info": ["list if clarify_before_run, otherwise empty array"] }`;
 
