@@ -241,7 +241,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
   const { user } = useUser();
   const { toast } = useToast();
   const { trigger: triggerSidebarFlash } = useSidebarFlash();
-  const { goal, hasGoal, isLoading: isLoadingGoal } = useUserGoal();
+  const { goal, hasGoal, isLoading: isLoadingGoal, error: goalError } = useUserGoal();
   const { openResults } = useResultsPanel();
   const { setCurrentClientRequestId, setPinnedClientRequestId, setLastCompletedClientRequestId, addRecentRun, userPinned, clearRecentRuns } = useCurrentRequest();
   const queryClient = useQueryClient();
@@ -3145,7 +3145,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         {/* Messages Area */}
         <div className="flex-1 overflow-y-auto py-8">
         <div className="w-full space-y-4 px-6">
-          {messages.length === 0 && isLoadingGoal ? (
+          {messages.length === 0 && isLoadingGoal && !goalError ? (
             <div className="flex flex-col items-center justify-center h-full min-h-[400px] text-center">
               <div className="w-16 h-16 rounded-full overflow-hidden mb-4">
                 <img src={wyshboneLogo} alt="Wyshbone" className="w-full h-full object-cover" />

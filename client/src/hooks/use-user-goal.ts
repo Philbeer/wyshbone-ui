@@ -27,6 +27,8 @@ export function useUserGoal() {
       console.log("✅ GET /api/goal returned:", data);
       return data;
     },
+    retry: 1,
+    retryDelay: 1000,
   });
 
   const mutation = useMutation({
