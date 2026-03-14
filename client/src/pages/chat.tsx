@@ -1417,6 +1417,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
               const inRes = await fetch(inUrl, { credentials: 'include', cache: 'no-store' });
               if (inRes.ok) {
                 const inRows = await inRes.json();
+                console.log('[INTENT_POLL] rows types:', inRows?.map((r: any) => r.type));
                 if (Array.isArray(inRows)) {
                   const inRow = inRows.find((r: any) => r.type === 'intent_narrative');
                   if (inRow) {
