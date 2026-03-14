@@ -1420,6 +1420,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                 const inRows = await inRes.json();
                 console.log('[INTENT_POLL] runId from map:', runId, 'rows:', inRows?.length);
                 console.log('[INTENT_POLL] rows types:', inRows?.map((r: any) => r.type));
+                console.log('[INTENT_CHECK]', intentNarrativeInjectedRef.current.has(effectiveKey), inRows?.find((r: any) => r.type === 'intent_narrative')?.type);
                 if (Array.isArray(inRows)) {
                   const inRow = inRows.find((r: any) => r.type === 'intent_narrative');
                   if (inRow) {
