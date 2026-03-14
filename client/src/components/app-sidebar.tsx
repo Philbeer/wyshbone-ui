@@ -902,6 +902,7 @@ export function AppSidebar({
           </SidebarGroupContent>
         </SidebarGroup>
 
+        {/* Vertical selector hidden — re-enable when verticals are deliberately re-introduced
         <SidebarGroup data-tour-id="vertical">
           <SidebarGroupLabel className="flex items-center gap-2 ml-5">
             <Factory className="h-4 w-4" />
@@ -911,6 +912,7 @@ export function AppSidebar({
             <VerticalSelector />
           </SidebarGroupContent>
         </SidebarGroup>
+        */}
 
         <SidebarGroup>
           <SidebarGroupLabel>Navigation</SidebarGroupLabel>

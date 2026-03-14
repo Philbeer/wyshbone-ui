@@ -2711,16 +2711,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
       }
     }
 
-    const verticalId = getCurrentVerticalId();
-    if (verticalId !== 'generic' && !skipMismatchOnceRef.current) {
-      const { mismatch, matchedTerms } = detectVerticalMismatch(verticalId, messageContent);
-      if (mismatch) {
-        console.log(`[Chat][SanityGate] Vertical mismatch detected: vertical=${verticalId}, terms=${matchedTerms.join(', ')}`);
-        setVerticalMismatchPrompt({ query: messageContent, currentVertical: verticalId, matchedTerms });
-        setInput("");
-        return;
-      }
-    }
+    // Vertical mismatch gate removed — vertical selector hidden, always runs as generic.
     skipMismatchOnceRef.current = false;
 
     setShowLocationSuggestions(false);
@@ -3659,51 +3650,13 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
             </div>
           )}
 
+          {/* Vertical mismatch prompt hidden — re-enable with vertical selector if verticals are re-introduced
           {verticalMismatchPrompt && (
             <div className="flex gap-3 flex-row mb-2" data-testid="vertical-mismatch">
-              <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0">
-                <img src={wyshboneLogo} alt="Wyshbone" className="w-full h-full object-cover" />
-              </div>
-              <div className="flex flex-col items-start max-w-3xl lg:max-w-none">
-                <div className="rounded-lg px-4 py-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800">
-                  <p className="text-sm text-amber-800 dark:text-amber-200 mb-2">
-                    That looks like a different type of search than {getVerticalLabel(verticalMismatchPrompt.currentVertical)}. Do you want me to switch to General and run it, or keep {getVerticalLabel(verticalMismatchPrompt.currentVertical)}?
-                  </p>
-                  <div className="flex gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-7 text-xs"
-                      onClick={() => {
-                        const q = verticalMismatchPrompt.query;
-                        setVerticalMismatchPrompt(null);
-                        try {
-                          localStorage.setItem('wyshbone.currentVerticalId', 'generic');
-                          window.dispatchEvent(new CustomEvent('wyshbone:vertical_changed', { detail: { verticalId: 'generic' } }));
-                        } catch {}
-                        handleSendRef.current?.(q);
-                      }}
-                    >
-                      Switch to General and run
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-7 text-xs"
-                      onClick={() => {
-                        const q = verticalMismatchPrompt.query;
-                        setVerticalMismatchPrompt(null);
-                        skipMismatchOnceRef.current = true;
-                        handleSendRef.current?.(q);
-                      }}
-                    >
-                      Keep {getVerticalLabel(verticalMismatchPrompt.currentVertical)}
-                    </Button>
-                  </div>
-                </div>
-              </div>
+              ...Switch/Keep panel...
             </div>
           )}
+          */}
 
           {/* Supervisor thinking indicator */}
           {isWaitingForSupervisor && (

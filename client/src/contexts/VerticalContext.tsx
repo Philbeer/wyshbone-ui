@@ -11,7 +11,7 @@ import { createContext, useContext, useState, useEffect, ReactNode, useCallback 
 import type { VerticalId } from "@/lib/verticals/types";
 
 const STORAGE_KEY = "wyshbone.currentVerticalId";
-const DEFAULT_VERTICAL: VerticalId = "brewery";
+const DEFAULT_VERTICAL: VerticalId = "generic"; // verticals hidden — defaulting to generic until re-enabled
 
 // Valid vertical IDs - must match VerticalId type from lib/verticals/types.ts
 const VALID_VERTICALS: VerticalId[] = ["brewery", "generic", "animal_physio", "other"];
