@@ -301,7 +301,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
   const supervisorPollRef = useRef<NodeJS.Timeout | null>(null);
   const inFlightSupervisorRunsRef = useRef<Map<string, { runId: string | null; crid: string }>>(new Map());
   const pendingResultPersistsRef = useRef<Array<{ payload: any; ts: number }>>([]);
-  const intentNarrativeSeenRef = useRef<Set<string>>(new Set());
+  const intentNarrativeInjectedRef = useRef<Set<string>>(new Set());
   const [collapsedIntentNarrativeIds, setCollapsedIntentNarrativeIds] = useState<Set<string>>(new Set());
 
   // Progress stack for chat status events (Part 2 implementation)
@@ -858,43 +858,6 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
       const rows = await res.json();
       if (!Array.isArray(rows)) return;
 
-      console.log('[INTENT] all artefact types:', rows.map((r: any) => r.type));
-      console.log('[INTENT] intent_narrative row:', rows.find((r: any) => r.type === 'intent_narrative'));
-
-      // ── intent_narrative injection (finalization path) ──────────────────────────
-      // This runs every time finalizeRunUI is called so the card is guaranteed to
-      // appear even if the polling-time check raced with the Supervisor writing it.
-      const inRowFinal = rows.find((r: any) => r.type === 'intent_narrative');
-      if (inRowFinal && !intentNarrativeSeenRef.current.has(effectiveKey)) {
-        intentNarrativeSeenRef.current.add(effectiveKey);
-        let inPayloadFinal: IntentNarrativePayload | null = inRowFinal.payload_json;
-        if (typeof inPayloadFinal === 'string') {
-          try { inPayloadFinal = JSON.parse(inPayloadFinal); } catch { inPayloadFinal = null; }
-        }
-        if (inPayloadFinal) {
-          const inMsgId = `in-${effectiveKey}`;
-          setMessages((prev) => {
-            if (prev.some(m => m.id === inMsgId)) return prev;
-            const dsIdx = prev.findIndex(m => m.id === `ds-${effectiveKey}`);
-            const newMsg: Message = {
-              id: inMsgId,
-              role: 'assistant' as const,
-              content: '',
-              timestamp: new Date(),
-              isIntentNarrative: true,
-              intentNarrativePayload: inPayloadFinal,
-            };
-            if (dsIdx !== -1) {
-              const next = [...prev];
-              next.splice(dsIdx, 0, newMsg);
-              return next;
-            }
-            return [...prev, newMsg];
-          });
-          console.log(`[Chat][finalizeRunUI] intent_narrative injected for run=${effectiveKey}, findability=${inPayloadFinal.findability} (source=${source})`);
-        }
-      }
-
       const artefactTypes = rows.map((r: any) => r.type);
 
       const dsRow = rows.find((r: any) => r.type === 'delivery_summary');
@@ -1445,7 +1408,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
 
 
           // ── intent_narrative artefact check ────────────────────────────────────────
-          if (!intentNarrativeSeenRef.current.has(effectiveKey)) {
+          if (!intentNarrativeInjectedRef.current.has(effectiveKey)) {
             try {
               const inParams = new URLSearchParams();
               if (crid) inParams.set('client_request_id', crid);
@@ -1457,7 +1420,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                 if (Array.isArray(inRows)) {
                   const inRow = inRows.find((r: any) => r.type === 'intent_narrative');
                   if (inRow) {
-                    intentNarrativeSeenRef.current.add(effectiveKey);
+                    intentNarrativeInjectedRef.current.add(effectiveKey);
                     let inPayload: IntentNarrativePayload | null = inRow.payload_json;
                     if (typeof inPayload === 'string') {
                       try { inPayload = JSON.parse(inPayload); } catch { inPayload = null; }
