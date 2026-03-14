@@ -858,6 +858,40 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
       const rows = await res.json();
       if (!Array.isArray(rows)) return;
 
+      // ── intent_narrative injection (finalization path) ──────────────────────────
+      // This runs every time finalizeRunUI is called so the card is guaranteed to
+      // appear even if the polling-time check raced with the Supervisor writing it.
+      const inRowFinal = rows.find((r: any) => r.type === 'intent_narrative');
+      if (inRowFinal && !intentNarrativeSeenRef.current.has(effectiveKey)) {
+        intentNarrativeSeenRef.current.add(effectiveKey);
+        let inPayloadFinal: IntentNarrativePayload | null = inRowFinal.payload_json;
+        if (typeof inPayloadFinal === 'string') {
+          try { inPayloadFinal = JSON.parse(inPayloadFinal); } catch { inPayloadFinal = null; }
+        }
+        if (inPayloadFinal) {
+          const inMsgId = `in-${effectiveKey}`;
+          setMessages((prev) => {
+            if (prev.some(m => m.id === inMsgId)) return prev;
+            const dsIdx = prev.findIndex(m => m.id === `ds-${effectiveKey}`);
+            const newMsg: Message = {
+              id: inMsgId,
+              role: 'assistant' as const,
+              content: '',
+              timestamp: new Date(),
+              isIntentNarrative: true,
+              intentNarrativePayload: inPayloadFinal,
+            };
+            if (dsIdx !== -1) {
+              const next = [...prev];
+              next.splice(dsIdx, 0, newMsg);
+              return next;
+            }
+            return [...prev, newMsg];
+          });
+          console.log(`[Chat][finalizeRunUI] intent_narrative injected for run=${effectiveKey}, findability=${inPayloadFinal.findability} (source=${source})`);
+        }
+      }
+
       const artefactTypes = rows.map((r: any) => r.type);
 
       const dsRow = rows.find((r: any) => r.type === 'delivery_summary');
