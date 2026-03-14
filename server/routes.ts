@@ -1573,23 +1573,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           try {
             const intentResult = detectSupervisorIntent(clarifiedRequest);
             const taskType = intentResult.taskType || 'find_prospects';
-            const { sanitizeBusinessType } = await import('./lib/decideChatMode.js');
-            const rawEntityType = entityType || intentResult.requestData?.search_query?.business_type || '';
-            const sanitizedEntity = sanitizeBusinessType(rawEntityType);
-            const clarifyCount = sanitizedEntity.requestedCount
-              || intentResult.requestData?.search_query?.requested_count
-              || (currentSession.answers['count'] ? parseInt(currentSession.answers['count'], 10) : undefined);
             const requestData: Record<string, any> = {
               user_message: clarifiedRequest,
               original_user_message: currentSession.original_user_text,
               ...(intentResult.requestData || {}),
-              search_query: {
-                business_type: sanitizedEntity.businessType,
-                location: location || intentResult.requestData?.search_query?.location,
-                ...(clarifyCount !== undefined && !isNaN(clarifyCount) ? { requested_count: clarifyCount } : {}),
-              },
             };
-            console.log(`📦 [CLARIFY→SEARCH_QUERY] business_type="${requestData.search_query.business_type}" location="${requestData.search_query.location}" requested_count=${clarifyCount ?? 'default'}`);
+            console.log(`📦 [CLARIFY→SEARCH_QUERY] user_message="${clarifiedRequest.slice(0, 80)}" taskType="${taskType}"`);
             if (google_query_mode) requestData.google_query_mode = google_query_mode;
             if (metadata) {
               if (metadata.scenario) requestData.scenario = metadata.scenario;
@@ -1611,9 +1600,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
             const { saveLastSuccessfulIntent: saveIntentClarify } = await import('./lib/clarifySession.js');
             saveIntentClarify(conversationId, {
-              business_type: requestData.search_query.business_type,
-              location: requestData.search_query.location,
-              requested_count: requestData.search_query.requested_count,
+              business_type: requestData.search_query?.business_type || '',
+              location: requestData.search_query?.location || '',
+              requested_count: requestData.search_query?.requested_count,
               attributes: currentSession.semantic_constraint || undefined,
             });
 
@@ -1623,9 +1612,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               await transitionRunToExecuting(clientRequestId);
             }
 
-            const sq = requestData.search_query;
-            const titleCase = (s: string) => s.replace(/\b\w/g, c => c.toUpperCase());
-            const confidenceMsg = `Searching for ${sq.requested_count ? `${sq.requested_count} ` : ''}${sq.business_type || 'businesses'}${sq.location ? ` in ${titleCase(sq.location)}` : ''}.`;
+            const confidenceMsg = `On it — searching now.`;
 
             appendMessage(sessionId, { role: "assistant", content: confidenceMsg });
             await saveMessage(conversationId, "assistant", confidenceMsg);
@@ -1724,9 +1711,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               }).catch(err => console.error('AFR router log error:', err.message));
             }
 
-            const sqF = requestData.search_query;
-            const titleCaseF = (s: string) => s.replace(/\b\w/g, c => c.toUpperCase());
-            const confidenceMsgF = `Searching for ${sqF.requested_count ? `${sqF.requested_count} ` : ''}${sqF.business_type || 'businesses'}${sqF.location ? ` in ${titleCaseF(sqF.location)}` : ''}.`;
+            const confidenceMsgF = `On it — searching now.`;
 
             appendMessage(sessionId, { role: "assistant", content: confidenceMsgF });
             await saveMessage(conversationId, "assistant", confidenceMsgF);
@@ -1748,8 +1733,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // 3-WAY ROUTER: CHAT_INFO | CLARIFY_FOR_RUN | RUN_SUPERVISOR
       // ═══════════════════════════════════════════════════════════
       const { decideChatMode } = await import('./lib/decideChatMode.js');
-      const modeDecision = decideChatMode({ userMessage: latestUserText });
-      console.log(`🔀 [ROUTER] mode=${modeDecision.mode} reason="${modeDecision.reason}" entity="${modeDecision.entityType || 'N/A'}" location="${modeDecision.location || 'N/A'}" crid=${clientRequestId || 'none'}`);
+      const modeDecision = await decideChatMode({ userMessage: latestUserText });
+      console.log(`🔀 [ROUTER] mode=${modeDecision.mode} reason="${modeDecision.reason}" crid=${clientRequestId || 'none'}`);
 
       if (modeDecision.mode === 'RUN_SUPERVISOR') {
         // ─── RUN_SUPERVISOR LANE: enqueue supervisor task ───
@@ -1758,30 +1743,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         try {
           const intentResult = detectSupervisorIntent(latestUserText);
           const taskType = intentResult.taskType || 'find_prospects';
-          const { sanitizeBusinessType } = await import('./lib/decideChatMode.js');
-          const rawBizType = modeDecision.entityType || intentResult.requestData?.search_query?.business_type || '';
-          const sanitizedBiz = sanitizeBusinessType(rawBizType);
-          const resolvedCount = modeDecision.requestedCount || sanitizedBiz.requestedCount || intentResult.requestData?.search_query?.requested_count;
-          const baseRequestData = {
+          const requestData: Record<string, any> = {
             user_message: latestUserText,
             ...(intentResult.requestData || {}),
-            search_query: {
-              business_type: sanitizedBiz.businessType,
-              location: modeDecision.location || intentResult.requestData?.search_query?.location,
-              ...(resolvedCount !== undefined ? { requested_count: resolvedCount } : {}),
-            },
           };
-          console.log(`📦 [SEARCH_QUERY] business_type="${baseRequestData.search_query.business_type}" location="${baseRequestData.search_query.location}" requested_count=${resolvedCount ?? 'default'}`);
-          const requestData: Record<string, any> = { ...baseRequestData };
-
-          const { hasOpenedTimePredicate: checkTimeP, hasExplicitProxy: checkProxyP } = await import('./lib/decideChatMode.js');
-          if (checkTimeP(latestUserText) && checkProxyP(latestUserText)) {
-            const proxyMatch = latestUserText.match(/using\s+([\w\s]+?)\s+as\s+(?:a\s+)?proxy/i);
-            const proxyLabel = proxyMatch ? proxyMatch[1].trim() : 'user-specified proxy';
-            requestData.search_query.opened_proxy = proxyLabel;
-            requestData.search_query.proxy_disclaimer = true;
-            console.log(`📦 [OPENED_TIME_PROXY] proxy="${proxyLabel}" — results will be marked as proxy/unverified`);
-          }
+          console.log(`📦 [SEARCH_QUERY] user_message="${latestUserText.slice(0, 80)}" taskType="${taskType}"`);
 
           if (google_query_mode) requestData.google_query_mode = google_query_mode;
           if (metadata) {
@@ -1805,7 +1771,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               clientRequestId,
               decision: 'supervisor_plan',
               reason: `decideChatMode → RUN_SUPERVISOR (${modeDecision.reason})`,
-              signals: { taskType, modeReason: modeDecision.reason, entityType: modeDecision.entityType, location: modeDecision.location },
+              signals: { taskType, modeReason: modeDecision.reason },
             }).catch(err => console.error('AFR router log error:', err.message));
           }
 
@@ -1824,9 +1790,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
           const { saveLastSuccessfulIntent: saveIntentDirect } = await import('./lib/clarifySession.js');
           saveIntentDirect(conversationId, {
-            business_type: requestData.search_query?.business_type || modeDecision.entityType || '',
-            location: requestData.search_query?.location || modeDecision.location || '',
-            requested_count: requestData.search_query?.requested_count || modeDecision.requestedCount,
+            business_type: requestData.search_query?.business_type || '',
+            location: requestData.search_query?.location || '',
+            requested_count: requestData.search_query?.requested_count,
           });
 
           res.write(`data: ${JSON.stringify({
@@ -1859,10 +1825,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             }
           }
 
-          const sqD = requestData.search_query;
-          const titleCaseD = (s: string) => s.replace(/\b\w/g, c => c.toUpperCase());
-          const proxyNote = sqD?.opened_proxy ? ` Using proxy: ${sqD.opened_proxy} (not guaranteed).` : '';
-          const confidenceMsgD = `Searching for ${sqD?.requested_count ? `${sqD.requested_count} ` : ''}${sqD?.business_type || 'businesses'}${sqD?.location ? ` in ${titleCaseD(sqD.location)}` : ''}.${proxyNote}`;
+          const confidenceMsgD = `On it — searching now.`;
 
           appendMessage(sessionId, { role: "assistant", content: confidenceMsgD });
           await saveMessage(conversationId, "assistant", confidenceMsgD);
@@ -1902,24 +1865,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         try {
           const intentResult = detectSupervisorIntent(latestUserText);
           const taskType = intentResult.taskType || 'find_prospects';
-          const { sanitizeBusinessType } = await import('./lib/decideChatMode.js');
-          const rawBizType = modeDecision.entityType || intentResult.requestData?.search_query?.business_type || '';
-          const sanitizedBiz = sanitizeBusinessType(rawBizType);
-          const resolvedCount = modeDecision.requestedCount || sanitizedBiz.requestedCount || intentResult.requestData?.search_query?.requested_count;
           const requestData: Record<string, any> = {
             user_message: latestUserText,
             original_user_message: latestUserText,
             ...(intentResult.requestData || {}),
-            search_query: {
-              business_type: sanitizedBiz.businessType,
-              location: modeDecision.location || intentResult.requestData?.search_query?.location,
-              ...(resolvedCount !== undefined ? { requested_count: resolvedCount } : {}),
-            },
             supervisor_preflight: {
               requested_mode: 'CLARIFY_FOR_RUN',
               reason: modeDecision.reason,
-              entityType: modeDecision.entityType,
-              location: modeDecision.location,
+              missing_info: modeDecision.missingInfo || [],
             },
           };
 
@@ -1945,7 +1898,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               clientRequestId,
               decision: 'supervisor_plan',
               reason: `decideChatMode → CLARIFY_FOR_RUN delegated to Supervisor (SUPERVISOR_OWNS_CLARIFY=true) (${modeDecision.reason})`,
-              signals: { taskType, entityType: modeDecision.entityType, location: modeDecision.location, delegatedClarify: true },
+              signals: { taskType, delegatedClarify: true, missingInfo: modeDecision.missingInfo },
             }).catch(err => console.error('AFR router log error:', err.message));
           }
 
@@ -1969,9 +1922,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             await transitionRunToExecuting(clientRequestId);
           }
 
-          const sq = requestData.search_query;
-          const titleCaseDC = (s: string) => s.replace(/\b\w/g, c => c.toUpperCase());
-          const startingMsg = `Searching for ${sq.requested_count ? `${sq.requested_count} ` : ''}${sq.business_type || 'businesses'}${sq.location ? ` in ${titleCaseDC(sq.location)}` : ''}.`;
+          const startingMsg = `On it — searching now.`;
 
           appendMessage(sessionId, { role: "assistant", content: startingMsg });
           await saveMessage(conversationId, "assistant", startingMsg);
@@ -2003,174 +1954,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       if (modeDecision.mode === 'CLARIFY_FOR_RUN') {
-        // ─── CLARIFY_FOR_RUN LANE: pure in-memory, no DB writes ───
-        // (Legacy path — used when SUPERVISOR_OWNS_CLARIFY is OFF)
-        const { isKnownLocation, hasConcreteEntityNoun, hasOpenedTimePredicate: checkTimePred, hasExplicitProxy: checkProxy, hasNoProxyRefusal: checkNoProxy } = await import('./lib/decideChatMode.js');
-
-        const isOpenedTimePred = checkTimePred(latestUserText);
-        const isNoProxy = checkNoProxy(latestUserText);
-
-        if (isOpenedTimePred && isNoProxy) {
-          console.log(`[OPENED_TIME_GATE] No-proxy refusal detected: "${latestUserText.slice(0, 80)}"`);
-          const refusalMsg = `I understand you need certainty about when businesses opened, but unfortunately there's no reliable public data source that guarantees exact opening dates. The information available through Google Business listings, Companies House records, and review platforms can suggest when a business appeared, but none can confirm the actual opening date with certainty.\n\nIf approximate timing is acceptable, I can search using a proxy such as first Google review date, Companies House incorporation date, or listing freshness — just let me know. Otherwise, I'd recommend contacting businesses directly to confirm their opening dates.`;
-          appendMessage(sessionId, { role: "assistant", content: refusalMsg });
-          await saveMessage(conversationId, "assistant", refusalMsg);
-          if (clientRequestId) {
-            logRouterDecision({
-              userId: user.id,
-              conversationId,
-              clientRequestId,
-              decision: 'direct_response',
-              reason: `OPENED_TIME_GATE — no-proxy refusal`,
-              signals: { inputClass: 'NO_PROXY_REFUSAL' },
-            }).catch(err => console.error('AFR router log error:', err.message));
-          }
-          res.write(`data: ${JSON.stringify({ type: 'message', role: 'assistant', content: refusalMsg })}\n\n`);
-          emitSse({ type: 'status', stage: 'completed', message: 'Cannot guarantee opening dates', clientRequestId: clientRequestId || undefined, conversationId });
-          res.write(`data: [DONE]\n\n`);
-          res.end();
-          return;
+        // ─── CLARIFY_FOR_RUN LANE ───
+        // LLM router says info is missing. Build questions from modeDecision.missingInfo.
+        const missingInfo = modeDecision.missingInfo || [];
+        const questions = buildInitialQuestions(undefined, undefined, undefined);
+        if (missingInfo.length > 0) {
+          questions.push(`To search, I need a bit more detail: ${missingInfo.join('; ')}.`);
         }
-
-        const { extractAttributeConstraints, extractSubjectiveModifiers: getSubjMods, hasSubjectiveModifiers: checkSubjMods, hasNumericAmbiguity: checkNumericAmbiguity, extractNumericAmbiguityTerms: getNumericTerms, hasRelationshipPredicate: checkRelPred, extractRelationshipClause: getRelClause } = await import('./lib/decideChatMode.js');
-        const semanticConstraintMatch = latestUserText.match(/\bthat\s+(work|deal|partner|provide|offer|support|help|serve|are|have|do|focus|engage|operate|specialise|specialize|collaborate)\b[^.!?]*/i);
-        const semanticConstraint = semanticConstraintMatch ? semanticConstraintMatch[0].trim() : undefined;
-
-        const attributeConstraints = extractAttributeConstraints(latestUserText);
-
-        const rawEntityType = modeDecision.entityType;
-        const subjectiveTerms = rawEntityType ? getSubjMods(rawEntityType) : [];
-        const isSubjectiveGate = subjectiveTerms.length > 0 && rawEntityType && hasConcreteEntityNoun(rawEntityType);
-
-        const effectiveEntityType = (rawEntityType && hasConcreteEntityNoun(rawEntityType)) ? rawEntityType : undefined;
-        const effectiveLocation = (modeDecision.location && isKnownLocation(modeDecision.location)) ? modeDecision.location : undefined;
-
-        const SUBJECTIVE_OPTIONS = ['Lively', 'Quiet', 'Cosy', 'Late-night', 'Live music', 'Good for food', 'Beer garden', 'Dog friendly'];
-
-        const allConstraintDescriptors: Array<{ type: 'subjective' | 'time_predicate' | 'unverifiable_constraint' | 'numeric_ambiguity' | 'relationship_predicate'; contract: any; questions: string[]; constraintLabel: string; priority: number }> = [];
-
-        if (isSubjectiveGate) {
-          const quotedTerms = subjectiveTerms.map((t: string) => `'${t}'`);
-          const termsList = quotedTerms.length === 1 ? quotedTerms[0] : quotedTerms.slice(0, -1).join(', ') + ' and ' + quotedTerms[quotedTerms.length - 1];
-          allConstraintDescriptors.push({
-            type: 'subjective',
-            priority: 0,
-            constraintLabel: `subjective: ${subjectiveTerms.join(', ')}`,
-            contract: {
-              type: 'subjective',
-              can_execute: false,
-              why_blocked: `I can't search by ${termsList} directly — it means different things to different people. Pick an option below so I know what to look for.`,
-              explanation: `What counts as ${termsList} varies, so pick a specific attribute and I'll use that to find results.`,
-              subjective_terms: subjectiveTerms,
-              subjective_options: SUBJECTIVE_OPTIONS,
-            },
-            questions: [`What do you mean by ${termsList}?`],
-          });
-        }
-
-        const isNumericAmbiguity = checkNumericAmbiguity(latestUserText);
-        if (isNumericAmbiguity) {
-          const numericTerms = getNumericTerms(latestUserText);
-          const quotedNumTerms = numericTerms.map((t: string) => `"${t}"`);
-          const numTermsList = quotedNumTerms.length === 1 ? quotedNumTerms[0] : quotedNumTerms.join(' and ');
-          allConstraintDescriptors.push({
-            type: 'numeric_ambiguity',
-            priority: 1,
-            constraintLabel: `numeric ambiguity: ${numericTerms.join(', ')}`,
-            contract: {
-              type: 'numeric_ambiguity',
-              can_execute: false,
-              why_blocked: `How many results would you like? Pick a number below.`,
-              explanation: `Just let me know how many results you'd like.`,
-              numeric_options: ['3', '5', '10', 'All'],
-            },
-            questions: [`How many results would you like?`],
-          });
-        }
-
-        const isRelPred = checkRelPred(latestUserText);
-        if (isRelPred) {
-          const relClause = getRelClause(latestUserText) || 'relationship constraint';
-          allConstraintDescriptors.push({
-            type: 'relationship_predicate',
-            priority: 2,
-            constraintLabel: `relationship: ${relClause}`,
-            contract: {
-              type: 'relationship_predicate',
-              can_execute: false,
-              why_blocked: `"${relClause}" may not be publicly verifiable. How would you like me to handle it?`,
-              explanation: `This kind of detail isn't always available in public data. Pick an approach below.`,
-              relationship_options: [
-                'Official sources only',
-                'Best-effort public web',
-                'Require 2+ sources',
-                'Skip if uncertain',
-              ],
-            },
-            questions: [`"${relClause}" may be hard to confirm from public sources. How should I approach it?`],
-          });
-        }
-
-        if (isOpenedTimePred) {
-          allConstraintDescriptors.push({
-            type: 'time_predicate',
-            priority: 3,
-            constraintLabel: 'opened-time predicate',
-            contract: {
-              type: 'time_predicate',
-              can_execute: false,
-              explanation: "Exact opening dates aren't reliably available, but I can use a proxy instead.",
-              proxy_options: [
-                'Use first Google review date as proxy',
-                'Use news mentions as proxy',
-                'Use Google Maps listing freshness as proxy',
-                'Use Companies House incorporation date as proxy',
-              ],
-            },
-            questions: [`Exact opening dates aren't always available. Which proxy would you like me to use instead?`],
-          });
-        }
-
-        for (const attr of attributeConstraints) {
-          allConstraintDescriptors.push({
-            type: 'unverifiable_constraint',
-            priority: 4,
-            constraintLabel: `attribute: ${attr}`,
-            contract: {
-              type: 'unverifiable_constraint',
-              can_execute: false,
-              explanation: `"${attr}" may not always be verifiable from public data. How should I handle it?`,
-            },
-            questions: [`"${attr}" can be tricky to verify from public data. How should I handle it?`],
-          });
-        }
-
-        allConstraintDescriptors.sort((a, b) => a.priority - b.priority);
-
-        const activeConstraint = allConstraintDescriptors.length > 0 ? allConstraintDescriptors[0] : null;
-        const deferredConstraints = allConstraintDescriptors.slice(1).map(({ type, contract, questions: qs, constraintLabel }) => ({ type, contract, questions: qs, constraintLabel }));
-
-        const initialContract = activeConstraint ? activeConstraint.contract : null;
-        const activeConstraintLabel = activeConstraint ? activeConstraint.constraintLabel : undefined;
-
-        const questions = buildInitialQuestions(effectiveEntityType, effectiveLocation, semanticConstraint);
-        if (activeConstraint) {
-          questions.push(...activeConstraint.questions);
-        }
-
-        const constraintParts: string[] = [];
-        if (activeConstraintLabel) constraintParts.push(activeConstraintLabel);
-        if (semanticConstraint && !isSubjectiveGate && !isOpenedTimePred) constraintParts.push(semanticConstraint);
-        const combinedConstraint = constraintParts.length > 0 ? constraintParts.join(' + ') : (semanticConstraint || undefined);
 
         const newSession = createClarifySession({
           conversationId,
           originalUserText: latestUserText,
-          entityType: effectiveEntityType,
-          location: effectiveLocation,
-          semanticConstraint: combinedConstraint,
-          constraintContract: initialContract,
-          pendingConstraints: deferredConstraints,
+          entityType: undefined,
+          location: undefined,
+          semanticConstraint: undefined,
+          constraintContract: null,
+          pendingConstraints: [],
           pendingQuestions: questions,
         });
 
@@ -2181,34 +1980,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
             clientRequestId,
             decision: 'clarify_for_run',
             reason: `decideChatMode → CLARIFY_FOR_RUN (${modeDecision.reason})`,
-            signals: { entityType: modeDecision.entityType, location: modeDecision.location, sessionId: newSession.id, openedTimePredicate: isOpenedTimePred },
+            signals: { sessionId: newSession.id, missingInfo },
           }).catch(err => console.error('AFR router log error:', err.message));
 
           transitionRunToClarifying(clientRequestId).catch(err => console.error('AFR clarify transition error:', err.message));
 
-          const timeFilterMatch = latestUserText.match(/(?:in\s+the\s+(?:last|past)|within\s+the\s+(?:last|past))\s+\d+\s+(?:months?|years?|weeks?|days?)|(?:recently|this\s+year|this\s+month|last\s+year|last\s+month)/i);
           persistIntentPreviewArtefact({
             clientRequestId,
             conversationId,
             rawInput: latestUserText,
             route: 'clarify_for_run',
             parsedFields: {
-              business_type: effectiveEntityType || modeDecision.entityType || null,
-              location_text: effectiveLocation || modeDecision.location || null,
-              requested_count: modeDecision.requestedCount ?? null,
-              time_filter: timeFilterMatch ? timeFilterMatch[0].trim() : null,
+              business_type: null,
+              location_text: null,
+              requested_count: null,
+              time_filter: null,
             },
           }).catch(err => console.error('AFR intent preview artefact error:', err.message));
-
-          if (activeConstraint) {
-            persistClarifyGateArtefact({
-              clientRequestId,
-              constraintType: activeConstraint.type,
-              reason: activeConstraint.contract?.why_blocked || activeConstraint.contract?.explanation || 'Clarification required',
-              options: activeConstraint.contract?.relationship_options || activeConstraint.contract?.subjective_options || activeConstraint.contract?.numeric_options || activeConstraint.contract?.proxy_options || [],
-              constraintLabel: activeConstraint.constraintLabel,
-            }).catch(err => console.error('AFR clarify_gate artefact error:', err.message));
-          }
         }
 
         const clarifyMessage = questions.length > 0
@@ -2222,7 +2010,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         res.write(`data: ${JSON.stringify({ type: 'message', role: 'assistant', content: clarifyMessage })}\n\n`);
         emitSse({ type: 'status', stage: 'completed', message: 'Clarifying before run', clientRequestId: clientRequestId || undefined, conversationId });
 
-        console.log(`[CHAT_ROUTE=CLARIFY_FOR_RUN] crid=${clientRequestId || 'none'} sessionId=${newSession.id} questions=${questions.length} openedTimePred=${isOpenedTimePred}`);
+        console.log(`[CHAT_ROUTE=CLARIFY_FOR_RUN] crid=${clientRequestId || 'none'} sessionId=${newSession.id} questions=${questions.length} missingInfo=${missingInfo.join(',')}`);
         res.write(`data: [DONE]\n\n`);
         res.end();
         return;

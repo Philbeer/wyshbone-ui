@@ -1,4 +1,14 @@
-import { SUBJECTIVE_WORDS, NUMERIC_AMBIGUITY_WORDS } from './decideChatMode';
+const SUBJECTIVE_WORDS = new Set([
+  'good', 'great', 'nice', 'best', 'top', 'popular', 'well-known', 'famous',
+  'reputable', 'excellent', 'quality', 'premium', 'cheap', 'affordable',
+  'expensive', 'luxury', 'lively', 'quiet', 'cosy', 'cozy', 'trendy',
+  'modern', 'traditional', 'authentic', 'local', 'independent',
+]);
+
+const NUMERIC_AMBIGUITY_WORDS = new Set([
+  'a', 'an', 'some', 'few', 'several', 'many', 'lots', 'lots of',
+  'a few', 'a lot', 'a number of', 'a couple', 'a couple of',
+]);
 
 function stripNumericAmbiguityWords(entityType: string): string {
   return entityType
