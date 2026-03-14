@@ -9,7 +9,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest, authedFetch, addDevAuthParams, buildApiUrl, handleApiError } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Send, User, CheckCircle2, Search, Building2, HelpCircle, Activity, Loader2, AlertTriangle, AlertCircle } from "lucide-react";
+import { Send, User, CheckCircle2, Search, Building2, HelpCircle, Activity, Loader2, AlertTriangle, AlertCircle, ChevronDown, ChevronUp, MapPin, Target, Lightbulb, Gauge, MessageSquare } from "lucide-react";
 import type { ChatMessage, AddNoteResponse, DeepResearchCreateRequest } from "@shared/schema";
 import wyshboneLogo from "@assets/wyshbone-logo_1759667581806.png";
 import { LocationSuggestions } from "@/components/LocationSuggestions";
@@ -45,6 +45,18 @@ import type { PolicyApplied, LearningUpdate } from "@/utils/policyFormatters";
 import { parsePolicyApplied, parseLearningUpdate, parseSearchQueryCompiled, buildCleanConfidenceText } from "@/utils/policyFormatters";
 import type { SearchQueryCompiled } from "@/utils/policyFormatters";
 
+interface IntentNarrativePayload {
+  entity_description?: string;
+  entity_exclusions?: string[];
+  commercial_context?: string;
+  key_discriminator?: string;
+  findability?: 'easy' | 'moderate' | 'hard' | 'very_hard';
+  scarcity_expectation?: string;
+  suggested_approaches?: string[];
+  clarification_needed?: boolean;
+  clarification_question?: string;
+}
+
 type Message = ChatMessage & {
   id: string;
   timestamp: Date;
@@ -61,6 +73,8 @@ type Message = ChatMessage & {
   hidden?: boolean;
   provisional?: boolean;
   isConfidence?: boolean;
+  isIntentNarrative?: boolean;
+  intentNarrativePayload?: IntentNarrativePayload | null;
   towerVerdict?: string | null;
   towerLabel?: string | null;
   towerProxyUsed?: string | null;
@@ -330,6 +344,8 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
   const supervisorPollRef = useRef<NodeJS.Timeout | null>(null);
   const inFlightSupervisorRunsRef = useRef<Map<string, { runId: string | null; crid: string }>>(new Map());
   const pendingResultPersistsRef = useRef<Array<{ payload: any; ts: number }>>([]);
+  const intentNarrativeSeenRef = useRef<Set<string>>(new Set());
+  const [collapsedIntentNarrativeIds, setCollapsedIntentNarrativeIds] = useState<Set<string>>(new Set());
 
   // Progress stack for chat status events (Part 2 implementation)
   type ProgressStage = 'ack' | 'classifying' | 'planning' | 'executing' | 'finalising' | 'completed' | 'failed';
@@ -1596,6 +1612,54 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
               }
             } catch (err) {
               console.warn(`[Chat][AFR-Poll] Error fetching clarify_gate for ${effectiveKey}:`, err);
+            }
+          }
+
+          // ── intent_narrative artefact check ────────────────────────────────────────
+          if (!intentNarrativeSeenRef.current.has(effectiveKey)) {
+            try {
+              const inParams = new URLSearchParams();
+              if (crid) inParams.set('client_request_id', crid);
+              if (runId) inParams.set('runId', runId);
+              const inUrl = addDevAuthParams(buildApiUrl(`/api/afr/artefacts?${inParams.toString()}`));
+              const inRes = await fetch(inUrl, { credentials: 'include', cache: 'no-store' });
+              if (inRes.ok) {
+                const inRows = await inRes.json();
+                if (Array.isArray(inRows)) {
+                  const inRow = inRows.find((r: any) => r.type === 'intent_narrative');
+                  if (inRow) {
+                    intentNarrativeSeenRef.current.add(effectiveKey);
+                    let inPayload: IntentNarrativePayload | null = inRow.payload_json;
+                    if (typeof inPayload === 'string') {
+                      try { inPayload = JSON.parse(inPayload); } catch { inPayload = null; }
+                    }
+                    if (inPayload) {
+                      const inMsgId = `in-${effectiveKey}`;
+                      setMessages((prev) => {
+                        if (prev.some(m => m.id === inMsgId)) return prev;
+                        const dsIdx = prev.findIndex(m => m.id === `ds-${effectiveKey}`);
+                        const newMsg: Message = {
+                          id: inMsgId,
+                          role: 'assistant' as const,
+                          content: '',
+                          timestamp: new Date(),
+                          isIntentNarrative: true,
+                          intentNarrativePayload: inPayload,
+                        };
+                        if (dsIdx !== -1) {
+                          const next = [...prev];
+                          next.splice(dsIdx, 0, newMsg);
+                          return next;
+                        }
+                        return [...prev, newMsg];
+                      });
+                      console.log(`[Chat][AFR-Poll] intent_narrative injected for ${effectiveKey}, findability=${inPayload.findability}, clarification_needed=${inPayload.clarification_needed}`);
+                    }
+                  }
+                }
+              }
+            } catch (err) {
+              console.warn(`[Chat][AFR-Poll] Error fetching intent_narrative for ${effectiveKey}:`, err);
             }
           }
 
@@ -3549,6 +3613,189 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                       <span className="text-xs text-muted-foreground mt-1">
                         {chatMessage.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                       </span>
+                    </div>
+                  </div>
+                );
+              }
+
+              if (chatMessage.isIntentNarrative && chatMessage.intentNarrativePayload) {
+                const payload = chatMessage.intentNarrativePayload;
+                const allMsgs = Array.isArray(messages) ? messages : [];
+                const myIndex = allMsgs.findIndex(m => m.id === chatMessage.id);
+                const hasResultAfter = allMsgs.slice(myIndex + 1).some(m => (m as Message).deliverySummary && !(m as Message).provisional);
+                const isRunComplete = hasResultAfter;
+                const isCollapsed = collapsedIntentNarrativeIds.has(chatMessage.id);
+                const showCollapsed = isRunComplete && isCollapsed;
+                const isClarifyPause = payload.findability === 'very_hard' && payload.clarification_needed;
+
+                const findabilityLabel = {
+                  easy: 'Easy to find',
+                  moderate: 'Moderately findable',
+                  hard: 'Hard to find',
+                  very_hard: 'Very hard to find',
+                }[payload.findability ?? 'moderate'] ?? 'Unknown';
+
+                const findabilityColor = {
+                  easy: 'text-green-600 dark:text-green-400',
+                  moderate: 'text-blue-600 dark:text-blue-400',
+                  hard: 'text-amber-600 dark:text-amber-400',
+                  very_hard: 'text-red-600 dark:text-red-400',
+                }[payload.findability ?? 'moderate'] ?? 'text-muted-foreground';
+
+                return (
+                  <div key={chatMessage.id} className="flex gap-3 flex-row" data-testid={`message-intent-narrative-${chatMessage.id}`}>
+                    <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0 mt-0.5">
+                      <img src={wyshboneLogo} alt="Wyshbone" className="w-full h-full object-cover" />
+                    </div>
+                    <div className="flex flex-col items-start max-w-2xl">
+                      <div className={`rounded-xl border bg-slate-50 dark:bg-slate-900/60 border-slate-200 dark:border-slate-700 w-full overflow-hidden transition-all ${isClarifyPause ? 'border-amber-300 dark:border-amber-600 bg-amber-50/50 dark:bg-amber-950/20' : ''}`}>
+                        {/* Header */}
+                        <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-200 dark:border-slate-700">
+                          <div className="flex items-center gap-2">
+                            <Target className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
+                            <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 uppercase tracking-wide">
+                              {isClarifyPause ? 'One quick check before I search' : "Here's what I understood"}
+                            </span>
+                          </div>
+                          {isRunComplete && (
+                            <button
+                              onClick={() => setCollapsedIntentNarrativeIds(prev => {
+                                const next = new Set(prev);
+                                next.has(chatMessage.id) ? next.delete(chatMessage.id) : next.add(chatMessage.id);
+                                return next;
+                              })}
+                              className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors"
+                              aria-label={isCollapsed ? 'Expand' : 'Collapse'}
+                            >
+                              {isCollapsed ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronUp className="w-3.5 h-3.5" />}
+                            </button>
+                          )}
+                        </div>
+
+                        {!showCollapsed && (
+                          <div className="px-4 py-3 space-y-3 text-[13px]">
+                            {/* Clarification question (prominent when pausing) */}
+                            {isClarifyPause && payload.clarification_question && (
+                              <div className="flex items-start gap-2 p-2.5 rounded-lg bg-amber-100 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-700">
+                                <MessageSquare className="w-4 h-4 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+                                <div className="flex-1">
+                                  <p className="font-medium text-amber-800 dark:text-amber-200 leading-snug">
+                                    {payload.clarification_question}
+                                  </p>
+                                  {!isRunComplete && (
+                                    <div className="flex gap-2 mt-2.5">
+                                      <Button
+                                        size="sm"
+                                        className="h-7 text-[12px] bg-amber-600 hover:bg-amber-700 text-white border-0"
+                                        onClick={() => {
+                                          setInput('Looks right, go ahead');
+                                          setTimeout(() => textareaRef.current?.focus(), 50);
+                                        }}
+                                      >
+                                        Looks right, go ahead
+                                      </Button>
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        className="h-7 text-[12px] border-amber-300 text-amber-700 hover:bg-amber-50"
+                                        onClick={() => {
+                                          setInput('Let me clarify: ');
+                                          setTimeout(() => textareaRef.current?.focus(), 50);
+                                        }}
+                                      >
+                                        Let me clarify
+                                      </Button>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Looking for */}
+                            {payload.entity_description && (
+                              <div>
+                                <p className="text-[11px] font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-0.5">Looking for</p>
+                                <p className="text-slate-800 dark:text-slate-200 leading-snug">{payload.entity_description}</p>
+                              </div>
+                            )}
+
+                            {/* Not */}
+                            {payload.entity_exclusions && payload.entity_exclusions.length > 0 && (
+                              <div>
+                                <p className="text-[11px] font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-0.5">Not</p>
+                                <ul className="space-y-0.5">
+                                  {payload.entity_exclusions.map((exc, i) => (
+                                    <li key={i} className="text-slate-600 dark:text-slate-400 flex items-start gap-1.5">
+                                      <span className="text-slate-400 mt-0.5 flex-shrink-0">•</span>
+                                      <span>{exc}</span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+
+                            {/* Commercial context */}
+                            {payload.commercial_context && (
+                              <div>
+                                <p className="text-[11px] font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-0.5">Why you likely want this</p>
+                                <p className="text-slate-600 dark:text-slate-400 leading-snug">{payload.commercial_context}</p>
+                              </div>
+                            )}
+
+                            {/* Findability + scarcity */}
+                            <div className="flex items-center gap-4">
+                              {payload.findability && (
+                                <div className="flex items-center gap-1.5">
+                                  <Gauge className="w-3.5 h-3.5 text-slate-400" />
+                                  <span className="text-[11px] text-slate-500 dark:text-slate-400">How findable:</span>
+                                  <span className={`text-[11px] font-semibold ${findabilityColor}`}>{findabilityLabel}</span>
+                                </div>
+                              )}
+                              {payload.scarcity_expectation && (
+                                <div className="flex items-center gap-1.5">
+                                  <MapPin className="w-3.5 h-3.5 text-slate-400" />
+                                  <span className="text-[11px] text-slate-500 dark:text-slate-400">Availability:</span>
+                                  <span className="text-[11px] font-medium text-slate-600 dark:text-slate-300">{payload.scarcity_expectation}</span>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Suggested approaches */}
+                            {payload.suggested_approaches && payload.suggested_approaches.length > 0 && (
+                              <div>
+                                <div className="flex items-center gap-1.5 mb-1">
+                                  <Lightbulb className="w-3.5 h-3.5 text-slate-400" />
+                                  <p className="text-[11px] font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">My approach</p>
+                                </div>
+                                <ol className="space-y-0.5">
+                                  {payload.suggested_approaches.map((approach, i) => (
+                                    <li key={i} className="text-slate-600 dark:text-slate-400 flex items-start gap-1.5">
+                                      <span className="text-slate-400 flex-shrink-0 text-[11px] mt-0.5">{i + 1}.</span>
+                                      <span>{approach}</span>
+                                    </li>
+                                  ))}
+                                </ol>
+                              </div>
+                            )}
+
+                            {/* Non-pause clarification (subtle) */}
+                            {payload.clarification_needed && !isClarifyPause && payload.clarification_question && (
+                              <div className="flex items-start gap-1.5 pt-1 border-t border-slate-200 dark:border-slate-700">
+                                <MessageSquare className="w-3.5 h-3.5 text-slate-400 mt-0.5 flex-shrink-0" />
+                                <p className="text-slate-500 dark:text-slate-400 leading-snug text-[12px] italic">
+                                  {payload.clarification_question}
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {showCollapsed && (
+                          <div className="px-4 py-2 text-[12px] text-slate-500 dark:text-slate-400">
+                            {payload.entity_description ? `Looking for: ${payload.entity_description}` : 'Intent understood'}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
                 );
