@@ -858,8 +858,8 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
       const rows = await res.json();
       if (!Array.isArray(rows)) return;
 
-      console.log('[INTENT] all artefact types:', rows.map((r: any) => r.artefact_type));
-      console.log('[INTENT] intent_narrative row:', rows.find((r: any) => r.artefact_type === 'intent_narrative'));
+      console.log('[INTENT] all artefact types:', rows.map((r: any) => r.type));
+      console.log('[INTENT] intent_narrative row:', rows.find((r: any) => r.type === 'intent_narrative'));
 
       // ── intent_narrative injection (finalization path) ──────────────────────────
       // This runs every time finalizeRunUI is called so the card is guaranteed to
