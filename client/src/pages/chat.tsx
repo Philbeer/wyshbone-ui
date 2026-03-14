@@ -834,6 +834,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     const effectiveRunId = runId || supervisorRunIdRef.current;
     const effectiveCrid = crid || supervisorClientRequestIdRef.current;
     const effectiveKey = effectiveRunId || effectiveCrid;
+    console.log('[FINALIZE] called for key:', effectiveKey, 'runId:', effectiveRunId);
 
     if (!effectiveKey) {
       console.warn(`[Chat][finalizeRunUI] No runId or crid available (source=${source}), skipping`);
@@ -1417,6 +1418,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
               const inRes = await fetch(inUrl, { credentials: 'include', cache: 'no-store' });
               if (inRes.ok) {
                 const inRows = await inRes.json();
+                console.log('[INTENT_POLL] runId from map:', runId, 'rows:', inRows?.length);
                 console.log('[INTENT_POLL] rows types:', inRows?.map((r: any) => r.type));
                 if (Array.isArray(inRows)) {
                   const inRow = inRows.find((r: any) => r.type === 'intent_narrative');
@@ -2437,6 +2439,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                     runId: parsed.runId,
                   });
                 }
+                console.log('[RUNID_FIX] updated map entry:', clientRequestId, parsed.runId);
                 window.dispatchEvent(new CustomEvent('wyshbone:run_id', {
                   detail: { runId: parsed.runId, clientRequestId: parsed.clientRequestId || clientRequestId },
                 }));
