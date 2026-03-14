@@ -266,6 +266,7 @@ export function BehaviourInspectContent({ runId, query, timestamp }: {
   }>({ evidenceMap: {}, verifiableConstraints: [] });
 
   useEffect(() => {
+    console.log('[BIC_MOUNT] runId:', runId);
     console.log('[BIC] runId received:', runId);
     if (!runId) {
       setJudgeB(null);
