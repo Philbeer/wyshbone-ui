@@ -1147,25 +1147,10 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         setPreRunPolicyApplied(msg.policyApplied);
       }
     }
-    setMessages((prev) => {
-      const existingIdx = prev.findIndex(m => m.id === msg.id);
-      if (existingIdx >= 0) {
-        const updated = [...prev];
-        updated[existingIdx] = msg;
-        return updated;
-      }
-      const provisionalIdx = prev.findIndex(m => {
-        if ('type' in m) return false;
-        const cm = m as Message;
-        return cm.provisional === true && cm.deliverySummary && cm.id?.startsWith('ds-');
-      });
-      if (provisionalIdx >= 0) {
-        const updated = [...prev];
-        updated[provisionalIdx] = msg;
-        return updated;
-      }
-      return [...prev, msg];
-    });
+    setMessages((prev) => [
+      ...prev.filter((m) => !m.id.startsWith('ds-')),
+      msg,
+    ]);
   }
 
   function cleanupRunState(effectiveKey: string) {
@@ -2385,29 +2370,6 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                   };
                   upsertResultMessage(provisionalBubble);
                   console.log(`[Chat][AFR-Poll] Provisional bubble inserted for ${provisionalKey}`);
-                  // ── HARDCODED INTENT NARRATIVE TEST ─────────────────────────
-                  // If this card appears in chat, the renderer works.
-                  // If not, the isIntentNarrative render path is broken.
-                  setMessages((prev) => {
-                    if (prev.some(m => m.id === 'intent-test-hardcoded')) return prev;
-                    return [...prev, {
-                      id: 'intent-test-hardcoded',
-                      role: 'assistant' as const,
-                      content: '',
-                      timestamp: new Date(),
-                      source: 'supervisor',
-                      isIntentNarrative: true,
-                      intentNarrativePayload: {
-                        entity_description: 'TEST - intent card working',
-                        entity_exclusions: ['test exclusion'],
-                        commercial_context: 'test context',
-                        findability: 'moderate',
-                        scarcity_expectation: 'scarce',
-                        suggested_approaches: ['test approach'],
-                      },
-                    } as Message];
-                  });
-                  // ── END HARDCODED TEST ───────────────────────────────────────
                 }
               }
               
