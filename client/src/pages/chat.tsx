@@ -2965,6 +2965,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                 // NOTE: isClarifySuperseded messages are kept visible (append-only chat transcript).
                 // Previously these were hidden, but the conversation must never visually delete bubbles.
                 if ((chatMessage as any).deliverySummary) return true;
+                if ((chatMessage as any).isIntentNarrative) return true;
                 if (chatMessage.content.trim().length === 0) return false;
                 const content = chatMessage.content.trim();
                 if (chatMessage.role === 'assistant') {
