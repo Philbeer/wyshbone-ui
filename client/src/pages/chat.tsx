@@ -2430,6 +2430,13 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
               const parsed = JSON.parse(data);
               if (parsed.type === 'run_id' && parsed.runId) {
                 supervisorRunIdRef.current = parsed.runId;
+                const existingEntry = inFlightSupervisorRunsRef.current.get(clientRequestId);
+                if (existingEntry) {
+                  inFlightSupervisorRunsRef.current.set(clientRequestId, {
+                    ...existingEntry,
+                    runId: parsed.runId,
+                  });
+                }
                 window.dispatchEvent(new CustomEvent('wyshbone:run_id', {
                   detail: { runId: parsed.runId, clientRequestId: parsed.clientRequestId || clientRequestId },
                 }));
