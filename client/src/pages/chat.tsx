@@ -9,7 +9,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest, authedFetch, addDevAuthParams, buildApiUrl, handleApiError } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Send, User, CheckCircle2, Search, Building2, HelpCircle, Activity, Loader2, AlertTriangle, AlertCircle, ChevronDown, ChevronUp, MapPin, Target, Lightbulb, Gauge, MessageSquare } from "lucide-react";
+import { Send, User, CheckCircle2, Search, Building2, HelpCircle, Activity, Loader2, ChevronDown, ChevronUp, MapPin, Target, Lightbulb, Gauge, MessageSquare } from "lucide-react";
 import type { ChatMessage, AddNoteResponse, DeepResearchCreateRequest } from "@shared/schema";
 import wyshboneLogo from "@assets/wyshbone-logo_1759667581806.png";
 import { LocationSuggestions } from "@/components/LocationSuggestions";
@@ -82,9 +82,6 @@ type Message = ChatMessage & {
   contactCounts?: ContactCounts | null;
   runReceipt?: RunReceipt | null;
   semanticJudgements?: SemanticJudgementEntry[] | null;
-  isClarifyMsg?: boolean;
-  isClarifySuperseded?: boolean;
-  isClarifyResolved?: boolean;
 };
 
 type SystemMessage = {
@@ -295,46 +292,6 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
   // Dev-only debug panel state
   const [showDebugPanel, setShowDebugPanel] = useState(false);
   
-  // Clarification state
-  const [isClarifyingForRun, setIsClarifyingForRun] = useState(false);
-  const actionedSearchNowIds = useRef<Set<string>>(new Set());
-  const [, forceSearchNowRender] = useState(0);
-
-  interface ConstraintContract {
-    type: string;
-    can_execute: boolean;
-    explanation?: string;
-    why_blocked?: string;
-    suggested_rephrase?: string;
-    proxy_options?: string[];
-    required_inputs_missing?: string[];
-    subjective_terms?: string[];
-    subjective_options?: string[];
-    numeric_options?: string[];
-    relationship_options?: string[];
-  }
-
-  interface ClarifyContext {
-    entityType: string | null;
-    location: string | null;
-    semanticConstraint: string | null;
-    count: string | null;
-    missingFields: string[];
-    status: 'gathering' | 'ready';
-    pendingQuestions: string[];
-    constraintContract?: ConstraintContract | null;
-  }
-  const EMPTY_CLARIFY_CONTEXT: ClarifyContext = {
-    entityType: null, location: null, semanticConstraint: null,
-    count: null, missingFields: [], status: 'gathering', pendingQuestions: [],
-    constraintContract: null,
-  };
-  const [clarifyContext, setClarifyContext] = useState<ClarifyContext>(EMPTY_CLARIFY_CONTEXT);
-  const prevClarifyMsgIdRef = useRef<string | null>(null);
-  const latestClarifyMsgIdRef = useRef<string | null>(null);
-  const pendingClarifyRunRef = useRef<{ runId: string | null; crid: string } | null>(null);
-  const clarifyResolvedKeysRef = useRef<Set<string>>(new Set());
-
   // Supervisor integration
   const [supervisorTaskId, setSupervisorTaskId] = useState<string | null>(null);
   const [isWaitingForSupervisor, setIsWaitingForSupervisor] = useState(false);
@@ -1268,7 +1225,6 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
 
     let stopped = false;
     const terminalDetected = new Set<string>();
-    const clarifyDetected = new Set<string>();
     const lastKnownStatus = new Map<string, string>();
     const runFirstSeen = new Map<string, number>();
     const SOFT_TIMEOUT_MS = 30_000;
@@ -1388,7 +1344,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
           if (status) lastKnownStatus.set(effectiveKey, status);
 
           const runElapsed = Date.now() - runFirstSeen.get(effectiveKey)!;
-          const isClarifying = clarifyDetected.has(effectiveKey) || status === 'clarifying';
+          const isClarifying = status === 'clarifying';
           if (runElapsed > ABSOLUTE_TIMEOUT_MS && !isClarifying) {
             console.warn(`[Chat][AFR-Poll] Absolute timeout (${Math.round(runElapsed / 1000)}s) for ${effectiveKey}. Giving up.`);
             emitRunFailureBubble(effectiveKey, runId, 'run_timeout');
@@ -1451,170 +1407,6 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
           }
 
 
-          const shouldCheckClarifyGate =
-            (status === 'clarifying' || status === 'executing' || status === 'stopped' || isTerminal) &&
-            !clarifyDetected.has(effectiveKey) &&
-            !clarifyResolvedKeysRef.current.has(effectiveKey);
-
-          if (shouldCheckClarifyGate) {
-            console.log(`[Chat][AFR-Poll] Checking for clarify_gate artefact on ${effectiveKey} (status=${status})`);
-
-            try {
-              const artParams = new URLSearchParams();
-              if (crid) artParams.set('client_request_id', crid);
-              if (runId) artParams.set('runId', runId);
-              const artUrl = addDevAuthParams(buildApiUrl(`/api/afr/artefacts?${artParams.toString()}`));
-              const artRes = await fetch(artUrl, { credentials: 'include', cache: 'no-store' });
-              if (artRes.ok) {
-                const artRows = await artRes.json();
-                let gateRow: any = null;
-                let gateSource: 'clarify_gate' | 'constraint_gate_diagnostic' | null = null;
-
-                if (Array.isArray(artRows)) {
-                  gateRow = artRows.find((r: any) => r.type === 'clarify_gate');
-                  if (gateRow) {
-                    gateSource = 'clarify_gate';
-                  } else {
-                    gateRow = artRows.find((r: any) => {
-                      if (r.type !== 'diagnostic') return false;
-                      const t = (r.title || '').toLowerCase();
-                      if (t.includes('constraint gate') && t.includes('blocked')) return true;
-                      let pj = r.payload_json;
-                      if (typeof pj === 'string') { try { pj = JSON.parse(pj); } catch { return false; } }
-                      if (pj?.constraint_contract?.can_execute === false && pj?.constraint_contract?.clarify_questions?.length > 0) return true;
-                      return false;
-                    });
-                    if (gateRow) gateSource = 'constraint_gate_diagnostic';
-                  }
-                }
-
-                const hasResolution = Array.isArray(artRows) && artRows.some((r: any) => r.type === 'clarify_resolution');
-
-                if (gateRow && hasResolution) {
-                  console.log(`[Chat][AFR-Poll] Found clarify_gate but also clarify_resolution for ${effectiveKey} — clarification already resolved, skipping`);
-                  clarifyResolvedKeysRef.current.add(effectiveKey);
-                  gateRow = null;
-                }
-
-                if (gateRow) {
-                  clarifyDetected.add(effectiveKey);
-                  let gatePayload = gateRow.payload_json;
-                  if (typeof gatePayload === 'string') {
-                    try { gatePayload = JSON.parse(gatePayload); } catch { gatePayload = null; }
-                  }
-
-                  const cc = gatePayload?.constraint_contract;
-                  const blockedConstraint = Array.isArray(cc?.constraints)
-                    ? cc.constraints.find((c: any) => c.can_execute === false && c.clarify_question)
-                    : null;
-
-                  const questions: string[] =
-                    Array.isArray(cc?.clarify_questions) ? cc.clarify_questions
-                    : Array.isArray(gatePayload?.questions) ? gatePayload.questions
-                    : [];
-
-                  const reason: string =
-                    (questions.length > 0 ? questions[0] : null)
-                    || blockedConstraint?.clarify_question
-                    || cc?.why_blocked
-                    || gatePayload?.reason
-                    || gatePayload?.why_blocked
-                    || gatePayload?.question
-                    || gatePayload?.prompt
-                    || gatePayload?.message
-                    || gatePayload?.description
-                    || gateRow.summary
-                    || 'I need a bit more information before I can search.';
-
-                  const options: string[] =
-                    Array.isArray(gatePayload?.options) ? gatePayload.options
-                    : Array.isArray(gatePayload?.choices) ? gatePayload.choices
-                    : Array.isArray(cc?.options) ? cc.options
-                    : Array.isArray(blockedConstraint?.options) ? blockedConstraint.options
-                    : Array.isArray(gatePayload?.subjective_options) ? gatePayload.subjective_options
-                    : Array.isArray(gatePayload?.numeric_options) ? gatePayload.numeric_options
-                    : Array.isArray(gatePayload?.relationship_options) ? gatePayload.relationship_options
-                    : Array.isArray(gatePayload?.proxy_options) ? gatePayload.proxy_options
-                    : [];
-
-                  const constraintType: string =
-                    blockedConstraint?.type
-                    || gatePayload?.constraint_type
-                    || gatePayload?.type
-                    || (cc?.constraints?.[0]?.type)
-                    || 'unknown';
-                  const constraintLabel: string =
-                    gatePayload?.constraint_label
-                    || gatePayload?.label
-                    || blockedConstraint?.predicate
-                    || blockedConstraint?.attribute
-                    || constraintType;
-                  const parsedFields = gatePayload?.parsed_fields || gatePayload?.fields || {};
-
-                  const normalizedConstraintType =
-                    constraintType === 'subjective_term' || constraintType === 'subjective' ? 'subjective'
-                    : constraintType === 'numeric_predicate' || constraintType === 'numeric_ambiguity' ? 'numeric_ambiguity'
-                    : constraintType === 'relationship_predicate' || constraintType === 'relationship' ? 'relationship_predicate'
-                    : constraintType === 'time_predicate' ? 'time_predicate'
-                    : constraintType;
-
-                  const contract: ConstraintContract = {
-                    type: normalizedConstraintType,
-                    can_execute: false,
-                    why_blocked: reason,
-                    ...(normalizedConstraintType === 'subjective' ? { subjective_options: options } : {}),
-                    ...(normalizedConstraintType === 'numeric_ambiguity' ? { numeric_options: options } : {}),
-                    ...(normalizedConstraintType === 'relationship_predicate' ? { relationship_options: options } : {}),
-                    ...(normalizedConstraintType !== 'subjective' && normalizedConstraintType !== 'numeric_ambiguity' && normalizedConstraintType !== 'relationship_predicate' ? { proxy_options: options } : {}),
-                  };
-
-                  setClarifyContext({
-                    entityType: parsedFields.business_type || parsedFields.entity_type || null,
-                    location: parsedFields.location || parsedFields.location_text || null,
-                    semanticConstraint: constraintLabel !== 'unknown' ? constraintLabel : null,
-                    count: parsedFields.count || parsedFields.requested_count || null,
-                    missingFields: [],
-                    status: 'gathering',
-                    pendingQuestions: questions.length > 0 ? questions : [reason],
-                    constraintContract: contract,
-                  });
-                  setIsClarifyingForRun(true);
-                  setLastLane("chat");
-                  pendingClarifyRunRef.current = { runId: runId || null, crid: crid || effectiveKey };
-
-                  let clarifyContent = reason;
-
-                  const clarifyMsgId = `clarify-gate-${effectiveKey}`;
-                  setMessages((prev) => {
-                    if (prev.some(m => m.id === clarifyMsgId)) return prev;
-                    return [...prev, {
-                      id: clarifyMsgId,
-                      role: 'assistant' as const,
-                      content: clarifyContent,
-                      timestamp: new Date(),
-                      isClarifyMsg: true,
-                    }];
-                  });
-
-                  setMessages((prev) => prev.filter(m => {
-                    if (m.id === `ds-${effectiveKey}` && m.deliverySummary) {
-                      if (m.provisional === true) return false;
-                      if ((m.deliverySummary as any).stop_reason === 'still_working') return false;
-                    }
-                    return true;
-                  }));
-
-                  console.log(`[Chat][AFR-Poll] Surfaced ${gateSource} for ${effectiveKey}: type=${constraintType}, reason=${reason.slice(0, 80)}, options=${options.length}`);
-                  continue;
-                } else if (status === 'clarifying') {
-                  console.log(`[Chat][AFR-Poll] Run ${effectiveKey} is clarifying but no clarify_gate artefact found yet`);
-                }
-              }
-            } catch (err) {
-              console.warn(`[Chat][AFR-Poll] Error fetching clarify_gate for ${effectiveKey}:`, err);
-            }
-          }
-
           // ── intent_narrative artefact check ────────────────────────────────────────
           if (!intentNarrativeSeenRef.current.has(effectiveKey)) {
             try {
@@ -1663,42 +1455,9 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
             }
           }
 
-          if (clarifyDetected.has(effectiveKey)) {
-            if (status === 'executing' || status === 'finalizing' || status === 'completed' || status === 'failed' || (status === 'stopped' && !data.clarify_gate)) {
-              clarifyDetected.delete(effectiveKey);
-              clarifyResolvedKeysRef.current.add(effectiveKey);
-              pendingClarifyRunRef.current = null;
-              setIsClarifyingForRun(false);
-              setClarifyContext(null);
-
-              const clarifyMsgId = `clarify-gate-${effectiveKey}`;
-              setMessages((prev) => prev.map(m => {
-                if (m.id === clarifyMsgId && m.isClarifyMsg) {
-                  return {
-                    ...m,
-                    content: m.content,
-                    isClarifyMsg: false,
-                    isClarifyResolved: true,
-                  };
-                }
-                return m;
-              }));
-
-              console.log(`[Chat][AFR-Poll] Clarification resolved for ${effectiveKey}, status now ${status} — cleared clarify UI state`);
-            } else {
-              continue;
-            }
-          }
-
           if (isTerminal || status === 'completed' || status === 'failed' || 
               terminalState === 'PASS' || terminalState === 'FAIL' || terminalState === 'STOP') {
             terminalDetected.add(effectiveKey);
-            clarifyResolvedKeysRef.current.add(effectiveKey);
-            if (clarifyDetected.has(effectiveKey)) {
-              clarifyDetected.delete(effectiveKey);
-            }
-            setIsClarifyingForRun(false);
-            setClarifyContext(null);
 
             const finalized = await fetchArtefactsWithRetry(runId, crid);
             if (!finalized) {
@@ -2250,13 +2009,6 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         setInput("");
         setIsStreaming(false);
         setShowLocationSuggestions(false);
-        setIsClarifyingForRun(false);
-        setClarifyContext(EMPTY_CLARIFY_CONTEXT);
-        clarifyResolvedKeysRef.current.clear();
-        prevClarifyMsgIdRef.current = null;
-        latestClarifyMsgIdRef.current = null;
-        pendingClarifyRunRef.current = null;
-        actionedSearchNowIds.current.clear();
         setActiveClientRequestId(null);
         setSupervisorTaskId(null);
         setIsWaitingForSupervisor(false);
@@ -2313,13 +2065,6 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         setIsStreaming(false);
         setInput("");
         setShowLocationSuggestions(false);
-        setIsClarifyingForRun(false);
-        setClarifyContext(EMPTY_CLARIFY_CONTEXT);
-        clarifyResolvedKeysRef.current.clear();
-        prevClarifyMsgIdRef.current = null;
-        latestClarifyMsgIdRef.current = null;
-        pendingClarifyRunRef.current = null;
-        actionedSearchNowIds.current.clear();
         setActiveClientRequestId(null);
         setSupervisorTaskId(null);
         setIsWaitingForSupervisor(false);
@@ -2400,8 +2145,8 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
   }, [onLoadConversation]);
 
 
-  const streamChatResponse = async (conversationMessages: ChatMessage[], clarifyContinuation?: { runId: string | null; crid: string }) => {
-    if (inFlightRequestIdRef.current && !clarifyContinuation) {
+  const streamChatResponse = async (conversationMessages: ChatMessage[]) => {
+    if (inFlightRequestIdRef.current) {
       return;
     }
     
@@ -2412,27 +2157,24 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     
     setIsStreaming(true);
     
-    const clientRequestId = clarifyContinuation ? clarifyContinuation.crid : crypto.randomUUID();
+    const clientRequestId = crypto.randomUUID();
     inFlightRequestIdRef.current = clientRequestId;
     
     setProgressStack([]);
     setExecutedToolsSummary(null);
     setActiveClientRequestId(clientRequestId);
     
-    if (!clarifyContinuation) {
-      setCurrentClientRequestId(clientRequestId);
-      const lastUserMsg = conversationMessages.filter(m => m.role === 'user').pop();
-      const runLabel = lastUserMsg?.content ? (lastUserMsg.content.length > 25 ? lastUserMsg.content.slice(0, 25) + '…' : lastUserMsg.content) : undefined;
-      addRecentRun(clientRequestId, runLabel);
-      if (!userPinned) {
-        setPinnedClientRequestId(clientRequestId);
-      }
+    setCurrentClientRequestId(clientRequestId);
+    const lastUserMsg = conversationMessages.filter(m => m.role === 'user').pop();
+    const runLabel = lastUserMsg?.content ? (lastUserMsg.content.length > 25 ? lastUserMsg.content.slice(0, 25) + '…' : lastUserMsg.content) : undefined;
+    addRecentRun(clientRequestId, runLabel);
+    if (!userPinned) {
+      setPinnedClientRequestId(clientRequestId);
     }
     setLastCompletedClientRequestId(null);
     
     const assistantMessageId = crypto.randomUUID();
     let isRunLane = false;
-    let streamIsClarifying = false;
 
     try {
       // Create abort controller for this request
@@ -2456,10 +2198,6 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
           ...(pendingMetadataRef.current?.follow_up ? { follow_up: pendingMetadataRef.current.follow_up } : {}),
           google_query_mode: getGoogleQueryMode(),
           run_config_overrides: (runConfigOverrides.speed_mode !== "balanced" || runConfigOverrides.replan_ceiling !== undefined || runConfigOverrides.ignore_learned_policy) ? runConfigOverrides : undefined,
-          ...(clarifyContinuation ? {
-            clarify_run_id: clarifyContinuation.runId || undefined,
-            clarify_client_request_id: clarifyContinuation.crid,
-          } : {}),
         }),
         signal: abortControllerRef.current.signal,
         credentials: "include",
@@ -2577,84 +2315,36 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                 }
               }
               
-              if (parsed.type === 'clarify_for_run') {
-                streamIsClarifying = true;
-                setIsClarifyingForRun(true);
-                setLastLane("chat");
-                prevClarifyMsgIdRef.current = latestClarifyMsgIdRef.current;
-                if (parsed.clarify_state) {
-                  const incomingMissing: string[] = parsed.clarify_state.missingFields ?? [];
-                  let incomingStatus: 'gathering' | 'ready' = parsed.clarify_state.status ?? 'gathering';
-
-                  if (incomingStatus === 'ready' && incomingMissing.length > 0) {
-                    console.warn('[ClarifyPanel] Inconsistent clarify_state from server: status=ready but missingFields=', incomingMissing, '— treating as gathering');
-                    incomingStatus = 'gathering';
-                  }
-
-                  const incomingContract = parsed.clarify_state.constraint_contract ?? parsed.clarify_state.constraintContract ?? null;
-
-                  setClarifyContext({
-                    entityType: parsed.clarify_state.entityType ?? null,
-                    location: parsed.clarify_state.location ?? null,
-                    semanticConstraint: parsed.clarify_state.semanticConstraint ?? null,
-                    count: parsed.clarify_state.count ?? null,
-                    missingFields: incomingMissing,
-                    status: incomingStatus,
-                    pendingQuestions: parsed.clarify_state.pendingQuestions ?? [],
-                    constraintContract: incomingContract,
-                  });
-                }
-                console.log('🔍 Clarifying before run');
-              }
-
-              if (parsed.type === 'clarify_session_ended') {
-                streamIsClarifying = false;
-                setIsClarifyingForRun(false);
-                setClarifyContext(EMPTY_CLARIFY_CONTEXT);
-                clarifyResolvedKeysRef.current.add(clientRequestId);
-                prevClarifyMsgIdRef.current = null;
-                latestClarifyMsgIdRef.current = null;
-                console.log('✅ Clarify session ended');
-              }
-
               if (parsed.type === 'confidence' && parsed.content) {
-                if (streamIsClarifying) {
-                  console.log('[Chat] Suppressed confidence bubble during clarification:', parsed.content);
-                } else {
-                  const confidenceId = `confidence-${Date.now()}`;
-                  const sanitisedContent = parsed.content
-                    .replace(/\s+and\s+return\s+exactly\b[^.]*/gi, '')
-                    .replace(/\s{2,}/g, ' ')
-                    .trim();
-                  const normalizedIncoming = sanitisedContent.toLowerCase().replace(/\s+/g, ' ').replace(/[.!?]+$/, '');
-                  setMessages((prev) => {
-                    const now = Date.now();
-                    const lastConfidence = [...prev].reverse().find(m => m.isConfidence);
-                    if (lastConfidence && (now - lastConfidence.timestamp.getTime()) < 10000) {
-                      const normalizedExisting = lastConfidence.content.trim().toLowerCase().replace(/\s+/g, ' ').replace(/[.!?]+$/, '');
-                      if (normalizedExisting === normalizedIncoming) {
-                        return prev;
-                      }
+                const confidenceId = `confidence-${Date.now()}`;
+                const sanitisedContent = parsed.content
+                  .replace(/\s+and\s+return\s+exactly\b[^.]*/gi, '')
+                  .replace(/\s{2,}/g, ' ')
+                  .trim();
+                const normalizedIncoming = sanitisedContent.toLowerCase().replace(/\s+/g, ' ').replace(/[.!?]+$/, '');
+                setMessages((prev) => {
+                  const now = Date.now();
+                  const lastConfidence = [...prev].reverse().find(m => m.isConfidence);
+                  if (lastConfidence && (now - lastConfidence.timestamp.getTime()) < 10000) {
+                    const normalizedExisting = lastConfidence.content.trim().toLowerCase().replace(/\s+/g, ' ').replace(/[.!?]+$/, '');
+                    if (normalizedExisting === normalizedIncoming) {
+                      return prev;
                     }
-                    return [
-                      ...prev,
-                      {
-                        id: confidenceId,
-                        role: 'assistant' as const,
-                        content: sanitisedContent,
-                        timestamp: new Date(),
-                        isConfidence: true,
-                      },
-                    ];
-                  });
-                }
+                  }
+                  return [
+                    ...prev,
+                    {
+                      id: confidenceId,
+                      role: 'assistant' as const,
+                      content: sanitisedContent,
+                      timestamp: new Date(),
+                      isConfidence: true,
+                    },
+                  ];
+                });
               }
 
               if (parsed.supervisorTaskId) {
-                streamIsClarifying = false;
-                setIsClarifyingForRun(false);
-                setClarifyContext(EMPTY_CLARIFY_CONTEXT);
-                clarifyResolvedKeysRef.current.add(clientRequestId);
                 streamHasSupervisorTask = true;
                 isRunLane = true;
                 setLastLane("run");
@@ -2705,17 +2395,10 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                 }
                 accumulatedContent += parsed.content;
 
-                if (streamIsClarifying) {
-                  latestClarifyMsgIdRef.current = assistantMessageId;
-                  // Append-only: do NOT mark previous clarify messages as superseded.
-                  // All chat bubbles remain visible even when clarify state updates.
-                  prevClarifyMsgIdRef.current = null;
-                }
-
                 setMessages((prev) => {
                   const exists = prev.some(m => m.id === assistantMessageId);
                   if (!exists) {
-                    return [...prev, { id: assistantMessageId, role: 'assistant' as const, content: accumulatedContent, timestamp: new Date(), isClarifyMsg: streamIsClarifying || undefined }];
+                    return [...prev, { id: assistantMessageId, role: 'assistant' as const, content: accumulatedContent, timestamp: new Date() }];
                   }
                   return prev.map((msg) =>
                     msg.id === assistantMessageId
@@ -2880,8 +2563,6 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     } catch (error: any) {
       setIsStreaming(false);
       inFlightRequestIdRef.current = null;
-      setIsClarifyingForRun(false);
-      setClarifyContext(EMPTY_CLARIFY_CONTEXT);
       
       // ROBUST CLEANUP: Clear soft lock state on error
       setActiveClientRequestId(null);
@@ -3046,11 +2727,9 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     setShowLocationSuggestions(false);
 
     const currentHistory = messages.filter((msg): msg is Message => !("type" in msg));
-    const clarifyRun = pendingClarifyRunRef.current;
-    const isAnsweringClarify = isClarifyingForRun && !!clarifyRun;
-    const intent = isAnsweringClarify ? 'CONTINUE' : classifyIntent(messageContent, currentHistory);
+    const intent = classifyIntent(messageContent, currentHistory);
 
-    console.log(`[Chat] Intent classified: ${intent} for message: "${messageContent.slice(0, 50)}..."${isAnsweringClarify ? ' (forced CONTINUE: clarify answer)' : ''}`);
+    console.log(`[Chat] Intent classified: ${intent} for message: "${messageContent.slice(0, 50)}..."`);
 
     const userMessage: Message = {
       id: crypto.randomUUID(),
@@ -3096,17 +2775,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
       conversationHistory = [...recentHistory, { role: userMessage.role, content: userMessage.content }];
     }
 
-    if (isAnsweringClarify && clarifyRun) {
-      console.log(`[Chat][ClarifyContinuation] Replying to pending clarify run crid=${clarifyRun.crid.slice(0, 12)} runId=${clarifyRun.runId}`);
-      clarifyResolvedKeysRef.current.add(clarifyRun.crid);
-      if (clarifyRun.runId) clarifyResolvedKeysRef.current.add(clarifyRun.runId);
-      pendingClarifyRunRef.current = null;
-      setIsClarifyingForRun(false);
-      setClarifyContext(EMPTY_CLARIFY_CONTEXT);
-      streamChatResponse(conversationHistory, clarifyRun);
-    } else {
-      streamChatResponse(conversationHistory);
-    }
+    streamChatResponse(conversationHistory);
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -3802,9 +3471,6 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
               }
 
               if (chatMessage.isConfidence) {
-                if (isClarifyingForRun && clarifyContext.constraintContract && !clarifyContext.constraintContract.can_execute) {
-                  return null;
-                }
                 const allMsgs = Array.isArray(messages) ? messages : [];
                 const myIndex = allMsgs.findIndex(m => m.id === chatMessage.id);
                 const hasResultAfter = allMsgs.slice(myIndex + 1).some(m => (m as Message).deliverySummary && !(m as Message).provisional);
@@ -3867,29 +3533,24 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                         </span>
                       </div>
                     )}
+                    {(() => {
+                      const isQuestion = !isUser && !isSupervisor && chatMessage.content.trimEnd().endsWith('?');
+                      return (
                     <div
                       className={`rounded-lg px-4 py-3 ${
                         isUser
                           ? "bg-primary text-primary-foreground"
-                          : chatMessage.isClarifyMsg
-                          ? "bg-amber-50 dark:bg-amber-950/40 border-2 border-amber-400 dark:border-amber-600"
-                          : chatMessage.isClarifyResolved
-                          ? "bg-muted/50 border border-border opacity-70"
+                          : isQuestion
+                          ? "bg-card border-2 border-primary/30 dark:border-primary/40"
                           : isSupervisor
                           ? "bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-950 dark:to-blue-900 border border-blue-200 dark:border-blue-800"
                           : "bg-card border border-card-border"
                       }`}
                     >
-                      {!isUser && chatMessage.isClarifyResolved && (
-                        <div className="flex items-center gap-1.5 mb-2 text-xs text-muted-foreground">
-                          <CheckCircle2 className="w-3.5 h-3.5 text-green-500" />
-                          <span>Clarification answered — search resumed</span>
-                        </div>
-                      )}
-                      {!isUser && chatMessage.isClarifyMsg && (
-                        <div className="flex items-center gap-1.5 mb-2 text-xs font-medium text-amber-700 dark:text-amber-400">
-                          <AlertCircle className="w-3.5 h-3.5" />
-                          <span>Action required — please answer below</span>
+                      {isQuestion && (
+                        <div className="flex items-center gap-1.5 mb-2 text-xs font-medium text-primary/70">
+                          <HelpCircle className="w-3.5 h-3.5" />
+                          <span>Question from Wyshbone</span>
                         </div>
                       )}
                       {!isUser && (chatMessage.content.includes('# 📊') || chatMessage.content.includes('[') && chatMessage.content.includes('](')) ? (
@@ -3938,22 +3599,8 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                         <p className="text-[15px] leading-relaxed whitespace-pre-wrap">{chatMessage.content}</p>
                       )}
                     </div>
-                    {!isUser && isClarifyingForRun && /search now/i.test(chatMessage.content) && !actionedSearchNowIds.current.has(chatMessage.id) && clarifyContext.status === 'ready' && clarifyContext.missingFields.length === 0 && !(clarifyContext.constraintContract && !clarifyContext.constraintContract.can_execute) && (
-                      <Button
-                        variant="default"
-                        size="sm"
-                        className="mt-1.5 h-7 text-xs gap-1.5"
-                        onClick={() => {
-                          if (actionedSearchNowIds.current.has(chatMessage.id)) return;
-                          actionedSearchNowIds.current.add(chatMessage.id);
-                          forceSearchNowRender(n => n + 1);
-                          handleSendRef.current?.("Search now");
-                        }}
-                      >
-                        <Search className="h-3 w-3" />
-                        Search now
-                      </Button>
-                    )}
+                      );
+                    })()}
                     <span className="text-xs text-muted-foreground mt-1">
                       {chatMessage.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                     </span>
@@ -3963,9 +3610,8 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
             })
           )}
 
-          {/* Progress Stack - shows only user-facing status updates during request; hidden during clarification */}
+          {/* Progress Stack - shows only user-facing status updates during request */}
           {(() => {
-            if (isClarifyingForRun) return null;
             const HIDDEN_STAGES = new Set(['ack', 'classifying', 'planning', 'completed']);
             const visibleEvents = progressStack.filter(e => !HIDDEN_STAGES.has(e.stage));
             if (visibleEvents.length === 0) return null;
@@ -4059,206 +3705,6 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
             </div>
           )}
 
-          {isClarifyingForRun && !isWaitingForSupervisor && (
-            <div className="mb-3 mx-2 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50/80 dark:bg-amber-950/30 px-4 py-3 space-y-2">
-              <div className="flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
-                <span className="text-xs font-semibold text-amber-800 dark:text-amber-200 uppercase tracking-wide">
-                  {clarifyContext.constraintContract && !clarifyContext.constraintContract.can_execute
-                    ? 'Quick question'
-                    : 'Almost ready'}
-                </span>
-              </div>
-              {(clarifyContext.entityType || clarifyContext.location || clarifyContext.semanticConstraint) && (
-                <div className="text-sm text-amber-900 dark:text-amber-100">
-                  <span className="text-muted-foreground text-xs">Looking for: </span>
-                  {clarifyContext.count && <span className="font-medium">{clarifyContext.count} </span>}
-                  {clarifyContext.entityType && <span className="font-medium">{clarifyContext.entityType}</span>}
-                  {clarifyContext.location && <span className="font-medium">{clarifyContext.entityType ? ` in ${clarifyContext.location}` : clarifyContext.location}</span>}
-                  {clarifyContext.semanticConstraint && <span className="text-xs text-muted-foreground ml-1">({clarifyContext.semanticConstraint})</span>}
-                </div>
-              )}
-              {clarifyContext.missingFields.length > 0 && (
-                <div className="flex flex-wrap gap-1.5 mt-1">
-                  {clarifyContext.missingFields.map((field) => (
-                    <span key={field} className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-200/60 dark:bg-amber-800/40 text-amber-800 dark:text-amber-200">
-                      {field === 'entity_type' ? 'Business type' : field === 'location' ? 'Location' : field === 'semantic_constraint' ? 'Constraint' : field}
-                    </span>
-                  ))}
-                </div>
-              )}
-              {clarifyContext.constraintContract && !clarifyContext.constraintContract.can_execute && (
-                <div className="space-y-2 mt-1 rounded-md border border-red-300 dark:border-red-700 bg-red-50/60 dark:bg-red-900/20 px-3 py-2" data-testid="constraint-clarification">
-                  {clarifyContext.constraintContract.why_blocked && (
-                    <div className="flex items-start gap-2 text-xs text-red-800 dark:text-red-200 font-medium" data-testid="why-blocked-message">
-                      <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0 mt-0.5 text-red-600 dark:text-red-400" />
-                      <span>{clarifyContext.constraintContract.why_blocked}</span>
-                    </div>
-                  )}
-                  {clarifyContext.constraintContract.suggested_rephrase && (
-                    <p className="text-[11px] text-muted-foreground italic pl-5" data-testid="suggested-rephrase">
-                      Try: &ldquo;{clarifyContext.constraintContract.suggested_rephrase}&rdquo;
-                    </p>
-                  )}
-                  {!clarifyContext.constraintContract.why_blocked && (
-                    <p className="text-xs text-amber-800 dark:text-amber-200 font-medium">
-                      {clarifyContext.constraintContract.explanation || (clarifyContext.constraintContract.type === 'time_predicate' ? "Exact opening dates aren't reliably available." : "I need a bit more detail before I can search.")}
-                    </p>
-                  )}
-                  {clarifyContext.constraintContract.type === 'subjective' && Array.isArray(clarifyContext.constraintContract.subjective_options) && clarifyContext.constraintContract.subjective_options.length > 0 && (
-                    <div className="space-y-1.5" data-testid="subjective-options">
-                      <p className="text-[10px] text-amber-700 dark:text-amber-300 uppercase tracking-wide font-semibold">What kind?</p>
-                      <div className="flex flex-wrap gap-1.5">
-                        {clarifyContext.constraintContract.subjective_options.map((option, idx) => (
-                          <button
-                            key={idx}
-                            type="button"
-                            className="inline-flex items-center px-3 py-1.5 rounded-full text-xs font-medium border border-amber-300 dark:border-amber-600 bg-white dark:bg-amber-950/40 hover:bg-amber-100 dark:hover:bg-amber-900/50 text-amber-900 dark:text-amber-100 transition-colors"
-                            data-testid={`subjective-option-${option.toLowerCase().replace(/\s+/g, '-')}`}
-                            onClick={() => {
-                              handleSendRef.current?.(option);
-                            }}
-                          >
-                            {option}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  {clarifyContext.constraintContract.type === 'numeric_ambiguity' && Array.isArray(clarifyContext.constraintContract.numeric_options) && clarifyContext.constraintContract.numeric_options.length > 0 && (
-                    <div className="space-y-1.5" data-testid="numeric-options">
-                      <p className="text-[10px] text-amber-700 dark:text-amber-300 uppercase tracking-wide font-semibold">How many results?</p>
-                      <div className="flex flex-wrap gap-1.5">
-                        {clarifyContext.constraintContract.numeric_options.map((option, idx) => (
-                          <button
-                            key={idx}
-                            type="button"
-                            className="inline-flex items-center px-4 py-1.5 rounded-full text-xs font-medium border border-amber-300 dark:border-amber-600 bg-white dark:bg-amber-950/40 hover:bg-amber-100 dark:hover:bg-amber-900/50 text-amber-900 dark:text-amber-100 transition-colors"
-                            data-testid={`numeric-option-${option.toLowerCase()}`}
-                            onClick={() => {
-                              handleSendRef.current?.(option.toLowerCase());
-                            }}
-                          >
-                            {option}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  {clarifyContext.constraintContract.type === 'relationship_predicate' && Array.isArray(clarifyContext.constraintContract.relationship_options) && clarifyContext.constraintContract.relationship_options.length > 0 && (
-                    <div className="space-y-1.5" data-testid="relationship-options">
-                      <p className="text-[10px] text-amber-700 dark:text-amber-300 uppercase tracking-wide font-semibold">How should I verify this?</p>
-                      <div className="flex flex-col gap-1">
-                        {clarifyContext.constraintContract.relationship_options.map((option, idx) => (
-                          <button
-                            key={idx}
-                            type="button"
-                            className="block w-full text-left text-xs px-2 py-1.5 rounded border border-amber-200 dark:border-amber-700 bg-white dark:bg-amber-950/40 hover:bg-amber-50 dark:hover:bg-amber-900/40 text-amber-900 dark:text-amber-100 transition-colors"
-                            data-testid={`relationship-option-${option.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`}
-                            onClick={() => {
-                              handleSendRef.current?.(option.toLowerCase());
-                            }}
-                          >
-                            {idx + 1}. {option}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  {clarifyContext.constraintContract.type !== 'subjective' && clarifyContext.constraintContract.type !== 'numeric_ambiguity' && clarifyContext.constraintContract.type !== 'relationship_predicate' && Array.isArray(clarifyContext.constraintContract.proxy_options) && clarifyContext.constraintContract.proxy_options.length > 0 && (
-                    <div className="space-y-1">
-                      <p className="text-[10px] text-amber-700 dark:text-amber-300 uppercase tracking-wide font-semibold">Which approach?</p>
-                      {clarifyContext.constraintContract.proxy_options.map((option, idx) => (
-                        <button
-                          key={idx}
-                          type="button"
-                          className="block w-full text-left text-xs px-2 py-1.5 rounded border border-amber-200 dark:border-amber-700 bg-white dark:bg-amber-950/40 hover:bg-amber-50 dark:hover:bg-amber-900/40 text-amber-900 dark:text-amber-100 transition-colors"
-                          onClick={() => {
-                            handleSendRef.current?.(option);
-                          }}
-                        >
-                          {idx + 1}. {option}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                  <div className="space-y-1 pt-1 border-t border-red-200 dark:border-red-800" data-testid="safe-next-actions">
-                    <p className="text-[10px] text-red-700 dark:text-red-300 uppercase tracking-wide font-semibold">Or instead</p>
-                    {clarifyContext.constraintContract.type !== 'subjective' && clarifyContext.constraintContract.type !== 'numeric_ambiguity' && clarifyContext.constraintContract.type !== 'relationship_predicate' && (
-                      <button
-                        type="button"
-                        className="block w-full text-left text-xs px-2 py-1.5 rounded border border-amber-200 dark:border-amber-700 bg-white dark:bg-amber-950/40 hover:bg-amber-50 dark:hover:bg-amber-900/40 text-amber-900 dark:text-amber-100 transition-colors"
-                        onClick={() => { handleSendRef.current?.("Use best-effort search instead"); }}
-                      >
-                        Just do a best-effort search
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      className="block w-full text-left text-xs px-2 py-1.5 rounded border border-amber-200 dark:border-amber-700 bg-white dark:bg-amber-950/40 hover:bg-amber-50 dark:hover:bg-amber-900/40 text-amber-900 dark:text-amber-100 transition-colors"
-                      onClick={() => { handleSendRef.current?.("cancel"); }}
-                    >
-                      Start over with a different query
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {clarifyContext.constraintContract && Array.isArray(clarifyContext.constraintContract.required_inputs_missing) && clarifyContext.constraintContract.required_inputs_missing.length > 0 && (
-                <div className="mt-1">
-                  <p className="text-[10px] text-amber-700 dark:text-amber-300 uppercase tracking-wide font-semibold mb-1">I still need</p>
-                  <ul className="list-disc list-inside space-y-0.5">
-                    {clarifyContext.constraintContract.required_inputs_missing.map((item, idx) => (
-                      <li key={idx} className="text-xs text-amber-800 dark:text-amber-200">{item}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              {clarifyContext.pendingQuestions.length > 0 && (clarifyContext.missingFields.length > 0 || clarifyContext.status !== 'ready' || (clarifyContext.constraintContract && !clarifyContext.constraintContract.can_execute)) && (
-                <div className="space-y-1" data-testid="pending-questions">
-                  {clarifyContext.pendingQuestions.map((question, idx) => (
-                    <div key={idx} className="text-xs text-amber-700 dark:text-amber-300">
-                      <HelpCircle className="h-3 w-3 inline mr-1" />
-                      {question}
-                    </div>
-                  ))}
-                </div>
-              )}
-              {(clarifyContext.missingFields.length > 0 || clarifyContext.status !== 'ready') && !(clarifyContext.constraintContract && !clarifyContext.constraintContract.can_execute) && (
-                <div className="text-xs text-amber-700 dark:text-amber-300 mt-1">
-                  <Loader2 className="h-3 w-3 inline mr-1 animate-spin" />
-                  Just need a bit more info before I can search.
-                </div>
-              )}
-              {clarifyContext.constraintContract && !clarifyContext.constraintContract.can_execute && !(clarifyContext.missingFields.length > 0) && (
-                <div className="text-xs text-amber-700 dark:text-amber-300 mt-1">
-                  <HelpCircle className="h-3 w-3 inline mr-1" />
-                  Pick an option above to continue.
-                </div>
-              )}
-              {clarifyContext.missingFields.length === 0 && clarifyContext.status === 'ready' && !(clarifyContext.constraintContract && !clarifyContext.constraintContract.can_execute) && (
-                <div className="flex items-center gap-2 mt-1">
-                  <div className="text-xs text-green-700 dark:text-green-300">
-                    <CheckCircle2 className="h-3 w-3 inline mr-1" />
-                    All set.
-                  </div>
-                  <Button
-                    variant="default"
-                    size="sm"
-                    className="h-7 text-xs gap-1.5"
-                    onClick={() => {
-                      handleSendRef.current?.("Search now");
-                    }}
-                  >
-                    <Search className="h-3 w-3" />
-                    Search now
-                  </Button>
-                </div>
-              )}
-            </div>
-          )}
-
           {/* Supervisor thinking indicator */}
           {isWaitingForSupervisor && (
             <div className="flex gap-3 flex-row" data-testid="supervisor-loading">
@@ -4277,8 +3723,8 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
             </div>
           )}
 
-          {/* Thinking indicator — hidden when supervisor banner is active or during clarification-only */}
-          {isStreaming && !isWaitingForSupervisor && !isClarifyingForRun && (
+          {/* Thinking indicator — hidden when supervisor banner is active */}
+          {isStreaming && !isWaitingForSupervisor && (
             <div className="flex gap-3 flex-row" data-testid="thinking-indicator">
               <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0">
                 <img src={wyshboneLogo} alt="Wyshbone" className="w-full h-full object-cover" />
