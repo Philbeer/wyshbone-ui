@@ -2307,8 +2307,7 @@ NOTES
 ## Important Notes
 - For clarify/blocked queries — do NOT search. Instead confirm why the query requires clarification and set expected outcome to WRONG_DECISION if an agent ran without clarifying, or PASS if it correctly asked for clarification.
 - Be rigorous about what counts as a match — apply the query constraints strictly.
-- Bot-blocked sites count as accessible matches if the business genuinely meets the criteria.
-- www.wyshbonesales.com`;
+- Bot-blocked sites count as accessible matches if the business genuinely meets the criteria.`;
     const tryClipboard = () => {
       if (navigator.clipboard && window.isSecureContext) {
         return navigator.clipboard.writeText(prompt);
