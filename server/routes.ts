@@ -62,6 +62,7 @@ import { agentActivitiesRouter } from "./routes/agent-activities";
 import { createAfrRouter } from "./routes/afr";
 import { createTelemetryRouter } from "./routes/telemetry";
 import { createQaMetricsRouter } from "./routes/qa-metrics";
+import { createGroundTruthRouter } from "./routes/ground-truth";
 import { createProofRouter } from "./routes/proof";
 import { createSupervisorRouter } from "./routes/supervisor";
 import { hashPassword, verifyPassword, generateId, canCreateMonitor, canCreateDeepResearch, TIER_LIMITS } from "./auth";
@@ -4394,6 +4395,7 @@ ${run.outputText}`;
   app.use("/api/telemetry", createTelemetryRouter());
 
   app.use("/api/qa-metrics", createQaMetricsRouter());
+  app.use("/api/ground-truth", createGroundTruthRouter());
 
   // Register Proof routes - Tower loop proof endpoint
   app.use("/api/proof", createProofRouter(storage));

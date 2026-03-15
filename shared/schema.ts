@@ -2805,3 +2805,23 @@ export const insertQaRunMetricSchema = createInsertSchema(qaRunMetrics);
 export const selectQaRunMetricSchema = createSelectSchema(qaRunMetrics);
 export type InsertQaRunMetric = typeof qaRunMetrics.$inferInsert;
 export type SelectQaRunMetric = typeof qaRunMetrics.$inferSelect;
+
+export const groundTruthRecords = pgTable("ground_truth_records", {
+  id: serial("id").primaryKey(),
+  queryId: text("query_id").notNull().unique(),
+  queryText: text("query_text").notNull(),
+  queryClass: text("query_class").notNull(),
+  trueUniverse: jsonb("true_universe").notNull().default([]),
+  deliveryAssessment: jsonb("delivery_assessment").notNull().default({}),
+  expectedBjOutcome: text("expected_bj_outcome").notNull(),
+  reasoning: text("reasoning"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  index("ground_truth_records_query_id_idx").on(table.queryId),
+]);
+
+export const insertGroundTruthRecordSchema = createInsertSchema(groundTruthRecords);
+export const selectGroundTruthRecordSchema = createSelectSchema(groundTruthRecords);
+export type InsertGroundTruthRecord = typeof groundTruthRecords.$inferInsert;
+export type SelectGroundTruthRecord = typeof groundTruthRecords.$inferSelect;

@@ -1773,6 +1773,31 @@ export async function runStartupMigrations(): Promise<void> {
       console.error('⚠️ qa_run_metrics migration error (non-fatal):', error?.message || error);
     }
   }
+
+  try {
+    await queryClient`
+      CREATE TABLE IF NOT EXISTS public.ground_truth_records (
+        id SERIAL PRIMARY KEY,
+        query_id TEXT NOT NULL UNIQUE,
+        query_text TEXT NOT NULL,
+        query_class TEXT NOT NULL,
+        true_universe JSONB NOT NULL DEFAULT '[]'::jsonb,
+        delivery_assessment JSONB NOT NULL DEFAULT '{}'::jsonb,
+        expected_bj_outcome TEXT NOT NULL,
+        reasoning TEXT,
+        notes TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+      );
+    `;
+    await queryClient`
+      CREATE INDEX IF NOT EXISTS ground_truth_records_query_id_idx ON public.ground_truth_records (query_id);
+    `;
+    console.log('✅ ground_truth_records table ensured');
+  } catch (error: any) {
+    if (error?.code !== '42710' && error?.code !== '42P07' && error?.code !== '42701') {
+      console.error('⚠️ ground_truth_records migration error (non-fatal):', error?.message || error);
+    }
+  }
 }
 
 export class DbStorage implements IStorage {

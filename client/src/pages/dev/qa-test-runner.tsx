@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useMemo } from 'react';
+import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -15,6 +15,9 @@ import {
   ChevronRight,
   BarChart3,
   AlertTriangle,
+  Circle,
+  Plus,
+  X,
 } from 'lucide-react';
 import { buildApiUrl, addDevAuthParams } from '@/lib/queryClient';
 
@@ -1776,6 +1779,597 @@ function BenchmarkSummaryCard({ summary }: { summary: BenchmarkSummary }) {
   );
 }
 
+interface GroundTruthRecord {
+  id: number;
+  queryId: string;
+  queryText: string;
+  queryClass: string;
+  trueUniverse: string[];
+  deliveryAssessment: {
+    truePositives?: string[];
+    falsePositives?: string[];
+    falseNegatives?: string[];
+    precision?: number;
+    recall?: number;
+  };
+  expectedBjOutcome: string;
+  reasoning: string | null;
+  notes: string | null;
+  createdAt: string;
+}
+
+function parseGroundTruthText(raw: string): Partial<{
+  queryId: string;
+  queryText: string;
+  queryClass: string;
+  trueUniverse: string[];
+  deliveryAssessment: Record<string, unknown>;
+  expectedBjOutcome: string;
+  reasoning: string;
+  notes: string;
+}> {
+  const get = (patterns: RegExp[]): string | undefined => {
+    for (const p of patterns) {
+      const m = raw.match(p);
+      if (m) return m[1].trim();
+    }
+    return undefined;
+  };
+
+  const getList = (patterns: RegExp[]): string[] => {
+    for (const p of patterns) {
+      const m = raw.match(p);
+      if (m) {
+        const block = m[1];
+        return block
+          .split(/\n/)
+          .map(l => l.replace(/^[-*•\d.)\s]+/, '').trim())
+          .filter(Boolean);
+      }
+    }
+    return [];
+  };
+
+  const getNum = (patterns: RegExp[]): number | undefined => {
+    const v = get(patterns);
+    if (v !== undefined) {
+      const n = parseFloat(v);
+      if (!isNaN(n)) return n;
+    }
+    return undefined;
+  };
+
+  const queryId = get([
+    /\bquery[_ ]?id[:\s*_]*([A-Za-z0-9_-]+)/i,
+    /\bid[:\s*_]*([A-Za-z][0-9]+)/i,
+  ]);
+
+  const queryText = get([
+    /\bquery[_ ]?text[:\s*_]*(.+)/i,
+    /\bquery[:\s*_]*(.+)/i,
+  ]);
+
+  const queryClass = get([
+    /\bquery[_ ]?class[:\s*_]*(.+)/i,
+    /\bclass[:\s*_]*(.+)/i,
+  ]);
+
+  const trueUniverse = getList([
+    /\btrue[_ ]?universe[:\s*_]*\n((?:[-*•].*\n?)+)/i,
+    /\btrue[_ ]?universe[:\s*_]*([\s\S]+?)(?:\n\n|\n[A-Z])/i,
+  ]);
+
+  const tpList = getList([/\btrue[_ ]?positives?[:\s*_]*\n((?:[-*•].*\n?)+)/i]);
+  const fpList = getList([/\bfalse[_ ]?positives?[:\s*_]*\n((?:[-*•].*\n?)+)/i]);
+  const fnList = getList([/\bfalse[_ ]?negatives?[:\s*_]*\n((?:[-*•].*\n?)+)/i]);
+
+  const tpInline = get([/\btrue[_ ]?positives?[:\s*_]*(.+)/i]);
+  const fpInline = get([/\bfalse[_ ]?positives?[:\s*_]*(.+)/i]);
+  const fnInline = get([/\bfalse[_ ]?negatives?[:\s*_]*(.+)/i]);
+
+  const precision = getNum([/\bprecision[:\s*_]*([\d.]+)/i]);
+  const recall = getNum([/\brecall[:\s*_]*([\d.]+)/i]);
+
+  const deliveryAssessment: Record<string, unknown> = {};
+  const tp = tpList.length ? tpList : tpInline ? [tpInline] : [];
+  const fp = fpList.length ? fpList : fpInline ? [fpInline] : [];
+  const fn = fnList.length ? fnList : fnInline ? [fnInline] : [];
+  if (tp.length) deliveryAssessment.truePositives = tp;
+  if (fp.length) deliveryAssessment.falsePositives = fp;
+  if (fn.length) deliveryAssessment.falseNegatives = fn;
+  if (precision !== undefined) deliveryAssessment.precision = precision;
+  if (recall !== undefined) deliveryAssessment.recall = recall;
+
+  const expectedBjOutcome = get([
+    /\bexpected[_ ]?bj[_ ]?outcome[:\s*_]*(.+)/i,
+    /\bexpected[_ ]?outcome[:\s*_]*(.+)/i,
+    /\bbj[_ ]?outcome[:\s*_]*(.+)/i,
+  ]);
+
+  const reasoning = get([/\breasoning[:\s*_]*([\s\S]+?)(?:\n\n|\nnotes|\z)/i]);
+  const notes = get([/\bnotes[:\s*_]*([\s\S]+?)$/i]);
+
+  return {
+    queryId,
+    queryText,
+    queryClass,
+    trueUniverse: trueUniverse.length ? trueUniverse : undefined,
+    deliveryAssessment: Object.keys(deliveryAssessment).length ? deliveryAssessment : undefined,
+    expectedBjOutcome,
+    reasoning,
+    notes,
+  };
+}
+
+function useGroundTruth() {
+  const [records, setRecords] = useState<Map<string, GroundTruthRecord>>(new Map());
+  const [loading, setLoading] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const url = buildApiUrl(addDevAuthParams('/api/ground-truth'));
+      const res = await fetch(url, { credentials: 'include' });
+      if (res.ok) {
+        const data = await res.json();
+        const map = new Map<string, GroundTruthRecord>();
+        for (const r of data.records ?? []) map.set(r.queryId, r);
+        setRecords(map);
+      }
+    } catch {}
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const save = useCallback(async (payload: Omit<GroundTruthRecord, 'id' | 'createdAt'>): Promise<boolean> => {
+    try {
+      const url = buildApiUrl(addDevAuthParams('/api/ground-truth'));
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(payload),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.record) {
+          setRecords(prev => new Map(prev).set(data.record.queryId, data.record));
+        }
+        return true;
+      }
+    } catch {}
+    return false;
+  }, []);
+
+  return { records, loading, load, save };
+}
+
+function GroundTruthViewModal({ record, onClose }: { record: GroundTruthRecord; onClose: () => void }) {
+  const da = record.deliveryAssessment as {
+    truePositives?: string[];
+    falsePositives?: string[];
+    falseNegatives?: string[];
+    precision?: number;
+    recall?: number;
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
+      <div
+        className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto mx-4"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-6 py-4 border-b">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-5 h-5 text-green-600" />
+            <h2 className="font-bold text-gray-800">Ground Truth — {record.queryId}</h2>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="px-6 py-5 space-y-5 text-sm">
+          <div>
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-1">Query ID &amp; Text</div>
+            <div className="font-mono text-xs text-purple-700 mb-0.5">{record.queryId}</div>
+            <div className="text-gray-800">{record.queryText}</div>
+          </div>
+
+          <div>
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-1">Query Class</div>
+            <Badge variant="outline" className="text-xs">{record.queryClass}</Badge>
+          </div>
+
+          <div>
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-1">True Universe</div>
+            {record.trueUniverse.length > 0 ? (
+              <ul className="space-y-0.5 list-disc list-inside text-gray-700">
+                {record.trueUniverse.map((item, i) => <li key={i}>{item}</li>)}
+              </ul>
+            ) : (
+              <span className="text-gray-400 italic">No items recorded</span>
+            )}
+          </div>
+
+          <div>
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-2">Wyshbone Delivery Assessment</div>
+            <div className="grid grid-cols-2 gap-3">
+              {da.truePositives && (
+                <div className="col-span-2">
+                  <div className="text-xs font-medium text-green-700 mb-0.5">True Positives</div>
+                  <ul className="list-disc list-inside text-gray-700 text-xs space-y-0.5">
+                    {da.truePositives.map((v, i) => <li key={i}>{v}</li>)}
+                  </ul>
+                </div>
+              )}
+              {da.falsePositives && (
+                <div>
+                  <div className="text-xs font-medium text-red-600 mb-0.5">False Positives</div>
+                  <ul className="list-disc list-inside text-gray-700 text-xs space-y-0.5">
+                    {da.falsePositives.map((v, i) => <li key={i}>{v}</li>)}
+                  </ul>
+                </div>
+              )}
+              {da.falseNegatives && (
+                <div>
+                  <div className="text-xs font-medium text-amber-600 mb-0.5">False Negatives</div>
+                  <ul className="list-disc list-inside text-gray-700 text-xs space-y-0.5">
+                    {da.falseNegatives.map((v, i) => <li key={i}>{v}</li>)}
+                  </ul>
+                </div>
+              )}
+              {(da.precision !== undefined || da.recall !== undefined) && (
+                <div className="col-span-2 flex gap-6 mt-1">
+                  {da.precision !== undefined && (
+                    <span className="text-xs"><span className="font-medium text-gray-600">Precision:</span> {da.precision}</span>
+                  )}
+                  {da.recall !== undefined && (
+                    <span className="text-xs"><span className="font-medium text-gray-600">Recall:</span> {da.recall}</span>
+                  )}
+                </div>
+              )}
+            </div>
+            {!da.truePositives && !da.falsePositives && !da.falseNegatives && da.precision === undefined && da.recall === undefined && (
+              <span className="text-gray-400 italic text-xs">No delivery assessment recorded</span>
+            )}
+          </div>
+
+          <div>
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-1">Expected BJ Outcome</div>
+            <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold ${
+              record.expectedBjOutcome.toLowerCase() === 'pass'
+                ? 'bg-green-100 text-green-700'
+                : record.expectedBjOutcome.toLowerCase() === 'fail'
+                  ? 'bg-red-100 text-red-700'
+                  : 'bg-gray-100 text-gray-700'
+            }`}>{record.expectedBjOutcome}</span>
+          </div>
+
+          {record.reasoning && (
+            <div>
+              <div className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-1">Reasoning</div>
+              <p className="text-gray-700 leading-relaxed">{record.reasoning}</p>
+            </div>
+          )}
+
+          {record.notes && (
+            <div>
+              <div className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-1">Notes</div>
+              <p className="text-gray-600 italic">{record.notes}</p>
+            </div>
+          )}
+
+          <div className="text-[10px] text-gray-300 pt-2 border-t">
+            Created: {new Date(record.createdAt).toLocaleString()}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function GroundTruthAddModal({
+  queryId,
+  queryText,
+  queryClass,
+  onClose,
+  onSaved,
+}: {
+  queryId: string;
+  queryText: string;
+  queryClass: string;
+  onClose: () => void;
+  onSaved: (record: GroundTruthRecord) => void;
+}) {
+  const [pasteText, setPasteText] = useState('');
+  const [fields, setFields] = useState<{
+    queryId: string;
+    queryText: string;
+    queryClass: string;
+    trueUniverse: string;
+    truePositives: string;
+    falsePositives: string;
+    falseNegatives: string;
+    precision: string;
+    recall: string;
+    expectedBjOutcome: string;
+    reasoning: string;
+    notes: string;
+  }>({
+    queryId,
+    queryText,
+    queryClass,
+    trueUniverse: '',
+    truePositives: '',
+    falsePositives: '',
+    falseNegatives: '',
+    precision: '',
+    recall: '',
+    expectedBjOutcome: '',
+    reasoning: '',
+    notes: '',
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [tab, setTab] = useState<'paste' | 'manual'>('paste');
+
+  const applyPaste = () => {
+    const parsed = parseGroundTruthText(pasteText);
+    setFields(prev => ({
+      ...prev,
+      queryId: parsed.queryId ?? prev.queryId,
+      queryText: parsed.queryText ?? prev.queryText,
+      queryClass: parsed.queryClass ?? prev.queryClass,
+      trueUniverse: parsed.trueUniverse?.join('\n') ?? prev.trueUniverse,
+      truePositives: (parsed.deliveryAssessment?.truePositives as string[] | undefined)?.join('\n') ?? prev.truePositives,
+      falsePositives: (parsed.deliveryAssessment?.falsePositives as string[] | undefined)?.join('\n') ?? prev.falsePositives,
+      falseNegatives: (parsed.deliveryAssessment?.falseNegatives as string[] | undefined)?.join('\n') ?? prev.falseNegatives,
+      precision: parsed.deliveryAssessment?.precision !== undefined ? String(parsed.deliveryAssessment.precision) : prev.precision,
+      recall: parsed.deliveryAssessment?.recall !== undefined ? String(parsed.deliveryAssessment.recall) : prev.recall,
+      expectedBjOutcome: parsed.expectedBjOutcome ?? prev.expectedBjOutcome,
+      reasoning: parsed.reasoning ?? prev.reasoning,
+      notes: parsed.notes ?? prev.notes,
+    }));
+    setTab('manual');
+  };
+
+  const handleSave = async () => {
+    if (!fields.queryId.trim() || !fields.queryText.trim() || !fields.queryClass.trim() || !fields.expectedBjOutcome.trim()) {
+      setError('Query ID, query text, query class and expected BJ outcome are required.');
+      return;
+    }
+    setSaving(true);
+    setError(null);
+
+    const parseLines = (s: string) => s.split('\n').map(l => l.replace(/^[-*•\d.)\s]+/, '').trim()).filter(Boolean);
+    const deliveryAssessment: Record<string, unknown> = {};
+    const tp = parseLines(fields.truePositives);
+    const fp = parseLines(fields.falsePositives);
+    const fn_ = parseLines(fields.falseNegatives);
+    if (tp.length) deliveryAssessment.truePositives = tp;
+    if (fp.length) deliveryAssessment.falsePositives = fp;
+    if (fn_.length) deliveryAssessment.falseNegatives = fn_;
+    if (fields.precision) deliveryAssessment.precision = parseFloat(fields.precision);
+    if (fields.recall) deliveryAssessment.recall = parseFloat(fields.recall);
+
+    try {
+      const url = buildApiUrl(addDevAuthParams('/api/ground-truth'));
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          queryId: fields.queryId.trim(),
+          queryText: fields.queryText.trim(),
+          queryClass: fields.queryClass.trim(),
+          trueUniverse: parseLines(fields.trueUniverse),
+          deliveryAssessment,
+          expectedBjOutcome: fields.expectedBjOutcome.trim(),
+          reasoning: fields.reasoning.trim() || null,
+          notes: fields.notes.trim() || null,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.record) {
+        onSaved(data.record);
+        onClose();
+      } else {
+        setError(data.error || 'Failed to save');
+      }
+    } catch {
+      setError('Network error');
+    }
+    setSaving(false);
+  };
+
+  const inputCls = "w-full border border-gray-300 rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400";
+  const labelCls = "block text-[11px] font-semibold uppercase tracking-wider text-gray-500 mb-1";
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
+      <div
+        className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto mx-4"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-6 py-4 border-b">
+          <div className="flex items-center gap-2">
+            <Plus className="w-5 h-5 text-purple-600" />
+            <h2 className="font-bold text-gray-800">Add Ground Truth — {queryId}</h2>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="px-6 py-5 space-y-4 text-sm">
+          <div className="flex gap-2 border-b pb-3">
+            <button
+              onClick={() => setTab('paste')}
+              className={`px-3 py-1 rounded text-xs font-medium ${tab === 'paste' ? 'bg-purple-100 text-purple-700' : 'text-gray-500 hover:text-gray-700'}`}
+            >
+              Paste text
+            </button>
+            <button
+              onClick={() => setTab('manual')}
+              className={`px-3 py-1 rounded text-xs font-medium ${tab === 'manual' ? 'bg-purple-100 text-purple-700' : 'text-gray-500 hover:text-gray-700'}`}
+            >
+              Fill fields
+            </button>
+          </div>
+
+          {tab === 'paste' && (
+            <div className="space-y-3">
+              <p className="text-xs text-gray-500">Paste a ground truth record in plain text (e.g. from Claude). The fields below will be auto-populated.</p>
+              <textarea
+                value={pasteText}
+                onChange={e => setPasteText(e.target.value)}
+                placeholder="Paste ground truth text here…"
+                rows={12}
+                className={inputCls + " font-mono text-xs"}
+              />
+              <Button onClick={applyPaste} disabled={!pasteText.trim()} className="bg-purple-600 hover:bg-purple-700 w-full">
+                Parse &amp; fill fields →
+              </Button>
+            </div>
+          )}
+
+          {tab === 'manual' && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className={labelCls}>Query ID</label>
+                  <input className={inputCls} value={fields.queryId} onChange={e => setFields(p => ({ ...p, queryId: e.target.value }))} />
+                </div>
+                <div>
+                  <label className={labelCls}>Query Class</label>
+                  <input className={inputCls} value={fields.queryClass} onChange={e => setFields(p => ({ ...p, queryClass: e.target.value }))} />
+                </div>
+              </div>
+              <div>
+                <label className={labelCls}>Query Text</label>
+                <input className={inputCls} value={fields.queryText} onChange={e => setFields(p => ({ ...p, queryText: e.target.value }))} />
+              </div>
+              <div>
+                <label className={labelCls}>True Universe (one per line)</label>
+                <textarea className={inputCls} rows={4} value={fields.trueUniverse} onChange={e => setFields(p => ({ ...p, trueUniverse: e.target.value }))} placeholder="- The Swan, Arundel&#10;- Swan Hotel" />
+              </div>
+              <div className="grid grid-cols-1 gap-3">
+                <div>
+                  <label className={labelCls}>True Positives (one per line)</label>
+                  <textarea className={inputCls} rows={2} value={fields.truePositives} onChange={e => setFields(p => ({ ...p, truePositives: e.target.value }))} />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className={labelCls}>False Positives (one per line)</label>
+                    <textarea className={inputCls} rows={2} value={fields.falsePositives} onChange={e => setFields(p => ({ ...p, falsePositives: e.target.value }))} />
+                  </div>
+                  <div>
+                    <label className={labelCls}>False Negatives (one per line)</label>
+                    <textarea className={inputCls} rows={2} value={fields.falseNegatives} onChange={e => setFields(p => ({ ...p, falseNegatives: e.target.value }))} />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className={labelCls}>Precision (0–1)</label>
+                    <input className={inputCls} type="number" step="0.01" min="0" max="1" value={fields.precision} onChange={e => setFields(p => ({ ...p, precision: e.target.value }))} />
+                  </div>
+                  <div>
+                    <label className={labelCls}>Recall (0–1)</label>
+                    <input className={inputCls} type="number" step="0.01" min="0" max="1" value={fields.recall} onChange={e => setFields(p => ({ ...p, recall: e.target.value }))} />
+                  </div>
+                </div>
+              </div>
+              <div>
+                <label className={labelCls}>Expected BJ Outcome</label>
+                <select className={inputCls} value={fields.expectedBjOutcome} onChange={e => setFields(p => ({ ...p, expectedBjOutcome: e.target.value }))}>
+                  <option value="">Select…</option>
+                  <option value="pass">pass</option>
+                  <option value="fail">fail</option>
+                </select>
+              </div>
+              <div>
+                <label className={labelCls}>Reasoning</label>
+                <textarea className={inputCls} rows={3} value={fields.reasoning} onChange={e => setFields(p => ({ ...p, reasoning: e.target.value }))} />
+              </div>
+              <div>
+                <label className={labelCls}>Notes</label>
+                <textarea className={inputCls} rows={2} value={fields.notes} onChange={e => setFields(p => ({ ...p, notes: e.target.value }))} />
+              </div>
+
+              {error && <p className="text-sm text-red-600">{error}</p>}
+
+              <div className="flex gap-2 pt-2">
+                <Button onClick={handleSave} disabled={saving} className="bg-purple-600 hover:bg-purple-700 flex-1">
+                  {saving ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Saving…</> : 'Save ground truth'}
+                </Button>
+                <Button variant="outline" onClick={onClose}>Cancel</Button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function GroundTruthIndicator({
+  queryId,
+  queryText,
+  queryClass,
+  record,
+  onSaved,
+}: {
+  queryId: string;
+  queryText: string;
+  queryClass: string;
+  record: GroundTruthRecord | undefined;
+  onSaved: (r: GroundTruthRecord) => void;
+}) {
+  const [showView, setShowView] = useState(false);
+  const [showAdd, setShowAdd] = useState(false);
+
+  if (record) {
+    return (
+      <>
+        <button
+          onClick={() => setShowView(true)}
+          title="View ground truth record"
+          className="inline-flex items-center gap-1 text-green-600 hover:text-green-700 shrink-0"
+        >
+          <CheckCircle2 className="w-3.5 h-3.5" />
+        </button>
+        {showView && <GroundTruthViewModal record={record} onClose={() => setShowView(false)} />}
+      </>
+    );
+  }
+
+  return (
+    <>
+      <span title="No ground truth record" className="inline-flex items-center text-gray-300 shrink-0">
+        <Circle className="w-3.5 h-3.5" />
+      </span>
+      <button
+        onClick={() => setShowAdd(true)}
+        title="Add ground truth record"
+        className="inline-flex items-center gap-0.5 text-[10px] text-gray-400 hover:text-purple-600 shrink-0 border border-dashed border-gray-300 hover:border-purple-400 rounded px-1 py-0.5 leading-none"
+      >
+        <Plus className="w-2.5 h-2.5" />Add GT
+      </button>
+      {showAdd && (
+        <GroundTruthAddModal
+          queryId={queryId}
+          queryText={queryText}
+          queryClass={queryClass}
+          onClose={() => setShowAdd(false)}
+          onSaved={r => { onSaved(r); setShowAdd(false); }}
+        />
+      )}
+    </>
+  );
+}
+
 function AdHocRunner() {
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
@@ -1937,6 +2531,23 @@ export default function QaTestRunnerPage() {
   const [benchmarkProgress, setBenchmarkProgress] = useState<BenchmarkProgress | null>(null);
   const [benchmarkSummary, setBenchmarkSummary] = useState<BenchmarkSummary | null>(null);
   const isBenchmarkRunning = suiteStatus === 'running' && selectedSuiteId === 'full-benchmark';
+
+  const [gtRecords, setGtRecords] = useState<Map<string, GroundTruthRecord>>(new Map());
+  useEffect(() => {
+    fetch(buildApiUrl(addDevAuthParams('/api/ground-truth')), { credentials: 'include' })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (!data) return;
+        const map = new Map<string, GroundTruthRecord>();
+        for (const r of data.records ?? []) map.set(r.queryId, r);
+        setGtRecords(map);
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleGtSaved = useCallback((record: GroundTruthRecord) => {
+    setGtRecords(prev => new Map(prev).set(record.queryId, record));
+  }, []);
 
   const selectedSuite = useMemo(() => SUITES.find(s => s.id === selectedSuiteId)!, [selectedSuiteId]);
 
@@ -2395,6 +3006,13 @@ export default function QaTestRunnerPage() {
                     <span className={`${isChecked ? 'text-gray-800' : 'text-gray-400'}`}>{t.query}</span>
                     <div className="flex items-center gap-2 mt-0.5">
                       {expectedBadge(t.expected)}
+                      <GroundTruthIndicator
+                        queryId={t.id}
+                        queryText={t.query}
+                        queryClass={t.queryClass}
+                        record={gtRecords.get(t.id)}
+                        onSaved={handleGtSaved}
+                      />
                     </div>
                   </div>
                 </label>
@@ -2452,6 +3070,13 @@ export default function QaTestRunnerPage() {
                     )}
                     <div className="flex items-center gap-2 mt-0.5">
                       {expectedBadge(r.expected)}
+                      <GroundTruthIndicator
+                        queryId={r.id}
+                        queryText={r.query}
+                        queryClass={r.queryClass}
+                        record={gtRecords.get(r.id)}
+                        onSaved={handleGtSaved}
+                      />
                       {r.resultSummary && <span className="text-xs text-gray-400">{r.resultSummary}</span>}
                     </div>
                     {r.clarified && (
