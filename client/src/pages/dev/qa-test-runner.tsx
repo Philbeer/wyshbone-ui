@@ -2262,6 +2262,68 @@ function GroundTruthIndicator({
   const [showView, setShowView] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
   const [editingRecord, setEditingRecord] = useState<GroundTruthRecord | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const handleCopyPrompt = () => {
+    const today = new Date().toLocaleDateString('en-GB', { year: 'numeric', month: 'long', day: 'numeric' });
+    const prompt = `You are establishing ground truth for the Wyshbone AI lead finder evaluation suite. Your job is to independently find the genuine answer to this query by searching and visiting websites yourself.
+
+## The Query
+${queryText}
+
+## Your Task — complete each step once only, do not repeat searches
+
+**Step 1 — Establish the true universe (max 3-4 searches)**
+Search Google independently and visit actual business websites to find all genuine matches for this query. Do not stop early — check the top results thoroughly. For each genuine match record:
+- Business name
+- Website URL
+- The specific evidence confirming it matches (exact quote, name confirmation, etc.)
+- Whether the website was accessible or bot-blocked
+
+Stop after 4 searches maximum. If results are sparse after 2 searches, that is genuine scarcity — record it.
+
+**Step 2 — Produce the ground truth record in exactly this format:**
+
+GROUND TRUTH RECORD
+Query ID: ${queryId}
+Query: ${queryText}
+Query Class: [simple_discovery / website_evidence / name_match / relationship / clarify_required]
+Date: ${today}
+
+TRUE UNIVERSE
+Matches:
+- [Business name] | [URL] | [Evidence confirming match] | [accessible / bot_blocked]
+
+MATCH CRITERIA
+[Describe the rules for what counts as a valid match for this specific query]
+
+EXPECTED BEHAVIOUR JUDGE OUTCOME
+Expected outcome: [PASS / HONEST_PARTIAL / BATCH_EXHAUSTED / CAPABILITY_FAIL / WRONG_DECISION]
+Reasoning: [1-2 sentences — what should a correctly functioning agent return for this query?]
+
+NOTES
+[Scarcity, bot-blocking, edge cases, ambiguity]
+
+## Important Notes
+- For clarify/blocked queries — do NOT search. Instead confirm why the query requires clarification and set expected outcome to WRONG_DECISION if an agent ran without clarifying, or PASS if it correctly asked for clarification.
+- Be rigorous about what counts as a match — apply the query constraints strictly.
+- Bot-blocked sites count as accessible matches if the business genuinely meets the criteria.
+- www.wyshbonesales.com`;
+    navigator.clipboard.writeText(prompt).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+  const gtPromptButton = (
+    <button
+      onClick={handleCopyPrompt}
+      title="Copy GT prompt for Claude"
+      className="inline-flex items-center gap-0.5 text-[10px] text-gray-400 hover:text-blue-600 shrink-0 border border-gray-300 hover:border-blue-400 rounded px-1 py-0.5 leading-none"
+    >
+      {copied ? 'Copied!' : 'GT Prompt'}
+    </button>
+  );
 
   const handleEdit = (r: GroundTruthRecord) => {
     setShowView(false);
@@ -2289,6 +2351,7 @@ function GroundTruthIndicator({
         >
           <CheckCircle2 className="w-3.5 h-3.5" />
         </button>
+        {gtPromptButton}
         {showView && (
           <GroundTruthViewModal
             record={record}
@@ -2323,6 +2386,7 @@ function GroundTruthIndicator({
       >
         <Plus className="w-2.5 h-2.5" />Add GT
       </button>
+      {gtPromptButton}
       {showAdd && (
         <GroundTruthAddModal
           queryId={queryId}
