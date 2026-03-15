@@ -1945,13 +1945,28 @@ function useGroundTruth() {
   return { records, loading, load, save };
 }
 
-function GroundTruthViewModal({ record, onClose }: { record: GroundTruthRecord; onClose: () => void }) {
+function GroundTruthViewModal({ record, onClose, onDeleted }: { record: GroundTruthRecord; onClose: () => void; onDeleted: (queryId: string) => void }) {
+  const [deleting, setDeleting] = useState(false);
   const da = record.deliveryAssessment as {
     truePositives?: string[];
     falsePositives?: string[];
     falseNegatives?: string[];
     precision?: number;
     recall?: number;
+  };
+
+  const handleDelete = async () => {
+    if (!window.confirm('Are you sure you want to delete this ground truth record?')) return;
+    setDeleting(true);
+    try {
+      const url = buildApiUrl(addDevAuthParams(`/api/ground-truth/${encodeURIComponent(record.queryId)}`));
+      const res = await fetch(url, { method: 'DELETE', credentials: 'include' });
+      if (res.ok) {
+        onDeleted(record.queryId);
+        onClose();
+      }
+    } catch {}
+    setDeleting(false);
   };
 
   return (
@@ -2061,8 +2076,17 @@ function GroundTruthViewModal({ record, onClose }: { record: GroundTruthRecord; 
             </div>
           )}
 
-          <div className="text-[10px] text-gray-300 pt-2 border-t">
-            Created: {new Date(record.createdAt).toLocaleString()}
+          <div className="flex items-center justify-between pt-3 border-t">
+            <div className="text-[10px] text-gray-300">
+              Created: {new Date(record.createdAt).toLocaleString()}
+            </div>
+            <button
+              onClick={handleDelete}
+              disabled={deleting}
+              className="text-xs font-medium text-red-600 border border-red-300 hover:bg-red-50 rounded px-2.5 py-1 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {deleting ? 'Deleting…' : 'Delete Ground Truth Record'}
+            </button>
           </div>
         </div>
       </div>
@@ -2320,12 +2344,14 @@ function GroundTruthIndicator({
   queryClass,
   record,
   onSaved,
+  onDeleted,
 }: {
   queryId: string;
   queryText: string;
   queryClass: string;
   record: GroundTruthRecord | undefined;
   onSaved: (r: GroundTruthRecord) => void;
+  onDeleted: (queryId: string) => void;
 }) {
   const [showView, setShowView] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
@@ -2340,7 +2366,13 @@ function GroundTruthIndicator({
         >
           <CheckCircle2 className="w-3.5 h-3.5" />
         </button>
-        {showView && <GroundTruthViewModal record={record} onClose={() => setShowView(false)} />}
+        {showView && (
+          <GroundTruthViewModal
+            record={record}
+            onClose={() => setShowView(false)}
+            onDeleted={onDeleted}
+          />
+        )}
       </>
     );
   }
@@ -2547,6 +2579,14 @@ export default function QaTestRunnerPage() {
 
   const handleGtSaved = useCallback((record: GroundTruthRecord) => {
     setGtRecords(prev => new Map(prev).set(record.queryId, record));
+  }, []);
+
+  const handleGtDeleted = useCallback((queryId: string) => {
+    setGtRecords(prev => {
+      const next = new Map(prev);
+      next.delete(queryId);
+      return next;
+    });
   }, []);
 
   const selectedSuite = useMemo(() => SUITES.find(s => s.id === selectedSuiteId)!, [selectedSuiteId]);
@@ -3012,6 +3052,7 @@ export default function QaTestRunnerPage() {
                         queryClass={t.queryClass}
                         record={gtRecords.get(t.id)}
                         onSaved={handleGtSaved}
+                        onDeleted={handleGtDeleted}
                       />
                     </div>
                   </div>
@@ -3076,6 +3117,7 @@ export default function QaTestRunnerPage() {
                         queryClass={r.queryClass}
                         record={gtRecords.get(r.id)}
                         onSaved={handleGtSaved}
+                        onDeleted={handleGtDeleted}
                       />
                       {r.resultSummary && <span className="text-xs text-gray-400">{r.resultSummary}</span>}
                     </div>
