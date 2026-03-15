@@ -1817,7 +1817,8 @@ function parseGroundTruthText(raw: string): Partial<{
         const block = m[1];
         return block
           .split(/\n/)
-          .map(l => l.replace(/^[-*•\d.)\s]+/, '').trim())
+          .filter(l => /^\s*[-*•]/.test(l))
+          .map(l => l.replace(/^\s*[-*•\s]+/, '').trim())
           .filter(Boolean);
       }
     }
@@ -1831,7 +1832,7 @@ function parseGroundTruthText(raw: string): Partial<{
 
   const queryText = get([
     /\bquery[_ ]?text[:\s*_]*(.+)/i,
-    /\bquery[:\s*_]*(.+)/i,
+    /\bquery(?![_ ]?id\b)[:\s*_]*(.+)/i,
   ]);
 
   const queryClass = get([
@@ -1846,11 +1847,12 @@ function parseGroundTruthText(raw: string): Partial<{
 
   const matchCriteria = get([/\bmatch[_ ]?criteria[:\s*_]*(.+)/i]);
 
-  const expectedBjOutcome = get([
+  const rawOutcome = get([
     /\bexpected[_ ]?bj[_ ]?outcome[:\s*_]*(.+)/i,
     /\bexpected[_ ]?outcome[:\s*_]*(.+)/i,
     /\bbj[_ ]?outcome[:\s*_]*(.+)/i,
   ]);
+  const expectedBjOutcome = rawOutcome?.trim().toLowerCase();
 
   const reasoning = get([/\breasoning[:\s*_]*([\s\S]+?)(?:\n\n|\nnotes|\z)/i]);
   const notes = get([/\bnotes[:\s*_]*([\s\S]+?)$/i]);
@@ -1911,7 +1913,7 @@ function useGroundTruth() {
   return { records, loading, load, save };
 }
 
-function GroundTruthViewModal({ record, onClose, onDeleted }: { record: GroundTruthRecord; onClose: () => void; onDeleted: (queryId: string) => void }) {
+function GroundTruthViewModal({ record, onClose, onDeleted, onEdit }: { record: GroundTruthRecord; onClose: () => void; onDeleted: (queryId: string) => void; onEdit: (record: GroundTruthRecord) => void }) {
   const [deleting, setDeleting] = useState(false);
 
   const handleDelete = async () => {
@@ -2005,13 +2007,21 @@ function GroundTruthViewModal({ record, onClose, onDeleted }: { record: GroundTr
             <div className="text-[10px] text-gray-300">
               Created: {new Date(record.createdAt).toLocaleString()}
             </div>
-            <button
-              onClick={handleDelete}
-              disabled={deleting}
-              className="text-xs font-medium text-red-600 border border-red-300 hover:bg-red-50 rounded px-2.5 py-1 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {deleting ? 'Deleting…' : 'Delete Ground Truth Record'}
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => onEdit(record)}
+                className="text-xs font-medium text-purple-600 border border-purple-300 hover:bg-purple-50 rounded px-2.5 py-1"
+              >
+                Edit
+              </button>
+              <button
+                onClick={handleDelete}
+                disabled={deleting}
+                className="text-xs font-medium text-red-600 border border-red-300 hover:bg-red-50 rounded px-2.5 py-1 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {deleting ? 'Deleting…' : 'Delete Ground Truth Record'}
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -2023,12 +2033,23 @@ function GroundTruthAddModal({
   queryId,
   queryText,
   queryClass,
+  initialFields,
   onClose,
   onSaved,
 }: {
   queryId: string;
   queryText: string;
   queryClass: string;
+  initialFields?: {
+    queryId: string;
+    queryText: string;
+    queryClass: string;
+    trueUniverse: string;
+    matchCriteria: string;
+    expectedBjOutcome: string;
+    reasoning: string;
+    notes: string;
+  };
   onClose: () => void;
   onSaved: (record: GroundTruthRecord) => void;
 }) {
@@ -2042,7 +2063,7 @@ function GroundTruthAddModal({
     expectedBjOutcome: string;
     reasoning: string;
     notes: string;
-  }>({
+  }>(initialFields ?? {
     queryId,
     queryText,
     queryClass,
@@ -2054,7 +2075,7 @@ function GroundTruthAddModal({
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<'paste' | 'manual'>('paste');
+  const [tab, setTab] = useState<'paste' | 'manual'>(initialFields ? 'manual' : 'paste');
 
   const applyPaste = () => {
     const parsed = parseGroundTruthText(pasteText);
@@ -2191,8 +2212,11 @@ function GroundTruthAddModal({
                 <label className={labelCls}>Expected BJ Outcome</label>
                 <select className={inputCls} value={fields.expectedBjOutcome} onChange={e => setFields(p => ({ ...p, expectedBjOutcome: e.target.value }))}>
                   <option value="">Select…</option>
-                  <option value="pass">pass</option>
-                  <option value="fail">fail</option>
+                  <option value="pass">PASS</option>
+                  <option value="honest_partial">HONEST_PARTIAL</option>
+                  <option value="batch_exhausted">BATCH_EXHAUSTED</option>
+                  <option value="capability_fail">CAPABILITY_FAIL</option>
+                  <option value="wrong_decision">WRONG_DECISION</option>
                 </select>
               </div>
               <div>
@@ -2237,6 +2261,23 @@ function GroundTruthIndicator({
 }) {
   const [showView, setShowView] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
+  const [editingRecord, setEditingRecord] = useState<GroundTruthRecord | null>(null);
+
+  const handleEdit = (r: GroundTruthRecord) => {
+    setShowView(false);
+    setEditingRecord(r);
+  };
+
+  const editInitialFields = editingRecord ? {
+    queryId: editingRecord.queryId,
+    queryText: editingRecord.queryText,
+    queryClass: editingRecord.queryClass,
+    trueUniverse: editingRecord.trueUniverse.join('\n'),
+    matchCriteria: editingRecord.matchCriteria ?? '',
+    expectedBjOutcome: editingRecord.expectedBjOutcome,
+    reasoning: editingRecord.reasoning ?? '',
+    notes: editingRecord.notes ?? '',
+  } : undefined;
 
   if (record) {
     return (
@@ -2253,6 +2294,17 @@ function GroundTruthIndicator({
             record={record}
             onClose={() => setShowView(false)}
             onDeleted={onDeleted}
+            onEdit={handleEdit}
+          />
+        )}
+        {editingRecord && (
+          <GroundTruthAddModal
+            queryId={editingRecord.queryId}
+            queryText={editingRecord.queryText}
+            queryClass={editingRecord.queryClass}
+            initialFields={editInitialFields}
+            onClose={() => setEditingRecord(null)}
+            onSaved={r => { onSaved(r); setEditingRecord(null); }}
           />
         )}
       </>
