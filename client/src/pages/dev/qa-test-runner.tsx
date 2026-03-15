@@ -2262,11 +2262,11 @@ function GroundTruthIndicator({
   const [showView, setShowView] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
   const [editingRecord, setEditingRecord] = useState<GroundTruthRecord | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [showPrompt, setShowPrompt] = useState(false);
 
-  const handleCopyPrompt = () => {
+  const buildPromptText = () => {
     const today = new Date().toLocaleDateString('en-GB', { year: 'numeric', month: 'long', day: 'numeric' });
-    const prompt = `You are establishing ground truth for the Wyshbone AI lead finder evaluation suite. Your job is to independently find the genuine answer to this query by searching and visiting websites yourself.
+    return `You are establishing ground truth for the Wyshbone AI lead finder evaluation suite. Your job is to independently find the genuine answer to this query by searching and visiting websites yourself.
 
 ## The Query
 ${queryText}
@@ -2308,38 +2308,15 @@ NOTES
 - For clarify/blocked queries — do NOT search. Instead confirm why the query requires clarification and set expected outcome to WRONG_DECISION if an agent ran without clarifying, or PASS if it correctly asked for clarification.
 - Be rigorous about what counts as a match — apply the query constraints strictly.
 - Bot-blocked sites count as accessible matches if the business genuinely meets the criteria.`;
-    const tryClipboard = () => {
-      if (navigator.clipboard && window.isSecureContext) {
-        return navigator.clipboard.writeText(prompt);
-      }
-      const ta = document.createElement('textarea');
-      ta.value = prompt;
-      ta.style.position = 'fixed';
-      ta.style.left = '-9999px';
-      ta.style.top = '-9999px';
-      document.body.appendChild(ta);
-      ta.focus();
-      ta.select();
-      document.execCommand('copy');
-      document.body.removeChild(ta);
-      return Promise.resolve();
-    };
-    tryClipboard().then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }).catch(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
   };
 
   const gtPromptButton = (
     <button
-      onClick={handleCopyPrompt}
-      title="Copy GT prompt for Claude"
+      onClick={() => setShowPrompt(true)}
+      title="Open GT research prompt"
       className="inline-flex items-center gap-0.5 text-[10px] text-gray-400 hover:text-blue-600 shrink-0 border border-gray-300 hover:border-blue-400 rounded px-1 py-0.5 leading-none"
     >
-      {copied ? 'Copied!' : 'GT Prompt'}
+      GT Prompt
     </button>
   );
 
@@ -2388,6 +2365,13 @@ NOTES
             onSaved={r => { onSaved(r); setEditingRecord(null); }}
           />
         )}
+        {showPrompt && (
+          <GtPromptModal
+            queryId={queryId}
+            promptText={buildPromptText()}
+            onClose={() => setShowPrompt(false)}
+          />
+        )}
       </>
     );
   }
@@ -2414,7 +2398,73 @@ NOTES
           onSaved={r => { onSaved(r); setShowAdd(false); }}
         />
       )}
+      {showPrompt && (
+        <GtPromptModal
+          queryId={queryId}
+          promptText={buildPromptText()}
+          onClose={() => setShowPrompt(false)}
+        />
+      )}
     </>
+  );
+}
+
+function GtPromptModal({ queryId, promptText, onClose }: { queryId: string; promptText: string; onClose: () => void }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    const tryCopy = () => {
+      if (navigator.clipboard && window.isSecureContext) {
+        return navigator.clipboard.writeText(promptText);
+      }
+      const ta = document.createElement('textarea');
+      ta.value = promptText;
+      ta.style.position = 'fixed';
+      ta.style.left = '-9999px';
+      ta.style.top = '-9999px';
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      return Promise.resolve();
+    };
+    tryCopy().then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }).catch(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl mx-4 flex flex-col max-h-[85vh]" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-3 border-b shrink-0">
+          <h2 className="text-sm font-semibold text-gray-800">Ground Truth Research Prompt — {queryId}</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-lg leading-none">&times;</button>
+        </div>
+        <div className="flex-1 overflow-hidden px-5 py-4">
+          <textarea
+            readOnly
+            value={promptText}
+            className="w-full h-full min-h-[400px] text-xs font-mono text-gray-700 bg-gray-50 border border-gray-200 rounded p-3 resize-none focus:outline-none"
+          />
+        </div>
+        <div className="flex items-center justify-end gap-3 px-5 py-3 border-t shrink-0">
+          <button onClick={onClose} className="text-xs text-gray-500 hover:text-gray-700 px-3 py-1.5 rounded border border-gray-200 hover:border-gray-300">
+            Close
+          </button>
+          <button
+            onClick={handleCopy}
+            className="text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded px-3 py-1.5 min-w-[130px] text-center"
+          >
+            {copied ? 'Copied!' : 'Copy to clipboard'}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
