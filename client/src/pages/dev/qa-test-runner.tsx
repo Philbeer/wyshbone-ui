@@ -2309,7 +2309,26 @@ NOTES
 - Be rigorous about what counts as a match — apply the query constraints strictly.
 - Bot-blocked sites count as accessible matches if the business genuinely meets the criteria.
 - www.wyshbonesales.com`;
-    navigator.clipboard.writeText(prompt).then(() => {
+    const tryClipboard = () => {
+      if (navigator.clipboard && window.isSecureContext) {
+        return navigator.clipboard.writeText(prompt);
+      }
+      const ta = document.createElement('textarea');
+      ta.value = prompt;
+      ta.style.position = 'fixed';
+      ta.style.left = '-9999px';
+      ta.style.top = '-9999px';
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      return Promise.resolve();
+    };
+    tryClipboard().then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }).catch(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     });
