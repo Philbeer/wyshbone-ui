@@ -2212,11 +2212,11 @@ function GroundTruthAddModal({
                 <label className={labelCls}>Expected BJ Outcome</label>
                 <select className={inputCls} value={fields.expectedBjOutcome} onChange={e => setFields(p => ({ ...p, expectedBjOutcome: e.target.value }))}>
                   <option value="">Select…</option>
-                  <option value="pass">PASS</option>
-                  <option value="honest_partial">HONEST_PARTIAL</option>
-                  <option value="batch_exhausted">BATCH_EXHAUSTED</option>
-                  <option value="capability_fail">CAPABILITY_FAIL</option>
-                  <option value="wrong_decision">WRONG_DECISION</option>
+                  <option value="pass">PASS — Everything worked. Constraints satisfied, evidence correct, count reasonable.</option>
+                  <option value="honest_partial">HONEST_PARTIAL — Agent did its job but fell short due to real-world constraints (scarcity, bot-blocking). The world's fault, not the agent's.</option>
+                  <option value="batch_exhausted">BATCH_EXHAUSTED — Ran out of candidates because search window was too narrow. More results exist — retry wider.</option>
+                  <option value="capability_fail">CAPABILITY_FAIL — Agent missed findable things. Bad queries, missed evidence, wrong filtering. The agent had the opportunity to do better.</option>
+                  <option value="wrong_decision">WRONG_DECISION — Wrong meta-decision. Ran when it should have clarified, or clarified when it should have run.</option>
                 </select>
               </div>
               <div>
