@@ -1798,6 +1798,20 @@ export async function runStartupMigrations(): Promise<void> {
       console.error('⚠️ ground_truth_records migration error (non-fatal):', error?.message || error);
     }
   }
+
+  try {
+    await queryClient`
+      ALTER TABLE public.ground_truth_records ADD COLUMN IF NOT EXISTS match_criteria TEXT;
+    `;
+    await queryClient`
+      ALTER TABLE public.ground_truth_records DROP COLUMN IF EXISTS delivery_assessment;
+    `;
+    console.log('✅ ground_truth_records schema updated (match_criteria added, delivery_assessment dropped)');
+  } catch (error: any) {
+    if (error?.code !== '42710' && error?.code !== '42P07' && error?.code !== '42701') {
+      console.error('⚠️ ground_truth_records alter migration error (non-fatal):', error?.message || error);
+    }
+  }
 }
 
 export class DbStorage implements IStorage {

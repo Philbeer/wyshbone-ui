@@ -1785,13 +1785,7 @@ interface GroundTruthRecord {
   queryText: string;
   queryClass: string;
   trueUniverse: string[];
-  deliveryAssessment: {
-    truePositives?: string[];
-    falsePositives?: string[];
-    falseNegatives?: string[];
-    precision?: number;
-    recall?: number;
-  };
+  matchCriteria: string | null;
   expectedBjOutcome: string;
   reasoning: string | null;
   notes: string | null;
@@ -1803,7 +1797,7 @@ function parseGroundTruthText(raw: string): Partial<{
   queryText: string;
   queryClass: string;
   trueUniverse: string[];
-  deliveryAssessment: Record<string, unknown>;
+  matchCriteria: string;
   expectedBjOutcome: string;
   reasoning: string;
   notes: string;
@@ -1830,15 +1824,6 @@ function parseGroundTruthText(raw: string): Partial<{
     return [];
   };
 
-  const getNum = (patterns: RegExp[]): number | undefined => {
-    const v = get(patterns);
-    if (v !== undefined) {
-      const n = parseFloat(v);
-      if (!isNaN(n)) return n;
-    }
-    return undefined;
-  };
-
   const queryId = get([
     /\bquery[_ ]?id[:\s*_]*([A-Za-z0-9_-]+)/i,
     /\bid[:\s*_]*([A-Za-z][0-9]+)/i,
@@ -1859,26 +1844,7 @@ function parseGroundTruthText(raw: string): Partial<{
     /\btrue[_ ]?universe[:\s*_]*([\s\S]+?)(?:\n\n|\n[A-Z])/i,
   ]);
 
-  const tpList = getList([/\btrue[_ ]?positives?[:\s*_]*\n((?:[-*•].*\n?)+)/i]);
-  const fpList = getList([/\bfalse[_ ]?positives?[:\s*_]*\n((?:[-*•].*\n?)+)/i]);
-  const fnList = getList([/\bfalse[_ ]?negatives?[:\s*_]*\n((?:[-*•].*\n?)+)/i]);
-
-  const tpInline = get([/\btrue[_ ]?positives?[:\s*_]*(.+)/i]);
-  const fpInline = get([/\bfalse[_ ]?positives?[:\s*_]*(.+)/i]);
-  const fnInline = get([/\bfalse[_ ]?negatives?[:\s*_]*(.+)/i]);
-
-  const precision = getNum([/\bprecision[:\s*_]*([\d.]+)/i]);
-  const recall = getNum([/\brecall[:\s*_]*([\d.]+)/i]);
-
-  const deliveryAssessment: Record<string, unknown> = {};
-  const tp = tpList.length ? tpList : tpInline ? [tpInline] : [];
-  const fp = fpList.length ? fpList : fpInline ? [fpInline] : [];
-  const fn = fnList.length ? fnList : fnInline ? [fnInline] : [];
-  if (tp.length) deliveryAssessment.truePositives = tp;
-  if (fp.length) deliveryAssessment.falsePositives = fp;
-  if (fn.length) deliveryAssessment.falseNegatives = fn;
-  if (precision !== undefined) deliveryAssessment.precision = precision;
-  if (recall !== undefined) deliveryAssessment.recall = recall;
+  const matchCriteria = get([/\bmatch[_ ]?criteria[:\s*_]*(.+)/i]);
 
   const expectedBjOutcome = get([
     /\bexpected[_ ]?bj[_ ]?outcome[:\s*_]*(.+)/i,
@@ -1894,7 +1860,7 @@ function parseGroundTruthText(raw: string): Partial<{
     queryText,
     queryClass,
     trueUniverse: trueUniverse.length ? trueUniverse : undefined,
-    deliveryAssessment: Object.keys(deliveryAssessment).length ? deliveryAssessment : undefined,
+    matchCriteria,
     expectedBjOutcome,
     reasoning,
     notes,
@@ -1947,13 +1913,6 @@ function useGroundTruth() {
 
 function GroundTruthViewModal({ record, onClose, onDeleted }: { record: GroundTruthRecord; onClose: () => void; onDeleted: (queryId: string) => void }) {
   const [deleting, setDeleting] = useState(false);
-  const da = record.deliveryAssessment as {
-    truePositives?: string[];
-    falsePositives?: string[];
-    falseNegatives?: string[];
-    precision?: number;
-    recall?: number;
-  };
 
   const handleDelete = async () => {
     if (!window.confirm('Are you sure you want to delete this ground truth record?')) return;
@@ -2009,45 +1968,11 @@ function GroundTruthViewModal({ record, onClose, onDeleted }: { record: GroundTr
           </div>
 
           <div>
-            <div className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-2">Wyshbone Delivery Assessment</div>
-            <div className="grid grid-cols-2 gap-3">
-              {da.truePositives && (
-                <div className="col-span-2">
-                  <div className="text-xs font-medium text-green-700 mb-0.5">True Positives</div>
-                  <ul className="list-disc list-inside text-gray-700 text-xs space-y-0.5">
-                    {da.truePositives.map((v, i) => <li key={i}>{v}</li>)}
-                  </ul>
-                </div>
-              )}
-              {da.falsePositives && (
-                <div>
-                  <div className="text-xs font-medium text-red-600 mb-0.5">False Positives</div>
-                  <ul className="list-disc list-inside text-gray-700 text-xs space-y-0.5">
-                    {da.falsePositives.map((v, i) => <li key={i}>{v}</li>)}
-                  </ul>
-                </div>
-              )}
-              {da.falseNegatives && (
-                <div>
-                  <div className="text-xs font-medium text-amber-600 mb-0.5">False Negatives</div>
-                  <ul className="list-disc list-inside text-gray-700 text-xs space-y-0.5">
-                    {da.falseNegatives.map((v, i) => <li key={i}>{v}</li>)}
-                  </ul>
-                </div>
-              )}
-              {(da.precision !== undefined || da.recall !== undefined) && (
-                <div className="col-span-2 flex gap-6 mt-1">
-                  {da.precision !== undefined && (
-                    <span className="text-xs"><span className="font-medium text-gray-600">Precision:</span> {da.precision}</span>
-                  )}
-                  {da.recall !== undefined && (
-                    <span className="text-xs"><span className="font-medium text-gray-600">Recall:</span> {da.recall}</span>
-                  )}
-                </div>
-              )}
-            </div>
-            {!da.truePositives && !da.falsePositives && !da.falseNegatives && da.precision === undefined && da.recall === undefined && (
-              <span className="text-gray-400 italic text-xs">No delivery assessment recorded</span>
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-1">Match Criteria</div>
+            {record.matchCriteria ? (
+              <p className="text-gray-800 text-sm">{record.matchCriteria}</p>
+            ) : (
+              <span className="text-gray-400 italic text-xs">No match criteria recorded</span>
             )}
           </div>
 
@@ -2113,11 +2038,7 @@ function GroundTruthAddModal({
     queryText: string;
     queryClass: string;
     trueUniverse: string;
-    truePositives: string;
-    falsePositives: string;
-    falseNegatives: string;
-    precision: string;
-    recall: string;
+    matchCriteria: string;
     expectedBjOutcome: string;
     reasoning: string;
     notes: string;
@@ -2126,11 +2047,7 @@ function GroundTruthAddModal({
     queryText,
     queryClass,
     trueUniverse: '',
-    truePositives: '',
-    falsePositives: '',
-    falseNegatives: '',
-    precision: '',
-    recall: '',
+    matchCriteria: '',
     expectedBjOutcome: '',
     reasoning: '',
     notes: '',
@@ -2147,11 +2064,7 @@ function GroundTruthAddModal({
       queryText: parsed.queryText ?? prev.queryText,
       queryClass: parsed.queryClass ?? prev.queryClass,
       trueUniverse: parsed.trueUniverse?.join('\n') ?? prev.trueUniverse,
-      truePositives: (parsed.deliveryAssessment?.truePositives as string[] | undefined)?.join('\n') ?? prev.truePositives,
-      falsePositives: (parsed.deliveryAssessment?.falsePositives as string[] | undefined)?.join('\n') ?? prev.falsePositives,
-      falseNegatives: (parsed.deliveryAssessment?.falseNegatives as string[] | undefined)?.join('\n') ?? prev.falseNegatives,
-      precision: parsed.deliveryAssessment?.precision !== undefined ? String(parsed.deliveryAssessment.precision) : prev.precision,
-      recall: parsed.deliveryAssessment?.recall !== undefined ? String(parsed.deliveryAssessment.recall) : prev.recall,
+      matchCriteria: parsed.matchCriteria ?? prev.matchCriteria,
       expectedBjOutcome: parsed.expectedBjOutcome ?? prev.expectedBjOutcome,
       reasoning: parsed.reasoning ?? prev.reasoning,
       notes: parsed.notes ?? prev.notes,
@@ -2168,15 +2081,6 @@ function GroundTruthAddModal({
     setError(null);
 
     const parseLines = (s: string) => s.split('\n').map(l => l.replace(/^[-*•\d.)\s]+/, '').trim()).filter(Boolean);
-    const deliveryAssessment: Record<string, unknown> = {};
-    const tp = parseLines(fields.truePositives);
-    const fp = parseLines(fields.falsePositives);
-    const fn_ = parseLines(fields.falseNegatives);
-    if (tp.length) deliveryAssessment.truePositives = tp;
-    if (fp.length) deliveryAssessment.falsePositives = fp;
-    if (fn_.length) deliveryAssessment.falseNegatives = fn_;
-    if (fields.precision) deliveryAssessment.precision = parseFloat(fields.precision);
-    if (fields.recall) deliveryAssessment.recall = parseFloat(fields.recall);
 
     try {
       const url = buildApiUrl(addDevAuthParams('/api/ground-truth'));
@@ -2189,7 +2093,7 @@ function GroundTruthAddModal({
           queryText: fields.queryText.trim(),
           queryClass: fields.queryClass.trim(),
           trueUniverse: parseLines(fields.trueUniverse),
-          deliveryAssessment,
+          matchCriteria: fields.matchCriteria.trim() || null,
           expectedBjOutcome: fields.expectedBjOutcome.trim(),
           reasoning: fields.reasoning.trim() || null,
           notes: fields.notes.trim() || null,
@@ -2279,31 +2183,9 @@ function GroundTruthAddModal({
                 <label className={labelCls}>True Universe (one per line)</label>
                 <textarea className={inputCls} rows={4} value={fields.trueUniverse} onChange={e => setFields(p => ({ ...p, trueUniverse: e.target.value }))} placeholder="- The Swan, Arundel&#10;- Swan Hotel" />
               </div>
-              <div className="grid grid-cols-1 gap-3">
-                <div>
-                  <label className={labelCls}>True Positives (one per line)</label>
-                  <textarea className={inputCls} rows={2} value={fields.truePositives} onChange={e => setFields(p => ({ ...p, truePositives: e.target.value }))} />
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className={labelCls}>False Positives (one per line)</label>
-                    <textarea className={inputCls} rows={2} value={fields.falsePositives} onChange={e => setFields(p => ({ ...p, falsePositives: e.target.value }))} />
-                  </div>
-                  <div>
-                    <label className={labelCls}>False Negatives (one per line)</label>
-                    <textarea className={inputCls} rows={2} value={fields.falseNegatives} onChange={e => setFields(p => ({ ...p, falseNegatives: e.target.value }))} />
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className={labelCls}>Precision (0–1)</label>
-                    <input className={inputCls} type="number" step="0.01" min="0" max="1" value={fields.precision} onChange={e => setFields(p => ({ ...p, precision: e.target.value }))} />
-                  </div>
-                  <div>
-                    <label className={labelCls}>Recall (0–1)</label>
-                    <input className={inputCls} type="number" step="0.01" min="0" max="1" value={fields.recall} onChange={e => setFields(p => ({ ...p, recall: e.target.value }))} />
-                  </div>
-                </div>
+              <div>
+                <label className={labelCls}>Match Criteria</label>
+                <textarea className={inputCls} rows={3} value={fields.matchCriteria} onChange={e => setFields(p => ({ ...p, matchCriteria: e.target.value }))} placeholder="e.g. Name must contain Swan AND location must be in Arundel BN18" />
               </div>
               <div>
                 <label className={labelCls}>Expected BJ Outcome</label>

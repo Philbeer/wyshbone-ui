@@ -2812,7 +2812,7 @@ export const groundTruthRecords = pgTable("ground_truth_records", {
   queryText: text("query_text").notNull(),
   queryClass: text("query_class").notNull(),
   trueUniverse: jsonb("true_universe").notNull().default([]),
-  deliveryAssessment: jsonb("delivery_assessment").notNull().default({}),
+  matchCriteria: text("match_criteria"),
   expectedBjOutcome: text("expected_bj_outcome").notNull(),
   reasoning: text("reasoning"),
   notes: text("notes"),
