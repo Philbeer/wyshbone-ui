@@ -424,6 +424,12 @@ export interface BehaviourJudgeLeadEvidence {
   constraint_type?: string;
 }
 
+export interface BehaviourJudgeAssessment {
+  verdict: string;
+  reasoning: string;
+  confidence: number;
+}
+
 export interface BehaviourJudgeResult {
   run_id: string;
   outcome: string;
@@ -433,6 +439,8 @@ export interface BehaviourJudgeResult {
   delivered_count: number | null;
   requested_count: number | null;
   created_at: string | null;
+  mission_intent_assessment: BehaviourJudgeAssessment | null;
+  ground_truth_assessment: BehaviourJudgeAssessment | null;
   input_snapshot?: {
     leads_evidence?: BehaviourJudgeLeadEvidence[];
     [key: string]: unknown;

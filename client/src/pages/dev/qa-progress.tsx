@@ -243,6 +243,7 @@ export function BehaviourInspectContent({ runId, query, timestamp }: {
   query?: string;
   timestamp?: string | number | Date;
 }) {
+  type BjAssessment = { verdict: string; reasoning: string; confidence: number } | null;
   const [judgeB, setJudgeB] = useState<{
     outcome: string;
     confidence: number | null;
@@ -250,6 +251,8 @@ export function BehaviourInspectContent({ runId, query, timestamp }: {
     tower_verdict: string | null;
     delivered_count: number | null;
     requested_count: number | null;
+    mission_intent_assessment: BjAssessment;
+    ground_truth_assessment: BjAssessment;
     input_snapshot?: {
       leads_evidence?: LeadEvidence[];
       leads?: LeadEvidence[];
@@ -317,15 +320,57 @@ export function BehaviourInspectContent({ runId, query, timestamp }: {
     return () => { cancelled = true; };
   }, [runId]);
 
-  const outcome = (judgeB?.outcome || '').toUpperCase();
-  const isPass = outcome === 'PASS';
-  const isFail = outcome !== '' && outcome !== 'UNKNOWN' && !isPass;
-
   const tsNum = timestamp instanceof Date
     ? timestamp.getTime()
     : typeof timestamp === 'number' || typeof timestamp === 'string'
       ? toNumericTs(timestamp as string | number)
       : 0;
+
+  function verdictChip(v: string | null | undefined) {
+    const upper = (v || '').toUpperCase();
+    const isP = upper === 'PASS';
+    const isF = upper !== '' && upper !== 'UNKNOWN' && !isP;
+    return (
+      <span className={`inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold ${
+        isP ? 'bg-green-100 text-green-800' : isF ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-700'
+      }`}>
+        {upper || 'N/A'}
+      </span>
+    );
+  }
+
+  function fmtConf(c: number | null | undefined) {
+    if (c == null) return null;
+    return `${c > 1 ? Math.round(c) : Math.round(c * 100)}%`;
+  }
+
+  function BjSubSection({ label, assessment }: {
+    label: string;
+    assessment: { verdict: string; reasoning: string; confidence: number } | null | undefined;
+  }) {
+    return (
+      <div className="space-y-1">
+        <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">{label}</div>
+        {assessment == null ? (
+          <div className="text-[11px] text-gray-400 italic">N/A</div>
+        ) : (
+          <div className="space-y-1">
+            <div className="flex flex-wrap items-center gap-2">
+              {verdictChip(assessment.verdict)}
+              {fmtConf(assessment.confidence) && (
+                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-600">
+                  {fmtConf(assessment.confidence)} confidence
+                </span>
+              )}
+            </div>
+            {assessment.reasoning && (
+              <p className="text-[11px] text-gray-700 leading-relaxed">{assessment.reasoning}</p>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
@@ -353,47 +398,39 @@ export function BehaviourInspectContent({ runId, query, timestamp }: {
             No Judge B result in behaviour_judge_results for this run.
           </div>
         ) : (
-          <div className="space-y-2">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className={`inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold ${
-                isPass ? 'bg-green-100 text-green-800' : isFail ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-700'
-              }`}>
-                {outcome || '—'}
-              </span>
-              {judgeB.confidence != null && (
-                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-600">
-                  {judgeB.confidence > 1 ? Math.round(judgeB.confidence) : Math.round(judgeB.confidence * 100)}% confidence
-                </span>
-              )}
-              {judgeB.tower_verdict && (
-                <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                  judgeB.tower_verdict.toLowerCase() === 'accept'
-                    ? 'bg-green-100 text-green-700'
-                    : 'bg-amber-100 text-amber-700'
-                }`}>
-                  Tower: {judgeB.tower_verdict}
-                </span>
-              )}
-              {(judgeB.delivered_count != null || judgeB.requested_count != null) && (
-                <span className="text-[10px] text-gray-500 font-mono">
-                  {judgeB.delivered_count ?? '?'}{judgeB.requested_count != null ? `/${judgeB.requested_count}` : ''} delivered
-                </span>
-              )}
-            </div>
-            {judgeB.reason && (
-              <p className="text-[11px] text-gray-700 leading-relaxed">{judgeB.reason}</p>
-            )}
-            <table className="text-[11px] mt-1">
-              <tbody>
-                <MetaField label="outcome" value={outcome || '—'} />
-                {judgeB.confidence != null && (
-                  <MetaField label="confidence" value={`${judgeB.confidence > 1 ? Math.round(judgeB.confidence) : Math.round(judgeB.confidence * 100)}%`} />
+          <div className="space-y-3">
+            <BjSubSection label="Mission Intent" assessment={judgeB.mission_intent_assessment} />
+            <BjSubSection label="Ground Truth" assessment={judgeB.ground_truth_assessment} />
+            <div className="space-y-1">
+              <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Combined</div>
+              <div className="space-y-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  {verdictChip(judgeB.outcome)}
+                  {fmtConf(judgeB.confidence) && (
+                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-600">
+                      {fmtConf(judgeB.confidence)} confidence
+                    </span>
+                  )}
+                  {judgeB.tower_verdict && (
+                    <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                      judgeB.tower_verdict.toLowerCase() === 'accept'
+                        ? 'bg-green-100 text-green-700'
+                        : 'bg-amber-100 text-amber-700'
+                    }`}>
+                      Tower: {judgeB.tower_verdict}
+                    </span>
+                  )}
+                  {(judgeB.delivered_count != null || judgeB.requested_count != null) && (
+                    <span className="text-[10px] text-gray-500 font-mono">
+                      {judgeB.delivered_count ?? '?'}{judgeB.requested_count != null ? `/${judgeB.requested_count}` : ''} delivered
+                    </span>
+                  )}
+                </div>
+                {judgeB.reason && (
+                  <p className="text-[11px] text-gray-700 leading-relaxed">{judgeB.reason}</p>
                 )}
-                {judgeB.tower_verdict && <MetaField label="tower_verdict" value={judgeB.tower_verdict} />}
-                {judgeB.delivered_count != null && <MetaField label="delivered_count" value={String(judgeB.delivered_count)} />}
-                {judgeB.requested_count != null && <MetaField label="requested_count" value={String(judgeB.requested_count)} />}
-              </tbody>
-            </table>
+              </div>
+            </div>
           </div>
         )}
       </section>
