@@ -2427,6 +2427,8 @@ function ImportGtModal({ onClose, onImported, existingRecords }: { onClose: () =
         queryId: header.findIndex(h => /query.?id/i.test(h)),
         queryClass: header.findIndex(h => /query.?class/i.test(h)),
         query: header.findIndex(h => /^query$/i.test(h)),
+        trueUniverse: header.findIndex(h => /true.?universe/i.test(h)),
+        matchCriteria: header.findIndex(h => /match.?criteria/i.test(h)),
         notes: header.findIndex(h => /^notes$/i.test(h)),
       };
       const parsed: GtImportRow[] = [];
@@ -2436,15 +2438,18 @@ function ImportGtModal({ onClose, onImported, existingRecords }: { onClose: () =
         const csvQueryId = r[colIdx.queryId >= 0 ? colIdx.queryId : 0]?.trim() ?? '';
         const csvQuery = r[colIdx.query >= 0 ? colIdx.query : 2]?.trim() ?? '';
         const csvClass = r[colIdx.queryClass >= 0 ? colIdx.queryClass : 1]?.trim() ?? '';
-        const csvNotes = r[colIdx.notes >= 0 ? colIdx.notes : 3]?.trim() ?? '';
+        const csvTrueUniverseRaw = colIdx.trueUniverse >= 0 ? r[colIdx.trueUniverse]?.trim() ?? '' : '';
+        const csvTrueUniverse = csvTrueUniverseRaw ? csvTrueUniverseRaw.split(',').map(s => s.trim()).filter(Boolean) : [];
+        const csvMatchCriteria = colIdx.matchCriteria >= 0 ? r[colIdx.matchCriteria]?.trim() ?? '' : '';
+        const csvNotes = r[colIdx.notes >= 0 ? colIdx.notes : 5]?.trim() ?? '';
         if (!csvQueryId) {
-          parsed.push({ queryId: '', queryText: csvQuery, queryClass: csvClass, trueUniverse: [], matchCriteria: '', reasoning: '', notes: csvNotes, matchCount: 0, status: 'error', errorMsg: 'Could not extract Query ID' });
+          parsed.push({ queryId: '', queryText: csvQuery, queryClass: csvClass, trueUniverse: csvTrueUniverse, matchCriteria: csvMatchCriteria, reasoning: '', notes: csvNotes, matchCount: 0, status: 'error', errorMsg: 'Could not extract Query ID' });
           continue;
         }
         parsed.push({
           queryId: csvQueryId, queryText: csvQuery, queryClass: csvClass,
-          trueUniverse: [],
-          matchCriteria: '',
+          trueUniverse: csvTrueUniverse,
+          matchCriteria: csvMatchCriteria,
           reasoning: '',
           notes: csvNotes,
           matchCount: 0,
@@ -2527,7 +2532,8 @@ function ImportGtModal({ onClose, onImported, existingRecords }: { onClose: () =
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
           {phase === 'idle' && (
             <div className="space-y-3">
-              <p className="text-sm text-gray-600">Select a CSV file with columns: <span className="font-mono text-xs bg-gray-100 px-1 rounded">Query ID, Query Class, Query, Notes</span></p>
+              <p className="text-sm text-gray-600">Select a CSV file with columns: <span className="font-mono text-xs bg-gray-100 px-1 rounded">Query ID, Query Class, Query, True Universe, Match Criteria, Notes</span></p>
+              <p className="text-xs text-gray-400">True Universe — comma-separated list of known real-world matches. Match Criteria — plain text rule the agent must satisfy.</p>
               <input
                 type="file"
                 accept=".csv"
@@ -2578,6 +2584,8 @@ function ImportGtModal({ onClose, onImported, existingRecords }: { onClose: () =
                       <th className={thCls}>Query ID</th>
                       <th className={thCls}>Query</th>
                       <th className={thCls}>Class</th>
+                      <th className={thCls}>True Universe</th>
+                      <th className={thCls}>Match Criteria</th>
                       <th className={thCls}>Notes</th>
                       <th className={thCls}>Status</th>
                     </tr>
@@ -2599,11 +2607,21 @@ function ImportGtModal({ onClose, onImported, existingRecords }: { onClose: () =
                       return (
                         <tr key={idx} className={`border-b last:border-0 ${rowBg}`}>
                           <td className={tdCls + ' font-mono'}>{row.queryId || '—'}</td>
-                          <td className={tdCls + ' max-w-[220px]'}>
+                          <td className={tdCls + ' max-w-[200px]'}>
                             <span className="line-clamp-2">{row.queryText || '—'}</span>
                           </td>
                           <td className={tdCls}>{row.queryClass || '—'}</td>
-                          <td className={tdCls + ' max-w-[180px]'}><span className="line-clamp-2">{row.notes || '—'}</span></td>
+                          <td className={tdCls + ' max-w-[160px]'}>
+                            {row.trueUniverse.length > 0
+                              ? <span className="line-clamp-2 text-[11px]">{row.trueUniverse.join(', ')}</span>
+                              : <span className="text-gray-300">—</span>}
+                          </td>
+                          <td className={tdCls + ' max-w-[160px]'}>
+                            {row.matchCriteria
+                              ? <span className="line-clamp-2 text-[11px]">{row.matchCriteria}</span>
+                              : <span className="text-gray-300">—</span>}
+                          </td>
+                          <td className={tdCls + ' max-w-[140px]'}><span className="line-clamp-2">{row.notes || '—'}</span></td>
                           <td className={tdCls}>
                             {willSkip && <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-500">skipped (already exists)</span>}
                             {willOverwrite && <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-orange-100 text-orange-700">will overwrite</span>}
