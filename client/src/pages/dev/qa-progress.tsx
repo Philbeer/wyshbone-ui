@@ -294,6 +294,8 @@ export function BehaviourInspectContent({ runId, query, timestamp }: {
 
     const encoded = encodeURIComponent(runId);
 
+    console.log(`[BIC] Modal opened — run_id="${runId}" | API: GET /api/afr/behaviour-judge?run_id=${encoded}`);
+
     const fetchEvidence = () =>
       fetch(buildApiUrl(addDevAuthParams(`/api/afr/delivery-evidence?run_id=${encoded}`)), { credentials: 'include' })
         .then(r => r.ok ? r.json() : { evidenceMap: {}, verifiableConstraints: [] })
@@ -308,7 +310,7 @@ export function BehaviourInspectContent({ runId, query, timestamp }: {
       if (cancelled) return;
       const [judgeData, evidenceData] = await Promise.all([fetchJudge(), fetchEvidence()]);
       if (cancelled) return;
-      console.log(`[BIC] behaviour-judge result (retriesLeft=${retriesLeft}):`, JSON.stringify(judgeData));
+      console.log(`[BIC] behaviour-judge response (retriesLeft=${retriesLeft}) | ground_truth_assessment:`, JSON.stringify((judgeData as any)?.ground_truth_assessment ?? null));
       console.log('[BIC_RAW] Full BJ packet (all fields, unfiltered):', judgeData);
       console.log('[BIC] delivery-evidence result:', JSON.stringify(evidenceData));
       setDeliveryEvidence(evidenceData || { evidenceMap: {}, verifiableConstraints: [] });
