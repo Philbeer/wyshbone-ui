@@ -520,20 +520,6 @@ function statusBadge(status: TestStatus | SuiteStatus) {
   }
 }
 
-function expectedBadge(expected: ExpectedOutcome) {
-  switch (expected) {
-    case 'pass':
-      return <span className="text-xs text-green-600 font-medium">expect: pass</span>;
-    case 'fail':
-      return <span className="text-xs text-red-600 font-medium">expect: fail</span>;
-    case 'blocked':
-      return <span className="text-xs text-amber-600 font-medium">expect: blocked</span>;
-    case 'clarify':
-      return <span className="text-xs text-blue-600 font-medium">expect: clarify</span>;
-    case 'blocked_or_clarify':
-      return <span className="text-xs text-purple-600 font-medium">expect: blocked/clarify</span>;
-  }
-}
 
 async function submitQuery(
   query: string,
@@ -3422,7 +3408,6 @@ export default function QaTestRunnerPage() {
                   <div className="flex-1">
                     <span className={`${isChecked ? 'text-gray-800' : 'text-gray-400'}`}>{t.query}</span>
                     <div className="flex items-center gap-2 mt-0.5">
-                      {expectedBadge(t.expected)}
                       <GroundTruthIndicator
                         queryId={t.id}
                         queryText={t.query}
@@ -3487,7 +3472,6 @@ export default function QaTestRunnerPage() {
                       </div>
                     )}
                     <div className="flex items-center gap-2 mt-0.5">
-                      {expectedBadge(r.expected)}
                       <GroundTruthIndicator
                         queryId={r.id}
                         queryText={r.query}
