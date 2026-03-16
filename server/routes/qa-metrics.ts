@@ -660,12 +660,16 @@ export function createQaMetricsRouter(): Router {
             const judgeMap = await getBehaviourJudgeResults(runIds);
             for (const row of rowsArray) {
               const judge = judgeMap[row.run_id];
-              if (judge && (!row.behaviour_result || row.behaviour_result === 'UNKNOWN')) {
-                const outcome = (judge.outcome || '').toUpperCase();
-                if (outcome) {
-                  row.behaviour_result = outcome;
-                  row.behaviour_score = outcome === 'PASS' ? '1.0' : '0.0';
+              if (judge) {
+                if (!row.behaviour_result || row.behaviour_result === 'UNKNOWN') {
+                  const outcome = (judge.outcome || '').toUpperCase();
+                  if (outcome) {
+                    row.behaviour_result = outcome;
+                    row.behaviour_score = outcome === 'PASS' ? '1.0' : '0.0';
+                  }
                 }
+                row.mission_intent_assessment = judge.mission_intent_assessment ?? null;
+                row.ground_truth_assessment = judge.ground_truth_assessment ?? null;
               }
             }
           }

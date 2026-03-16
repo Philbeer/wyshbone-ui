@@ -31,6 +31,8 @@ interface MetricRow {
   behaviour_score: string;
   metadata: Record<string, unknown> | null;
   created_at: string;
+  mission_intent_assessment: { verdict: string; reasoning: string; confidence: number } | null;
+  ground_truth_assessment: { verdict: string; reasoning: string; confidence: number } | null;
 }
 
 function toNumericTs(val: string | number | null | undefined): number {
@@ -47,9 +49,13 @@ interface ChartPoint {
   behaviourScore: number | null;
   systemScore: number | null;
   towerScore: number | null;
+  missionIntentScore: number | null;
+  groundTruthScore: number | null;
   behaviourAvg: number | null;
   systemAvg: number | null;
   towerAvg: number | null;
+  missionIntentAvg: number | null;
+  groundTruthAvg: number | null;
 }
 
 const ROLLING_WINDOW = 20;
@@ -667,10 +673,22 @@ export default function QaProgressPage() {
       const s = parseScore(r.tower_score);
       return s !== null ? s : statusToScore(r.tower_result, 'tower');
     });
+    const missionIntentScores = sorted.map(r => {
+      const v = r.mission_intent_assessment?.verdict;
+      if (!v) return null;
+      return statusToScore(v.toUpperCase(), 'behaviour');
+    });
+    const groundTruthScores = sorted.map(r => {
+      const v = r.ground_truth_assessment?.verdict;
+      if (!v) return null;
+      return statusToScore(v.toUpperCase(), 'behaviour');
+    });
 
     const behaviourAvgs = rollingAvg(behaviourScores, ROLLING_WINDOW);
     const systemAvgs = rollingAvg(systemScores, ROLLING_WINDOW);
     const towerAvgs = rollingAvg(towerScores, ROLLING_WINDOW);
+    const missionIntentAvgs = rollingAvg(missionIntentScores, ROLLING_WINDOW);
+    const groundTruthAvgs = rollingAvg(groundTruthScores, ROLLING_WINDOW);
 
     return sorted.map((r, i) => ({
       index: i + 1,
@@ -679,9 +697,13 @@ export default function QaProgressPage() {
       behaviourScore: behaviourScores[i],
       systemScore: systemScores[i],
       towerScore: towerScores[i],
+      missionIntentScore: missionIntentScores[i],
+      groundTruthScore: groundTruthScores[i],
       behaviourAvg: behaviourAvgs[i],
       systemAvg: systemAvgs[i],
       towerAvg: towerAvgs[i],
+      missionIntentAvg: missionIntentAvgs[i],
+      groundTruthAvg: groundTruthAvgs[i],
     }));
   }, [filteredRows]);
 
@@ -771,19 +793,25 @@ export default function QaProgressPage() {
                       <div className="font-medium mb-1">{d.label}</div>
                       <div className="text-gray-400">{formatTs(d.timestamp)}</div>
                       <div className="mt-1 space-y-0.5">
-                        {d.behaviourScore !== null && <div>Behaviour: <span className="font-mono">{d.behaviourScore}</span> (avg: {d.behaviourAvg?.toFixed(2) ?? '—'})</div>}
-                        {d.systemScore !== null && <div>System: <span className="font-mono">{d.systemScore}</span> (avg: {d.systemAvg?.toFixed(2) ?? '—'})</div>}
-                        {d.towerScore !== null && <div>Tower: <span className="font-mono">{d.towerScore}</span> (avg: {d.towerAvg?.toFixed(2) ?? '—'})</div>}
+                        {d.missionIntentScore !== null && <div style={{ color: '#f59e0b' }}>Mission Intent: <span className="font-mono">{d.missionIntentScore}</span> (avg: {d.missionIntentAvg?.toFixed(2) ?? '—'})</div>}
+                        {d.groundTruthScore !== null && <div style={{ color: '#ec4899' }}>Ground Truth: <span className="font-mono">{d.groundTruthScore}</span> (avg: {d.groundTruthAvg?.toFixed(2) ?? '—'})</div>}
+                        {d.behaviourScore !== null && <div style={{ color: '#8b5cf6' }}>Combined: <span className="font-mono">{d.behaviourScore}</span> (avg: {d.behaviourAvg?.toFixed(2) ?? '—'})</div>}
+                        {d.systemScore !== null && <div style={{ color: '#3b82f6' }}>System: <span className="font-mono">{d.systemScore}</span> (avg: {d.systemAvg?.toFixed(2) ?? '—'})</div>}
+                        {d.towerScore !== null && <div style={{ color: '#10b981' }}>Tower: <span className="font-mono">{d.towerScore}</span> (avg: {d.towerAvg?.toFixed(2) ?? '—'})</div>}
                       </div>
                     </div>
                   );
                 }}
               />
               <Legend iconSize={8} wrapperStyle={{ fontSize: 11 }} />
-              <Line type="monotone" dataKey="behaviourAvg" name="Behaviour (avg)" stroke="#8b5cf6" strokeWidth={2} dot={false} connectNulls />
+              <Line type="monotone" dataKey="missionIntentAvg" name="Mission Intent (avg)" stroke="#f59e0b" strokeWidth={2} dot={false} connectNulls />
+              <Line type="monotone" dataKey="groundTruthAvg" name="Ground Truth (avg)" stroke="#ec4899" strokeWidth={2} dot={false} connectNulls />
+              <Line type="monotone" dataKey="behaviourAvg" name="Combined (avg)" stroke="#8b5cf6" strokeWidth={2} dot={false} connectNulls />
               <Line type="monotone" dataKey="systemAvg" name="System (avg)" stroke="#3b82f6" strokeWidth={2} dot={false} connectNulls />
               <Line type="monotone" dataKey="towerAvg" name="Tower (avg)" stroke="#10b981" strokeWidth={2} dot={false} connectNulls />
-              <Scatter dataKey="behaviourScore" name="Behaviour" fill="#8b5cf6" fillOpacity={0.4} shape="circle" r={3} legendType="none" />
+              <Scatter dataKey="missionIntentScore" name="Mission Intent" fill="#f59e0b" fillOpacity={0.4} shape="circle" r={3} legendType="none" />
+              <Scatter dataKey="groundTruthScore" name="Ground Truth" fill="#ec4899" fillOpacity={0.4} shape="circle" r={3} legendType="none" />
+              <Scatter dataKey="behaviourScore" name="Combined" fill="#8b5cf6" fillOpacity={0.4} shape="circle" r={3} legendType="none" />
               <Scatter dataKey="systemScore" name="System" fill="#3b82f6" fillOpacity={0.4} shape="circle" r={3} legendType="none" />
               <Scatter dataKey="towerScore" name="Tower" fill="#10b981" fillOpacity={0.4} shape="circle" r={3} legendType="none" />
             </ComposedChart>
