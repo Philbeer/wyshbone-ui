@@ -1,0 +1,31 @@
+In wyshbone-ui, on the Agent Improvement Over Time page (/qa-progress or wherever the benchmark run history table is shown), make the following changes:
+
+1. Add a "GT Match" column to the results table after the Behaviour column. For each run where a ground truth record exists for that query ID show:
+   - A green tick ✅ if the BJ verdict matches the GT expected outcome
+   - A red cross ❌ if they do not match
+   - A grey dash — if no GT record exists
+   - On hover show a plain English tooltip explaining what the combination means using these labels:
+     - BJ=PASS, GT=PASS → "Agent found the right results"
+     - BJ=HONEST_PARTIAL, GT=PASS → "Agent found what exists, some blocked or scarce"
+     - BJ=HONEST_PARTIAL, GT=HONEST_PARTIAL → "Correctly identified genuine scarcity"
+     - BJ=CAPABILITY_FAIL, GT=CAPABILITY_FAIL → "Agent missed findable results"
+     - BJ=CAPABILITY_FAIL, GT=PASS → "Agent found results but judge was too harsh — possible miscalibration"
+     - BJ=PASS, GT=CAPABILITY_FAIL → "Agent thought it did well but missed real matches"
+     - BJ=WRONG_DECISION, GT=WRONG_DECISION → "Correctly identified ambiguous query"
+     - BJ=WRONG_DECISION, GT=PASS → "Agent asked for clarification when it should have just run"
+     - BJ=PASS, GT=WRONG_DECISION → "Agent ran when it should have asked for clarification"
+     - Any other mismatch → "Verdict mismatch — review this run"
+
+2. In the run detail modal (when clicking any row in this table), add a "Ground Truth Comparison" section showing:
+   - A plain English summary at the top explaining what happened in one sentence
+   - GT expected outcome
+   - Actual BJ verdict
+   - Match status: MATCH / MISMATCH / NO GT RECORD
+   - GT match criteria
+   - GT true universe as a bullet list
+
+3. Load the ground truth records from GET /api/ground-truth on page load and build a map keyed by queryId — same pattern as the QA regression dashboard already does.
+
+4. Add a GT Agreement Rate summary above the table: "GT Agreement: X of Y runs matched expected outcome (Z%)" — only count runs with a GT record and a non-null BJ verdict.
+
+Do not change any existing functionality or the QA regression dashboard.
