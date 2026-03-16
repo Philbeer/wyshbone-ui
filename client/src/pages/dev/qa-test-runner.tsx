@@ -1799,21 +1799,6 @@ function parseGroundTruthText(raw: string): Partial<{
     return undefined;
   };
 
-  const getList = (patterns: RegExp[]): string[] => {
-    for (const p of patterns) {
-      const m = raw.match(p);
-      if (m) {
-        const block = m[1];
-        return block
-          .split(/\n/)
-          .filter(l => /^\s*[-*•]/.test(l))
-          .map(l => l.replace(/^\s*[-*•\s]+/, '').trim())
-          .filter(Boolean);
-      }
-    }
-    return [];
-  };
-
   const queryId = get([
     /\bquery[_ ]?id[:\s*_]*([A-Za-z0-9_-]+)/i,
     /\bid[:\s*_]*([A-Za-z][0-9]+)/i,
@@ -1829,15 +1814,39 @@ function parseGroundTruthText(raw: string): Partial<{
     /\bclass[:\s*_]*(.+)/i,
   ]);
 
-  const trueUniverse = getList([
-    /\btrue[_ ]?universe[:\s*_]*\n((?:[-*•].*\n?)+)/i,
-    /\btrue[_ ]?universe[:\s*_]*([\s\S]+?)(?:\n\n|\n[A-Z])/i,
-  ]);
+  // Split free-text block into named sections.
+  // Section headings are ALL-CAPS lines ending with ":" e.g. "TRUE UNIVERSE:", "MATCH CRITERIA:"
+  const sections: Record<string, string> = {};
+  const parts = raw.split(/\n(?=[A-Z][A-Z _]+:)/);
+  for (const part of parts) {
+    const colonIdx = part.indexOf(':');
+    if (colonIdx > 0) {
+      const heading = part.slice(0, colonIdx).trim().toUpperCase();
+      const content = part.slice(colonIdx + 1).trim();
+      sections[heading] = content;
+    }
+  }
 
-  const matchCriteria = get([/\bmatch[_ ]?criteria[:\s*_]*(.+)/i]);
+  // TRUE UNIVERSE: each line is "- name | url | evidence | status" — extract name only
+  const trueUniverse: string[] = [];
+  const tuBlock = sections['TRUE UNIVERSE'] ?? '';
+  for (const line of tuBlock.split('\n')) {
+    const stripped = line.replace(/^\s*[-*•]\s*/, '').trim();
+    if (!stripped) continue;
+    const name = stripped.split(/\s*\|\s*/)[0].trim();
+    if (name) trueUniverse.push(name);
+  }
 
-  const reasoning = get([/\breasoning[:\s*_]*([\s\S]+?)(?:\n\n|\nnotes|\z)/i]);
-  const notes = get([/\bnotes[:\s*_]*([\s\S]+?)$/i]);
+  // MATCH CRITERIA: plain text (may span multiple lines)
+  const matchCriteria = sections['MATCH CRITERIA']
+    || get([/\bmatch[_ ]?criteria[:\s]*(.+)/i]);
+
+  const reasoning = sections['REASONING']
+    || get([/\breasoning[:\s*_]*([\s\S]+?)(?:\n\n|\nnotes|\z)/i]);
+
+  // NOTES: skip EXPECTED BEHAVIOUR JUDGE OUTCOME — it is never in sections we care about
+  const notes = sections['NOTES']
+    || get([/\bnotes[:\s*_]*([\s\S]+?)$/i]);
 
   return {
     queryId,
@@ -2427,9 +2436,7 @@ function ImportGtModal({ onClose, onImported, existingRecords }: { onClose: () =
         queryId: header.findIndex(h => /query.?id/i.test(h)),
         queryClass: header.findIndex(h => /query.?class/i.test(h)),
         query: header.findIndex(h => /^query$/i.test(h)),
-        trueUniverse: header.findIndex(h => /true.?universe/i.test(h)),
-        matchCriteria: header.findIndex(h => /match.?criteria/i.test(h)),
-        notes: header.findIndex(h => /^notes$/i.test(h)),
+        gtResult: header.findIndex(h => /ground.?truth.?result/i.test(h)),
       };
       const parsed: GtImportRow[] = [];
       for (let i = 1; i < allRows.length; i++) {
@@ -2438,19 +2445,21 @@ function ImportGtModal({ onClose, onImported, existingRecords }: { onClose: () =
         const csvQueryId = r[colIdx.queryId >= 0 ? colIdx.queryId : 0]?.trim() ?? '';
         const csvQuery = r[colIdx.query >= 0 ? colIdx.query : 2]?.trim() ?? '';
         const csvClass = r[colIdx.queryClass >= 0 ? colIdx.queryClass : 1]?.trim() ?? '';
-        const csvTrueUniverseRaw = colIdx.trueUniverse >= 0 ? r[colIdx.trueUniverse]?.trim() ?? '' : '';
-        const csvTrueUniverse = csvTrueUniverseRaw ? csvTrueUniverseRaw.split(',').map(s => s.trim()).filter(Boolean) : [];
-        const csvMatchCriteria = colIdx.matchCriteria >= 0 ? r[colIdx.matchCriteria]?.trim() ?? '' : '';
-        const csvNotes = r[colIdx.notes >= 0 ? colIdx.notes : 5]?.trim() ?? '';
+        const gtBlock = r[colIdx.gtResult >= 0 ? colIdx.gtResult : 4]?.trim() ?? '';
+        const parsed_gt = gtBlock ? parseGroundTruthText(gtBlock) : {};
+        const csvTrueUniverse = parsed_gt.trueUniverse ?? [];
+        const csvMatchCriteria = parsed_gt.matchCriteria ?? '';
+        const csvNotes = parsed_gt.notes ?? '';
+        const csvReasoning = parsed_gt.reasoning ?? '';
         if (!csvQueryId) {
-          parsed.push({ queryId: '', queryText: csvQuery, queryClass: csvClass, trueUniverse: csvTrueUniverse, matchCriteria: csvMatchCriteria, reasoning: '', notes: csvNotes, matchCount: 0, status: 'error', errorMsg: 'Could not extract Query ID' });
+          parsed.push({ queryId: '', queryText: csvQuery, queryClass: csvClass, trueUniverse: csvTrueUniverse, matchCriteria: csvMatchCriteria, reasoning: csvReasoning, notes: csvNotes, matchCount: 0, status: 'error', errorMsg: 'Could not extract Query ID' });
           continue;
         }
         parsed.push({
           queryId: csvQueryId, queryText: csvQuery, queryClass: csvClass,
           trueUniverse: csvTrueUniverse,
           matchCriteria: csvMatchCriteria,
-          reasoning: '',
+          reasoning: csvReasoning,
           notes: csvNotes,
           matchCount: 0,
           status: 'ready',
@@ -2532,8 +2541,8 @@ function ImportGtModal({ onClose, onImported, existingRecords }: { onClose: () =
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
           {phase === 'idle' && (
             <div className="space-y-3">
-              <p className="text-sm text-gray-600">Select a CSV file with columns: <span className="font-mono text-xs bg-gray-100 px-1 rounded">Query ID, Query Class, Query, True Universe, Match Criteria, Notes</span></p>
-              <p className="text-xs text-gray-400">True Universe — comma-separated list of known real-world matches. Match Criteria — plain text rule the agent must satisfy.</p>
+              <p className="text-sm text-gray-600">Select a CSV file with columns: <span className="font-mono text-xs bg-gray-100 px-1 rounded">Query ID, Query Class, Query, Research Prompt, Ground Truth Result</span></p>
+              <p className="text-xs text-gray-400">Ground Truth Result — free-text block with TRUE UNIVERSE, MATCH CRITERIA, and NOTES sections.</p>
               <input
                 type="file"
                 accept=".csv"
