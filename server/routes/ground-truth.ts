@@ -40,10 +40,10 @@ export function createGroundTruthRouter(): Router {
   router.post("/", async (req, res) => {
     try {
       const db = getDrizzleDb();
-      const { queryId, queryText, queryClass, trueUniverse, matchCriteria, expectedBjOutcome, reasoning, notes } = req.body;
+      const { queryId, queryText, queryClass, trueUniverse, matchCriteria, reasoning, notes } = req.body;
 
-      if (!queryId || !queryText || !queryClass || !expectedBjOutcome) {
-        return res.status(400).json({ ok: false, error: "queryId, queryText, queryClass, and expectedBjOutcome are required" });
+      if (!queryId || !queryText || !queryClass) {
+        return res.status(400).json({ ok: false, error: "queryId, queryText, and queryClass are required" });
       }
 
       await db.insert(groundTruthRecords).values({
@@ -52,7 +52,6 @@ export function createGroundTruthRouter(): Router {
         queryClass,
         trueUniverse: trueUniverse ?? [],
         matchCriteria: matchCriteria ?? null,
-        expectedBjOutcome,
         reasoning: reasoning ?? null,
         notes: notes ?? null,
       }).onConflictDoUpdate({
@@ -62,7 +61,6 @@ export function createGroundTruthRouter(): Router {
           queryClass,
           trueUniverse: trueUniverse ?? [],
           matchCriteria: matchCriteria ?? null,
-          expectedBjOutcome,
           reasoning: reasoning ?? null,
           notes: notes ?? null,
         },

@@ -25,7 +25,7 @@ type ExpectedOutcome = 'pass' | 'fail' | 'blocked' | 'clarify' | 'blocked_or_cla
 type QueryClass = 'solvable' | 'clarification_required' | 'fictional_or_impossible' | 'subjective_or_unverifiable' | 'website_evidence_required' | 'relationship_required';
 type ExpectedMode = 'deliver_results' | 'clarify' | 'honest_refusal' | 'best_effort_honest';
 type TowerResult = 'PASS' | 'FAIL' | 'UNKNOWN' | 'NOT_APPLICABLE';
-type BehaviourResult = 'PASS' | 'FAIL' | 'UNKNOWN';
+type BehaviourResult = 'PASS' | 'HONEST_PARTIAL' | 'BATCH_EXHAUSTED' | 'CAPABILITY_FAIL' | 'WRONG_DECISION';
 
 interface BehaviourLLMDetail {
   behaviour_result: 'pass' | 'fail';
@@ -1690,17 +1690,22 @@ function towerResultBadge(result: TowerResult | null) {
 }
 
 function behaviourBadge(result: BehaviourResult | null, isPending = false) {
-  if (!result) return <span className="text-gray-300 text-xs">—</span>;
-  if (isPending && result === 'UNKNOWN') {
-    return (
-      <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0 font-medium text-gray-500 bg-gray-100 rounded">
-        <Loader2 className="w-2.5 h-2.5 animate-spin" />
-        PENDING
-      </span>
-    );
+  if (!result) {
+    if (isPending) {
+      return (
+        <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0 font-medium text-gray-500 bg-gray-100 rounded">
+          <Loader2 className="w-2.5 h-2.5 animate-spin" />
+          PENDING
+        </span>
+      );
+    }
+    return <span className="text-gray-300 text-xs">—</span>;
   }
   const cls = result === 'PASS' ? 'bg-green-100 text-green-800'
-    : result === 'FAIL' ? 'bg-red-100 text-red-800'
+    : result === 'HONEST_PARTIAL' ? 'bg-amber-100 text-amber-800'
+    : result === 'BATCH_EXHAUSTED' ? 'bg-amber-100 text-amber-700'
+    : result === 'CAPABILITY_FAIL' ? 'bg-red-100 text-red-800'
+    : result === 'WRONG_DECISION' ? 'bg-red-100 text-red-700'
     : 'bg-gray-100 text-gray-600';
   return <Badge variant="outline" className={`text-[10px] px-1.5 py-0 font-medium border-0 ${cls}`}>{result}</Badge>;
 }
@@ -1786,7 +1791,6 @@ interface GroundTruthRecord {
   queryClass: string;
   trueUniverse: string[];
   matchCriteria: string | null;
-  expectedBjOutcome: string;
   reasoning: string | null;
   notes: string | null;
   createdAt: string;
@@ -1798,7 +1802,6 @@ function parseGroundTruthText(raw: string): Partial<{
   queryClass: string;
   trueUniverse: string[];
   matchCriteria: string;
-  expectedBjOutcome: string;
   reasoning: string;
   notes: string;
 }> {
@@ -1847,13 +1850,6 @@ function parseGroundTruthText(raw: string): Partial<{
 
   const matchCriteria = get([/\bmatch[_ ]?criteria[:\s*_]*(.+)/i]);
 
-  const rawOutcome = get([
-    /\bexpected[_ ]?bj[_ ]?outcome[:\s*_]*(.+)/i,
-    /\bexpected[_ ]?outcome[:\s*_]*(.+)/i,
-    /\bbj[_ ]?outcome[:\s*_]*(.+)/i,
-  ]);
-  const expectedBjOutcome = rawOutcome?.trim().toLowerCase();
-
   const reasoning = get([/\breasoning[:\s*_]*([\s\S]+?)(?:\n\n|\nnotes|\z)/i]);
   const notes = get([/\bnotes[:\s*_]*([\s\S]+?)$/i]);
 
@@ -1863,7 +1859,6 @@ function parseGroundTruthText(raw: string): Partial<{
     queryClass,
     trueUniverse: trueUniverse.length ? trueUniverse : undefined,
     matchCriteria,
-    expectedBjOutcome,
     reasoning,
     notes,
   };
@@ -1978,17 +1973,6 @@ function GroundTruthViewModal({ record, onClose, onDeleted, onEdit }: { record: 
             )}
           </div>
 
-          <div>
-            <div className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-1">Expected BJ Outcome</div>
-            <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold ${
-              record.expectedBjOutcome.toLowerCase() === 'pass'
-                ? 'bg-green-100 text-green-700'
-                : record.expectedBjOutcome.toLowerCase() === 'fail'
-                  ? 'bg-red-100 text-red-700'
-                  : 'bg-gray-100 text-gray-700'
-            }`}>{record.expectedBjOutcome}</span>
-          </div>
-
           {record.reasoning && (
             <div>
               <div className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-1">Reasoning</div>
@@ -2046,7 +2030,6 @@ function GroundTruthAddModal({
     queryClass: string;
     trueUniverse: string;
     matchCriteria: string;
-    expectedBjOutcome: string;
     reasoning: string;
     notes: string;
   };
@@ -2060,7 +2043,6 @@ function GroundTruthAddModal({
     queryClass: string;
     trueUniverse: string;
     matchCriteria: string;
-    expectedBjOutcome: string;
     reasoning: string;
     notes: string;
   }>(initialFields ?? {
@@ -2069,7 +2051,6 @@ function GroundTruthAddModal({
     queryClass,
     trueUniverse: '',
     matchCriteria: '',
-    expectedBjOutcome: '',
     reasoning: '',
     notes: '',
   });
@@ -2086,7 +2067,6 @@ function GroundTruthAddModal({
       queryClass: parsed.queryClass ?? prev.queryClass,
       trueUniverse: parsed.trueUniverse?.join('\n') ?? prev.trueUniverse,
       matchCriteria: parsed.matchCriteria ?? prev.matchCriteria,
-      expectedBjOutcome: parsed.expectedBjOutcome ?? prev.expectedBjOutcome,
       reasoning: parsed.reasoning ?? prev.reasoning,
       notes: parsed.notes ?? prev.notes,
     }));
@@ -2094,8 +2074,8 @@ function GroundTruthAddModal({
   };
 
   const handleSave = async () => {
-    if (!fields.queryId.trim() || !fields.queryText.trim() || !fields.queryClass.trim() || !fields.expectedBjOutcome.trim()) {
-      setError('Query ID, query text, query class and expected BJ outcome are required.');
+    if (!fields.queryId.trim() || !fields.queryText.trim() || !fields.queryClass.trim()) {
+      setError('Query ID, query text and query class are required.');
       return;
     }
     setSaving(true);
@@ -2115,7 +2095,6 @@ function GroundTruthAddModal({
           queryClass: fields.queryClass.trim(),
           trueUniverse: parseLines(fields.trueUniverse),
           matchCriteria: fields.matchCriteria.trim() || null,
-          expectedBjOutcome: fields.expectedBjOutcome.trim(),
           reasoning: fields.reasoning.trim() || null,
           notes: fields.notes.trim() || null,
         }),
@@ -2209,17 +2188,6 @@ function GroundTruthAddModal({
                 <textarea className={inputCls} rows={3} value={fields.matchCriteria} onChange={e => setFields(p => ({ ...p, matchCriteria: e.target.value }))} placeholder="e.g. Name must contain Swan AND location must be in Arundel BN18" />
               </div>
               <div>
-                <label className={labelCls}>Expected BJ Outcome</label>
-                <select className={inputCls} value={fields.expectedBjOutcome} onChange={e => setFields(p => ({ ...p, expectedBjOutcome: e.target.value }))}>
-                  <option value="">Select…</option>
-                  <option value="pass">PASS — Everything worked. Constraints satisfied, evidence correct, count reasonable.</option>
-                  <option value="honest_partial">HONEST_PARTIAL — Agent did its job but fell short due to real-world constraints (scarcity, bot-blocking). The world's fault, not the agent's.</option>
-                  <option value="batch_exhausted">BATCH_EXHAUSTED — Ran out of candidates because search window was too narrow. More results exist — retry wider.</option>
-                  <option value="capability_fail">CAPABILITY_FAIL — Agent missed findable things. Bad queries, missed evidence, wrong filtering. The agent had the opportunity to do better.</option>
-                  <option value="wrong_decision">WRONG_DECISION — Wrong meta-decision. Ran when it should have clarified, or clarified when it should have run.</option>
-                </select>
-              </div>
-              <div>
                 <label className={labelCls}>Reasoning</label>
                 <textarea className={inputCls} rows={3} value={fields.reasoning} onChange={e => setFields(p => ({ ...p, reasoning: e.target.value }))} />
               </div>
@@ -2297,15 +2265,10 @@ Matches:
 MATCH CRITERIA
 [Describe the rules for what counts as a valid match for this specific query]
 
-EXPECTED BEHAVIOUR JUDGE OUTCOME
-Expected outcome: [PASS / HONEST_PARTIAL / BATCH_EXHAUSTED / CAPABILITY_FAIL / WRONG_DECISION]
-Reasoning: [1-2 sentences — what should a correctly functioning agent return for this query?]
-
 NOTES
 [Scarcity, bot-blocking, edge cases, ambiguity]
 
 ## Important Notes
-- For clarify/blocked queries — do NOT search. Instead confirm why the query requires clarification and set expected outcome to WRONG_DECISION if an agent ran without clarifying, or PASS if it correctly asked for clarification.
 - Be rigorous about what counts as a match — apply the query constraints strictly.
 - Bot-blocked sites count as accessible matches if the business genuinely meets the criteria.`;
   };
@@ -2331,7 +2294,6 @@ NOTES
     queryClass: editingRecord.queryClass,
     trueUniverse: editingRecord.trueUniverse.join('\n'),
     matchCriteria: editingRecord.matchCriteria ?? '',
-    expectedBjOutcome: editingRecord.expectedBjOutcome,
     reasoning: editingRecord.reasoning ?? '',
     notes: editingRecord.notes ?? '',
   } : undefined;
@@ -2449,7 +2411,6 @@ type GtImportRow = {
   queryClass: string;
   trueUniverse: string[];
   matchCriteria: string;
-  expectedBjOutcome: string;
   reasoning: string;
   notes: string;
   matchCount: number;
@@ -2480,42 +2441,29 @@ function ImportGtModal({ onClose, onImported, existingRecords }: { onClose: () =
         queryId: header.findIndex(h => /query.?id/i.test(h)),
         queryClass: header.findIndex(h => /query.?class/i.test(h)),
         query: header.findIndex(h => /^query$/i.test(h)),
-        gtResult: header.findIndex(h => /ground.?truth.?result/i.test(h)),
+        notes: header.findIndex(h => /^notes$/i.test(h)),
       };
       const parsed: GtImportRow[] = [];
       for (let i = 1; i < allRows.length; i++) {
         const r = allRows[i];
         if (r.every(c => !c.trim())) continue;
-        const gtResult = r[colIdx.gtResult >= 0 ? colIdx.gtResult : 4] ?? '';
         const csvQueryId = r[colIdx.queryId >= 0 ? colIdx.queryId : 0]?.trim() ?? '';
         const csvQuery = r[colIdx.query >= 0 ? colIdx.query : 2]?.trim() ?? '';
         const csvClass = r[colIdx.queryClass >= 0 ? colIdx.queryClass : 1]?.trim() ?? '';
-        if (!gtResult.trim()) {
-          parsed.push({ queryId: csvQueryId, queryText: csvQuery, queryClass: csvClass, trueUniverse: [], matchCriteria: '', expectedBjOutcome: '', reasoning: '', notes: '', matchCount: 0, status: 'skipped' });
+        const csvNotes = r[colIdx.notes >= 0 ? colIdx.notes : 3]?.trim() ?? '';
+        if (!csvQueryId) {
+          parsed.push({ queryId: '', queryText: csvQuery, queryClass: csvClass, trueUniverse: [], matchCriteria: '', reasoning: '', notes: csvNotes, matchCount: 0, status: 'error', errorMsg: 'Could not extract Query ID' });
           continue;
         }
-        try {
-          const p = parseGroundTruthText(gtResult);
-          const qId = p.queryId || csvQueryId;
-          const qText = p.queryText || csvQuery;
-          const qClass = p.queryClass || csvClass;
-          if (!qId) {
-            parsed.push({ queryId: '', queryText: qText, queryClass: '', trueUniverse: [], matchCriteria: '', expectedBjOutcome: '', reasoning: '', notes: '', matchCount: 0, status: 'error', errorMsg: 'Could not extract Query ID' });
-            continue;
-          }
-          parsed.push({
-            queryId: qId, queryText: qText, queryClass: qClass,
-            trueUniverse: p.trueUniverse ?? [],
-            matchCriteria: p.matchCriteria ?? '',
-            expectedBjOutcome: p.expectedBjOutcome ?? '',
-            reasoning: p.reasoning ?? '',
-            notes: p.notes ?? '',
-            matchCount: (p.trueUniverse ?? []).length,
-            status: 'ready',
-          });
-        } catch (err) {
-          parsed.push({ queryId: csvQueryId, queryText: csvQuery, queryClass: '', trueUniverse: [], matchCriteria: '', expectedBjOutcome: '', reasoning: '', notes: '', matchCount: 0, status: 'error', errorMsg: String(err) });
-        }
+        parsed.push({
+          queryId: csvQueryId, queryText: csvQuery, queryClass: csvClass,
+          trueUniverse: [],
+          matchCriteria: '',
+          reasoning: '',
+          notes: csvNotes,
+          matchCount: 0,
+          status: 'ready',
+        });
       }
       setRows(parsed);
       setPhase('preview');
@@ -2556,7 +2504,6 @@ function ImportGtModal({ onClose, onImported, existingRecords }: { onClose: () =
             queryClass: row.queryClass,
             trueUniverse: row.trueUniverse,
             matchCriteria: row.matchCriteria || null,
-            expectedBjOutcome: row.expectedBjOutcome,
             reasoning: row.reasoning || null,
             notes: row.notes || null,
           }),
@@ -2594,7 +2541,7 @@ function ImportGtModal({ onClose, onImported, existingRecords }: { onClose: () =
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
           {phase === 'idle' && (
             <div className="space-y-3">
-              <p className="text-sm text-gray-600">Select a CSV file with columns: <span className="font-mono text-xs bg-gray-100 px-1 rounded">Query ID, Query Class, Query, Research Prompt, Ground Truth Result</span></p>
+              <p className="text-sm text-gray-600">Select a CSV file with columns: <span className="font-mono text-xs bg-gray-100 px-1 rounded">Query ID, Query Class, Query, Notes</span></p>
               <input
                 type="file"
                 accept=".csv"
@@ -2644,8 +2591,8 @@ function ImportGtModal({ onClose, onImported, existingRecords }: { onClose: () =
                     <tr>
                       <th className={thCls}>Query ID</th>
                       <th className={thCls}>Query</th>
-                      <th className={thCls}>Expected Outcome</th>
-                      <th className={thCls}>Matches</th>
+                      <th className={thCls}>Class</th>
+                      <th className={thCls}>Notes</th>
                       <th className={thCls}>Status</th>
                     </tr>
                   </thead>
@@ -2669,8 +2616,8 @@ function ImportGtModal({ onClose, onImported, existingRecords }: { onClose: () =
                           <td className={tdCls + ' max-w-[220px]'}>
                             <span className="line-clamp-2">{row.queryText || '—'}</span>
                           </td>
-                          <td className={tdCls}>{row.expectedBjOutcome || '—'}</td>
-                          <td className={tdCls}>{row.status === 'ready' ? row.matchCount : '—'}</td>
+                          <td className={tdCls}>{row.queryClass || '—'}</td>
+                          <td className={tdCls + ' max-w-[180px]'}><span className="line-clamp-2">{row.notes || '—'}</span></td>
                           <td className={tdCls}>
                             {willSkip && <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-500">skipped (already exists)</span>}
                             {willOverwrite && <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-orange-100 text-orange-700">will overwrite</span>}
@@ -3136,8 +3083,8 @@ export default function QaTestRunnerPage() {
                 updateResult(index, { behaviourResult: outcome });
                 if (isBenchmark) {
                   const bPass = finalResults.filter(r => r.behaviourResult === 'PASS').length;
-                  const bFail = finalResults.filter(r => r.behaviourResult === 'FAIL').length;
-                  const bUnknown = finalResults.filter(r => r.behaviourResult === 'UNKNOWN' || r.behaviourResult === null).length;
+                  const bFail = finalResults.filter(r => r.behaviourResult !== null && r.behaviourResult !== 'PASS').length;
+                  const bUnknown = finalResults.filter(r => r.behaviourResult === null).length;
                   const bScore = finalResults.length > 0 ? Math.round((bPass / finalResults.length) * 100) : 0;
                   setBenchmarkProgress(prev => prev ? {
                     ...prev,
@@ -3175,8 +3122,8 @@ export default function QaTestRunnerPage() {
       if (isBenchmark) {
         const counts = computeProgressCounts(finalResults);
         const bPass = finalResults.filter(r => r.behaviourResult === 'PASS').length;
-        const bFail = finalResults.filter(r => r.behaviourResult === 'FAIL').length;
-        const bUnknown = finalResults.filter(r => r.behaviourResult === 'UNKNOWN' || r.behaviourResult === null).length;
+        const bFail = finalResults.filter(r => r.behaviourResult !== null && r.behaviourResult !== 'PASS').length;
+        const bUnknown = finalResults.filter(r => r.behaviourResult === null).length;
         const bScoreCalc = finalResults.length > 0 ? Math.round((bPass / finalResults.length) * 100) : 0;
         setBenchmarkProgress({
           currentIndex: i + 1,
@@ -3261,7 +3208,7 @@ export default function QaTestRunnerPage() {
         patch.towerResult = deriveTowerResult(tempResult as TestResult);
 
         const isTerminal = testStatus !== 'queued' && testStatus !== 'running' && testStatus !== 'poll_expired_reconciling';
-        patch.behaviourResult = 'UNKNOWN';
+        patch.behaviourResult = null;
         patch.behaviourLLMDetail = null;
         patch.behaviourSourceOfTruth = 'unknown';
         patch.behaviourFallbackUsed = false;
@@ -3305,8 +3252,8 @@ export default function QaTestRunnerPage() {
       const healthCounts = computeHealthCounts(finalResults);
       const qualityCounts = computeQualityCounts(finalResults);
       const bPass = finalResults.filter(r => r.behaviourResult === 'PASS').length;
-      const bFail = finalResults.filter(r => r.behaviourResult === 'FAIL').length;
-      const bUnknown = finalResults.filter(r => r.behaviourResult === 'UNKNOWN' || r.behaviourResult === null).length;
+      const bFail = finalResults.filter(r => r.behaviourResult !== null && r.behaviourResult !== 'PASS').length;
+      const bUnknown = finalResults.filter(r => r.behaviourResult === null).length;
       const bScore = finalResults.length > 0 ? Math.round((bPass / finalResults.length) * 100) : 0;
       const cPcts = finalResults.map(computeCompletionPct).filter((v): v is number => v !== null);
       const avgCompletionPct = cPcts.length > 0 ? Math.round(cPcts.reduce((a, b) => a + b, 0) / cPcts.length) : null;
@@ -3533,7 +3480,7 @@ export default function QaTestRunnerPage() {
                   <td className="px-3 py-2.5 text-gray-400 font-mono">{i + 1}</td>
                   <td className="px-3 py-2.5">
                     <div className="font-medium text-gray-800 dark:text-gray-200 text-xs">{r.query}</div>
-                    {r.behaviourResult === 'FAIL' && (
+                    {r.judgement === 'mismatch' && (
                       <div className="mt-0.5 flex items-center gap-1 text-[10px] text-amber-600">
                         <AlertTriangle className="w-3 h-3" />
                         <span>Expected vs Behaviour mismatch</span>
@@ -3592,7 +3539,7 @@ export default function QaTestRunnerPage() {
                     {towerResultBadge(r.towerResult)}
                   </td>
                   <td className="px-3 py-2.5">
-                    {behaviourBadge(r.behaviourResult, r.behaviourResult === 'UNKNOWN' && !!r.runId && isBenchmarkRunning)}
+                    {behaviourBadge(r.behaviourResult, r.behaviourResult === null && !!r.runId && isBenchmarkRunning)}
                   </td>
                   <td className="px-3 py-2.5 text-gray-500 font-mono text-xs">
                     {r.durationMs !== null ? `${(r.durationMs / 1000).toFixed(1)}s` : '—'}

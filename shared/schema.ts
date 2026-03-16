@@ -2813,7 +2813,6 @@ export const groundTruthRecords = pgTable("ground_truth_records", {
   queryClass: text("query_class").notNull(),
   trueUniverse: jsonb("true_universe").notNull().default([]),
   matchCriteria: text("match_criteria"),
-  expectedBjOutcome: text("expected_bj_outcome").notNull(),
   reasoning: text("reasoning"),
   notes: text("notes"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
