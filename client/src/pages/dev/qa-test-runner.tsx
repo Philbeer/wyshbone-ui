@@ -2409,6 +2409,271 @@ NOTES
   );
 }
 
+function parseCsv(text: string): string[][] {
+  const rows: string[][] = [];
+  let col = '';
+  let row: string[] = [];
+  let inQuotes = false;
+  let i = 0;
+  while (i < text.length) {
+    const ch = text[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (text[i + 1] === '"') { col += '"'; i += 2; continue; }
+        inQuotes = false;
+      } else {
+        col += ch;
+      }
+    } else {
+      if (ch === '"') {
+        inQuotes = true;
+      } else if (ch === ',') {
+        row.push(col); col = '';
+      } else if (ch === '\r' && text[i + 1] === '\n') {
+        row.push(col); col = ''; rows.push(row); row = []; i++;
+      } else if (ch === '\n') {
+        row.push(col); col = ''; rows.push(row); row = [];
+      } else {
+        col += ch;
+      }
+    }
+    i++;
+  }
+  if (col || row.length) { row.push(col); rows.push(row); }
+  return rows;
+}
+
+type GtImportRow = {
+  queryId: string;
+  queryText: string;
+  queryClass: string;
+  trueUniverse: string[];
+  matchCriteria: string;
+  expectedBjOutcome: string;
+  reasoning: string;
+  notes: string;
+  matchCount: number;
+  status: 'ready' | 'skipped' | 'error';
+  errorMsg?: string;
+};
+
+function ImportGtModal({ onClose, onImported }: { onClose: () => void; onImported: (records: GroundTruthRecord[]) => void }) {
+  const [rows, setRows] = useState<GtImportRow[] | null>(null);
+  const [fileName, setFileName] = useState('');
+  const [phase, setPhase] = useState<'idle' | 'preview' | 'importing' | 'done'>('idle');
+  const [progress, setProgress] = useState({ imported: 0, skipped: 0, errors: 0, current: 0, total: 0 });
+  const [importedRecords, setImportedRecords] = useState<GroundTruthRecord[]>([]);
+
+  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const text = ev.target?.result as string;
+      const allRows = parseCsv(text);
+      if (allRows.length < 2) return;
+      const header = allRows[0].map(h => h.trim());
+      const colIdx = {
+        queryId: header.findIndex(h => /query.?id/i.test(h)),
+        queryClass: header.findIndex(h => /query.?class/i.test(h)),
+        query: header.findIndex(h => /^query$/i.test(h)),
+        gtResult: header.findIndex(h => /ground.?truth.?result/i.test(h)),
+      };
+      const parsed: GtImportRow[] = [];
+      for (let i = 1; i < allRows.length; i++) {
+        const r = allRows[i];
+        if (r.every(c => !c.trim())) continue;
+        const gtResult = r[colIdx.gtResult >= 0 ? colIdx.gtResult : 4] ?? '';
+        const csvQueryId = r[colIdx.queryId >= 0 ? colIdx.queryId : 0]?.trim() ?? '';
+        const csvQuery = r[colIdx.query >= 0 ? colIdx.query : 2]?.trim() ?? '';
+        const csvClass = r[colIdx.queryClass >= 0 ? colIdx.queryClass : 1]?.trim() ?? '';
+        if (!gtResult.trim()) {
+          parsed.push({ queryId: csvQueryId, queryText: csvQuery, queryClass: csvClass, trueUniverse: [], matchCriteria: '', expectedBjOutcome: '', reasoning: '', notes: '', matchCount: 0, status: 'skipped' });
+          continue;
+        }
+        try {
+          const p = parseGroundTruthText(gtResult);
+          const qId = p.queryId || csvQueryId;
+          const qText = p.queryText || csvQuery;
+          const qClass = p.queryClass || csvClass;
+          if (!qId) {
+            parsed.push({ queryId: '', queryText: qText, queryClass: '', trueUniverse: [], matchCriteria: '', expectedBjOutcome: '', reasoning: '', notes: '', matchCount: 0, status: 'error', errorMsg: 'Could not extract Query ID' });
+            continue;
+          }
+          parsed.push({
+            queryId: qId, queryText: qText, queryClass: qClass,
+            trueUniverse: p.trueUniverse ?? [],
+            matchCriteria: p.matchCriteria ?? '',
+            expectedBjOutcome: p.expectedBjOutcome ?? '',
+            reasoning: p.reasoning ?? '',
+            notes: p.notes ?? '',
+            matchCount: (p.trueUniverse ?? []).length,
+            status: 'ready',
+          });
+        } catch (err) {
+          parsed.push({ queryId: csvQueryId, queryText: csvQuery, queryClass: '', trueUniverse: [], matchCriteria: '', expectedBjOutcome: '', reasoning: '', notes: '', matchCount: 0, status: 'error', errorMsg: String(err) });
+        }
+      }
+      setRows(parsed);
+      setPhase('preview');
+    };
+    reader.readAsText(file);
+  };
+
+  const handleImport = async () => {
+    if (!rows) return;
+    const readyRows = rows.filter(r => r.status === 'ready');
+    const initialSkipped = rows.filter(r => r.status === 'skipped').length;
+    const initialErrors = rows.filter(r => r.status === 'error').length;
+    setPhase('importing');
+    setProgress({ imported: 0, skipped: initialSkipped, errors: initialErrors, current: 0, total: readyRows.length });
+    const newRecords: GroundTruthRecord[] = [];
+    let imported = 0;
+    let errors = initialErrors;
+    for (let i = 0; i < readyRows.length; i++) {
+      const row = readyRows[i];
+      setProgress(p => ({ ...p, current: i + 1 }));
+      try {
+        const url = buildApiUrl(addDevAuthParams('/api/ground-truth'));
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            queryId: row.queryId,
+            queryText: row.queryText,
+            queryClass: row.queryClass,
+            trueUniverse: row.trueUniverse,
+            matchCriteria: row.matchCriteria || null,
+            expectedBjOutcome: row.expectedBjOutcome,
+            reasoning: row.reasoning || null,
+            notes: row.notes || null,
+          }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.record) newRecords.push(data.record);
+          imported++;
+        } else { errors++; }
+      } catch { errors++; }
+    }
+    setProgress(p => ({ ...p, imported, errors }));
+    setImportedRecords(newRecords);
+    setPhase('done');
+  };
+
+  const thCls = 'text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wider px-2 py-1.5 border-b';
+  const tdCls = 'px-2 py-1.5 text-xs text-gray-700 align-top';
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl mx-4 flex flex-col max-h-[88vh]" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-3 border-b shrink-0">
+          <h2 className="text-sm font-semibold text-gray-800">Import Ground Truth Records from CSV</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-lg leading-none">&times;</button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+          {phase === 'idle' && (
+            <div className="space-y-3">
+              <p className="text-sm text-gray-600">Select a CSV file with columns: <span className="font-mono text-xs bg-gray-100 px-1 rounded">Query ID, Query Class, Query, Research Prompt, Ground Truth Result</span></p>
+              <input
+                type="file"
+                accept=".csv"
+                onChange={handleFile}
+                className="text-sm text-gray-600 file:mr-3 file:py-1.5 file:px-3 file:rounded file:border file:border-gray-300 file:text-xs file:font-medium file:bg-white file:text-gray-700 hover:file:bg-gray-50"
+              />
+            </div>
+          )}
+
+          {(phase === 'preview' || phase === 'importing') && rows && (
+            <div className="space-y-3">
+              <p className="text-xs text-gray-500">{fileName} — {rows.length} rows parsed: <span className="text-green-600 font-medium">{rows.filter(r => r.status === 'ready').length} ready</span>, <span className="text-amber-600 font-medium">{rows.filter(r => r.status === 'skipped').length} skipped</span>, <span className="text-red-600 font-medium">{rows.filter(r => r.status === 'error').length} errors</span></p>
+              <div className="border rounded overflow-auto max-h-[380px]">
+                <table className="w-full text-left border-collapse">
+                  <thead className="bg-gray-50 sticky top-0">
+                    <tr>
+                      <th className={thCls}>Query ID</th>
+                      <th className={thCls}>Query</th>
+                      <th className={thCls}>Expected Outcome</th>
+                      <th className={thCls}>Matches</th>
+                      <th className={thCls}>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((row, idx) => (
+                      <tr key={idx} className={`border-b last:border-0 ${row.status === 'error' ? 'bg-red-50' : row.status === 'skipped' ? 'bg-amber-50' : ''}`}>
+                        <td className={tdCls + ' font-mono'}>{row.queryId || '—'}</td>
+                        <td className={tdCls + ' max-w-[220px]'}>
+                          <span className="line-clamp-2">{row.queryText || '—'}</span>
+                        </td>
+                        <td className={tdCls}>{row.expectedBjOutcome || '—'}</td>
+                        <td className={tdCls}>{row.status === 'ready' ? row.matchCount : '—'}</td>
+                        <td className={tdCls}>
+                          {row.status === 'ready' && <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-green-100 text-green-700">ready</span>}
+                          {row.status === 'skipped' && <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-700">skipped</span>}
+                          {row.status === 'error' && (
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-red-100 text-red-700" title={row.errorMsg}>error</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {phase === 'importing' && (
+                <div className="text-xs text-gray-600">
+                  Importing {progress.current} / {progress.total}…
+                  <div className="mt-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                    <div className="h-full bg-blue-500 rounded-full transition-all" style={{ width: `${progress.total > 0 ? (progress.current / progress.total) * 100 : 0}%` }} />
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {phase === 'done' && (
+            <div className="space-y-2 text-sm">
+              <p className="font-semibold text-gray-800">Import complete</p>
+              <ul className="text-gray-600 space-y-1">
+                <li><span className="text-green-600 font-medium">{progress.imported} imported</span></li>
+                <li><span className="text-amber-600 font-medium">{progress.skipped} skipped</span> (empty GT result)</li>
+                <li><span className="text-red-600 font-medium">{progress.errors} errors</span></li>
+              </ul>
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center justify-end gap-3 px-5 py-3 border-t shrink-0">
+          {phase === 'done' ? (
+            <button
+              onClick={() => onImported(importedRecords)}
+              className="text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded px-4 py-1.5"
+            >
+              Done
+            </button>
+          ) : (
+            <>
+              <button onClick={onClose} className="text-xs text-gray-500 hover:text-gray-700 px-3 py-1.5 rounded border border-gray-200 hover:border-gray-300">
+                Cancel
+              </button>
+              {phase === 'preview' && rows && rows.some(r => r.status === 'ready') && (
+                <button
+                  onClick={handleImport}
+                  className="text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded px-4 py-1.5"
+                >
+                  Import All ({rows.filter(r => r.status === 'ready').length} records)
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function GtPromptModal({ queryId, promptText, onClose }: { queryId: string; promptText: string; onClose: () => void }) {
   const [copied, setCopied] = useState(false);
 
@@ -2631,7 +2896,9 @@ export default function QaTestRunnerPage() {
   const isBenchmarkRunning = suiteStatus === 'running' && selectedSuiteId === 'full-benchmark';
 
   const [gtRecords, setGtRecords] = useState<Map<string, GroundTruthRecord>>(new Map());
-  useEffect(() => {
+  const [showImportGt, setShowImportGt] = useState(false);
+
+  const loadGtRecords = useCallback(() => {
     fetch(buildApiUrl(addDevAuthParams('/api/ground-truth')), { credentials: 'include' })
       .then(r => r.ok ? r.json() : null)
       .then(data => {
@@ -2642,6 +2909,8 @@ export default function QaTestRunnerPage() {
       })
       .catch(() => {});
   }, []);
+
+  useEffect(() => { loadGtRecords(); }, [loadGtRecords]);
 
   const handleGtSaved = useCallback((record: GroundTruthRecord) => {
     setGtRecords(prev => new Map(prev).set(record.queryId, record));
@@ -3076,16 +3345,24 @@ export default function QaTestRunnerPage() {
         <div className="border rounded-lg p-6 mb-6 bg-gray-50">
           <div className="flex items-center justify-between mb-1">
             <h3 className="font-semibold text-gray-700">{selectedSuite.name}</h3>
-            <button
-              className="text-xs text-purple-600 hover:text-purple-800 disabled:opacity-40"
-              disabled={suiteStatus === 'running'}
-              onClick={() => {
-                if (allSelected) setSelectedTestIds(new Set());
-                else setSelectedTestIds(new Set(selectedSuite.tests.map(t => t.id)));
-              }}
-            >
-              {allSelected ? 'Uncheck all' : 'Check all'}
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowImportGt(true)}
+                className="text-xs text-blue-600 hover:text-blue-800 border border-blue-200 hover:border-blue-400 rounded px-2 py-0.5"
+              >
+                Import GT Records
+              </button>
+              <button
+                className="text-xs text-purple-600 hover:text-purple-800 disabled:opacity-40"
+                disabled={suiteStatus === 'running'}
+                onClick={() => {
+                  if (allSelected) setSelectedTestIds(new Set());
+                  else setSelectedTestIds(new Set(selectedSuite.tests.map(t => t.id)));
+                }}
+              >
+                {allSelected ? 'Uncheck all' : 'Check all'}
+              </button>
+            </div>
           </div>
           <p className="text-sm text-gray-500 mb-4">{selectedSuite.description}</p>
           <div className="space-y-1.5 max-h-[400px] overflow-y-auto pr-1">
@@ -3286,6 +3563,20 @@ export default function QaTestRunnerPage() {
         <p>Per-test timeout: {PER_TEST_TIMEOUT_MS / 1000}s · Poll interval: {POLL_INTERVAL_MS / 1000}s · Country: GB</p>
         <p>Expected outcomes: pass, fail, blocked, clarify, blocked_or_clarify</p>
       </div>
+
+      {showImportGt && (
+        <ImportGtModal
+          onClose={() => setShowImportGt(false)}
+          onImported={records => {
+            setGtRecords(prev => {
+              const next = new Map(prev);
+              for (const r of records) next.set(r.queryId, r);
+              return next;
+            });
+            setShowImportGt(false);
+          }}
+        />
+      )}
     </div>
     </div>
   );
