@@ -14,7 +14,7 @@ import {
 const VALID_SYSTEM_STATUSES: SystemStatus[] = ["HEALTHY", "DEGRADED", "BROKEN", "TIMEOUT"];
 const VALID_AGENT_STATUSES: AgentQuality[] = ["PASS", "PARTIAL", "FAIL", "NOT_APPLICABLE", "UNKNOWN"];
 const VALID_TOWER_RESULTS: TowerResult[] = ["PASS", "FAIL", "UNKNOWN", "NOT_APPLICABLE"];
-const VALID_BEHAVIOUR_RESULTS: BehaviourResult[] = ["PASS", "FAIL", "UNKNOWN"];
+const VALID_BEHAVIOUR_RESULTS: BehaviourResult[] = ["PASS", "FAIL", "UNKNOWN", "HONEST_PARTIAL", "BATCH_EXHAUSTED", "CAPABILITY_FAIL", "WRONG_DECISION"];
 const VALID_QUERY_CLASSES = ["solvable", "website_evidence_required", "clarification_required", "relationship_required", "fictional_or_impossible", "subjective_or_unverifiable"];
 const VALID_EXPECTED_MODES = ["deliver_results", "clarify", "honest_refusal", "best_effort_honest"];
 const VALID_SOURCES = ["benchmark", "heuristic"] as const;
@@ -39,7 +39,7 @@ export function towerResultToScore(result: TowerResult): number {
 }
 
 export function behaviourResultToScore(result: BehaviourResult): number {
-  return statusToScore(result, ["PASS"], []);
+  return statusToScore(result, ["PASS"], ["HONEST_PARTIAL"]);
 }
 
 interface QaRunMetricInput {
