@@ -309,6 +309,7 @@ export function BehaviourInspectContent({ runId, query, timestamp }: {
       const [judgeData, evidenceData] = await Promise.all([fetchJudge(), fetchEvidence()]);
       if (cancelled) return;
       console.log(`[BIC] behaviour-judge result (retriesLeft=${retriesLeft}):`, JSON.stringify(judgeData));
+      console.log('[BIC_RAW] Full BJ packet (all fields, unfiltered):', judgeData);
       console.log('[BIC] delivery-evidence result:', JSON.stringify(evidenceData));
       setDeliveryEvidence(evidenceData || { evidenceMap: {}, verifiableConstraints: [] });
       if (judgeData) {
