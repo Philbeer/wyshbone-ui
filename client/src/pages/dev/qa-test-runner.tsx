@@ -2457,10 +2457,12 @@ type GtImportRow = {
   errorMsg?: string;
 };
 
-function ImportGtModal({ onClose, onImported }: { onClose: () => void; onImported: (records: GroundTruthRecord[]) => void }) {
+function ImportGtModal({ onClose, onImported, existingRecords }: { onClose: () => void; onImported: (records: GroundTruthRecord[]) => void; existingRecords: Map<string, GroundTruthRecord> }) {
   const [rows, setRows] = useState<GtImportRow[] | null>(null);
   const [fileName, setFileName] = useState('');
   const [phase, setPhase] = useState<'idle' | 'preview' | 'importing' | 'done'>('idle');
+  const [importMode, setImportMode] = useState<'missing-only' | 'replace-all'>('missing-only');
+  const [showConfirm, setShowConfirm] = useState(false);
   const [progress, setProgress] = useState({ imported: 0, skipped: 0, errors: 0, current: 0, total: 0 });
   const [importedRecords, setImportedRecords] = useState<GroundTruthRecord[]>([]);
 
@@ -2521,10 +2523,18 @@ function ImportGtModal({ onClose, onImported }: { onClose: () => void; onImporte
     reader.readAsText(file);
   };
 
-  const handleImport = async () => {
+  const getImportableRows = (mode: 'missing-only' | 'replace-all') =>
+    (rows ?? []).filter(r => {
+      if (r.status !== 'ready') return false;
+      if (mode === 'missing-only' && existingRecords.has(r.queryId)) return false;
+      return true;
+    });
+
+  const doImport = async () => {
     if (!rows) return;
-    const readyRows = rows.filter(r => r.status === 'ready');
-    const initialSkipped = rows.filter(r => r.status === 'skipped').length;
+    const readyRows = getImportableRows(importMode);
+    const existSkipped = importMode === 'missing-only' ? rows.filter(r => r.status === 'ready' && existingRecords.has(r.queryId)).length : 0;
+    const initialSkipped = rows.filter(r => r.status === 'skipped').length + existSkipped;
     const initialErrors = rows.filter(r => r.status === 'error').length;
     setPhase('importing');
     setProgress({ imported: 0, skipped: initialSkipped, errors: initialErrors, current: 0, total: readyRows.length });
@@ -2563,8 +2573,15 @@ function ImportGtModal({ onClose, onImported }: { onClose: () => void; onImporte
     setPhase('done');
   };
 
+  const handleImportClick = () => {
+    if (importMode === 'replace-all') { setShowConfirm(true); return; }
+    doImport();
+  };
+
   const thCls = 'text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wider px-2 py-1.5 border-b';
   const tdCls = 'px-2 py-1.5 text-xs text-gray-700 align-top';
+
+  const importableCount = getImportableRows(importMode).length;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
@@ -2589,8 +2606,39 @@ function ImportGtModal({ onClose, onImported }: { onClose: () => void; onImporte
 
           {(phase === 'preview' || phase === 'importing') && rows && (
             <div className="space-y-3">
-              <p className="text-xs text-gray-500">{fileName} — {rows.length} rows parsed: <span className="text-green-600 font-medium">{rows.filter(r => r.status === 'ready').length} ready</span>, <span className="text-amber-600 font-medium">{rows.filter(r => r.status === 'skipped').length} skipped</span>, <span className="text-red-600 font-medium">{rows.filter(r => r.status === 'error').length} errors</span></p>
-              <div className="border rounded overflow-auto max-h-[380px]">
+              <p className="text-xs text-gray-500">{fileName} — {rows.length} rows parsed: <span className="text-green-600 font-medium">{rows.filter(r => r.status === 'ready').length} parsed OK</span>, <span className="text-amber-600 font-medium">{rows.filter(r => r.status === 'skipped').length} no GT data</span>, <span className="text-red-600 font-medium">{rows.filter(r => r.status === 'error').length} errors</span></p>
+
+              {phase === 'preview' && (
+                <div className="flex items-center gap-5 py-2 px-3 bg-gray-50 border rounded">
+                  <span className="text-xs font-medium text-gray-600 shrink-0">Import mode:</span>
+                  <label className="flex items-center gap-1.5 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="importMode"
+                      value="missing-only"
+                      checked={importMode === 'missing-only'}
+                      onChange={() => setImportMode('missing-only')}
+                      className="accent-blue-600"
+                    />
+                    <span className="text-xs text-gray-700">Import missing only</span>
+                    <span className="text-[10px] text-gray-400 ml-0.5">— skip items that already have a GT record</span>
+                  </label>
+                  <label className="flex items-center gap-1.5 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="importMode"
+                      value="replace-all"
+                      checked={importMode === 'replace-all'}
+                      onChange={() => setImportMode('replace-all')}
+                      className="accent-blue-600"
+                    />
+                    <span className="text-xs text-gray-700">Replace all</span>
+                    <span className="text-[10px] text-gray-400 ml-0.5">— overwrite existing records</span>
+                  </label>
+                </div>
+              )}
+
+              <div className="border rounded overflow-auto max-h-[320px]">
                 <table className="w-full text-left border-collapse">
                   <thead className="bg-gray-50 sticky top-0">
                     <tr>
@@ -2602,23 +2650,39 @@ function ImportGtModal({ onClose, onImported }: { onClose: () => void; onImporte
                     </tr>
                   </thead>
                   <tbody>
-                    {rows.map((row, idx) => (
-                      <tr key={idx} className={`border-b last:border-0 ${row.status === 'error' ? 'bg-red-50' : row.status === 'skipped' ? 'bg-amber-50' : ''}`}>
-                        <td className={tdCls + ' font-mono'}>{row.queryId || '—'}</td>
-                        <td className={tdCls + ' max-w-[220px]'}>
-                          <span className="line-clamp-2">{row.queryText || '—'}</span>
-                        </td>
-                        <td className={tdCls}>{row.expectedBjOutcome || '—'}</td>
-                        <td className={tdCls}>{row.status === 'ready' ? row.matchCount : '—'}</td>
-                        <td className={tdCls}>
-                          {row.status === 'ready' && <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-green-100 text-green-700">ready</span>}
-                          {row.status === 'skipped' && <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-700">skipped</span>}
-                          {row.status === 'error' && (
-                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-red-100 text-red-700" title={row.errorMsg}>error</span>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
+                    {rows.map((row, idx) => {
+                      const alreadyExists = row.status === 'ready' && existingRecords.has(row.queryId);
+                      const willSkip = alreadyExists && importMode === 'missing-only';
+                      const willOverwrite = alreadyExists && importMode === 'replace-all';
+                      const rowBg = row.status === 'error'
+                        ? 'bg-red-50'
+                        : row.status === 'skipped'
+                        ? 'bg-amber-50/60'
+                        : willSkip
+                        ? 'bg-gray-50'
+                        : willOverwrite
+                        ? 'bg-orange-50'
+                        : '';
+                      return (
+                        <tr key={idx} className={`border-b last:border-0 ${rowBg}`}>
+                          <td className={tdCls + ' font-mono'}>{row.queryId || '—'}</td>
+                          <td className={tdCls + ' max-w-[220px]'}>
+                            <span className="line-clamp-2">{row.queryText || '—'}</span>
+                          </td>
+                          <td className={tdCls}>{row.expectedBjOutcome || '—'}</td>
+                          <td className={tdCls}>{row.status === 'ready' ? row.matchCount : '—'}</td>
+                          <td className={tdCls}>
+                            {willSkip && <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-500">skipped (already exists)</span>}
+                            {willOverwrite && <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-orange-100 text-orange-700">will overwrite</span>}
+                            {!alreadyExists && row.status === 'ready' && <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-green-100 text-green-700">ready</span>}
+                            {row.status === 'skipped' && <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-700">no GT data</span>}
+                            {row.status === 'error' && (
+                              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-red-100 text-red-700" title={row.errorMsg}>error</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -2638,7 +2702,7 @@ function ImportGtModal({ onClose, onImported }: { onClose: () => void; onImporte
               <p className="font-semibold text-gray-800">Import complete</p>
               <ul className="text-gray-600 space-y-1">
                 <li><span className="text-green-600 font-medium">{progress.imported} imported</span></li>
-                <li><span className="text-amber-600 font-medium">{progress.skipped} skipped</span> (empty GT result)</li>
+                <li><span className="text-amber-600 font-medium">{progress.skipped} skipped</span></li>
                 <li><span className="text-red-600 font-medium">{progress.errors} errors</span></li>
               </ul>
             </div>
@@ -2658,18 +2722,41 @@ function ImportGtModal({ onClose, onImported }: { onClose: () => void; onImporte
               <button onClick={onClose} className="text-xs text-gray-500 hover:text-gray-700 px-3 py-1.5 rounded border border-gray-200 hover:border-gray-300">
                 Cancel
               </button>
-              {phase === 'preview' && rows && rows.some(r => r.status === 'ready') && (
+              {phase === 'preview' && importableCount > 0 && (
                 <button
-                  onClick={handleImport}
+                  onClick={handleImportClick}
                   className="text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded px-4 py-1.5"
                 >
-                  Import All ({rows.filter(r => r.status === 'ready').length} records)
+                  Import {importableCount} record{importableCount !== 1 ? 's' : ''}
                 </button>
               )}
             </>
           )}
         </div>
       </div>
+
+      {showConfirm && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/50" onClick={() => setShowConfirm(false)}>
+          <div className="bg-white rounded-lg shadow-2xl w-full max-w-sm mx-4 p-5 space-y-4" onClick={e => e.stopPropagation()}>
+            <p className="text-sm font-semibold text-gray-800">Warning: Replace existing records?</p>
+            <p className="text-xs text-gray-600">This will overwrite existing ground truth records. This cannot be undone. Are you sure?</p>
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => setShowConfirm(false)}
+                className="text-xs text-gray-500 hover:text-gray-700 px-3 py-1.5 rounded border border-gray-200 hover:border-gray-300"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => { setShowConfirm(false); doImport(); }}
+                className="text-xs font-medium text-white bg-red-600 hover:bg-red-700 rounded px-4 py-1.5"
+              >
+                Yes, replace all
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -3567,6 +3654,7 @@ export default function QaTestRunnerPage() {
       {showImportGt && (
         <ImportGtModal
           onClose={() => setShowImportGt(false)}
+          existingRecords={gtRecords}
           onImported={records => {
             setGtRecords(prev => {
               const next = new Map(prev);
