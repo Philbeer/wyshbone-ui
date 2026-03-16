@@ -1827,13 +1827,17 @@ function parseGroundTruthText(raw: string): Partial<{
     }
   }
 
-  // TRUE UNIVERSE: each line is "- name | url | evidence | status" — extract name only
+  // TRUE UNIVERSE: heading may appear without a colon (e.g. "TRUE UNIVERSE\nMatches:\n- name | ...")
+  // Fall back to a direct regex if the section-splitter didn't find it
   const trueUniverse: string[] = [];
-  const tuBlock = sections['TRUE UNIVERSE'] ?? '';
+  const tuBlock = sections['TRUE UNIVERSE']
+    ?? (() => {
+      const m = raw.match(/\bTRUE UNIVERSE\b[^\n]*\n([\s\S]+?)(?=\n[A-Z][A-Z ]+:|$)/i);
+      return m ? m[1].trim() : '';
+    })();
   for (const line of tuBlock.split('\n')) {
-    const stripped = line.replace(/^\s*[-*•]\s*/, '').trim();
-    if (!stripped) continue;
-    const name = stripped.split(/\s*\|\s*/)[0].trim();
+    if (!/^\s*[-*•]/.test(line)) continue;
+    const name = line.replace(/^\s*[-*•]\s*/, '').split(/\s*\|\s*/)[0].trim();
     if (name) trueUniverse.push(name);
   }
 
