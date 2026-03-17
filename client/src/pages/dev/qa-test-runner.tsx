@@ -118,7 +118,7 @@ const FULL_BENCHMARK_PACK: TestDefinition[] = [
     notes: 'Website evidence — entertainment attribute.',
   },
   {
-    id: 'B06b',
+    id: 'B07',
     query: 'Find pubs in Arundel that mention live music on their website and have the word red in the name',
     expected: 'pass',
     expectedStrategy: 'website_evidence',
@@ -128,7 +128,7 @@ const FULL_BENCHMARK_PACK: TestDefinition[] = [
     notes: 'Website evidence + name constraint — The Red Lion should satisfy both.',
   },
   {
-    id: 'B06c',
+    id: 'B08',
     query: 'Find pubs in Arundel that mention live music on their website and have arthaus',
     expected: 'pass',
     expectedStrategy: 'website_evidence',
@@ -138,7 +138,7 @@ const FULL_BENCHMARK_PACK: TestDefinition[] = [
     notes: 'Website evidence + name constraint — arthaus name filter alongside live music attribute.',
   },
   {
-    id: 'B07',
+    id: 'B09',
     query: 'Find organisations that work with the local authority in Blackpool',
     expected: 'blocked_or_clarify',
     queryClass: 'relationship_required',
@@ -147,7 +147,7 @@ const FULL_BENCHMARK_PACK: TestDefinition[] = [
     notes: 'Relationship discovery — local authority predicate.',
   },
   {
-    id: 'B08',
+    id: 'B10',
     query: 'Find companies that supply to NHS hospitals in Leeds',
     expected: 'blocked_or_clarify',
     queryClass: 'relationship_required',
@@ -156,7 +156,7 @@ const FULL_BENCHMARK_PACK: TestDefinition[] = [
     notes: 'Relationship discovery — supplier predicate.',
   },
   {
-    id: 'B09',
+    id: 'B11',
     query: 'Find the best dentists in Brighton',
     expected: 'blocked_or_clarify',
     queryClass: 'subjective_or_unverifiable',
@@ -165,7 +165,7 @@ const FULL_BENCHMARK_PACK: TestDefinition[] = [
     notes: 'Ranking — subjective "best" should trigger clarification or pass through.',
   },
   {
-    id: 'B10',
+    id: 'B12',
     query: 'Find amazing vibes in London',
     expected: 'clarify',
     queryClass: 'subjective_or_unverifiable',
@@ -174,7 +174,7 @@ const FULL_BENCHMARK_PACK: TestDefinition[] = [
     notes: 'Honest failure — purely subjective entity type, no concrete noun.',
   },
   {
-    id: 'B11',
+    id: 'B13',
     query: 'Find pubs in Narnia',
     expected: 'clarify',
     queryClass: 'fictional_or_impossible',
@@ -182,7 +182,7 @@ const FULL_BENCHMARK_PACK: TestDefinition[] = [
     notes: 'Honest failure — invalid/unknown location. Agent must recognise this itself.',
   },
   {
-    id: 'B12',
+    id: 'B14',
     query: 'Find breweries',
     expected: 'clarify',
     queryClass: 'clarification_required',
