@@ -849,7 +849,9 @@ export default function QaProgressPage() {
                 <th className="px-3 py-2 font-medium" title="Did the run infrastructure behave reliably (no crash/timeout)?">System</th>
                 <th className="px-3 py-2 font-medium" title="Did the agent make the correct decision about what to do?">Agent</th>
                 <th className="px-3 py-2 font-medium" title="Was the mission execution result acceptable?">Tower</th>
-                <th className="px-3 py-2 font-medium" title="Did the system behave as the benchmark expected?">Behaviour</th>
+                <th className="px-3 py-2 font-medium" title="Mission Intent assessment verdict from Behaviour Judge">Mission Intent</th>
+                <th className="px-3 py-2 font-medium" title="Ground Truth assessment verdict from Behaviour Judge">Ground Truth</th>
+                <th className="px-3 py-2 font-medium" title="Combined outcome verdict from Behaviour Judge">Combined</th>
                 <th className="px-3 py-2 font-medium">AFR</th>
               </tr>
             </thead>
@@ -880,6 +882,12 @@ export default function QaProgressPage() {
                   </td>
                   <td className="px-3 py-2">
                     <StatusBadge value={r.tower_result} type="tower" />
+                  </td>
+                  <td className="px-3 py-2">
+                    <StatusBadge value={r.mission_intent_assessment?.verdict ?? 'N/A'} type="behaviour" />
+                  </td>
+                  <td className="px-3 py-2">
+                    <StatusBadge value={r.ground_truth_assessment?.verdict ?? 'N/A'} type="behaviour" />
                   </td>
                   <td className="px-3 py-2">
                     <StatusBadge value={r.behaviour_result} type="behaviour" />
