@@ -728,6 +728,21 @@ export async function insertEnrichmentQueueItem(item: GtEnrichmentInsertItem): P
     return { ok: false, reason: 'duplicate: candidate already queued for this query' };
   }
 
+  const { data: gtRows, error: gtError } = await client
+    .from('ground_truth_records')
+    .select('true_universe')
+    .eq('query_id', item.query_id)
+    .limit(1);
+
+  if (!gtError && gtRows && gtRows.length > 0) {
+    const trueUniverse: string[] = Array.isArray(gtRows[0].true_universe) ? gtRows[0].true_universe : [];
+    const nameLower = item.candidate_name.toLowerCase().trim();
+    if (trueUniverse.some((n: string) => n.toLowerCase().trim() === nameLower)) {
+      console.log(`[gt-enrichment] Skipped insert for "${item.candidate_name}" (query_id=${item.query_id}): already in true_universe`);
+      return { ok: false, reason: 'already in true_universe' };
+    }
+  }
+
   const row: Record<string, unknown> = {
     query_id: item.query_id,
     run_id: item.run_id,

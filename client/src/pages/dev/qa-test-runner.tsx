@@ -1413,6 +1413,29 @@ async function persistQaMetric(
     console.error('[qa-metrics] persist network error:', err);
   }
 
+  if (artefactDetails?.deliveredEntities?.length && test?.id && result?.runId) {
+    for (const entity of artefactDetails.deliveredEntities) {
+      if (!entity.name) continue;
+      try {
+        const enqueueUrl = buildApiUrl(addDevAuthParams('/api/gt-enrichment/enqueue'));
+        await fetch(enqueueUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            query_id: test.id,
+            run_id: result.runId,
+            candidate_name: entity.name,
+            candidate_location: entity.location || null,
+            tower_verdict: artefactDetails.towerVerdict || 'UNKNOWN',
+          }),
+        });
+      } catch (err) {
+        console.error(`[gt-enrichment] Failed to enqueue candidate "${entity.name}":`, err);
+      }
+    }
+  }
+
   if (result.runId && test.id) {
     try {
       const enrichUrl = buildApiUrl(addDevAuthParams('/api/gt-enrichment/run'));
