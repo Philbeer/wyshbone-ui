@@ -851,8 +851,8 @@ export default function QaProgressPage() {
       <div className="mb-4 border rounded-lg bg-gray-50/80 px-4 py-3">
         <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-1.5">What these scores mean</div>
         <div className="grid grid-cols-2 gap-x-8 gap-y-1 text-[11px] text-gray-500 leading-relaxed">
-          <div><span className="font-medium text-gray-700">System</span> — Did the run infrastructure behave reliably (no crash/timeout)?</div>
-          <div><span className="font-medium text-gray-700">Agent</span> — Did the agent make the correct decision about what to do?</div>
+          <div><span className="font-medium text-gray-700">Results Completeness</span> — How many of the expected results were delivered?</div>
+          <div><span className="font-medium text-gray-700">System Health</span> — Did the pipeline stages (discovery, delivery) complete successfully?</div>
           <div><span className="font-medium text-gray-700">Tower</span> — Was the mission execution result acceptable?</div>
           <div><span className="font-medium text-gray-700">Behaviour</span> — Did the system behave as the benchmark expected?</div>
         </div>
@@ -880,8 +880,8 @@ export default function QaProgressPage() {
                   />
                 </th>
                 <th className="px-3 py-2 font-medium">Suite</th>
-                <th className="px-3 py-2 font-medium" title="Did the run infrastructure behave reliably (no crash/timeout)?">System</th>
-                <th className="px-3 py-2 font-medium" title="Did the agent make the correct decision about what to do?">Agent</th>
+                <th className="px-3 py-2 font-medium" title="How many of the expected results were delivered?">Results</th>
+                <th className="px-3 py-2 font-medium" title="Did the pipeline stages (discovery, delivery) complete successfully?">Sys Health</th>
                 <th className="px-3 py-2 font-medium" title="Was the mission execution result acceptable?">Tower</th>
                 <th className="px-3 py-2 font-medium" title="Mission Intent assessment verdict from Behaviour Judge">Mission Intent</th>
                 <th className="px-3 py-2 font-medium" title="Ground Truth assessment verdict from Behaviour Judge">Ground Truth</th>
@@ -975,16 +975,22 @@ function StatusBadge({ value, type }: { value: string; type: 'system' | 'agent' 
     PASS: 'bg-green-100 text-green-800',
     DEGRADED: 'bg-amber-100 text-amber-800',
     PARTIAL: 'bg-amber-100 text-amber-800',
+    HONEST_PARTIAL: 'bg-amber-100 text-amber-800',
+    BATCH_EXHAUSTED: 'bg-amber-100 text-amber-800',
     BROKEN: 'bg-red-100 text-red-700',
     FAIL: 'bg-red-100 text-red-700',
+    CAPABILITY_FAIL: 'bg-red-100 text-red-700',
+    WRONG_DECISION: 'bg-red-100 text-red-700',
     TIMEOUT: 'bg-gray-100 text-gray-600',
     UNKNOWN: 'bg-gray-100 text-gray-500',
     NOT_APPLICABLE: 'bg-gray-100 text-gray-400',
+    'N/A': 'bg-gray-100 text-gray-400',
   };
   const cls = colors[value] || 'bg-gray-100 text-gray-500';
+  const label = value === 'NOT_APPLICABLE' ? 'N/A' : value;
   return (
     <span className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-medium ${cls}`}>
-      {value}
+      {label}
     </span>
   );
 }

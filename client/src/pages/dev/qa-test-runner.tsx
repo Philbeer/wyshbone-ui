@@ -1565,15 +1565,15 @@ function agentQualityBadge(outcome: AgentQualityOutcome | null) {
   if (!outcome) return null;
   switch (outcome) {
     case 'PASS':
-      return <Badge className="bg-green-100 text-green-700 border-green-200 text-[10px] px-1.5 py-0">Pass</Badge>;
+      return <span className="inline-block rounded px-1.5 py-0.5 text-[10px] font-medium bg-green-100 text-green-800">Pass</span>;
     case 'NOT_APPLICABLE':
-      return <Badge className="bg-gray-100 text-gray-500 border-gray-300 text-[10px] px-1.5 py-0">N/A</Badge>;
+      return <span className="inline-block rounded px-1.5 py-0.5 text-[10px] font-medium bg-gray-100 text-gray-400">N/A</span>;
     case 'PARTIAL':
-      return <Badge className="bg-yellow-100 text-yellow-800 border-yellow-200 text-[10px] px-1.5 py-0">Partial</Badge>;
+      return <span className="inline-block rounded px-1.5 py-0.5 text-[10px] font-medium bg-amber-100 text-amber-800">Partial</span>;
     case 'FAIL':
-      return <Badge className="bg-red-100 text-red-700 border-red-200 text-[10px] px-1.5 py-0">Fail</Badge>;
+      return <span className="inline-block rounded px-1.5 py-0.5 text-[10px] font-medium bg-red-100 text-red-700">Fail</span>;
     case 'UNKNOWN':
-      return <Badge variant="outline" className="text-gray-500 border-gray-300 text-[10px] px-1.5 py-0">Unknown</Badge>;
+      return <span className="inline-block rounded px-1.5 py-0.5 text-[10px] font-medium bg-gray-100 text-gray-500">Unknown</span>;
   }
 }
 
@@ -1587,7 +1587,7 @@ function Scoreboard({ results }: { results: TestResult[] }) {
   return (
     <div className="grid grid-cols-2 gap-3 mb-6">
       <div className="border rounded-lg p-4">
-        <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">System Reliability</div>
+        <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Results Completeness</div>
         <div className="flex items-baseline gap-2 mb-3">
           {avgCompletion !== null
             ? <span className={`text-3xl font-bold ${avgCompletion === 100 ? 'text-green-700' : avgCompletion >= 60 ? 'text-amber-700' : 'text-red-700'}`}>{avgCompletion}%</span>
@@ -1598,7 +1598,7 @@ function Scoreboard({ results }: { results: TestResult[] }) {
         <div className="mt-2 text-[9px] text-gray-400">completed leads / leads requested per run</div>
       </div>
       <div className="border rounded-lg p-4">
-        <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Agent Performance</div>
+        <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">System Health</div>
         <div className="flex items-baseline gap-2 mb-3">
           <span className={`text-3xl font-bold ${qc.successRate >= 80 ? 'text-green-700' : qc.successRate >= 50 ? 'text-amber-700' : 'text-red-700'}`}>{qc.successRate}%</span>
           <span className="text-xs text-gray-400">success rate</span>
@@ -1682,11 +1682,11 @@ function BenchmarkProgressBar({ progress }: { progress: BenchmarkProgress }) {
 function towerResultBadge(result: TowerResult | null) {
   if (!result) return <span className="text-gray-300 text-xs">—</span>;
   const cls = result === 'PASS' ? 'bg-green-100 text-green-800'
-    : result === 'FAIL' ? 'bg-red-100 text-red-800'
+    : result === 'FAIL' ? 'bg-red-100 text-red-700'
     : result === 'NOT_APPLICABLE' ? 'bg-gray-100 text-gray-400'
-    : 'bg-gray-100 text-gray-600';
+    : 'bg-gray-100 text-gray-500';
   const label = result === 'NOT_APPLICABLE' ? 'N/A' : result;
-  return <Badge variant="outline" className={`text-[10px] px-1.5 py-0 font-medium border-0 ${cls}`}>{label}</Badge>;
+  return <span className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-medium ${cls}`}>{label}</span>;
 }
 
 function behaviourBadge(result: BehaviourResult | null, isPending = false) {
@@ -1703,11 +1703,11 @@ function behaviourBadge(result: BehaviourResult | null, isPending = false) {
   }
   const cls = result === 'PASS' ? 'bg-green-100 text-green-800'
     : result === 'HONEST_PARTIAL' ? 'bg-amber-100 text-amber-800'
-    : result === 'BATCH_EXHAUSTED' ? 'bg-amber-100 text-amber-700'
-    : result === 'CAPABILITY_FAIL' ? 'bg-red-100 text-red-800'
+    : result === 'BATCH_EXHAUSTED' ? 'bg-amber-100 text-amber-800'
+    : result === 'CAPABILITY_FAIL' ? 'bg-red-100 text-red-700'
     : result === 'WRONG_DECISION' ? 'bg-red-100 text-red-700'
-    : 'bg-gray-100 text-gray-600';
-  return <Badge variant="outline" className={`text-[10px] px-1.5 py-0 font-medium border-0 ${cls}`}>{result}</Badge>;
+    : 'bg-gray-100 text-gray-500';
+  return <span className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-medium ${cls}`}>{result}</span>;
 }
 
 function bjVerdictBadge(verdict: string | null, isPending = false) {
@@ -1725,8 +1725,8 @@ function bjVerdictBadge(verdict: string | null, isPending = false) {
   const colors: Record<string, string> = {
     PASS: 'bg-green-100 text-green-800',
     HONEST_PARTIAL: 'bg-amber-100 text-amber-800',
-    BATCH_EXHAUSTED: 'bg-amber-100 text-amber-700',
-    CAPABILITY_FAIL: 'bg-red-100 text-red-800',
+    BATCH_EXHAUSTED: 'bg-amber-100 text-amber-800',
+    CAPABILITY_FAIL: 'bg-red-100 text-red-700',
     WRONG_DECISION: 'bg-red-100 text-red-700',
     NOT_APPLICABLE: 'bg-gray-100 text-gray-400',
     N_A: 'bg-gray-100 text-gray-400',
@@ -1776,7 +1776,7 @@ function BenchmarkSummaryCard({ summary }: { summary: BenchmarkSummary }) {
       <div className="grid grid-cols-3 gap-4">
         <div>
           <div className="flex items-baseline gap-2 mb-2">
-            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">System Reliability</span>
+            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Results Completeness</span>
             {s.completionPct !== null
               ? <span className={`text-2xl font-bold ml-auto ${s.completionPct === 100 ? 'text-green-700' : s.completionPct >= 60 ? 'text-amber-700' : 'text-red-700'}`}>{s.completionPct}%</span>
               : <span className="text-2xl font-bold ml-auto text-gray-400">—</span>
@@ -1786,7 +1786,7 @@ function BenchmarkSummaryCard({ summary }: { summary: BenchmarkSummary }) {
         </div>
         <div>
           <div className="flex items-baseline gap-2 mb-2">
-            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Agent Performance</span>
+            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">System Health</span>
             <span className={`text-2xl font-bold ml-auto ${a.successRate >= 80 ? 'text-green-700' : a.successRate >= 50 ? 'text-amber-700' : 'text-red-700'}`}>{a.successRate}%</span>
           </div>
           <div className="flex items-center gap-3 text-sm">
@@ -3578,8 +3578,8 @@ export default function QaTestRunnerPage() {
       <div className="mb-4 border rounded-lg bg-gray-50/80 px-4 py-3">
         <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-1.5">What these scores mean</div>
         <div className="grid grid-cols-2 gap-x-8 gap-y-1 text-[11px] text-gray-500 leading-relaxed">
-          <div><span className="font-medium text-gray-700">System</span> — Did the run infrastructure behave reliably (no crash/timeout)?</div>
-          <div><span className="font-medium text-gray-700">Agent</span> — Did the agent make the correct decision about what to do?</div>
+          <div><span className="font-medium text-gray-700">Results Completeness</span> — How many of the expected results were delivered?</div>
+          <div><span className="font-medium text-gray-700">System Health</span> — Did the pipeline stages (discovery, delivery) complete successfully?</div>
           <div><span className="font-medium text-gray-700">Tower</span> — Was the mission execution result acceptable?</div>
           <div><span className="font-medium text-gray-700">Behaviour</span> — LLM-judged: did the run genuinely satisfy the benchmark query? (strict)</div>
         </div>
@@ -3592,8 +3592,8 @@ export default function QaTestRunnerPage() {
               <tr>
                 <th className="text-left px-3 py-2 font-medium text-gray-600 w-8">#</th>
                 <th className="text-left px-3 py-2 font-medium text-gray-600">Query</th>
-                <th className="text-left px-3 py-2 font-medium text-gray-600 w-20" title="Did the run infrastructure behave reliably (no crash/timeout)?">System</th>
-                <th className="text-left px-3 py-2 font-medium text-gray-600 w-20" title="Did the agent make the correct decision about what to do?">Agent</th>
+                <th className="text-left px-3 py-2 font-medium text-gray-600 w-20" title="How many of the expected results were delivered?">Results</th>
+                <th className="text-left px-3 py-2 font-medium text-gray-600 w-20" title="Did the pipeline stages (discovery, delivery) complete successfully?">Sys Health</th>
                 <th className="text-left px-3 py-2 font-medium text-gray-600 w-20" title="Was the mission execution result acceptable?">Tower</th>
                 <th className="text-left px-3 py-2 font-medium text-gray-600 w-20" title="Behaviour Judge: mission intent assessment verdict">Mission Intent</th>
                 <th className="text-left px-3 py-2 font-medium text-gray-600 w-20" title="Behaviour Judge: ground truth assessment verdict">Ground Truth</th>
