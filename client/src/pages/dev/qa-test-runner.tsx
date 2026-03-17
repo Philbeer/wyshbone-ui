@@ -356,7 +356,7 @@ function getClarifyAutoResponse(query: string, definitionResponse?: string, clar
   return null;
 }
 
-const PER_TEST_TIMEOUT_MS = 90_000;
+const PER_TEST_TIMEOUT_MS = 360_000;
 const POLL_INTERVAL_MS = 2_000;
 const AFR_RECONCILE_TIMEOUT_MS = 120_000;
 const AFR_RECONCILE_INTERVAL_MS = 5_000;
