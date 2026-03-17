@@ -2034,11 +2034,31 @@ function GroundTruthViewModal({ record, onClose, onDeleted, onEdit }: { record: 
 
           <div>
             <div className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-1">True Universe</div>
-            {record.trueUniverse.length > 0 ? (
-              <ul className="space-y-0.5 list-disc list-inside text-gray-700">
-                {record.trueUniverse.map((item, i) => <li key={i}>{item}</li>)}
-              </ul>
-            ) : (
+            {record.trueUniverse.length > 0 ? (() => {
+              const enrichedNames = new Set(
+                enrichmentHistory
+                  .filter(h => h.status === 'confirmed_positive')
+                  .map(h => h.candidate_name.toLowerCase().trim())
+              );
+              return (
+                <ul className="space-y-1">
+                  {record.trueUniverse.map((item, i) => {
+                    const isEnriched = enrichedNames.has(item.toLowerCase().trim());
+                    return (
+                      <li key={i} className="flex items-center gap-2 text-gray-700">
+                        <span className="text-gray-400">•</span>
+                        <span>{item}</span>
+                        {isEnriched && (
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                            enriched
+                          </span>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              );
+            })() : (
               <span className="text-gray-400 italic">No items recorded</span>
             )}
           </div>

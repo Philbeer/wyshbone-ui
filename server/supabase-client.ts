@@ -611,7 +611,8 @@ export async function getEnrichmentQueueByRunId(runId: string): Promise<GtEnrich
     .from('gt_enrichment_queue')
     .select('*')
     .eq('run_id', runId)
-    .eq('status', 'pending');
+    .eq('status', 'pending')
+    .eq('tower_verdict', 'PASS');
   if (error) {
     console.error('[gt-enrichment] queue fetch error:', error.message);
     return [];

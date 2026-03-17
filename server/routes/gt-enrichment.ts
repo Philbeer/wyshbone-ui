@@ -145,8 +145,13 @@ export function createGtEnrichmentRouter(): Router {
       let confirmed = 0;
       let denied = 0;
       let inconclusive = 0;
+      let errors = 0;
+      const total = pending.length;
 
-      for (const item of pending) {
+      for (let i = 0; i < pending.length; i++) {
+        const item = pending[i];
+        console.log(`[gt-enrichment] Processing ${i + 1} of ${total}: "${item.candidate_name}" (id=${item.id})`);
+
         try {
           const prompt = buildEnrichmentPrompt(
             item.candidate_name,
@@ -154,8 +159,6 @@ export function createGtEnrichmentRouter(): Router {
             item.constraints_to_verify,
             item.tower_evidence,
           );
-
-          console.log(`[gt-enrichment] Investigating "${item.candidate_name}" (id=${item.id})`);
 
           let responseText = "";
           try {
@@ -195,27 +198,32 @@ export function createGtEnrichmentRouter(): Router {
           if (status === "confirmed_positive") {
             confirmed++;
             await appendToTrueUniverse(query_id, item.candidate_name);
+            console.log(`[gt-enrichment] "${item.candidate_name}" → CONFIRMED POSITIVE — added to true_universe`);
           } else if (status === "confirmed_false_positive") {
             denied++;
+            console.log(`[gt-enrichment] "${item.candidate_name}" → CONFIRMED FALSE POSITIVE`);
           } else {
             inconclusive++;
+            console.log(`[gt-enrichment] "${item.candidate_name}" → INCONCLUSIVE`);
           }
-
-          console.log(`[gt-enrichment] "${item.candidate_name}" → ${status}`);
         } catch (err: any) {
-          console.error(`[gt-enrichment] Error processing item ${item.id}:`, err?.message || err);
-          await updateEnrichmentItem(item.id, {
-            status: "inconclusive",
-            enrichment_result: "INCONCLUSIVE",
-            enrichment_evidence: `Processing error: ${err?.message || "unknown error"}`,
-            enriched_at: new Date().toISOString(),
-          });
-          inconclusive++;
+          errors++;
+          console.error(`[gt-enrichment] Error processing item ${item.id} ("${item.candidate_name}"):`, err?.message || err);
+          try {
+            await updateEnrichmentItem(item.id, {
+              status: "inconclusive",
+              enrichment_result: "INCONCLUSIVE",
+              enrichment_evidence: `Processing error: ${err?.message || "unknown error"}`,
+              enriched_at: new Date().toISOString(),
+            });
+          } catch (updateErr: any) {
+            console.error(`[gt-enrichment] Failed to update error status for item ${item.id}:`, updateErr?.message || updateErr);
+          }
         }
       }
 
       console.log(
-        `[gt-enrichment] Run ${run_id} complete — confirmed=${confirmed} denied=${denied} inconclusive=${inconclusive}`,
+        `[gt-enrichment] Complete — ${total} processed: ${confirmed} confirmed, ${denied} denied, ${inconclusive} inconclusive, ${errors} errors`,
       );
     });
   });

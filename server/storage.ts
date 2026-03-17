@@ -1812,6 +1812,17 @@ export async function runStartupMigrations(): Promise<void> {
       console.error('⚠️ ground_truth_records alter migration error (non-fatal):', error?.message || error);
     }
   }
+
+  try {
+    await queryClient`
+      ALTER TABLE public.gt_enrichment_queue ADD COLUMN IF NOT EXISTS enriched_at TIMESTAMPTZ;
+    `;
+    console.log('✅ gt_enrichment_queue.enriched_at column ensured');
+  } catch (error: any) {
+    if (error?.code !== '42701') {
+      console.error('⚠️ gt_enrichment_queue enriched_at migration error (non-fatal):', error?.message || error);
+    }
+  }
 }
 
 export class DbStorage implements IStorage {
