@@ -8,6 +8,8 @@ import {
   getEnrichmentQueueByRunId,
   updateEnrichmentItem,
   getEnrichmentHistoryForQuery,
+  insertEnrichmentQueueItem,
+  type GtEnrichmentInsertItem,
 } from "../supabase-client";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -94,6 +96,29 @@ export function createGtEnrichmentRouter(): Router {
     const hasDemoAuth = !!((_req as any).query?.user_id || (_req as any).headers?.["x-user-id"]);
     if (isDev || hasDemoAuth) return next();
     return res.status(403).json({ ok: false, error: "Forbidden" });
+  });
+
+  router.post("/enqueue", async (req, res) => {
+    const body = req.body as Partial<GtEnrichmentInsertItem>;
+
+    if (!body.query_id || !body.run_id || !body.candidate_name) {
+      return res.status(400).json({ ok: false, error: "query_id, run_id, and candidate_name are required" });
+    }
+
+    const result = await insertEnrichmentQueueItem({
+      query_id: body.query_id,
+      run_id: body.run_id,
+      candidate_name: body.candidate_name,
+      candidate_location: body.candidate_location ?? null,
+      constraints_to_verify: body.constraints_to_verify ?? null,
+      tower_verdict: body.tower_verdict ?? null,
+      tower_evidence: body.tower_evidence ?? null,
+    });
+
+    if (!result.ok) {
+      return res.status(422).json({ ok: false, reason: result.reason });
+    }
+    return res.json({ ok: true });
   });
 
   router.post("/run", async (req, res) => {

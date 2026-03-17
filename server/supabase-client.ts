@@ -669,3 +669,118 @@ export async function getEnrichmentCountsByRunIds(runIds: string[]): Promise<Rec
   }
   return counts;
 }
+
+const JUNK_NAME_PATTERNS = [
+  /\btest\b/i,
+  /\bworkspace\b/i,
+  /\bdrizzle\b/i,
+  /\bfoo\b/i,
+  /\bbar\b/i,
+  /\bdemo\b/i,
+  /\bsample\b/i,
+  /\bfake\b/i,
+  /\bdummy\b/i,
+  /\bmock\b/i,
+];
+
+function isJunkCandidateName(name: string): boolean {
+  return JUNK_NAME_PATTERNS.some(p => p.test(name));
+}
+
+export interface GtEnrichmentInsertItem {
+  id?: string;
+  query_id: string;
+  run_id: string;
+  candidate_name: string;
+  candidate_location?: string | null;
+  constraints_to_verify?: string | null;
+  tower_verdict: string | null;
+  tower_evidence?: string | null;
+}
+
+export async function insertEnrichmentQueueItem(item: GtEnrichmentInsertItem): Promise<{ ok: boolean; reason?: string }> {
+  if (!isSupabaseConfigured()) return { ok: false, reason: 'Supabase not configured' };
+
+  if (!item.tower_verdict || item.tower_verdict.toUpperCase() !== 'PASS') {
+    console.log(`[gt-enrichment] Rejected insert for "${item.candidate_name}": tower_verdict is ${JSON.stringify(item.tower_verdict)} (must be PASS)`);
+    return { ok: false, reason: 'tower_verdict must be PASS' };
+  }
+
+  if (isJunkCandidateName(item.candidate_name)) {
+    console.log(`[gt-enrichment] Rejected insert for "${item.candidate_name}": name matches junk pattern`);
+    return { ok: false, reason: 'candidate_name matches junk/test pattern' };
+  }
+
+  const client = ensureSupabaseClient();
+
+  const { data: existing, error: dupError } = await client
+    .from('gt_enrichment_queue')
+    .select('id')
+    .eq('query_id', item.query_id)
+    .ilike('candidate_name', item.candidate_name)
+    .limit(1);
+
+  if (dupError) {
+    console.error('[gt-enrichment] dedup check error:', dupError.message);
+  } else if (existing && existing.length > 0) {
+    console.log(`[gt-enrichment] Rejected insert for "${item.candidate_name}" (query_id=${item.query_id}): duplicate already exists`);
+    return { ok: false, reason: 'duplicate: candidate already queued for this query' };
+  }
+
+  const row: Record<string, unknown> = {
+    query_id: item.query_id,
+    run_id: item.run_id,
+    candidate_name: item.candidate_name,
+    candidate_location: item.candidate_location ?? null,
+    constraints_to_verify: item.constraints_to_verify ?? null,
+    tower_verdict: item.tower_verdict,
+    tower_evidence: item.tower_evidence ?? null,
+    status: 'pending',
+    created_at: new Date().toISOString(),
+  };
+  if (item.id) row.id = item.id;
+
+  const { error } = await client.from('gt_enrichment_queue').insert(row);
+  if (error) {
+    console.error(`[gt-enrichment] Insert error for "${item.candidate_name}":`, error.message);
+    return { ok: false, reason: error.message };
+  }
+
+  console.log(`[gt-enrichment] Queued "${item.candidate_name}" for enrichment (run_id=${item.run_id}, query_id=${item.query_id})`);
+  return { ok: true };
+}
+
+export async function runGtEnrichmentQueueCleanup(): Promise<void> {
+  if (!isSupabaseConfigured()) return;
+  const client = ensureSupabaseClient();
+
+  const junkNames = ['Drizzle Workspace Test', 'Test Pub'];
+  const { error: delError, count: delCount } = await client
+    .from('gt_enrichment_queue')
+    .delete()
+    .in('candidate_name', junkNames);
+
+  if (delError) {
+    console.warn('[gt-enrichment] Cleanup: delete junk rows error:', delError.message);
+  } else {
+    if ((delCount ?? 0) > 0) {
+      console.log(`[gt-enrichment] Cleanup: deleted ${delCount} junk test rows`);
+    }
+  }
+
+  const { error: updError, count: updCount } = await client
+    .from('gt_enrichment_queue')
+    .update({ status: 'skipped_no_tower_pass' })
+    .is('tower_verdict', null)
+    .eq('status', 'pending');
+
+  if (updError) {
+    console.warn('[gt-enrichment] Cleanup: mark null-tower rows error:', updError.message);
+  } else {
+    if ((updCount ?? 0) > 0) {
+      console.log(`[gt-enrichment] Cleanup: marked ${updCount} null-tower-verdict pending rows as skipped_no_tower_pass`);
+    }
+  }
+
+  console.log('[gt-enrichment] Startup queue cleanup complete');
+}
