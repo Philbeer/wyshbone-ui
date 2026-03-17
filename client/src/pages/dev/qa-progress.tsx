@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef, type ReactNode } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback, type ReactNode } from 'react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Scatter, ComposedChart, Legend,
@@ -607,6 +607,25 @@ function BehaviourInspectModal({ row, open, onClose }: { row: MetricRow | null; 
   );
 }
 
+function useColResize(initial: number): [number, React.MouseEventHandler<HTMLDivElement>] {
+  const [width, setWidth] = useState(initial);
+  const widthRef = useRef(width);
+  widthRef.current = width;
+  const onMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = widthRef.current;
+    const onMove = (ev: MouseEvent) => setWidth(Math.max(60, startW + ev.clientX - startX));
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }, []);
+  return [width, onMouseDown];
+}
+
 export default function QaProgressPage() {
   const [rows, setRows] = useState<MetricRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -616,6 +635,8 @@ export default function QaProgressPage() {
   const [queryClassFilter, setQueryClassFilter] = useState<string>('');
   const [testIdFilter, setTestIdFilter] = useState<string>('');
   const [inspectRow, setInspectRow] = useState<MetricRow | null>(null);
+  const [queryColWidth, queryResizeHandle] = useColResize(200);
+  const [classColWidth, classResizeHandle] = useColResize(110);
 
   const fetchData = async () => {
     setLoading(true);
@@ -838,13 +859,25 @@ export default function QaProgressPage() {
 
       {tableRows.length > 0 && (
         <div className="bg-white rounded-lg border overflow-x-auto">
-          <table className="w-full text-xs">
+          <table className="w-full text-xs" style={{ tableLayout: 'fixed' }}>
             <thead>
               <tr className="border-b bg-gray-50 text-left text-gray-500">
-                <th className="px-3 py-2 font-medium">Time</th>
-                <th className="px-3 py-2 font-medium">Test ID</th>
-                <th className="px-3 py-2 font-medium">Query</th>
-                <th className="px-3 py-2 font-medium">Class</th>
+                <th className="px-3 py-2 font-medium whitespace-nowrap">Time</th>
+                <th className="px-3 py-2 font-medium whitespace-nowrap">Test ID</th>
+                <th className="px-3 py-2 font-medium relative" style={{ width: queryColWidth, minWidth: 60 }}>
+                  Query
+                  <div
+                    onMouseDown={queryResizeHandle}
+                    className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-purple-300"
+                  />
+                </th>
+                <th className="px-3 py-2 font-medium relative" style={{ width: classColWidth, minWidth: 60 }}>
+                  Class
+                  <div
+                    onMouseDown={classResizeHandle}
+                    className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-purple-300"
+                  />
+                </th>
                 <th className="px-3 py-2 font-medium">Suite</th>
                 <th className="px-3 py-2 font-medium" title="Did the run infrastructure behave reliably (no crash/timeout)?">System</th>
                 <th className="px-3 py-2 font-medium" title="Did the agent make the correct decision about what to do?">Agent</th>
@@ -864,8 +897,8 @@ export default function QaProgressPage() {
                 >
                   <td className="px-3 py-2 text-gray-500 whitespace-nowrap font-mono">{formatTs(r.timestamp)}</td>
                   <td className="px-3 py-2 font-medium text-purple-700">{r.benchmark_test_id || '—'}</td>
-                  <td className="px-3 py-2 max-w-[200px] truncate" title={r.query}>{r.query}</td>
-                  <td className="px-3 py-2 text-gray-500">{r.query_class || '—'}</td>
+                  <td className="px-3 py-2 truncate" title={r.query}>{r.query}</td>
+                  <td className="px-3 py-2 text-gray-500 truncate" title={r.query_class || ''}>{r.query_class || '—'}</td>
                   <td className="px-3 py-2 text-gray-500">{r.suite_id || '—'}</td>
                   <td className="px-3 py-2">
                     {(() => {
