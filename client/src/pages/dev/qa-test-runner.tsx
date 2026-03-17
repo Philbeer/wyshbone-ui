@@ -421,6 +421,8 @@ interface TestResult {
   behaviourSourceOfTruth: 'llm' | 'fallback_legacy' | 'unknown';
   behaviourFallbackUsed: boolean;
   fallbackReason: string | null;
+  missionIntentVerdict: string | null;
+  groundTruthVerdict: string | null;
 }
 
 interface SuiteRunHistory {
@@ -1706,6 +1708,34 @@ function behaviourBadge(result: BehaviourResult | null, isPending = false) {
     : result === 'WRONG_DECISION' ? 'bg-red-100 text-red-700'
     : 'bg-gray-100 text-gray-600';
   return <Badge variant="outline" className={`text-[10px] px-1.5 py-0 font-medium border-0 ${cls}`}>{result}</Badge>;
+}
+
+function bjVerdictBadge(verdict: string | null, isPending = false) {
+  if (!verdict) {
+    if (isPending) {
+      return (
+        <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0 font-medium text-gray-500 bg-gray-100 rounded">
+          <Loader2 className="w-2.5 h-2.5 animate-spin" />
+          …
+        </span>
+      );
+    }
+    return <span className="text-gray-300 text-xs">—</span>;
+  }
+  const colors: Record<string, string> = {
+    PASS: 'bg-green-100 text-green-800',
+    HONEST_PARTIAL: 'bg-amber-100 text-amber-800',
+    BATCH_EXHAUSTED: 'bg-amber-100 text-amber-700',
+    CAPABILITY_FAIL: 'bg-red-100 text-red-800',
+    WRONG_DECISION: 'bg-red-100 text-red-700',
+    NOT_APPLICABLE: 'bg-gray-100 text-gray-400',
+    N_A: 'bg-gray-100 text-gray-400',
+    UNKNOWN: 'bg-gray-100 text-gray-500',
+  };
+  const key = verdict.replace(/[^A-Z_]/gi, '').toUpperCase();
+  const cls = colors[key] || colors[verdict.toUpperCase()] || 'bg-gray-100 text-gray-500';
+  const label = verdict === 'NOT_APPLICABLE' ? 'N/A' : verdict;
+  return <span className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-medium ${cls}`}>{label}</span>;
 }
 
 function BehaviourDetailBlock({ detail }: { detail: BehaviourLLMDetail }) {
@@ -3111,6 +3141,8 @@ export default function QaTestRunnerPage() {
       behaviourSourceOfTruth: 'unknown',
       behaviourFallbackUsed: false,
       fallbackReason: null,
+      missionIntentVerdict: null,
+      groundTruthVerdict: null,
     }));
   }, []);
 
@@ -3177,10 +3209,12 @@ export default function QaTestRunnerPage() {
             );
             if (resp.ok) {
               const data = await resp.json();
-              if (data && data.outcome) {
-                const outcome = data.outcome.toUpperCase() as BehaviourResult;
-                finalResults[index] = { ...finalResults[index], behaviourResult: outcome };
-                updateResult(index, { behaviourResult: outcome });
+              if (data && (data.outcome || data.mission_intent_assessment || data.ground_truth_assessment)) {
+                const outcome = data.outcome ? data.outcome.toUpperCase() as BehaviourResult : null;
+                const miVerdict: string | null = (data.mission_intent_assessment as any)?.verdict ?? null;
+                const gtVerdict: string | null = (data.ground_truth_assessment as any)?.verdict ?? null;
+                finalResults[index] = { ...finalResults[index], behaviourResult: outcome, missionIntentVerdict: miVerdict, groundTruthVerdict: gtVerdict };
+                updateResult(index, { behaviourResult: outcome, missionIntentVerdict: miVerdict, groundTruthVerdict: gtVerdict });
                 if (isBenchmark) {
                   const bPass = finalResults.filter(r => r.behaviourResult === 'PASS').length;
                   const bFail = finalResults.filter(r => r.behaviourResult !== null && r.behaviourResult !== 'PASS').length;
@@ -3561,7 +3595,9 @@ export default function QaTestRunnerPage() {
                 <th className="text-left px-3 py-2 font-medium text-gray-600 w-20" title="Did the run infrastructure behave reliably (no crash/timeout)?">System</th>
                 <th className="text-left px-3 py-2 font-medium text-gray-600 w-20" title="Did the agent make the correct decision about what to do?">Agent</th>
                 <th className="text-left px-3 py-2 font-medium text-gray-600 w-20" title="Was the mission execution result acceptable?">Tower</th>
-                <th className="text-left px-3 py-2 font-medium text-gray-600 w-20" title="Did the system behave as the benchmark expected?">Behaviour</th>
+                <th className="text-left px-3 py-2 font-medium text-gray-600 w-20" title="Behaviour Judge: mission intent assessment verdict">Mission Intent</th>
+                <th className="text-left px-3 py-2 font-medium text-gray-600 w-20" title="Behaviour Judge: ground truth assessment verdict">Ground Truth</th>
+                <th className="text-left px-3 py-2 font-medium text-gray-600 w-20" title="Behaviour Judge: combined verdict (authoritative)">Combined</th>
                 <th className="text-left px-3 py-2 font-medium text-gray-600 w-16">Time</th>
                 <th className="text-left px-3 py-2 font-medium text-gray-600 w-16">AFR</th>
               </tr>
@@ -3637,7 +3673,14 @@ export default function QaTestRunnerPage() {
                     {towerResultBadge(r.towerResult)}
                   </td>
                   <td className="px-3 py-2.5">
-                    {behaviourBadge(r.behaviourResult, r.behaviourResult === null && !!r.runId && isBenchmarkRunning)}
+                    {bjVerdictBadge(r.missionIntentVerdict, r.missionIntentVerdict === null && r.groundTruthVerdict === null && r.behaviourResult === null && !!r.runId && isBenchmarkRunning)}
+                  </td>
+                  <td className="px-3 py-2.5">
+                    {bjVerdictBadge(r.groundTruthVerdict)}
+                  </td>
+                  <td className="px-3 py-2.5">
+                    {bjVerdictBadge(r.behaviourResult, r.behaviourResult === null && r.missionIntentVerdict === null && r.groundTruthVerdict === null && !!r.runId && isBenchmarkRunning)}
+                    {r.behaviourLLMDetail && <BehaviourDetailBlock detail={r.behaviourLLMDetail} />}
                   </td>
                   <td className="px-3 py-2.5 text-gray-500 font-mono text-xs">
                     {r.durationMs !== null ? `${(r.durationMs / 1000).toFixed(1)}s` : '—'}
