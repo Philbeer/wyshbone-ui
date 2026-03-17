@@ -6,7 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { SidebarProvider, SidebarTrigger, useSidebar } from "@/components/ui/sidebar";
 import { AppSidebar, type RunItem } from "@/components/app-sidebar";
 import { HeaderCountrySelector } from "@/components/HeaderCountrySelector";
-import { Moon, Sun, FilePlus, ExternalLink, Play, FileText, Loader2, Copy, Check, X } from "lucide-react";
+import { Moon, Sun, FilePlus, ExternalLink, Play, FileText, Loader2, Copy, Check, X, ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import ChatPage from "@/pages/chat";
 import DebugPage from "@/pages/debug";
@@ -1173,6 +1173,7 @@ function AppLayout({
   const { state } = useSidebar();
   const [userMenuMargin, setUserMenuMargin] = useState('0px');
   const [showNewTabButton, setShowNewTabButton] = useState(false);
+  const [rightPanelExpanded, setRightPanelExpanded] = useState(false);
 
   useEffect(() => {
     const updateMargin = () => {
@@ -1293,8 +1294,30 @@ function AppLayout({
               onLoadConversation={handleLoadConversation}
             />
           </div>
-          <div className="hidden lg:flex w-80 border-l flex-col overflow-hidden" data-tour-id="actions">
-            <RightPanelContent />
+          <div
+            className="hidden lg:flex flex-col overflow-hidden border-l transition-all duration-300 ease-in-out"
+            style={{ width: rightPanelExpanded ? "20rem" : "2.5rem", flexShrink: 0 }}
+            data-tour-id="actions"
+          >
+            <div className="flex flex-col items-center pt-3 shrink-0">
+              <button
+                onClick={() => setRightPanelExpanded((v) => !v)}
+                className="flex items-center justify-center w-7 h-7 rounded-md border border-border bg-background text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                title={rightPanelExpanded ? "Collapse Live Activity" : "Expand Live Activity"}
+              >
+                {rightPanelExpanded ? (
+                  <ChevronRight className="w-4 h-4" />
+                ) : (
+                  <ChevronLeft className="w-4 h-4" />
+                )}
+              </button>
+            </div>
+            <div
+              className="flex-1 flex flex-col min-h-0 overflow-hidden"
+              style={{ opacity: rightPanelExpanded ? 1 : 0, pointerEvents: rightPanelExpanded ? "auto" : "none", transition: "opacity 0.2s ease-in-out" }}
+            >
+              <RightPanelContent />
+            </div>
           </div>
         </main>
         </div>
