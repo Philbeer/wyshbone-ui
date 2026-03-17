@@ -224,6 +224,15 @@ The UI never owns persistence. All artefacts, runs, judgements, and business dat
 - **Hunter.io:** Domain discovery, email finding, and verification.
 - **SalesHandy:** Automated prospect management and campaign integration.
 
+## GT Enrichment Loop
+- **Trigger:** `persistQaMetric` fires a fire-and-forget `POST /api/gt-enrichment/run` after each benchmark run save, passing `run_id` and `query_id`.
+- **Server route:** `server/routes/gt-enrichment.ts` — `POST /api/gt-enrichment/run` processes the `gt_enrichment_queue` table rows for the given run via GPT-4o-search-preview (falls back to gpt-4o-mini on model-not-found). Confirmed positives are automatically appended to `true_universe` in `ground_truth_records`.
+- **History endpoint:** `GET /api/gt-enrichment/history/:queryId` returns all enrichment items for a query across all runs.
+- **qa-progress badge:** Run rows with `enrichment_count > 0` show a small emerald `GT+N` badge next to the benchmark test ID.
+- **GroundTruthViewModal:** Opens with an ENRICHMENT HISTORY section that fetches `GET /api/gt-enrichment/history/:queryId` on mount and renders per-item status badges (CONFIRMED POSITIVE / CONFIRMED FALSE POSITIVE / INCONCLUSIVE) with collapsible evidence.
+- **Supabase helpers:** `getEnrichmentQueueByRunId`, `updateEnrichmentItem`, `getEnrichmentHistoryForQuery`, `getEnrichmentCountsByRunIds` in `server/supabase-client.ts`.
+- **Statuses:** `pending`, `confirmed_positive`, `confirmed_false_positive`, `inconclusive`.
+
 ## Trust & Verification Safeguards (UI Layer)
 - **Concatenation Guard (A):** `handleSend` in `chat.tsx` checks if a new outbound query contains the previous query as a substring (>10 chars). If detected, blocks send with an inline error: "Your request looks merged with the previous one. Please try again." Source of truth: `lastSentQueryRef` tracks the last query sent. State: `concatenationError`.
 - **Pre-Run Sanity Gate (B):** Before sending a run request, `handleSend` calls `detectVerticalMismatch()` from `client/src/lib/verticalMismatch.ts`. If the active vertical (e.g. Breweries) doesn't match the user's query domain (e.g. "vulnerable adults"), shows a clarification bubble with two buttons: "Switch to General and run" / "Keep [Vertical]". Config: keyword-based mismatch heuristic per vertical stored in `MISMATCH_MAP`. Currently configured for `brewery` vertical only.

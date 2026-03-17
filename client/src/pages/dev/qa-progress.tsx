@@ -33,6 +33,7 @@ interface MetricRow {
   created_at: string;
   mission_intent_assessment: { verdict: string; reasoning: string; confidence: number } | null;
   ground_truth_assessment: { verdict: string; reasoning: string; confidence: number } | null;
+  enrichment_count: number;
 }
 
 function toNumericTs(val: string | number | null | undefined): number {
@@ -896,7 +897,14 @@ export default function QaProgressPage() {
                   onClick={() => setInspectRow(r)}
                 >
                   <td className="px-3 py-2 text-gray-500 whitespace-nowrap font-mono">{formatTs(r.timestamp)}</td>
-                  <td className="px-3 py-2 font-medium text-purple-700">{r.benchmark_test_id || '—'}</td>
+                  <td className="px-3 py-2 font-medium text-purple-700">
+                    <span>{r.benchmark_test_id || '—'}</span>
+                    {r.enrichment_count > 0 && (
+                      <span className="ml-1.5 inline-flex items-center px-1 py-0.5 rounded text-[9px] font-bold bg-emerald-100 text-emerald-700 border border-emerald-200" title={`${r.enrichment_count} GT enrichment(s) confirmed for this run`}>
+                        GT+{r.enrichment_count}
+                      </span>
+                    )}
+                  </td>
                   <td className="px-3 py-2 truncate" title={r.query}>{r.query}</td>
                   <td className="px-3 py-2 text-gray-500 truncate" title={r.query_class || ''}>{r.query_class || '—'}</td>
                   <td className="px-3 py-2 text-gray-500">{r.suite_id || '—'}</td>

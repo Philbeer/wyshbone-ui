@@ -1410,6 +1410,18 @@ async function persistQaMetric(
   } catch (err) {
     console.error('[qa-metrics] persist network error:', err);
   }
+
+  if (result.runId && test.id) {
+    try {
+      const enrichUrl = buildApiUrl(addDevAuthParams('/api/gt-enrichment/run'));
+      fetch(enrichUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ run_id: result.runId, query_id: test.id }),
+      }).catch(err => console.warn('[gt-enrichment] fire error:', err));
+    } catch (_) {}
+  }
 }
 
 function outcomeBadge(outcome: BenchmarkOutcome | null) {
@@ -1907,8 +1919,46 @@ function useGroundTruth() {
   return { records, loading, load, save };
 }
 
+interface EnrichmentHistoryItem {
+  id: string;
+  candidate_name: string;
+  candidate_location?: string | null;
+  constraints_to_verify?: string | null;
+  status: string;
+  enrichment_result?: string | null;
+  enrichment_evidence?: string | null;
+  enriched_at?: string | null;
+  run_id?: string | null;
+}
+
+function enrichmentStatusBadge(status: string) {
+  if (status === 'confirmed_positive') {
+    return <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-green-100 text-green-700 border border-green-200">CONFIRMED POSITIVE</span>;
+  }
+  if (status === 'confirmed_false_positive') {
+    return <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-red-100 text-red-700 border border-red-200">CONFIRMED FALSE POSITIVE</span>;
+  }
+  return <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-gray-100 text-gray-600 border border-gray-200">INCONCLUSIVE</span>;
+}
+
 function GroundTruthViewModal({ record, onClose, onDeleted, onEdit }: { record: GroundTruthRecord; onClose: () => void; onDeleted: (queryId: string) => void; onEdit: (record: GroundTruthRecord) => void }) {
   const [deleting, setDeleting] = useState(false);
+  const [enrichmentHistory, setEnrichmentHistory] = useState<EnrichmentHistoryItem[]>([]);
+  const [enrichmentLoading, setEnrichmentLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setEnrichmentLoading(true);
+    const url = buildApiUrl(addDevAuthParams(`/api/gt-enrichment/history/${encodeURIComponent(record.queryId)}`));
+    fetch(url, { credentials: 'include' })
+      .then(r => r.json())
+      .then(data => {
+        if (!cancelled && data.ok) setEnrichmentHistory(data.items || []);
+      })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setEnrichmentLoading(false); });
+    return () => { cancelled = true; };
+  }, [record.queryId]);
 
   const handleDelete = async () => {
     if (!window.confirm('Are you sure you want to delete this ground truth record?')) return;
@@ -1985,6 +2035,39 @@ function GroundTruthViewModal({ record, onClose, onDeleted, onEdit }: { record: 
               <p className="text-gray-600 italic">{record.notes}</p>
             </div>
           )}
+
+          <div className="border-t pt-4">
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-2">Enrichment History</div>
+            {enrichmentLoading ? (
+              <p className="text-xs text-gray-400">Loading…</p>
+            ) : enrichmentHistory.length === 0 ? (
+              <p className="text-xs text-gray-400 italic">No enrichment events yet. Events are added automatically after each benchmark run when the agent finds candidates not in the GT.</p>
+            ) : (
+              <ul className="space-y-3">
+                {enrichmentHistory.map(item => (
+                  <li key={item.id} className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-xs space-y-1.5">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-semibold text-gray-800">{item.candidate_name}</span>
+                      {item.candidate_location && <span className="text-gray-500">({item.candidate_location})</span>}
+                      {enrichmentStatusBadge(item.status)}
+                      {item.enriched_at && (
+                        <span className="text-gray-400 ml-auto">{new Date(item.enriched_at).toLocaleDateString()}</span>
+                      )}
+                    </div>
+                    {item.status === 'confirmed_positive' && (
+                      <div className="text-[10px] text-green-700 font-medium">✓ Added to true universe</div>
+                    )}
+                    {item.enrichment_evidence && (
+                      <details className="mt-1">
+                        <summary className="cursor-pointer text-gray-500 hover:text-gray-700">Evidence / reasoning</summary>
+                        <p className="mt-1 text-gray-600 whitespace-pre-wrap leading-relaxed">{item.enrichment_evidence}</p>
+                      </details>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
 
           <div className="flex items-center justify-between pt-3 border-t">
             <div className="text-[10px] text-gray-300">

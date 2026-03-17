@@ -1,0 +1,88 @@
+## Task: Build a GT enrichment loop in the UI that investigates "unconfirmed" agent results
+
+### Context
+After the Behaviour Judge (BJ) scores a benchmark run, it writes any agent results NOT found in the Ground Truth (GT) to a `gt_enrichment_queue` table in Supabase (see Prompt 1 for the schema). These are results the agent claims are real but GT doesn't have listed — they could be genuine positives that GT missed, or genuine false positives.
+
+The enrichment loop's job is to go and actively investigate each one using GPT-4o web search, determine the truth, and update the GT accordingly. This runs AFTER the BJ has already scored — it does NOT change the current run's BJ verdict. It enriches GT for FUTURE runs.
+
+### Where it lives
+In the wyshbone-ui repo. The UI already owns GT storage, the GT modal, Supabase access, and dev/debugging tooling. This is a research/data-quality job.
+
+### When it runs
+Automatically after each agent run completes and the BJ has finished scoring. It runs in the background — the user sees the BJ verdict first, then enrichment happens asynchronously.
+
+### How it works
+
+1. **Pick up the queue:** After BJ scoring completes, query `gt_enrichment_queue` for items with status="pending" for this run_id.
+
+2. **For each pending item, run a focused investigation:**
+   - Take the candidate_name, candidate_location, and constraints_to_verify
+   - Run a focused GPT-4o web search specifically for that candidate and those constraints
+   - Example: candidate="The Norfolk Arms", constraint="live music mentioned on website" → search for "Norfolk Arms Arundel", find their website, check if live music is genuinely mentioned
+   - This is a SINGLE focused search per candidate, not a broad discovery search. One candidate, one set of constraints, one definitive answer.
+
+3. **Classify the result into one of three outcomes:**
+
+   a. **CONFIRMED_POSITIVE:** GPT-4o web search found genuine evidence that this candidate meets the constraints.
+      - Add this candidate to the GT true_universe for this query in Supabase
+      - Mark the enrichment queue item as status="confirmed_positive"
+      - Store the evidence found
+
+   b. **CONFIRMED_FALSE_POSITIVE:** GPT-4o web search specifically looked and could NOT find evidence. The candidate does NOT appear to meet the constraints.
+      - Mark the enrichment queue item as status="confirmed_false_positive"  
+      - Store what was searched and that nothing was found
+      - Do NOT add to GT true_universe
+      - These should be rare but flag them clearly for manual review
+
+   c. **INCONCLUSIVE:** Couldn't determine either way (website down, ambiguous, etc.)
+      - Mark as status="inconclusive"
+      - Leave for manual review
+
+4. **Update the GT modal to show enrichment history:**
+   - In the GT modal (like the B01 modal shown in the screenshot), add a section below NOTES called "ENRICHMENT HISTORY"
+   - Show each enrichment event: date, candidate name, result (confirmed_positive / confirmed_false_positive / inconclusive), evidence summary
+   - For confirmed_positives, show that they've been added to the true_universe
+   - For confirmed_false_positives, show them clearly so Phil can manually verify if needed
+
+5. **Update the GT record's true_universe:**
+   - When a candidate is CONFIRMED_POSITIVE, add it to the true_universe array for that query
+   - Add a provenance field to distinguish: "original" (from initial gt_research.py) vs "enriched" (added by this loop)
+   - Add the enrichment timestamp
+
+### What the BJ sees on NEXT run
+On the next benchmark run for the same query, the BJ will pull the updated GT which now includes the enriched true_universe. Results that were previously "unconfirmed" will now be "confirmed_match" — the BJ score improves without any agent changes. This is the compounding value.
+
+### Supabase schema additions needed
+
+**gt_enrichment_queue** (created by Tower/BJ in Prompt 1, consumed by UI here):
+- id, query_id, candidate_name, candidate_location, constraints_to_verify, tower_verdict, tower_evidence, status, created_at, run_id
+- Add: enrichment_result (confirmed_positive/confirmed_false_positive/inconclusive)
+- Add: enrichment_evidence (text — what was found or not found)
+- Add: enriched_at (timestamp)
+
+**Existing GT table updates:**
+- true_universe entries should gain a provenance field: "original" or "enriched"
+- true_universe entries should gain an enriched_at timestamp (null for originals)
+
+### UI display
+
+In the benchmark/QA history view, for runs where enrichment has happened:
+- Show a small indicator on the run row (e.g. "GT+3" meaning 3 items were enriched)
+- In the GT modal, the ENRICHMENT HISTORY section should show:
+  - "Previously unconfirmed → CONFIRMED POSITIVE: [candidate name] — [evidence summary] — [date]"
+  - "Previously unconfirmed → CONFIRMED FALSE POSITIVE: [candidate name] — [what was searched, nothing found] — [date]"
+  - "Previously unconfirmed → INCONCLUSIVE: [candidate name] — [date]"
+
+### GPT-4o web search integration
+The UI will need to call GPT-4o with web search capability for the enrichment verification. This should use the same approach as gt_research.py — a focused, single-candidate search. The prompt to GPT-4o for each candidate should be something like:
+
+"Search for [candidate_name] in [candidate_location]. Visit their website if possible. Determine whether [constraint_description] is genuinely true. Provide evidence either way. Respond with: CONFIRMED (with evidence), DENIED (with explanation of what you searched), or INCONCLUSIVE (with explanation)."
+
+### Safety rules
+- Enrichment runs AFTER BJ scoring — never changes the current run's verdict
+- Rate limit GPT-4o calls — process sequentially, not in parallel
+- Only enrich for queries that exist in the GT library (benchmark queries)
+- Log everything for audit
+
+### Test expectation
+Run B06 (Arundel live music). Agent finds pubs not in GT. BJ flags them as "unconfirmed_tower_passed". After BJ scores, UI picks them up, runs GPT-4o searches. If "The Norfolk Arms" genuinely has live music on their site, it gets added to B06's true_universe as "enriched". Next time B06 runs, the BJ sees it as a confirmed_match instead of unconfirmed. The GT modal for B06 shows the enrichment history.

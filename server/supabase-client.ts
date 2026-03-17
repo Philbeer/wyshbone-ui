@@ -583,3 +583,89 @@ export async function getBehaviourJudgeResults(runIds: string[]): Promise<Record
   }
   return map;
 }
+
+// ============================================
+// GT Enrichment Queue
+// ============================================
+
+export interface GtEnrichmentQueueItem {
+  id: string;
+  query_id: string;
+  candidate_name: string;
+  candidate_location?: string | null;
+  constraints_to_verify?: string | null;
+  tower_verdict?: string | null;
+  tower_evidence?: string | null;
+  status: 'pending' | 'confirmed_positive' | 'confirmed_false_positive' | 'inconclusive';
+  created_at?: string | null;
+  run_id?: string | null;
+  enrichment_result?: string | null;
+  enrichment_evidence?: string | null;
+  enriched_at?: string | null;
+}
+
+export async function getEnrichmentQueueByRunId(runId: string): Promise<GtEnrichmentQueueItem[]> {
+  if (!isSupabaseConfigured()) return [];
+  const client = ensureSupabaseClient();
+  const { data, error } = await client
+    .from('gt_enrichment_queue')
+    .select('*')
+    .eq('run_id', runId)
+    .eq('status', 'pending');
+  if (error) {
+    console.error('[gt-enrichment] queue fetch error:', error.message);
+    return [];
+  }
+  return (data || []) as GtEnrichmentQueueItem[];
+}
+
+export async function updateEnrichmentItem(
+  id: string,
+  updates: { status: string; enrichment_result?: string; enrichment_evidence?: string; enriched_at?: string }
+): Promise<void> {
+  if (!isSupabaseConfigured()) return;
+  const client = ensureSupabaseClient();
+  const { error } = await client
+    .from('gt_enrichment_queue')
+    .update(updates)
+    .eq('id', id);
+  if (error) {
+    console.error('[gt-enrichment] update error:', error.message);
+  }
+}
+
+export async function getEnrichmentHistoryForQuery(queryId: string): Promise<GtEnrichmentQueueItem[]> {
+  if (!isSupabaseConfigured()) return [];
+  const client = ensureSupabaseClient();
+  const { data, error } = await client
+    .from('gt_enrichment_queue')
+    .select('*')
+    .eq('query_id', queryId)
+    .neq('status', 'pending')
+    .order('enriched_at', { ascending: false });
+  if (error) {
+    console.error('[gt-enrichment] history fetch error:', error.message);
+    return [];
+  }
+  return (data || []) as GtEnrichmentQueueItem[];
+}
+
+export async function getEnrichmentCountsByRunIds(runIds: string[]): Promise<Record<string, number>> {
+  if (!isSupabaseConfigured() || runIds.length === 0) return {};
+  const client = ensureSupabaseClient();
+  const { data, error } = await client
+    .from('gt_enrichment_queue')
+    .select('run_id, status')
+    .in('run_id', runIds)
+    .eq('status', 'confirmed_positive');
+  if (error) {
+    console.error('[gt-enrichment] count fetch error:', error.message);
+    return {};
+  }
+  const counts: Record<string, number> = {};
+  for (const row of (data || [])) {
+    const rid = (row as any).run_id;
+    if (rid) counts[rid] = (counts[rid] || 0) + 1;
+  }
+  return counts;
+}

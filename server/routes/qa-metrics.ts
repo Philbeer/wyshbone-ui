@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { getDrizzleDb } from "../storage";
 import { sql, inArray, and, eq } from "drizzle-orm";
-import { getBehaviourJudgeResults, isSupabaseConfigured } from "../supabase-client";
+import { getBehaviourJudgeResults, getEnrichmentCountsByRunIds, isSupabaseConfigured } from "../supabase-client";
 import {
   qaRunMetrics,
   type InsertQaRunMetric,
@@ -653,25 +653,27 @@ export function createQaMetricsRouter(): Router {
       const rowsArray: any[] = Array.isArray(rawRows) ? rawRows : (rawRows as any)?.rows ?? [];
 
       if (rowsArray.length > 0 && isSupabaseConfigured()) {
-        const needsJudge = rowsArray;
-        if (needsJudge.length > 0) {
-          const runIds = needsJudge.map((r: any) => r.run_id).filter(Boolean) as string[];
-          if (runIds.length > 0) {
-            const judgeMap = await getBehaviourJudgeResults(runIds);
-            for (const row of rowsArray) {
-              const judge = judgeMap[row.run_id];
-              if (judge) {
-                if (!row.behaviour_result || row.behaviour_result === 'UNKNOWN') {
-                  const outcome = (judge.outcome || '').toUpperCase();
-                  if (outcome) {
-                    row.behaviour_result = outcome;
-                    row.behaviour_score = outcome === 'PASS' ? '1.0' : '0.0';
-                  }
+        const runIds = rowsArray.map((r: any) => r.run_id).filter(Boolean) as string[];
+        if (runIds.length > 0) {
+          const [judgeMap, enrichmentCounts] = await Promise.all([
+            getBehaviourJudgeResults(runIds),
+            getEnrichmentCountsByRunIds(runIds),
+          ]);
+          for (const row of rowsArray) {
+            const judge = judgeMap[row.run_id];
+            if (judge) {
+              if (!row.behaviour_result || row.behaviour_result === 'UNKNOWN') {
+                const outcome = (judge.outcome || '').toUpperCase();
+                if (outcome) {
+                  row.behaviour_result = outcome;
+                  row.behaviour_score = outcome === 'PASS' ? '1.0' : '0.0';
                 }
-                row.mission_intent_assessment = judge.mission_intent_assessment ?? null;
-                row.ground_truth_assessment = judge.ground_truth_assessment ?? null;
               }
+              row.mission_intent_assessment = judge.mission_intent_assessment ?? null;
+              row.ground_truth_assessment = judge.ground_truth_assessment ?? null;
             }
+            const ec = enrichmentCounts[row.run_id];
+            row.enrichment_count = ec ?? 0;
           }
         }
       }
