@@ -571,7 +571,7 @@ export async function getBehaviourJudgeResults(runIds: string[]): Promise<Record
   const client = ensureSupabaseClient();
   const { data, error } = await client
     .from('behaviour_judge_results')
-    .select('run_id, outcome, confidence, reason')
+    .select('run_id, outcome, confidence, reason, mission_intent_assessment, ground_truth_assessment')
     .in('run_id', runIds);
   if (error) {
     console.error('[behaviour-judge] bulk lookup error:', error.message);
