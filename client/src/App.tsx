@@ -1173,7 +1173,10 @@ function AppLayout({
   const { state } = useSidebar();
   const [userMenuMargin, setUserMenuMargin] = useState('0px');
   const [showNewTabButton, setShowNewTabButton] = useState(false);
-  const [rightPanelExpanded, setRightPanelExpanded] = useState(false);
+  const [rightPanelExpanded, setRightPanelExpanded] = useState(() => {
+    const p = window.location.pathname;
+    return p === "/" || p === "/chat";
+  });
 
   useEffect(() => {
     const updateMargin = () => {
@@ -1299,7 +1302,7 @@ function AppLayout({
             style={{ width: rightPanelExpanded ? "20rem" : "2.5rem", flexShrink: 0 }}
             data-tour-id="actions"
           >
-            <div className="flex flex-col items-center pt-3 shrink-0">
+            <div className="flex flex-col items-start pt-2 pl-1.5 shrink-0">
               <button
                 onClick={() => setRightPanelExpanded((v) => !v)}
                 className="flex items-center justify-center w-7 h-7 rounded-md border border-border bg-background text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
