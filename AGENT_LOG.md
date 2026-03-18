@@ -495,3 +495,21 @@ Added `server.warmup.clientFiles` pointing at `main.tsx`, `App.tsx`, `pages/chat
 - No changes to auth logic for real (non-demo) users.
 - The retry loop exits immediately on success; there is no delay added to the happy path.
 - `execution_path`, `SearchModeToggle`, and all prior deliverables are unaffected.
+
+---
+
+## 2026-03-18 — Bridge log test — confirming AGENT_LOG.md write workflow.
+
+---
+
+### Session Summary
+
+**What changed:**
+- No files created. `AGENT_LOG.md` (existing) was appended with a dated test entry and this structured summary.
+
+**Decisions made:**
+- Did not recreate `AGENT_LOG.md` since it already exists at the project root with prior session content intact.
+- Appended rather than overwrote to preserve all previous audit and implementation history.
+
+**What's next:**
+- None.
