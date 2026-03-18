@@ -457,3 +457,41 @@ POST /api/chat
 - `execution_path` is **always present** on every `/api/chat` request from this UI version onward (defaults to `"gp_cascade"`).
 - No changes were made to SSE event handling, status display, results rendering, trust card, or BJ display. Those components are fully driven by whatever the Supervisor returns, unchanged.
 - No conditional UI logic was added based on `execution_path` — the Supervisor is responsible for all path-specific behaviour.
+
+---
+
+## Session 3 — Blank White Page Investigation (2026-03-18)
+
+### Issue
+
+Pop-out tab (direct dev URL) showed a blank white page. The Replit preview iframe showed the app correctly. Previous sessions suspected CSS/paint issues or a blocking null-render in a context provider.
+
+### Diagnostic Steps
+
+1. **Build verification** — `vite build --mode development` completed successfully. 4,372 modules transformed, zero TypeScript or compilation errors. The `SearchModeToggle.tsx` addition and `chat.tsx` changes are valid.
+
+2. **debug-bridge-client.js** — The synchronous render-blocking script in `index.html` is served in 2.7ms. Not the cause.
+
+3. **Context provider audit** — `UserContext`, `AgentFirstContext`, `DemoModeProvider`, and the full provider tree in `App.tsx` were audited. No provider returns `null`. `AgentFirstContext` starts `false` (classic layout). No blocking loading state prevents rendering.
+
+4. **Backend API calls confirmed in pop-out tab** — Backend logs at 9:58:44 showed a fresh demo session being created from the pop-out tab, proving React and JavaScript were executing. The blank page was not a JS failure.
+
+5. **Root cause identified — Startup race condition:** Vite dev server starts in **~188ms**. The browser connects and immediately fires `initializeAuth()`, which calls `POST /api/auth/demo`. But the backend (port 5001) takes **2–3 seconds longer** to start (it runs schema migrations and Supabase pool initialization first). The first `POST /api/auth/demo` call fails with `ECONNREFUSED`. The original error handler had **no retry logic** — the app stayed stuck as `temp-demo-user` indefinitely, producing a degraded/blank state because the temp user has no valid session in the database.
+
+6. **Secondary factor — Vite cold-start latency:** 4,372 modules on-demand compilation can add 30–120 seconds on first load after a restart, especially without pre-bundled dependencies.
+
+### Fixes Applied
+
+#### 1. Retry-with-backoff for demo user creation (`client/src/contexts/UserContext.tsx`)
+
+The `POST /api/auth/demo` call now retries up to 5 times with delays `[0, 800ms, 1600ms, 3s, 5s]` on network errors or non-OK responses. The first attempt is immediate (delay 0) so there's no regression when the backend is already up. Subsequent attempts cover the typical backend startup window.
+
+#### 2. Vite warmup + expanded pre-bundling (`client/vite.config.ts`)
+
+Added `server.warmup.clientFiles` pointing at `main.tsx`, `App.tsx`, `pages/chat.tsx`, and `UserContext.tsx`. Vite now pre-transforms these files when the server starts rather than on first browser request. Also added `react`, `react-dom`, `react-dom/client`, `wouter`, `@tanstack/react-query`, `lucide-react`, `clsx`, `tailwind-merge`, and `class-variance-authority` to `optimizeDeps.include` so they are pre-bundled at dev-server startup.
+
+### Invariants Preserved
+
+- No changes to auth logic for real (non-demo) users.
+- The retry loop exits immediately on success; there is no delay added to the happy path.
+- `execution_path`, `SearchModeToggle`, and all prior deliverables are unaffected.
