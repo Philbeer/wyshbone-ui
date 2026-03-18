@@ -569,3 +569,53 @@ No server-side changes were needed. The BJ is not part of the inline completion 
 - All other message render paths (standard chat, monitor creation, clarification, etc.) are unaffected.
 
 **What's next:** The Supervisor's BJ evaluation results should only be surfaced in the AFR / QA Progress dev page — not in the main chat bubble render path.
+
+---
+
+## Session 5 — BehaviourInspectContent Restored with RunResultBubble Fallback
+
+**Date:** 2026-03-18  
+**Task:** Restore `BehaviourInspectContent` as primary results display; add `RunResultBubble` as fallback for runs with no BJ data.
+
+### Root Cause (Corrected Understanding)
+
+The Session 4 fix was too broad. The original bug was not that `BehaviourInspectContent` was always rendering — it was that it rendered **blank** on Google Places runs where the Behaviour Judge had no data. The component fetches from `/api/afr/behaviour-judge` with 8 retries at 2.5s intervals. If no BJ record exists (Places runs, GPT-4o-primary runs), the component shows a muted "No Judge B result" placeholder and nothing else — no leads, no summary. That is the blank users saw.
+
+`BehaviourInspectContent` is the preferred display for GP Cascade runs: it shows verified/snippet badges, expandable evidence rows per lead, and the BJ assessment alongside the leads. Removing it lost that rich display for all runs.
+
+### Changes Made
+
+**`client/src/pages/dev/qa-progress.tsx`**  
+- Added `fallback?: ReactNode` to `BehaviourInspectContent`'s props.  
+- Added early return before the main JSX: `if (!judgeBLoading && !judgeB && fallback != null) return <>{fallback}</>`.  
+- When BJ data is unavailable after all retries and a `fallback` is supplied, the component exits cleanly and renders the fallback at the root level — no "Behaviour Judge" section header, no placeholder text.  
+- When `fallback` is not supplied (existing QA/AFR usage from `BehaviourInspectModal`), behaviour is identical to before.
+
+**`client/src/pages/chat.tsx`**  
+- Added `import { BehaviourInspectContent } from "@/pages/dev/qa-progress"`.  
+- Changed result bubble condition from `if (chatMessage.deliverySummary)` to `if (chatMessage.deliverySummary || chatMessage.runId)`.  
+- When `chatMessage.runId` is present: renders `BehaviourInspectContent` with `runId` + `fallback={<RunResultBubble .../>}` (or `null` if no `deliverySummary`).  
+- When no `runId` but `deliverySummary` present: renders `RunResultBubble` directly.  
+- `RunResultBubble` props are extracted as a local `const runResultBubble` to avoid duplication.
+
+### Decision: Early Return vs Inline Fallback
+
+Considered rendering `fallback` inline inside the `<section>` block. Rejected: it would have placed `RunResultBubble` under the "Behaviour Judge (Judge B)" section header, creating a confusing visual hierarchy. Early return at the function root gives the fallback full control of the bubble layout.
+
+### What This Means at Runtime
+
+| Run type | `runId` set | BJ data arrives | Result shown |
+|---|---|---|---|
+| GP Cascade (BJ available) | ✅ | ✅ | `BehaviourInspectContent` — rich display |
+| GP Cascade (BJ pending) | ✅ | ⏳ | "Awaiting Judge B…" → then rich display |
+| Google Places / GPT-4o-primary | ✅ | ❌ (no record) | "Awaiting Judge B…" → then `RunResultBubble` fallback |
+| Historical (no `runId`) | ❌ | — | `RunResultBubble` directly |
+
+### Files Modified
+- `client/src/pages/dev/qa-progress.tsx` — `BehaviourInspectContent` props + early return
+- `client/src/pages/chat.tsx` — import restored, render branch updated
+
+### Build
+Vite build clean. No TypeScript errors.
+
+**What's next:** The 20-second wait (8 × 2.5s retries) before the fallback shows on Places runs may be noticeable. If this becomes a reported UX issue, a `maxRetries` prop could be added to allow chat.tsx to use a shorter retry window (e.g. 3 retries).

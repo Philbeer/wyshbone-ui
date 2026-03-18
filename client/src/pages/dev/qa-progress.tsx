@@ -245,10 +245,11 @@ function LeadConstraintBadges({ badges }: { badges: ResolvedBadge[] }) {
   );
 }
 
-export function BehaviourInspectContent({ runId, query, timestamp }: {
+export function BehaviourInspectContent({ runId, query, timestamp, fallback }: {
   runId: string;
   query?: string;
   timestamp?: string | number | Date;
+  fallback?: ReactNode;
 }) {
   type BjAssessment = { verdict: string; reasoning: string; confidence: number } | null;
   const [judgeB, setJudgeB] = useState<{
@@ -380,6 +381,10 @@ export function BehaviourInspectContent({ runId, query, timestamp }: {
         )}
       </div>
     );
+  }
+
+  if (!judgeBLoading && !judgeB && fallback != null) {
+    return <>{fallback}</>;
   }
 
   return (
