@@ -36,7 +36,6 @@ import type { DeliverySummary, DeliveryLead } from "@/components/results/UserRes
 import type { VerificationSummaryPayload, ConstraintsExtractedPayload, LeadVerificationEntry, SemanticJudgementEntry } from "@/components/results/CvlArtefactViews";
 import RunResultBubble from "@/components/results/RunResultBubble";
 import type { PolicySnapshot, ContactCounts, RunReceipt } from "@/components/results/RunResultBubble";
-import { BehaviourInspectContent } from "@/pages/dev/qa-progress";
 import { resolveCanonicalStatus, STATUS_CONFIG } from "@/utils/deliveryStatus";
 import { getGoogleQueryMode } from "@/components/GoogleQueryModeToggle";
 import { SearchModeToggle, getSearchMode } from "@/components/SearchModeToggle";
@@ -3182,14 +3181,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                     </div>
                     <div className="flex flex-col items-start max-w-3xl lg:max-w-none w-full">
                       <div className="rounded-lg px-4 py-4 bg-card border border-card-border w-full">
-                        {chatMessage.runId ? (
-                          <BehaviourInspectContent
-                            runId={chatMessage.runId}
-                            query={chatMessage.content || undefined}
-                            timestamp={chatMessage.timestamp}
-                          />
-                        ) : (
-                          <RunResultBubble
+                        <RunResultBubble
                             deliverySummary={chatMessage.deliverySummary}
                             verificationSummary={chatMessage.verificationSummary}
                             constraintsExtracted={chatMessage.constraintsExtracted}
@@ -3208,7 +3200,6 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                             runReceipt={chatMessage.runReceipt}
                             semanticJudgements={chatMessage.semanticJudgements}
                           />
-                        )}
                       </div>
                       <span className="text-xs text-muted-foreground mt-1">
                         {chatMessage.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}

@@ -513,3 +513,59 @@ Added `server.warmup.clientFiles` pointing at `main.tsx`, `App.tsx`, `pages/chat
 
 **What's next:**
 - None.
+
+---
+
+## Session 4 — GP Run Results Not Surfacing in Chat Bubble (2026-03-18)
+
+### Issue
+
+GP pipeline runs completed correctly (results visible in AFR). But the final chat bubble shown to the user was either empty or not appearing. Results were present in the `delivery_summary` artefact but not rendered in the UI.
+
+### Diagnostic Investigation
+
+**Server-side trace** — Followed the full pipeline:
+- `POST /api/chat` → `decideChatMode` → `RUN_SUPERVISOR` lane → `createSupervisorTask()`
+- Supervisor runs GP pipeline externally, stores results in `delivery_summary` artefact
+- Supervisor calls `POST /api/conversations/:id/result-message` with `deliverySummary` body
+- UI receives the message via polling and stores it in component state as `chatMessage` with `.deliverySummary` and `.runId` set
+
+**Client-side trace** — Followed the render path in `client/src/pages/chat.tsx`:
+
+```tsx
+// Lines 3185-3211 (before fix)
+{chatMessage.runId ? (
+  <BehaviourInspectContent      // ← BJ QA panel rendered when runId present
+    runId={chatMessage.runId}
+    ...
+  />
+) : (
+  <RunResultBubble              // ← Results bubble only rendered when runId is ABSENT
+    deliverySummary={chatMessage.deliverySummary}
+    ...
+  />
+)}
+```
+
+**Root cause**: `chatMessage.runId` is **always** set on supervisor result messages (the `runId` comes from the delivery artefact and is always populated). This meant the ternary always took the `true` branch — showing `BehaviourInspectContent` (a dev/QA scoring panel from `pages/dev/qa-progress.tsx`) instead of `RunResultBubble`. The actual results were never shown.
+
+`BehaviourInspectContent` loads BJ evaluation data for its given `runId`. If no BJ result exists in Supabase for that run (which is the common case for non-QA runs), it renders blank — producing the observed "empty or missing" chat bubble.
+
+### Fix Applied
+
+**File: `client/src/pages/chat.tsx`**
+
+1. Removed the conditional that branched on `chatMessage.runId` in the delivery-summary render path.
+2. Always render `RunResultBubble` directly. The `runId` prop is passed through to `RunResultBubble` as before — it already accepted it.
+3. Removed the now-unused `import { BehaviourInspectContent } from "@/pages/dev/qa-progress"` import.
+
+No server-side changes were needed. The BJ is not part of the inline completion sequence on the server — it writes only to Supabase/AFR and runs independently. The bug was purely a client-side render branch error.
+
+### Invariants Preserved
+
+- `BehaviourInspectContent` remains in `pages/dev/qa-progress.tsx` — untouched.
+- `RunResultBubble` props are identical to before; `runId` is passed through.
+- No changes to scoring logic, BJ prompts, Supabase writes, or AFR logging.
+- All other message render paths (standard chat, monitor creation, clarification, etc.) are unaffected.
+
+**What's next:** The Supervisor's BJ evaluation results should only be surfaced in the AFR / QA Progress dev page — not in the main chat bubble render path.

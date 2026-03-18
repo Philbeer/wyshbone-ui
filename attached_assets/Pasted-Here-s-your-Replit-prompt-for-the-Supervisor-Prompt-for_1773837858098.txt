@@ -1,0 +1,26 @@
+Here's your Replit prompt for the Supervisor:
+
+Prompt for: wyshbone-supervisor Post CC
+Bug: Google Places run results not surfacing in the UI chat bubble at the end of the run
+The GP pipeline runs correctly — results are visible in the AFR (agent flight recorder). But the final chat bubble in the UI that should display the results summary to the user is either empty or not appearing.
+Suspected cause: The Behaviour Judge (BJ) step may be interfering with results surfacing. Specifically, either:
+
+The BJ emits a message/event that overwrites or replaces the results message in the chat stream
+The results message emission is gated on the BJ completing, and something in the BJ flow prevents or delays the results from being sent to the UI
+The BJ changes the run status or completion event in a way the UI doesn't expect
+
+What to investigate:
+
+Find where the final results message is emitted to the UI at the end of a run (the chat message/event that contains the discovered leads). Trace the exact function and event type.
+Find where the Behaviour Judge runs in the post-processing sequence. Check whether it runs BEFORE or AFTER the results message is sent to the UI.
+Check whether the BJ emits its own message/event to the UI chat stream that could overwrite or follow the results message.
+Check whether any error or timeout in the BJ silently prevents the results message from being sent.
+
+What to fix:
+
+The results message to the UI must be sent BEFORE the BJ runs, or completely independently of it. The BJ is an evaluation/scoring layer — it should write its verdict to the AFR and Supabase only. It must never block, replace, or interfere with results being surfaced to the user.
+If the BJ currently runs inline in the completion sequence before results are emitted, move results emission to happen first, then let the BJ run as a fire-and-forget post-processing step.
+Make sure the final chat bubble message includes the actual discovered leads/results from the pipeline output.
+
+Do not change the BJ's scoring logic, its system prompt, or how it writes to Supabase/AFR. Only fix the sequencing so results always surface to the user regardless of what the BJ does.
+After completing this task, append a structured summary to AGENT_LOG.md covering: what changed, which files were modified, any decisions made, and what's next.
