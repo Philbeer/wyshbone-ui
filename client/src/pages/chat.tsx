@@ -39,6 +39,7 @@ import type { PolicySnapshot, ContactCounts, RunReceipt } from "@/components/res
 import { BehaviourInspectContent } from "@/pages/dev/qa-progress";
 import { resolveCanonicalStatus, STATUS_CONFIG } from "@/utils/deliveryStatus";
 import { getGoogleQueryMode } from "@/components/GoogleQueryModeToggle";
+import { SearchModeToggle, getSearchMode } from "@/components/SearchModeToggle";
 import { PreRunBanner } from "@/components/results/PreRunBanner";
 import { RunConfigOverridesPanel, type RunConfigOverrides } from "@/components/results/RunConfigOverridesPanel";
 import type { PolicyApplied, LearningUpdate } from "@/utils/policyFormatters";
@@ -2188,6 +2189,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
           ...(pendingMetadataRef.current ? { metadata: pendingMetadataRef.current } : {}),
           ...(pendingMetadataRef.current?.follow_up ? { follow_up: pendingMetadataRef.current.follow_up } : {}),
           google_query_mode: getGoogleQueryMode(),
+          execution_path: getSearchMode(),
           run_config_overrides: (runConfigOverrides.speed_mode !== "balanced" || runConfigOverrides.replan_ceiling !== undefined || runConfigOverrides.ignore_learned_policy) ? runConfigOverrides : undefined,
         }),
         signal: abortControllerRef.current.signal,
@@ -3720,6 +3722,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
           {/* Action bar (MEGA toggle removed) */}
           <div className="mb-3 flex items-center justify-between gap-2 flex-wrap">
             <div className="flex items-center gap-2">
+              <SearchModeToggle />
               {lastLane && window.WYSHBONE_DEV_LANE && (
                 <span
                   className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold select-none ${

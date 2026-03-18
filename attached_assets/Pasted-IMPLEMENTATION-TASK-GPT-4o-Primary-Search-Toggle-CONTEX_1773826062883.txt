@@ -1,0 +1,49 @@
+IMPLEMENTATION TASK — GPT-4o Primary Search Toggle
+
+CONTEXT: We are adding a new search mode to Wyshbone. Currently all queries go through Google Places discovery + website crawling + evidence extraction cascade. We're adding an alternative path where GPT-4o web search handles discovery AND verification in a single call. The user needs a toggle to choose between the two modes. The Supervisor repo is being updated in parallel to accept this new field.
+
+IMPORTANT: This is ADDITIVE. Do not remove, rename, or reorganise any existing code. All current functionality must continue to work identically when the toggle is set to the default (GP) mode.
+
+WHAT TO BUILD:
+
+1. ADD A TOGGLE SWITCH AT THE TOP OF THE CHAT INTERFACE
+- Position: near the top of the chat area, above the message input but clearly visible — ideally in a settings bar or header area that persists across messages. Look at how other toggles or controls are positioned in the app and follow the same pattern.
+- Style: a simple toggle/switch control with two states:
+  - "Google Places" (default, left) — the current pipeline
+  - "GPT-4o Search" (right) — the new GPT-4o primary path
+- The toggle should have a subtle label so users understand what it does. Something like "Search Mode" as a small label above or beside it.
+- Use the app's existing design system / colour palette / component library. Don't introduce new design patterns.
+
+2. PASS THE SELECTED MODE IN THE QUERY PAYLOAD
+- When a query is submitted to the Supervisor, include a new field in the payload:execution_path: "gp_cascade" | "gpt4o_primary"
+- "gp_cascade" = current default behaviour (Google Places + cascade)
+- "gpt4o_primary" = new GPT-4o web search path
+- The value should reflect whatever the toggle is currently set to at the moment the query is submitted.
+- Find the existing function/fetch call that sends the user's query to the Supervisor API endpoint. Add `execution_path` to that payload object alongside the existing fields (query text, etc). Do NOT restructure the existing payload — just add the new field.
+
+3. PERSIST THE TOGGLE STATE
+- The toggle selection should persist within the current session (React state is fine).
+- It does NOT need to persist across page reloads or be stored in a database.
+- Default to "gp_cascade" (Google Places) on initial page load.
+
+4. STATUS DISPLAY COMPATIBILITY
+- The existing pipeline status messages ("Searching Google Places", "Visiting websites", etc.) will continue to work for gp_cascade mode.
+- For gpt4o_primary mode, the Supervisor will send different status messages via the existing chat/status system. The UI does not need to handle this differently — it just displays whatever status messages it receives as it already does.
+- Do NOT add any conditional rendering based on execution_path for status messages. The Supervisor handles that.
+
+5. CHAT BUBBLE COMPATIBILITY
+- The existing trust card, chat bubbles, mission understanding display, etc. must all continue to work identically. They are driven by data from the Supervisor and will continue to receive that data regardless of which execution path is active.
+- Do NOT modify any existing chat bubble or status display components.
+
+FILES TO MODIFY:
+- The main chat interface component (find where the message input lives and add the toggle above/near it)
+- The query submission function (find where the API call to Supervisor is made and add execution_path to the payload)
+
+DO NOT:
+- Modify any existing components other than to add the toggle
+- Change the Supervisor API endpoint URL or method
+- Add any new API endpoints
+- Restructure the existing query payload — only add the new field
+- Add any execution_path-conditional logic to status/results display
+
+After completing this task, append a structured summary to AGENT_LOG.md documenting: what files were changed, what the toggle component is called, where execution_path is added to the payload, and any other details that would help someone working on the Supervisor understand the contract.

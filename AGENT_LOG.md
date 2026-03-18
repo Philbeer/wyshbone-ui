@@ -355,3 +355,105 @@ A dedicated icon-button toggle in the chat input bar (next to the Google Query M
 | Behaviour evaluator backend | `server/routes/behaviour-evaluator.ts` |
 | AFR artefact routes (polling target) | inferred from `GET /api/afr/artefacts`, `GET /api/afr/run-status` |
 | QA metrics / BJ data source | `server/routes/qa-metrics.ts` (inferred from `/api/afr/behaviour-judge`) |
+
+---
+
+## IMPLEMENTATION LOG — GPT-4o Primary Search Toggle
+
+**Date:** 2026-03-18  
+**Task:** Add a search-mode toggle to the chat UI and pass `execution_path` to the Supervisor.
+
+---
+
+### Files Changed
+
+| File | Change |
+|---|---|
+| `client/src/components/SearchModeToggle.tsx` | **Created** — new toggle component |
+| `client/src/pages/chat.tsx` | **Modified** — import added, toggle rendered in action bar, `execution_path` added to payload |
+
+---
+
+### New Component: `SearchModeToggle`
+
+**File:** `client/src/components/SearchModeToggle.tsx`
+
+**Exports:**
+- `SearchMode` — TypeScript type: `"gp_cascade" | "gpt4o_primary"`
+- `getSearchMode()` — imperative getter that returns the current mode (module-level variable, not localStorage). Called at query submission time by `chat.tsx`.
+- `SearchModeToggle` — React component. Self-contained; holds its own `useState` and syncs to the module-level `_currentSearchMode` variable on every change.
+
+**Pattern:** Mirrors `GoogleQueryModeToggle` exactly (same two-segment pill style, same module-level getter pattern). Uses `MapPin` icon for GP, `Sparkles` icon for GPT-4o. Tooltip explains the full values on hover.
+
+**Default value:** `"gp_cascade"` (Google Places pipeline) — set as module-level default and initial state.
+
+**Persistence:** Session only (React state). No `localStorage`, no database. Resets to `"gp_cascade"` on page reload, as specified.
+
+---
+
+### Toggle Placement in UI
+
+**Location in `chat.tsx`:** Inside the input-area action bar (the `flex` row above the textarea and `RunConfigOverridesPanel`), in the left-hand `<div className="flex items-center gap-2">`. The toggle is the **first child** of that left div, before the dev-only lane indicator badge.
+
+```tsx
+<div className="flex items-center gap-2">
+  <SearchModeToggle />               {/* ← added here */}
+  {lastLane && window.WYSHBONE_DEV_LANE && ( ... )}
+</div>
+```
+
+This positions it at the bottom-left of the chat interface, consistent with where other mode controls live (`GoogleQueryModeToggle` uses the same region in related contexts). It persists visually across all messages.
+
+---
+
+### Payload Field: `execution_path`
+
+**Where it is added:** `streamChatResponse()` in `client/src/pages/chat.tsx`, inside the `fetch()` body JSON.
+
+**Exact diff (payload object, lines ~2194–2196):**
+```diff
+  google_query_mode: getGoogleQueryMode(),
++ execution_path: getSearchMode(),
+  run_config_overrides: ...
+```
+
+**Endpoint receiving it:** `POST /api/chat` — the existing Supervisor proxy endpoint. No new endpoint was created.
+
+**Values sent:**
+| Toggle state | `execution_path` value |
+|---|---|
+| Google Places (default) | `"gp_cascade"` |
+| GPT-4o Search | `"gpt4o_primary"` |
+
+The value is read via `getSearchMode()` at the moment `streamChatResponse()` is called — i.e. at query submission time, not at component render time. This is safe because the module-level variable is always in sync with the component state via the `handleSet` callback.
+
+---
+
+### Supervisor Contract Summary
+
+For teams working on the Supervisor side:
+
+```
+POST /api/chat
+{
+  messages: [...],
+  user: { id, email },
+  conversationId: string,
+  clientRequestId: string,          // UUID, generated per submit
+  google_query_mode: "TEXT_ONLY" | "BIASED_STABLE",
+  execution_path: "gp_cascade" | "gpt4o_primary",  // ← NEW FIELD
+  run_config_overrides?: {
+    speed_mode?: "faster" | "balanced" | "stricter",
+    replan_ceiling?: number,
+    ignore_learned_policy?: boolean,
+  },
+  // optional carry-forward fields:
+  metadata?: object,
+  follow_up?: object,
+  defaultCountry?: string,
+}
+```
+
+- `execution_path` is **always present** on every `/api/chat` request from this UI version onward (defaults to `"gp_cascade"`).
+- No changes were made to SSE event handling, status display, results rendering, trust card, or BJ display. Those components are fully driven by whatever the Supervisor returns, unchanged.
+- No conditional UI logic was added based on `execution_path` — the Supervisor is responsible for all path-specific behaviour.
