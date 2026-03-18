@@ -799,3 +799,46 @@ Hiding empty fields (option chosen) produces a cleaner panel for Places runs whe
 Vite build clean. Server restarted. No TypeScript errors.
 
 **What's next:** The source type badge value (`snippet`, `first_party`, etc.) is rendered verbatim. If human-readable labels are preferred (e.g. "search result" instead of "snippet"), a `formatSourceType` mapping function could be added, mirroring the existing `formatSourceTier` in RunResultBubble.
+
+---
+
+## Session 9 — Chat Bubble Evidence Badge Parity with QA Progress Page
+
+**Date:** 2026-03-18
+**Task:** Make the chat bubble "EVIDENCE FOUND PER LEAD" evidence panel match the QA progress page in: verified/unverified badge presence, source type badge colour, and evidence field visibility.
+
+### Root-cause analysis
+
+Four distinct bugs were preventing the chat bubble from matching the QA page:
+
+**Bug 1 — `normalizeVerdict` was case-sensitive.**
+`verification_status` values from the delivery artefact arrive as `"VERIFIED"` (uppercase). The function compared `v === 'verified'` (lowercase), so every VERIFIED lead was classified as 'unverified'. Also, GP pipeline variants emit `"yes"`, `"exact"`, and `"search_bounded"` as affirmative verdicts — none of these were mapped.
+Fix: lowercased input before comparison, added aliases `yes`, `exact`, `search_bounded` → `'verified'`.
+
+**Bug 2 — `resolveConstraintBadges` blocked on `noVerification` even when explicit `constraint_verdicts` existed.**
+When `verifiableConstraints` is empty (e.g. a Places run where the delivery artefact didn't carry a `verifiable_constraints` array at payload level), `noVerification = true` caused an early return of `[]` — even if each individual lead had `constraint_verdicts: [{constraint, verdict}]` populated. This produced no badges for an entire run just because the run-level metadata was absent.
+Fix: moved the `constraint_verdicts` block above the `noVerification` guard — explicit lead-level verdicts always surface.
+
+**Bug 3 — `web_search` source tier mapped to gray instead of blue.**
+`sourceTypeCls` only put `snippet` and `search_snippet` in the blue category. BJ `input_snapshot.leads_evidence` entries carry `source_tier: "web_search"` for GP cascade leads. This tier fell through to gray.
+Fix: added `web_search` to the blue (`bg-blue-100 text-blue-700`) branch. Also made the gray case conditional on `rawSourceType` being truthy (so blank source type produces no class string rather than a gray chip).
+
+**Bug 4 — No badge fallback when `constraint_verdicts` and `verified` are both absent.**
+For runs where only `rich.verification_status` (from the delivery evidenceMap) carries the lead's overall assessment, `resolveConstraintBadges` returned `[]` and no badge was shown.
+Fix: added `effectiveBadges` derivation after `resolveConstraintBadges`: when `badges.length === 0` and `rich?.verification_status` is truthy, fabricate a single `{label: null, verdict: normalizeVerdict(rich.verification_status)}` badge. `<LeadConstraintBadges>` now renders `effectiveBadges`.
+
+### Files Modified
+- `client/src/pages/dev/qa-progress.tsx`
+  - `normalizeVerdict`: case-insensitive, added `yes`/`exact`/`search_bounded` aliases
+  - `resolveConstraintBadges`: `constraint_verdicts` check moved before `noVerification` guard
+  - `sourceTypeCls`: added `web_search` → blue; gray branch conditioned on truthy `rawSourceType`
+  - `effectiveBadges`: fallback from `rich.verification_status` when no explicit badges
+  - `<LeadConstraintBadges>`: now receives `effectiveBadges` instead of `badges`
+
+### Build
+Vite build clean. HMR applied. No TypeScript errors.
+
+### What's next
+- Verify the chat bubble against a live GP Cascade run that has BJ data to confirm all four fixes produce matching badges.
+- If `source_tier` values beyond `web_search`, `snippet`, `first_party`, `first_party_website`, `website` appear (e.g. `directory`, `crm`), extend the colour mapping accordingly.
+- Consider a `formatSourceType` helper to render human-readable labels (e.g. "Web search" instead of "web_search") if stakeholders prefer it.

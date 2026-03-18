@@ -191,8 +191,9 @@ type ResolvedBadge = {
 };
 
 function normalizeVerdict(v: string): ResolvedBadge['verdict'] {
-  if (v === 'verified') return 'verified';
-  if (v === 'unreachable') return 'unreachable';
+  const lower = (v || '').toLowerCase().trim();
+  if (lower === 'verified' || lower === 'yes' || lower === 'exact' || lower === 'search_bounded') return 'verified';
+  if (lower === 'unreachable') return 'unreachable';
   return 'unverified';
 }
 
@@ -201,11 +202,7 @@ function resolveConstraintBadges(
   verifiableConstraints: string[],
   verificationPolicy: string | undefined,
 ): ResolvedBadge[] {
-  const noVerification =
-    verificationPolicy === 'DIRECTORY_VERIFIED' ||
-    verifiableConstraints.length === 0;
-  if (noVerification) return [];
-
+  // Always show explicit constraint_verdicts if present — regardless of policy
   if (item.constraint_verdicts && item.constraint_verdicts.length > 0) {
     const showLabel = item.constraint_verdicts.length > 1;
     return item.constraint_verdicts.map(cv => ({
@@ -213,6 +210,11 @@ function resolveConstraintBadges(
       verdict: normalizeVerdict(cv.verdict),
     }));
   }
+
+  const noVerification =
+    verificationPolicy === 'DIRECTORY_VERIFIED' ||
+    verifiableConstraints.length === 0;
+  if (noVerification) return [];
 
   if (item.verified !== undefined && item.verified !== null) {
     return [{ label: null, verdict: item.verified ? 'verified' : 'unverified' }];
@@ -520,9 +522,15 @@ export function BehaviourInspectContent({ runId, query, timestamp, fallback, del
                 const sourceTypeLower = rawSourceType.toLowerCase().trim();
                 const sourceTypeCls = (sourceTypeLower === 'first_party' || sourceTypeLower === 'first_party_website' || sourceTypeLower === 'website')
                   ? 'bg-green-100 text-green-700'
-                  : (sourceTypeLower === 'snippet' || sourceTypeLower === 'search_snippet')
+                  : (sourceTypeLower === 'snippet' || sourceTypeLower === 'search_snippet' || sourceTypeLower === 'web_search')
                     ? 'bg-blue-100 text-blue-700'
-                    : 'bg-gray-100 text-gray-600';
+                    : rawSourceType
+                      ? 'bg-gray-100 text-gray-600'
+                      : '';
+                // Fallback verified badge from rich.verification_status when constraint_verdicts and verified are both absent
+                const effectiveBadges: ResolvedBadge[] = badges.length === 0 && rich?.verification_status
+                  ? [{ label: null, verdict: normalizeVerdict(rich.verification_status) }]
+                  : badges;
                 return (
                   <div key={idx} className="border rounded-md overflow-hidden text-[11px]">
                     <button
@@ -537,7 +545,7 @@ export function BehaviourInspectContent({ runId, query, timestamp, fallback, del
                     >
                       <span className="font-medium text-gray-800 truncate flex-1">{displayName}</span>
                       <div className="flex items-center gap-1.5 shrink-0">
-                        <LeadConstraintBadges badges={badges} />
+                        <LeadConstraintBadges badges={effectiveBadges} />
                         {rawSourceType && (
                           <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${sourceTypeCls}`}>
                             {rawSourceType}

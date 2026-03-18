@@ -1,0 +1,35 @@
+Fix: Chat bubble evidence panel must match QA progress page evidence rendering
+The QA progress page (/dev/qa-progress) renders the evidence panel correctly per lead — see the Dene Healthcare example: it shows the lead name, a green "verified" badge, a "web_search" source badge, and when expanded shows URL visited, Quotes found, Matched phrase, and Tower verdict — all populated from real data.
+The chat bubble version (the "EVIDENCE FOUND PER LEAD" section rendered inside the delivery artefact in chat) has the same underlying data available but isn't surfacing it properly — badges are missing or unstyled, and evidence fields may show "not captured" or be absent even when data exists.
+What to do:
+
+Open the QA progress page component that renders the per-lead evidence rows (likely in pages/dev/qa-progress.tsx or a shared component like BehaviourInspectContent). Study exactly how it renders:
+
+The collapsed row: lead name + verified/unverified green/gray badge + source type badge (e.g. "web_search", "snippet", "first_party")
+The expanded detail: URL visited, Quotes found, Matched phrase, Context snippet, Tower verdict
+Note the exact field names it reads from its data source
+
+
+Open the chat bubble evidence component (the one rendering "EVIDENCE FOUND PER LEAD" inside the delivery artefact message bubble). Find what data object each lead row receives.
+Log one lead's full data object from the delivery artefact payload to the console so you can see every available field. Compare the field names with what the QA progress page uses.
+Fix the chat bubble component so it:
+
+Reads the correct fields from the delivery artefact data (the evidence data is there, the field names just differ from the BJ format)
+Shows a green "verified" or gray "unverified" badge on the collapsed row (derived from verification_status, tower_verdict, or equivalent field)
+Shows a source type badge on the collapsed row: "web_search" / "snippet" / "first_party" / "first_party_website" — derived from source_type, evidence_type, or source_tier field
+Badge colors: verified → green background, unverified → gray, source type web_search → blue, first_party/first_party_website → green, snippet → blue, unknown → gray
+When expanded, shows only fields that have actual content (hide empty ones, don't show "not captured"):
+
+URL visited → the URL that was fetched
+Quotes found → the extracted evidence text / approved sentences
+Matched phrase → the constraint keyword that was matched
+Context snippet → surrounding context if available
+Tower verdict → per-lead Tower assessment if available
+
+
+
+
+If the QA page uses a shared component for rendering evidence rows, consider importing and reusing it in the chat bubble rather than duplicating the logic. If the data shapes are too different, at minimum copy the badge styling and field-mapping logic.
+Verify by running a GP query that returns evidence (e.g. "Find organisations that work with the local authority in Blackpool") and confirming the chat bubble evidence panel matches the QA progress page rendering for the same run.
+
+Work on the main branch only — do not create or switch branches. After completing this task, append a structured summary to AGENT_LOG.md (what changed, files modified, decisions made, what's next).
