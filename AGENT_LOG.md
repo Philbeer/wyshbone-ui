@@ -681,3 +681,70 @@ For Places/GPT-4o runs: evidence table shows lead names with expandable rows. Qu
 Vite build clean. No TypeScript errors.
 
 **What's next:** For Places runs, the expandable evidence rows will mostly show "not captured" for quotes/matched-phrase since the Places pipeline doesn't produce match_evidence. If richer evidence is desired for Places leads, the pipeline would need to store additional artefact data.
+
+---
+
+## Session 7 — Evidence Field Mapping Fix (dsLeads → "not captured" resolved)
+
+**Date:** 2026-03-18  
+**Task:** Fix evidence row fields showing "not captured" in the chat bubble for non-BJ runs.
+
+### Root Cause Analysis
+
+After Session 6, the evidence table rendered (rows visible, expandable) but every expanded field showed "not captured". Two independent sources of data were failing:
+
+**1. `deliveryEvidence.evidenceMap` (server) — URL missing for Places leads**
+
+`getDeliveryEvidence` in `server/supabase-client.ts` built each evidenceMap entry's `url` field from `items[0]?.source_url || lead.url`. GP Cascade leads store their website in `lead.url`; Google Places leads store it in `lead.website`. So for Places runs, `rich.url` was always an empty string.
+
+Additionally, the `quotes` flatMap only tried `e.quote`; GP evidence items can also have `e.approved_sentences` (array) or `e.text`. And `verification_status` on the lead-level (not item-level) wasn't consulted when `items` was empty.
+
+**2. `dsLeads` useMemo (client) — fields not preserved**
+
+The `dsLeads` mapping only wrote six fields (`lead_name`, `url`, `verified`, `source_tier`, `constraint_verdicts`). The rendering code falls back to direct `item.*` field access for `item.quotes`, `item.matched_phrase`, `item.context_snippet`, `item.tower_status`. Since those keys didn't exist on `item`, the fallback to "not captured" was always taken, even when the original lead object from `deliverySummary` did carry those fields.
+
+For Places runs, the lead fields for quotes/matched_phrase/context_snippet are genuinely absent (Places search does not do web-scraping evidence extraction). But for GPT-4o-primary or any run where the delivery payload enriches leads with evidence, those fields were silently dropped by the narrow mapping.
+
+### Changes Made
+
+**`server/supabase-client.ts` — `getDeliveryEvidence`**
+
+- `url` line now tries `lead.website` as final fallback: `items[0]?.source_url || lead.url || lead.website || ''`
+- `quotes` changed from `items.map(e => e.quote).filter(Boolean)` to `items.flatMap(...)` that also handles `e.approved_sentences` (array) and `e.text` (string), expanding them properly
+- `matched_phrase` now also tries `items[0]?.constraint_value` as fallback
+- `context_snippet` now also tries `items[0]?.surrounding_context` as fallback  
+- `verification_status` now also tries `lead.verification_status` when `items` is empty
+
+**`client/src/pages/dev/qa-progress.tsx` — `dsLeads` useMemo**
+
+Switched from narrow field-by-field mapping to spreading `l` (`...l`) first, then overlaying explicit mappings:
+- All original lead fields preserved on `item` — any future field the pipeline adds is automatically available
+- `lead_name`: tries `l.name || l.lead_name || l.business_name`
+- `url`: tries `l.website || l.url || l.source_url || l.website_url` (multi-source)
+- `website_url`: set to `l.website || l.website_url` (renderer's third fallback)
+- `quotes`: normalised to `string[]` from `l.quotes` (array) or `l.quote` (string)
+- `matched_phrase`: tries `l.matched_phrase || l.constraint_value`
+- `context_snippet`: tries `l.context_snippet || l.surrounding_context || l.context`
+- `tower_status`: tries `l.tower_status || l.verification_status`
+
+### Runtime Behaviour After This Change
+
+| Field | Places run | GP Cascade run (no BJ) | GP Cascade run (BJ present) |
+|---|---|---|---|
+| URL visited | ✅ website (from `item.url`) | ✅ url (from `rich.url` or `item.url`) | ✅ source_url (from `rich.url`) |
+| Quotes found | ⚪ "not captured" (correct — Places doesn't scrape) | Depends on artefact | ✅ from `rich.quotes` |
+| Matched phrase | ⚪ "not captured" (correct) | Depends on artefact | ✅ from `rich.matched_phrase` |
+| Context snippet | ⚪ "not captured" (correct) | Depends on artefact | ✅ from `rich.context_snippet` |
+| Tower verdict | ⚪ "not captured" (run-level for Places) | Depends on artefact | ✅ from `rich.verification_status` |
+| Badges | ✅ constraint_verdicts from `item` | ✅ from `rich.constraint_verdicts` | ✅ from `rich.constraint_verdicts` |
+
+"not captured" for Places runs is correct behaviour — those fields simply don't exist in the Places pipeline's output. The fix ensures they show correctly when the data IS available (GP Cascade runs with artefact evidence).
+
+### Files Modified
+- `server/supabase-client.ts` — `getDeliveryEvidence`: URL fallback, quotes flatMap, additional field aliases
+- `client/src/pages/dev/qa-progress.tsx` — `dsLeads` useMemo: spread all fields, normalise all evidence field aliases
+
+### Build
+Vite build clean. Server restarted. No TypeScript errors.
+
+**What's next:** Consider logging the actual lead fields on mount (console.log item) to confirm field presence for GPT-4o runs, which sit between Places (no evidence) and GP Cascade (full match_evidence).

@@ -546,11 +546,15 @@ export async function getDeliveryEvidence(runId: string): Promise<DeliveryEviden
     }
 
     evidenceMap[name] = {
-      url: items[0]?.source_url || lead.url || '',
-      quotes: items.map((e: any) => e.quote).filter(Boolean),
-      matched_phrase: items[0]?.matched_phrase || '',
-      context_snippet: items[0]?.context_snippet || '',
-      verification_status: items[0]?.verification_status || '',
+      url: items[0]?.source_url || lead.url || lead.website || '',
+      quotes: items.flatMap((e: any) => {
+        const q = e.quote || e.approved_sentences || e.text;
+        if (!q) return [];
+        return Array.isArray(q) ? q : [q];
+      }),
+      matched_phrase: items[0]?.matched_phrase || items[0]?.constraint_value || '',
+      context_snippet: items[0]?.context_snippet || items[0]?.surrounding_context || '',
+      verification_status: items[0]?.verification_status || lead.verification_status || '',
       constraint_verdicts,
     };
   }

@@ -391,11 +391,17 @@ export function BehaviourInspectContent({ runId, query, timestamp, fallback, del
     const exact = deliverySummary?.delivered_exact ?? [];
     const closest = deliverySummary?.delivered_closest ?? [];
     return [...exact, ...closest].map((l: any) => ({
-      lead_name: l.name,
-      url: l.website,
+      ...l,
+      lead_name: l.name || l.lead_name || l.business_name,
+      url: l.website || l.url || l.source_url || l.website_url,
+      website_url: l.website || l.website_url,
       verified: l.verified,
       source_tier: l.source_tier,
       constraint_verdicts: Array.isArray(l.constraint_verdicts) ? l.constraint_verdicts : [],
+      quotes: Array.isArray(l.quotes) ? l.quotes : (l.quote ? [l.quote] : []),
+      matched_phrase: l.matched_phrase || l.constraint_value || '',
+      context_snippet: l.context_snippet || l.surrounding_context || l.context || '',
+      tower_status: l.tower_status || l.verification_status || '',
     }));
   }, [deliverySummary]);
 
