@@ -619,3 +619,65 @@ Considered rendering `fallback` inline inside the `<section>` block. Rejected: i
 Vite build clean. No TypeScript errors.
 
 **What's next:** The 20-second wait (8 × 2.5s retries) before the fallback shows on Places runs may be noticeable. If this becomes a reported UX issue, a `maxRetries` prop could be added to allow chat.tsx to use a shorter retry window (e.g. 3 retries).
+
+---
+
+## Session 6 — Rich Evidence Display for All Run Types
+
+**Date:** 2026-03-18  
+**Task:** Make the evidence-per-lead table (verified badges, expandable evidence rows) appear for all runs, not just BJ runs. BJ assessment section still only appears when BJ data exists.
+
+### Root Cause
+
+`BehaviourInspectContent`'s evidence table was gated on `judgeB?.input_snapshot?.leads_evidence ?? judgeB?.input_snapshot?.leads`. For Google Places runs (and GPT-4o-primary runs) where the Behaviour Judge doesn't write a record, `judgeB` is `null`, so this evaluated to `[]` and the entire evidence table was suppressed with `return null`.
+
+The evidence data for all leads is independently available from two sources:
+1. `/api/afr/delivery-evidence` — already fetched by the component, gives enriched evidence per lead (quotes, matched phrases, constraint verdicts, URLs). Built from the delivery payload stored in artefacts — works for all run types.
+2. `chatMessage.deliverySummary` — the delivery summary passed from `chat.tsx`, contains `delivered_exact` and `delivered_closest` arrays with all leads.
+
+The component already fetched `deliveryEvidence` (source 1) but never used it as the lead list source. It only used it to ENRICH the leads from BJ input_snapshot.
+
+### Changes Made
+
+**`client/src/pages/dev/qa-progress.tsx` — `BehaviourInspectContent`**
+
+1. **Added `deliverySummary?` prop** — inline type covering `delivered_exact` and `delivered_closest` arrays. No external import needed; type is self-contained.
+
+2. **Added `dsLeads` useMemo** — builds a `LeadEvidence[]` from `deliverySummary.delivered_exact` + `delivered_closest`. Maps `name → lead_name`, `website → url`, passes through `verified`, `source_tier`, `constraint_verdicts`. Used as lead list fallback when BJ has no input_snapshot.
+
+3. **Modified early return** — was `if (!judgeBLoading && !judgeB && fallback != null)`. Now also requires `dsLeads.length === 0`. When delivery leads exist, the component stays mounted and shows the evidence table rather than bailing to RunResultBubble.
+
+4. **BJ section wrapped in conditional** — `{(judgeBLoading || judgeB || !deliverySummary) && (<section>...)}`. 
+   - When `deliverySummary` is present (chat mode): hides entire BJ section when loading done and no BJ data. The "No Judge B result" placeholder never shows to users.
+   - When `deliverySummary` is absent (QA/AFR mode): conditional is always true (`!deliverySummary`), existing behavior preserved exactly.
+
+5. **Evidence section lead source changed** — was `judgeB?.input_snapshot?.leads_evidence ?? judgeB?.input_snapshot?.leads ?? []`. Now: `const bjLeads = judgeB?.input_snapshot?.leads_evidence ?? judgeB?.input_snapshot?.leads; const evidence: LeadEvidence[] = bjLeads ?? dsLeads`. For non-BJ runs, `dsLeads` provides the lead list. The `deliveryEvidence.evidenceMap` enriches each entry either way.
+
+**`client/src/pages/chat.tsx`**
+
+Added `deliverySummary={chatMessage.deliverySummary}` prop to the `BehaviourInspectContent` call.
+
+### Decision: Where to Drive the Lead List From
+
+The `deliveryEvidence.evidenceMap` (from the server) was considered as the sole lead source (using `Object.keys(evidenceMap)`). Rejected because the evidenceMap is fetched async and arrives after component mount — using `deliverySummary` as the immediate lead list means the evidence table renders synchronously on mount, then enriches progressively as `deliveryEvidence` arrives. Better UX, no flash.
+
+### Runtime Behaviour After This Change
+
+| Run type | BJ section | Evidence table source |
+|---|---|---|
+| GP Cascade, BJ data present | ✅ BJ verdict + assessments | `judgeB.input_snapshot.leads_evidence` + deliveryEvidence enrichment |
+| GP Cascade, BJ loading | ⏳ "Awaiting Judge B…" | `dsLeads` from deliverySummary immediately |
+| Google Places | ❌ hidden (no data) | `dsLeads` from deliverySummary |
+| GPT-4o-primary | ❌ hidden (no data) | `dsLeads` from deliverySummary |
+| QA/AFR page (no deliverySummary) | 🔵 "No Judge B result" shown | Only shows when judgeB has input_snapshot |
+
+For Places/GPT-4o runs: evidence table shows lead names with expandable rows. Quote/matched-phrase fields say "not captured" since the Places pipeline doesn't produce match_evidence. But the expandable rows and badges are present and the bubble is never blank.
+
+### Files Modified
+- `client/src/pages/dev/qa-progress.tsx` — BehaviourInspectContent: new prop, dsLeads memo, modified early return, BJ section conditional, evidence lead source
+- `client/src/pages/chat.tsx` — deliverySummary prop passed to BehaviourInspectContent
+
+### Build
+Vite build clean. No TypeScript errors.
+
+**What's next:** For Places runs, the expandable evidence rows will mostly show "not captured" for quotes/matched-phrase since the Places pipeline doesn't produce match_evidence. If richer evidence is desired for Places leads, the pipeline would need to store additional artefact data.

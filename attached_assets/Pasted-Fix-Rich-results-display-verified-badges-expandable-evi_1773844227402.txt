@@ -1,0 +1,12 @@
+Fix: Rich results display (verified badges, expandable evidence rows) must work for ALL runs, not just runs with Behaviour Judge data
+Currently BehaviourInspectContent shows a rich results display with: verified/snippet/first_party badges per lead, expandable rows showing evidence text, and the BJ assessment. But it only renders content when BJ data exists. On Google Places runs where the BJ doesn't produce data, it falls back to RunResultBubble which is a plain list with no badges or expandable rows.
+The evidence data (verification status, evidence source type, evidence text per lead) is produced by the pipeline itself — it's in the delivery summary artefact, not exclusive to the BJ. The rich display should render from pipeline/delivery data regardless of whether the BJ ran.
+What to do:
+
+Look at how BehaviourInspectContent (in pages/dev/qa-progress.tsx or similar) fetches and displays the evidence-per-lead data: the verified/snippet/first_party badges and the expandable evidence rows.
+Identify where that data comes from — is it from a BJ-specific API endpoint, or from the delivery summary / AFR artefact?
+If BehaviourInspectContent fetches evidence from a BJ-specific source: refactor it (or create a new shared component) so the evidence-per-lead display can be populated from the delivery summary artefact instead. The delivery summary contains the leads with their evidence and verification status — use that as the primary data source.
+The BJ assessment section (WRONG_DECISION / CORRECT_DECISION verdict, confidence, Tower recommendation) should still only appear when BJ data exists. But the evidence table with badges and expandable rows must appear for ALL runs.
+The result: every completed run shows the rich display with expandable evidence rows and verification badges. If BJ data also exists, the verdict section appears above or below the evidence table. If no BJ data, just show the evidence table.
+
+After completing this task, append a structured summary to AGENT_LOG.md (what changed, files modified, decisions made, what's next), then commit all changes and push to GitHub (git add -A && git commit -m "rich evidence display for all runs not just BJ runs" && git push origin main).

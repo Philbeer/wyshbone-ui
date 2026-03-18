@@ -3207,6 +3207,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                           <BehaviourInspectContent
                             runId={chatMessage.runId}
                             fallback={runResultBubble}
+                            deliverySummary={chatMessage.deliverySummary}
                           />
                         ) : (
                           runResultBubble

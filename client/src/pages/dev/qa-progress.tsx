@@ -245,11 +245,15 @@ function LeadConstraintBadges({ badges }: { badges: ResolvedBadge[] }) {
   );
 }
 
-export function BehaviourInspectContent({ runId, query, timestamp, fallback }: {
+export function BehaviourInspectContent({ runId, query, timestamp, fallback, deliverySummary }: {
   runId: string;
   query?: string;
   timestamp?: string | number | Date;
   fallback?: ReactNode;
+  deliverySummary?: {
+    delivered_exact?: Array<{ name?: string; website?: string; verified?: boolean; source_tier?: string; constraint_verdicts?: Array<{ constraint: string; verdict: string }>; [key: string]: any }>;
+    delivered_closest?: Array<{ name?: string; website?: string; verified?: boolean; source_tier?: string; constraint_verdicts?: Array<{ constraint: string; verdict: string }>; [key: string]: any }>;
+  } | null;
 }) {
   type BjAssessment = { verdict: string; reasoning: string; confidence: number } | null;
   const [judgeB, setJudgeB] = useState<{
@@ -383,7 +387,19 @@ export function BehaviourInspectContent({ runId, query, timestamp, fallback }: {
     );
   }
 
-  if (!judgeBLoading && !judgeB && fallback != null) {
+  const dsLeads: LeadEvidence[] = useMemo(() => {
+    const exact = deliverySummary?.delivered_exact ?? [];
+    const closest = deliverySummary?.delivered_closest ?? [];
+    return [...exact, ...closest].map((l: any) => ({
+      lead_name: l.name,
+      url: l.website,
+      verified: l.verified,
+      source_tier: l.source_tier,
+      constraint_verdicts: Array.isArray(l.constraint_verdicts) ? l.constraint_verdicts : [],
+    }));
+  }, [deliverySummary]);
+
+  if (!judgeBLoading && !judgeB && fallback != null && dsLeads.length === 0) {
     return <>{fallback}</>;
   }
 
@@ -402,6 +418,7 @@ export function BehaviourInspectContent({ runId, query, timestamp, fallback }: {
         </div>
       )}
 
+      {(judgeBLoading || judgeB || !deliverySummary) && (
       <section>
         <h4 className="text-xs font-semibold text-gray-600 uppercase tracking-wider mb-2 border-b pb-1">
           Behaviour Judge (Judge B)
@@ -449,11 +466,11 @@ export function BehaviourInspectContent({ runId, query, timestamp, fallback }: {
           </div>
         )}
       </section>
+      )}
 
       {(() => {
-        const evidence = judgeB?.input_snapshot?.leads_evidence
-          ?? judgeB?.input_snapshot?.leads
-          ?? [];
+        const bjLeads = judgeB?.input_snapshot?.leads_evidence ?? judgeB?.input_snapshot?.leads;
+        const evidence: LeadEvidence[] = bjLeads ?? dsLeads;
         if (evidence.length === 0) return null;
         const verificationPolicy = judgeB?.input_snapshot?.verification_policy;
         const verifiableConstraints: string[] =
