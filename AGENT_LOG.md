@@ -1,0 +1,357 @@
+# UI Search Flow & Results Display — Architecture Report
+
+**Purpose:** Ground-truth audit of how the UI currently handles search flow display and results.  
+**Date:** 2026-03-18  
+**Scope:** Code only. No assumptions from comments or docs.
+
+---
+
+## 1. QUERY SUBMISSION FLOW
+
+### Primary Chat Interface
+
+The primary chat is **`client/src/pages/chat.tsx`** (`ChatPage` component — 3,925 lines).  
+The legacy `AgentChatPanel` (`client/src/components/agent/AgentChatPanel.tsx`) is **deprecated** and hidden behind a `WYSHBONE_DEV_LANE` flag.
+
+#### Flow Summary
+
+1. User types into the `<Textarea>` input and presses Enter or clicks Send.
+2. `handleSend()` is called. It appends the user message to the `messages` state array and calls `streamChatResponse()`.
+3. `streamChatResponse()` makes an HTTP POST to **`/api/chat`** using `fetch()` with `credentials: "include"`.
+4. The response is consumed as an **SSE (Server-Sent Events) stream** parsed line-by-line.
+
+#### API Endpoint Called
+
+```
+POST /api/chat
+```
+
+#### Payload Sent (exact fields from `chat.tsx` lines 2182–2194)
+
+```json
+{
+  "messages": [...],            // Full conversation history as ChatMessage[]
+  "user": { "id": "...", "email": "..." },
+  "defaultCountry": "GB",
+  "conversationId": "...",
+  "clientRequestId": "<uuid>",
+  "metadata": { ... },          // Optional — carry-forward follow-up metadata
+  "follow_up": { ... },         // Optional — if follow_up in pending metadata
+  "google_query_mode": "TEXT_ONLY" | "BIASED_STABLE",
+  "run_config_overrides": {     // Omitted if all defaults
+    "speed_mode": "faster" | "balanced" | "stricter",
+    "replan_ceiling": 0-3,
+    "ignore_learned_policy": true | false
+  }
+}
+```
+
+**Notable fields:**
+- `clientRequestId` — a UUID generated fresh per send, used to track the run through polling.
+- `google_query_mode` — read from `localStorage` via `getGoogleQueryMode()`.
+- `run_config_overrides` — only sent if the user has changed from defaults via `RunConfigOverridesPanel`.
+- There is **no `query_class` or `execution_path` field** in the payload sent by the UI. These are resolved server-side.
+- There is **no `supervisor` dispatch** in the payload; the `/api/chat` backend determines whether to hand off to the Supervisor internally.
+
+#### After Submission — SSE Events Processed
+
+The SSE stream carries typed JSON events:
+
+| Event type | What the UI does |
+|---|---|
+| `ack` | Sets progress stack to `[{stage:'ack', message:'OK, working'}]` |
+| `run_id` | Stores `runId` in `supervisorRunIdRef` and dispatches `wyshbone:run_id` custom event |
+| `status` | Appends/updates `progressStack` state (classifying → planning → executing → finalising → completed/failed) |
+| `conversationId` | Stores received `conversationId` in state and `localStorage` |
+| Plain text delta | Accumulated into `accumulatedContent` and displayed as a streaming assistant message |
+
+Once the stream ends, AFR polling takes over (see below).
+
+#### AFR Polling (results finalization)
+
+After `isWaitingForSupervisor` becomes `true`, a `setInterval` at 1,500 ms polls:
+```
+GET /api/afr/run-status?client_request_id=...&runId=...
+```
+When the run reaches a terminal state, it fetches:
+```
+GET /api/afr/artefacts?runId=...&client_request_id=...
+```
+and calls `finalizeRunUI()` to build the result bubble.
+
+Supervisor messages are also received via **Supabase Realtime** subscription (`subscribeSupervisorMessages(conversationId, ...)`) as a secondary path — but finalization is driven by the AFR poller, not realtime.
+
+---
+
+## 2. PIPELINE STATUS DISPLAY
+
+### Component: `ChatPage` (`client/src/pages/chat.tsx`)
+
+The UI tracks a **progress stack** (`progressStack` state, type `ProgressEvent[]`). Each event has a `stage`, `message`, `ts`, and optional `toolName`.
+
+#### Stage → Display Mapping (`getStageDisplay` function, lines 377–403)
+
+| Stage | Icon | Label |
+|---|---|---|
+| `ack` | ✔ | OK, working |
+| `classifying` | 🔍 | Classifying intent |
+| `planning` | 🔍 | Planning |
+| `executing` + Google/Places tool | 🔎 | Running search |
+| `executing` + other tool | 🔧 | Running tool |
+| `executing` (generic) | 🔧 | Executing tools |
+| `finalising` | ✍ | Finalising response |
+| `completed` | ✅ | Done |
+| `failed` | ❌ | Failed |
+
+#### Progress Indicator Rendering
+
+In the chat render section (lines ~3430–3550 in chat.tsx), there is a **progress indicator block** rendered in-line while `isStreaming` is true or `activeClientRequestId` is set. It shows:
+- The most recent `progressStack` item icon and label.
+- A small "lane" indicator (`run` vs `chat`) visible only in dev mode.
+- An `executedToolsSummary` showing which tools ran after the stream ends.
+
+There are **no step-by-step pipeline stage labels** visible to the user like "searching Google Places" or "visiting websites" — only the generic stage names above. The messages come from the `status` SSE events. The specific tool name can surface as "Running search" if it matches `search_places`/`places`/`google` patterns.
+
+### Pipeline Status — Key Finding
+
+**There are no user-facing messages that say "searching Google Places", "visiting websites", or "verifying with Tower"** in literal form. The pipeline progress is abstracted to the generic stage labels above. The `toolName` from the SSE `status` event can be displayed as "Running search" (for Google Places calls) or "Running tool" (for others), but the specific tool is not named to the user in production.
+
+---
+
+## 3. RESULTS DISPLAY
+
+### Architecture
+
+Results are rendered in `chat.tsx` inside the message loop. When a `Message` object has a `deliverySummary` field (not null), the message is rendered as a **result bubble** rather than a text bubble.
+
+**The two result renderers used (lines 3183–3209):**
+
+```tsx
+if (chatMessage.runId) {
+  // BehaviourInspectContent — see Section 5
+} else {
+  // RunResultBubble — the standard results component
+}
+```
+
+The standard results component is **`RunResultBubble`** (`client/src/components/results/RunResultBubble.tsx`, 2,100 lines).
+
+### Fields Shown Per Result
+
+Each lead is rendered as a `LeadRow` (internal sub-component in RunResultBubble). Fields displayed:
+
+| Field | Shown? | Notes |
+|---|---|---|
+| `name` | Yes | Bold, first line |
+| `location` | Yes | With MapPin icon |
+| `phone` | Yes | With Phone icon |
+| `website` | Yes | With Globe icon, external link |
+| `soft_violations` | Yes | Small muted text, shown when `showViolations` is true |
+| `place_id` | Implicit | Used for verification matching but not displayed |
+| `location_status` | Yes | Shown as a badge: Verified (geo) / Search-bounded / Out of area |
+
+**Verification badge per lead:**
+- `verified` (green, CheckCircle) — lead matched constraint checks
+- `weak_match` (blue, CircleDot) — partial Tower semantic match
+- `candidate` or `unverified` (amber/grey) — not confirmed
+- No badge (`none`) — when verification data is unavailable
+
+### Result Sections in RunResultBubble
+
+The component renders different branch layouts depending on available data:
+
+1. **Location buckets branch** (if `location_status` fields are present): Separates leads into "Verified (geo)", "Search-bounded", "Out of area", "Unknown" sections with icons.
+2. **Receipt attributes branch** (if `run_receipt.outcomes.attributes` is present): Groups leads under "Verified — mentions '{attribute}'".
+3. **Default branch**: Splits into "Verified matches (N)" and collapsible "Other candidates".
+
+### Delivery Summary Fields Used
+
+From `DeliverySummary`:
+- `status` (PASS/PARTIAL/STOP/FAIL/ACCEPT_WITH_UNVERIFIED/CHANGE_PLAN/ERROR/UNAVAILABLE)
+- `stop_reason` — shown as a red `FailingConstraintBanner` block
+- `delivered_exact` — array of verified leads
+- `delivered_closest` — array of unverified/candidate leads
+- `shortfall` — shown in a "What's missing" card
+- `requested_count` / `delivered_count` — shown as two stat boxes
+- `suggested_next_question` — drives "Next actions" buttons
+- `verified_exact_count`
+
+### Evidence / Attribute Verification
+
+`attribute_verification` is not a directly displayed field. The equivalent is:
+- `run_receipt.outcomes.attributes` — array of `ReceiptAttributeOutcome` objects with `attribute_raw`, `matched_count`, `matched_place_ids`, `evidence_refs` (url, snippet, matched_variant).
+- `lead_verification` artefacts parsed into `leadVerifications: LeadVerificationEntry[]`, each containing `constraint_checks[]` with per-constraint verdicts (`VERIFIED`, `PLAUSIBLE`, `UNSUPPORTED`, `CONTRADICTED`, `UNKNOWN`), `source_tier`, and `reason`.
+
+These are shown in `ConstraintBreakdown` (per-lead inline) and in `TechnicalDetails` (expandable "Show details" section).
+
+---
+
+## 4. TRUST CARD
+
+### What It Is
+
+There is no component literally named "TrustCard". The equivalent is the **Tower verdict display** within `RunResultBubble`.
+
+### Where It Appears
+
+Inside `RunResultBubble`, the Tower verdict is surfaced in two places:
+
+1. **Inline banner blocks** at the top of the result bubble (conditional):
+   - `TrustErrorBlock` — shown when `isTrustFailure` is true (amber warning: "Some results couldn't be fully checked").
+   - Mixed verdict warning — amber banner when `isMixedVerdict` is true.
+   - Unknown attribute constraint notice — blue banner with ShieldQuestion icon.
+
+2. **`TechnicalDetails` section** (expandable, toggled by "Show details" button):
+   - Shows `Verdict:` label with the Tower verdict string in colour-coded text.
+   - Shows `Tower: {verdict}` inline in font-mono debug stats.
+   - Shows `towerProxyUsed` (time proxy info) and `towerUnavailable` status.
+
+### Information Shown
+
+- Tower verdict string (PASS, FAIL, STOP, ACCEPT_WITH_UNVERIFIED, MIXED...)
+- `towerLabel` — human-readable elaboration of the verdict
+- `towerProxyUsed` — which time predicate was used
+- Contact proof: inline line "N emails • N phones" via `ReceiptInlineLine`
+- A `RunReceipt` comparison block (only if `VITE_SHOW_RECEIPT_COMPARISON=true`)
+
+### Component
+
+**`RunResultBubble`** (`client/src/components/results/RunResultBubble.tsx`) — specifically the `TrustErrorBlock`, `TechnicalDetails`, and inline banner conditionals within the main exported component.
+
+There is also **`WhatJustHappenedPanel`** (`client/src/components/tower/WhatJustHappenedPanel.tsx`) — a slide-out panel triggered by a "What just happened?" button in the chat header. This shows Tower log history but is separate from the inline trust display.
+
+---
+
+## 5. BEHAVIOUR JUDGE (BJ) DISPLAY
+
+### When BJ Is Shown
+
+The BJ display is shown in the chat **instead of** `RunResultBubble` when a `deliverySummary` message has a `runId` set (line 3183–3189 in chat.tsx):
+
+```tsx
+if (chatMessage.runId) {
+  <BehaviourInspectContent
+    runId={chatMessage.runId}
+    query={chatMessage.content || undefined}
+    timestamp={chatMessage.timestamp}
+  />
+}
+```
+
+This means **in the current production flow, result messages that have a `runId` are always rendered through BehaviourInspectContent**, not RunResultBubble. This is a significant architectural note — `runId` is always present on finalized runs, so BehaviourInspectContent is the **primary** result display in practice.
+
+### Three-Field Structure Displayed
+
+The `BehaviourInspectContent` component (`client/src/pages/dev/qa-progress.tsx`, lines 248–590) fetches from:
+```
+GET /api/afr/behaviour-judge?run_id=...
+```
+And displays three sub-sections:
+
+| Section | Data Field | Label Shown |
+|---|---|---|
+| 1 | `mission_intent_assessment` | "Mission Intent" |
+| 2 | `ground_truth_assessment` | "Ground Truth" |
+| 3 | `outcome` + `confidence` + `reason` | "Combined" |
+
+Each sub-section (rendered by `BjSubSection`) shows:
+- A colour-coded verdict chip (PASS = green, FAIL = red, other = grey)
+- Confidence percentage badge
+- `reasoning` text paragraph
+
+The "Combined" section additionally shows:
+- Tower verdict badge (if `judgeB.tower_verdict` is set)
+- `delivered_count / requested_count` in monospace
+
+### Loading State
+
+While fetching, shows "Awaiting Judge B…" text. Retries up to 8 times at 2.5 second intervals. If no result found after all retries, shows "No Judge B result in behaviour_judge_results for this run."
+
+### Component Files
+
+- **`client/src/pages/dev/qa-progress.tsx`** — `BehaviourInspectContent` (exported), `BjSubSection` (internal).
+- Also used in `client/src/pages/dev/qa-progress.tsx` inline at line 588 (the QA progress table row detail view).
+- Also referenced in `client/src/pages/dev/afr.tsx` (AFR run inspector page).
+
+### Critical Note
+
+`BehaviourInspectContent` is **imported from a `dev/` page** (`qa-progress.tsx`) and used as the primary result renderer in the production chat. This is an unusual architecture — the dev QA component is serving double duty as the production results UI for runs with a `runId`.
+
+---
+
+## 6. CONFIGURATION / TOGGLES
+
+### Existing User-Facing Options
+
+#### 1. Google Query Mode Toggle
+**File:** `client/src/components/GoogleQueryModeToggle.tsx`  
+**Type:** Binary toggle, persisted in `localStorage` under key `wyshbone.google_query_mode`  
+**Values:** `TEXT_ONLY` (Fast, Zap icon) | `BIASED_STABLE` (Stable, Shield icon)  
+**Sent as:** `google_query_mode` in the `/api/chat` payload  
+**Location in UI:** In the chat input toolbar (visible in the dev diagnostic panel header text: `google_query_mode={getGoogleQueryMode()}`)
+
+#### 2. Run Config Overrides Panel
+**File:** `client/src/components/results/RunConfigOverridesPanel.tsx`  
+**Type:** Collapsible panel with three controls  
+**Rendered:** In `chat.tsx` above the input area (conditional render)  
+**Controls:**
+- **Speed / Thoroughness** — 3-button toggle: Faster | Balanced | Stricter  
+  Maps to `speed_mode` field in `run_config_overrides`
+- **Replan ceiling** — Slider 0–3  
+  Maps to `replan_ceiling` field in `run_config_overrides`
+- **Ignore learned policy** — Checkbox  
+  Maps to `ignore_learned_policy` boolean in `run_config_overrides`
+
+The panel shows an "active" amber badge when any override differs from defaults.
+
+#### 3. Tower Loop Chat Mode Badge (Dev Only)
+**File:** `client/src/components/agent/AgentChatPanel.tsx` — `TowerBadgeInline`  
+**Condition:** Only visible in `import.meta.env.DEV`  
+**Stored:** `localStorage` key `TOWER_LOOP_CHAT_MODE`
+
+### No Existing Toggle for Search Method or Execution Path
+
+There is **no current user-facing toggle for:**
+- GPT-4o vs other model selection
+- Execution path selection (e.g. standard vs deep)
+- Query class override
+
+The `query_class` and `execution_path` are not exposed to the UI at all — they are resolved entirely server-side.
+
+### Where a "GPT-4o Primary" Toggle Would Logically Fit
+
+Based on the existing pattern of `GoogleQueryModeToggle` and `RunConfigOverridesPanel`:
+
+**Option A — Add to `RunConfigOverridesPanel`:**  
+A new "Model" row could be added to the existing `RunConfigOverridesPanel` as a binary toggle. It would be sent alongside `run_config_overrides` in the `/api/chat` payload. This is the lowest-friction path — the pattern already exists for passing overrides to the backend.
+
+**Option B — Toolbar toggle (like `GoogleQueryModeToggle`):**  
+A dedicated icon-button toggle in the chat input bar (next to the Google Query Mode toggle). Would persist to `localStorage` and be sent as a top-level field on the `/api/chat` payload.
+
+**Option C — Pre-run banner (like `PreRunBanner`):**  
+`PreRunBanner` (`client/src/components/results/PreRunBanner.tsx`) already exists as a UI slot above the chat input that shows the policy snapshot before a run. A model-selection chip could sit alongside it.
+
+**Recommended slot:** The `run_config_overrides` payload field. Add a `primary_model: "gpt4o" | "default"` field to `RunConfigOverrides` in `RunConfigOverridesPanel.tsx` and pass it through `/api/chat`.
+
+---
+
+## FILE REFERENCE SUMMARY
+
+| Concern | File(s) |
+|---|---|
+| Primary chat & query submission | `client/src/pages/chat.tsx` |
+| Legacy Claude chat (deprecated) | `client/src/components/agent/AgentChatPanel.tsx` |
+| Progress stage display | `chat.tsx` — `getStageDisplay()`, `progressStack` state |
+| Main result bubble | `client/src/components/results/RunResultBubble.tsx` |
+| BJ / behaviour judge display | `client/src/pages/dev/qa-progress.tsx` — `BehaviourInspectContent` |
+| Lead card rendering (sidebar panel) | `client/src/components/results/UserResultsView.tsx` |
+| Full results side panel | `client/src/components/results/ResultsPanel.tsx` |
+| Constraint/verification artefact views | `client/src/components/results/CvlArtefactViews.tsx` |
+| Tower verdict resolution | `client/src/utils/towerVerdictResolver.ts` |
+| Google Query Mode toggle | `client/src/components/GoogleQueryModeToggle.tsx` |
+| Run config overrides | `client/src/components/results/RunConfigOverridesPanel.tsx` |
+| Pre-run policy banner | `client/src/components/results/PreRunBanner.tsx` |
+| Supervisor route (Tower judgement) | `server/routes/supervisor.ts` |
+| Behaviour evaluator backend | `server/routes/behaviour-evaluator.ts` |
+| AFR artefact routes (polling target) | inferred from `GET /api/afr/artefacts`, `GET /api/afr/run-status` |
+| QA metrics / BJ data source | `server/routes/qa-metrics.ts` (inferred from `/api/afr/behaviour-judge`) |
