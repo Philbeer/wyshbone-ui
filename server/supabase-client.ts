@@ -468,6 +468,7 @@ export interface LeadDeliveryEvidence {
   matched_phrase: string;
   context_snippet: string;
   verification_status: string;
+  source_type: string;
   constraint_verdicts: { constraint: string; verdict: string }[];
 }
 
@@ -555,6 +556,7 @@ export async function getDeliveryEvidence(runId: string): Promise<DeliveryEviden
       matched_phrase: items[0]?.matched_phrase || items[0]?.constraint_value || '',
       context_snippet: items[0]?.context_snippet || items[0]?.surrounding_context || '',
       verification_status: items[0]?.verification_status || lead.verification_status || '',
+      source_type: items[0]?.source_type || items[0]?.evidence_type || items[0]?.evidence_source || lead.source_tier || lead.source_type || '',
       constraint_verdicts,
     };
   }

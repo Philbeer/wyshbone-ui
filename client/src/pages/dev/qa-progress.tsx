@@ -181,6 +181,7 @@ interface DeliveryLeadEvidence {
   matched_phrase: string;
   context_snippet: string;
   verification_status: string;
+  source_type: string;
   constraint_verdicts: { constraint: string; verdict: string }[];
 }
 
@@ -402,6 +403,7 @@ export function BehaviourInspectContent({ runId, query, timestamp, fallback, del
       matched_phrase: l.matched_phrase || l.constraint_value || '',
       context_snippet: l.context_snippet || l.surrounding_context || l.context || '',
       tower_status: l.tower_status || l.verification_status || '',
+      source_type: l.source_type || l.source_tier || l.evidence_source || l.evidence_type || '',
     }));
   }, [deliverySummary]);
 
@@ -514,6 +516,13 @@ export function BehaviourInspectContent({ runId, query, timestamp, fallback, del
                     : towerStatus === 'no_evidence'
                       ? 'bg-red-100 text-red-700'
                       : 'bg-gray-100 text-gray-600';
+                const rawSourceType = rich?.source_type || (item as any).source_type || item.source_tier || '';
+                const sourceTypeLower = rawSourceType.toLowerCase().trim();
+                const sourceTypeCls = (sourceTypeLower === 'first_party' || sourceTypeLower === 'first_party_website' || sourceTypeLower === 'website')
+                  ? 'bg-green-100 text-green-700'
+                  : (sourceTypeLower === 'snippet' || sourceTypeLower === 'search_snippet')
+                    ? 'bg-blue-100 text-blue-700'
+                    : 'bg-gray-100 text-gray-600';
                 return (
                   <div key={idx} className="border rounded-md overflow-hidden text-[11px]">
                     <button
@@ -529,9 +538,9 @@ export function BehaviourInspectContent({ runId, query, timestamp, fallback, del
                       <span className="font-medium text-gray-800 truncate flex-1">{displayName}</span>
                       <div className="flex items-center gap-1.5 shrink-0">
                         <LeadConstraintBadges badges={badges} />
-                        {item.source_tier && (
-                          <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-100 text-blue-700">
-                            {item.source_tier}
+                        {rawSourceType && (
+                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${sourceTypeCls}`}>
+                            {rawSourceType}
                           </span>
                         )}
                         <span className="text-gray-400 text-[10px]">{isExpanded ? '▲' : '▼'}</span>
@@ -539,48 +548,44 @@ export function BehaviourInspectContent({ runId, query, timestamp, fallback, del
                     </button>
                     {isExpanded && (
                       <div className="border-t bg-gray-50 px-3 py-2 space-y-1.5">
-                        <div>
-                          <span className="text-gray-500 font-medium">URL visited: </span>
-                          {siteUrl
-                            ? <a href={siteUrl} target="_blank" rel="noopener noreferrer"
+                        {siteUrl && (
+                          <div>
+                            <span className="text-gray-500 font-medium">URL visited: </span>
+                            <a href={siteUrl} target="_blank" rel="noopener noreferrer"
                                 className="text-blue-600 hover:underline break-all">{siteUrl}</a>
-                            : <span className="text-gray-400 italic">not captured</span>
-                          }
-                        </div>
-                        <div>
-                          <span className="text-gray-500 font-medium">Quotes found: </span>
-                          {allQuotes.length > 0
-                            ? (
-                              <div className="mt-0.5 space-y-1">
-                                {allQuotes.map((q, qi) => (
-                                  <blockquote key={qi} className="border-l-2 border-gray-300 pl-2 text-gray-700 italic">{q}</blockquote>
-                                ))}
-                              </div>
-                            )
-                            : <span className="text-gray-400 italic">not captured</span>
-                          }
-                        </div>
-                        <div>
-                          <span className="text-gray-500 font-medium">Matched phrase: </span>
-                          {matchedPhrase
-                            ? <span className="text-gray-800 font-mono bg-yellow-50 px-1 rounded">{matchedPhrase}</span>
-                            : <span className="text-gray-400 italic">not captured</span>
-                          }
-                        </div>
-                        <div>
-                          <span className="text-gray-500 font-medium">Context snippet: </span>
-                          {contextSnippet
-                            ? <span className="text-gray-700">{contextSnippet}</span>
-                            : <span className="text-gray-400 italic">not captured</span>
-                          }
-                        </div>
-                        <div>
-                          <span className="text-gray-500 font-medium">Tower verdict: </span>
-                          {towerStatus
-                            ? <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${towerCls}`}>{towerStatus}</span>
-                            : <span className="text-gray-400 italic">not captured</span>
-                          }
-                        </div>
+                          </div>
+                        )}
+                        {allQuotes.length > 0 && (
+                          <div>
+                            <span className="text-gray-500 font-medium">Quotes found: </span>
+                            <div className="mt-0.5 space-y-1">
+                              {allQuotes.map((q, qi) => (
+                                <blockquote key={qi} className="border-l-2 border-gray-300 pl-2 text-gray-700 italic">{q}</blockquote>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {matchedPhrase && (
+                          <div>
+                            <span className="text-gray-500 font-medium">Matched phrase: </span>
+                            <span className="text-gray-800 font-mono bg-yellow-50 px-1 rounded">{matchedPhrase}</span>
+                          </div>
+                        )}
+                        {contextSnippet && (
+                          <div>
+                            <span className="text-gray-500 font-medium">Context snippet: </span>
+                            <span className="text-gray-700">{contextSnippet}</span>
+                          </div>
+                        )}
+                        {towerStatus && (
+                          <div>
+                            <span className="text-gray-500 font-medium">Tower verdict: </span>
+                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${towerCls}`}>{towerStatus}</span>
+                          </div>
+                        )}
+                        {!siteUrl && allQuotes.length === 0 && !matchedPhrase && !contextSnippet && !towerStatus && (
+                          <p className="text-[11px] text-gray-400 italic">No evidence details captured.</p>
+                        )}
                       </div>
                     )}
                   </div>

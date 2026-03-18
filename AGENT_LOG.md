@@ -748,3 +748,54 @@ Switched from narrow field-by-field mapping to spreading `l` (`...l`) first, the
 Vite build clean. Server restarted. No TypeScript errors.
 
 **What's next:** Consider logging the actual lead fields on mount (console.log item) to confirm field presence for GPT-4o runs, which sit between Places (no evidence) and GP Cascade (full match_evidence).
+
+---
+
+## Session 8 — Source Type Badge + Hide Empty Evidence Fields
+
+**Date:** 2026-03-18  
+**Task:** Polish the evidence row display: add coloured source-type badge (`snippet` / `first_party`), and hide empty evidence fields instead of showing "not captured".
+
+### Changes Made
+
+**`server/supabase-client.ts` — `LeadDeliveryEvidence` + `getDeliveryEvidence`**
+
+- Added `source_type: string` field to `LeadDeliveryEvidence` interface.
+- Populated from: `items[0]?.source_type || items[0]?.evidence_type || items[0]?.evidence_source || lead.source_tier || lead.source_type || ''`. The cascade covers all field-name variants used across different pipeline versions.
+
+**`client/src/pages/dev/qa-progress.tsx` — `DeliveryLeadEvidence` interface**
+
+- Added `source_type: string` field to match the server interface.
+
+**`client/src/pages/dev/qa-progress.tsx` — `dsLeads` useMemo**
+
+- Added explicit `source_type` field: `l.source_type || l.source_tier || l.evidence_source || l.evidence_type || ''`. Normalises all variants from the delivery artefact into a single key.
+
+**`client/src/pages/dev/qa-progress.tsx` — evidence row renderer**
+
+*Source type badge (collapsed row):*
+- Removed the old `item.source_tier` badge (uniform blue, ignoring value).
+- Added `rawSourceType = rich?.source_type || item.source_type || item.source_tier || ''` derivation.
+- Added `sourceTypeCls` logic: `first_party` / `first_party_website` / `website` → `bg-green-100 text-green-700`; `snippet` / `search_snippet` → `bg-blue-100 text-blue-700`; anything else → `bg-gray-100 text-gray-600`.
+- Renders the badge only when `rawSourceType` is truthy. Colour reflects evidence provenance.
+
+*Empty field hiding (expanded panel):*
+- `URL visited` row: now only renders when `siteUrl` is truthy.
+- `Quotes found` row: now only renders when `allQuotes.length > 0`.
+- `Matched phrase` row: now only renders when `matchedPhrase` is truthy.
+- `Context snippet` row: now only renders when `contextSnippet` is truthy.
+- `Tower verdict` row: now only renders when `towerStatus` is truthy.
+- Added catch-all: when ALL five are empty, shows `"No evidence details captured."` so the expanded panel is never completely blank.
+
+### Decision: "Not captured" vs hide
+
+Hiding empty fields (option chosen) produces a cleaner panel for Places runs where only URL + badge are meaningful. The catch-all message covers the edge case where even the URL is missing, ensuring the user always sees *something* on expand rather than an empty div.
+
+### Files Modified
+- `server/supabase-client.ts` — `LeadDeliveryEvidence` interface + `getDeliveryEvidence` evidenceMap `source_type` field
+- `client/src/pages/dev/qa-progress.tsx` — `DeliveryLeadEvidence` interface, `dsLeads` useMemo, evidence row renderer (badge + hide logic)
+
+### Build
+Vite build clean. Server restarted. No TypeScript errors.
+
+**What's next:** The source type badge value (`snippet`, `first_party`, etc.) is rendered verbatim. If human-readable labels are preferred (e.g. "search result" instead of "snippet"), a `formatSourceType` mapping function could be added, mirroring the existing `formatSourceTier` in RunResultBubble.
