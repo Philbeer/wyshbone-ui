@@ -1,0 +1,102 @@
+Replit/CC, implement the fix below. FULL FILE REWRITES where you touch files. Do not give partial diffs.
+
+GOAL
+When the router returns CLARIFY_FOR_RUN, the conversation enters a “clarify session”. While in this state:
+
+* User replies (including “yes”, “ok”, “sure”) MUST be treated as clarification answers for the pending run, not as a new unrelated message.
+* The system MUST NOT produce a “direct_response” list of entities while still clarifying.
+* Once enough clarification info is collected, the server MUST automatically transition to RUN_SUPERVISOR for the same clarified request (same conversation), create the supervisor task, and the UI must switch from “Clarifying before run” to the normal supervisor “thinking” flow.
+* If the user clearly asks an informational question during clarify, the system can answer in CHAT_INFO, but it must keep the clarify session intact and return to clarifying (or explicitly ask whether to abandon the run).
+
+CURRENT BUG (from screenshots)
+
+* We ask clarifying questions.
+* User replies “yes”.
+* Router goes to Direct Response and produces a fabricated list of orgs without any tool calls.
+  This is a trust-killer. “yes” should confirm/advance the clarification, not trigger a fresh chat response.
+
+DESIRED BEHAVIOUR (state machine)
+State: NONE
+
+* Normal chat/routing.
+
+State: CLARIFY_FOR_RUN(active)
+
+* Store a ClarifySession for the conversation: pending original user request, pending questions, collected answers so far, and a derived “clarifiedUserRequest” once ready.
+* Every subsequent user message routes through ClarifySession handler first.
+* If ready => run supervisor task immediately.
+
+State: RUN_SUPERVISOR
+
+* Normal current behaviour.
+
+IMPLEMENTATION REQUIREMENTS
+
+1. Server-side: Persist clarify session in DB (preferred) or in conversation state.
+
+* Use Supabase table clarify_sessions or reuse an existing conversation_metadata table if present.
+* Fields: conversation_id, is_active, original_user_text, pending_questions (json), answers (json), clarified_request_text, updated_at.
+* When CLARIFY_FOR_RUN is chosen, create/overwrite active session with pending questions.
+* When user responds, if session active: treat message as answer input to the session, not a new classification.
+
+2. “yes/ok/sure” handling
+
+* If session active and the last assistant message asked “confirm you’d like me to run this search” then:
+
+  * “yes” should set confirmed=true and proceed to RUN_SUPERVISOR IF all required fields are present.
+  * If required fields are still missing, “yes” should not proceed; instead ask the next missing question(s).
+
+3. Clarification completion -> auto-run handoff
+
+* When enough info is gathered, build a single clarified request string (or JSON constraints) and immediately create a supervisor task with it.
+* IMPORTANT: the user should NOT need to retype the full request.
+* Emit SSE event(s) that:
+
+  * clear isClarifyingForRun in UI
+  * provide supervisorTaskId (normal run lane trigger)
+  * optionally include a small “Using clarified request: …” acknowledgement message.
+
+4. UI: Ensure messages during clarify don’t get misinterpreted as direct response runs
+
+* If isClarifyingForRun is true, show the amber badge.
+* When server transitions to RUN_SUPERVISOR, the badge must disappear and normal thinking bubble should appear.
+* If a “direct_response” arrives while clarify is active, the UI should display it as plain chat, but we should eliminate this at server level.
+
+5. Router logic guard
+
+* If clarify session is active, the router must NOT run decideChatMode/intent classification as normal. The clarify handler owns routing until the session is closed or aborted.
+* Provide a deliberate “cancel” command: if user says “cancel”/“never mind” then close the session and return to chat.
+
+6. Safety / truth
+
+* While clarifying, system prompt must never imply execution happened.
+* The assistant must never output a list of “Here are 5 orgs…” unless it actually ran tools (RUN_SUPERVISOR path).
+
+FILES TO CHECK/MODIFY (likely)
+
+* server/routes.ts (SSE, routing entry, clarify lane, supervisor task creation)
+* server/lib/decideChatMode.ts (if needed for state check)
+* server/intent-detector.ts (if still used)
+* shared/conversationConfig.ts (prompts for CHAT_INFO vs CLARIFY_FOR_RUN)
+* client/src/pages/chat.tsx (SSE handling, clarify badge state, transition to run)
+* Any existing leadClarification.ts (reuse it, but make it stateful across messages)
+
+DELIVERABLES
+A) Code changes implementing clarify session state and auto-run transition.
+B) A simple manual test script (steps I can do in UI) with expected AFR/router outcomes:
+
+1. “find pubs” -> CLARIFY_FOR_RUN asks location
+2. reply “Arundel” -> CLARIFY_FOR_RUN asks count or runs if default
+3. reply “5” -> RUN_SUPERVISOR starts automatically
+4. “find organisations that work with local authorities in blackpool” -> CLARIFY_FOR_RUN asks what “work with” means and count
+5. reply “commissioned services, 5” -> RUN_SUPERVISOR starts
+6. reply “yes” to confirmation should never trigger a fabricated direct_response list
+
+IMPORTANT STYLE CONSTRAINTS
+
+* Full file rewrites for any file you modify.
+* Keep the existing three-way router mental model: CHAT_INFO, CLARIFY_FOR_RUN, RUN_SUPERVISOR.
+* Do not add new unrelated features.
+* Keep copy simple and honest. No “task execution system” wording unless it is actually running.
+
+Start by locating any existing clarification logic and whether conversation state is stored anywhere. Then implement the persistence + state machine + auto-run handoff.

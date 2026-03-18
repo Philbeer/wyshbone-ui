@@ -1,0 +1,125 @@
+Context:
+We are fixing trust issues caused by misleading UI language after search runs (e.g. “find dentists in Sussex”).
+
+Problem to fix
+
+The UI currently shows messages like:
+
+“19 more could not be found that meet all your requirements.”
+
+This is misleading when:
+
+The user did not request a specific number
+
+Only the first Google results page was searched
+
+No results actually failed verification
+
+Required UI behaviour (authoritative)
+1️⃣ Never show “missing” or “could not be found” without a user-requested count
+
+If:
+
+user_specified_count === false
+
+Then the UI must:
+
+Not display:
+
+“X more could not be found”
+
+“Shortfall”
+
+“Insufficient results”
+
+Treat the result list as complete by definition
+
+2️⃣ Replace “What’s missing” section for default searches
+
+For default (no-number) searches:
+
+Remove the “What’s missing” section entirely.
+
+Instead, if applicable, show one of the following neutral, truthful options:
+
+If Google returned a next page token:
+
+More results available
+You can search the next page for additional results.
+
+Button:
+
+Search more results
+
+If no next page token:
+
+No more results available from this search.
+
+(No action needed.)
+
+3️⃣ Keep “Next actions” but reframe intent
+
+Buttons like:
+
+“Broaden criteria”
+
+“Try a different search”
+
+Are fine — but must not imply failure.
+
+They should be framed as:
+
+Optional exploration
+
+Not error recovery
+
+4️⃣ When a user does specify a number (e.g. “find 30…”)
+
+Only in this case may the UI show:
+
+“Returned 11 of 30 requested”
+
+“19 not found”
+
+But wording must be explicit that:
+
+This is about count, not verification failure
+
+Example:
+
+Returned 11 of 30 requested.
+You can search more or broaden the criteria to try to reach 30.
+
+Acceptance criteria
+
+After this change:
+
+“find dentists in Sussex”
+
+Shows ~20 results
+
+No ‘missing’ language
+
+Optionally offers “Search more results” if available
+
+“find 5 dentists in Sussex”
+
+Shows up to 5
+
+No confusion
+
+No UI message implies:
+
+Verification failure
+
+Hidden expectations
+
+System “giving up”
+
+Design principle (do not violate)
+
+The UI must only describe actions that actually occurred.
+
+No inferred failure.
+No imaginary effort.
+No invented numbers.

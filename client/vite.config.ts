@@ -10,11 +10,23 @@ export default defineConfig({
       "@shared": path.resolve(import.meta.dirname, "..", "shared"),
       "@assets": path.resolve(import.meta.dirname, "..", "attached_assets"),
     },
-    // Ensure shared folder imports resolve from client's node_modules
     dedupe: ["zod", "react", "react-dom", "drizzle-orm", "drizzle-zod"],
   },
   optimizeDeps: {
-    include: ["zod", "drizzle-orm", "drizzle-zod"],
+    include: [
+      "zod",
+      "drizzle-orm",
+      "drizzle-zod",
+      "react",
+      "react-dom",
+      "react-dom/client",
+      "wouter",
+      "@tanstack/react-query",
+      "lucide-react",
+      "clsx",
+      "tailwind-merge",
+      "class-variance-authority",
+    ],
   },
   build: {
     outDir: "dist",
@@ -28,7 +40,14 @@ export default defineConfig({
     port: 5000,
     strictPort: true,
     allowedHosts: true,
-    // Proxy API requests to backend server in development
+    warmup: {
+      clientFiles: [
+        "./src/main.tsx",
+        "./src/App.tsx",
+        "./src/pages/chat.tsx",
+        "./src/contexts/UserContext.tsx",
+      ],
+    },
     proxy: {
       '/api': {
         target: 'http://localhost:5001',
@@ -78,4 +97,3 @@ export default defineConfig({
     },
   },
 });
-

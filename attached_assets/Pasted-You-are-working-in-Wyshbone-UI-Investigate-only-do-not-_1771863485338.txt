@@ -1,0 +1,85 @@
+You are working in Wyshbone UI. Investigate only, do not change code.
+
+Goal
+
+I need a precise report of how the UI currently renders:
+
+Chat bubbles (assistant output)
+
+The Activity Panel (AFR event list)
+
+The “View results” / results modal
+
+Specifically I want to change the chat bubble so the final assistant bubble is composed from AFR artefacts (delivery_summary + leads/lead_pack), not from the SSE message stream.
+
+Questions to answer (report with file names and key functions)
+
+A) Chat pipeline (current)
+
+When the user presses Enter, what exact code path runs?
+
+What endpoint is called (URL), and how is SSE handled?
+
+Where are “assistant chat messages” stored (local state, Supabase, both)?
+
+What exact condition causes the UI to stop showing “…” and render a final assistant bubble today?
+
+Is the final bubble content coming from:
+
+streamed SSE tokens/messages
+
+Supabase realtime messages
+
+AFR events / artefacts
+
+something else
+
+B) AFR pipeline (current)
+
+Where do AFR events come from in the UI (Supabase table? realtime channel? polling?)
+
+What is the data model in the UI for events (type names)?
+
+How does the Activity Panel decide:
+
+which run it is showing
+
+when a run is “done”
+
+why we get a late “burst” of events after the bubble is already updated
+
+C) Results UI (current)
+
+Where does the results modal pull its content from?
+
+Which artefact types does it use (delivery_summary, leads, lead_pack, etc)?
+
+Prove in code how it locates “the latest artefact for this run”.
+
+D) Proposed change feasibility
+
+Given the above, answer this:
+
+What is the simplest way to render the final assistant chat bubble from AFR artefacts?
+
+e.g. “when delivery_summary artefact arrives for current run_id, insert an assistant bubble built from it”
+
+What reliable “user-visible complete” trigger exists right now in the UI?
+
+(Examples: delivery_summary artefact arrives, or leads artefact arrives, etc.)
+
+What data do we have available in the UI at that moment (run_id, artefacts list, etc.)?
+
+Output format
+
+Return:
+
+A bullet-point walkthrough of the actual runtime sequence (user input -> final bubble)
+
+A list of files and functions involved (with line ranges if possible)
+
+A diagram in plain text showing the data flow (SSE vs AFR vs Supabase)
+
+A short recommendation: “best trigger for chat bubble from AFR is X”
+
+Do not implement anything yet. Report only.

@@ -1,0 +1,98 @@
+You are fixing the Wyshbone QA benchmark runner so it can correctly continue runs that require clarification.
+
+IMPORTANT
+Do NOT change agent logic.
+Do NOT change Tower logic.
+Do NOT change benchmark UI layout beyond what is necessary to show the clarification response was sent.
+
+This task is only about the QA runner continuing clarification flows correctly.
+
+Problem
+
+Some benchmark queries require clarification, for example:
+
+- Find breweries
+- incomplete discovery queries with no location
+- ambiguous queries requiring more detail
+
+Right now the QA runner often times out because it does not successfully continue the clarification loop.
+
+That means behaviour is being marked UNKNOWN when the agent may actually have behaved correctly.
+
+Goal
+
+Make the QA benchmark runner reliably detect clarification requests and send the correct clarification response so the run can continue to a truthful terminal outcome.
+
+Required behaviour
+
+1. Detect clarification requests during benchmark runs.
+
+A clarification request may appear as:
+- clarification artefact
+- clarify gate artefact
+- preflight clarify state
+- clarification-needed message
+- supervisor clarification response
+
+The runner must recognise that the run is waiting for user clarification.
+
+2. Add explicit benchmark clarification responses.
+
+Each benchmark test definition must support an optional field such as:
+
+clarification_response
+
+Examples:
+
+Query: Find breweries
+clarification_response: United Kingdom
+
+Query: Find companies that supply to NHS hospitals in Leeds
+clarification_response: Companies providing goods or services to NHS hospitals in Leeds
+
+If no specific clarification_response is provided, allow a safe fallback only if appropriate:
+"Use the most reasonable interpretation and continue."
+
+But prefer explicit clarification responses in the benchmark definitions.
+
+3. Send the clarification response automatically.
+
+When the benchmark runner detects a clarification request:
+- send the configured clarification_response
+- continue polling the same run
+- do not mark the test timed out unless the continued run also fails to complete
+
+4. Track clarification continuation explicitly.
+
+Add structured run metadata such as:
+- clarification_requested: true/false
+- clarification_response_sent: true/false
+- clarification_response_value
+- clarification_continue_success: true/false
+
+5. Timeout handling
+
+If the run times out before clarification is answered:
+- keep behaviour as UNKNOWN
+
+If the clarification response is sent but the run still times out afterwards:
+- mark that clearly as post-clarification timeout
+
+6. UI visibility
+
+Without redesigning the page, make it visible in the row details or small subtext that:
+- clarification was requested
+- clarification response was sent
+- run resumed
+
+Example:
+“Auto clarification response sent: United Kingdom”
+
+7. Deliverables
+
+Return:
+1. files changed
+2. how clarification detection works
+3. how clarification responses are stored in benchmark definitions
+4. how the runner continues the run after clarification
+5. confirmation that benchmark timeouts caused by missing clarification should now be reduced

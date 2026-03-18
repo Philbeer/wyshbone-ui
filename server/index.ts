@@ -18,6 +18,7 @@ import { wabsScoresRouter } from "./routes/wabs-scores";
 import { redditRouter } from "./routes/reddit";
 import { hnRouter } from "./routes/hn";
 import { storage, runStartupMigrations, getMaskedDbInfo } from "./storage";
+import { runGtEnrichmentQueueCleanup } from "./supabase-client";
 import { logDemoConfig } from "./demo-config";
 import { runSchemaHealthCheck } from "./schema-check";
 
@@ -239,6 +240,9 @@ app.use((req, res, next) => {
   
   // Run startup migrations to add missing columns (handles Supabase schema drift)
   await runStartupMigrations();
+
+  // Clean up junk/test rows and mark null-tower-verdict pending rows in enrichment queue
+  await runGtEnrichmentQueueCleanup();
   
   // Run non-fatal schema health check (logs warnings if CRM tables missing)
   await runSchemaHealthCheck();
@@ -343,6 +347,7 @@ app.use((req, res, next) => {
         console.log('   Job delegation will fail. Set SUPERVISOR_BASE_URL or enable ENABLE_UI_BACKGROUND_WORKERS=true');
       }
     }
+    
     console.log('='.repeat(80) + '\n');
     
     // Print region service documentation

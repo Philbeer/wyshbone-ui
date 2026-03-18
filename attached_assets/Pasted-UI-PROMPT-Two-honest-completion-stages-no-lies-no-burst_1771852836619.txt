@@ -1,0 +1,139 @@
+UI PROMPT: Two honest completion stages (no lies, no bursts)
+
+You are working in Wyshbone UI.
+
+Goal
+
+Make the Activity Panel reflect two different, truthful completion stages:
+
+Stage 1: User complete (Phase 1)
+
+Trigger: the results bubble transitions from provisional to final (userVisibleComplete).
+
+Meaning: the user-visible results will not change anymore.
+
+UI:
+
+Activity panel shows big status “Completed”
+
+The visible activity event list freezes at that moment
+
+No late “burst” of additional events or buttons after this point
+
+Stage 2: System complete (Phase 2)
+
+Trigger: the run truly finishes background finalisation (artefacts persisted, policy writes, run closed).
+
+Meaning: the system is actually finished, not just user-finished.
+
+UI:
+
+Footer under the frozen panel shows:
+
+while Phase 2 is running: “Finalising run: saving artefacts to database…”
+
+when Phase 2 is done: green tick + “Run complete: artefacts saved”
+
+IMPORTANT: Do NOT show the green tick early. Only show it on a real Phase 2 terminal signal.
+
+Requirements (UI only)
+
+Add a “freeze latch” for the Activity Panel
+
+When Phase 1 triggers (userVisibleComplete for the current run):
+
+store frozenRunId
+
+store a snapshot of visibleEvents as frozenEvents
+
+set activityFrozen = true
+
+While activityFrozen === true:
+
+render only frozenEvents
+
+ignore / discard any newly arriving events from AFR for the visible list
+
+do not re-enable “View results / Details” buttons due to late events
+
+do not expand the panel with new rows (this is the “burst” bug)
+
+Show Phase 1 status immediately
+
+As soon as userVisibleComplete fires:
+
+Activity Panel header status becomes “Completed” (this is user-complete)
+
+This must happen even if Phase 2 is still running
+
+Add a separate Phase 2 finalisation state (truthful)
+
+Introduce finalisationStatus for the frozen run:
+
+finalising | finalised
+
+While finalising:
+
+show footer text “Finalising run: saving artefacts to database…”
+
+no green tick
+
+Only when finalised:
+
+show green tick + “Run complete: artefacts saved”
+
+Define Phase 2 completion trigger precisely
+
+Phase 2 must only flip to finalised on a true terminal signal for the run, such as:
+
+an explicit AFR event like run_completed / mission_completed / finalization_completed
+
+OR an explicit artefact that indicates finalisation done (if that exists today)
+
+If we do not currently receive any reliable Phase 2 “done” signal in the UI:
+
+keep footer in “Finalising…” state (do NOT tick)
+
+optionally hide the footer after X minutes for users, but keep it visible for devs if DEV mode is enabled
+
+Keep this per-run
+
+Starting a new run should clear the previous freeze latch and start a fresh panel state for the new run.
+
+Never let a prior run’s late events affect the new run.
+
+Acceptance tests
+
+A) Normal run
+
+Bubble goes provisional -> final
+
+Activity panel immediately shows “Completed”
+
+No further event rows appear later
+
+Footer shows “Finalising…”
+
+Eventually (when Phase 2 signal arrives), footer becomes green tick “Run complete: artefacts saved”
+
+B) Late events after Phase 1
+
+They must not appear in the panel (no burst)
+
+C) No Phase 2 signal available
+
+Footer must never show green tick early
+
+It stays “Finalising…” (or hides after a while if implemented, but no tick)
+
+Report back
+
+Tell me:
+
+which files you changed
+
+the exact Phase 1 trigger condition you used (what variable / artefact / message causes userVisibleComplete)
+
+the exact Phase 2 trigger condition you used (which event or artefact flips to finalised)
+
+Do not change backend.

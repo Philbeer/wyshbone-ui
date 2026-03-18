@@ -1,0 +1,61 @@
+You are Wyshbone UI. Report first, then make changes.
+
+The regex routing layer is being replaced with a 
+single LLM call. Make these changes:
+
+1. Remove the following:
+   - extractBusinessAndLocation() and all call sites
+   - extractAttributeConstraints() and all call sites
+   - hasSemanticConstraint(), hasRelationshipPredicate(),
+     hasOpenedTimePredicate(), hasSubjectiveModifiers(),
+     hasNumericAmbiguity() and all call sites
+   - The KNOWN_LOCATIONS hardcoded list
+   - The CONCRETE_ENTITY_NOUNS hardcoded list
+   - sanitizeBusinessType() and all call sites
+   - The ENTITY_NOUN_PATTERNS and 
+     ENTITY_FINDING_VERBS regex checks in 
+     decideChatMode (except keep the verb check 
+     as a lightweight pre-filter)
+
+2. Replace the routing decision with a single 
+   gpt-4o-mini call:
+
+   Prompt:
+   "You are a routing classifier. Classify this 
+   message into exactly one of three routes:
+   
+   - agent_run: user wants to find, search for, 
+     or discover specific businesses, places, or 
+     organisations. Location may or may not be 
+     stated.
+   - clarify_before_run: user intent is a search 
+     task but critical information is missing or 
+     the request is genuinely ambiguous.
+   - direct_response: conversational, informational, 
+     or no search intent.
+   - refuse: fictional location, impossible request, 
+     or clearly nonsensical.
+   
+   Respond with JSON only:
+   { 
+     'route': 'agent_run|clarify_before_run|
+       direct_response|refuse',
+     'reason': 'one sentence',
+     'missing_info': ['list if clarify_before_run']
+   }"
+
+3. Keep:
+   - The monitoring/alert regex detection 
+     (keep checking|monitor|alert me) — 
+     these are unambiguous and cheap
+   - The existing LLM location validity check 
+     for edge cases
+
+4. The Supervisor still does the deep intent 
+   extraction (Pass 1, 2, 3) — the UI router 
+   only needs to decide which lane to put the 
+   message in.
+
+Report what you remove and what you add. Show 
+the before and after call count for a typical 
+"find bottle shops in East Sussex" query.

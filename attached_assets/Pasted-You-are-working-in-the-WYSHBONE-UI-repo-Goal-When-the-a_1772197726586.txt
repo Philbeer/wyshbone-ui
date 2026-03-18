@@ -1,0 +1,49 @@
+You are working in the WYSHBONE UI repo.
+
+Goal:
+When the assistant asks the user to type "Search now" to proceed, show a clickable button in the chat UI that sends "Search now" automatically, exactly as if the user typed it.
+
+This is a UX-only change. Do NOT change Supervisor, routing, or agent logic.
+
+Required behaviour:
+1) When the assistant message includes an explicit call-to-action like:
+   - "Reply **Search now** to proceed"
+   - or a structured clarify state indicating readiness to execute
+2) Render an inline button directly under the assistant message:
+   - Button label: "Search now"
+3) When clicked:
+   - Inject a new user message into the chat stream with content exactly: "Search now"
+   - Trigger the normal send-message flow (same path as manual typing + Enter)
+   - The message must appear visually as a user message bubble
+4) The user must NOT have to type anything manually.
+5) From the agent’s point of view, this must be indistinguishable from the user typing "Search now".
+
+Implementation constraints:
+- Do NOT special-case agent logic.
+- Do NOT add hidden flags or alternate execution paths.
+- This must reuse the existing sendMessage / submitChatInput handler.
+- The button is just a shortcut for message injection.
+
+Detection logic (choose the simplest reliable option):
+Option A (preferred):
+- The assistant message payload already includes a structured state like:
+    clarify_ready = true
+    expected_action = "SEARCH_NOW"
+- Use that to render the button.
+
+Option B (acceptable fallback):
+- Detect the literal phrase "**Search now**" in assistant messages.
+- Only render the button if the system is in a clarify / pre-run state.
+
+UI details:
+- Button should appear inline beneath the assistant message (not in the input bar).
+- Button should disappear once clicked or once a user message is sent.
+- Style should match existing primary action buttons (small, unobtrusive).
+
+Acceptance criteria:
+- Clicking the button results in a visible user message: "Search now"
+- The agent proceeds exactly as if the user typed it
+- No double-sends, no duplicate messages
+- Keyboard-only flow (typing manually) still works unchanged
+
+Do not over-engineer. This is a UX affordance, not a protocol change.

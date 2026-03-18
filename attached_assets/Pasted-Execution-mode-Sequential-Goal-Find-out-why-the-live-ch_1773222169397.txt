@@ -1,0 +1,72 @@
+Execution mode: Sequential
+
+Goal
+Find out why the live chat UI is still showing the old mixed-results behaviour after the truth fix was supposedly implemented.
+
+Observed live behaviour
+
+The current UI still shows:
+
+- "I found 5 businesses"
+- "RESULTS (5)"
+- all 5 rows shown in the main list
+- all rows marked "Unverified"
+
+This is the old misleading behaviour.
+
+If the truth fix were active, the UI should instead show verified results as the primary section, with unverified candidates collapsed or separated.
+
+Your task is to debug the exact live rendering path, not write another general audit.
+
+Tasks
+
+1. Identify exactly which component rendered this screen.
+   Determine whether this chat result came from:
+   - RunResultBubble receipt branch
+   - RunResultBubble default branch
+   - UserResultsView
+   - some older / alternate bubble component
+   - stale fallback rendering path
+
+2. Add temporary debug logs to confirm:
+   - which component branch is rendering
+   - counts for:
+     - exact leads
+     - closest leads
+     - matches
+     - candidates
+     - verifiedIds size
+     - weakMatchIds size
+     - hasVerificationData
+     - hasReceiptAttrData
+   - whether the UI is using delivery_summary or synthesised fallback
+
+3. Confirm whether the current preview tab is actually running the updated code.
+   Verify that the edited files are the ones used by this route/view.
+   Check for duplicate/legacy result components.
+
+4. If the wrong branch is still rendering, patch the real active branch so that:
+   - the main visible section shows verified results only when verification data exists
+   - unverified candidates are collapsed into a secondary section
+   - the headline count matches the verified set
+
+5. If the issue is stale build / preview state, explain exactly how to refresh or restart the correct preview.
+
+Deliverables
+
+1. A short markdown file:
+UI_RESULTS_TRUTH_LIVE_DEBUG.md
+
+Include:
+- exact active component / branch
+- whether the current preview was stale
+- whether the previous fix touched the wrong path
+- exact root cause of why this screen still shows 5 unverified results
+- exact code fix made, if needed
+
+Rules
+
+- Do not give another broad architecture report
+- Debug the exact live path producing this screen
+- Be concrete and file-based
+- If necessary, add temporary console logs to prove the path

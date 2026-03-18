@@ -1,0 +1,55 @@
+You are working in the Wyshbone UI repo.
+
+Goal
+Fix the UI so it always reflects the true backend outcome for a run. If Tower final_delivery verdict is PASS/ACCEPT, the UI must not show any red "can't trust these results" banner, must not say verification failed, and Results must not show "Status unavailable".
+
+What is broken (from the screenshots and AFR)
+- The right panel shows "Tower verdict: PASS" and the run is Completed, but the chat bubble shows a red banner: "I can't trust these results because verification failed (Tower: FAIL)".
+- Results modal shows weird constraint labels like "count undefined 10" and "location undefined Arundel", plus "location not verified", even though backend shows search_bounded and Tower PASS.
+- It also shows "Results are still being processed" when the run is completed.
+
+Non negotiable rules
+1) The UI must derive final trust state from ONE canonical source, in this priority order:
+   A) latest Tower judgement for phase=final_delivery (authoritative)
+   B) if not present yet, show "Processing" state, not FAIL
+   C) if Tower explicitly FAIL/STOP then show red banner
+2) Never show FAIL based on intermediate step failures like WEB_VISIT captcha, if final_delivery PASS.
+3) Ensure the UI is runId scoped: do not mix artefacts from previous runs into the current run display.
+
+Implementation tasks
+1) Locate where the chat bubble chooses the red banner message. Identify the boolean or status used (often something like verificationFailed / towerFail / trustState).
+   - Change it so it ONLY triggers when the latest Tower judgement for final_delivery is FAIL/STOP.
+   - If final_delivery is PASS/ACCEPT, force trustState=trusted.
+2) Locate Results modal status logic (the "Status unavailable / still being processed" header).
+   - It should show Processing only while we do not yet have final_delivery Tower judgement or delivery_summary.
+   - Once final_delivery exists OR delivery_summary is COMPLETED, remove "still being processed".
+3) Fix Constraints display:
+   - The UI is rendering "count undefined 10" and "location undefined Arundel". That means it is using the wrong fields or missing labels.
+   - Render constraints using the constraint id/type fields and show proper labels:
+     - Count should display as "Count: 10" (or "Requested: 10").
+     - Location should display as "Location: Arundel" with status "Verified" if we have search_bounded or exact.
+   - If location is search_bounded, show as "Verified (search bounded)" not "Not verified".
+4) Fix Verification counters:
+   - Verified 30 and Requested 10 are correct, but the per constraint cards show "Not verified".
+   - Map search_bounded to a green verified style, but with medium confidence label.
+5) Add a small dev-only diagnostic line (behind DEV flag) that prints:
+   current runId, final_delivery tower verdict, and the UI trustState. This makes it impossible to regress silently.
+
+How to find the right artefacts
+- Find where UI consumes AFR artefacts list. Identify how it selects:
+  - final_delivery artefact
+  - tower_judgement for final_delivery
+  - delivery_summary artefact
+  - verification_summary artefact
+- Fix the selection to always be for the active runId, and choose the latest by createdAt timestamp.
+
+Deliverables
+- Implement the fix in UI code.
+- Provide a short summary of what was wrong and what you changed.
+- List the files changed.
+- Ensure the screenshots scenario would now show:
+  - no red banner
+  - Tower PASS reflected correctly
+  - Results modal shows completed and constraints labeled properly
+
+Do not change backend code. UI repo only.

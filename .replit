@@ -4,6 +4,7 @@ hidden = [".config", ".git", "generated-icon.png", "node_modules", "dist"]
 
 [nix]
 channel = "stable-25_05"
+packages = ["jq"]
 
 [deployment]
 deploymentTarget = "autoscale"
@@ -56,3 +57,5 @@ SUPERVISOR_EXECUTION_ENABLED = "true"
 
 [userenv.development]
 DEBUG_AFR = "true"
+VITE_SHOW_RECEIPT_COMPARISON = "true"
+VITE_SHOW_RECEIPT_IN_BUBBLE = "true"

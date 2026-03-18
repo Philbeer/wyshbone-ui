@@ -1,0 +1,124 @@
+You are implementing a QA usability improvement in the Wyshbone UI.
+
+IMPORTANT
+Do NOT change core agent behaviour.
+Do NOT change Supervisor or Tower contracts unless absolutely necessary.
+This task is a UI/QA harness improvement only.
+
+Goal
+
+Improve the QA Regression Dashboard so we can run the full benchmark pack automatically instead of manually running only a small subset.
+
+Current problem
+
+The dashboard currently supports small suites like “Stage 1 Core (4 tests)”, but we now need a proper real-world benchmark harness for repeated regression testing.
+
+We want to expand the benchmark coverage and add a UI control to run all benchmark queries sequentially.
+
+What to implement
+
+PART 1 — Shared benchmark pack support
+
+Use the shared benchmark query config as the source of truth.
+
+If the UI already consumes a benchmark suite definition, extend it cleanly.
+If not, add support for a fixed benchmark pack sourced from config rather than hardcoded scattered UI values.
+
+Target benchmark pack size:
+around 12 queries total.
+
+These should include:
+- basic discovery
+- website evidence
+- name constraint
+- relationship discovery
+- ranking
+- honest failure / difficult cases
+
+Do not invent dynamic tests.
+The pack must remain fixed and repeatable.
+
+PART 2 — Add a new UI button
+
+Add a button to the QA Regression Dashboard:
+
+Run Full Benchmark Pack
+
+This button should:
+- queue all benchmark queries in the fixed pack
+- run them sequentially, one after the other
+- wait for each run to finish before starting the next
+- not run tests in parallel
+- preserve existing per-run timeout behaviour
+- preserve AFR links and existing result tracking
+
+PART 3 — Progress and status UI
+
+Show clear progress while the full pack is running.
+
+Minimum requirements:
+- progress text such as “Running 3 of 12”
+- current query text
+- completed count
+- pass / mismatch / blocked / timeout counts updating as runs finish
+
+When the full run completes, show a summary card with:
+- total tests
+- passed
+- mismatched
+- blocked
+- skipped/timeout
+- pass rate
+
+PART 4 — Result rows
+
+Each benchmark query in the full pack should still produce its own row with:
+- query
+- status
+- Tower result
+- judgement
+- runtime
+- AFR link
+
+Do not collapse all results into one blob.
+Each test must remain inspectable.
+
+PART 5 — Safe execution rules
+
+The implementation must be robust:
+
+- if one query fails or times out, continue to the next query
+- do not abort the whole pack unless the user explicitly stops it
+- prevent double-starting the pack while one is already running
+- disable the button while active
+- clearly show when the full pack is idle vs running vs complete
+
+PART 6 — Suite structure
+
+Keep the existing small suites if they are useful, but add one clear top-level option:
+
+Full Benchmark Pack
+
+This should become the main regression option for real-world testing.
+
+If there is already a suite dropdown, add this as a new suite entry.
+If better UX is to keep the dropdown and add a dedicated “Run Full Benchmark Pack” button, do that.
+
+PART 7 — No hidden behaviour changes
+
+This is a QA dashboard enhancement only.
+Do not modify:
+- planner logic
+- Tower judgement logic
+- evidence extraction
+- replan logic
+
+Only improve test harness usability and coverage.
+
+Deliverables
+
+1. Brief summary of what changed
+2. Files changed
+3. How benchmark queries are sourced
+4. How sequential execution is handled
+5. Any edge cases or limitations

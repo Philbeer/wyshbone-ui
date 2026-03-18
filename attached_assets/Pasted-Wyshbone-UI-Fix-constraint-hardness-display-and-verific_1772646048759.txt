@@ -1,0 +1,118 @@
+Wyshbone UI — Fix constraint hardness display and verification messaging
+
+Problem
+
+The UI is currently misrepresenting backend constraint logic and verification results.
+
+Issues observed:
+
+1) Attribute constraints are displayed as SOFT in the UI even when the backend extracted them as HARD.
+
+Example:
+Query: "Find pubs in Arundel that mention live music on the website"
+
+Backend:
+constraints_extracted → 1 HARD constraint
+
+UI modal currently shows:
+Attribute: live music → Soft
+
+This contradicts backend behaviour and makes Tower FAIL decisions appear incorrect.
+
+
+2) Verification messaging is misleading.
+
+When attribute verification returns mostly UNKNOWN results, the UI sometimes shows:
+
+"Verification failed"
+
+This is incorrect.
+
+UNKNOWN means "not confirmed", not "failed verification".
+
+The only time verification should be called a failure is when Tower verdict = FAIL.
+
+
+3) Run polling sometimes produces "run timed out waiting for results" or briefly shows no artefacts even though the run eventually completes.
+
+This causes confusing UX.
+
+
+Required changes
+
+A) Correct constraint hardness display
+
+Find the component that renders constraint pills in the Results modal.
+
+Instead of defaulting HAS_ATTRIBUTE constraints to soft, read the hardness value directly from the backend constraint artefact or run_receipt.
+
+Rules:
+
+If backend constraint.hardness == "hard"
+→ show HARD
+
+If constraint.hardness == "soft"
+→ show SOFT
+
+Never default to soft.
+
+Add comment:
+"Constraint hardness must come from backend artefacts — do not default."
+
+
+B) Correct verification messaging
+
+Adjust the logic that triggers the red "verification failed" banner.
+
+New rules:
+
+If Tower verdict == FAIL
+→ show verification failed message.
+
+If Tower verdict == PASS but attribute status is UNKNOWN
+→ show a softer message:
+
+Example:
+"I found results, but I couldn't verify which ones mention this attribute on their website."
+
+Do not treat UNKNOWN as failure.
+
+
+C) Improve run polling resilience
+
+When UI receives run_id but no artefacts yet:
+
+Do not immediately show "run timed out".
+
+Instead:
+
+Continue polling AFR for up to 30 seconds using backoff.
+
+If artefacts appear → render results.
+
+If still empty after timeout → show
+
+"Run still processing or persisting — retrying."
+
+
+Acceptance criteria
+
+For query:
+"Find pubs in Arundel that mention live music on the website"
+
+If backend constraint is HARD
+→ UI must display HARD.
+
+If attribute verification returns UNKNOWN for most pubs
+→ UI must not say "verification failed".
+
+If Tower verdict == FAIL
+→ show the red verification failed banner.
+
+
+Deliverables
+
+Return:
+- files changed
+- where hardness is now sourced from
+- before/after screenshots of constraint display

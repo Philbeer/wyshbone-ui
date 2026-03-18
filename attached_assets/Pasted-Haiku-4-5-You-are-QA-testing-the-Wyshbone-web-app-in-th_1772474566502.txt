@@ -1,0 +1,326 @@
+Haiku 4.5
+
+
+
+You are QA testing the Wyshbone web app in this browser tab.
+
+Goal
+
+Evaluate ONLY user-facing language and confirmations related to:
+
+quantity
+
+ranking
+
+clarification wording
+
+confirmation phrasing
+
+You are NOT testing:
+
+decision correctness
+
+search quality
+
+Tower logic
+
+backend execution
+
+This test is about how the system talks, not what it decides.
+
+Critical rules (must follow)
+
+Do NOT click any button or modal that says:
+
+“Stop Claude”
+
+“Cancel”
+
+“X”
+
+If a run takes time, wait. Do not interrupt.
+
+For each test:
+
+Click input box
+
+Ctrl+A
+
+Delete
+
+Type the test input
+
+Press Enter once
+
+Wait until the chat bubble finishes rendering or 30 seconds pass.
+
+Test Set A – Quantity Language
+
+A1
+
+Input:
+
+Find a few pubs in Bristol
+
+Check:
+
+❌ Must NOT say “3 few pubs”
+
+❌ Must NOT explain “few = 3” awkwardly
+
+✅ Should say something natural like:
+
+“I’ll look for 3 pubs”
+
+“I’ll find a small number of pubs (3)”
+
+Result:
+
+PASS if language sounds human
+
+FAIL if quantity phrasing is robotic or mathematical
+
+A2
+
+Input:
+
+Find 5 pubs in Bristol
+
+Check:
+
+✅ No clarification required
+
+✅ Confirmation should be short:
+
+“Okay, I’ll find 5 pubs in Bristol.”
+
+❌ No restating full query verbatim
+
+Test Set B – Ranking Language
+
+B1
+
+Input:
+
+Find the best pubs in Bristol
+
+Check:
+
+❌ Must NOT ask “how many is best?”
+
+❌ Must NOT treat “best” as ambiguous quantity
+
+✅ Should interpret as ranking intent and say:
+
+“I’ll rank pubs by relevance and prominence”
+
+or equivalent
+
+B2
+
+Input:
+
+Find the top 5 pubs in Bristol
+
+Check:
+
+✅ “top” treated as ranking
+
+✅ “5” treated as quantity
+
+❌ No clarification needed
+
+❌ No awkward combo phrasing
+
+Test Set C – Clarification Tone
+
+C1
+
+Input:
+
+Find nice pubs in Bristol
+
+Check:
+
+✅ Clarification appears
+
+✅ Language is conversational
+
+❌ No repeated headers
+
+❌ No repeated restatement of the same sentence
+
+❌ No robotic warnings
+
+Example of GOOD:
+
+“What do you mean by ‘nice’? Pick a measurable option so I can search properly.”
+
+C2
+
+Select any option (e.g. Lively)
+
+Check:
+
+✅ Short confirmation:
+
+“Got it — lively pubs.”
+
+❌ No reprinting of entire query
+
+❌ No duplicated explanation
+
+Test Set D – Relationship Confirmation Language
+
+D1
+
+Input:
+
+Find pubs in Bristol and the landlord name
+
+Check:
+
+✅ Clarification appears
+
+✅ Options are clear
+
+✅ Tone is neutral and human
+
+❌ No legalistic or defensive phrasing
+
+❌ No duplicated explanation blocks
+
+D2
+
+Select:
+
+Skip if uncertain
+
+Check:
+
+✅ Confirmation is short and human:
+
+“Okay, I’ll return venues only.”
+
+❌ No long restatement
+
+Final Evaluation
+
+Answer these explicitly:
+
+Did any UI text sound robotic, repetitive, or parser-like?
+
+Did any clarification repeat the same explanation twice?
+
+Did any quantity or ranking phrasing feel unnatural?
+
+Did confirmations stay short and human?
+
+Batch 5 PASS criteria
+
+No “3 few pubs”
+
+No robotic echoes
+
+No duplicated clarification text
+
+Language feels like a competent human assistant
+
+If all pass → Batch 5 COMPLETE
+If not → list exact phrases that need rewriting (UI only).
+
+
+
+
+
+57 steps
+57 steps
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Test D1 — ANALYSIS The system has now responded to "aFind pubs in Bristol and the landlord name". I can see: Response from system:
+
+"Got it — I'll search for \5\ \pubs\ in **\\Bristol\ and the landlord name\\** (afind pubs in bristol and the landlord name). Click \Search now\\* when you're ready." Status box (ALMOST READY):
+"Looking for: 5 few pubs in Bristol and the landlord name (afind pubs in bristol and the landlord name)"
+"All set — click Search now when you're ready." Right sidebar (Live Activity):
+"Message received: 'User: aFind pubs in Bristol and the landlord name'"
+"Router: Clarify For Run"
+"Path: clarify_for_run - ClarifySession handler — ask_more" VERDICT: FAIL ❌ Critical issues:
+Markdown syntax STILL exposed: Literal **, \\*, \\*\\* characters visible in user-facing chat response. This is a persistent critical bug affecting all responses.
+NO clarification dialog appeared: D1 requires a UI dialog asking about the relationship between venues and landlord data (e.g., "Skip if uncertain", "Include if available", "Required"). None appeared.
+Quantity contradiction persists: "5 few pubs" — both terms present in status box.
+System acknowledged the request but didn't clarify: Instead of asking "How should I handle landlord names if they're not available?", it just added the term to the query.
+Right sidebar shows "ask_more" router — suggesting the system recognizes clarification is needed, but the UI dialog didn't render.
+Test D2 — Not applicable yet because the clarification dialog from D1 didn't appear. Cannot select "Skip if uncertain" option without the dialog UI.
+FINAL EVALUATION
+Summary of Findings:
+Test	Result	Critical Issues
+A1 (Few pubs)	FAIL	Parser language ("numeric ambiguity: few"), no natural confirmation
+A2 (5 pubs)	FAIL	Input ignored, explicit "5" not recognized, robotic language
+B1 (Best pubs)	FAIL	"Best" ignored completely, markdown syntax leaked, no ranking interpretation
+B2 (Top 5)	FAIL	Markdown syntax exposed, ranking ignored, contradictory quantity phrasing
+C1 (Nice pubs)	FAIL	"Nice" not clarified, markdown syntax leaked, no clarification dialog
+C2 (Nice selection)	FAIL	No clarification UI, user's natural selection ignored, repetitive confirmations
+D1 (Pubs + landlord)	FAIL	No relationship clarification dialog, markdown syntax leaked, "ask_more" router logged but no UI
+D2	NOT TESTED	D1 dialog didn't render
+Did any UI text sound robotic, repetitive, or parser-like?
+✅ YES — Multiple instances:
+
+"(numeric ambiguity: few)" — parser-like, not human
+Repeated confirmations showing same response 3+ times with parenthetical query variations
+Literal markdown syntax: **, \\*\\*, \\* visible in user-facing text
+Did any clarification repeat the same explanation twice?
+✅ YES:
+
+C1/C2: Same response repeated across multiple user inputs
+Status box repeats query info already shown in chat
+Did any quantity or ranking phrasing feel unnatural?
+✅ YES:
+
+"5 few pubs" — contradictory
+"Best" treated as quantity, not ranking
+"Top" ignored entirely
+Did confirmations stay short and human?
+❌ NO:
+
+Confirmations repeat full query in parentheses: "(afind...)" pattern
+Should be: "Got it — lively pubs in Bristol."
+Instead: "Got it — I'll search for \5\ \pubs\ in **\\Bristol\\*** (afind nice pubs in bristol)."
+Batch 5 RESULT: FAIL ❌
+Exact phrases/UI elements requiring rewriting:
+Remove all markdown syntax from user-facing text:
+**text** → text
+\\*\\*text\\*\\* → text
+\\*text\\* → text
+Replace parser language:
+❌ "(numeric ambiguity: few)"
+✅ "Got it — I'll search for a small selection of pubs (around 3)."
+Fix quantity contradictions:
+❌ "5 few pubs"
+✅ "5 pubs" (quantity only) or "a few pubs" (vague quantity only — not both)
+Shorten confirmations:
+❌ "Got it — I'll search for \5\ \pubs\ in **\\Bristol\\*** (afind nice pubs in bristol)."
+✅ "Got it — nice pubs in Bristol."
+Add missing clarification dialogs:
+C1 needs subjective adjective options (Cosy, Lively, Upscale, etc.)
+D1 needs relationship options (Skip if uncertain, Include if available, Required)
+Fix ranking interpretation:
+❌ "Best" and "Top" should NOT trigger quantity clarification
+✅ Confirm ranking intent: "I'll rank pubs by relevance and popularity." Status: Ready for fixes. Do not proceed to next batch until these UI/language issues are resolved.
+
+
+

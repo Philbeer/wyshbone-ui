@@ -1,0 +1,71 @@
+You are Wyshbone UI. When a run starts, the 
+Supervisor emits an artefact event of type 
+intent_narrative early in the run (before 
+search begins). This should be rendered as 
+a card in the chat immediately after the 
+user's message bubble.
+
+The intent_narrative artefact payload contains:
+- entity_description
+- entity_exclusions[]
+- commercial_context
+- key_discriminator
+- findability (easy|moderate|hard|very_hard)
+- scarcity_expectation
+- suggested_approaches[]
+- clarification_needed
+- clarification_question
+
+1. First report: how are artefact events 
+   currently surfaced in the SSE stream to 
+   the chat component? Is there an 
+   artefact_created event type in the stream? 
+   Paste the relevant handler code.
+
+2. Then implement:
+
+   When an artefact event with 
+   artefactType === "intent_narrative" is 
+   received in the SSE stream, render this 
+   card inline in the chat ABOVE the 
+   searching/planning bubble:
+
+   ┌─────────────────────────────────────┐
+   │ 🔍 Here's what I understood         │
+   │                                     │
+   │ Looking for:                        │
+   │   {entity_description}              │
+   │                                     │
+   │ Not:                                │
+   │   • {exclusion 1}                   │
+   │   • {exclusion 2}                   │
+   │                                     │
+   │ Why you likely want this:           │
+   │   {commercial_context}              │
+   │                                     │
+   │ How findable: {findability}         │
+   │ Availability: {scarcity_expectation}│
+   │                                     │
+   │ My approach:                        │
+   │   1. {suggested_approaches[0]}      │
+   │   2. {suggested_approaches[1]}      │
+   └─────────────────────────────────────┘
+
+   Style: light blue/grey border, distinct 
+   from result bubbles, small text, 
+   collapsible after run completes.
+
+   If clarification_needed is true, show 
+   the clarification_question prominently 
+   at the top with Yes/No or text input 
+   to answer before proceeding.
+
+3. If findability is "very_hard" and 
+   clarification_needed is true, show the 
+   card but PAUSE the run and wait for 
+   user confirmation before the search 
+   begins. Add a "Looks right, go ahead" 
+   button and a "Let me clarify" button.
+
+Report what you find about artefact events 
+in the SSE stream before making any changes.

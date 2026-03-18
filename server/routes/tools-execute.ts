@@ -17,6 +17,7 @@ import express, { type Request, type Response } from 'express';
 import { executeAction, type ActionResult } from '../lib/actions';
 import type { IStorage } from '../storage';
 import { logRunToTower, isTowerLoggingEnabled, type TowerRunLog } from '../lib/towerClient';
+import { guardRoute } from '../lib/assertNoExecutionInUI.js';
 
 export const toolsExecuteRouter = express.Router();
 
@@ -57,131 +58,7 @@ interface ToolExecuteRequest {
  * }
  * ```
  */
-toolsExecuteRouter.post('/api/tools/execute', express.json(), async (req: Request, res: Response) => {
-  const startTime = Date.now();
-  let runId: string | undefined;
-
-  try {
-    const { tool, params = {}, userId, sessionId, conversationId } = req.body as ToolExecuteRequest;
-
-    // Validate required fields
-    if (!tool) {
-      return res.status(400).json({
-        ok: false,
-        error: 'Missing required field: tool'
-      });
-    }
-
-    // Generate runId for tracking
-    runId = `tool_${tool}_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-
-    // Get storage and user info from request
-    const storage = (req as any).storage as IStorage | undefined;
-    const user = (req as any).user;
-    const userEmail = user?.email || 'unknown@wyshbone.ai';
-
-    console.log(`🔧 Tool execution request: ${tool} (${runId})`, {
-      userId,
-      sessionId,
-      params: Object.keys(params).length > 0 ? Object.keys(params) : '(no params)'
-    });
-
-    // Execute the tool via unified action executor
-    const result: ActionResult = await executeAction({
-      action: tool,
-      params,
-      userId,
-      sessionId,
-      conversationId,
-      storage
-    });
-
-    const endTime = Date.now();
-    const durationMs = endTime - startTime;
-
-    // Log result
-    if (result.ok) {
-      console.log(`✅ Tool execution succeeded: ${tool} (${durationMs}ms)`);
-    } else {
-      console.log(`❌ Tool execution failed: ${tool} - ${result.error} (${durationMs}ms)`);
-    }
-
-    // Log to Tower for analytics (non-blocking)
-    if (userId && isTowerLoggingEnabled()) {
-      const towerLog: TowerRunLog = {
-        runId,
-        conversationId: conversationId || sessionId || 'standalone',
-        userId,
-        userEmail,
-        status: result.ok ? 'success' : 'error',
-        source: 'live_user',
-        request: {
-          inputText: `Tool: ${tool} with params: ${JSON.stringify(params)}`
-        },
-        response: result.ok ? {
-          outputText: result.note || JSON.stringify(result.data)
-        } : undefined,
-        toolCalls: [{
-          name: tool,
-          args: params,
-          result: result.ok ? result.data : undefined,
-          error: result.ok ? undefined : result.error
-        }],
-        error: result.ok ? undefined : result.error,
-        startedAt: startTime,
-        completedAt: endTime,
-        durationMs,
-        mode: 'standard'
-      };
-
-      logRunToTower(towerLog).catch(err => {
-        console.warn(`⚠️ Tower logging failed for ${runId}:`, err.message);
-      });
-    }
-
-    // Return result
-    // Always return 200 even if tool fails - the ok field indicates success/failure
-    return res.status(200).json(result);
-
-  } catch (error: any) {
-    const endTime = Date.now();
-    const durationMs = endTime - startTime;
-
-    console.error('❌ Tool execution error:', error);
-
-    // Log error to Tower (non-blocking)
-    if (runId && req.body.userId && isTowerLoggingEnabled()) {
-      const user = (req as any).user;
-      const userEmail = user?.email || 'unknown@wyshbone.ai';
-
-      const towerLog: TowerRunLog = {
-        runId,
-        conversationId: req.body.conversationId || req.body.sessionId || 'standalone',
-        userId: req.body.userId,
-        userEmail,
-        status: 'error',
-        source: 'live_user',
-        request: {
-          inputText: `Tool: ${req.body.tool} with params: ${JSON.stringify(req.body.params || {})}`
-        },
-        error: error.message || 'Internal server error',
-        startedAt: startTime,
-        completedAt: endTime,
-        durationMs,
-        mode: 'standard'
-      };
-
-      logRunToTower(towerLog).catch(err => {
-        console.warn(`⚠️ Tower logging failed for ${runId}:`, err.message);
-      });
-    }
-
-    return res.status(500).json({
-      ok: false,
-      error: error.message || 'Internal server error during tool execution'
-    });
-  }
-});
+toolsExecuteRouter.post('/api/tools/execute', express.json(), guardRoute('tools_execute'));
 
 /**
  * GET /api/tools/list

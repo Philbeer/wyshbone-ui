@@ -1,0 +1,59 @@
+Execution mode: Sequential
+
+Goal
+Make the chat UI truthful for hard-evidence runs by showing verified delivered results as the primary truth, not raw candidate/discovery results.
+
+Context
+
+The UI audit found that the chat bubble currently mixes multiple truth layers:
+
+- Path A: if delivery_summary exists, the UI can render delivered_exact and delivered_closest
+- Path B: if delivery_summary is missing or not yet available, the UI synthesises from leads_list artefacts and treats all candidates as delivered
+- RunResultBubble then renders both matches and candidates in the same main result bubble
+- The narrative count uses exact + closest, so users can see “I found 5” even when backend truth is 3 verified results
+
+This causes hard-evidence queries to look misleading.
+
+Implement the minimal truth fix now. Do not do a broad redesign.
+
+Required changes
+
+1. In RunResultBubble.tsx:
+   - make the primary “Results” section show verified matches only when verification data exists
+   - move unverified / candidate results into a collapsed section:
+     “Other candidates (not verified)”
+   - keep that section hidden by default
+
+2. In the summary narrative / header count:
+   - when verification data exists, use verified match count for the main “I found N ...” line
+   - do not use exact + closest as the primary truth count for hard-evidence style runs
+
+3. In chat.tsx fallback synthesis path:
+   - harden the leads_list fallback
+   - when leadVerifications or semanticJudgements exist, only verified leads should populate delivered_exact
+   - non-verified leads should go to delivered_closest, never mixed into primary delivered truth
+
+4. In UserResultsView.tsx:
+   - apply the same verified-first separation so the full results panel matches the chat bubble
+
+5. Preserve evidence visibility:
+   - verified results should still show evidence snippet and source URL if available
+
+Deliverables
+
+1. Code changes
+2. A short markdown file named:
+   UI_RESULTS_TRUTH_FIX.md
+
+That file should explain:
+- previous misleading behaviour
+- what changed
+- how verified results are now prioritised
+- how unverified candidates are now separated
+
+Rules
+
+- Do not redesign the whole results system
+- Do not change backend contracts
+- Make the smallest clean production-grade fix that makes the UI truthful
+- Keep the current styling patterns where possible

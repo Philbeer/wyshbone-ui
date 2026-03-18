@@ -165,32 +165,43 @@ export function UserProvider({ children }: { children: ReactNode }) {
       }
       
       // Priority 4: No auth found - auto-create a unique demo user
+      // Retry with backoff because the backend may still be starting up when Vite is ready
       console.log("🎭 No authentication found, creating demo user...");
-      try {
-        const response = await fetch(buildApiUrl("/api/auth/demo"), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" }
-        });
-        
-        if (response.ok) {
-          const data = await response.json();
-          const demoUser = {
-            id: data.user.id,
-            email: data.user.email,
-            name: data.user.name
-          };
-          
-          // Store demo session ID for later transfer on signup
-          localStorage.setItem("wyshbone_sid", data.sessionId);
-          localStorage.setItem("wyshbone_user", JSON.stringify(demoUser));
-          
-          console.log(`✅ Created demo user: ${demoUser.email}`);
-          setUserInternal(demoUser);
-        } else {
-          console.error("Failed to create demo user, falling back to static demo");
+      const delays = [0, 800, 1600, 3000, 5000];
+      let demoCreated = false;
+      for (let attempt = 0; attempt < delays.length && !demoCreated; attempt++) {
+        if (delays[attempt] > 0) {
+          await new Promise(resolve => setTimeout(resolve, delays[attempt]));
         }
-      } catch (error) {
-        console.error("Demo user creation error:", error);
+        try {
+          const response = await fetch(buildApiUrl("/api/auth/demo"), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" }
+          });
+          
+          if (response.ok) {
+            const data = await response.json();
+            const demoUser = {
+              id: data.user.id,
+              email: data.user.email,
+              name: data.user.name
+            };
+            
+            localStorage.setItem("wyshbone_sid", data.sessionId);
+            localStorage.setItem("wyshbone_user", JSON.stringify(demoUser));
+            
+            console.log(`✅ Created demo user: ${demoUser.email}`);
+            setUserInternal(demoUser);
+            demoCreated = true;
+          } else {
+            console.warn(`Demo user creation attempt ${attempt + 1} failed (HTTP ${response.status})`);
+          }
+        } catch (error) {
+          console.warn(`Demo user creation attempt ${attempt + 1} failed:`, error);
+        }
+      }
+      if (!demoCreated) {
+        console.error("Demo user creation failed after all retries");
       }
       
       setIsValidatingSession(false);

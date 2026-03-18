@@ -1,0 +1,45 @@
+UI REPO TASK: preserve the original user request in chat when a clarification answer is given.
+
+Problem
+In a clarify flow, after the user answers the clarification question, the chat UI appears to replace the original user request with the clarification answer text.
+
+Example:
+Original request:
+"find gyms in London that opened in the last 6 months"
+
+Clarification answer:
+"Venues with first Google review within the specified window"
+
+Current bad behaviour:
+The clarification answer is shown as if it is the new main user request, which makes it look like the system asked twice or restarted the request.
+
+Goal
+Keep the original user request visible and treat the clarification answer as a follow-up reply within the same run/thread.
+
+Required behaviour
+- Do NOT replace the original top-level user message bubble
+- Do NOT relabel the clarification answer as the new request title/goal in chat
+- Keep this sequence visible in the chat:
+  1. original user request
+  2. assistant clarification question
+  3. user clarification answer
+  4. final results
+
+UI rules
+- The clarification answer should render as a normal follow-up user bubble, not as a replacement for the original request
+- The original request remains the anchor request for the run
+- Result cards/results summary should stay associated with the original request, not the clarification answer text
+
+Implementation target
+Find the chat state/update logic that applies the clarification reply to the current run/thread.
+It is currently overwriting or reusing the original visible user message slot/title.
+Change it so the clarification reply is appended as a new user bubble instead.
+
+Success result
+For this flow:
+1. User: "find gyms in London that opened in the last 6 months"
+2. Assistant asks clarification
+3. User: "Venues with first Google review within the specified window"
+4. Results appear
+
+The chat should still show the original request at the top, not replace it with the clarification answer.

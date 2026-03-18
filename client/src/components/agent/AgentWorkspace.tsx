@@ -1,28 +1,81 @@
-/**
- * AgentWorkspace - The default right panel view showing agent activity
- * 
- * Displays:
- * - Activity summary (today's agent work)
- * - Recent discoveries (leads found, opportunities)
- * - Upcoming tasks
- * - Quick access to CRM tools
- */
-
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { 
   TrendingUp, 
   Zap,
   Target,
   Mail,
   Calendar,
-  Play
+  Play,
+  FileText,
+  Loader2,
+  Copy,
+  Check,
+  X,
+  ChevronDown,
+  ChevronRight,
+  BookOpen,
+  Wrench
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { LiveActivityPanel } from "@/components/live-activity-panel";
 import { useCurrentRequest } from "@/contexts/CurrentRequestContext";
+import { buildApiUrl, addDevAuthParams } from "@/lib/queryClient";
+import { isDemoMode } from "@/hooks/useDemoMode";
+import type { PolicySnapshot } from "@/components/results/RunResultBubble";
+import { DEFAULT_MAX_REPLANS } from "@/components/results/RunResultBubble";
+import InjectionMouldingDemo from "@/components/demos/InjectionMouldingDemo";
+import type { MouldingScenario, FactoryPayload } from "@/components/demos/InjectionMouldingDemo";
+
+const IS_DEV = import.meta.env.DEV;
+
+function extractPolicySnapshot(rows: any[]): PolicySnapshot | null {
+  let snapshot: PolicySnapshot | null = null;
+  let fallbackRules: string[] | null = null;
+  for (const row of rows) {
+    if ((row.type === 'policy_applications' || row.type === 'policy_application_snapshot') && !snapshot) {
+      let p = row.payload_json;
+      if (typeof p === 'string') { try { p = JSON.parse(p); } catch { p = null; } }
+      if (p && typeof p === 'object') {
+        const paj = (p as any).policies_applied_json ?? p;
+        if (paj && typeof paj === 'object' && typeof paj.why_short === 'string') {
+          snapshot = {
+            why_short: paj.why_short,
+            applied_policies: Array.isArray(paj.applied_policies) ? paj.applied_policies : undefined,
+          };
+        }
+      }
+    }
+    if (row.type === 'plan_update' && !fallbackRules) {
+      let p = row.payload_json;
+      if (typeof p === 'string') { try { p = JSON.parse(p); } catch { p = null; } }
+      if (p && typeof p === 'object' && Array.isArray((p as any).rules_applied)) {
+        fallbackRules = (p as any).rules_applied;
+      }
+    }
+  }
+  if (!snapshot && fallbackRules && fallbackRules.length > 0) {
+    snapshot = {
+      why_short: fallbackRules.slice(0, 3).join('\n'),
+      applied_policies: fallbackRules.map(r => ({ rule_text: r, source: 'plan' })),
+    };
+  }
+  return snapshot;
+}
 
 interface AgentWorkspaceProps {
   className?: string;
@@ -35,6 +88,14 @@ export function AgentWorkspace({ className }: AgentWorkspaceProps) {
   const [proofLoading, setProofLoading] = useState(false);
   const [proofV2Loading, setProofV2Loading] = useState(false);
   const [proofV2Ids, setProofV2Ids] = useState<{ crid: string; runId: string } | null>(null);
+
+  const [explainOpen, setExplainOpen] = useState(false);
+  const [explainLoading, setExplainLoading] = useState(false);
+  const [explainError, setExplainError] = useState<string | null>(null);
+  const [explainReport, setExplainReport] = useState<string | null>(null);
+  const [explainRunId, setExplainRunId] = useState<string | null>(null);
+  const [explainPolicySnapshot, setExplainPolicySnapshot] = useState<PolicySnapshot | null>(null);
+  const [copied, setCopied] = useState(false);
 
   async function handleRunSupervisorDemo() {
     setDemoLoading(true);
@@ -113,7 +174,66 @@ export function AgentWorkspace({ className }: AgentWorkspaceProps) {
     }
   }
 
-  // Mock data - these would come from real API calls
+  const resolvedClientRequestId = pinnedClientRequestId ?? currentClientRequestId ?? lastCompletedClientRequestId;
+
+  const handleExplainRun = useCallback(async () => {
+    setExplainOpen(true);
+    setExplainLoading(true);
+    setExplainError(null);
+    setExplainReport(null);
+    setExplainRunId(null);
+    setExplainPolicySnapshot(null);
+    setCopied(false);
+
+    try {
+      const body: Record<string, string> = {};
+      if (resolvedClientRequestId) {
+        body.client_request_id = resolvedClientRequestId;
+      } else {
+        body.latest = "true";
+      }
+      const url = addDevAuthParams(buildApiUrl("/api/dev/explain-run"));
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || errData.message || `Server responded ${res.status}`);
+      }
+      const data = await res.json();
+      const runId = data.runId || null;
+      setExplainRunId(runId);
+      setExplainReport(data.report_markdown || "No report generated.");
+
+      if (runId) {
+        try {
+          const artefactUrl = addDevAuthParams(buildApiUrl(`/api/afr/artefacts?runId=${runId}`));
+          const artefactRes = await fetch(artefactUrl);
+          if (artefactRes.ok) {
+            const rows: any[] = await artefactRes.json();
+            const snapshot = extractPolicySnapshot(rows);
+            setExplainPolicySnapshot(snapshot);
+          }
+        } catch {
+        }
+      }
+    } catch (err: any) {
+      setExplainError(err.message || "Failed to generate explanation");
+    } finally {
+      setExplainLoading(false);
+    }
+  }, [resolvedClientRequestId]);
+
+  const handleCopy = useCallback(() => {
+    if (!explainReport) return;
+    navigator.clipboard.writeText(explainReport).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }, [explainReport]);
+
   const activitySummary = {
     leadsFound: 0,
     emailsSent: 0,
@@ -135,59 +255,106 @@ export function AgentWorkspace({ className }: AgentWorkspaceProps) {
               What your AI sales agent has been working on
             </p>
           </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleRunSupervisorDemo}
-              disabled={demoLoading}
-            >
-              <Play className="w-3 h-3 mr-1" />
-              {demoLoading ? "Starting…" : "Run Supervisor Demo"}
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleProofTowerLoop}
-              disabled={proofLoading}
-              className="border-purple-300 dark:border-purple-700 text-purple-700 dark:text-purple-300"
-            >
-              <Play className="w-3 h-3 mr-1" />
-              {proofLoading ? "Starting…" : "Proof: Tower Loop"}
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleProofTowerLoopV2}
-              disabled={proofV2Loading}
-              className="border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-300"
-            >
-              <Play className="w-3 h-3 mr-1" />
-              {proofV2Loading ? "Starting…" : "Proof: Tower Loop v2 (REAL)"}
-            </Button>
+          <div className="flex items-center gap-2">
             <Badge variant="secondary" className="text-xs">
               <Zap className="w-3 h-3 mr-1" />
               24/7 Active
             </Badge>
           </div>
         </div>
-        {demoStatus && (
-          <p className="text-xs text-muted-foreground mt-2">{demoStatus}</p>
-        )}
-        {proofV2Ids && (
-          <div className="mx-6 mt-2 text-[10px] font-mono bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded px-2 py-1">
-            <span className="text-emerald-700 dark:text-emerald-300 font-semibold">v2 IDs</span>
-            {" "}crid=<span className="select-all">{proofV2Ids.crid}</span>
-            {" "}runId=<span className="select-all">{proofV2Ids.runId}</span>
-          </div>
-        )}
+        <Collapsible defaultOpen>
+          <CollapsibleTrigger asChild>
+            <button className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors mt-2 group/tools">
+              <Wrench className="w-3 h-3" />
+              <span>Tools</span>
+              <ChevronDown className="w-3 h-3 transition-transform group-data-[state=open]/tools:rotate-180" />
+            </button>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <div className="flex items-center gap-2 flex-wrap pt-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleExplainRun}
+                disabled={explainLoading}
+                title="Generate a plain-English explanation of the last run"
+                className="border-2 border-amber-400 dark:border-amber-600 text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950 disabled:opacity-60"
+              >
+                {explainLoading ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <FileText className="w-3 h-3 mr-1" />}
+                {explainLoading ? "Explaining…" : "Explain last run"}
+              </Button>
+              {IS_DEV && isDemoMode() && (
+                <>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleRunSupervisorDemo}
+                    disabled={demoLoading}
+                  >
+                    <Play className="w-3 h-3 mr-1" />
+                    {demoLoading ? "Starting…" : "Run Supervisor Demo"}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleProofTowerLoop}
+                    disabled={proofLoading}
+                    className="border-purple-300 dark:border-purple-700 text-purple-700 dark:text-purple-300"
+                  >
+                    <Play className="w-3 h-3 mr-1" />
+                    {proofLoading ? "Starting…" : "Proof: Tower Loop"}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleProofTowerLoopV2}
+                    disabled={proofV2Loading}
+                    className="border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-300"
+                  >
+                    <Play className="w-3 h-3 mr-1" />
+                    {proofV2Loading ? "Starting…" : "Proof: Tower Loop v2 (REAL)"}
+                  </Button>
+                </>
+              )}
+            </div>
+            {IS_DEV && isDemoMode() && demoStatus && (
+              <p className="text-xs text-muted-foreground mt-2">{demoStatus}</p>
+            )}
+            {IS_DEV && isDemoMode() && proofV2Ids && (
+              <div className="mt-2 text-[10px] font-mono bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded px-2 py-1">
+                <span className="text-emerald-700 dark:text-emerald-300 font-semibold">v2 IDs</span>
+                {" "}crid=<span className="select-all">{proofV2Ids.crid}</span>
+                {" "}runId=<span className="select-all">{proofV2Ids.runId}</span>
+              </div>
+            )}
+            {IS_DEV && isDemoMode() && (
+              <div className="mt-3">
+                <InjectionMouldingDemo onRun={(scenario, factory) => {
+                  window.dispatchEvent(new CustomEvent("wyshbone-prefill-chat", {
+                    detail: {
+                      message: "run the injection moulding demo",
+                      metadata: {
+                        demo: "injection_moulding",
+                        scenario,
+                        constraints: {
+                          max_scrap_percent: Number(factory.constraints.max_scrap_percent),
+                        },
+                        factory,
+                      },
+                      autoSend: true,
+                    },
+                  }));
+                }} />
+              </div>
+            )}
+          </CollapsibleContent>
+        </Collapsible>
       </div>
 
       {/* Live Activity Panel - fills available height, scrolls internally */}
       <div className="flex-1 min-h-0 flex flex-col p-6 pb-3">
         {(() => {
-          const resolvedId = pinnedClientRequestId ?? currentClientRequestId ?? lastCompletedClientRequestId;
-          return <LiveActivityPanel key={resolvedId ?? 'none'} activeClientRequestId={resolvedId} />;
+          return <LiveActivityPanel key={resolvedClientRequestId ?? 'none'} activeClientRequestId={resolvedClientRequestId} />;
         })()}
       </div>
 
@@ -260,10 +427,219 @@ export function AgentWorkspace({ className }: AgentWorkspaceProps) {
             </Card>
           </div>
       </div>
+
+      {/* Explain Run Modal */}
+      <ExplainRunModal
+        open={explainOpen}
+        onOpenChange={setExplainOpen}
+        loading={explainLoading}
+        error={explainError}
+        report={explainReport}
+        runId={explainRunId}
+        onCopy={handleCopy}
+        copied={copied}
+        policySnapshot={explainPolicySnapshot}
+      />
     </div>
   );
 }
 
+function ExplainRunModal({
+  open,
+  onOpenChange,
+  loading,
+  error,
+  report,
+  runId,
+  onCopy,
+  copied,
+  policySnapshot,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  loading: boolean;
+  error: string | null;
+  report: string | null;
+  runId: string | null;
+  onCopy: () => void;
+  copied: boolean;
+  policySnapshot?: PolicySnapshot | null;
+}) {
+  const [detailsOpen, setDetailsOpen] = useState(false);
+
+  const policyLines = policySnapshot?.why_short
+    ? policySnapshot.why_short.split('\n').map(l => l.trim()).filter(Boolean).slice(0, 3)
+    : [];
+  const showMaxReplans =
+    policySnapshot?.max_replans != null && policySnapshot.max_replans !== DEFAULT_MAX_REPLANS;
+  const hasDetails =
+    (Array.isArray(policySnapshot?.applied_policies) && policySnapshot!.applied_policies!.length > 0) ||
+    !!policySnapshot?.max_replans_evidence;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <FileText className="w-4 h-4" />
+            Run Explanation
+          </DialogTitle>
+          <DialogDescription>
+            {runId ? (
+              <span className="font-mono text-[10px]">runId: {runId}</span>
+            ) : (
+              "Generating explanation..."
+            )}
+          </DialogDescription>
+        </DialogHeader>
+
+        {loading && (
+          <div className="flex flex-col items-center justify-center py-12 gap-3">
+            <Loader2 className="w-8 h-8 animate-spin text-amber-500" />
+            <p className="text-sm text-muted-foreground">Analysing run data and generating report...</p>
+          </div>
+        )}
+
+        {error && (
+          <div className="rounded border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 p-4">
+            <div className="flex items-start gap-2">
+              <X className="w-4 h-4 text-red-500 mt-0.5 shrink-0" />
+              <div>
+                <p className="text-sm font-medium text-red-700 dark:text-red-300">Failed to generate explanation</p>
+                <p className="text-xs text-red-600 dark:text-red-400 mt-1">{error}</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {report && !loading && (
+          <div className="space-y-4">
+            <div className="flex justify-end">
+              <Button variant="outline" size="sm" onClick={onCopy} className="gap-1.5">
+                {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                {copied ? "Copied" : "Copy"}
+              </Button>
+            </div>
+            <MarkdownReport content={report} />
+          </div>
+        )}
+
+        {(policyLines.length > 0 || showMaxReplans) && !loading && (
+          <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/30 p-3 space-y-1.5">
+            <h4 className="text-xs font-semibold text-amber-700 dark:text-amber-300 uppercase tracking-wide flex items-center gap-1.5">
+              <BookOpen className="h-3 w-3" />
+              Applied policy
+            </h4>
+            <div className="space-y-0.5">
+              {policyLines.map((line, i) => (
+                <p key={i} className="text-xs text-foreground/80 leading-snug">{line}</p>
+              ))}
+              {showMaxReplans && (
+                <p className="text-xs text-foreground/80 leading-snug">
+                  Replan ceiling: {policySnapshot!.max_replans}
+                </p>
+              )}
+            </div>
+            {hasDetails && (
+              <button
+                className="inline-flex items-center gap-0.5 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+                onClick={() => setDetailsOpen(!detailsOpen)}
+              >
+                {detailsOpen ? <ChevronDown className="h-2.5 w-2.5" /> : <ChevronRight className="h-2.5 w-2.5" />}
+                Details
+              </button>
+            )}
+            {detailsOpen && (
+              <div className="ml-3 space-y-1 border-l border-amber-300 dark:border-amber-700 pl-2">
+                {policySnapshot?.applied_policies?.map((ap, i) => (
+                  <div key={i} className="text-[11px] text-muted-foreground leading-snug">
+                    {ap.rule_text || ap.policy_id || `Policy ${i + 1}`}
+                    {ap.source && <span className="ml-1 opacity-60">({ap.source})</span>}
+                  </div>
+                ))}
+                {policySnapshot?.max_replans_evidence && (
+                  <div className="text-[11px] text-muted-foreground leading-snug">
+                    {policySnapshot.max_replans_evidence}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function MarkdownReport({ content }: { content: string }) {
+  const lines = content.split('\n');
+  const elements: React.ReactNode[] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trimStart();
+
+    if (trimmed.startsWith('## ')) {
+      elements.push(
+        <h2 key={i} className="text-base font-semibold text-foreground mt-4 mb-2 first:mt-0">
+          {trimmed.slice(3)}
+        </h2>
+      );
+    } else if (trimmed.startsWith('# ')) {
+      elements.push(
+        <h1 key={i} className="text-lg font-bold text-foreground mt-4 mb-2 first:mt-0">
+          {trimmed.slice(2)}
+        </h1>
+      );
+    } else if (/^\d+\.\s/.test(trimmed)) {
+      elements.push(
+        <div key={i} className="flex items-start gap-2 ml-1 my-0.5">
+          <span className="text-xs font-mono text-muted-foreground mt-0.5 shrink-0 w-5 text-right">{trimmed.match(/^(\d+)\./)?.[1]}.</span>
+          <span className="text-sm text-foreground/90">{renderInlineMarkdown(trimmed.replace(/^\d+\.\s*/, ''))}</span>
+        </div>
+      );
+    } else if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
+      elements.push(
+        <div key={i} className="flex items-start gap-2 ml-2 my-0.5">
+          <span className="text-muted-foreground mt-1.5 shrink-0 w-1.5 h-1.5 rounded-full bg-current" />
+          <span className="text-sm text-foreground/90">{renderInlineMarkdown(trimmed.slice(2))}</span>
+        </div>
+      );
+    } else if (trimmed === '') {
+      elements.push(<div key={i} className="h-2" />);
+    } else {
+      elements.push(
+        <p key={i} className="text-sm text-foreground/90 my-0.5">{renderInlineMarkdown(trimmed)}</p>
+      );
+    }
+  }
+
+  return <div className="space-y-0">{elements}</div>;
+}
+
+function renderInlineMarkdown(text: string): React.ReactNode {
+  const parts: React.ReactNode[] = [];
+  const regex = /\*\*(.+?)\*\*|`(.+?)`/g;
+  let lastIndex = 0;
+  let match;
+
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(text.slice(lastIndex, match.index));
+    }
+    if (match[1]) {
+      parts.push(<strong key={match.index} className="font-semibold text-foreground">{match[1]}</strong>);
+    } else if (match[2]) {
+      parts.push(<code key={match.index} className="text-[11px] font-mono bg-muted px-1 py-0.5 rounded">{match[2]}</code>);
+    }
+    lastIndex = match.index + match[0].length;
+  }
+
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex));
+  }
+
+  return parts.length === 1 && typeof parts[0] === 'string' ? parts[0] : <>{parts}</>;
+}
+
 export default AgentWorkspace;
-
-

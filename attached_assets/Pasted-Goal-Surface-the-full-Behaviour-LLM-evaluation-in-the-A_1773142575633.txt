@@ -1,0 +1,192 @@
+Goal
+
+Surface the full Behaviour LLM evaluation in the AFR bulk export HTML so I can audit:
+
+1. what was sent to the Behaviour LLM
+2. what the LLM returned
+3. what field actually drove the final Behaviour pass/fail shown in the harness
+
+I want the AFR download to make this obvious for benchmark runs.
+
+Important:
+Do NOT change Tower.
+Do NOT change Supervisor.
+Do NOT change benchmark semantics.
+Do NOT change run lifecycle logic.
+This is only an observability / AFR export / traceability improvement for Behaviour evaluation.
+
+Files to inspect first
+
+- client/src/pages/dev/qa-test-runner.tsx
+- any AFR bulk export HTML generator in the UI repo
+- any qa_run_metrics persistence code
+- any code where Behaviour result is derived, stored, or overridden
+- any code handling fallback logic for Behaviour
+
+What to build
+
+PART 1 — Determine the true Behaviour source of truth
+
+Audit the current Behaviour pipeline and identify, for each benchmark row:
+
+- whether Behaviour is coming from the new LLM evaluator
+- or from fallback legacy logic
+- or from some mixed / override path
+
+Persist and expose a field like:
+
+- behaviour_source_of_truth = "llm" | "fallback_legacy" | "unknown"
+
+Also expose:
+- behaviour_eval_mode
+- behaviour_fallback_used (true/false)
+- fallback_reason if fallback was used
+
+This is critical because I need to know whether the UI Behaviour result is really being dictated by the LLM call or not.
+
+PART 2 — Persist the exact Behaviour LLM input packet
+
+When the Behaviour LLM evaluator runs, persist the normalized input packet it receives.
+
+I want this packet available to AFR export in a readable form.
+
+Required fields to persist and export if available:
+
+- benchmark_test_id
+- original_query
+- expected_outcome_text
+- expected_behaviour_text
+- actual_run_state
+- clarified
+- clarify_question
+- clarify_answer
+- tower_result
+- delivered_count
+- delivered_entities
+- evidence_summary
+- behaviour_observed_summary
+
+This is the packet that was actually sent or prepared for the LLM judge.
+Do not dump the full AFR raw run.
+Use the compact normalized packet actually used by the evaluator.
+
+Persist it as something like:
+- behaviour_eval_packet
+
+PART 3 — Persist the exact Behaviour LLM response
+
+When the Behaviour LLM returns, persist:
+
+- parsed structured response
+- raw model response text if available
+- parse success / failure state
+
+Required parsed fields:
+
+- behaviour_result
+- behaviour_reason
+- expected_outcome_check
+- observed_outcome_check
+- key_failure_type
+- confidence
+
+Persist as:
+- behaviour_eval_response
+- behaviour_eval_response_raw
+- behaviour_eval_parse_ok
+
+PART 4 — Show all of this clearly in AFR export HTML
+
+For benchmark runs only, add four clearly visible sections near the top of each run summary.
+
+1. Benchmark Expectation
+Show:
+- Test ID
+- Original query
+- Expected outcome
+- Expected behaviour
+
+2. Behaviour Result
+Show:
+- Final Behaviour result shown in harness
+- Source of truth: llm / fallback_legacy / unknown
+- Eval mode
+- Fallback used? yes/no
+- Fallback reason if any
+
+3. Behaviour Evaluation Packet
+Show the actual packet contents in readable form:
+- actual run state
+- clarified
+- clarify question
+- clarify answer
+- tower result
+- delivered count
+- top entities
+- top evidence items
+- observed summary
+
+4. Behaviour LLM Response
+Show:
+- result
+- reason
+- expected outcome check
+- observed outcome check
+- key failure type
+- confidence
+- parse ok? yes/no
+
+Also provide expandable JSON blocks for:
+- full behaviour_eval_packet
+- full parsed behaviour_eval_response
+- raw behaviour_eval_response_raw if available
+
+PART 5 — Make the final Behaviour driver explicit
+
+The AFR must explicitly state something like:
+
+"Behaviour verdict shown in harness was driven by: LLM evaluator"
+or
+"Behaviour verdict shown in harness was driven by: fallback legacy logic"
+
+This must be visually obvious, not buried in JSON.
+
+PART 6 — Do not show empty fake sections
+
+If the run is not a benchmark run, or no Behaviour LLM packet exists, do not render empty panels.
+Render sections only when benchmark metadata exists.
+
+PART 7 — Add one small top-level summary line
+
+In the run summary / glance area for benchmark runs, add a compact line such as:
+
+Behaviour source: LLM
+Behaviour result: FAIL
+Why: Missing explicit relationship evidence
+
+or
+
+Behaviour source: Fallback legacy
+Behaviour result: PASS
+Why: Fallback count rule met
+
+This should let me understand the run in 5 seconds.
+
+Definition of done
+
+When I download AFR for a benchmark run, I can clearly see:
+
+- what packet was sent to the Behaviour evaluator
+- what the LLM returned
+- whether the final Behaviour result shown in the UI really came from that LLM
+- or whether fallback logic was used instead
+
+At the end, report:
+- which files changed
+- where the AFR sections were added
+- where the Behaviour packet is persisted
+- where the Behaviour LLM response is persisted
+- exactly how the final harness Behaviour verdict chooses between llm and fallback
+- one example of the rendered “Behaviour Result” section
+- one example of the rendered “Behaviour Evaluation Packet” section
+- one example of the rendered “Behaviour LLM Response” section

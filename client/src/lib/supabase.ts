@@ -60,7 +60,7 @@ export function getSupabaseClient(): SupabaseClient | null {
   const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
   if (!supabaseUrl || !supabaseAnonKey) {
-    console.debug('ℹ️ Supabase not configured – realtime Supervisor chat disabled (activity tracking uses AFR)');
+    console.warn('[Supabase] VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY not set — realtime Supervisor chat disabled. Delivery detection relies on polling and Activity Panel bridge.');
     return null;
   }
 
@@ -94,6 +94,23 @@ export function subscribeSupervisorMessages(
 
   console.log(`🔔 Subscribing to Supervisor messages for conversation: ${conversationId}`);
 
+  const handler = (payload: any) => {
+    const rawMessage = payload.new as any;
+
+    if (rawMessage.source !== 'supervisor') {
+      return;
+    }
+
+    console.log('🤖 Received Supervisor message (event=' + payload.eventType + '):', rawMessage);
+
+    const message: SupervisorMessage = {
+      ...rawMessage,
+      created_at: parseTimestamp(rawMessage.created_at),
+    };
+
+    onMessage(message);
+  };
+
   const channel = client
     .channel(`supervisor-messages-${conversationId}`)
     .on(
@@ -102,26 +119,19 @@ export function subscribeSupervisorMessages(
         event: 'INSERT',
         schema: 'public',
         table: 'messages',
-        filter: `conversation_id=eq.${conversationId}`, // Filter by conversation only
+        filter: `conversation_id=eq.${conversationId}`,
       },
-      (payload) => {
-        const rawMessage = payload.new as any;
-        
-        // Client-side filter: only process Supervisor messages
-        if (rawMessage.source !== 'supervisor') {
-          return; // Ignore non-Supervisor messages
-        }
-        
-        console.log('🤖 Received Supervisor message:', rawMessage);
-        
-        // Parse timestamp robustly (handles all possible formats)
-        const message: SupervisorMessage = {
-          ...rawMessage,
-          created_at: parseTimestamp(rawMessage.created_at),
-        };
-        
-        onMessage(message);
-      }
+      handler,
+    )
+    .on(
+      'postgres_changes',
+      {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'messages',
+        filter: `conversation_id=eq.${conversationId}`,
+      },
+      handler,
     )
     .subscribe((status) => {
       console.log(`📡 Realtime subscription status: ${status}`);

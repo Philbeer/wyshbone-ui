@@ -1,0 +1,108 @@
+Follow-up prompt to Replit (Part 2 hardening – delta only)
+
+You’ve implemented the CLARIFY_FOR_RUN path per the previous instructions.
+Now we need to lock in correctness and remove remaining trust-breaking edge cases without rewriting what’s already done.
+
+Confirmed problem
+
+CLARIFY_FOR_RUN can still:
+
+fall through to direct_response
+
+mis-handle short answers like “yes”
+
+or accidentally touch DB helpers via shared utilities
+
+Goal (delta only)
+
+Make clarification inescapable, deterministic, and DB-independent until the system is actually runnable.
+
+Non-negotiable invariants (do not reinterpret)
+
+While a clarification session is active:
+
+Every incoming user message MUST re-enter the router.
+
+direct_response is NOT allowed.
+
+Only valid outcomes are:
+
+CLARIFY_FOR_RUN (ask next question)
+
+RUN_SUPERVISOR (only if runnable)
+
+CHAT_INFO (only if the user clearly pivots)
+
+CLARIFY_FOR_RUN must never touch DB
+
+Audit and hard-guard against accidental calls to:
+
+buildContextWithFacts
+
+memory.ts SYSTEM_PROMPT injection
+
+run creation
+
+artefact persistence
+
+policy reads
+
+If needed, add an explicit runtime assertion that throws if a DB helper is invoked from CLARIFY_FOR_RUN.
+
+Clarification answers must be validated
+
+Short acknowledgements like “yes”, “ok”, “sure” are NOT sufficient to resolve a clarification unless explicitly requested.
+
+If the answer does not materially reduce ambiguity, remain in CLARIFY_FOR_RUN and ask a follow-up question.
+
+New-request detection during clarification
+
+If a user reply contains a fresh entity-finding intent (eg “find pubs in Leeds”), immediately:
+
+clear the old clarification session
+
+reroute from scratch via the normal decision tree
+
+Concrete fixes to apply
+
+Add a guard in the chat handler:
+
+if (clarificationSessionActive) { disable direct_response }
+
+Add a lightweight isMeaningfulClarificationAnswer() check:
+
+Reject empty, yes/no, or vague replies unless explicitly requested.
+
+Add one assertion or test that fails if DB helpers are called from CLARIFY_FOR_RUN.
+
+Ensure clarification replies always call the same router logic used for first messages.
+
+Tests to add (or confirm exist)
+
+“find organisations that work with local authorities in blackpool”
+→ CLARIFY_FOR_RUN (asks clarification)
+
+reply “yes”
+→ stays in CLARIFY_FOR_RUN (asks follow-up)
+
+reply with sufficient clarification
+→ transitions to RUN_SUPERVISOR
+
+DB down:
+→ CLARIFY_FOR_RUN still works
+→ RUN_SUPERVISOR gracefully falls back to CHAT_INFO
+
+reply with new request during clarification
+→ old session cleared, new routing applied
+
+Acceptance criteria
+
+Clarification can never silently collapse into chat.
+
+Clarification never fails due to DB.
+
+Clarification always progresses toward run or explicit pivot.
+
+No execution language appears before a real run exists.
+
+Apply this as a delta, not a rewrite.

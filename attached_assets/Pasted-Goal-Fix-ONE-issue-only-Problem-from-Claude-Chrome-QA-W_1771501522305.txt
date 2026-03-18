@@ -1,0 +1,110 @@
+Goal: Fix ONE issue only.
+
+Problem (from Claude Chrome QA):
+When two prompts are sent back-to-back in the SAME conversation thread, the backend persists delivery_summary correctly (artefacts exist, delivery_summary.status is correct), BUT the chat UI sometimes shows only a plain text assistant message (“I found 9 pubs…”) and does NOT render the structured UserResultsView for that run.
+
+Scope (strict):
+
+UI repo ONLY (Wyshbone-UI / Cockpit).
+
+Do NOT change Supervisor or Tower.
+
+Do NOT add any new server-side background workers, completion handlers, evaluators, or polling daemons.
+
+Do NOT change any demo/proof features in this task (separate task).
+
+Minimal, surgical fix. Keep existing flows working.
+
+Target behaviour:
+For every RUN-lane chat request that produces a delivery_summary artefact in Supabase, the chat must ALWAYS render the structured UserResultsView for that run, even when:
+
+Another message is sent quickly after completion, or
+
+Two runs overlap briefly, or
+
+The plain text “I found N pubs…” message arrives first.
+
+Investigation steps (read-only first, then patch):
+
+Reproduce:
+
+In one conversation, send:
+A) “Find 3 pubs in Arundel”
+Immediately followed by:
+B) “Find 3 pubs in Chichester”
+
+Observe: plain text appears, structured view missing.
+
+Confirm in Supabase that BOTH runs have delivery_summary artefacts.
+
+Identify why the structured message is not inserted or is being replaced:
+
+Search chat.tsx for any places that:
+
+Replace the entire messages array (setMessages([...]) instead of functional update),
+
+Clear or overwrite refs (runId/crid/taskId) shared across in-flight runs,
+
+De-duplicate messages by a non-unique key,
+
+Filter out messages that are deliverySummary-only (already partly fixed once; confirm no other filters),
+
+Drop deliverySummary insertion when an assistant text message exists.
+
+Patch strategy (must implement):
+A) Make delivery_summary insertion “idempotent per run_id”
+
+For each run_id, ensure exactly one structured message exists (id like ds-${runId}).
+
+If the message already exists, update it (do not append duplicates).
+
+If a plain text assistant message exists for the same run, keep it, but ALWAYS also show the structured message.
+
+B) Stop relying on single global refs for active run correlation in a way that breaks overlap
+
+Replace single supervisorRunIdRef / supervisorClientRequestIdRef usage with an in-flight map keyed by clientRequestId or runId:
+
+inFlightRuns: { [runId]: { crid, conversationId, createdAt, status } }
+
+Polling/render decisions must be based on the specific run being completed, not “whatever the last ref value is”.
+
+C) Ensure message updates do not get lost due to race conditions
+
+Convert any full-array replacements to functional updates (prev => next) where applicable.
+
+Where a refresh fetch replaces messages, merge in any existing ds-* messages rather than wiping them.
+
+Add minimal debug logging (DEV only) to confirm the fix:
+
+When delivery_summary is found: log runId + whether ds message was inserted/updated.
+
+When messages are replaced: log counts before/after and whether ds messages were preserved.
+
+Do not leave noisy logs in production builds.
+
+Acceptance tests (must pass):
+A) Back-to-back runs:
+
+Send Arundel then Chichester immediately.
+
+Both runs must render a UserResultsView (two structured blocks) within the chat.
+
+The structured blocks must correspond to the correct run outputs (no swap).
+
+The plain text assistant summaries may remain, but structured results must appear.
+
+B) Regression:
+
+Single run flow still renders structured results as before.
+
+STOP cases still render.
+
+No duplicate structured messages per run.
+
+Deliverables:
+
+Identify root cause in 1–2 sentences.
+
+Provide full file rewrites for ONLY the files changed.
+
+Confirm the acceptance tests above with a brief “how to verify” checklist.

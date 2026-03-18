@@ -1,0 +1,106 @@
+UI TASK: Two-state Results Bubble (Provisional → Final)
+
+Goal
+Make the results bubble truthful and live-updating while the agent is still working, then clearly final when the run is actually finished.
+
+Do not change backend logic.
+Do not fake progress.
+This is a UI/state-handling task only.
+
+What to build
+1) Add a two-state model to the results bubble
+
+The results bubble must have two explicit states:
+
+State A: PROVISIONAL (run still executing)
+
+Trigger condition:
+
+Results/leads are present
+
+BUT run has not reached terminal state (no Tower terminal verdict / no sequence_stopped)
+
+UI behaviour:
+
+Show the current list of candidates exactly as today
+
+Add a small inline spinner or “thinking” animation (brain icons OK)
+
+Add a clear label at the top of the bubble, eg:
+
+“Checking requirements… results may change”
+
+Each row should be implicitly provisional (no need to redesign rows yet)
+
+Important:
+
+This state must NOT imply completion
+
+This is allowed to show partial / unverified data
+
+State B: FINAL (run terminal)
+
+Trigger condition:
+
+Terminal signal received (Tower verdict OR sequence_stopped / completed)
+
+UI behaviour:
+
+Remove spinner / thinking animation
+
+Change header to:
+
+“Run complete”
+
+Apply final updates to the list:
+
+Remove any items that no longer meet requirements
+
+Or clearly downgrade them (eg “Does not meet requirements”)
+
+Show Tower verdict badge if already supported (PASS / STOP / FAIL)
+
+2) Bubble must UPDATE IN PLACE
+
+Do not create a new message
+
+Do not replace the bubble
+
+Transition the same bubble from PROVISIONAL → FINAL
+
+This avoids confusing duplicate messages and keeps the narrative intact.
+
+3) Activity panel stays unchanged
+
+Live Activity panel is dev-facing and can continue running/noisy
+
+The bubble is the source of truth for the user
+
+Explicit non-goals (do not do these)
+
+Do not delay showing candidates until the very end
+
+Do not fake progress percentages
+
+Do not suppress verification or Tower work
+
+Do not redesign row structure yet
+
+Do not touch learning logic
+
+Acceptance criteria
+
+User can see candidates quickly
+
+UI clearly communicates “still working”
+
+If verification later changes the result set, the bubble updates
+
+When the run truly finishes, the bubble visibly transitions to final
+
+No moment where the UI implies “finished” while work is still ongoing
+
+Notes
+
+This is intentionally minimal.
+We are fixing truthfulness, not polishing animations or UX flair.

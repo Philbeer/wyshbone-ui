@@ -187,7 +187,7 @@ describe("Type safety (compile-time)", () => {
     publishEvent("PACK_SELECTED", { packId: "breweries" });
     publishEvent("PACK_SELECTED", { packId: "breweries", packName: "Brewery CRM" });
     publishEvent("AGENT_STARTED", { sessionId: "sess_1" });
-    publishEvent("AGENT_STARTED", { sessionId: "sess_1", packId: "breweries", mode: "mega" });
+    publishEvent("AGENT_STARTED", { sessionId: "sess_1", packId: "breweries", mode: "standard" });
     publishEvent("CHAT_MESSAGE_SENT", {
       conversationId: "conv_1",
       messageId: "msg_1",

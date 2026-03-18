@@ -1,0 +1,108 @@
+Target repo: UI (QA benchmark runner)
+
+Goal
+
+Make the QA harness reflect the true final AFR run state instead of treating poll timeout as the final result.
+
+Poll timeout is only an observer limitation. AFR is the source of truth.
+
+Current problem
+
+The QA harness polls runs for ~90 seconds.
+
+If polling expires, the UI shows:
+
+Poll timeout (still running)
+
+However the run may later complete, fail, or clarify in AFR.
+
+This causes the QA dashboard to display incorrect results.
+
+Required behaviour
+
+1. When the poll loop expires:
+
+Do NOT finalize the test result immediately.
+
+Instead:
+
+enter temporary observer state:
+
+status = "poll_expired_reconciling"
+
+2. Immediately fetch the run state from AFR using run_id.
+
+3. Reconcile the result using AFR truth.
+
+If AFR says:
+
+completed → mark row Completed
+
+failed → mark row Failed
+
+clarifying → mark row Clarifying
+
+running/pending but within execution timeout → keep temporary label:
+"Polling expired – reconciling with AFR"
+
+running/pending past Supervisor execution timeout → mark Timeout
+
+4. Update qa_run_metrics using the reconciled AFR truth.
+
+Do not persist observer timeout guesses.
+
+Example:
+
+Poll expired at 90s
+AFR completed at 110s
+
+Persist:
+
+status = completed
+system_status = healthy
+
+NOT timeout.
+
+5. Update the QA dashboard row after reconciliation.
+
+Rows must not remain stuck in:
+
+Poll timeout (still running)
+
+if AFR later shows a final state.
+
+6. Ensure qa-progress uses the same reconciled values from qa_run_metrics.
+
+The progress charts must reflect AFR truth.
+
+7. Optional metadata (for debugging):
+
+metadata:
+
+{
+  poll_expired: true,
+  afr_final_state: "completed"
+}
+
+But the UI should show the final truth.
+
+Final display states allowed
+
+Completed
+Failed
+Clarifying
+Timeout
+
+Temporary observer state only:
+
+Polling expired – reconciling with AFR
+
+Deliverables
+
+After implementing, report:
+
+1. Files changed
+2. Old polling behaviour
+3. New reconciliation flow
+4. Example where a previous "poll timeout" now resolves to Completed
+5. Confirmation that QA dashboard and qa-progress now reflect AFR truth

@@ -1,0 +1,63 @@
+Excellent! Now I have a clearer view. I can see:
+CURRENT STATE OF T08 FRESH CHAT:
+
+Chat area (CENTER):
+
+"What can I help you with?" (welcome screen)
+Example prompts visible:
+
+"Find 30 pubs in Yorkshire that serve cask ale"
+"Deep research on the micropub market in Manchester"
+"Find decision-makers at breweries in Wales"
+"Draft an intro email for a new pub contact"
+
+
+Yellow badge: "Clarifying before run" (CRITICAL — this suggests the previous T07 clarify session is still active!)
+Input field (BOTTOM): Placeholder text visible
+"Stop Claude" modal (BOTTOM CENTER): Still visible with close button
+
+
+Live Activity panel (RIGHT SIDE):
+
+✓ Tower ON (cyan badge, top right)
+✓ Status: "Executing" (blue badge, "just now")
+Message received: "User: York" (green checkmark, "4m ago")
+
+cr1d: 289bf5a3-611...
+
+
+Router: Clarify For Run (green checkmark, "4m ago")
+
+Supervisor badge (green)
+Path: "clarify_for_run - ClarifySession handler → ask_more"
+
+
+Status: "(i) (i) (i) Thinking..." → "Working..." (blue badge, bottom)
+IDs visible:
+
+cr1d: 289bf5a3-611f-4e...
+streamRunId: 7ba817cf-a493-4ce6-8d0d-e...
+canonicalRunId: 7ba817cf-a493-4ce6-8d0d-e...
+pellingWidth: 7ba817cf-a493-4ce6-8d0d-e...
+
+
+
+
+Left sidebar:
+
+Default Country: "United Kingdom" ✓
+Industry Vertical: "Breweries" ✓
+Navigation menu (New Chat, Memory Debug, Account, Pricing, CRM & Accounting, Leads, Nudges, Integrations, Show me around again, Try Demo Mode)
+Discovery: Events, Review Queue, Reddit, Hacker News
+DEV: Sugabase
+
+
+Footer debug (BOTTOM): "Debug: 0 messages | 0 result bubbles | convId: 23acd64"
+Navbar badges (top right): "Vertical: Breweries", "Agent-First", "Tower" (cyan), "Not Connected" (orange), "is: 9", "Idle" (gray dot)
+CRITICAL ISSUE:
+The yellow "Clarifying before run" badge is still visible, and the Live Activity shows the T07 "User: York" message with "Working..." status. This suggests:
+
+
+Either the previous T07 clarify session is still executing (not truly a fresh chat)
+OR the chat is fresh but the Live Activity is showing history from the previous conversation
+Let me close the "Stop Claude" modal first, then I need to verify if this is truly a fresh conversation. I'll click the close button on the modal.

@@ -34,4 +34,3 @@ export function DesktopSplitLayout({
 }
 
 export default DesktopSplitLayout;
-

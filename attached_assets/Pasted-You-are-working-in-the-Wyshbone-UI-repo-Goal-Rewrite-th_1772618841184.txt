@@ -1,0 +1,60 @@
+You are working in the Wyshbone UI repo.
+
+Goal
+Rewrite the user-facing chat bubble output for lead-finder runs so it reads like a human assistant (short, plain English). All technical/system/loggy content must be hidden behind a “Show details” (expand/collapse) button inside the same chat bubble.
+
+Non-negotiables
+- Default view: human summary ONLY. No words like: Tower, artefact, policy, enrichment, CVL, step_result, tool_call, verdict, constraint, plan_v1.
+- The human summary must explicitly state what was done in normal terms:
+  1) what was searched (eg Google Places)
+  2) how many candidates found (eg 30)
+  3) what checks were performed (eg visited websites for contact details)
+  4) what was found (emails/phones counts)
+  5) what was delivered (eg selected 10 pubs)
+- Technical view: everything devs need (Tower verdict, constraints, tool steps, diagnostics, ids) but collapsed by default behind a “Show details” button.
+- Keep the existing results list rendering (the 10 matches) but make the intro text human.
+
+What to implement
+1) Add a new “HumanSummary” renderer for lead-finder chat bubbles.
+   - Input: existing run artefacts already available to the UI (use whatever you currently use to render the bubble).
+   - Output: 3–6 short lines, like:
+     “I searched Google Places for pubs in Arundel and found 30 possible matches.
+      I checked websites where available to look for contact details.
+      I found 0 public emails and 8 phone numbers.
+      I selected 10 pubs for you to contact.”
+   - Use sensible fallbacks if counts are missing: “I checked websites where available” is ok even if partial.
+
+2) Add a “Show details” expandable section within the chat bubble.
+   - Collapsed by default.
+   - When expanded, show:
+     - Tower verdict + reasons (if present)
+     - constraints extracted (raw)
+     - count diagnostics (user/budget/google/delivered)
+     - tool steps list (SEARCH_PLACES, WEB_VISIT, CONTACT_EXTRACT, etc) with statuses
+     - runId/artefactId links if the UI already has them
+   - Label should be simple: “Show details” / “Hide details”.
+
+3) Ensure the scary red warning banner (“I can’t trust these results…”) is ONLY shown when the final authoritative judgement is FAIL/STOP.
+   - If Tower PASS, never show the red warning.
+   - If Tower FAIL/STOP, the human summary should say something calm like:
+     “I found matches, but I couldn’t verify everything, so I’m not confident in these results.”
+     Then the user can expand details to see why.
+
+4) Keep this developer-friendly
+   - Preserve all current data, just move it into the expandable details area.
+   - Do not remove diagnostics, just hide them by default.
+
+Acceptance tests (you must verify in UI)
+A) Successful run (Tower PASS):
+- Bubble shows human summary + results list.
+- No red warning.
+- “Show details” reveals the full technical block.
+
+B) Failed run (Tower FAIL/STOP):
+- Bubble shows calm human summary explaining it couldn’t be verified.
+- Red warning is allowed here.
+- “Show details” reveals the failure reasons and logs.
+
+Deliverable
+- Implement the full change, commit-ready.
+- Tell me the files changed and what component is responsible for rendering the chat bubble.

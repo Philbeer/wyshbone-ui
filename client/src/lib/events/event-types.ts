@@ -34,7 +34,7 @@ export type UIEventPayloadMap = {
   AGENT_STARTED: {
     sessionId: string;
     packId?: string;
-    mode?: "standard" | "mega";
+    mode?: "standard";
   };
   AGENT_STOPPED: {
     sessionId: string;
@@ -60,7 +60,7 @@ export type UIEventPayloadMap = {
     conversationId: string;
     messageId: string;
     content: string;
-    mode?: "standard" | "mega";
+    mode?: "standard";
   };
   CHAT_MESSAGE_RECEIVED: {
     conversationId: string;

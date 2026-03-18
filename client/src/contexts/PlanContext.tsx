@@ -8,7 +8,7 @@ import { getCurrentVerticalId } from "@/contexts/VerticalContext";
 
 // FAST DEV MODE: Use fast polling in development
 const IS_DEV = import.meta.env.MODE === 'development';
-const PLAN_POLL_INTERVAL = IS_DEV ? 500 : 5000; // 500ms in dev, 5s in prod
+const PLAN_POLL_INTERVAL = IS_DEV ? 2000 : 5000; // 2s in dev, 5s in prod
 
 export interface LeadGenStep {
   id: string;

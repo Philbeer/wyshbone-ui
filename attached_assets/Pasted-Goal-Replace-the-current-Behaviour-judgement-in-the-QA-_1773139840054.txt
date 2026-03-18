@@ -1,0 +1,255 @@
+Goal
+
+Replace the current Behaviour judgement in the QA harness with a stricter LLM-based evaluator that judges the WHOLE RUN against:
+
+1. the original benchmark input
+2. the expected benchmark outcome
+3. the observed returned results
+4. the evidence attached to those results
+5. the actual run behaviour (clarified, refused, timed out, returned entities, etc.)
+
+Behaviour is the external debugging judge.
+It should answer the question:
+
+“Did the system genuinely do what this benchmark test was asking?”
+
+This is different from Tower.
+Tower remains the internal constraint/evidence judge.
+Behaviour is the overall dev/debug evaluation of the whole run.
+
+Important:
+Do NOT change Tower.
+Do NOT change Supervisor planning/execution.
+Do NOT change benchmark definitions.
+Only change how Behaviour is evaluated in the UI harness.
+
+Files to inspect first
+
+- client/src/pages/dev/qa-test-runner.tsx
+- any helper file used by the QA harness for deriving Behaviour pass/fail
+- any current deriveBehaviourResult / behaviour scoring logic
+- any code that persists qa_run_metrics / run metadata
+
+What to build
+
+PART 1 — Find current Behaviour logic
+
+Locate the current Behaviour scoring logic in the UI harness.
+This likely includes functions like:
+- deriveBehaviourResult
+- behaviour expectation matching
+- pass/fail heuristics
+- minimum delivered count rules
+- clarify path rules
+
+Audit it and identify:
+- where Behaviour pass/fail is currently decided
+- what data it uses
+- what metadata is available from AFR / run result / harness row state
+
+Do not remove old logic yet.
+First build the new evaluator alongside it.
+
+PART 2 — Build a normalized Behaviour evaluation packet
+
+Create a function that builds a clean evaluation packet for each benchmark run.
+
+The packet must include:
+
+- benchmark_test_id
+- original_query
+- expected_outcome_text
+- expected_behaviour_text (if separate)
+- actual_run_state
+- clarified (true/false)
+- clarify_question
+- clarify_answer
+- tower_result
+- delivered_count
+- delivered_entities
+- evidence_summary
+- behaviour_observed_summary
+
+For delivered_entities, include a compact per-entity structure such as:
+- name
+- location / address if available
+- website if available
+- key evidence items
+- any verification flags
+
+For evidence_summary, include only the most relevant proof, not huge raw blobs.
+Example:
+- entity name
+- matched quote
+- source URL
+- constraint type
+- confidence if available
+
+For behaviour_observed_summary, include a short human-readable recap like:
+- “Returned 5 Blackpool organisations with no explicit Blackpool Council relationship evidence.”
+- “Returned 10 cafes in York and met count requirement.”
+- “Clarified for missing location before execution.”
+
+This packet should be compact and readable by an LLM.
+Do NOT dump the full AFR raw payload into the prompt.
+
+PART 3 — Add a strict LLM Behaviour evaluator
+
+Implement a new Behaviour evaluator that sends the normalized evaluation packet to an LLM and gets back a structured judgement.
+
+Use a strict prompt.
+The evaluator must judge the run harshly and avoid rewarding plausible-but-unproven results.
+
+The LLM must be told:
+
+- judge against the ORIGINAL QUERY, not just the returned list
+- judge against the EXPECTED BENCHMARK OUTCOME
+- do not reward vague or plausible results if the evidence does not satisfy the actual predicate
+- if the benchmark required a relationship, attribute, name match, website claim, date constraint, or count, verify that specifically
+- if the system should have clarified and did not, fail
+- if the system correctly clarified or correctly refused because proof was not possible, that can pass when consistent with the expected outcome
+- if evidence is missing, weak, generic, or unrelated, fail
+- if count was required and not met, fail
+- if a known exact constraint like “name contains Swan” is satisfied in the returned entities/evidence, that should pass
+- if the benchmark expected explicit relationship evidence (example: works with the local authority), plausible entities alone must fail
+
+The LLM output must be forced into a strict schema, such as:
+
+{
+  "behaviour_result": "pass" | "fail",
+  "behaviour_reason": "short human-readable explanation",
+  "expected_outcome_check": "what the benchmark required",
+  "observed_outcome_check": "what the run actually did",
+  "key_failure_type": "missing_count | missing_relationship_evidence | weak_name_match | unnecessary_clarification | missing_location | correct_refusal | other",
+  "confidence": 0.0-1.0
+}
+
+Use JSON output only.
+Parse it safely.
+If parsing fails, fall back to UNKNOWN and retain old logic as a temporary fallback.
+
+PART 4 — Prompt design requirements
+
+Write the evaluator prompt in plain English and make it very strict.
+
+It should say things like:
+
+“You are evaluating whether a benchmark run genuinely satisfied the original user request.
+Be strict.
+Do not reward plausible guesses.
+Do not infer missing evidence.
+Only pass if the returned result and evidence actually satisfy the benchmark expectation.
+If the result looks superficially reasonable but does not prove the requested predicate, fail.”
+
+The prompt should explicitly distinguish examples like:
+
+- “Find pubs in Arundel with Swan in the name”
+  Pass only if returned pubs actually contain Swan in the name.
+
+- “Find organisations that work with the local authority in Blackpool”
+  Pass only if returned organisations have evidence showing that relationship.
+  Plausible Blackpool organisations without that relationship evidence must fail.
+
+- “Find 10 cafes in York”
+  Pass if at least 10 relevant cafes in York were returned and the benchmark count requirement was met.
+
+- “Find breweries”
+  If benchmark expects clarification because location is missing, correct clarification can pass.
+
+PART 5 — Wire the new evaluator into Behaviour only
+
+Once the new evaluator works, use it as the Behaviour score source in the harness.
+
+Keep these separate:
+- System = infrastructure reliability
+- Agent = planner / decision correctness
+- Tower = internal evidence/constraint judge
+- Behaviour = new LLM whole-run evaluator
+
+Do not mix them.
+
+PART 6 — Persist detailed Behaviour reasoning
+
+Update qa_run_metrics / persisted benchmark metadata so each run stores:
+
+- behaviour_result
+- behaviour_reason
+- expected_outcome_text
+- expected_behaviour_text
+- behaviour_expected_outcome_check
+- behaviour_observed_outcome_check
+- behaviour_key_failure_type
+- behaviour_confidence
+- behaviour_eval_mode = "llm_v1"
+
+This is needed so AFR exports and charts can later show why Behaviour passed or failed.
+
+PART 7 — Show reasoning in the harness row
+
+Under the Behaviour result in the QA harness row, show a small expandable diagnostic block:
+
+Behaviour reason:
+<reason>
+
+Expected:
+<expected_outcome_check>
+
+Observed:
+<observed_outcome_check>
+
+Failure type:
+<key_failure_type>
+
+Confidence:
+<x>
+
+Keep it compact but visible.
+
+PART 8 — Keep deterministic fallback for safety
+
+If the LLM evaluator errors, times out, or returns invalid JSON:
+- do not crash the harness
+- mark behaviour_eval_mode = "fallback_legacy"
+- use the old Behaviour logic temporarily
+- surface a small note that fallback logic was used
+
+PART 9 — Do not change benchmark semantics
+
+Do NOT rewrite benchmark expectations.
+Do NOT change FULL_BENCHMARK_PACK definitions.
+Do NOT loosen criteria to make scores look better.
+
+This change is about making Behaviour more truthful, not more generous.
+
+Definition of done
+
+For a benchmark like:
+“Find organisations that work with the local authority in Blackpool”
+
+Behaviour should FAIL unless the returned organisations have evidence of that relationship.
+
+For:
+“Find pubs in Arundel with Swan in the name”
+
+Behaviour should PASS only if the returned entities actually satisfy the Swan-name condition.
+
+For:
+“Find 10 cafes in York”
+
+Behaviour should PASS when the count requirement is met with relevant York cafes.
+
+For clarify-required tests, Behaviour should judge whether clarification/refusal/execution matched the expected benchmark outcome.
+
+Deliverables
+
+1. Updated Behaviour evaluation flow in UI harness
+2. Strict LLM-based Behaviour evaluator
+3. Persisted behaviour reasoning metadata
+4. Compact UI display of Behaviour reason
+5. Legacy fallback retained if LLM eval fails
+
+At the end, report:
+- which file(s) changed
+- where old Behaviour logic was replaced or wrapped
+- the exact schema used for the LLM output
+- 3 example benchmark cases and how the new evaluator would judge them

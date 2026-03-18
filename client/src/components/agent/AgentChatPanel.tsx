@@ -1,9 +1,10 @@
 /**
- * AgentChatPanel - Claude AI chat via backend API
+ * @deprecated AgentChatPanel - Claude AI chat via backend /api/agent/chat
  * 
- * This uses the backend /api/agent/chat endpoint which handles Claude
- * authentication server-side. This is more secure than calling Claude
- * directly from the browser.
+ * DEPRECATED (Feb 2026): This panel uses the legacy MEGA/Claude agent endpoint.
+ * The primary chat is now ChatPage (GPT-5 streaming via /api/chat).
+ * This component is hidden behind WYSHBONE_DEV_LANE flag (default off).
+ * Kept for dev/testing only. Do not add new features here.
  */
 
 import { useState, useRef, useEffect, useCallback } from "react";
@@ -117,6 +118,18 @@ export function AgentChatPanel({
   const [isProcessing, setIsProcessing] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const msg = (e as CustomEvent<string>).detail;
+      if (typeof msg === "string" && msg.trim()) {
+        setInput(msg);
+        textareaRef.current?.focus();
+      }
+    };
+    window.addEventListener("wyshbone-prefill-chat", handler);
+    return () => window.removeEventListener("wyshbone-prefill-chat", handler);
+  }, []);
 
   // Auto-scroll to bottom
   useEffect(() => {

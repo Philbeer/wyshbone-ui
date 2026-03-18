@@ -1,0 +1,42 @@
+You are working in the wyshbone-ui repo.
+
+Goal (Batch 2): UI must render time predicate constraints honestly.
+If the Supervisor says can_execute=false due to time_predicate needing proxy choice, the UI must show a clear clarification question and must not show "searching" or "verified" language.
+
+Non-negotiables:
+- Do not change the G1–G7 routing UX; only add rendering for ConstraintContract fields.
+- Do not show "ready" or trigger execution if can_execute=false.
+- Do not show "PASS" summaries when Tower indicates STOP or hard constraint blocked.
+
+Deliverables:
+1) Render ConstraintContract (if present) in the chat bubble / clarify state:
+   - If can_execute=false and constraint.type="time_predicate":
+     Show:
+     - A short explanation: "Opening dates can’t be guaranteed from listings."
+     - A single-choice list of proxy_options provided by Supervisor (radio buttons or numbered quick replies)
+     - A final option: "No proxy is acceptable (stop)"
+   - The user’s selection should be sent as a normal chat reply that the Supervisor can interpret.
+
+2) Missing inputs UI:
+   - If required_inputs_missing contains items, list them as bullets (existing pattern ok).
+   - Ensure time_predicate clarification can appear alongside other missing inputs without confusion.
+
+3) Delivery summary honesty:
+   - If Tower judgement includes proxy_used, display a small line in the result:
+     "Time constraint handled via proxy: <proxy>."
+   - If Tower judgement says STOP due to time predicate, display:
+     "Stopped: can't verify 'opened in last X' without an acceptable proxy."
+
+4) Prevent UI lies:
+   - Remove any "verified" badges/phrasing for time constraints unless Tower explicitly says satisfied via verifiable evidence.
+   - Ensure the typing indicator / searching indicator does not appear during clarification-only states.
+
+5) Tests (UI-level):
+   - Add a lightweight test (or the repo’s existing test style) that:
+     - Given a mock clarify payload with can_execute=false and proxy_options, the UI renders the proxy question and does not render a results view.
+     - Given a Tower STOP judgement for time predicate, the UI shows Stopped not Pass.
+
+Return:
+- Summary
+- Files changed
+- How to run tests

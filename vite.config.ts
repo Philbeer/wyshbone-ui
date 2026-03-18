@@ -33,6 +33,7 @@ export default defineConfig({
   },
   server: {
     port: 5177,
+    allowedHosts: true,
     fs: {
       strict: true,
       deny: ["**/.*"],

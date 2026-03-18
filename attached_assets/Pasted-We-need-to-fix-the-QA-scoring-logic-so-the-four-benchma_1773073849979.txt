@@ -1,0 +1,105 @@
+We need to fix the QA scoring logic so the four benchmark layers are evaluated independently.
+
+Current problem:
+The dashboard is showing cases where one bad layer appears to drag the others down.
+Example pattern:
+- Tower = FAIL
+- Agent becomes PARTIAL
+- Behaviour becomes FAIL
+- System becomes DEGRADED
+
+That is wrong.
+
+These four layers must be computed independently because they answer different questions:
+
+System
+Did the run infrastructure behave reliably (no crash/timeout)?
+
+Agent
+Did the agent make the correct decision about what to do?
+
+Tower
+Was the mission execution result acceptable?
+
+Behaviour
+Did the system behave as the benchmark expected?
+
+What to change:
+
+1. Audit the current derive functions and status mapping in the QA runner.
+   Find exactly where:
+   - system_status
+   - agent_status
+   - tower_result
+   - behaviour_result
+   are derived.
+
+2. Remove any logic where one layer directly downgrades another.
+   Specifically:
+   - Tower FAIL must not automatically force Agent = PARTIAL
+   - Tower FAIL must not automatically force Behaviour = FAIL
+   - Tower FAIL must not automatically force System = DEGRADED
+   - Agent PARTIAL must not automatically force Behaviour = FAIL
+   - System must only reflect infrastructure/runtime reliability
+
+3. Recompute each layer independently using these rules:
+
+System:
+- HEALTHY if the run infrastructure completed without crash/timeout/broken state
+- TIMEOUT if it timed out
+- BROKEN if infrastructure/runtime failed
+- DEGRADED only if there was a genuine run-infrastructure problem short of timeout/broken
+- Do NOT mark DEGRADED just because Tower failed
+
+Agent:
+- PASS if the agent chose the correct action for the query type
+  examples:
+  - searched when it should search
+  - clarified when it should clarify
+  - refused when it should refuse
+- FAIL if it chose the wrong action
+- UNKNOWN if not enough information to judge
+- PARTIAL only if the action selection itself was mixed/ambiguous, not because Tower later failed
+
+Tower:
+- Keep as the internal mission acceptance result only
+- PASS / FAIL / UNKNOWN / NOT_APPLICABLE as appropriate
+- For clarify/refusal cases where no mission should run, Tower should normally be NOT_APPLICABLE
+
+Behaviour:
+- Compare actual behaviour against the benchmark spec only
+- PASS if benchmark expectation was met
+- FAIL if benchmark expectation was not met
+- UNKNOWN only if genuinely unjudgeable
+- Do NOT automatically inherit Tower FAIL
+
+4. Clarify/refusal cases:
+If the benchmark expected clarify and the agent correctly asked for clarification:
+- Agent = PASS
+- Behaviour = PASS
+- Tower = NOT_APPLICABLE
+- System = HEALTHY unless there was an actual runtime issue
+
+5. Search/delivery cases:
+If infrastructure worked, the agent chose the correct path, and the delivered result satisfies the benchmark:
+- System = HEALTHY
+- Agent = PASS
+- Behaviour = PASS
+- Tower should reflect only internal mission acceptance, not contaminate the others
+
+6. Update both:
+- the QA runner display
+- the persisted qa_run_metrics write path
+so they use the same final independently-derived values.
+
+7. Do not redesign the UI yet.
+Just fix the scoring semantics.
+
+Please report back with:
+- exact files changed
+- exact old dependency logic that was wrong
+- exact new independent derivation rules
+- one worked example for:
+  a) a clarify/pass case
+  b) a search/pass case
+  c) a tower-fail but behaviour-pass case if such a case still exists

@@ -1,0 +1,31 @@
+You are implementing Part 3 MVP Learning Plan UI surfaces in the Wyshbone UI repo only (client/). Do not change the stable decision tree. Do not add demo-only features. Make changes production-ready.
+
+Goals:
+1) Pre-run "Why this approach" banner appears in the chat bubble BEFORE results arrive, for any RUN_SUPERVISOR run.
+2) Stop reasons are mapped to user-friendly text (keep raw code in a details disclosure).
+3) Add a minimal Plan Version Timeline (v1, v2, etc) with "what changed" summaries.
+4) Add user controls: per-run overrides (Faster/Balanced/Stricter), replan ceiling override (0-3), and "Ignore learned policy for this run".
+5) Add a Learning Dashboard page that is accessible from main navigation (no hidden URLs). Must show:
+   - scope key selector (recent scope keys)
+   - current effective policy bundle (learned and effective if capped)
+   - policy history list (versions, created_at, why_short or equivalent)
+   - active RuleUpdates list with accept/reject actions
+   - recent outcome summary (delivered/requested, stop reasons, replans used)
+6) Add feedback buttons on RunResultBubble: Helpful / Not helpful. If Not helpful, collect a reason (wrong businesses, constraint misunderstood, missing results, evidence wrong) and POST it to backend (use existing feedback endpoint if present, otherwise add a small UI-only call stub with TODO but do not break build).
+
+Hard rules:
+- No long dashes. Use normal punctuation.
+- Do not show raw internal codes without an explanation.
+- Do not claim Tower judged if it did not. If tower unavailable signal exists in artefacts, show "Tower not available" badge.
+- Do not introduce new backend behaviour in this repo. Only UI and API calls.
+
+Implementation guidance:
+- Pre-run banner should be driven from existing SSE stream in chat.tsx and/or earliest available policy snapshot. If policy snapshot is only available after AFR poll, still show a pre-run line that at least says: "Using learned settings for this query shape (will show details when ready)". Then update it with details when policy snapshot arrives.
+- Add a "RunConfigOverrides" object to the run request metadata sent to /api/chat so Supervisor can use it later (do not require Supervisor change in this prompt, just pass it through).
+- Add a new page route /learning (or similar) and a nav link. Page uses existing afr-data.ts functions: fetchRules, fetchRuns, fetchRunBundle, plus add fetchPolicyVersions if an endpoint exists. If not, show what you can from existing /api/afr/rules and run bundles.
+- Rule accept/reject: if there is no backend endpoint, implement UI state + a clearly marked TODO, but do not fake persistence. Prefer to wire to an existing endpoint if one exists.
+
+Deliverables:
+- Provide the full list of files changed and what changed.
+- Ensure TypeScript builds.
+- Keep UI consistent with existing styling and components.

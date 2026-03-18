@@ -1,0 +1,58 @@
+UI — Phase 6 implementation prompt:
+
+Implement Phase 6: Surface per-constraint truth in the main result view. The backend now produces rich data — the UI needs to show it.
+Do not change any backend calls or artefact parsing in this phase. All the data is already arriving. This is purely about surfacing it.
+1. Fix the overall run status badge
+The status badge must now reflect the new status model honestly:
+
+PASS → green "Verified"
+PARTIAL → amber "Partially verified"
+STOP → red "Search stopped"
+CHANGE_PLAN → amber "Replanning"
+ERROR → red "Error"
+
+Remove any mapping that converts COMPLETED to a green badge — that status no longer exists. If it arrives unexpectedly, treat it as PARTIAL.
+2. Show why a run stopped
+When status is STOP, show the failing_constraint_id and failing_constraint_reason from the Tower verdict prominently on the result card — not buried in TechnicalDetails. The user should immediately see "Stopped: no first-party evidence found for live music."
+3. Surface per-constraint outcomes on each result card
+The lead_verification artefacts contain per-lead, per-constraint results with constraint_verdict (VERIFIED / PLAUSIBLE / UNSUPPORTED / CONTRADICTED). Surface these on each lead row in the main result bubble, not just in TechnicalDetails.
+For each lead show a compact constraint breakdown:
+
+VERIFIED → green tick + constraint label
+PLAUSIBLE → amber "~" + constraint label
+UNSUPPORTED → grey "-" + constraint label
+CONTRADICTED → red "✗" + constraint label
+
+Keep it compact — one line per constraint, not a wall of text.
+4. Show evidence source on verified constraints
+When a constraint is VERIFIED or PLAUSIBLE, show the source tier alongside it:
+
+first_party_website → "their website"
+search_snippet → "search result"
+directory_field → "directory listing"
+lead_field → "listing data"
+external_source → "third-party source"
+
+Example: ✓ Live music — from their website
+5. Fix evidence cross-referencing
+Evidence currently lives in lead_verification artefacts but is never cross-referenced into lead row rendering. Fix this: when rendering a lead row, look up the corresponding lead_verification artefact by lead_id and use its constraint_checks to populate the constraint breakdown above. The data is already parsed into leadVerifications — just use it.
+6. Surface hard vs soft constraint distinction
+In the constraint breakdown per lead, visually distinguish hard constraints from soft ones. Hard constraints that are UNSUPPORTED or CONTRADICTED should be visually prominent — these are the reason a lead failed. Soft constraint failures should be visually subdued.
+7. Fix the overall constraint summary
+The constraints_extracted artefact already shows constraints with pass/fail status. Upgrade this to show the richer verdict:
+
+Replace binary "Verified / Not verified" with VERIFIED / PLAUSIBLE / UNSUPPORTED / CONTRADICTED
+Show the evidence_requirement alongside each constraint so the user understands what standard was applied: "Live music — requires website evidence"
+Show failing_constraint_reason from Tower verdict on any constraint that is UNSUPPORTED or CONTRADICTED
+
+8. Don't show verified badge when no verification ran
+The current neutral no-badge state for unverified runs is correct — keep it. But make sure the overall status badge also reflects this honestly. A run with status PARTIAL and zero verified leads should not show any green anywhere.
+Definition of done:
+
+User can see at a glance which constraints passed and failed per lead
+User can see why a run stopped, not just that it stopped
+Evidence source tier is visible on verified constraints
+Hard constraint failures are visually distinct from soft ones
+No green badges on runs where nothing was verified
+All existing UI tests pass
+Mark changes as PHASE_6 in comments

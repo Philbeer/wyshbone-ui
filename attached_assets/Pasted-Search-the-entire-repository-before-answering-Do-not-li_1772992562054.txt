@@ -1,0 +1,142 @@
+Search the entire repository before answering. Do not limit to open files.
+
+I want a small production-grade QA test runner added to the AFR screen.
+
+Goal:
+Add a button in AFR that opens a dedicated dev QA test page in a new tab, where I can run a fixed test suite from inside the app instead of using Claude Chrome/browser typing.
+
+Important:
+This is a UI/dev-tooling feature for debugging only.
+Keep it isolated to AFR / dev surfaces.
+Do not add it to normal end-user flows.
+
+==================================================
+WHAT I WANT
+==================================================
+
+On the AFR page, near the existing export controls, add a button like:
+
+Open QA Test Runner
+
+When clicked, it should open a new tab to a dedicated internal page, for example something like:
+
+/dev/qa
+or
+/dev/test-runner
+
+Use whatever route fits the current app structure best.
+
+==================================================
+THE DEV QA PAGE MUST DO THIS
+==================================================
+
+Create a dedicated dev page that lets me run a fixed test suite from inside the app.
+
+The page should contain:
+
+1. A heading like:
+QA Test Runner
+
+2. A short explanation:
+Runs a fixed internal test suite against Wyshbone using exact built-in inputs.
+
+3. A button:
+Run Default Test Suite
+
+4. A visible list of the default tests:
+
+- Find pubs in Arundel with Swan in the name
+- Find pubs in Arundel that mention live music on their website
+- Find organisations that work with the local authority in Blackpool
+- Find the best dentists in Brighton
+
+5. A status area showing:
+- Not started
+- Running
+- Completed
+- Failed
+- Timed out
+
+6. Per-test status rows, for example:
+- queued
+- running
+- completed
+- failed
+- timed out
+
+7. For each finished test, show:
+- submitted query
+- run id if available
+- status
+- link/button to open that run in AFR if possible
+
+==================================================
+HOW THE TEST RUNNER SHOULD WORK
+==================================================
+
+The page should run the tests sequentially, one by one.
+
+For each test:
+1. submit the exact query internally using the app’s own message/run flow
+2. wait until the run reaches a terminal state OR timeout
+3. capture the resulting run id / client request id if available
+4. mark the test as completed / failed / timed out
+5. move to the next test
+
+Do NOT use browser typing simulation.
+Do NOT depend on external automation.
+Use the app’s own internal submit/run mechanisms.
+
+==================================================
+TIMEOUT / SAFETY
+==================================================
+
+Add a per-test timeout, for example 90 seconds or similar sensible value.
+
+If a test times out:
+- mark it timed out
+- continue to the next test
+
+Add a Stop button if easy and safe, but only if it can be done cleanly.
+Do not overbuild.
+
+==================================================
+AFR INTEGRATION
+==================================================
+
+From the AFR page:
+- add the new button near the export controls
+- open the QA page in a new tab
+
+From the QA page:
+- if possible, include a button/link to open AFR
+- if possible, include per-test link to the relevant run in AFR
+
+==================================================
+STYLE / UX
+==================================================
+
+Keep styling consistent with the current app.
+This should feel like a lightweight internal dev tool.
+Simple, clear, practical.
+
+==================================================
+IMPLEMENTATION REQUIREMENTS
+==================================================
+
+1. Reuse existing run submission logic where possible
+2. Reuse existing run polling / status logic where possible
+3. Keep this isolated to dev/internal routes
+4. Do not break normal chat flow
+5. Make it production-grade and maintainable, not a hack
+
+==================================================
+WHAT I WANT BACK
+==================================================
+
+1. Exact files changed
+2. New route/page path
+3. How the AFR button opens it
+4. How the test runner submits runs internally
+5. How terminal state / timeout is detected
+6. Whether per-run AFR links are included

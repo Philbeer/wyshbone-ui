@@ -632,7 +632,7 @@ export interface IStorage {
   getAgentRun(id: string): Promise<SelectAgentRun | null>;
   getAgentRunByClientRequestId(clientRequestId: string): Promise<SelectAgentRun | null>;
   getMostRecentAgentRun(userId: string): Promise<SelectAgentRun | null>;
-  listAgentRuns(limit: number, userId?: string): Promise<SelectAgentRun[]>;
+  listAgentRuns(limit: number, userId?: string, conversationId?: string): Promise<SelectAgentRun[]>;
   getActivitiesByClientRequestId(clientRequestId: string): Promise<SelectAgentActivity[]>;
   updateAgentRun(id: string, updates: Partial<InsertAgentRun>): Promise<SelectAgentRun | null>;
   updateAgentRunStatus(id: string, status: string, terminalState?: string | null, error?: string | null): Promise<SelectAgentRun | null>;
@@ -1400,10 +1400,13 @@ export class MemStorage implements IStorage {
     return runs[0] || null;
   }
   
-  async listAgentRuns(limit: number = 200, userId?: string): Promise<SelectAgentRun[]> {
+  async listAgentRuns(limit: number = 200, userId?: string, conversationId?: string): Promise<SelectAgentRun[]> {
     let runs = Array.from(this.agentRunsMap.values());
     if (userId) {
       runs = runs.filter(r => r.userId === userId);
+    }
+    if (conversationId) {
+      runs = runs.filter(r => r.conversationId === conversationId);
     }
     return runs.sort((a, b) => b.createdAt - a.createdAt).slice(0, limit);
   }
@@ -1659,13 +1662,165 @@ export async function runStartupMigrations(): Promise<void> {
       ADD COLUMN IF NOT EXISTS client_request_id TEXT;
     `;
     
-    console.log('✅ Startup migrations completed - org system, oauth_states, AFR correlation, and supervisor_tasks linking columns ensured');
+    await queryClient`
+      CREATE TABLE IF NOT EXISTS public.telemetry_events (
+        id SERIAL PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        event_type TEXT NOT NULL,
+        user_id TEXT,
+        session_id TEXT,
+        payload JSONB,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `;
+    await queryClient`
+      CREATE INDEX IF NOT EXISTS telemetry_events_run_id_idx ON public.telemetry_events(run_id);
+    `;
+    await queryClient`
+      CREATE INDEX IF NOT EXISTS telemetry_events_event_type_idx ON public.telemetry_events(event_type);
+    `;
+
+    await queryClient`
+      CREATE TABLE IF NOT EXISTS clarify_sessions (
+        id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+        conversation_id TEXT NOT NULL,
+        is_active BOOLEAN NOT NULL DEFAULT true,
+        original_user_text TEXT NOT NULL,
+        entity_type TEXT,
+        location TEXT,
+        semantic_constraint TEXT,
+        pending_questions JSONB NOT NULL DEFAULT '[]'::jsonb,
+        answers JSONB NOT NULL DEFAULT '{}'::jsonb,
+        clarified_request_text TEXT,
+        awaiting_confirmation BOOLEAN NOT NULL DEFAULT false,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )
+    `;
+    await queryClient`
+      CREATE INDEX IF NOT EXISTS clarify_sessions_conv_active_idx
+      ON clarify_sessions (conversation_id, is_active)
+      WHERE is_active = true
+    `;
+
+    console.log('✅ Startup migrations completed - org system, oauth_states, AFR correlation, supervisor_tasks linking, telemetry_events, clarify_sessions ensured');
   } catch (error: any) {
-    // Only log if it's not a "column already exists" error
-    if (error?.code !== '42701') { // 42701 = duplicate_column
+    if (error?.code !== '42701') {
       console.error('⚠️ Startup migration error (non-fatal):', error?.message || error);
     } else {
       console.log('✅ Startup migrations completed - columns already exist');
+    }
+  }
+
+  try {
+    await queryClient`
+      ALTER TABLE public.messages
+      ADD COLUMN IF NOT EXISTS metadata JSONB;
+    `;
+    console.log('✅ Messages metadata column ensured');
+  } catch (error: any) {
+    if (error?.code !== '42701') {
+      console.error('⚠️ Messages metadata migration error (non-fatal):', error?.message || error);
+    }
+  }
+
+  try {
+    await queryClient`
+      CREATE TABLE IF NOT EXISTS public.qa_run_metrics (
+        id SERIAL PRIMARY KEY,
+        run_id TEXT NOT NULL UNIQUE,
+        timestamp BIGINT NOT NULL,
+        query TEXT NOT NULL,
+        query_class TEXT,
+        expected_mode TEXT,
+        suite_id TEXT,
+        pack_timestamp BIGINT,
+        benchmark_test_id TEXT,
+        source TEXT NOT NULL DEFAULT 'heuristic',
+        system_status TEXT NOT NULL,
+        agent_status TEXT NOT NULL,
+        tower_result TEXT NOT NULL,
+        behaviour_result TEXT NOT NULL,
+        system_score NUMERIC(2,1) NOT NULL,
+        agent_score NUMERIC(2,1) NOT NULL,
+        tower_score NUMERIC(2,1) NOT NULL,
+        behaviour_score NUMERIC(2,1) NOT NULL,
+        metadata JSONB,
+        created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+      );
+    `;
+    await queryClient`ALTER TABLE public.qa_run_metrics ADD COLUMN IF NOT EXISTS query_class TEXT;`;
+    await queryClient`ALTER TABLE public.qa_run_metrics ADD COLUMN IF NOT EXISTS expected_mode TEXT;`;
+    await queryClient`ALTER TABLE public.qa_run_metrics ADD COLUMN IF NOT EXISTS suite_id TEXT;`;
+    await queryClient`ALTER TABLE public.qa_run_metrics ADD COLUMN IF NOT EXISTS pack_timestamp BIGINT;`;
+    await queryClient`ALTER TABLE public.qa_run_metrics ADD COLUMN IF NOT EXISTS benchmark_test_id TEXT;`;
+    await queryClient`ALTER TABLE public.qa_run_metrics ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'heuristic';`;
+    await queryClient`
+      CREATE INDEX IF NOT EXISTS qa_run_metrics_run_id_idx ON public.qa_run_metrics (run_id);
+    `;
+    await queryClient`
+      CREATE INDEX IF NOT EXISTS qa_run_metrics_timestamp_idx ON public.qa_run_metrics (timestamp);
+    `;
+    await queryClient`
+      CREATE INDEX IF NOT EXISTS qa_run_metrics_pack_timestamp_idx ON public.qa_run_metrics (pack_timestamp);
+    `;
+    await queryClient`
+      CREATE INDEX IF NOT EXISTS qa_run_metrics_source_idx ON public.qa_run_metrics (source);
+    `;
+    console.log('✅ qa_run_metrics table ensured');
+  } catch (error: any) {
+    if (error?.code !== '42710' && error?.code !== '42P07' && error?.code !== '42701') {
+      console.error('⚠️ qa_run_metrics migration error (non-fatal):', error?.message || error);
+    }
+  }
+
+  try {
+    await queryClient`
+      CREATE TABLE IF NOT EXISTS public.ground_truth_records (
+        id SERIAL PRIMARY KEY,
+        query_id TEXT NOT NULL UNIQUE,
+        query_text TEXT NOT NULL,
+        query_class TEXT NOT NULL,
+        true_universe JSONB NOT NULL DEFAULT '[]'::jsonb,
+        delivery_assessment JSONB NOT NULL DEFAULT '{}'::jsonb,
+        expected_bj_outcome TEXT NOT NULL,
+        reasoning TEXT,
+        notes TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+      );
+    `;
+    await queryClient`
+      CREATE INDEX IF NOT EXISTS ground_truth_records_query_id_idx ON public.ground_truth_records (query_id);
+    `;
+    console.log('✅ ground_truth_records table ensured');
+  } catch (error: any) {
+    if (error?.code !== '42710' && error?.code !== '42P07' && error?.code !== '42701') {
+      console.error('⚠️ ground_truth_records migration error (non-fatal):', error?.message || error);
+    }
+  }
+
+  try {
+    await queryClient`
+      ALTER TABLE public.ground_truth_records ADD COLUMN IF NOT EXISTS match_criteria TEXT;
+    `;
+    await queryClient`
+      ALTER TABLE public.ground_truth_records DROP COLUMN IF EXISTS delivery_assessment;
+    `;
+    console.log('✅ ground_truth_records schema updated (match_criteria added, delivery_assessment dropped)');
+  } catch (error: any) {
+    if (error?.code !== '42710' && error?.code !== '42P07' && error?.code !== '42701') {
+      console.error('⚠️ ground_truth_records alter migration error (non-fatal):', error?.message || error);
+    }
+  }
+
+  try {
+    await queryClient`
+      ALTER TABLE public.gt_enrichment_queue ADD COLUMN IF NOT EXISTS enriched_at TIMESTAMPTZ;
+    `;
+    console.log('✅ gt_enrichment_queue.enriched_at column ensured');
+  } catch (error: any) {
+    if (error?.code !== '42701') {
+      console.error('⚠️ gt_enrichment_queue enriched_at migration error (non-fatal):', error?.message || error);
     }
   }
 }
@@ -5174,12 +5329,16 @@ export class DbStorage implements IStorage {
     return result || null;
   }
   
-  async listAgentRuns(limit: number = 200, userId?: string): Promise<SelectAgentRun[]> {
-    if (userId) {
+  async listAgentRuns(limit: number = 200, userId?: string, conversationId?: string): Promise<SelectAgentRun[]> {
+    const conditions = [];
+    if (userId) conditions.push(eq(agentRuns.userId, userId));
+    if (conversationId) conditions.push(eq(agentRuns.conversationId, conversationId));
+
+    if (conditions.length > 0) {
       return db
         .select()
         .from(agentRuns)
-        .where(eq(agentRuns.userId, userId))
+        .where(conditions.length === 1 ? conditions[0] : and(...conditions))
         .orderBy(desc(agentRuns.createdAt))
         .limit(limit);
     }

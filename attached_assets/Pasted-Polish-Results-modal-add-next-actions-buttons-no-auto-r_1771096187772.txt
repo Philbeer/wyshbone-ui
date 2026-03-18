@@ -1,0 +1,127 @@
+Polish Results modal + add “next actions” buttons (no auto-run)
+
+Paste this into UI:
+
+SYSTEM / DEV PROMPT
+
+You are working in the Wyshbone UI.
+
+Goal: Improve the user Results modal so PASS vs STOP feels emotionally legible and STOP does not feel broken. Add clear “next actions” that let the user ask for more results.
+
+Constraints:
+
+Use ONLY delivery_summary fields. Do not reference Tower/AFR concepts in this modal.
+
+Do not auto-run anything. User must choose.
+
+No UI inference about constraint relaxation beyond what delivery_summary already says.
+
+1) Fix obvious UI issues
+
+Remove duplicate “Results” heading (it currently appears twice).
+
+Make spacing and hierarchy clean.
+
+2) Add a clear outcome header at the top of the modal
+
+Derive outcome purely from delivery_summary:
+
+If shortfall == 0 and delivered_exact_count >= requested_count:
+Header badge: “Complete”
+Subtext: “You got everything you asked for.”
+
+If delivered_exact_count > 0 and shortfall > 0:
+Header badge: “Partial”
+Subtext: “Some exact matches were found.”
+
+If delivered_exact_count == 0 and delivered_closest_count > 0:
+Header badge: “No exact matches”
+Subtext: “Closest alternatives are available.”
+
+If delivered_exact_count == 0 and delivered_closest_count == 0:
+Header badge: “No matches”
+Subtext: “Nothing matched your requirements.”
+
+No “fail” language. No warning icon by default.
+
+3) Keep Exact vs Closest sections as-is, but improve tone
+
+Exact matches: keep subtitle.
+
+Closest matches: keep subtitle.
+
+Soft violations: render as small muted text (not scary).
+
+4) Replace the current amber warning banner with a neutral “What’s missing” block
+
+If shortfall > 0:
+Show:
+
+Title: “What’s missing”
+Body: “I found {delivered_exact_count} exact matches. I couldn’t find {shortfall} more that meet all your requirements.”
+
+No warning styling. Use neutral info styling.
+
+5) Add “Next actions” at the bottom (this is the key)
+
+If suggested_next_question exists OR shortfall > 0, show a section:
+
+Title: “Next actions”
+
+Then render buttons depending on suggested_next_question:
+
+If suggested_next_question contains “nearby”:
+
+Button 1: “Include nearby”
+
+Button 2: “Keep it strict”
+
+If contains “similar”:
+
+Button 1: “Include similar”
+
+Button 2: “Keep it strict”
+
+If contains “broaden” or relaxations array length > 1:
+
+Button 1: “Broaden criteria”
+
+Button 2: “Keep it strict”
+
+Also always include:
+
+Button: “Try again with a different search”
+
+6) Button behaviour (important)
+
+Buttons must NOT auto-run tools.
+
+They should either:
+A) Insert a follow-up message into the chat input and focus it (best)
+or
+B) Send a chat message immediately as the user (acceptable)
+
+Suggested message templates:
+
+Include nearby:
+“Ok, include nearby results. Try to reach {requested_count}.”
+
+Include similar:
+“Ok, include similar matches. Try to reach {requested_count}.”
+
+Broaden criteria:
+“Ok, broaden the criteria sensibly and try to reach {requested_count}. Tell me what you relaxed.”
+
+Keep it strict:
+“Keep the constraints strict. If you can’t reach {requested_count}, stop and explain.”
+
+Try again:
+“Try a different approach to find {requested_count} while keeping the original constraints.”
+
+Deliverable:
+
+Results modal feels calm and intentional
+
+Users always see a clear next step when shortfall > 0
+
+No Tower/AFR/debug concepts appear

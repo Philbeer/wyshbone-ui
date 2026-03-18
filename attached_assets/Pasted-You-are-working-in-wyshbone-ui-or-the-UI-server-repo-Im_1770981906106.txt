@@ -1,0 +1,113 @@
+You are working in wyshbone-ui (or the UI server repo). Implement a clean 2 lane chat system with a single fork on the server:
+
+Goal
+
+/api/chat must do exactly one decision:
+
+CHAT lane: respond normally as a chat assistant (fast, no side effects)
+
+RUN lane: enqueue an agentic run by inserting a row into supervisor_tasks (Supabase) and stream a delegation message back. Then stop.
+
+There must be no other early return branches that steal messages before the RUN lane.
+
+Required mental model
+
+UI server owns “chatability”.
+
+Supervisor owns “execution”.
+
+UI server decides whether to run.
+
+Deep research, summaries, region jobs etc are NOT special lanes. They are either normal chat (CHAT lane) or they become tools executed by Supervisor later (RUN lane). For now we are deleting the pre-routing complexity.
+
+What to build
+
+Create a single function decideChatMode({messages, userMessage}) -> { mode: "CHAT" | "RUN", reason: string }
+
+Rules (keep simple):
+
+If user message includes any of: google, places, find, search, list, get me, generate leads, lead list, prospects, venues, pubs, restaurants, in <location> then choose RUN.
+
+Otherwise choose CHAT.
+
+(This is temporary and intentionally blunt to prove the loop. Keep the function isolated so we can refine later.)
+
+Update /api/chat handler to:
+
+keep: auth, schema validation, conversation/run ids, save user message, SSE ACK
+
+call decideChatMode
+
+if mode === "RUN":
+
+insert into Supabase supervisor_tasks with status="pending" and include:
+
+client_request_id, conversation_id, user_id, raw_message (or equivalent field used by Supervisor), and any metadata you already store
+
+stream SSE events:
+
+status: “Delegated to agentic run”
+
+include the created supervisorTaskId in the SSE stream (consistent with current client parsing)
+
+end the request
+
+if mode === "CHAT":
+
+run the normal GPT chat response stream (whatever you currently do in the GPT-5 tool calling section, but it should be “chat only” for now, no supervisor task created)
+
+DELETE / remove from /api/chat anything that prevents RUN lane from happening:
+
+client or server deep research detection/validation/redirect logic
+
+summarize detection logic
+
+region job detection logic
+
+pending confirmation state machine / partial workflow completion logic
+
+dead code blocks like isBubbleBatchRequest = false sections
+
+any redundant intent detectors that create supervisor tasks before the fork, or that bypass it
+
+any regex stages that cause early return unrelated to auth/schema/job control
+
+Client side changes (important):
+
+Remove the client-side detectDeepResearchIntent() interception that prevents sending to /api/chat. The UI must always POST to /api/chat; the server decides CHAT vs RUN.
+
+Keep client-side classifyIntent() only if it affects UX/history handling, but it must not block sending.
+
+Output requirements
+
+Rewrite full files. Do not provide partial snippets.
+
+Ensure existing SSE protocol still works for the frontend.
+
+Ensure Supervisor task creation uses the exact schema/fields Supervisor currently reads.
+
+Make sure /api/chat is now short and readable: validate -> persist -> fork -> CHAT stream OR enqueue RUN and end.
+
+Acceptance tests (must pass)
+
+Message: “Find five pubs in Arundel beginning with P using Google Places”
+
+/api/chat chooses RUN
+
+creates supervisor_tasks row
+
+streams delegation status + task id
+
+does NOT run any deep research/summarize/region/pending confirmation code
+
+Message: “How are you?”
+
+/api/chat chooses CHAT
+
+responds normally, no supervisor task created
+
+Message contains “deep research” or “google”
+
+still goes through the same fork, no UI confirmation modal blocking it
+
+Implement now.

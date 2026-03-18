@@ -1,0 +1,49 @@
+You are working in the Wyshbone UI repo (control tower / cockpit). Goal: eliminate the critical trust failure where a user message gets concatenated into the previous agent query and the UI delivers “Verified match” results even when the run internally failed.
+
+Implement the following changes, with a tight diff, no refactors unless needed. Must be production-grade.
+
+A) FIX STRING CONCATENATION BUG (highest priority)
+1) Find where the “Search now” button or follow-up action constructs the search query that is sent to Supervisor.
+2) Ensure it NEVER concatenates with any previous query text or previous mission summary.
+3) The outbound payload must always be derived from exactly one source of truth: the current input box value OR an explicit stored “pendingQuery” state, but not both.
+4) Add a unit-level guard: if the outbound query string contains the previous query as a substring AND the user has typed a new message, block send and show an inline error “Your request looks merged with the previous one. Please try again.” (no modal).
+
+B) ADD UI “PRE-RUN SANITY GATE” (cheap but strict)
+Before sending an AGENT run request to Supervisor, run a local lightweight check:
+- If the active vertical is “Breweries” (or any non-generic vertical), and the user message is clearly about a different domain (eg contains terms like “vulnerable adults”, “housing”, “council support”, “benefits”, “charity”, “social care”, etc.), then do NOT run.
+Instead:
+- Show a clarification bubble from Wyshbone: “That looks like a different type of search than Breweries. Do you want me to switch to General and run it, or keep Breweries?”
+- Provide two buttons: “Switch to General and run” and “Keep Breweries”.
+- Only proceed to Supervisor when user chooses one.
+Make this generic: implement a small keyword-based mismatch heuristic per vertical, stored in a simple config map (no ML). Start with Breweries mismatch keywords only.
+
+C) OBEY TOWER VETO IN THE UI (never deliver results on FAIL/ERROR)
+Right now the UI can show “Results ready” even when internal activity says Verdict=Fail or Tower error.
+Implement an explicit “deliveryAllowed” rule:
+- If the run ends with final verdict FAIL or STOP (or Tower verdict=ERROR where judgement couldn’t run), the UI must NOT render the results list as verified, and must NOT show “Results ready”.
+Instead show an error/clarification state:
+- “I can’t trust these results because verification failed (Tower: FAIL/ERROR). Want me to retry with a cleaned query or ask a clarification question?”
+Buttons: “Retry”, “Ask me a question”.
+Use actual verdict fields from the run/artefacts if available; if not, use the live activity final status signal.
+
+D) FIX “VERIFIED MATCH” BADGES
+The “Verified match” badge must only appear when the lead_verification artefact says verified_exact=true (or equivalent).
+If verification is not applicable (not_applicable) or unknown, show a neutral badge: “Candidate” (no green tick).
+If Tower did not judge or judgement failed, show “Unverified”.
+
+E) ADD A DEBUG LINE (non-user visible)
+In the diagnostic banner you already show (convId, msgs, etc), add:
+- lastSentQuery (truncated)
+- lastRunFinalVerdict (PASS/FAIL/STOP/ERROR/UNKNOWN)
+This is for debugging, not user-facing.
+
+Acceptance tests (manual):
+1) Run: “Find decision makers at breweries in Wales” then immediately ask: “what organisations support vulnerable adults in leeds” and click “Search now”.
+Expected: NO concatenated string; UI blocks with clarification or mismatch prompt; never runs under Breweries without confirmation.
+2) Force a Tower failure / error (simulate by turning Tower service off). Expected: results are not shown as verified; UI shows the trust error state.
+3) Normal run with Tower PASS + verified_exact leads: Verified badge appears correctly.
+
+Deliver:
+- Identify the exact files changed and why.
+- Keep code minimal and readable.
+- No new dependencies.

@@ -1,0 +1,119 @@
+Goal
+
+Surface the REAL Behaviour LLM packet and the REAL Behaviour LLM response in the AFR download/export for benchmark runs.
+
+We now have proof from qa_run_metrics that the Behaviour judgement is genuinely coming from the LLM.
+
+Examples from stored rows already show:
+- behaviour_source_of_truth = llm
+- behaviour_eval_mode = llm_v1
+- behaviour_eval_parse_ok = true
+- behaviour_eval_packet is populated
+- behaviour_llm_response is populated
+- behaviour_eval_response_raw is populated
+
+So the remaining issue is not whether the LLM ran.
+The issue is that the AFR download/export is not clearly showing the actual stored Behaviour packet and actual stored Behaviour response.
+
+Core rule:
+The AFR export must show the exact stored Behaviour evaluation inputs and outputs that drove the Behaviour pass/fail shown in the harness.
+
+Do NOT change:
+- Behaviour scoring logic
+- fallback logic
+- Supervisor
+- Tower
+- benchmark definitions
+
+This is an AFR export / observability surfacing fix only.
+
+Files to inspect first
+
+- client/src/pages/dev/afr.tsx
+- client/src/pages/dev/qa-test-runner.tsx
+- any helper that reads qa_run_metrics metadata into AFR export
+
+What must be shown in AFR for benchmark runs
+
+Add a clearly visible Behaviour Evaluation section that renders directly from stored qa_run_metrics metadata.
+
+Required fields to surface
+
+1. Behaviour source of truth
+- behaviour_source_of_truth
+- behaviour_eval_mode
+- behaviour_eval_parse_ok
+
+2. Exact packet sent to the Behaviour LLM
+Render the actual stored:
+- behaviour_eval_packet
+
+This must be shown as both:
+- a readable formatted summary
+- a raw JSON block
+
+Readable summary should include:
+- original_query
+- benchmark_test_id
+- expected_outcome_text
+- expected_behaviour_text
+- final_run_outcome
+- delivered_results
+- delivered_result_evidence
+- user_visible_summary
+
+3. Exact response returned by the Behaviour LLM
+Render the actual stored:
+- behaviour_llm_response
+- behaviour_eval_response_raw
+
+This must be shown as both:
+- a readable formatted summary
+- a raw JSON block / raw text block
+
+Readable summary should include:
+- behaviour_result
+- behaviour_reason
+- expected_outcome_check
+- observed_outcome_check
+- key_failure_type
+- confidence
+
+4. Explicit driver line
+Add a plain-English line such as:
+- “Behaviour verdict shown in harness was driven by the LLM.”
+or
+- “Behaviour verdict shown in harness was driven by fallback logic.”
+
+This must come from stored metadata, not inferred vibes.
+
+5. If stored metadata is missing
+Render that honestly:
+- “No stored Behaviour LLM packet found”
+- “No stored Behaviour LLM response found”
+
+Do not fabricate sections.
+
+Important implementation rule
+
+The AFR must use the stored qa_run_metrics metadata as source of truth for this section.
+Do not reconstruct the packet from artefacts if the stored packet already exists.
+Do not reconstruct the response if the stored response already exists.
+
+We want the AFR export to show exactly what the Behaviour judge actually saw and exactly what it actually returned.
+
+Definition of done
+
+For benchmark runs in AFR download/export I can clearly see:
+- whether Behaviour was driven by LLM or fallback
+- the exact stored packet that was sent to the Behaviour LLM
+- the exact stored response that came back
+- the raw response text too
+- the final behaviour verdict and reason
+
+At the end, report:
+- which files changed
+- where the AFR now reads stored qa_run_metrics Behaviour metadata
+- one example of the rendered Behaviour packet section
+- one example of the rendered Behaviour response section
+- one example of the driver line

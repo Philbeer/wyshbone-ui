@@ -1,0 +1,79 @@
+Prompt to Replit: Fix clarify->run transition so it never loses the session
+
+We have a confirmed bug from the forensic report:
+
+decideChatMode returns CLARIFY_FOR_RUN correctly.
+
+handleClarifyResponse returns action=run_supervisor and closes the clarify session.
+
+then routes.ts runs checkDbHealth(). If DB is down, it returns “system unavailable”.
+
+result: user loses the clarify session and has to start again. This breaks trust.
+
+Goal:
+
+Never lose an active clarify session due to DB health failures.
+
+Only close the clarify session AFTER a supervisor task has been successfully created.
+
+Do not treat “entity_type + location” as sufficient if a semantic constraint exists.
+
+Required changes (smallest possible)
+
+A) Move session closing responsibility out of handleClarifyResponse
+
+handleClarifyResponse must NOT call closeClarifySession.
+
+It should return { action, clarifiedRequest, missingParts, etc } but leave session open.
+
+Only routes.ts can close the session, and only after we have successfully entered RUN_SUPERVISOR (supervisorTaskId created).
+
+B) DB health gate behavior in clarify->run transition
+In routes.ts clarify->run path:
+
+If checkDbHealth fails:
+
+Do NOT close clarify session.
+
+Respond with a truthful “system temporarily unavailable” message.
+
+Keep the clarify session intact so the next user message can retry without re-asking everything.
+
+C) Semantic constraint must be part of “missing” gating
+Right now missingParts only checks entity_type + location.
+Update isRunnable / missingParts so that if hasSemanticConstraint(original_request) is true, we require a clarification answer for it.
+Implementation can be simple:
+
+store a boolean like session.semantic_constraint_resolved (default false)
+
+Only set it true when the user provides a meaningful answer to the semantic question (not just repeating the request or saying “yes”).
+
+missingParts should include something like “semantic_constraint” until resolved.
+This ensures the system keeps asking the semantic clarification question rather than exiting early.
+
+D) Do not require explicit confirmation “do you want me to run”
+Once all required clarifications are satisfied AND DB is healthy, automatically transition to RUN_SUPERVISOR.
+
+Tests (must add)
+
+Start clarify: “find pubs” -> asks for location, clarify session created.
+
+Answer: “in leeds” with DB healthy -> creates supervisorTaskId and THEN closes session.
+
+DB down at clarify->run transition -> returns system unavailable AND session remains active (verify getActiveClarifySession still returns it).
+
+Semantic constraint case: “find organisations that work with local authorities in blackpool”
+
+must stay in CLARIFY_FOR_RUN and ask what “work with” means / what evidence counts, not exit immediately.
+
+Bare acknowledgements like “yes”, “ok”, “sure” do not resolve semantic constraint and do not trigger run.
+
+Acceptance criteria
+
+A DB failure can never destroy a clarify session.
+
+Clarify sessions only close after supervisor task creation succeeds.
+
+Semantic constraint requests do not silently jump to run just because location was extracted.
+
+Please implement with minimal edits, show the exact files changed, and confirm all tests passing.

@@ -1,0 +1,40 @@
+## Task: Fix GT Enrichment History display and ensure all pending+PASS items are processed
+
+### Problem 1: Enrichment History not showing in GT modal
+The enrichment loop IS working — it successfully added "The Norfolk Arms Hotel" to the B06 true_universe. But the Enrichment History section in the GT modal still says "No enrichment events yet."
+
+The loop is updating true_universe but NOT recording enrichment events for display.
+
+### Fix for Problem 1
+When the enrichment loop processes a queue item and gets a result, write an enrichment history entry. Store these either as a JSON array field on the GT record (e.g. enrichment_history) or in a linked table. Each entry needs:
+- timestamp
+- candidate_name
+- result: confirmed_positive / confirmed_false_positive / inconclusive
+- evidence_summary: what the GPT-4o search found (or didn't find)
+- source_run_id: which agent run triggered the enrichment
+
+The GT modal Enrichment History section should display these entries:
+- "CONFIRMED POSITIVE: [candidate_name] — [evidence_summary] — [date]"
+- "CONFIRMED FALSE POSITIVE: [candidate_name] — [reason] — [date]"
+- "INCONCLUSIVE: [candidate_name] — [date]"
+
+### Problem 2: Not all pending+PASS items are being processed
+Arundel Jailhouse has tower_verdict=PASS and status=pending but was not processed. The enrichment loop may be stopping after the first item or hitting an error.
+
+### Fix for Problem 2
+- Make sure the loop iterates through ALL rows where status='pending' AND tower_verdict='PASS', not just the first one
+- Process sequentially (one at a time) to rate limit GPT-4o
+- Log each item: "GT Enrichment: Processing [N] of [total]: [candidate_name]..."
+- If one item fails, log the error and continue to the next — don't stop the whole loop
+- After processing all items, log summary: "GT Enrichment complete: [X] confirmed, [Y] denied, [Z] inconclusive, [W] errors"
+
+### Problem 3: Distinguish enriched vs original entries in GT modal
+In the true_universe list in the GT modal, show a small visual indicator (e.g. a badge or different colour) next to entries added by the enrichment loop vs original entries from gt_research.py. This could be based on:
+- A provenance field on true_universe entries ("original" vs "enriched")
+- Or by checking if the entry name appears in the enrichment_history as confirmed_positive
+
+### Test expectation
+After deploying, re-run B06. The GT modal should show:
+- Norfolk Arms Hotel with an "enriched" indicator in true_universe
+- Enrichment History entries showing what was confirmed/denied
+- Arundel Jailhouse should also get processed (confirmed or denied)

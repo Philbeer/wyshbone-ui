@@ -20,7 +20,11 @@ export const chatRequestSchema = z.object({
   }),
   defaultCountry: z.string().optional(),
   conversationId: z.string().optional(),
-  clientRequestId: z.string().optional(), // Idempotency key - prevents duplicate run creation
+  clientRequestId: z.string().optional(),
+  metadata: z.record(z.any()).optional(),
+  google_query_mode: z.enum(["TEXT_ONLY", "BIASED_STABLE"]).optional(),
+  clarify_run_id: z.string().optional(),
+  clarify_client_request_id: z.string().optional(),
 });
 
 export type ChatRequest = z.infer<typeof chatRequestSchema>;
@@ -289,6 +293,7 @@ export const messages = pgTable("messages", {
   conversationId: text("conversation_id").notNull(),
   role: text("role").notNull(),
   content: text("content").notNull(),
+  metadata: jsonb("metadata"),
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
 }, (table) => ({
   conversationIdIdx: index("messages_conversation_id_idx").on(table.conversationId, table.createdAt),
@@ -2736,3 +2741,86 @@ export const entityReviewQueueRelations = relations(entityReviewQueue, ({ one })
     references: [pubsMaster.id],
   }),
 }));
+
+export const telemetryEvents = pgTable("telemetry_events", {
+  id: serial("id").primaryKey(),
+  runId: text("run_id").notNull(),
+  eventType: text("event_type").notNull(),
+  userId: text("user_id"),
+  sessionId: text("session_id"),
+  payload: jsonb("payload"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  index("telemetry_events_run_id_idx").on(table.runId),
+  index("telemetry_events_event_type_idx").on(table.eventType),
+]);
+
+export const systemStatusEnum = z.enum(["HEALTHY", "DEGRADED", "BROKEN", "TIMEOUT"]);
+export type SystemStatus = z.infer<typeof systemStatusEnum>;
+
+export const agentQualityEnum = z.enum(["PASS", "PARTIAL", "FAIL", "NOT_APPLICABLE", "UNKNOWN"]);
+export type AgentQuality = z.infer<typeof agentQualityEnum>;
+
+export const towerResultEnum = z.enum(["PASS", "FAIL", "UNKNOWN", "NOT_APPLICABLE"]);
+export type TowerResult = z.infer<typeof towerResultEnum>;
+
+export const behaviourResultEnum = z.enum(["PASS", "FAIL", "UNKNOWN", "HONEST_PARTIAL", "BATCH_EXHAUSTED", "CAPABILITY_FAIL", "WRONG_DECISION"]);
+export type BehaviourResult = z.infer<typeof behaviourResultEnum>;
+
+export const queryClassEnum = z.enum(["solvable", "website_evidence_required", "clarification_required", "relationship_required", "fictional_or_impossible", "subjective_or_unverifiable"]);
+export type QueryClass = z.infer<typeof queryClassEnum>;
+
+export const expectedModeEnum = z.enum(["deliver_results", "clarify", "honest_refusal", "best_effort_honest"]);
+export type ExpectedMode = z.infer<typeof expectedModeEnum>;
+
+export const qaRunMetrics = pgTable("qa_run_metrics", {
+  id: serial("id").primaryKey(),
+  runId: text("run_id").notNull().unique(),
+  timestamp: bigint("timestamp", { mode: "number" }).notNull(),
+  query: text("query").notNull(),
+  queryClass: text("query_class"),
+  expectedMode: text("expected_mode"),
+  suiteId: text("suite_id"),
+  packTimestamp: bigint("pack_timestamp", { mode: "number" }),
+  benchmarkTestId: text("benchmark_test_id"),
+  source: text("source").notNull().default("heuristic"),
+  systemStatus: text("system_status").notNull(),
+  agentStatus: text("agent_status").notNull(),
+  towerResult: text("tower_result").notNull(),
+  behaviourResult: text("behaviour_result").notNull(),
+  systemScore: numeric("system_score", { precision: 2, scale: 1 }).notNull(),
+  agentScore: numeric("agent_score", { precision: 2, scale: 1 }).notNull(),
+  towerScore: numeric("tower_score", { precision: 2, scale: 1 }).notNull(),
+  behaviourScore: numeric("behaviour_score", { precision: 2, scale: 1 }).notNull(),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  index("qa_run_metrics_run_id_idx").on(table.runId),
+  index("qa_run_metrics_timestamp_idx").on(table.timestamp),
+  index("qa_run_metrics_pack_timestamp_idx").on(table.packTimestamp),
+  index("qa_run_metrics_source_idx").on(table.source),
+]);
+
+export const insertQaRunMetricSchema = createInsertSchema(qaRunMetrics);
+export const selectQaRunMetricSchema = createSelectSchema(qaRunMetrics);
+export type InsertQaRunMetric = typeof qaRunMetrics.$inferInsert;
+export type SelectQaRunMetric = typeof qaRunMetrics.$inferSelect;
+
+export const groundTruthRecords = pgTable("ground_truth_records", {
+  id: serial("id").primaryKey(),
+  queryId: text("query_id").notNull().unique(),
+  queryText: text("query_text").notNull(),
+  queryClass: text("query_class").notNull(),
+  trueUniverse: jsonb("true_universe").notNull().default([]),
+  matchCriteria: text("match_criteria"),
+  reasoning: text("reasoning"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  index("ground_truth_records_query_id_idx").on(table.queryId),
+]);
+
+export const insertGroundTruthRecordSchema = createInsertSchema(groundTruthRecords);
+export const selectGroundTruthRecordSchema = createSelectSchema(groundTruthRecords);
+export type InsertGroundTruthRecord = typeof groundTruthRecords.$inferInsert;
+export type SelectGroundTruthRecord = typeof groundTruthRecords.$inferSelect;

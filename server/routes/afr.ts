@@ -1,7 +1,9 @@
 import { Router } from "express";
 import { storage, getDrizzleDb } from "../storage";
-import { sql } from "drizzle-orm";
+import { sql, eq } from "drizzle-orm";
+import { agentActivities, deepResearchRuns as deepResearchRunsTable } from "../../shared/schema";
 import type { Run, RuleUpdate, RunBundle } from "../../client/src/types/afr";
+import { getBehaviourJudgeResult, getDeliveryEvidence, isSupabaseConfigured } from "../supabase-client";
 
 // Debug flag for AFR run lifecycle logging
 const DEBUG_AFR = process.env.DEBUG_AFR === 'true' || process.env.DEBUG === 'true';
@@ -40,9 +42,11 @@ export function createAfrRouter(_storage: typeof storage) {
       const limit = Math.min(parseInt(req.query.limit as string) || 200, 500);
       const offset = Math.max(parseInt(req.query.offset as string) || 0, 0);
       const userId = (req.query.userId || req.query.user_id) as string | undefined;
+      const conversationId = req.query.conversation_id as string | undefined;
       const showAllUsers = req.query.all === 'true';
       
-      const agentRuns = await storage.listAgentRuns(limit);
+      const effectiveUserId = showAllUsers ? undefined : userId;
+      const agentRuns = await storage.listAgentRuns(limit, effectiveUserId, conversationId);
       const dbMs = Date.now() - t0;
 
       const runs: Run[] = agentRuns.map((r) => {
@@ -64,8 +68,9 @@ export function createAfrRouter(_storage: typeof storage) {
           score: null,
           verdict: r.terminalState === 'completed' ? 'continue' as const :
                    r.terminalState === 'failed' ? 'abandon' as const : null,
-          run_type: "agent" as const, // New unified run type
+          run_type: "agent" as const,
           client_request_id: r.clientRequestId,
+          conversation_id: r.conversationId || null,
         };
       });
 
@@ -366,7 +371,9 @@ export function createAfrRouter(_storage: typeof storage) {
       let rows = Array.isArray(result) ? result : (result as any).rows ?? [];
       let lookupPath = 'direct';
 
-      if (rows.length === 0 && resolvedRunId) {
+      const hasClarifyGateLocal = rows.some((r: any) => r.type === 'clarify_gate');
+      const hasDeliverySummary = rows.some((r: any) => r.type === 'delivery_summary');
+      if ((!hasDeliverySummary || !hasClarifyGateLocal) && resolvedRunId) {
         let supervisorRunId: string | undefined;
 
         const agentRunById = await storage.getAgentRun(resolvedRunId);
@@ -401,15 +408,51 @@ export function createAfrRouter(_storage: typeof storage) {
                 WHERE run_id = ${supervisorRunId}
                 ORDER BY created_at ASC`
           );
-          rows = Array.isArray(fallbackResult) ? fallbackResult : (fallbackResult as any).rows ?? [];
-          if (rows.length > 0) {
-            lookupPath = `fallback:supervisor_run_id=${supervisorRunId}`;
+          const supervisorRows = Array.isArray(fallbackResult) ? fallbackResult : (fallbackResult as any).rows ?? [];
+          if (supervisorRows.length > 0) {
+            const existingIds = new Set(rows.map((r: any) => r.id));
+            for (const sr of supervisorRows) {
+              if (!existingIds.has((sr as any).id)) {
+                rows.push(sr);
+              }
+            }
+            lookupPath = `merged:direct+supervisor_run_id=${supervisorRunId}`;
           }
         }
       }
 
       const types = rows.map((r: any) => r.type);
       console.log(`[AFR artefacts] Returning ${rows.length} artefact(s) for runId=${resolvedRunId} path=${lookupPath} — types: [${types.join(', ')}]`);
+
+      const debugContactTypes = ['lead_pack', 'contact_extract', 'lead_enrich', 'LEAD_ENRICH', 'CONTACT_EXTRACT', 'delivery_leads', 'delivery_summary'];
+      const typeCounts: Record<string, number> = {};
+      for (const r of rows) typeCounts[(r as any).type] = (typeCounts[(r as any).type] || 0) + 1;
+      if (DEBUG_AFR) console.log(`[WYSH_DEBUG_CONTACTS] type counts:`, JSON.stringify(typeCounts));
+      if (DEBUG_AFR) {
+        for (const r of rows) {
+          const row = r as any;
+          if (debugContactTypes.includes(row.type)) {
+            let p = row.payload_json;
+            if (typeof p === 'string') { try { p = JSON.parse(p); } catch { p = null; } }
+            const topKeys = p ? Object.keys(p) : [];
+            const preview: Record<string, any> = {};
+            if (p && typeof p === 'object') {
+              for (const k of topKeys.slice(0, 25)) {
+                const v = p[k];
+                if (Array.isArray(v)) {
+                  preview[k] = `Array(${v.length})` + (v.length > 0 ? ` keys=${JSON.stringify(Object.keys(v[0] || {}))}` : '');
+                } else if (v && typeof v === 'object') {
+                  preview[k] = `{${Object.keys(v).join(', ')}}`;
+                } else {
+                  preview[k] = typeof v === 'string' && v.length > 100 ? v.slice(0, 100) + '...' : v;
+                }
+              }
+            }
+            console.log(`[WYSH_DEBUG_CONTACTS] type=${row.type} topKeys=[${topKeys.join(', ')}] preview=`, JSON.stringify(preview));
+          }
+        }
+      }
+
       res.json(rows);
     } catch (error: any) {
       if (error?.message?.includes('does not exist')) {
@@ -761,31 +804,45 @@ export function createAfrRouter(_storage: typeof storage) {
         });
       }
 
-      let agentRun = await storage.getAgentRunByClientRequestId(clientRequestId);
+      const [agentRun, activitiesByCrid] = await Promise.all([
+        storage.getAgentRunByClientRequestId(clientRequestId),
+        storage.getActivitiesByClientRequestId(clientRequestId),
+      ]);
 
       const effectiveClientRequestId = clientRequestId;
       const activeRunId = agentRun?.id || null;
 
-      const activities = await storage.listAgentActivities(200);
+      const db = getDrizzleDb();
 
-      const relevantActivities = activities.filter(a => {
-        if (a.clientRequestId === effectiveClientRequestId) return true;
-        if (activeRunId && a.runId === activeRunId) return true;
-        const row = a as any;
-        if (activeRunId && row.agent_run_id === activeRunId) return true;
-        const meta = a.metadata as Record<string, any> | null;
-        if (meta?.clientRequestId === effectiveClientRequestId) return true;
-        return false;
-      });
-
-      console.log(`[AFR_STREAM] userId=${userId || '-'} crid=${effectiveClientRequestId || '-'} runId=${activeRunId || '-'} fetched=${activities.length} matched=${relevantActivities.length}`);
-
-      // Also fetch any deep research runs for this client_request_id
+      let relevantActivities = activitiesByCrid;
       let deepResearchRuns: any[] = [];
-      if (effectiveClientRequestId) {
-        const allRuns = await storage.listDeepResearchRunsForAfr(50);
-        deepResearchRuns = allRuns.filter(r => r.clientRequestId === effectiveClientRequestId);
+
+      const extraQueries: Promise<void>[] = [];
+
+      if (activeRunId) {
+        extraQueries.push(
+          db.select().from(agentActivities).where(eq(agentActivities.runId, activeRunId)).orderBy(agentActivities.timestamp)
+            .then(byRunId => {
+              const seenIds = new Set(activitiesByCrid.map(a => a.id));
+              for (const a of byRunId) {
+                if (!seenIds.has(a.id)) {
+                  relevantActivities.push(a);
+                }
+              }
+            })
+        );
       }
+
+      if (effectiveClientRequestId) {
+        extraQueries.push(
+          db.select().from(deepResearchRunsTable).where(eq(deepResearchRunsTable.clientRequestId, effectiveClientRequestId)).orderBy(deepResearchRunsTable.createdAt)
+            .then(rows => { deepResearchRuns = rows; })
+        );
+      }
+
+      await Promise.all(extraQueries);
+
+      console.log(`[AFR_STREAM] userId=${userId || '-'} crid=${effectiveClientRequestId || '-'} runId=${activeRunId || '-'} matched=${relevantActivities.length}`);
 
       // Build the unified event stream
       const events: StreamEvent[] = [];
@@ -852,20 +909,99 @@ export function createAfrRouter(_storage: typeof storage) {
 
       // AUTHORITATIVE STATUS FROM RUN RECORD
       // If we have a run record, use it for status - NEVER infer from events
-      let overallStatus: 'idle' | 'routing' | 'planning' | 'executing' | 'finalizing' | 'completed' | 'failed' | 'stopped' = 'idle';
+      let overallStatus: 'idle' | 'routing' | 'clarifying' | 'planning' | 'executing' | 'finalizing' | 'completed' | 'failed' | 'stopped' = 'idle';
       let isTerminal = false;
       let terminalState: 'completed' | 'failed' | 'stopped' | null = null;
       let uiReady = false;
 
+      const STALE_RUN_TIMEOUT_MS = 5 * 60 * 1000;
+
       if (agentRun) {
-        // RUN RECORD EXISTS - Use authoritative status
         overallStatus = agentRun.status as typeof overallStatus;
         uiReady = agentRun.uiReady === 1;
         
-        // Terminal state comes ONLY from the run record
         if (agentRun.terminalState) {
+          if (agentRun.terminalState === 'stopped') {
+            let hasClarifyGate = false;
+            try {
+              const runIdsToCheck = [agentRun.id];
+              if ((agentRun as any).supervisorRunId) runIdsToCheck.push((agentRun as any).supervisorRunId);
+              for (const rid of runIdsToCheck) {
+                const gateCheck = await db.execute(sql`SELECT 1 FROM artefacts WHERE run_id = ${rid} AND (type = 'clarify_gate' OR (type = 'diagnostic' AND title ILIKE '%constraint gate%BLOCKED%')) LIMIT 1`);
+                const found = Array.isArray(gateCheck) ? gateCheck.length > 0 : (gateCheck as any).rows?.length > 0;
+                if (found) { hasClarifyGate = true; break; }
+              }
+            } catch {}
+            if (hasClarifyGate) {
+              isTerminal = false;
+              terminalState = null;
+              overallStatus = 'clarifying';
+            } else {
+              isTerminal = true;
+              terminalState = 'stopped';
+            }
+          } else {
+            isTerminal = true;
+            terminalState = agentRun.terminalState as 'completed' | 'failed' | 'stopped';
+          }
+        } else if (agentRun.status === 'completed' || agentRun.status === 'failed') {
           isTerminal = true;
-          terminalState = agentRun.terminalState as 'completed' | 'failed' | 'stopped';
+          terminalState = agentRun.status === 'completed' ? 'completed' : 'failed';
+          uiReady = true;
+          console.log(`[AFR_STREAM] Run ${agentRun.id} has status=${agentRun.status} but no terminalState — inferring terminal=${terminalState}`);
+        } else if (agentRun.status !== 'clarifying') {
+          let hasClarifyGateExecuting = false;
+          try {
+            const execRunIds = [agentRun.id];
+            if ((agentRun as any).supervisorRunId) execRunIds.push((agentRun as any).supervisorRunId);
+            for (const rid of execRunIds) {
+              const gateCheck = await db.execute(sql`SELECT 1 FROM artefacts WHERE run_id = ${rid} AND (type = 'clarify_gate' OR (type = 'diagnostic' AND title ILIKE '%constraint gate%BLOCKED%')) LIMIT 1`);
+              const found = Array.isArray(gateCheck) ? gateCheck.length > 0 : (gateCheck as any).rows?.length > 0;
+              if (found) { hasClarifyGateExecuting = true; break; }
+            }
+          } catch {}
+          if (hasClarifyGateExecuting) {
+            console.log(`[AFR_STREAM] Run ${agentRun.id} (status=${agentRun.status}) has clarify_gate/constraint_gate BLOCKED artefact — overriding to clarifying`);
+            isTerminal = false;
+            terminalState = null;
+            overallStatus = 'clarifying';
+          }
+
+          const updatedAt = agentRun.updatedAt ? new Date(agentRun.updatedAt).getTime() : 0;
+          const age = Date.now() - updatedAt;
+          if (age > STALE_RUN_TIMEOUT_MS && !isTerminal && !hasClarifyGateExecuting) {
+            let hasClarifyGate = false;
+            try {
+              const staleRunIds = [agentRun.id];
+              if ((agentRun as any).supervisorRunId) staleRunIds.push((agentRun as any).supervisorRunId);
+              for (const rid of staleRunIds) {
+                const gateCheck = await db.execute(sql`SELECT 1 FROM artefacts WHERE run_id = ${rid} AND (type = 'clarify_gate' OR (type = 'diagnostic' AND title ILIKE '%constraint gate%BLOCKED%')) LIMIT 1`);
+                const found = Array.isArray(gateCheck) ? gateCheck.length > 0 : (gateCheck as any).rows?.length > 0;
+                if (found) { hasClarifyGate = true; break; }
+              }
+            } catch {}
+            if (hasClarifyGate) {
+              console.log(`[AFR_STALE] Run ${agentRun.id} has clarify_gate/constraint_gate — exempt from stale timeout (${Math.round(age / 1000)}s)`);
+              isTerminal = false;
+              terminalState = null;
+              overallStatus = 'clarifying';
+            } else {
+              console.log(`[AFR_STALE] Run ${agentRun.id} stale (${Math.round(age / 1000)}s since update). Auto-failing.`);
+              try {
+                await storage.updateAgentRun(agentRun.id, {
+                  status: 'failed',
+                  terminalState: 'failed',
+                  error: `Supervisor did not respond within ${Math.round(STALE_RUN_TIMEOUT_MS / 60000)} minutes`,
+                });
+              } catch (e: any) {
+                console.error(`[AFR_STALE] Failed to update run: ${e.message}`);
+              }
+              overallStatus = 'failed';
+              isTerminal = true;
+              terminalState = 'failed';
+              uiReady = true;
+            }
+          }
         }
       } else {
         // BACKWARDS COMPATIBILITY: No run record (older requests)
@@ -918,6 +1054,10 @@ export function createAfrRouter(_storage: typeof storage) {
         });
       }
 
+      res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+      res.set('Pragma', 'no-cache');
+      res.set('Expires', '0');
+      res.removeHeader('ETag');
       res.json({
         client_request_id: effectiveClientRequestId || null,
         title: requestTitle,
@@ -1034,6 +1174,119 @@ export function createAfrRouter(_storage: typeof storage) {
     } catch (error: any) {
       console.error("AFR /rerun-judgement error:", error);
       res.status(500).json({ error: "Failed to request re-run judgement" });
+    }
+  });
+
+  router.get("/run-diagnostic", async (req, res) => {
+    try {
+      const db = getDrizzleDb();
+      const conversationId = req.query.conversation_id as string | undefined;
+      const userId = req.query.user_id as string | undefined;
+
+      let runQuery: string;
+      let runParams: any[];
+      if (conversationId) {
+        runQuery = `
+          SELECT id, conversation_id, client_request_id, supervisor_run_id,
+                 status, terminal_state, ui_ready, created_at, updated_at
+          FROM agent_runs
+          WHERE conversation_id = $1
+          ORDER BY updated_at DESC
+          LIMIT 3
+        `;
+        runParams = [conversationId];
+      } else {
+        runQuery = `
+          SELECT id, conversation_id, client_request_id, supervisor_run_id,
+                 status, terminal_state, ui_ready, created_at, updated_at
+          FROM agent_runs
+          ORDER BY updated_at DESC
+          LIMIT 3
+        `;
+        runParams = [];
+      }
+
+      const runsResult = await db.execute(sql.raw(runQuery.replace(/\$1/g, conversationId ? `'${conversationId.replace(/'/g, "''")}'` : "''")));
+      const runs = (runsResult as any).rows || runsResult || [];
+
+      const diagnostics: any[] = [];
+      for (const run of runs.slice(0, 3)) {
+        const artefactResult = await db.execute(sql.raw(`
+          SELECT type, count(*) as cnt
+          FROM artefacts
+          WHERE run_id = '${(run.id || '').replace(/'/g, "''")}'
+          GROUP BY type
+          ORDER BY type
+        `));
+        const artefactTypes = ((artefactResult as any).rows || artefactResult || []).map((r: any) => ({
+          type: r.type,
+          count: Number(r.cnt)
+        }));
+
+        const msgResult = await db.execute(sql.raw(`
+          SELECT id, source, 
+                 CASE WHEN metadata IS NOT NULL AND metadata::text LIKE '%deliverySummary%' THEN true ELSE false END as has_delivery_summary,
+                 CASE WHEN metadata IS NOT NULL THEN substring(metadata::text, 1, 200) ELSE null END as meta_preview
+          FROM messages
+          WHERE id = 'ds-${(run.id || '').replace(/'/g, "''")}'
+          LIMIT 1
+        `));
+        const resultMsg = ((msgResult as any).rows || msgResult || [])[0] || null;
+
+        diagnostics.push({
+          run_id: run.id,
+          conversation_id: run.conversation_id,
+          client_request_id: run.client_request_id,
+          supervisor_run_id: run.supervisor_run_id,
+          status: run.status,
+          terminal_state: run.terminal_state,
+          ui_ready: run.ui_ready,
+          created_at: run.created_at,
+          updated_at: run.updated_at,
+          artefact_types: artefactTypes,
+          total_artefacts: artefactTypes.reduce((sum: number, a: any) => sum + a.count, 0),
+          has_delivery_summary_artefact: artefactTypes.some((a: any) => a.type === 'delivery_summary'),
+          result_message_persisted: !!resultMsg,
+          result_message_id: resultMsg?.id || null,
+          result_message_has_ds: resultMsg?.has_delivery_summary || false,
+        });
+      }
+
+      res.json({ diagnostics, ts: new Date().toISOString() });
+    } catch (error: any) {
+      console.error("AFR /run-diagnostic error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  router.get("/behaviour-judge", async (req, res) => {
+    try {
+      const runId = req.query.run_id as string | undefined;
+      if (!runId) {
+        return res.status(400).json({ error: "run_id query parameter is required" });
+      }
+      if (!isSupabaseConfigured()) {
+        return res.json(null);
+      }
+      const row = await getBehaviourJudgeResult(runId);
+      return res.json(row ?? null);
+    } catch (error: any) {
+      console.error("[AFR behaviour-judge] error:", error.message);
+      return res.status(500).json({ error: "Failed to fetch behaviour judge result" });
+    }
+  });
+
+  router.get("/delivery-evidence", async (req, res) => {
+    try {
+      const runId = req.query.run_id as string | undefined;
+      if (!runId) {
+        return res.status(400).json({ error: "run_id query parameter is required" });
+      }
+      const result = await getDeliveryEvidence(runId);
+      return res.json(result);
+    } catch (error: any) {
+      console.error("[AFR delivery-evidence] error:", error.message);
+      return res.status(500).json({ error: "Failed to fetch delivery evidence" });
     }
   });
 
@@ -1306,6 +1559,7 @@ function mapAgentRunStatus(
   switch (status) {
     case 'starting':
     case 'planning':
+    case 'clarifying':
       return 'pending';
     case 'executing':
     case 'finalizing':

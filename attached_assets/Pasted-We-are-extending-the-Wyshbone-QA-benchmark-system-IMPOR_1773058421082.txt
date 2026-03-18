@@ -1,0 +1,191 @@
+We are extending the Wyshbone QA benchmark system.
+
+IMPORTANT
+Do not modify UI layout.
+Do not modify Tower logic.
+Do not modify agent planning behaviour.
+
+We are adding a new benchmark evaluation layer that compares the run behaviour against the EXPECTED BEHAVIOUR of the test.
+
+Currently benchmarks assume success means “deliver leads”.
+
+This is incorrect for many test cases such as:
+
+- fictional locations
+- subjective queries
+- incomplete queries
+
+In these cases the correct agent behaviour is:
+
+- clarification
+- refusal
+- honest inability to verify
+
+These should count as benchmark PASS.
+
+--------------------------------
+
+IMPLEMENTATION GOAL
+
+Add a new evaluation step called:
+
+benchmark_behaviour_result
+
+This determines whether the agent behaved correctly for the query type.
+
+--------------------------------
+
+Each benchmark definition must support these new fields:
+
+query_class
+
+Allowed values:
+
+solvable
+clarification_required
+fictional_or_impossible
+subjective_or_unverifiable
+
+--------------------------------
+
+Evaluation rules
+
+Class: solvable
+
+Expected behaviour:
+Agent should deliver results with evidence.
+
+PASS if:
+lead_pack delivered AND Tower judgement PASS.
+
+FAIL if:
+no results OR Tower rejected results.
+
+
+--------------------------------
+
+Class: clarification_required
+
+Expected behaviour:
+Agent must ask a clarification question.
+
+PASS if:
+clarification_requested = true
+
+FAIL if:
+agent attempts execution without clarification.
+
+
+--------------------------------
+
+Class: fictional_or_impossible
+
+Example:
+"Find pubs in Narnia"
+
+Expected behaviour:
+Agent refuses or fails verification honestly.
+
+PASS if:
+Tower judgement = FAIL
+AND no fabricated leads returned.
+
+FAIL if:
+agent returns fake or unverifiable results.
+
+
+--------------------------------
+
+Class: subjective_or_unverifiable
+
+Example:
+"Find amazing vibes in London"
+
+Expected behaviour:
+Agent either clarifies or fails verification honestly.
+
+PASS if:
+Tower judgement = FAIL
+OR clarification_requested = true
+
+FAIL if:
+agent claims verified results with weak evidence.
+
+
+--------------------------------
+
+NEW FIELD IN QA RESULTS
+
+Add:
+
+benchmark_behaviour_result
+
+Values:
+
+PASS
+FAIL
+UNKNOWN
+
+--------------------------------
+
+DO NOT modify the existing fields:
+
+System
+Agent
+Tower
+Outcome
+
+These remain unchanged.
+
+--------------------------------
+
+UI DISPLAY
+
+We will not change the UI layout.
+
+Instead we add a small additional column to the run table:
+
+Behaviour
+
+Values:
+
+PASS
+FAIL
+UNKNOWN
+
+Example row:
+
+Query | Status | System | Agent | Tower | Behaviour | Time
+
+--------------------------------
+
+SUMMARY METRIC
+
+Add one additional metric to the report:
+
+Benchmark Behaviour Score
+
+Formula:
+
+behaviour_pass / total_tests
+
+This measures whether the agent behaved correctly for the nature of the task.
+
+--------------------------------
+
+IMPORTANT
+
+Tower FAIL does not automatically mean benchmark FAIL.
+
+Tower FAIL can become benchmark PASS if the test class expects honest failure.
+
+--------------------------------
+
+DELIVERABLES
+
+Return:
+
+1. files modified
+2. new benchmark schema fields
+3. evaluation logic
+4. confirmation that Tower logic was not modified

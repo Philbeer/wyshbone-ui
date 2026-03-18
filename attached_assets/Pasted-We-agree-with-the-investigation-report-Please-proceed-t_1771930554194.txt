@@ -1,0 +1,120 @@
+We agree with the investigation report. Please proceed to fix, not re-investigate.
+
+Scope: UI only. Do not change Supervisor or Tower logic.
+
+Confirmed facts:
+
+Backend reliably produces delivery_summary and terminal artefacts.
+
+Live Activity panel detects completion correctly.
+
+Chat bubble gets stuck on “Results are being processed”.
+
+Root causes identified:
+
+Chat polling stops after a hard-coded 2 minute timeout.
+
+Supabase realtime is non-functional because VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are not wired correctly.
+
+Chat UI has no terminal fallback once polling stops.
+
+Required fixes (implement all)
+1) Remove the destructive 2-minute timeout
+
+Do not wipe:
+
+isWaitingForSupervisor
+
+inFlightSupervisorRunsRef
+
+supervisorRunIdRef
+
+supervisorClientRequestIdRef
+
+Replace the timeout with terminal-state driven completion only.
+
+Chat must remain listening until a terminal artefact exists (delivery_summary, run_completed, or run_halted).
+
+2) Bridge Live Activity → Chat finalization
+
+When Live Activity detects a terminal state (Completed, Stopped, Tower verdict exists):
+
+Force a final fetch of artefacts for the active run.
+
+Resolve canonical status.
+
+Replace provisional “Results are being processed” bubble with final results bubble.
+
+This must work even if realtime never fires.
+
+3) Fix Supabase realtime properly
+
+Ensure VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are correctly configured and accessible to the client.
+
+Do not silently fail if missing:
+
+Log a visible console warning if realtime is disabled.
+
+Subscribe to INSERT and UPDATE on messages.
+
+Filter strictly by conversation_id.
+
+Do not rely on realtime as the only delivery mechanism.
+
+4) Single authoritative finalize path
+
+Create a single finalizeRunUI() (or equivalent) that:
+
+Stops spinners / provisional state.
+
+Fetches latest messages + artefacts from DB.
+
+Resolves canonical status.
+
+Renders final chat bubble.
+
+Is called from:
+
+polling success
+
+realtime message
+
+Live Activity terminal detection
+
+page reload recovery
+
+5) Acceptance criteria
+
+Run: “Find 5 pubs in arundel with live music”
+
+Behaviour:
+
+Provisional bubble appears.
+
+When backend finishes (even after 5+ minutes), chat bubble always updates to final results.
+
+Activity panel may finish earlier or later; chat must still finalize.
+
+Test with:
+
+long runs (>5 min)
+
+two back-to-back chat submissions
+
+browser tab left open without refresh
+
+Deliverables
+
+Implement fixes.
+
+Output full files only (copy-paste ready).
+
+Short note confirming:
+
+timeout removed or neutralized
+
+fallback path works without realtime
+
+realtime works when env vars are present
+
+Proceed with implementation.

@@ -1,0 +1,72 @@
+We just finished Part 1 (3-way router: CHAT_INFO vs CLARIFY_FOR_RUN vs RUN_SUPERVISOR). Part 2 is now failing because CLARIFY_FOR_RUN still touches the DB. When DB fetch fails, the whole “clarifying before run” path hard-fails with run_failed and no artefacts. That destroys trust.
+
+Goal (Part 2):
+Make CLARIFY_FOR_RUN a pure chat state that does NOT require DB, does NOT create a run, does NOT create a supervisor task, and does NOT persist artefacts. It should always succeed even if DB is down.
+
+Target behaviour:
+
+1. User enters a query that is entity-finding but not runnable (missing location, unclear count, semantic clause like “that work with local authorities”).
+   -> Router returns CLARIFY_FOR_RUN.
+   -> Server replies with clarification questions as normal chat output (SSE stream) and sets a UI badge “Clarifying before run”.
+   -> No DB writes. No run id required. No supervisorTaskId.
+
+2. When user replies during a clarification session, the message MUST be re-routed:
+
+   * If the reply completes missing info -> router returns RUN_SUPERVISOR and only then we start the real run and write to DB.
+   * If still missing -> stay in CLARIFY_FOR_RUN and ask the next question.
+   * If user pivots to info -> CHAT_INFO.
+
+3. DB health gate:
+
+   * Before entering RUN_SUPERVISOR, check DB connectivity.
+   * If DB is down, do NOT fail the run. Fall back to CHAT_INFO response: “I can’t run searches right now because the system is temporarily unavailable. Try again shortly.” (No hallucinated lists.)
+
+Concrete changes required (minimal, not a rewrite of the whole app):
+A) Implement an in-memory “clarification session” store keyed by conversationId (or client_request_id). This can be a simple Map in server memory for now (we can persist later).
+Store:
+
+* original_user_request
+* outstanding_questions (array)
+* collected_answers (object)
+* timestamp (for TTL expiry, e.g. 30 minutes)
+* mode = clarify_for_run
+
+B) In server/routes.ts (the /api/chat handler):
+
+* If router says CLARIFY_FOR_RUN:
+
+  * DO NOT call buildContextWithFacts if that hits DB (strip it out for this lane).
+  * DO NOT create run rows, artefacts, supervisor task, or any DB calls.
+  * Generate the clarification questions using a small local prompt (or existing leadClarification logic) but ensure it is “clarification only, no execution language”.
+  * Save/update the clarification session in the in-memory Map.
+  * SSE stream should include a “clarify_for_run” event (if already implemented) so the UI can show the badge, but it must still work if the UI ignores it.
+
+C) Handling user replies while in clarification mode:
+
+* When a new message arrives, first check if there is an active clarification session for this conversationId.
+* If yes, treat the new message as an answer candidate, update collected_answers, and run a lightweight “isRunnable now?” check.
+* If runnable -> proceed to RUN_SUPERVISOR with the merged final query (original request + clarified fields) and clear the clarification session.
+* If not runnable -> ask the next clarification question(s) and keep session active.
+
+D) Remove “confirm you’d like me to run this search?” requirement.
+
+* The system should automatically transition to RUN_SUPERVISOR once it has enough info.
+* Only ask confirmation if the user’s answer implies a risky assumption or a cost increase.
+
+E) Tests:
+Add/adjust tests to cover:
+
+1. “find pubs” -> CLARIFY_FOR_RUN (asks for location) (no DB touch)
+2. reply “in leeds” -> transitions to RUN_SUPERVISOR and creates supervisorTaskId
+3. “find organisations that work with local authorities in blackpool” -> CLARIFY_FOR_RUN (asks what counts as “work with”, what evidence, etc.) BUT MUST NOT fail if DB is down
+4. simulate DB down: CLARIFY_FOR_RUN still returns questions; RUN_SUPERVISOR gracefully falls back to CHAT_INFO “system unavailable”
+5. new user message during clarification that is a new request (not an answer) should close old clarify session and reroute.
+
+Acceptance criteria (must be true):
+
+* CLARIFY_FOR_RUN never fails due to DB errors.
+* No supervisorTaskId is produced during clarification.
+* A clarification reply can cleanly transition into a real RUN_SUPERVISOR without the user retyping the whole request.
+* If DB is down, the system does not hard-fail; it returns a truthful “can’t run” response.
+
+Please implement with the smallest changes possible, but it must be robust and test-covered. Also: do a quick scan to ensure no legacy system prompt (memory.ts SYSTEM_PROMPT) is injected into CLARIFY_FOR_RUN messages. This lane must be clean and non-contradictory.

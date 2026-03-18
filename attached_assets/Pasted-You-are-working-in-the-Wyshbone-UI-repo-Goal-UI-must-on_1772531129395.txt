@@ -1,0 +1,47 @@
+You are working in the Wyshbone-UI repo.
+
+Goal: UI must only claim “learning” when it can prove it with artefacts. Remove vague “Using learned settings…” messaging and replace it with explicit, auditable display of applied policy and learning deltas.
+
+Implement:
+
+Replace any generic “Using learned settings for this query shape” or similar copy with a strict rule:
+
+Only show any “learned” wording if the latest run includes an artefact policy_applied where learned_used=true.
+
+If policy_applied is missing, show nothing about learning.
+
+If policy_applied.learned_used=false, show a neutral line like “Using default settings”.
+
+Add a compact “Applied policy” UI line in the chat result area (or in the existing “Why this approach” panel if that’s where it belongs) that renders from policy_applied.final_policy:
+
+Show: result_count, verification_level, search_budget_pages, radius_escalation
+
+Also show a small “source badges” list for each knob: default vs user override vs learned.
+
+Add a “What changed since last time” section that only appears if there is a learning_update artefact for the same query_shape_key in recent history:
+
+Render changed_fields[] with before -> after
+
+Render tower_reason (short)
+
+Render metrics_trigger (structured but readable)
+
+Update the Live Activity / chat bubble UX so that duplicate “Searching for…” bubbles are not presented as “learning”. If multiple searches happen, show them as “Verification step 1/2/3” (or similar) but do not label that as learning.
+
+Acceptance criteria:
+
+When policy_applied.learned_used=true, UI clearly shows what learned fields were used and their source run ids.
+
+When learned_used=false, UI does not imply learning anywhere.
+
+When a learning_update happened, UI shows the exact knob delta and Tower reason.
+
+Do not add new user controls/toggles. Display-only changes plus safe copy changes. Keep it minimal and honest.
+
+Deliverables:
+
+Updated components (wherever run artefacts are rendered)
+
+Any small helper function to format policy + deltas
+
+Screenshots or notes of where it appears (optional)

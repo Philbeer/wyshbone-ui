@@ -1,0 +1,116 @@
+Investigate one specific benchmark run to determine whether the Behaviour LLM evaluator actually executed, what packet was sent, and what came back.
+
+Run to inspect:
+Query: "Find restaurants in Bath that mention vegan options on their website"
+
+Goal of this investigation:
+We are NOT changing pass/fail logic yet.
+We are NOT changing Tower.
+We are NOT changing scoring semantics yet.
+
+We only want to answer these questions for this exact run:
+
+1. Did the Behaviour LLM call actually happen?
+2. What exact evaluation packet was sent?
+3. What exact raw response came back?
+4. Was the response parsed successfully?
+5. Why did the harness show "fallback logic" for Behaviour?
+6. Was the final Behaviour verdict driven by LLM or fallback?
+
+Files to inspect first:
+- client/src/pages/dev/qa-test-runner.tsx
+- server/routes/behaviour-evaluator.ts
+- client/src/pages/dev/afr.tsx
+- any persistence path for qa_run_metrics / benchmark metadata
+- any logs or dev traces available for this exact run
+
+Tasks
+
+PART 1 — Find the exact run
+Locate the benchmark run for:
+"Find restaurants in Bath that mention vegan options on their website"
+
+Use the run ID / client request ID / benchmark test ID as needed.
+Confirm you are inspecting the correct run.
+
+PART 2 — Trace the Behaviour evaluator path for this run
+For this exact run, determine:
+
+- whether evaluateBehaviourLLM was called
+- whether the network/API call to /behaviour-evaluator happened
+- what payload was sent
+- whether the HTTP response succeeded
+- whether parse_ok was true or false
+- what structured result came back
+- whether raw_response exists
+- whether the system then chose fallback_legacy instead
+
+I want the exact truth for this run, not generic explanation.
+
+PART 3 — Show the exact packet sent
+Print the exact normalized Behaviour evaluation packet used for this run, including fields like:
+
+- benchmark_test_id
+- original_query
+- expected_outcome_text
+- expected_behaviour_text
+- actual_run_state
+- clarified
+- clarify_question
+- clarify_answer
+- tower_result
+- delivered_count
+- delivered_entities
+- evidence_summary
+- behaviour_observed_summary
+
+If the packet was not actually built, say so clearly.
+
+PART 4 — Show the exact response received
+Print:
+
+- parsed Behaviour response object
+- raw model response text
+- parse_ok status
+- source_of_truth chosen
+- fallback_used
+- fallback_reason
+
+If any of these are missing for this run, say exactly which are missing.
+
+PART 5 — Explain why fallback was shown
+The harness row showed "fallback logic" for Behaviour on this run.
+
+I want the exact reason for that on this run:
+- API error?
+- parse failure?
+- missing packet?
+- timeout?
+- code path never executed?
+- malformed response?
+- overwritten after LLM succeeded?
+
+Be precise.
+
+PART 6 — Do not change code yet
+This is an investigation only.
+Do not implement fixes yet.
+Do not refactor yet.
+Do not change verdict logic yet.
+
+Output format
+
+Return a short investigation report with these headings:
+
+1. Correct run identified
+2. Behaviour LLM called? yes/no
+3. Packet sent
+4. Raw response received
+5. Parsed response
+6. Source of truth used
+7. Why fallback happened
+8. Exact next fix needed
+
+Important:
+Do not give generic explanations.
+Use the actual data from this run only.

@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "n7sNPW7hNBT_j6tXnf_RC"
+uri = "file://UI_DIAGNOSTIC_REPORT.md"
+type = "text"
+title = "Wyshbone UI Diagnostic Report"

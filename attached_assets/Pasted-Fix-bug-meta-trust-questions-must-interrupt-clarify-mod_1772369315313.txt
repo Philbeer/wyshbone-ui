@@ -1,0 +1,61 @@
+Fix bug: meta/trust questions must interrupt clarify mode (clarify session must NOT swallow them).
+
+Evidence (Claude Chrome):
+
+New chat -> user sends: "Find 5 pubs" -> system asks location (clarify mode)
+
+Then user sends: "What is Wyshbone and can it lie?"
+Current behavior: system stays in clarify mode and repeats location question. No conversational answer appears.
+
+Goal:
+When a clarify session is active and the incoming message is meta/trust/info (examples: "what is Wyshbone", "can it lie", "how accurate", "can I trust this", "how does it work", "methodology", "sources"):
+
+bypass clarify slot-fill for THIS TURN only
+
+return a CHAT_INFO style conversational answer immediately
+
+do NOT ask for location in that reply
+
+do NOT start any execution/tools for that reply
+
+KEEP the clarify session open so the user can continue after
+
+Important: do NOT guess where this lives.
+First, locate the actual runtime path:
+
+Find the code that decides what happens to messages when clarify is active.
+
+It might be in server/routes.ts (/api/chat) OR in supervisor task processing OR somewhere else.
+
+Identify the exact function(s) that currently cause the meta question to be treated like a clarify follow-up and re-asks location.
+
+Implementation constraints:
+
+The meta/trust detection must run INSIDE the clarify-active path, not only at top-level routing.
+
+The clarify handler must not swallow meta/trust messages.
+
+Preserve clarify session state after answering (do not clear it).
+
+Regression test (required):
+
+Send "Find 5 pubs" -> assert system enters clarify and asks for location
+
+Then send "What is Wyshbone and can it lie?"
+Expect:
+
+response is conversational (CHAT_INFO)
+
+response does NOT ask for location
+
+no tool execution / no “Searching…” bubble triggered by this turn
+
+clarify session remains active afterwards (so the system can still ask location again on the NEXT user turn)
+
+Deliverables:
+
+exact files changed
+
+exact test command(s)
+
+brief plain-English explanation of routing order after fix (what runs first, what runs next)

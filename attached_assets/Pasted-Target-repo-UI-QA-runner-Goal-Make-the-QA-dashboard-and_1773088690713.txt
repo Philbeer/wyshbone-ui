@@ -1,0 +1,135 @@
+Target repo: UI / QA runner
+
+Goal
+
+Make the QA dashboard and qa-progress show the true final run state using AFR as the source of truth.
+
+I do not want the harness to show timeout if AFR later shows completed.
+AFR must win over polling assumptions.
+
+Required rule
+
+AFR is the source of truth.
+QA runner polling is only an observer.
+
+If the QA harness stops polling before completion, it must reconcile against AFR and display the real final state.
+
+---
+
+TASK 1 — Reconcile final state against AFR before persisting benchmark metrics
+
+When a test reaches the local poll timeout:
+
+1. do not immediately persist TIMEOUT
+2. do a final AFR lookup for that run_id
+3. if AFR says completed:
+   - final displayed status must be Completed
+   - system_status must be HEALTHY unless AFR shows a true failed/broken/timeout state
+4. if AFR says failed:
+   - final displayed status must be Failed
+   - system_status must reflect failed/broken appropriately
+5. if AFR says still running/pending:
+   - display Poll timeout (still running)
+   - do not collapse this into true timeout
+6. only use true Timeout when AFR itself shows the run genuinely exceeded execution / timed out
+
+The benchmark UI must show the true run outcome, not just the harness observer outcome.
+
+---
+
+TASK 2 — Update qa_run_metrics persistence to store reconciled truth
+
+qa_run_metrics must persist the reconciled final state, not the initial poll-loop guess.
+
+Examples:
+
+If poll loop times out at 90s but AFR later shows completed:
+- persist final status as completed
+- system_status = HEALTHY
+- do not store TIMEOUT
+
+If AFR shows still running:
+- persist an explicit observer state such as poll_timeout_running in metadata
+- but do not count it as a true system timeout
+
+If AFR shows failed:
+- persist failed truthfully
+
+Important:
+The chart and history must be based on reconciled truth from AFR, not raw observer timeout guesses.
+
+---
+
+TASK 3 — Make /dev/qa display truthful final labels
+
+Use these statuses clearly:
+
+Completed
+Failed
+Timeout
+Poll timeout (still running)
+
+But if AFR later shows completed, update the row to Completed.
+
+Do not leave rows stuck in timeout-like states if AFR already says completed.
+
+---
+
+TASK 4 — Make /dev/qa-progress use the same reconciled truth
+
+qa-progress must reflect the same final truth as /dev/qa.
+
+If a run completed in AFR, qa-progress must not show system timeout for that run.
+
+The chart must use reconciled qa_run_metrics values only.
+
+---
+
+TASK 5 — Keep observer state if useful, but separate it from truth
+
+If useful, keep observer-only metadata such as:
+- poll expired at 90s
+- final AFR completion found later
+
+But that observer metadata must not replace the true final run result.
+
+Example:
+metadata:
+{
+  poll_expired: true,
+  afr_reconciled_status: "completed"
+}
+
+Truth shown in UI:
+Completed
+
+---
+
+TASK 6 — Re-run reconciliation for recent benchmark rows if easy
+
+If straightforward, add a small one-off reconciliation path for recent benchmark rows that were incorrectly stored as timeout because the poll loop expired.
+
+If that is too risky, do not do a large migration.
+But at minimum, ensure all future benchmark runs are truthful.
+
+---
+
+Deliverables
+
+After implementing, provide:
+
+1. Files changed
+2. Exact old behaviour
+3. Exact new AFR reconciliation logic
+4. Confirmation that /dev/qa now prefers AFR truth over poll timeout guesses
+5. Confirmation that /dev/qa-progress now uses the same reconciled truth
+6. One example run that previously showed timeout but now correctly shows completed
+7. Whether any recent rows were repaired
+
+Expected result
+
+If AFR says completed, the benchmark UI must show completed.
+If AFR says failed, the benchmark UI must show failed.
+If AFR says still running, the benchmark UI may show poll timeout (still running).
+
+AFR must be the source of truth everywhere.

@@ -1,0 +1,151 @@
+You are fixing a truthfulness problem in the Wyshbone QA Regression Dashboard.
+
+IMPORTANT
+Do NOT change agent logic.
+Do NOT change Supervisor behaviour.
+Do NOT change Tower verdict logic.
+
+This task is only about QA metrics and truthful reporting.
+
+Problem
+
+The dashboard currently shows a single "Pass Rate" metric that is misleading.
+
+At the moment, runs classified as PARTIAL appear to be contributing to a 100% pass rate when true task success is much lower.
+
+This hides the difference between:
+
+1. the app/system behaving correctly
+2. the agent actually doing a good job on the task
+
+We need to separate these clearly.
+
+Goal
+
+Replace the single pass-rate concept with two separate top-level metrics:
+
+A. System Health
+B. Agent Quality
+
+Definitions
+
+SYSTEM HEALTH answers:
+"Did the app/pipeline behave correctly?"
+
+AGENT QUALITY answers:
+"Did the agent actually achieve the intended task outcome well?"
+
+Implementation requirements
+
+PART 1 — Add two top summary metrics
+
+Add:
+- System Health Rate
+- Agent Quality Rate
+
+Do NOT show the old single "Pass Rate" unless clearly relabelled as legacy/internal.
+
+PART 2 — System Health classification
+
+For each benchmark run, derive a system_health_outcome:
+
+- HEALTHY
+- DEGRADED
+- BROKEN
+- TIMEOUT
+
+Suggested rules:
+
+HEALTHY
+- interpretation/planning/execution pipeline worked as expected
+- clarify/block behaved correctly when needed
+- no crash/stuck/broken state
+- final honest outcome was produced
+
+DEGRADED
+- run completed but with system weakness such as timeout risk, partial instrumentation, or fallback issues
+
+BROKEN
+- invalid pipeline state, missing expected artefacts, failed execution flow, or clearly broken run handling
+
+TIMEOUT
+- benchmark timed out before meaningful terminal outcome
+
+PART 3 — Agent Quality classification
+
+For each benchmark run, derive an agent_quality_outcome:
+
+- PASS
+- PARTIAL
+- FAIL
+- NOT_APPLICABLE
+- UNKNOWN
+
+Suggested rules:
+
+PASS
+- intended task outcome achieved
+- OR correct clarify/block happened when that was the expected benchmark outcome
+
+PARTIAL
+- upstream behaviour was correct and leads/results were meaningfully delivered
+- but evidence, verification, or final quality was insufficient
+
+FAIL
+- run completed but did not meaningfully achieve the intended task
+
+NOT_APPLICABLE
+- benchmark expected only clarification/block and that happened correctly
+
+UNKNOWN
+- timeout or broken run means agent quality cannot be judged confidently
+
+PART 4 — Fix the top cards
+
+Top cards should show actual counts for both dimensions.
+
+Example:
+
+System Health:
+- Healthy
+- Degraded
+- Broken
+- Timeout
+
+Agent Quality:
+- Passed
+- Partial
+- Failed
+- Unknown
+
+Do not let PARTIAL inflate Agent Quality into 100% success.
+
+Do not let TIMEOUT count as PASS.
+
+PART 5 — Row-level display
+
+For each benchmark row, show both:
+
+- System Health badge
+- Agent Quality badge
+
+Keep existing layer dots, Tower column, AFR link, and outcome column if useful.
+
+PART 6 — Preserve truthfulness
+
+This change must make the dashboard more honest, not more flattering.
+
+The key principle is:
+
+A run can have:
+- good system health
+- poor agent quality
+
+and that must be visible immediately.
+
+Deliverables
+
+1. files changed
+2. exact formulas / rules for System Health and Agent Quality
+3. confirmation that the old misleading 100% pass behaviour is removed
+4. example of how a PARTIAL run is now counted in both dimensions

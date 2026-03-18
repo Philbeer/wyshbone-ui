@@ -1,0 +1,100 @@
+You are implementing the UI changes required by “WYSHBONE 1 DAY DEMO USABLE PLAN (CANONICAL)”.
+
+CRITICAL RULE:
+
+UI must NEVER compute success from raw lead counts.
+
+UI must consume canonical delivery_summary.status = PASS | PARTIAL | STOP produced by Supervisor.
+
+If delivery_summary.status is missing, UI must show an explicit “Status unavailable” state, not infer PASS.
+
+SCOPE:
+
+Replace UserResultsView deriveOutcome logic:
+
+Remove raw-count-based outcome classification.
+
+Render a status badge based on delivery_summary.status.
+
+Render stop_reason.message when STOP.
+
+Ensure UserResultsModal fetch path includes the needed artefacts:
+
+delivery_summary artefact (must include status)
+
+verification_summary artefact (optional display)
+
+tower verdict artefact or run bundle verdict (optional display)
+But truth comes from delivery_summary.status only.
+
+Add “What was learned” panel:
+
+Use the best available source:
+
+If a new beliefs endpoint or belief artefacts exist, use those.
+
+Otherwise temporarily use related_rule_updates from RunBundle but label it as “What was learned” not “Rules”.
+Keep it user-facing, no AFR/Tower jargon.
+
+Add feedback signal logging calls:
+On user actions:
+
+accept_result
+
+retry_goal
+
+abandon_goal
+
+export_data
+Call Supervisor endpoints:
+POST /api/feedback/accept
+POST /api/feedback/retry
+POST /api/feedback/abandon
+POST /api/feedback/export
+Body must include { goal_id, run_id, payload? }.
+These must be wired to actual buttons in the results UI.
+
+Demo Orchestrator panel:
+Add a simple panel with 3 buttons:
+
+Clean success
+
+Partial delivery
+
+Intelligent STOP
+Each calls Supervisor demo endpoints and then opens the resulting run in the UI:
+POST /api/demo/clean-success
+POST /api/demo/partial
+POST /api/demo/stop
+
+IMPORTANT:
+
+Do not show raw internal artefact lists.
+
+Show only: status badge, delivered vs requested, verified exact, stop reason, next actions.
+
+DELIVERABLES:
+
+Full file rewrites where needed (UserResultsView.tsx, live-activity-panel.tsx sections touched).
+
+A small utility module for status badge rendering.
+
+Update any types so delivery_summary includes status and stop_reason.
+
+ACCEPTANCE TESTS:
+
+If delivery_summary.status is STOP, UI shows STOP badge and stop reason, never PASS language.
+
+If verified_exact_count is 0, UI cannot show PASS.
+
+Clicking feedback buttons sends requests to the /api/feedback endpoints.
+
+Demo buttons trigger runs and UI loads the run results.
+
+Output:
+
+files changed
+
+endpoints used
+
+manual test steps

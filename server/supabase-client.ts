@@ -40,7 +40,10 @@ export interface SupervisorTaskData {
   search_query?: {
     business_type?: string;
     location?: string;
+    requested_count?: number;
   };
+  demo?: string;
+  metadata?: Record<string, any>;
 }
 
 export interface SupervisorTask {
@@ -401,4 +404,399 @@ export async function persistLeadsToSupabase(
   console.log(`${'='.repeat(60)}\n`);
   
   return result;
+}
+
+// ============================================
+// Behaviour Judge Results (Judge B)
+// ============================================
+
+export interface BehaviourJudgeLeadEvidence {
+  business_name?: string;
+  entity_name?: string;
+  name?: string;
+  url?: string;
+  source_url?: string;
+  website_url?: string;
+  quote?: string;
+  quotes?: string[];
+  matched_phrase?: string;
+  tower_status?: string;
+  constraint_type?: string;
+}
+
+export interface BehaviourJudgeAssessment {
+  verdict: string;
+  reasoning: string;
+  confidence: number;
+}
+
+export interface BehaviourJudgeResult {
+  run_id: string;
+  outcome: string;
+  confidence: number | null;
+  reason: string | null;
+  tower_verdict: string | null;
+  delivered_count: number | null;
+  requested_count: number | null;
+  created_at: string | null;
+  mission_intent_assessment: BehaviourJudgeAssessment | null;
+  ground_truth_assessment: BehaviourJudgeAssessment | null;
+  input_snapshot?: {
+    leads_evidence?: BehaviourJudgeLeadEvidence[];
+    [key: string]: unknown;
+  } | null;
+}
+
+export async function getBehaviourJudgeResult(runId: string): Promise<BehaviourJudgeResult | null> {
+  if (!isSupabaseConfigured()) return null;
+  const client = ensureSupabaseClient();
+  const { data, error } = await client
+    .from('behaviour_judge_results')
+    .select('*')
+    .eq('run_id', runId)
+    .maybeSingle();
+  if (error) {
+    console.error('[behaviour-judge] lookup error:', error.message);
+    return null;
+  }
+  return data as BehaviourJudgeResult | null;
+}
+
+export interface LeadDeliveryEvidence {
+  url: string;
+  quotes: string[];
+  matched_phrase: string;
+  context_snippet: string;
+  verification_status: string;
+  constraint_verdicts: { constraint: string; verdict: string }[];
+}
+
+export interface DeliveryEvidenceResult {
+  evidenceMap: Record<string, LeadDeliveryEvidence>;
+  verifiableConstraints: string[];
+}
+
+export async function getDeliveryEvidence(runId: string): Promise<DeliveryEvidenceResult> {
+  if (!isSupabaseConfigured()) return { evidenceMap: {}, verifiableConstraints: [] };
+  const client = ensureSupabaseClient();
+  const { data, error } = await client
+    .from('artefacts')
+    .select('payload_json')
+    .eq('run_id', runId)
+    .eq('type', 'delivery_summary')
+    .limit(1)
+    .maybeSingle();
+  if (error || !data) return { evidenceMap: {}, verifiableConstraints: [] };
+  const payload = data.payload_json as any;
+
+  console.log('[delivery-evidence] raw payload keys:', Object.keys(payload || {}));
+
+  // Combine all lead sources; payload.leads first so its richer data wins deduplication
+  const allDelivered: any[] = [
+    ...(payload.leads || []),
+    ...(payload.delivered_exact || []),
+    ...(payload.delivered_closest || []),
+  ];
+
+  console.log('[delivery-evidence] allDelivered count:', allDelivered.length);
+
+  // Collect verifiable constraint values and build evidence map in one pass
+  const seen = new Set<string>();
+  const evidenceMap: Record<string, LeadDeliveryEvidence> = {};
+  const constraintValueSet = new Set<string>();
+
+  for (const lead of allDelivered) {
+    const name = (lead.name || '').toLowerCase().trim();
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+
+    const items: any[] = (lead.match_evidence?.length ? lead.match_evidence : null)
+      ?? (lead.supporting_evidence?.length ? lead.supporting_evidence : null)
+      ?? [];
+
+    // Derive constraint_verdicts: prefer explicit field, then derive from match_basis[], then from match_evidence[]
+    let constraint_verdicts: { constraint: string; verdict: string }[] = [];
+    if (Array.isArray(lead.constraint_verdicts) && lead.constraint_verdicts.length > 0) {
+      constraint_verdicts = lead.constraint_verdicts;
+    } else if (Array.isArray(lead.match_basis) && lead.match_basis.length > 0) {
+      constraint_verdicts = lead.match_basis
+        .filter((mb: any) => mb.constraint_value)
+        .map((mb: any) => ({
+          constraint: mb.constraint_value,
+          verdict: mb.valid ? 'verified' : 'unverified',
+        }));
+    } else {
+      // Fall back to one entry per unique matched_phrase in match_evidence
+      const seen_phrases = new Set<string>();
+      for (const ev of items) {
+        const phrase = ev.matched_phrase || ev.constraint_value;
+        if (phrase && !seen_phrases.has(phrase)) {
+          seen_phrases.add(phrase);
+          constraint_verdicts.push({
+            constraint: phrase,
+            verdict: ev.verification_status === 'verified' ? 'verified' : 'unverified',
+          });
+        }
+      }
+    }
+
+    // Accumulate constraint values for top-level verifiableConstraints
+    for (const cv of constraint_verdicts) {
+      if (cv.constraint) constraintValueSet.add(cv.constraint);
+    }
+
+    evidenceMap[name] = {
+      url: items[0]?.source_url || lead.url || '',
+      quotes: items.map((e: any) => e.quote).filter(Boolean),
+      matched_phrase: items[0]?.matched_phrase || '',
+      context_snippet: items[0]?.context_snippet || '',
+      verification_status: items[0]?.verification_status || '',
+      constraint_verdicts,
+    };
+  }
+
+  // verifiableConstraints: prefer explicit payload field, else union of all constraint values seen across leads
+  const verifiableConstraints: string[] =
+    Array.isArray(payload.verifiable_constraints) && payload.verifiable_constraints.length > 0
+      ? payload.verifiable_constraints
+      : Array.from(constraintValueSet);
+
+  console.log('[delivery-evidence] evidenceMap keys:', Object.keys(evidenceMap), '| verifiableConstraints:', verifiableConstraints, '| first entry constraint_verdicts:', Object.values(evidenceMap)[0]?.constraint_verdicts);
+
+  return { evidenceMap, verifiableConstraints };
+}
+
+export async function getBehaviourJudgeResults(runIds: string[]): Promise<Record<string, BehaviourJudgeResult>> {
+  if (!isSupabaseConfigured() || runIds.length === 0) return {};
+  const client = ensureSupabaseClient();
+  const { data, error } = await client
+    .from('behaviour_judge_results')
+    .select('run_id, outcome, confidence, reason, mission_intent_assessment, ground_truth_assessment')
+    .in('run_id', runIds);
+  if (error) {
+    console.error('[behaviour-judge] bulk lookup error:', error.message);
+    return {};
+  }
+  const map: Record<string, BehaviourJudgeResult> = {};
+  for (const row of (data || [])) {
+    map[(row as any).run_id] = row as BehaviourJudgeResult;
+  }
+  return map;
+}
+
+// ============================================
+// GT Enrichment Queue
+// ============================================
+
+export interface GtEnrichmentQueueItem {
+  id: string;
+  query_id: string;
+  candidate_name: string;
+  candidate_location?: string | null;
+  constraints_to_verify?: string | null;
+  tower_verdict?: string | null;
+  tower_evidence?: string | null;
+  status: 'pending' | 'confirmed_positive' | 'confirmed_false_positive' | 'inconclusive';
+  created_at?: string | null;
+  run_id?: string | null;
+  enrichment_result?: string | null;
+  enrichment_evidence?: string | null;
+  enriched_at?: string | null;
+}
+
+export async function getEnrichmentQueueByRunId(runId: string): Promise<GtEnrichmentQueueItem[]> {
+  if (!isSupabaseConfigured()) return [];
+  const client = ensureSupabaseClient();
+  const { data, error } = await client
+    .from('gt_enrichment_queue')
+    .select('*')
+    .eq('run_id', runId)
+    .eq('status', 'pending')
+    .eq('tower_verdict', 'PASS');
+  if (error) {
+    console.error('[gt-enrichment] queue fetch error:', error.message);
+    return [];
+  }
+  return (data || []) as GtEnrichmentQueueItem[];
+}
+
+export async function updateEnrichmentItem(
+  id: string,
+  updates: { status: string; enrichment_result?: string; enrichment_evidence?: string; enriched_at?: string }
+): Promise<void> {
+  if (!isSupabaseConfigured()) return;
+  const client = ensureSupabaseClient();
+  const { error } = await client
+    .from('gt_enrichment_queue')
+    .update(updates)
+    .eq('id', id);
+  if (error) {
+    console.error('[gt-enrichment] update error:', error.message);
+  }
+}
+
+export async function getEnrichmentHistoryForQuery(queryId: string): Promise<GtEnrichmentQueueItem[]> {
+  if (!isSupabaseConfigured()) return [];
+  const client = ensureSupabaseClient();
+  const { data, error } = await client
+    .from('gt_enrichment_queue')
+    .select('*')
+    .eq('query_id', queryId)
+    .neq('status', 'pending')
+    .order('enriched_at', { ascending: false });
+  if (error) {
+    console.error('[gt-enrichment] history fetch error:', error.message);
+    return [];
+  }
+  return (data || []) as GtEnrichmentQueueItem[];
+}
+
+export async function getEnrichmentCountsByRunIds(runIds: string[]): Promise<Record<string, number>> {
+  if (!isSupabaseConfigured() || runIds.length === 0) return {};
+  const client = ensureSupabaseClient();
+  const { data, error } = await client
+    .from('gt_enrichment_queue')
+    .select('run_id, status')
+    .in('run_id', runIds)
+    .eq('status', 'confirmed_positive');
+  if (error) {
+    console.error('[gt-enrichment] count fetch error:', error.message);
+    return {};
+  }
+  const counts: Record<string, number> = {};
+  for (const row of (data || [])) {
+    const rid = (row as any).run_id;
+    if (rid) counts[rid] = (counts[rid] || 0) + 1;
+  }
+  return counts;
+}
+
+const JUNK_NAME_PATTERNS = [
+  /\btest\b/i,
+  /\bworkspace\b/i,
+  /\bdrizzle\b/i,
+  /\bfoo\b/i,
+  /\bbar\b/i,
+  /\bdemo\b/i,
+  /\bsample\b/i,
+  /\bfake\b/i,
+  /\bdummy\b/i,
+  /\bmock\b/i,
+];
+
+function isJunkCandidateName(name: string): boolean {
+  return JUNK_NAME_PATTERNS.some(p => p.test(name));
+}
+
+export interface GtEnrichmentInsertItem {
+  id?: string;
+  query_id: string;
+  run_id: string;
+  candidate_name: string;
+  candidate_location?: string | null;
+  constraints_to_verify?: string | null;
+  tower_verdict: string | null;
+  tower_evidence?: string | null;
+}
+
+export async function insertEnrichmentQueueItem(item: GtEnrichmentInsertItem): Promise<{ ok: boolean; reason?: string }> {
+  if (!isSupabaseConfigured()) return { ok: false, reason: 'Supabase not configured' };
+
+  if (!item.tower_verdict || item.tower_verdict.toUpperCase() !== 'PASS') {
+    console.log(`[gt-enrichment] Rejected insert for "${item.candidate_name}": tower_verdict is ${JSON.stringify(item.tower_verdict)} (must be PASS)`);
+    return { ok: false, reason: 'tower_verdict must be PASS' };
+  }
+
+  if (isJunkCandidateName(item.candidate_name)) {
+    console.log(`[gt-enrichment] Rejected insert for "${item.candidate_name}": name matches junk pattern`);
+    return { ok: false, reason: 'candidate_name matches junk/test pattern' };
+  }
+
+  const client = ensureSupabaseClient();
+
+  const { data: existing, error: dupError } = await client
+    .from('gt_enrichment_queue')
+    .select('id')
+    .eq('query_id', item.query_id)
+    .ilike('candidate_name', item.candidate_name)
+    .limit(1);
+
+  if (dupError) {
+    console.error('[gt-enrichment] dedup check error:', dupError.message);
+  } else if (existing && existing.length > 0) {
+    console.log(`[gt-enrichment] Rejected insert for "${item.candidate_name}" (query_id=${item.query_id}): duplicate already exists`);
+    return { ok: false, reason: 'duplicate: candidate already queued for this query' };
+  }
+
+  const { data: gtRows, error: gtError } = await client
+    .from('ground_truth_records')
+    .select('true_universe')
+    .eq('query_id', item.query_id)
+    .limit(1);
+
+  if (!gtError && gtRows && gtRows.length > 0) {
+    const trueUniverse: string[] = Array.isArray(gtRows[0].true_universe) ? gtRows[0].true_universe : [];
+    const nameLower = item.candidate_name.toLowerCase().trim();
+    if (trueUniverse.some((n: string) => n.toLowerCase().trim() === nameLower)) {
+      console.log(`[gt-enrichment] Skipped insert for "${item.candidate_name}" (query_id=${item.query_id}): already in true_universe`);
+      return { ok: false, reason: 'already in true_universe' };
+    }
+  }
+
+  const row: Record<string, unknown> = {
+    query_id: item.query_id,
+    run_id: item.run_id,
+    candidate_name: item.candidate_name,
+    candidate_location: item.candidate_location ?? null,
+    constraints_to_verify: item.constraints_to_verify ?? null,
+    tower_verdict: item.tower_verdict,
+    tower_evidence: item.tower_evidence ?? null,
+    status: 'pending',
+    created_at: new Date().toISOString(),
+  };
+  if (item.id) row.id = item.id;
+
+  const { error } = await client.from('gt_enrichment_queue').insert(row);
+  if (error) {
+    console.error(`[gt-enrichment] Insert error for "${item.candidate_name}":`, error.message);
+    return { ok: false, reason: error.message };
+  }
+
+  console.log(`[gt-enrichment] Queued "${item.candidate_name}" for enrichment (run_id=${item.run_id}, query_id=${item.query_id})`);
+  return { ok: true };
+}
+
+export async function runGtEnrichmentQueueCleanup(): Promise<void> {
+  if (!isSupabaseConfigured()) return;
+  const client = ensureSupabaseClient();
+
+  const junkNames = ['Drizzle Workspace Test', 'Test Pub'];
+  const { error: delError, count: delCount } = await client
+    .from('gt_enrichment_queue')
+    .delete()
+    .in('candidate_name', junkNames);
+
+  if (delError) {
+    console.warn('[gt-enrichment] Cleanup: delete junk rows error:', delError.message);
+  } else {
+    if ((delCount ?? 0) > 0) {
+      console.log(`[gt-enrichment] Cleanup: deleted ${delCount} junk test rows`);
+    }
+  }
+
+  const { error: updError, count: updCount } = await client
+    .from('gt_enrichment_queue')
+    .update({ status: 'skipped_no_tower_pass' })
+    .is('tower_verdict', null)
+    .eq('status', 'pending');
+
+  if (updError) {
+    console.warn('[gt-enrichment] Cleanup: mark null-tower rows error:', updError.message);
+  } else {
+    if ((updCount ?? 0) > 0) {
+      console.log(`[gt-enrichment] Cleanup: marked ${updCount} null-tower-verdict pending rows as skipped_no_tower_pass`);
+    }
+  }
+
+  console.log('[gt-enrichment] Startup queue cleanup complete');
 }

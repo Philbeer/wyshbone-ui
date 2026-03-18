@@ -12,20 +12,35 @@ import {
 import { 
   RefreshCw, Clock, CheckCircle2, XCircle, Loader2, AlertTriangle, 
   MessageSquare, Route, FileSearch, Wrench, ListChecks, Play, ChevronDown, ChevronUp,
-  Zap, Brain, Send, Sparkles, Film, Eye, Package, GitBranch
+  Zap, Brain, Send, Sparkles, Eye, Package, GitBranch, Globe
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUser } from "@/contexts/UserContext";
 import { usePlan } from "@/contexts/PlanContext";
+import UserResultsView from "@/components/results/UserResultsView";
+import type { DeliverySummary } from "@/components/results/UserResultsView";
+import { FactoryStateView, FactoryDecisionView, RunConfigurationView } from "@/components/results/FactoryTimelineView";
+import FactoryTimelineView from "@/components/results/FactoryTimelineView";
+import {
+  ConstraintsExtractedView,
+  ConstraintCapabilityCheckView,
+  VerificationSummaryView,
+  VerificationEvidenceView,
+  LeadVerificationView,
+} from "@/components/results/CvlArtefactViews";
+import { useToast } from "@/hooks/use-toast";
+import { resolveAuthoritativeTowerVerdict } from "@/utils/towerVerdictResolver";
 
 const IS_DEV = import.meta.env.DEV;
 
-const MIN_VISIBLE_RUN_MS = 6000;
+const MIN_VISIBLE_RUN_MS = 500;
 const POST_TERMINAL_HOLD_MS = 60000;
+const POST_TERMINAL_CATCHUP_MS = 8000;
+const POST_TERMINAL_POLL_MS = 2000;
 
-const THINKING_MS = 250;
-const WORKING_MS = 250;
-const EVENT_GAP_MS = 150;
+const THINKING_MS = 0;
+const WORKING_MS = 0;
+const EVENT_GAP_MS = 0;
 const DEMO_THINKING_MS = 400;
 const DEMO_WORKING_MS = 400;
 const DEMO_EVENT_GAP_MS = 250;
@@ -411,19 +426,27 @@ function TowerVerdictBadge({ verdict, score }: { verdict: string; score?: number
   const config: Record<string, { bg: string; text: string; label: string }> = {
     accept: { bg: 'bg-green-100 dark:bg-green-900/30', text: 'text-green-700 dark:text-green-300', label: 'Accepted' },
     continue: { bg: 'bg-green-100 dark:bg-green-900/30', text: 'text-green-700 dark:text-green-300', label: 'Accepted' },
+    pass: { bg: 'bg-green-100 dark:bg-green-900/30', text: 'text-green-700 dark:text-green-300', label: 'Passed' },
     revise: { bg: 'bg-amber-100 dark:bg-amber-900/30', text: 'text-amber-700 dark:text-amber-300', label: 'Revise' },
     change_plan: { bg: 'bg-amber-100 dark:bg-amber-900/30', text: 'text-amber-700 dark:text-amber-300', label: 'Plan Changed' },
     retry: { bg: 'bg-amber-100 dark:bg-amber-900/30', text: 'text-amber-700 dark:text-amber-300', label: 'Retrying' },
     abandon: { bg: 'bg-red-100 dark:bg-red-900/30', text: 'text-red-700 dark:text-red-300', label: 'Abandoned' },
     stop: { bg: 'bg-red-100 dark:bg-red-900/30', text: 'text-red-700 dark:text-red-300', label: 'Stopped' },
+    fail: { bg: 'bg-red-100 dark:bg-red-900/30', text: 'text-red-700 dark:text-red-300', label: 'Failed' },
+    error: { bg: 'bg-red-100 dark:bg-red-900/30', text: 'text-red-700 dark:text-red-300', label: 'Error' },
   };
   const v = verdict.toLowerCase();
-  const c = config[v] || { bg: 'bg-gray-100 dark:bg-gray-800/50', text: 'text-gray-700 dark:text-gray-300', label: verdict };
+  const isMixed = v.startsWith('mixed');
+  const baseVerdict = v.split(/[\s(]/)[0];
+  const c = isMixed
+    ? { bg: 'bg-amber-100 dark:bg-amber-900/30', text: 'text-amber-700 dark:text-amber-300', label: verdict }
+    : (config[v] || config[baseVerdict] || { bg: 'bg-gray-100 dark:bg-gray-800/50', text: 'text-gray-700 dark:text-gray-300', label: verdict });
+  const displayLabel = config[v] ? c.label : verdict;
 
   return (
     <div className={cn("inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold", c.bg, c.text)}>
       <Brain className="h-3.5 w-3.5" />
-      <span>Tower: {c.label}</span>
+      <span>Tower: {displayLabel}</span>
       {score != null && (
         <span className="ml-1 font-mono text-[10px] opacity-80">({Math.round(score * 100)}%)</span>
       )}
@@ -475,7 +498,7 @@ function RunSummaryView({ payload }: { payload: any }) {
           {confidence != null && (
             <div className="flex-1 rounded-lg border bg-muted/30 p-3 text-center">
               <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Confidence</p>
-              <p className="text-2xl font-bold text-foreground mt-0.5">{typeof confidence === 'number' && confidence <= 1 ? `${Math.round(confidence * 100)}%` : confidence}</p>
+              <p className="text-2xl font-bold text-foreground mt-0.5">{typeof confidence === 'number' ? `${confidence > 1 ? Math.round(confidence) : Math.round(confidence * 100)}%` : confidence}</p>
             </div>
           )}
         </div>
@@ -576,6 +599,122 @@ function PlanUpdateView({ payload }: { payload: any }) {
   );
 }
 
+function PlanArtefactView({ payload }: { payload: any }) {
+  const parsed = parsePayload(payload);
+  const version = parsed?.version ?? parsed?.plan_version ?? 1;
+  const title = parsed?.title ?? `Plan v${version}`;
+  const goal = parsed?.original_user_goal ?? parsed?.user_goal ?? parsed?.goal ?? '';
+  const steps = parsed?.steps ?? parsed?.plan_steps ?? parsed?.actions ?? [];
+  const constraints = parsed?.constraints ?? [];
+  const assumptions = parsed?.assumptions ?? [];
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2">
+        <span className={cn(
+          "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-bold",
+          "bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300"
+        )}>
+          <ListChecks className="h-4 w-4" />
+          {title}
+        </span>
+      </div>
+
+      {goal && (
+        <div className="rounded-lg border border-blue-200 dark:border-blue-800/50 bg-blue-50/50 dark:bg-blue-900/10 p-3">
+          <p className="text-[10px] uppercase tracking-wide text-blue-600 dark:text-blue-400 font-medium mb-1">Original User Goal</p>
+          <p className="text-sm text-foreground font-medium leading-relaxed">{goal}</p>
+        </div>
+      )}
+
+      {Array.isArray(steps) && steps.length > 0 && (
+        <div>
+          <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium mb-2">
+            Steps ({steps.length})
+          </p>
+          <div className="space-y-2">
+            {steps.map((step: any, i: number) => {
+              const tool = step.tool ?? step.action ?? step.type ?? '';
+              const args = step.args ?? step.parameters ?? step.params ?? step.input ?? {};
+              const desc = step.description ?? step.label ?? step.summary ?? '';
+              const argEntries = typeof args === 'object' && args !== null ? Object.entries(args) : [];
+
+              return (
+                <div key={i} className="rounded-lg border bg-card p-3">
+                  <div className="flex items-start gap-2">
+                    <span className="flex-shrink-0 mt-0.5 w-5 h-5 rounded-full bg-primary/10 text-primary text-[10px] font-bold flex items-center justify-center">
+                      {i + 1}
+                    </span>
+                    <div className="flex-1 min-w-0 space-y-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {tool && (
+                          <span className="text-xs font-mono bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300 px-1.5 py-0.5 rounded font-semibold">
+                            {tool}
+                          </span>
+                        )}
+                        {desc && (
+                          <span className="text-xs text-muted-foreground">{desc}</span>
+                        )}
+                      </div>
+                      {argEntries.length > 0 && (
+                        <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1">
+                          {argEntries.map(([k, v]) => (
+                            <span key={k} className="text-[11px] text-foreground/80">
+                              <span className="text-muted-foreground font-medium">{k}:</span>{' '}
+                              <span className="font-mono">{typeof v === 'string' ? v : JSON.stringify(v)}</span>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      {typeof step === 'string' && (
+                        <p className="text-xs text-foreground/80">{step}</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {Array.isArray(constraints) && constraints.length > 0 && (
+        <div>
+          <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium mb-1.5">Constraints</p>
+          <ul className="space-y-1">
+            {constraints.map((c: any, i: number) => (
+              <li key={i} className="flex items-start gap-2 text-xs text-foreground/80">
+                <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0 text-amber-500" />
+                <span>{typeof c === 'string' ? c : c.description || c.text || JSON.stringify(c)}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {Array.isArray(assumptions) && assumptions.length > 0 && (
+        <div>
+          <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium mb-1.5">Assumptions</p>
+          <ul className="space-y-1">
+            {assumptions.map((a: any, i: number) => (
+              <li key={i} className="flex items-start gap-2 text-xs text-foreground/80">
+                <MessageSquare className="h-3 w-3 mt-0.5 shrink-0 text-blue-500" />
+                <span>{typeof a === 'string' ? a : a.description || a.text || JSON.stringify(a)}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {!goal && (!Array.isArray(steps) || steps.length === 0) && (!Array.isArray(constraints) || constraints.length === 0) && (!Array.isArray(assumptions) || assumptions.length === 0) && (
+        <pre className="text-xs bg-muted/50 rounded p-3 overflow-x-auto max-h-96 whitespace-pre-wrap font-mono">
+          {JSON.stringify(parsed, null, 2)}
+        </pre>
+      )}
+    </div>
+  );
+}
+
 function TowerJudgementView({ payload }: { payload: any }) {
   const parsed = parsePayload(payload);
   const verdict = parsed?.verdict ?? parsed?.decision ?? '';
@@ -627,6 +766,474 @@ function TowerJudgementView({ payload }: { payload: any }) {
   );
 }
 
+function DeliverySummaryView({ payload }: { payload: any }) {
+  const parsed = parsePayload(payload);
+  const exactMatches: Lead[] = Array.isArray(parsed?.exact_matches) ? parsed.exact_matches : [];
+  const closestMatches: Lead[] = Array.isArray(parsed?.closest_matches) ? parsed.closest_matches : [];
+  const targetCount: number | null = parsed?.target_count ?? parsed?.requested ?? null;
+  const deliveredCount: number | null = parsed?.delivered_count ?? null;
+  const shortfall = (targetCount != null && deliveredCount != null) ? Math.max(0, targetCount - deliveredCount) : null;
+  const suggestedNextQuestion: string | null = parsed?.suggested_next_question ?? null;
+
+  const renderLeadRow = (lead: Lead, i: number) => {
+    const loc = lead.location || lead.postcode || lead.address || lead.city || '-';
+    return (
+      <tr key={i} className="hover:bg-muted/20">
+        <td className="px-2 py-1.5 font-medium">{lead.name || lead.business_name || lead.title || '-'}</td>
+        <td className="px-2 py-1.5 text-muted-foreground">{loc}</td>
+        <td className="px-2 py-1.5 text-muted-foreground font-mono">{lead.phone || lead.phone_number || '-'}</td>
+        <td className="px-2 py-1.5">
+          {(lead.website || lead.url) ? (
+            <a
+              href={lead.website || lead.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-500 hover:underline truncate block max-w-[180px]"
+            >
+              {(lead.website || lead.url || '').replace(/^https?:\/\/(www\.)?/, '')}
+            </a>
+          ) : '-'}
+        </td>
+        <td className="px-2 py-1.5 text-center">
+          {lead.score != null ? (
+            <span className="inline-block bg-primary/10 text-primary rounded px-1.5 py-0.5 font-mono text-[10px]">
+              {lead.score}
+            </span>
+          ) : '-'}
+        </td>
+      </tr>
+    );
+  };
+
+  const renderTable = (leads: Lead[]) => (
+    <div className="overflow-x-auto rounded border max-h-64 overflow-y-auto">
+      <table className="w-full text-xs">
+        <thead className="bg-muted/60 sticky top-0">
+          <tr>
+            <th className="text-left px-2 py-1.5 font-medium">Name</th>
+            <th className="text-left px-2 py-1.5 font-medium">Location</th>
+            <th className="text-left px-2 py-1.5 font-medium">Phone</th>
+            <th className="text-left px-2 py-1.5 font-medium">Website</th>
+            <th className="text-left px-2 py-1.5 font-medium">Score</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y">
+          {leads.map(renderLeadRow)}
+        </tbody>
+      </table>
+    </div>
+  );
+
+  return (
+    <div className="space-y-4">
+      {(targetCount != null || deliveredCount != null) && (
+        <div className="flex gap-4">
+          {targetCount != null && (
+            <div className="flex-1 rounded-lg border bg-muted/30 p-3 text-center">
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Target (system)</p>
+              <p className="text-2xl font-bold text-foreground mt-0.5">{targetCount}</p>
+            </div>
+          )}
+          {deliveredCount != null && (
+            <div className="flex-1 rounded-lg border bg-muted/30 p-3 text-center">
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Delivered</p>
+              <p className={cn("text-2xl font-bold mt-0.5", shortfall === 0 || shortfall === null ? "text-green-600 dark:text-green-400" : "text-amber-600 dark:text-amber-400")}>{deliveredCount}</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {shortfall != null && shortfall > 0 && (
+        <div className="rounded-lg border border-amber-300 dark:border-amber-700/60 bg-amber-50/60 dark:bg-amber-900/15 p-3 flex items-start gap-2">
+          <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
+          <div>
+            <p className="text-sm font-medium text-amber-800 dark:text-amber-300">
+              Shortfall: {shortfall} of {targetCount} not delivered
+            </p>
+            <p className="text-xs text-amber-700/80 dark:text-amber-400/70 mt-0.5">
+              The search could not find enough results matching your criteria.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {exactMatches.length > 0 && (
+        <div>
+          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1.5">
+            Exact matches ({exactMatches.length})
+          </p>
+          {renderTable(exactMatches)}
+        </div>
+      )}
+
+      {closestMatches.length > 0 && (
+        <div>
+          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1.5">
+            Closest matches ({closestMatches.length})
+          </p>
+          {renderTable(closestMatches)}
+        </div>
+      )}
+
+      {exactMatches.length === 0 && closestMatches.length === 0 && (
+        <div className="text-sm text-muted-foreground py-6 text-center">
+          <p className="font-medium">No matches found</p>
+          <p className="text-xs mt-1">This delivery produced no matching results.</p>
+        </div>
+      )}
+
+      {suggestedNextQuestion && (
+        <div className="rounded-lg border border-blue-200 dark:border-blue-800/50 bg-blue-50/50 dark:bg-blue-900/10 p-3">
+          <p className="text-[10px] uppercase tracking-wide text-blue-600 dark:text-blue-400 font-medium mb-1">Suggested next question</p>
+          <p className="text-sm text-foreground/90 leading-relaxed italic">"{suggestedNextQuestion}"</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function WebSearchResultsView({ payload }: { payload: any }) {
+  const parsed = parsePayload(payload);
+  const results: any[] = Array.isArray(parsed)
+    ? parsed
+    : Array.isArray(parsed?.results)
+      ? parsed.results
+      : Array.isArray(parsed?.items)
+        ? parsed.items
+        : [];
+
+  if (results.length === 0) {
+    return <p className="text-sm text-muted-foreground py-4 text-center">Not available</p>;
+  }
+
+  return (
+    <div className="space-y-2 max-h-96 overflow-y-auto">
+      {results.map((r, i) => (
+        <div key={i} className="rounded border p-2.5 space-y-1">
+          <div className="flex items-start gap-2">
+            <Globe className="h-3.5 w-3.5 text-blue-500 mt-0.5 shrink-0" />
+            <div className="min-w-0 flex-1">
+              {(r.url || r.link) ? (
+                <a
+                  href={r.url || r.link}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs font-medium text-blue-600 dark:text-blue-400 hover:underline leading-tight block"
+                >
+                  {r.title || r.url || r.link}
+                </a>
+              ) : (
+                <p className="text-xs font-medium text-foreground leading-tight">{r.title || 'Untitled'}</p>
+              )}
+              {r.snippet && (
+                <p className="text-[11px] text-muted-foreground leading-relaxed mt-0.5">{r.snippet}</p>
+              )}
+              {r.description && !r.snippet && (
+                <p className="text-[11px] text-muted-foreground leading-relaxed mt-0.5">{r.description}</p>
+              )}
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function WebVisitPageCard({ page }: { page: any }) {
+  const [expanded, setExpanded] = useState(false);
+  const content = page.content || page.text || page.body || page.extracted_text || '';
+  const hasContent = content.length > 0;
+
+  return (
+    <div className="rounded border overflow-hidden">
+      <div className="flex items-center gap-2 p-2.5 bg-muted/30">
+        <FileSearch className="h-3.5 w-3.5 text-indigo-500 shrink-0" />
+        <div className="min-w-0 flex-1">
+          {(page.url || page.link) ? (
+            <a
+              href={page.url || page.link}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs font-medium text-blue-600 dark:text-blue-400 hover:underline truncate block"
+            >
+              {page.title || (page.url || page.link || '').replace(/^https?:\/\/(www\.)?/, '').slice(0, 60)}
+            </a>
+          ) : (
+            <p className="text-xs font-medium text-foreground">{page.title || 'Page visit'}</p>
+          )}
+          {page.status_code && (
+            <span className={cn(
+              "inline-block text-[10px] font-mono px-1 rounded mt-0.5",
+              page.status_code >= 200 && page.status_code < 300
+                ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300"
+                : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300"
+            )}>
+              {page.status_code}
+            </span>
+          )}
+        </div>
+        {hasContent && (
+          <button
+            onClick={() => setExpanded(!expanded)}
+            className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-0.5"
+          >
+            {expanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+          </button>
+        )}
+      </div>
+      {expanded && hasContent && (
+        <div className="border-t p-2.5">
+          <pre className="text-[11px] text-muted-foreground whitespace-pre-wrap max-h-48 overflow-y-auto font-mono leading-relaxed">
+            {content.slice(0, 3000)}{content.length > 3000 ? '\n\n… truncated' : ''}
+          </pre>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function WebVisitPagesView({ payload }: { payload: any }) {
+  const parsed = parsePayload(payload);
+  const pages: any[] = Array.isArray(parsed)
+    ? parsed
+    : Array.isArray(parsed?.pages)
+      ? parsed.pages
+      : Array.isArray(parsed?.visits)
+        ? parsed.visits
+        : parsed?.url ? [parsed] : [];
+
+  if (pages.length === 0) {
+    return <p className="text-sm text-muted-foreground py-4 text-center">Not available</p>;
+  }
+
+  return (
+    <div className="space-y-2 max-h-96 overflow-y-auto">
+      {pages.map((page, i) => <WebVisitPageCard key={i} page={page} />)}
+    </div>
+  );
+}
+
+function ContactExtractView({ payload }: { payload: any }) {
+  const parsed = parsePayload(payload);
+  const contacts: any[] = Array.isArray(parsed)
+    ? parsed
+    : Array.isArray(parsed?.contacts)
+      ? parsed.contacts
+      : Array.isArray(parsed?.results)
+        ? parsed.results
+        : parsed?.email || parsed?.name ? [parsed] : [];
+
+  if (contacts.length === 0) {
+    return <p className="text-sm text-muted-foreground py-4 text-center">Not available</p>;
+  }
+
+  return (
+    <div className="overflow-x-auto rounded border max-h-96 overflow-y-auto">
+      <table className="w-full text-xs">
+        <thead className="bg-muted/60 sticky top-0">
+          <tr>
+            <th className="text-left px-2 py-1.5 font-medium">Name</th>
+            <th className="text-left px-2 py-1.5 font-medium">Email</th>
+            <th className="text-left px-2 py-1.5 font-medium">Role</th>
+            <th className="text-left px-2 py-1.5 font-medium">Source</th>
+            <th className="text-left px-2 py-1.5 font-medium">Confidence</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y">
+          {contacts.map((c, i) => (
+            <tr key={i} className="hover:bg-muted/20">
+              <td className="px-2 py-1.5 font-medium">{c.name || c.full_name || c.first_name ? `${c.first_name || ''} ${c.last_name || ''}`.trim() : '-'}</td>
+              <td className="px-2 py-1.5 text-muted-foreground font-mono text-[11px]">{c.email || c.email_address || '-'}</td>
+              <td className="px-2 py-1.5 text-muted-foreground">{c.role || c.title || c.position || '-'}</td>
+              <td className="px-2 py-1.5 text-muted-foreground">{c.source || c.provider || '-'}</td>
+              <td className="px-2 py-1.5 text-center">
+                {(c.confidence != null || c.score != null) ? (
+                  <span className={cn(
+                    "inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold",
+                    (c.confidence === 'high' || (c.score && c.score >= 0.8))
+                      ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300"
+                      : (c.confidence === 'low' || (c.score && c.score < 0.5))
+                        ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300"
+                        : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
+                  )}>
+                    {c.confidence || (c.score != null ? `${Math.round(c.score * 100)}%` : '-')}
+                  </span>
+                ) : '-'}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function LeadPackCard({ lead }: { lead: any }) {
+  const [expanded, setExpanded] = useState(false);
+  const name = lead.name || lead.business_name || lead.title || 'Unknown';
+  const loc = lead.location || lead.address || lead.city || lead.postcode || null;
+  const contacts: any[] = Array.isArray(lead.contacts) ? lead.contacts : [];
+  const notes = lead.notes || lead.summary || lead.research_summary || null;
+  const hasDetail = contacts.length > 0 || notes || lead.website || lead.phone;
+
+  return (
+    <div className="rounded border overflow-hidden">
+      <button
+        onClick={() => hasDetail && setExpanded(!expanded)}
+        className={cn(
+          "w-full flex items-center gap-2 p-2.5 text-left",
+          hasDetail ? "hover:bg-muted/20 cursor-pointer" : "cursor-default"
+        )}
+      >
+        <Package className="h-3.5 w-3.5 text-primary shrink-0" />
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-medium text-foreground">{name}</p>
+          {loc && <p className="text-[11px] text-muted-foreground">{loc}</p>}
+        </div>
+        {lead.score != null && (
+          <span className="inline-block bg-primary/10 text-primary rounded px-1.5 py-0.5 font-mono text-[10px] shrink-0">
+            {lead.score}
+          </span>
+        )}
+        {hasDetail && (
+          expanded ? <ChevronUp className="h-3 w-3 text-muted-foreground shrink-0" /> : <ChevronDown className="h-3 w-3 text-muted-foreground shrink-0" />
+        )}
+      </button>
+      {expanded && (
+        <div className="border-t p-2.5 space-y-2 bg-muted/10">
+          {(lead.phone || lead.phone_number) && (
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <span className="font-medium">Phone:</span>
+              <span className="font-mono">{lead.phone || lead.phone_number}</span>
+            </div>
+          )}
+          {(lead.website || lead.url) && (
+            <div className="flex items-center gap-1.5 text-xs">
+              <span className="font-medium text-muted-foreground">Website:</span>
+              <a href={lead.website || lead.url} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline truncate">
+                {(lead.website || lead.url || '').replace(/^https?:\/\/(www\.)?/, '').slice(0, 50)}
+              </a>
+            </div>
+          )}
+          {lead.email && (
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <span className="font-medium">Email:</span>
+              <span className="font-mono text-[11px]">{lead.email}</span>
+            </div>
+          )}
+          {contacts.length > 0 && (
+            <div>
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium mb-1">Contacts ({contacts.length})</p>
+              <div className="rounded border divide-y">
+                {contacts.map((c: any, ci: number) => (
+                  <div key={ci} className="px-2 py-1.5 text-xs flex items-center gap-3">
+                    <span className="font-medium">{c.name || c.full_name || '-'}</span>
+                    {c.email && <span className="font-mono text-[11px] text-muted-foreground">{c.email}</span>}
+                    {(c.role || c.title) && <span className="text-muted-foreground">{c.role || c.title}</span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {notes && (
+            <div>
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium mb-1">Notes</p>
+              <p className="text-[11px] text-muted-foreground leading-relaxed">{notes}</p>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LeadPackView({ payload }: { payload: any }) {
+  const parsed = parsePayload(payload);
+  const leads: any[] = Array.isArray(parsed)
+    ? parsed
+    : Array.isArray(parsed?.leads)
+      ? parsed.leads
+      : Array.isArray(parsed?.pack)
+        ? parsed.pack
+        : parsed?.name || parsed?.business_name ? [parsed] : [];
+
+  if (leads.length === 0) {
+    return <p className="text-sm text-muted-foreground py-4 text-center">Not available</p>;
+  }
+
+  return (
+    <div className="space-y-2 max-h-96 overflow-y-auto">
+      {leads.map((lead, i) => <LeadPackCard key={i} lead={lead} />)}
+    </div>
+  );
+}
+
+function AskLeadQuestionResultView({ payload }: { payload: any }) {
+  const parsed = parsePayload(payload);
+
+  const question = parsed?.question || parsed?.query || null;
+  const answer = parsed?.answer || parsed?.result || parsed?.response || null;
+  const leadName = parsed?.lead_name || parsed?.business_name || parsed?.name || null;
+  const sources: any[] = Array.isArray(parsed?.sources) ? parsed.sources : [];
+  const confidence = parsed?.confidence || parsed?.score || null;
+
+  if (!answer && !question) {
+    return <p className="text-sm text-muted-foreground py-4 text-center">Not available</p>;
+  }
+
+  return (
+    <div className="space-y-3">
+      {leadName && (
+        <div className="flex items-center gap-2">
+          <Package className="h-3.5 w-3.5 text-primary shrink-0" />
+          <span className="text-xs font-semibold text-foreground">{leadName}</span>
+          {confidence && (
+            <span className={cn(
+              "inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold",
+              confidence === 'high' ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300"
+                : confidence === 'low' ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300"
+                : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
+            )}>
+              {typeof confidence === 'number' ? `${confidence > 1 ? Math.round(confidence) : Math.round(confidence * 100)}%` : confidence}
+            </span>
+          )}
+        </div>
+      )}
+      {question && (
+        <div className="rounded-lg border border-blue-200 dark:border-blue-800/50 bg-blue-50/50 dark:bg-blue-900/10 p-2.5">
+          <p className="text-[10px] uppercase tracking-wide text-blue-600 dark:text-blue-400 font-medium mb-1">Question</p>
+          <p className="text-xs text-foreground/90 leading-relaxed">{question}</p>
+        </div>
+      )}
+      {answer && (
+        <div className="rounded-lg border bg-muted/20 p-2.5">
+          <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium mb-1">Answer</p>
+          <p className="text-xs text-foreground leading-relaxed whitespace-pre-wrap">{answer}</p>
+        </div>
+      )}
+      {sources.length > 0 && (
+        <div>
+          <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium mb-1">Sources ({sources.length})</p>
+          <div className="space-y-1">
+            {sources.map((s, i) => (
+              <div key={i} className="flex items-start gap-1.5 text-[11px]">
+                <Globe className="h-3 w-3 text-blue-500 mt-0.5 shrink-0" />
+                {(s.url || s.link) ? (
+                  <a href={s.url || s.link} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline truncate">
+                    {s.title || (s.url || s.link || '').replace(/^https?:\/\/(www\.)?/, '').slice(0, 60)}
+                  </a>
+                ) : (
+                  <span className="text-muted-foreground">{s.title || s.text || JSON.stringify(s)}</span>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ArtefactRenderer({ artefact }: { artefact: Artefact }) {
   switch (artefact.type) {
     case 'leads_list':
@@ -643,6 +1250,36 @@ function ArtefactRenderer({ artefact }: { artefact: Artefact }) {
       return <PlanUpdateView payload={artefact.payload_json} />;
     case 'tower_judgement':
       return <TowerJudgementView payload={artefact.payload_json} />;
+    case 'plan':
+      return <PlanArtefactView payload={artefact.payload_json} />;
+    case 'delivery_summary':
+      return <DeliverySummaryView payload={artefact.payload_json} />;
+    case 'factory_state':
+      return <FactoryStateView payload={artefact.payload_json} />;
+    case 'factory_decision':
+      return <FactoryDecisionView payload={artefact.payload_json} />;
+    case 'run_configuration':
+      return <RunConfigurationView payload={artefact.payload_json} />;
+    case 'constraints_extracted':
+      return <ConstraintsExtractedView payload={artefact.payload_json} />;
+    case 'constraint_capability_check':
+      return <ConstraintCapabilityCheckView payload={artefact.payload_json} />;
+    case 'verification_summary':
+      return <VerificationSummaryView payload={artefact.payload_json} />;
+    case 'verification_evidence':
+      return <VerificationEvidenceView payload={artefact.payload_json} />;
+    case 'lead_verification':
+      return <LeadVerificationView payload={artefact.payload_json} />;
+    case 'web_search_results':
+      return <WebSearchResultsView payload={artefact.payload_json} />;
+    case 'web_visit_pages':
+      return <WebVisitPagesView payload={artefact.payload_json} />;
+    case 'contact_extract':
+      return <ContactExtractView payload={artefact.payload_json} />;
+    case 'lead_pack':
+      return <LeadPackView payload={artefact.payload_json} />;
+    case 'ask_lead_question_result':
+      return <AskLeadQuestionResultView payload={artefact.payload_json} />;
     default:
       return (
         <pre className="text-xs bg-muted/50 rounded p-3 overflow-x-auto max-h-96 whitespace-pre-wrap font-mono">
@@ -663,6 +1300,23 @@ const ARTEFACT_LABELS: Record<string, { label: string; icon: string }> = {
   run_summary: { label: 'Run Summary', icon: '📊' },
   plan_update: { label: 'Plan v2', icon: '🔄' },
   tower_judgement: { label: 'Tower Verdict', icon: '🧠' },
+  plan: { label: 'Plan', icon: '📐' },
+  delivery_summary: { label: 'Delivery Summary', icon: '📦' },
+  factory_state: { label: 'Factory State', icon: '🏭' },
+  factory_decision: { label: 'Decision', icon: '⚙️' },
+  factory_timeline: { label: 'Factory Timeline', icon: '🏭' },
+  run_configuration: { label: 'Run Config', icon: '📋' },
+  constraints_extracted: { label: 'Constraints', icon: '🛡️' },
+  constraint_capability_check: { label: 'Capability Check', icon: '🔍' },
+  verification_summary: { label: 'Verification', icon: '✅' },
+  verification_evidence: { label: 'Evidence', icon: '📎' },
+  lead_verification: { label: 'Lead Checks', icon: '🔎' },
+  tower_semantic_judgement: { label: 'Semantic Match', icon: '🎯' },
+  web_search_results: { label: 'Web Search', icon: '🌐' },
+  web_visit_pages: { label: 'Page Visits', icon: '📄' },
+  contact_extract: { label: 'Contacts', icon: '👤' },
+  lead_pack: { label: 'Lead Pack', icon: '📦' },
+  ask_lead_question_result: { label: 'Lead Q&A', icon: '❓' },
 };
 
 interface TowerEvidenceEvent {
@@ -673,7 +1327,7 @@ interface TowerEvidenceEvent {
   details?: Record<string, any>;
 }
 
-function EvidenceSection({ clientRequestId, runId }: { clientRequestId?: string | null; runId?: string | null }) {
+function EvidenceSection({ clientRequestId, runId, preloadedArtefacts }: { clientRequestId?: string | null; runId?: string | null; preloadedArtefacts?: Artefact[] }) {
   const [events, setEvents] = useState<TowerEvidenceEvent[]>([]);
   const [judgementArtefact, setJudgementArtefact] = useState<Artefact | null>(null);
   const [expanded, setExpanded] = useState(false);
@@ -681,39 +1335,75 @@ function EvidenceSection({ clientRequestId, runId }: { clientRequestId?: string 
   useEffect(() => {
     if (!clientRequestId && !runId) return;
 
+    const extractTowerEvents = (data: StreamResponse | null) => {
+      if (!data?.events) return;
+      const towerEvents = data.events.filter(e => {
+        const t = e.type?.toLowerCase() || '';
+        return t.startsWith('tower_') || t === 'judgement_received';
+      });
+      if (towerEvents.length > 0) {
+        setEvents(towerEvents.map(e => ({
+          id: e.id,
+          ts: e.ts,
+          type: e.type,
+          summary: e.summary || humanizeEventType(e.type),
+          details: e.details as Record<string, any>,
+        })));
+      }
+      return towerEvents.length;
+    };
+
+    if (preloadedArtefacts && preloadedArtefacts.length > 0) {
+      const tjs = preloadedArtefacts.filter(r => r.type === 'tower_judgement');
+      if (tjs.length > 0) {
+        const resolved = resolveAuthoritativeTowerVerdict(preloadedArtefacts);
+        const finalDelivery = tjs.filter(r => {
+          let p = r.payload_json;
+          if (typeof p === 'string') { try { p = JSON.parse(p); } catch { return false; } }
+          return p?.phase === 'final_delivery';
+        });
+        const authoritative = finalDelivery.length > 0 ? finalDelivery[finalDelivery.length - 1] : tjs[tjs.length - 1];
+        let authP = authoritative.payload_json;
+        if (typeof authP === 'string') { try { authP = JSON.parse(authP); } catch { authP = {}; } }
+        const resolvedPayload = { ...(typeof authP === 'object' ? authP : {}), verdict: resolved.verdict, _towerLabel: resolved.label };
+        setJudgementArtefact({ ...authoritative, payload_json: resolvedPayload });
+      }
+    }
+
     if (clientRequestId) {
       fetch(`/api/afr/stream?client_request_id=${encodeURIComponent(clientRequestId)}`)
         .then(res => res.ok ? res.json() : null)
-        .then((data: StreamResponse | null) => {
-          if (!data?.events) return;
-          const towerEvents = data.events.filter(e => {
-            const t = e.type?.toLowerCase() || '';
-            return t.startsWith('tower_') || t === 'judgement_received';
-          });
-          setEvents(towerEvents.map(e => ({
-            id: e.id,
-            ts: e.ts,
-            type: e.type,
-            summary: e.summary || humanizeEventType(e.type),
-            details: e.details as Record<string, any>,
-          })));
-        })
+        .then(extractTowerEvents)
         .catch(() => {});
     }
 
-    const artefactUrl = runId
-      ? `/api/afr/artefacts?runId=${encodeURIComponent(runId)}`
-      : clientRequestId
-        ? `/api/afr/artefacts?client_request_id=${encodeURIComponent(clientRequestId)}`
-        : null;
-    if (artefactUrl) {
-      fetch(artefactUrl)
-        .then(res => res.ok ? res.json() : [])
-        .then((rows: Artefact[]) => {
-          const tj = rows.find(r => r.type === 'tower_judgement');
-          if (tj) setJudgementArtefact(tj);
-        })
-        .catch(() => {});
+    if (!preloadedArtefacts?.some(r => r.type === 'tower_judgement')) {
+      const artefactUrl = runId
+        ? `/api/afr/artefacts?runId=${encodeURIComponent(runId)}`
+        : clientRequestId
+          ? `/api/afr/artefacts?client_request_id=${encodeURIComponent(clientRequestId)}`
+          : null;
+      if (artefactUrl) {
+        fetch(artefactUrl)
+          .then(res => res.ok ? res.json() : [])
+          .then((rows: Artefact[]) => {
+            const tjs = rows.filter(r => r.type === 'tower_judgement');
+            if (tjs.length > 0) {
+              const resolved = resolveAuthoritativeTowerVerdict(rows);
+              const finalDelivery = tjs.filter(r => {
+                let p = r.payload_json;
+                if (typeof p === 'string') { try { p = JSON.parse(p); } catch { return false; } }
+                return p?.phase === 'final_delivery';
+              });
+              const authoritative = finalDelivery.length > 0 ? finalDelivery[finalDelivery.length - 1] : tjs[tjs.length - 1];
+              let authP = authoritative.payload_json;
+              if (typeof authP === 'string') { try { authP = JSON.parse(authP); } catch { authP = {}; } }
+              const resolvedPayload = { ...(typeof authP === 'object' ? authP : {}), verdict: resolved.verdict, _towerLabel: resolved.label };
+              setJudgementArtefact({ ...authoritative, payload_json: resolvedPayload });
+            }
+          })
+          .catch(() => {});
+      }
     }
   }, [clientRequestId, runId]);
 
@@ -776,18 +1466,83 @@ function EvidenceSection({ clientRequestId, runId }: { clientRequestId?: string 
   );
 }
 
+const FACTORY_TYPES = new Set(['factory_state', 'factory_decision']);
+
+interface BehaviourJudgeRow {
+  run_id: string;
+  outcome: string;
+  confidence: number | null;
+  reason: string | null;
+  tower_verdict: string | null;
+  delivered_count: number | null;
+  requested_count: number | null;
+  created_at: string | null;
+}
+
+function BehaviourJudgeCard({ judge }: { judge: BehaviourJudgeRow }) {
+  const outcome = (judge.outcome || '').toUpperCase();
+  const isPass = outcome === 'PASS';
+  const isFail = outcome !== '' && outcome !== 'UNKNOWN' && !isPass;
+  return (
+    <div className={cn(
+      "rounded-lg border px-3 py-2.5 space-y-1.5",
+      isPass ? "border-green-200 bg-green-50/60 dark:border-green-800/40 dark:bg-green-900/10"
+        : isFail ? "border-red-200 bg-red-50/60 dark:border-red-800/40 dark:bg-red-900/10"
+        : "border-gray-200 bg-gray-50/60 dark:border-gray-700 dark:bg-gray-800/20"
+    )}>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className={cn(
+          "inline-flex items-center px-2 py-0.5 rounded-md text-xs font-bold",
+          isPass ? "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-200"
+            : isFail ? "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200"
+            : "bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300"
+        )}>
+          {outcome || '—'}
+        </span>
+        {judge.confidence != null && (
+          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400">
+            {judge.confidence > 1 ? Math.round(judge.confidence) : Math.round(judge.confidence * 100)}% confidence
+          </span>
+        )}
+        {judge.tower_verdict && (
+          <span className={cn(
+            "inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium",
+            judge.tower_verdict.toLowerCase() === 'accept'
+              ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300"
+              : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
+          )}>
+            Tower: {judge.tower_verdict}
+          </span>
+        )}
+        {(judge.delivered_count != null || judge.requested_count != null) && (
+          <span className="text-[10px] text-muted-foreground font-mono">
+            {judge.delivered_count ?? '?'}{judge.requested_count != null ? `/${judge.requested_count}` : ''} delivered
+          </span>
+        )}
+      </div>
+      {judge.reason && (
+        <p className="text-xs text-foreground/80 leading-relaxed">{judge.reason}</p>
+      )}
+    </div>
+  );
+}
+
 function ResultsModal({ clientRequestId, runId, open, onOpenChange }: { clientRequestId?: string | null; runId?: string | null; open: boolean; onOpenChange: (open: boolean) => void }) {
   const [artefacts, setArtefacts] = useState<Artefact[]>([]);
+  const [allArtefacts, setAllArtefacts] = useState<Artefact[]>([]);
   const [activeTab, setActiveTab] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [behaviourJudge, setBehaviourJudge] = useState<BehaviourJudgeRow | null>(null);
 
   useEffect(() => {
     if (!open || (!runId && !clientRequestId)) return;
     setLoading(true);
     setError(null);
     setArtefacts([]);
+    setAllArtefacts([]);
     setActiveTab('');
+    setBehaviourJudge(null);
 
     const url = runId
       ? `/api/afr/artefacts?runId=${encodeURIComponent(runId)}`
@@ -805,14 +1560,22 @@ function ResultsModal({ clientRequestId, runId, open, onOpenChange }: { clientRe
       .then((rows: Artefact[]) => {
         const uniqueRunIds = Array.from(new Set(rows.map(r => r.run_id)));
         console.log(`[ResultsModal] Got ${rows.length} artefact(s) — types: [${rows.map(r => r.type).join(', ')}] runIds: [${uniqueRunIds.join(', ')}]`);
+        setAllArtefacts(rows);
+
+        const hasFactory = rows.some(r => FACTORY_TYPES.has(r.type));
         const byType = new Map<string, Artefact>();
-        const typeOrder = ['run_summary', 'plan_update', 'tower_judgement', 'deep_research_result', 'leads_list', 'email_drafts', 'plan_result', 'chat_response'];
+        const typeOrder = ['run_configuration', 'plan', 'constraints_extracted', 'constraint_capability_check', 'run_summary', 'plan_update', 'tower_judgement', 'verification_summary', 'verification_evidence', 'lead_verification', 'tower_semantic_judgement', 'web_search_results', 'web_visit_pages', 'contact_extract', 'deep_research_result', 'leads_list', 'lead_pack', 'ask_lead_question_result', 'delivery_summary', 'factory_timeline', 'email_drafts', 'plan_result', 'chat_response'];
 
         for (const row of rows) {
+          if (FACTORY_TYPES.has(row.type)) continue;
           const existing = byType.get(row.type);
           if (!existing || new Date(row.created_at) > new Date(existing.created_at)) {
             byType.set(row.type, row);
           }
+        }
+
+        if (hasFactory) {
+          byType.set('factory_timeline', { id: 'virtual_factory_timeline', run_id: rows[0]?.run_id || '', type: 'factory_timeline', title: 'Factory Timeline', summary: '', payload_json: {}, created_at: new Date().toISOString() } as Artefact);
         }
 
         const sorted = Array.from(byType.values()).sort((a, b) => {
@@ -824,6 +1587,14 @@ function ResultsModal({ clientRequestId, runId, open, onOpenChange }: { clientRe
         setArtefacts(sorted);
         if (sorted.length > 0) {
           setActiveTab(sorted[0].type);
+        }
+
+        const resolvedRunId = runId || rows[0]?.run_id;
+        if (resolvedRunId) {
+          fetch(`/api/afr/behaviour-judge?run_id=${encodeURIComponent(resolvedRunId)}`)
+            .then(r => r.ok ? r.json() : null)
+            .then(data => { if (data) setBehaviourJudge(data as BehaviourJudgeRow); })
+            .catch(() => {});
         }
       })
       .catch(() => setError('Could not load results.'))
@@ -847,7 +1618,9 @@ function ResultsModal({ clientRequestId, runId, open, onOpenChange }: { clientRe
               ? 'No results yet.'
               : loading
                 ? 'Loading results...'
-                : `${artefacts.length} artefact${artefacts.length === 1 ? '' : 's'} from this run`}
+                : allArtefacts.length !== artefacts.length
+                  ? `${allArtefacts.length} artefact${allArtefacts.length === 1 ? '' : 's'} from this run (${artefacts.length} unique type${artefacts.length === 1 ? '' : 's'})`
+                  : `${allArtefacts.length} artefact${allArtefacts.length === 1 ? '' : 's'} from this run`}
           </DialogDescription>
         </DialogHeader>
         {loading && (
@@ -862,7 +1635,8 @@ function ResultsModal({ clientRequestId, runId, open, onOpenChange }: { clientRe
           <div className="text-sm text-muted-foreground py-8 text-center">No results yet.</div>
         )}
         {!loading && !error && artefacts.length > 0 && (() => {
-          const verdictArtefact = artefacts.find(a => a.type === 'tower_judgement');
+          const towerArtefacts = artefacts.filter(a => a.type === 'tower_judgement');
+          const verdictArtefact = towerArtefacts.length > 0 ? towerArtefacts[towerArtefacts.length - 1] : undefined;
           const verdictSource = verdictArtefact || artefacts.find(a => {
             const p = parsePayload(a.payload_json);
             return p?.verdict && (a.type === 'run_summary' || a.type === 'plan_update' || p?.tower_judgement_received);
@@ -881,16 +1655,37 @@ function ResultsModal({ clientRequestId, runId, open, onOpenChange }: { clientRe
           const targetCount = leadsPayload?.target_count ?? leadsPayload?.requested ?? leadsPayload?.requested_count ?? null;
 
           const summaryPayload = artefacts.find(a => a.type === 'run_summary') ? parsePayload(artefacts.find(a => a.type === 'run_summary')!.payload_json) : null;
-          const towerPayload = verdictArtefact ? parsePayload(verdictArtefact.payload_json) : null;
-          const effectiveTarget = targetCount ?? towerPayload?.requested ?? summaryPayload?.requested ?? null;
-          const effectiveDelivered = towerPayload?.delivered ?? summaryPayload?.delivered ?? (hasLeads ? deliveredCount : null);
+          const resolvedTower = resolveAuthoritativeTowerVerdict(artefacts);
+          const finalDeliveryTower = towerArtefacts.filter(a => {
+            const tp = parsePayload(a.payload_json);
+            return tp?.phase === 'final_delivery';
+          });
+          const authoritativeTowerArtefact = finalDeliveryTower.length > 0 ? finalDeliveryTower[finalDeliveryTower.length - 1] : verdictArtefact;
+          let towerPayload = authoritativeTowerArtefact ? parsePayload(authoritativeTowerArtefact.payload_json) : null;
+          if (towerPayload && resolvedTower.verdict) {
+            towerPayload = { ...towerPayload, verdict: resolvedTower.verdict };
+          }
+
+          const cvlConstraints = artefacts.find(a => a.type === 'constraints_extracted');
+          const cvlVerification = artefacts.find(a => a.type === 'verification_summary');
+          const cvlConstraintsParsed = cvlConstraints ? parsePayload(cvlConstraints.payload_json) : null;
+          const cvlVerificationParsed = cvlVerification ? parsePayload(cvlVerification.payload_json) : null;
+          const hasCvl = !!cvlConstraints;
+
+          const effectiveTarget = hasCvl
+            ? (cvlConstraintsParsed?.requested_count_user ?? cvlVerificationParsed?.requested_count_user ?? null)
+            : (targetCount ?? null);
+          const effectiveDelivered = hasCvl
+            ? (cvlVerificationParsed?.verified_exact_count ?? towerPayload?.delivered ?? summaryPayload?.delivered ?? (hasLeads ? deliveredCount : null))
+            : (towerPayload?.delivered ?? summaryPayload?.delivered ?? (hasLeads ? deliveredCount : null));
           
           return (
             <div className="space-y-2 mb-2">
               <div className="flex flex-wrap items-center gap-2">
-                {verdictSource && (() => {
-                  const p = parsePayload(verdictSource.payload_json);
-                  return <TowerVerdictBadge verdict={p.verdict} score={p.score ?? p.confidence} />;
+                {resolvedTower.verdict && (() => {
+                  const displayVerdict = resolvedTower.label || resolvedTower.verdict;
+                  const score = towerPayload?.score ?? towerPayload?.confidence ?? null;
+                  return <TowerVerdictBadge verdict={displayVerdict} score={score} />;
                 })()}
                 <span className={cn(
                   "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold",
@@ -907,12 +1702,12 @@ function ResultsModal({ clientRequestId, runId, open, onOpenChange }: { clientRe
                 <div className="flex items-center gap-3 text-xs">
                   {effectiveTarget != null && (
                     <span className="text-muted-foreground">
-                      Target: <span className="font-semibold text-foreground">{effectiveTarget}</span>
+                      {hasCvl ? 'Requested' : 'Target (system)'}: <span className="font-semibold text-foreground">{effectiveTarget}</span>
                     </span>
                   )}
                   {effectiveDelivered != null && (
                     <span className="text-muted-foreground">
-                      Delivered: <span className={cn("font-semibold", effectiveDelivered >= (effectiveTarget ?? 0) ? "text-green-600 dark:text-green-400" : "text-amber-600 dark:text-amber-400")}>{effectiveDelivered}</span>
+                      {hasCvl ? 'Verified' : 'Delivered'}: <span className={cn("font-semibold", effectiveDelivered >= (effectiveTarget ?? 0) ? "text-green-600 dark:text-green-400" : "text-amber-600 dark:text-amber-400")}>{effectiveDelivered}</span>
                     </span>
                   )}
                   {effectiveTarget != null && effectiveDelivered != null && (
@@ -938,7 +1733,10 @@ function ResultsModal({ clientRequestId, runId, open, onOpenChange }: { clientRe
             </div>
           );
         })()}
-        {!loading && !error && artefacts.length > 0 && !artefacts.some(a => a.type === 'leads_list') && !artefacts.some(a => a.type === 'deep_research_result') && !artefacts.some(a => a.type === 'run_summary') && !artefacts.some(a => a.type === 'plan_update') && !artefacts.some(a => a.type === 'tower_judgement') && (() => {
+        {behaviourJudge && (
+          <BehaviourJudgeCard judge={behaviourJudge} />
+        )}
+        {!loading && !error && artefacts.length > 0 && !artefacts.some(a => a.type === 'leads_list') && !artefacts.some(a => a.type === 'delivery_summary') && !artefacts.some(a => a.type === 'deep_research_result') && !artefacts.some(a => a.type === 'run_summary') && !artefacts.some(a => a.type === 'plan_update') && !artefacts.some(a => a.type === 'tower_judgement') && (() => {
           const delegationArtefact = artefacts.find(a => {
             const p = parsePayload(a.payload_json);
             return p?.delegated_to_supervisor === true;
@@ -984,10 +1782,13 @@ function ResultsModal({ clientRequestId, runId, open, onOpenChange }: { clientRe
                 {hasTabs && activeArtefact.summary && (
                   <p className="text-xs text-muted-foreground">{activeArtefact.summary}</p>
                 )}
-                <ArtefactRenderer artefact={activeArtefact} />
+                {activeTab === 'factory_timeline'
+                  ? <FactoryTimelineView artefacts={allArtefacts.filter(a => FACTORY_TYPES.has(a.type) || a.type === 'tower_judgement')} />
+                  : <ArtefactRenderer artefact={activeArtefact} />
+                }
               </>
             )}
-            <EvidenceSection clientRequestId={clientRequestId} runId={runId} />
+            <EvidenceSection clientRequestId={clientRequestId} runId={runId} preloadedArtefacts={allArtefacts} />
           </div>
         )}
       </DialogContent>
@@ -995,8 +1796,201 @@ function ResultsModal({ clientRequestId, runId, open, onOpenChange }: { clientRe
   );
 }
 
-function SequenceStatusRow({ status, clientRequestId, runId, towerVerdict, towerMissing, chatMode }: { status: "completed" | "failed" | "stopped" | "awaiting_judgement" | "replanning"; clientRequestId?: string | null; runId?: string | null; towerVerdict?: string | null; towerMissing?: boolean; chatMode?: boolean }) {
+const FACTORY_ARTEFACT_TYPES = new Set(['run_configuration', 'factory_state', 'factory_decision', 'tower_judgement']);
+
+function UserResultsModal({ clientRequestId, runId, open, onOpenChange }: { clientRequestId?: string | null; runId?: string | null; open: boolean; onOpenChange: (open: boolean) => void }) {
+  const [deliverySummary, setDeliverySummary] = useState<DeliverySummary | null>(null);
+  const [narrative, setNarrative] = useState<string | null>(null);
+  const [tldr, setTldr] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [cvlConstraints, setCvlConstraints] = useState<any>(null);
+  const [cvlVerification, setCvlVerification] = useState<any>(null);
+  const [cvlEvidence, setCvlEvidence] = useState<any>(null);
+  const [ruleUpdates, setRuleUpdates] = useState<any[]>([]);
+  const [resolvedRunId, setResolvedRunId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    if (!clientRequestId && !runId) {
+      setError("No narrative available for this run yet.");
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    setDeliverySummary(null);
+    setNarrative(null);
+    setTldr(null);
+    setCvlConstraints(null);
+    setCvlVerification(null);
+    setCvlEvidence(null);
+    setRuleUpdates([]);
+    setResolvedRunId(runId || null);
+
+    const fullUrl = runId
+      ? `/api/afr/artefacts?runId=${encodeURIComponent(runId)}`
+      : `/api/afr/artefacts?client_request_id=${encodeURIComponent(clientRequestId!)}`;
+
+    const fetchBundle = async (rid: string) => {
+      try {
+        const res = await fetch(`/api/afr/runs/${encodeURIComponent(rid)}`);
+        if (res.ok) {
+          const bundle = await res.json();
+          if (Array.isArray(bundle.related_rule_updates)) {
+            setRuleUpdates(bundle.related_rule_updates);
+          }
+        }
+      } catch {}
+    };
+
+    fetch(fullUrl)
+      .then(res => {
+        if (!res.ok) throw new Error("Failed to fetch results");
+        return res.json();
+      })
+      .then(async (rows: Artefact[]) => {
+        const constraintsArt = rows.find(r => r.type === "constraints_extracted");
+        const verificationArt = rows.find(r => r.type === "verification_summary");
+        const evidenceArt = rows.find(r => r.type === "verification_evidence");
+        if (constraintsArt) setCvlConstraints(parsePayload(constraintsArt.payload_json));
+        if (verificationArt) setCvlVerification(parsePayload(verificationArt.payload_json));
+        if (evidenceArt) setCvlEvidence(parsePayload(evidenceArt.payload_json));
+
+        const effectiveRunId = runId || (rows.length > 0 ? rows[0].run_id : null);
+        if (effectiveRunId) {
+          setResolvedRunId(effectiveRunId);
+          fetchBundle(effectiveRunId);
+        }
+
+        const narrativeArtefact = rows.find(r => r.type === "run_narrative");
+        if (narrativeArtefact) {
+          const parsed = parsePayload(narrativeArtefact.payload_json);
+          const text = parsed?.full_explanation || parsed?.markdown || parsed?.narrative || (typeof parsed === 'string' ? parsed : null);
+          if (text) {
+            if (parsed?.tldr && typeof parsed.tldr === 'string') {
+              setTldr(parsed.tldr);
+            }
+            setNarrative(text);
+            return;
+          }
+        }
+
+        const dsArtefact = rows.find(r => r.type === "delivery_summary");
+        if (dsArtefact) {
+          const parsed = parsePayload(dsArtefact.payload_json);
+          if (parsed && typeof parsed === "object") {
+            setDeliverySummary(parsed as DeliverySummary);
+            return;
+          }
+        }
+
+        const hasFactory = rows.some(r => FACTORY_ARTEFACT_TYPES.has(r.type));
+        if (hasFactory && runId) {
+          try {
+            const sessionId = localStorage.getItem('wyshbone_sid');
+            const explainRes = await fetch('/api/dev/explain-run', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', ...(sessionId ? { 'x-session-id': sessionId } : {}) },
+              body: JSON.stringify({ runId }),
+            });
+            if (explainRes.ok) {
+              const data = await explainRes.json();
+              if (data.report_markdown) {
+                setNarrative(data.report_markdown);
+                return;
+              }
+            }
+          } catch {}
+        }
+
+        setError("No narrative available for this run yet.");
+      })
+      .catch(() => setError("No narrative available for this run yet."))
+      .finally(() => setLoading(false));
+  }, [open, clientRequestId, runId]);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>{narrative ? "Details" : "Results"}</DialogTitle>
+          <DialogDescription className="sr-only">Run details</DialogDescription>
+        </DialogHeader>
+        {loading && (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          </div>
+        )}
+        {error && !loading && (
+          <p className="text-sm text-muted-foreground py-6 text-center">{error}</p>
+        )}
+        {deliverySummary && !loading && !error && (
+          <UserResultsView deliverySummary={deliverySummary} onClose={() => onOpenChange(false)} constraintsPayload={cvlConstraints} verificationPayload={cvlVerification} evidencePayload={cvlEvidence} ruleUpdates={ruleUpdates} runId={resolvedRunId} />
+        )}
+        {narrative && !loading && !error && (
+          <div className="prose prose-sm dark:prose-invert max-w-none">
+            {tldr && (
+              <div className="bg-muted/50 border border-border rounded-md px-3 py-2.5 mb-4">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">TL;DR</p>
+                <p className="text-sm font-medium text-foreground leading-snug">{tldr}</p>
+              </div>
+            )}
+            {narrative.split('\n').map((line, i) => {
+              if (line.startsWith('## ')) {
+                return <h3 key={i} className="text-sm font-semibold mt-4 mb-1.5">{line.slice(3)}</h3>;
+              }
+              if (!line.trim()) return null;
+              const parts = line.split(/(\*\*[^*]+\*\*)/g);
+              return (
+                <p key={i} className="text-sm text-foreground leading-relaxed mb-1.5">
+                  {parts.map((part, j) =>
+                    part.startsWith('**') && part.endsWith('**')
+                      ? <strong key={j}>{part.slice(2, -2)}</strong>
+                      : part
+                  )}
+                </p>
+              );
+            })}
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function StopActionButtons() {
+  const { toast } = useToast();
+
+  const handleStopAction = (label: string, chatMessage: string) => {
+    toast({ title: "Not wired yet", description: `"${label}" will be available in a future update.` });
+    window.dispatchEvent(new CustomEvent("wyshbone-prefill-chat", { detail: chatMessage }));
+  };
+
+  return (
+    <div className="px-1 pb-2 space-y-2">
+      <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Actions</p>
+      <div className="flex flex-wrap gap-1.5">
+        <Button variant="outline" size="sm" className="h-6 text-xs px-2" onClick={() => handleStopAction("Verify via websites", "Verify these leads by checking their websites directly.")}>
+          Verify via websites
+        </Button>
+        <Button variant="outline" size="sm" className="h-6 text-xs px-2" onClick={() => handleStopAction("Broaden radius", "Broaden the search radius and try again.")}>
+          Broaden radius
+        </Button>
+        <Button variant="outline" size="sm" className="h-6 text-xs px-2" onClick={() => handleStopAction("Relax constraint", "Relax the strictest constraint and try again.")}>
+          Relax constraint
+        </Button>
+        <Button variant="outline" size="sm" className="h-6 text-xs px-2" onClick={() => handleStopAction("Return current results", "Return the results found so far.")}>
+          Return current results
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function SequenceStatusRow({ status, clientRequestId, runId, towerVerdict, towerLabel, towerMissing, chatMode, towerRationale }: { status: "completed" | "failed" | "stopped" | "awaiting_judgement" | "replanning"; clientRequestId?: string | null; runId?: string | null; towerVerdict?: string | null; towerLabel?: string | null; towerMissing?: boolean; chatMode?: boolean; towerRationale?: string | null }) {
   const [showResults, setShowResults] = useState(false);
+  const [showUserResults, setShowUserResults] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [rerunRequested, setRerunRequested] = useState(false);
   const [pollStatus, setPollStatus] = useState<'idle' | 'polling' | 'success' | 'error'>('idle');
@@ -1092,9 +2086,11 @@ function SequenceStatusRow({ status, clientRequestId, runId, towerVerdict, tower
   const config: Record<string, { icon: typeof CheckCircle2; label: string; className: string }> = {
     completed: { 
       icon: CheckCircle2, 
-      label: towerVerdict
-        ? `Sequence complete — Tower: ${towerVerdict.toUpperCase()}`
-        : "Sequence complete", 
+      label: towerLabel
+        ? `Sequence complete — Tower: ${towerLabel}`
+        : towerVerdict
+          ? `Sequence complete — Tower: ${towerVerdict.toUpperCase()}`
+          : "Sequence complete", 
       className: "text-green-500/70" 
     },
     failed: { 
@@ -1129,12 +2125,12 @@ function SequenceStatusRow({ status, clientRequestId, runId, towerVerdict, tower
   
   return (
     <>
-      <div className="flex items-center justify-between gap-2 py-2 px-1 border-t border-border/50 mt-2">
-        <div className="flex items-center gap-2">
-          <Icon className={cn("h-4 w-4", className)} />
-          <span className={cn("text-xs font-medium", className)}>{label}</span>
+      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 py-2 px-1 border-t border-border/50 mt-2 overflow-hidden">
+        <div className="flex items-center gap-2 min-w-0">
+          <Icon className={cn("h-4 w-4 shrink-0", className)} />
+          <span className={cn("text-xs font-medium truncate", className)}>{label}</span>
         </div>
-        <div className="flex items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
           {showRequestJudgement && (
             <Button
               variant="outline"
@@ -1148,19 +2144,30 @@ function SequenceStatusRow({ status, clientRequestId, runId, towerVerdict, tower
             </Button>
           )}
           {showViewResults && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-6 text-xs px-2 gap-1"
-              data-view-results="true"
-              onClick={() => {
-                console.log(`[ViewResults] Button clicked — runId=${runId || 'n/a'} crid=${clientRequestId?.slice(0, 12) || 'n/a'}`);
-                setShowResults(true);
-              }}
-            >
-              <Eye className="h-3 w-3" />
-              View results
-            </Button>
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-6 text-xs px-2 gap-1"
+                data-view-results="true"
+                onClick={() => {
+                  console.log(`[ViewResults] Button clicked — runId=${runId || 'n/a'} crid=${clientRequestId?.slice(0, 12) || 'n/a'}`);
+                  setShowResults(true);
+                }}
+              >
+                <Eye className="h-3 w-3" />
+                View results
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-6 text-xs px-2 gap-1"
+                onClick={() => setShowUserResults(true)}
+              >
+                <Package className="h-3 w-3" />
+                Details
+              </Button>
+            </>
           )}
         </div>
       </div>
@@ -1195,8 +2202,22 @@ function SequenceStatusRow({ status, clientRequestId, runId, towerVerdict, tower
           </p>
         </div>
       )}
+      {(towerVerdict === 'stop' || towerVerdict === 'change_plan') && towerRationale && (
+        <div className="px-1 pb-1">
+          <div className="rounded-lg border border-orange-200 dark:border-orange-800/50 bg-orange-50/50 dark:bg-orange-900/10 p-2.5">
+            <p className="text-[10px] uppercase tracking-wide text-orange-600 dark:text-orange-400 font-medium mb-1">Why this was stopped</p>
+            <p className="text-xs text-foreground/80 leading-relaxed">{towerRationale}</p>
+          </div>
+        </div>
+      )}
+      {(towerVerdict === 'stop' || towerVerdict === 'change_plan' || status === 'stopped') && (
+        <StopActionButtons />
+      )}
       {(clientRequestId || runId) && (
-        <ResultsModal clientRequestId={clientRequestId} runId={runId} open={showResults} onOpenChange={setShowResults} />
+        <>
+          <ResultsModal clientRequestId={clientRequestId} runId={runId} open={showResults} onOpenChange={setShowResults} />
+          <UserResultsModal clientRequestId={clientRequestId} runId={runId} open={showUserResults} onOpenChange={setShowUserResults} />
+        </>
       )}
     </>
   );
@@ -1242,7 +2263,7 @@ interface StreamResponse {
   message?: string;
 }
 
-type OverallStatus = 'idle' | 'routing' | 'planning' | 'executing' | 'finalizing' | 'deep_research' | 'awaiting_judgement' | 'replanning' | 'completed' | 'failed' | 'stopped';
+type OverallStatus = 'idle' | 'routing' | 'clarifying' | 'planning' | 'executing' | 'finalizing' | 'deep_research' | 'awaiting_judgement' | 'replanning' | 'completed' | 'failed' | 'stopped';
 
 function formatRelativeTime(dateString: string): string {
   const date = new Date(dateString);
@@ -1273,6 +2294,7 @@ function StatusBadge({ status }: { status: OverallStatus }) {
   const config: Record<OverallStatus, { icon: typeof Clock; label: string; className: string }> = {
     idle: { icon: Clock, label: "Idle", className: "bg-gray-100 text-gray-800 dark:bg-gray-800/50 dark:text-gray-300" },
     routing: { icon: Route, label: "Routing", className: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-200" },
+    clarifying: { icon: MessageSquare, label: "Clarifying", className: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-200" },
     planning: { icon: Brain, label: "Planning", className: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-200" },
     executing: { icon: Zap, label: "Executing", className: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-200" },
     finalizing: { icon: Zap, label: "Finalizing", className: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-200" },
@@ -1285,7 +2307,7 @@ function StatusBadge({ status }: { status: OverallStatus }) {
   };
 
   const { icon: Icon, label, className } = config[status] || config.idle;
-  const isAnimated = ['routing', 'planning', 'executing', 'finalizing', 'deep_research', 'awaiting_judgement', 'replanning'].includes(status);
+  const isAnimated = ['routing', 'clarifying', 'planning', 'executing', 'finalizing', 'deep_research', 'awaiting_judgement', 'replanning'].includes(status);
   
   return (
     <span className={cn("inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium", className)}>
@@ -1406,35 +2428,40 @@ function TruthStrip({ runId }: { runId?: string | null }) {
   if (!runId || fetchState === 'idle' || fetchState === 'loading') return null;
 
   const artefactTypes = new Set(dbArtefacts.map(a => a.type));
-  const hasArtefact = artefactTypes.has('leads_list') || artefactTypes.has('plan_result') || artefactTypes.has('step_result') || artefactTypes.has('deep_research_result') || artefactTypes.has('run_summary');
+  const hasClarifyGate = artefactTypes.has('clarify_gate');
+  const hasClarifyResolution = artefactTypes.has('clarify_resolution');
+  const isClarifying = hasClarifyGate && !hasClarifyResolution;
+  const hasArtefact = artefactTypes.has('leads_list') || artefactTypes.has('plan_result') || artefactTypes.has('step_result') || artefactTypes.has('deep_research_result') || artefactTypes.has('run_summary') || artefactTypes.has('delivery_summary') || hasClarifyGate;
   const hasTowerVerdict = artefactTypes.has('tower_judgement');
   const hasRunStored = dbArtefacts.length > 0;
 
-  const indicators = [
-    { label: 'Artefact persisted', ok: hasArtefact, missing: 'Not persisted' },
-    { label: 'Tower verdict', ok: hasTowerVerdict, missing: 'Missing' },
+  const indicators: Array<{ label: string; ok: boolean; missing: string; neutral?: boolean }> = [
+    { label: hasClarifyGate ? 'Clarify gate persisted' : 'Artefact persisted', ok: hasArtefact, missing: 'Not persisted' },
+    { label: 'Tower verdict', ok: hasTowerVerdict, missing: isClarifying ? 'N/A (clarifying)' : 'Missing', neutral: isClarifying },
     { label: 'Run stored', ok: hasRunStored, missing: 'Not persisted' },
   ];
 
   return (
-    <div className="mx-2 my-2 p-2 rounded-md bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800">
+    <div className="mx-2 my-2 p-2 rounded-md bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 overflow-hidden">
       <div className="flex items-center gap-1 mb-1">
         <Eye className="h-3 w-3 text-purple-500" />
         <span className="text-[10px] font-semibold text-purple-700 dark:text-purple-300 uppercase tracking-wide">
           DB Truth Strip
         </span>
       </div>
-      <div className="flex items-center gap-3">
-        {indicators.map(({ label, ok, missing }) => (
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        {indicators.map(({ label, ok, missing, neutral }) => (
           <div key={label} className="flex items-center gap-1">
             {ok ? (
               <CheckCircle2 className="h-3 w-3 text-green-500" />
+            ) : neutral ? (
+              <Clock className="h-3 w-3 text-amber-400" />
             ) : (
               <XCircle className="h-3 w-3 text-red-400" />
             )}
             <span className={cn(
               "text-[10px] font-medium",
-              ok ? "text-green-700 dark:text-green-300" : "text-red-600 dark:text-red-400"
+              ok ? "text-green-700 dark:text-green-300" : neutral ? "text-amber-600 dark:text-amber-400" : "text-red-600 dark:text-red-400"
             )}>
               {ok ? label : `${label}: ${missing}`}
             </span>
@@ -1624,7 +2651,7 @@ function TimelineEvent({ event, isFirst = false, isLast, isTerminal }: { event: 
                   )}
                   {confidence != null && (
                     <span className="text-[10px] text-muted-foreground">
-                      confidence: {Math.round(confidence * 100)}%
+                      confidence: {confidence > 1 ? Math.round(confidence) : Math.round(confidence * 100)}%
                     </span>
                   )}
                 </div>
@@ -1739,11 +2766,11 @@ function usePacedPlaybackQueue(
   const prevKeyRef = useRef<string | null | undefined>(undefined);
   const cancelRef = useRef(0);
 
-  const timingsRef = useRef({ thinkingMs: THINKING_MS, workingMs: WORKING_MS, gapMs: EVENT_GAP_MS });
+  const timingsRef = useRef({ thinkingMs: DEMO_THINKING_MS, workingMs: DEMO_WORKING_MS, gapMs: DEMO_EVENT_GAP_MS });
   timingsRef.current = {
-    thinkingMs: isDemoMode ? DEMO_THINKING_MS : THINKING_MS,
-    workingMs: isDemoMode ? DEMO_WORKING_MS : WORKING_MS,
-    gapMs: isDemoMode ? DEMO_EVENT_GAP_MS : EVENT_GAP_MS,
+    thinkingMs: DEMO_THINKING_MS,
+    workingMs: DEMO_WORKING_MS,
+    gapMs: DEMO_EVENT_GAP_MS,
   };
 
   const kickPlayer = useCallback(() => {
@@ -1792,34 +2819,40 @@ function usePacedPlaybackQueue(
   }, [kick]);
 
   useEffect(() => {
-    if (clientRequestId !== prevKeyRef.current && prevKeyRef.current !== undefined) {
-      cancelRef.current++;
-      isPlayingRef.current = false;
-      revealedRef.current = [];
-      seenIdsRef.current = new Set();
-      queueRef.current = [];
-      phaseRef.current = null;
-      kick();
-    }
-    prevKeyRef.current = clientRequestId;
+    if (isDemoMode) {
+      if (clientRequestId !== prevKeyRef.current && prevKeyRef.current !== undefined) {
+        cancelRef.current++;
+        isPlayingRef.current = false;
+        revealedRef.current = [];
+        seenIdsRef.current = new Set();
+        queueRef.current = [];
+        phaseRef.current = null;
+        kick();
+      }
+      prevKeyRef.current = clientRequestId;
 
-    let hasNew = false;
-    for (const event of allEvents) {
-      if (!seenIdsRef.current.has(event.id)) {
-        seenIdsRef.current.add(event.id);
-        queueRef.current.push(event);
-        hasNew = true;
+      let hasNew = false;
+      for (const event of allEvents) {
+        if (!seenIdsRef.current.has(event.id)) {
+          seenIdsRef.current.add(event.id);
+          queueRef.current.push(event);
+          hasNew = true;
+        }
+      }
+
+      if (hasNew) {
+        kickPlayer();
       }
     }
-
-    if (hasNew) {
-      kickPlayer();
-    }
-  }, [allEvents, clientRequestId, kickPlayer, kick]);
+  }, [allEvents, clientRequestId, kickPlayer, kick, isDemoMode]);
 
   useEffect(() => {
     return () => { cancelRef.current++; };
   }, []);
+
+  if (!isDemoMode) {
+    return { displayEvents: allEvents, transientPhase: null };
+  }
 
   return {
     displayEvents: revealedRef.current,
@@ -2046,15 +3079,17 @@ interface LiveActivityPanelProps {
 }
 
 const THINKING_THRESHOLD_MS = 200;
-const OVERLAY_DURATION_MS = 2000;
+const OVERLAY_DURATION_MS = 0;
 const TERMINAL_STABILITY_MS = 800;
-const DEBUG_TERMINAL = true;
+const DEBUG_TERMINAL = false;
 
 const ACTIVE_STATUSES = ['routing', 'planning', 'executing', 'deep_research', 'running', 'in_progress', 'awaiting_judgement', 'replanning'];
 const TERMINAL_STATUSES = ['completed', 'failed', 'stopped'];
 
 interface TowerAwareResult {
   towerVerdict: string | null;
+  towerLabel: string | null;
+  towerRationale: string | null;
   derivedStatus: OverallStatus | null;
   isLeadRun: boolean;
   towerMissing: boolean;
@@ -2062,6 +3097,8 @@ interface TowerAwareResult {
 
 function deriveTowerAwareStatus(events: StreamEvent[], serverTerminalState: 'completed' | 'failed' | 'stopped' | null, artefacts?: Array<{ type: string; payload_json?: any }>, chatMode?: boolean): TowerAwareResult {
   let lastTowerVerdict: string | null = null;
+  let lastTowerLabel: string | null = null;
+  let lastTowerRationale: string | null = null;
   let hasRunCompleted = false;
   let hasRunStopped = false;
   let hasTowerJudgement = false;
@@ -2069,17 +3106,24 @@ function deriveTowerAwareStatus(events: StreamEvent[], serverTerminalState: 'com
   let isLeadRun = false;
   let hasTowerJudgementArtefact = false;
 
-  const LEAD_ARTEFACT_TYPES = ['leads_list', 'plan_result'];
+  const LEAD_ARTEFACT_TYPES = ['leads_list', 'plan_result', 'delivery_summary'];
 
   if (artefacts?.length) {
     isLeadRun = artefacts.some(a => LEAD_ARTEFACT_TYPES.includes(a.type));
-    const towerArtefact = artefacts.find(a => a.type === 'tower_judgement');
-    if (towerArtefact) {
+    const towerArtefactList = artefacts.filter(a => a.type === 'tower_judgement');
+    if (towerArtefactList.length > 0) {
       hasTowerJudgement = true;
       hasTowerJudgementArtefact = true;
-      const p = towerArtefact.payload_json;
-      if (p?.verdict && typeof p.verdict === 'string') {
-        lastTowerVerdict = p.verdict.toLowerCase();
+      const resolvedTower = resolveAuthoritativeTowerVerdict(artefacts);
+      lastTowerVerdict = resolvedTower.verdict ? resolvedTower.verdict.toLowerCase() : '';
+      lastTowerLabel = resolvedTower.label;
+      const finalDeliveryArtefact = towerArtefactList.find(ta => ta.payload_json?.phase === 'final_delivery');
+      const authoritativeTa = finalDeliveryArtefact || towerArtefactList[towerArtefactList.length - 1];
+      const lp = authoritativeTa.payload_json;
+      if (lp?.rationale && typeof lp.rationale === 'string') {
+        lastTowerRationale = lp.rationale;
+      } else if (lp?.reason && typeof lp.reason === 'string') {
+        lastTowerRationale = lp.reason;
       }
     }
   }
@@ -2108,31 +3152,31 @@ function deriveTowerAwareStatus(events: StreamEvent[], serverTerminalState: 'com
   }
 
   if (lastTowerVerdict === 'stop' || hasRunStopped) {
-    return { towerVerdict: lastTowerVerdict || 'stop', derivedStatus: 'stopped', isLeadRun, towerMissing: !hasTowerJudgement };
+    return { towerVerdict: lastTowerVerdict || 'stop', towerLabel: lastTowerLabel, towerRationale: lastTowerRationale, derivedStatus: 'stopped', isLeadRun, towerMissing: !hasTowerJudgement };
   }
 
   if (serverTerminalState === 'stopped') {
-    return { towerVerdict: lastTowerVerdict || 'stop', derivedStatus: 'stopped', isLeadRun, towerMissing: !hasTowerJudgement };
+    return { towerVerdict: lastTowerVerdict || 'stop', towerLabel: lastTowerLabel, towerRationale: lastTowerRationale, derivedStatus: 'stopped', isLeadRun, towerMissing: !hasTowerJudgement };
   }
 
   if (lastTowerVerdict === 'change_plan' || lastTowerVerdict === 'retry') {
-    return { towerVerdict: lastTowerVerdict, derivedStatus: 'replanning', isLeadRun, towerMissing: false };
+    return { towerVerdict: lastTowerVerdict, towerLabel: lastTowerLabel, towerRationale: lastTowerRationale, derivedStatus: 'replanning', isLeadRun, towerMissing: false };
   }
 
   const isTerminal = serverTerminalState === 'completed' || hasRunCompleted;
 
   if (isTerminal) {
     if (hasTowerJudgement) {
-      return { towerVerdict: lastTowerVerdict, derivedStatus: 'completed', isLeadRun, towerMissing: false };
+      return { towerVerdict: lastTowerVerdict, towerLabel: lastTowerLabel, towerRationale: lastTowerRationale, derivedStatus: 'completed', isLeadRun, towerMissing: false };
     }
-    return { towerVerdict: lastTowerVerdict, derivedStatus: 'completed', isLeadRun, towerMissing: true };
+    return { towerVerdict: lastTowerVerdict, towerLabel: lastTowerLabel, towerRationale: lastTowerRationale, derivedStatus: 'completed', isLeadRun, towerMissing: true };
   }
 
   if (hasToolCompleted && !hasTowerJudgement && !serverTerminalState) {
-    return { towerVerdict: null, derivedStatus: 'awaiting_judgement', isLeadRun, towerMissing: true };
+    return { towerVerdict: null, towerLabel: null, towerRationale: null, derivedStatus: 'awaiting_judgement', isLeadRun, towerMissing: true };
   }
 
-  return { towerVerdict: lastTowerVerdict, derivedStatus: null, isLeadRun, towerMissing: !hasTowerJudgement };
+  return { towerVerdict: lastTowerVerdict, towerLabel: lastTowerLabel, towerRationale: lastTowerRationale, derivedStatus: null, isLeadRun, towerMissing: !hasTowerJudgement };
 }
 
 export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: LiveActivityPanelProps) {
@@ -2146,6 +3190,8 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
   const [showThinking, setShowThinking] = useState(false);
   const [showOverlay, setShowOverlay] = useState(false);
   const [confirmedTerminal, setConfirmedTerminal] = useState(false);
+  const confirmedTerminalAtRef = useRef<number | null>(null);
+  const [catchUpDone, setCatchUpDone] = useState(false);
   
   const [demoPlayback, setDemoPlayback] = useState(false);
   const [towerLoopChatMode, setTowerLoopChatMode] = useState(() => {
@@ -2156,6 +3202,9 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
   const [minVisibleHold, setMinVisibleHold] = useState(false);
   const [postTerminalHold, setPostTerminalHold] = useState(false);
   const [polledArtefacts, setPolledArtefacts] = useState<Array<{ type: string; payload_json?: any }>>([]);
+  const [userVisibleComplete, setUserVisibleComplete] = useState(false);
+  const frozenEventIdsRef = useRef<string[] | null>(null);
+  const prevClientRequestIdRef = useRef<string | null | undefined>(null);
   const [canonicalRunId, setCanonicalRunId] = useState<string | null>(null);
   const [canonicalRunIdStatus, setCanonicalRunIdStatus] = useState<'idle' | 'loading' | 'found' | 'not_found' | 'error'>('idle');
   const artefactPollRef = useRef<NodeJS.Timeout | null>(null);
@@ -2178,39 +3227,64 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
   const autoScrollTimerRef = useRef<number | null>(null);
   const lastAutoScrollRef = useRef(0);
   const fetchAbortRef = useRef<AbortController | null>(null);
+  const fetchInFlightRef = useRef(false);
   
   const streamRequestId = stream?.client_request_id;
   const idsMatch = !!(activeClientRequestId && streamRequestId && activeClientRequestId === streamRequestId);
 
-  const allEvents = useMemo(() => stream?.events || [], [stream?.events]);
+  const rawEvents = useMemo(() => stream?.events || [], [stream?.events]);
+  const rawEventsRef = useRef<StreamEvent[]>(rawEvents);
+  rawEventsRef.current = rawEvents;
+  const allEvents = rawEvents;
+  const frozenDisplayEvents = useMemo(() => {
+    if (confirmedTerminal && !catchUpDone) {
+      return rawEvents;
+    }
+    if (userVisibleComplete && frozenEventIdsRef.current != null && frozenEventIdsRef.current.length > 0) {
+      const frozenIdSet = new Set(frozenEventIdsRef.current);
+      const hasNewEvents = rawEvents.some((ev: any) => !frozenIdSet.has(ev.id));
+      if (hasNewEvents) {
+        frozenEventIdsRef.current = rawEvents.map((ev: any) => ev.id);
+        return rawEvents;
+      }
+      const idOrder = frozenEventIdsRef.current;
+      const idSet = new Set(idOrder);
+      const matched = rawEvents.filter((e: any) => idSet.has(e.id));
+      matched.sort((a: any, b: any) => idOrder.indexOf(a.id) - idOrder.indexOf(b.id));
+      return matched.length > 0 ? matched : rawEvents;
+    }
+    return rawEvents;
+  }, [rawEvents, userVisibleComplete, confirmedTerminal, catchUpDone]);
   const effectiveDemoPlayback = demoPlayback && !activeClientRequestId;
-  const { displayEvents, transientPhase } = usePacedPlaybackQueue(allEvents, effectiveDemoPlayback, activeClientRequestId);
-  const allRevealed = displayEvents.length >= allEvents.length;
+  const { displayEvents, transientPhase } = usePacedPlaybackQueue(frozenDisplayEvents, effectiveDemoPlayback, activeClientRequestId);
+  const allRevealed = displayEvents.length >= frozenDisplayEvents.length;
 
   const fetchStream = useCallback(async () => {
-    if (fetchAbortRef.current) {
-      fetchAbortRef.current.abort();
+    if (!activeClientRequestId) {
+      setStream(null);
+      setLoading(false);
+      return;
     }
+
+    if (fetchInFlightRef.current) {
+      return;
+    }
+    fetchInFlightRef.current = true;
+
     const controller = new AbortController();
     fetchAbortRef.current = controller;
 
     try {
-      if (!activeClientRequestId) {
-        setStream(null);
-        setLoading(false);
-        return;
-      }
-
       const params = new URLSearchParams();
       params.set('client_request_id', activeClientRequestId);
       
-      const response = await fetch(`/api/afr/stream?${params.toString()}`, { signal: controller.signal });
+      params.set('_t', String(Date.now()));
+      const response = await fetch(`/api/afr/stream?${params.toString()}`, { signal: controller.signal, cache: 'no-store' });
       if (!response.ok) {
         throw new Error("Failed to fetch activity stream");
       }
       
       const data: StreamResponse = await response.json();
-
       if (controller.signal.aborted) return;
 
       if (activeClientRequestId && data.client_request_id && data.client_request_id !== activeClientRequestId) {
@@ -2248,10 +3322,14 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
       prevEventCount.current = data.event_count;
 
     } catch (err: any) {
-      if (err?.name === 'AbortError') return;
+      if (err?.name === 'AbortError') {
+        fetchInFlightRef.current = false;
+        return;
+      }
       console.error("[LiveActivityPanel] Fetch error:", err);
       setError("Could not load activity stream.");
     } finally {
+      fetchInFlightRef.current = false;
       setLoading(false);
     }
   }, [user?.id, activeClientRequestId, autoScroll]);
@@ -2272,6 +3350,19 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
     let resolved = false;
     const startedAt = Date.now();
     setCanonicalRunIdStatus('loading');
+
+    const handleRunIdEvent = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail?.runId && detail?.clientRequestId === activeClientRequestId) {
+        console.log(`[CanonicalRunId] Instant resolve from SSE: runId=${detail.runId}`);
+        setCanonicalRunId(detail.runId);
+        setCanonicalRunIdStatus('found');
+        resolved = true;
+        if (retryInterval) { clearInterval(retryInterval); retryInterval = null; }
+        fetchStream();
+      }
+    };
+    window.addEventListener('wyshbone:run_id', handleRunIdEvent);
 
     const resolve = async () => {
       if (resolved || cancelled) return;
@@ -2311,8 +3402,32 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
 
     return () => {
       cancelled = true;
+      window.removeEventListener('wyshbone:run_id', handleRunIdEvent);
       if (retryInterval) clearInterval(retryInterval);
     };
+  }, [activeClientRequestId, fetchStream]);
+
+  useEffect(() => {
+    if (activeClientRequestId !== prevClientRequestIdRef.current) {
+      setUserVisibleComplete(false);
+      frozenEventIdsRef.current = null;
+      confirmedTerminalAtRef.current = null;
+      setCatchUpDone(false);
+      prevClientRequestIdRef.current = activeClientRequestId;
+    }
+    if (!activeClientRequestId) {
+      return;
+    }
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail?.clientRequestId === activeClientRequestId) {
+        if (IS_DEV) console.log('[LiveActivityPanel] User-visible results final for crid:', activeClientRequestId.slice(0, 12));
+        setUserVisibleComplete(true);
+        frozenEventIdsRef.current = rawEventsRef.current.map((ev) => ev.id);
+      }
+    };
+    window.addEventListener('wyshbone:results_final', handler);
+    return () => window.removeEventListener('wyshbone:results_final', handler);
   }, [activeClientRequestId]);
 
   const effectiveRunIdForPolling = canonicalRunId;
@@ -2409,6 +3524,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
         fetchAbortRef.current.abort();
         fetchAbortRef.current = null;
       }
+      fetchInFlightRef.current = false;
       
       setConfirmedTerminal(false);
       setShowThinking(false);
@@ -2474,12 +3590,29 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
   }, []);
 
   useEffect(() => {
+    if (confirmedTerminal) {
+      if (catchUpDone) return;
+      const termAt = confirmedTerminalAtRef.current;
+      if (!termAt) return;
+
+      if (IS_DEV) console.log(`[LiveActivityPanel] Post-terminal catch-up: polling every ${POST_TERMINAL_POLL_MS}ms for ${POST_TERMINAL_CATCHUP_MS / 1000}s`);
+      fetchStream();
+      const interval = setInterval(fetchStream, POST_TERMINAL_POLL_MS);
+      const timeout = setTimeout(() => {
+        clearInterval(interval);
+        setCatchUpDone(true);
+        if (IS_DEV) console.log('[LiveActivityPanel] Post-terminal catch-up complete');
+      }, POST_TERMINAL_CATCHUP_MS);
+      return () => { clearInterval(interval); clearTimeout(timeout); };
+    }
+
     const isActive = stream?.status && !['idle', 'completed', 'failed'].includes(stream.status) && (stream?.status as string) !== 'stopped';
-    const intervalMs = isActive ? 1500 : 10000;
+    const hasActiveRequest = !!activeClientRequestId;
+    const intervalMs = isActive || hasActiveRequest ? 1500 : 10000;
 
     const interval = setInterval(fetchStream, intervalMs);
     return () => clearInterval(interval);
-  }, [stream?.status, fetchStream]);
+  }, [stream?.status, fetchStream, activeClientRequestId, confirmedTerminal, catchUpDone]);
 
   useEffect(() => {
     const handleFocus = () => fetchStream();
@@ -2520,6 +3653,8 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
       if (confirmedTerminal || terminalEventCountRef.current !== null) {
         if (DEBUG_TERMINAL) console.log('[TERMINAL_DEBUG] API says not terminal - resetting');
         setConfirmedTerminal(false);
+        confirmedTerminalAtRef.current = null;
+        setCatchUpDone(false);
         terminalEventCountRef.current = null;
       }
       return;
@@ -2541,7 +3676,11 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
         terminalStabilityTimerRef.current = setTimeout(() => {
           if (DEBUG_TERMINAL) console.log('[TERMINAL_DEBUG] *** CONFIRMING TERMINAL after stability ***');
           setConfirmedTerminal(true);
+          confirmedTerminalAtRef.current = Date.now();
           terminalStabilityTimerRef.current = null;
+          window.dispatchEvent(new CustomEvent('wyshbone:activity_terminal', {
+            detail: { runId: stream?.run_id || null, clientRequestId: activeClientRequestId || null },
+          }));
         }, TERMINAL_STABILITY_MS);
       }
     }
@@ -2565,7 +3704,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
     }
     
     const hasActiveRequest = !!activeClientRequestId;
-    const isRunActive = hasActiveRequest && !confirmedTerminal && !showOverlay;
+    const isRunActive = hasActiveRequest && !confirmedTerminal && !showOverlay && !userVisibleComplete;
     
     if (!isRunActive) {
       setShowThinking(false);
@@ -2583,7 +3722,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
         thinkingTimerRef.current = null;
       }
     };
-  }, [activeClientRequestId, confirmedTerminal, showOverlay, stream?.event_count]);
+  }, [activeClientRequestId, confirmedTerminal, showOverlay, userVisibleComplete, stream?.event_count]);
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const target = e.currentTarget;
@@ -2608,7 +3747,13 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
     return deriveTowerAwareStatus(allEvents, stream?.terminal_state as any || null, polledArtefacts.length > 0 ? polledArtefacts : undefined, towerLoopChatMode);
   }, [allEvents, stream?.terminal_state, towerLoopChatMode, polledArtefacts]);
 
+  const isFinalising = false;
+
   const mappedStatus: OverallStatus = (() => {
+    if (userVisibleComplete) {
+      return 'completed';
+    }
+
     if (activeClientRequestId && !idsMatch) {
       return 'executing';
     }
@@ -2641,6 +3786,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
     
     const s = stream.status;
     if (s === 'routing') return 'routing';
+    if (s === 'clarifying') return 'clarifying';
     if (s === 'planning') return 'planning';
     if (s === 'finalizing') return 'finalizing';
     if (s === 'executing') {
@@ -2655,7 +3801,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
     return 'idle';
   })();
   
-  const isWorking = !showOverlay && (
+  const isWorking = !showOverlay && !userVisibleComplete && (
     (activeClientRequestId && !effectiveTerminal) ||
     (mappedStatus !== 'idle' && mappedStatus !== 'completed' && mappedStatus !== 'failed' && mappedStatus !== 'stopped' && mappedStatus !== 'finalizing')
   );
@@ -2690,14 +3836,16 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
         isWorking,
         showThinking,
         showOverlay,
+        userVisibleComplete,
+        isFinalising,
         eventCount: stream?.event_count || 0,
       });
     }
-  }, [stream?.is_terminal, stream?.terminal_state, stream?.ui_ready, stream?.run_id, stream?.event_count, confirmedTerminal, effectiveTerminal, minVisibleHold, postTerminalHold, demoPlayback, displayEvents.length, allEvents.length, mappedStatus, activeClientRequestId, idsMatch, isWorking, showThinking, showOverlay, streamRequestId]);
+  }, [stream?.is_terminal, stream?.terminal_state, stream?.ui_ready, stream?.run_id, stream?.event_count, confirmedTerminal, effectiveTerminal, minVisibleHold, postTerminalHold, demoPlayback, displayEvents.length, allEvents.length, mappedStatus, activeClientRequestId, idsMatch, isWorking, showThinking, showOverlay, userVisibleComplete, isFinalising, streamRequestId]);
 
   if (loading) {
     return (
-      <Card className="flex flex-col flex-1 min-h-0">
+      <Card className="flex flex-col flex-1 min-h-0 overflow-hidden">
         <CardHeader className="pb-2 shrink-0">
           <CardTitle className="text-sm font-medium flex items-center gap-2">
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -2713,7 +3861,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
 
   if (error) {
     return (
-      <Card className="flex flex-col flex-1 min-h-0">
+      <Card className="flex flex-col flex-1 min-h-0 overflow-hidden">
         <CardHeader className="pb-2 shrink-0">
           <CardTitle className="text-sm font-medium">Live Activity</CardTitle>
         </CardHeader>
@@ -2732,26 +3880,11 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
   const hasEvents = events.length > 0;
 
   return (
-    <Card className="flex flex-col flex-1 min-h-0">
+    <Card className="flex flex-col flex-1 min-h-0 overflow-hidden">
       <CardHeader className="pb-2 shrink-0">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-sm font-medium">Live Activity</CardTitle>
-          <div className="flex items-center gap-2">
-            {IS_DEV && (
-              <button
-                onClick={() => setDemoPlayback(prev => !prev)}
-                className={cn(
-                  "inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors cursor-pointer select-none",
-                  demoPlayback
-                    ? "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200"
-                    : "bg-gray-100 text-gray-500 dark:bg-gray-800/50 dark:text-gray-400"
-                )}
-                title={demoPlayback ? "Demo playback ON: events revealed with delay, min-visible and post-terminal holds active" : "Demo playback OFF: real-time event display"}
-              >
-                <Film className="h-3 w-3" />
-                Demo {demoPlayback ? "ON" : "OFF"}
-              </button>
-            )}
+        <div className="flex items-center justify-between gap-2 min-w-0">
+          <CardTitle className="text-sm font-medium shrink-0">Live Activity</CardTitle>
+          <div className="flex flex-wrap items-center gap-1.5 justify-end min-w-0">
             {IS_DEV && (
               <button
                 onClick={() => {
@@ -2788,13 +3921,13 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
             {hasEvents && (effectiveTerminal || towerAware.towerVerdict) && !towerAware.towerMissing && (
               <span className={cn(
                 "px-1.5 py-0.5 rounded text-[10px] font-medium",
-                towerAware.towerVerdict === 'accept'
+                (towerAware.towerVerdict === 'accept' || towerAware.towerVerdict === 'pass')
                   ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200"
-                  : towerAware.towerVerdict === 'stop'
+                  : (towerAware.towerVerdict === 'stop' || towerAware.towerVerdict === 'fail')
                     ? "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-200"
                     : "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-200"
               )}>
-                Tower: {(towerAware.towerVerdict || 'evaluated').toUpperCase()}
+                Tower: {towerAware.towerLabel || (towerAware.towerVerdict || 'evaluated').toUpperCase()}
               </span>
             )}
             {lastFetch && (
@@ -2855,7 +3988,7 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
             )}
             onScroll={handleScroll}
           >
-            <div className="px-4 pt-2 pb-12">
+            <div className="px-4 pt-2 pb-2 overflow-x-hidden">
             {events.map((event: StreamEvent, index: number) => {
               const isLastEvent = index === events.length - 1;
               const last = isLastEvent && effectiveTerminal && !transientPhase;
@@ -2884,22 +4017,23 @@ export function LiveActivityPanel({ activeClientRequestId, onRequestIdChange }: 
             )}
             
             {effectiveTerminal && allRevealed && !transientPhase && (mappedStatus === 'completed' || mappedStatus === 'failed' || mappedStatus === 'stopped' || mappedStatus === 'awaiting_judgement' || mappedStatus === 'replanning') && (
-              <SequenceStatusRow status={mappedStatus as any} clientRequestId={activeClientRequestId} runId={canonicalRunId || stream?.run_id} towerVerdict={towerAware.towerVerdict} towerMissing={towerAware.towerMissing} chatMode={towerLoopChatMode} />
+              <SequenceStatusRow status={mappedStatus as any} clientRequestId={activeClientRequestId} runId={canonicalRunId || stream?.run_id} towerVerdict={towerAware.towerVerdict} towerLabel={towerAware.towerLabel} towerMissing={towerAware.towerMissing} chatMode={towerLoopChatMode} towerRationale={towerAware.towerRationale} />
             )}
             {IS_DEV && activeClientRequestId && (
-              <div className="mt-1 px-2 py-1 rounded bg-gray-100 dark:bg-gray-800/50 text-[10px] font-mono text-muted-foreground/70 space-y-0.5">
-                <div>crid: {activeClientRequestId.slice(0, 16)}...</div>
-                <div>streamRunId: {stream?.run_id || 'n/a'}</div>
-                <div>canonicalRunId: {canonicalRunId || `(${canonicalRunIdStatus})`}</div>
-                <div>pollingWith: {effectiveRunIdForPolling || 'none'}</div>
+              <div className="mt-1 px-2 py-1 rounded bg-gray-100 dark:bg-gray-800/50 text-[10px] font-mono text-muted-foreground/70 space-y-0.5 overflow-hidden">
+                <div className="truncate">crid: {activeClientRequestId.slice(0, 16)}...</div>
+                <div className="truncate">streamRunId: {stream?.run_id || 'n/a'}</div>
+                <div className="truncate">canonicalRunId: {canonicalRunId || `(${canonicalRunIdStatus})`}</div>
+                <div className="truncate">pollingWith: {effectiveRunIdForPolling || 'none'}</div>
               </div>
             )}
             
             {isWorking && (
               <ThinkingIndicator variant="footer" />
             )}
+
             
-            <div ref={bottomRef} className="h-10 shrink-0" />
+            <div ref={bottomRef} className="h-4 shrink-0" />
             </div>
           </div>
         )}

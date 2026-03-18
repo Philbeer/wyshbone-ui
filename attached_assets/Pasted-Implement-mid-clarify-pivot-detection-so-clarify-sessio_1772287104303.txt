@@ -1,0 +1,34 @@
+Implement mid-clarify pivot detection so clarify sessions do NOT trap unrelated inputs.
+
+Context:
+- server/routes.ts currently has CLARIFY_GUARD hard invariant: when a clarify session is active, ALL messages route through handleClarifyResponse with no reclassification.
+- This causes catastrophic merging (e.g. user asks “what about cafes in bristol” during a pubs clarify session, and the system keeps pubs and updates only location).
+- We already have structured clarify_state payloads and better isRunTrigger handling. Keep those.
+
+Requirements (minimal, production-grade):
+1) Add a lightweight classifier that runs BEFORE CLARIFY_GUARD routing when a clarify session exists.
+   Classify each incoming user message into one of:
+   - EXECUTE (search now etc)
+   - META_TRUST (guaranteed, accurate, how sure, where from, can I trust)
+   - NEW_TASK (clear scope change: different venue type keyword than the session draft, OR message starts with “new question:”, OR it contains a new search verb + a different business noun than current)
+   - REFINE (default)
+
+2) Behaviour:
+   - If META_TRUST: respond in chat mode (direct_response) and DO NOT modify/override clarify session slots.
+   - If NEW_TASK: closeAllClarifySessions(conversationId) and then route the message through normal decideChatMode pipeline (as if no session existed).
+   - If EXECUTE: keep current behaviour (run if complete; ask_more listing missing if not).
+   - If REFINE: keep current behaviour (handleClarifyResponse).
+
+3) Venue type change must trigger NEW_TASK:
+   - If session entity_type is “pubs” and message mentions “cafes”, treat as NEW_TASK.
+   - Do not silently override entity_type inside clarify slots when scope changes.
+
+4) Add tests:
+   - “cafes in bristol” during pubs clarify triggers NEW_TASK and ends session
+   - “are these results guaranteed correct” during clarify triggers META_TRUST and does not alter session
+   - “search now” during clarify still works
+
+Constraints:
+- Do not refactor unrelated code.
+- Touch only server/routes.ts and server/lib/clarifySession.ts (and tests).
+- Return a short diff summary and the exact classifier rules you implemented.

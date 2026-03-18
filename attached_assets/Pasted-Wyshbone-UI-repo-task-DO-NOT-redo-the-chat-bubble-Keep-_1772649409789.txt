@@ -1,0 +1,57 @@
+Wyshbone-UI repo task: DO NOT redo the chat bubble. Keep it. Make it tell the truth by reusing the same data source as the Results modal.
+
+Non negotiable:
+- Do NOT redesign or rewrite the chat bubble component. Preserve layout, buttons, dev details, styling, and existing derived-count behaviour.
+- Only change (a) the data source feeding the bubble narrative and (b) the timeout behaviour that gets stuck.
+- No new API calls. Use the existing artefacts already loaded for the run.
+
+Problem:
+- For queries like “Find pubs in Arundel that mention live music on the website”, the Results modal correctly shows VERIFIED 3 and lists the 3 pubs + evidence URLs.
+- The chat bubble narrative does not reflect that. It either shows generic “20 pubs” text only, or gets stuck on “timed out waiting for results” even after the run completes.
+- The run_receipt JSON also does not contain attribute match counts, so the bubble must NOT rely on run_receipt to say “3 mention live music”.
+
+Goal:
+- Make the chat bubble narrative (the 3 to 6 human text lines) use the exact same “summary / results aggregation” object that the Results modal uses (the thing that powers VERIFIED 3).
+- Fix the timeout state so it is non terminal and clears automatically when the run finishes.
+
+Tasks:
+1) Find where the Results modal gets its truth:
+   - The data object that produces “VERIFIED 3” and the list of matched pubs and evidence URLs/snippets for c_attr_*.
+   - Identify the hook/helper/function that builds this from the existing artefacts list.
+2) Extract that into a shared helper/hook (or reuse existing one) that returns a canonical RunSummary for a runId.
+   - This RunSummary must include, at minimum:
+     - candidate_count (if available)
+     - delivered_count
+     - websites_checked_count (if available)
+     - contact counts (email/phone) as already shown today (keep current derived counts unchanged)
+     - attribute outcomes: for each HAS_ATTRIBUTE constraint, provide:
+       - attribute_raw (eg “live music”)
+       - matched_count (eg 3)
+       - matched_place_ids (or matched leads)
+       - unknown_count
+       - evidence refs (url/snippet) if already present in modal data
+3) Update chat bubble narrative lines ONLY (text):
+   - If there is a HAS_ATTRIBUTE constraint outcome with matched_count:
+     Say something like:
+     “I found {delivered_count} pubs in {location}. {matched_count} of their websites mention ‘{attribute_raw}’. Here are those {matched_count}.”
+   - Do NOT ask the user questions like “Do you want verified only…”.
+   - Do NOT be negative if matched_count is low. Just state facts.
+4) Fix the timeout:
+   - Current issue: bubble shows “timed out waiting for results” before the run is finished, then stays stuck even after completion.
+   - Make timeout a non terminal UI state:
+     - It can show “Still running, retry to refresh” but must keep polling OR allow an automatic refresh once terminal artefacts appear.
+     - When terminal RunSummary becomes available (same condition the modal uses to show VERIFIED 3), the bubble must replace the timeout message with the real results automatically.
+5) Keep dev details:
+   - Do not remove the dev receipt line or dev-only sections.
+   - Just ensure user-facing narrative uses RunSummary (modal truth source), not run_receipt.
+
+Acceptance checks:
+- For run_id a8e3d55a-d6be-49f4-8edc-cdd68e933d9d (Arundel live music), chat bubble must state that 3 pubs mention live music and show those 3 in the main list (or clearly show them as the matched set).
+- If the run takes longer than the UI wait window, bubble may show a temporary “still running” state but MUST eventually resolve to the completed results without manual page refresh once the run is finished.
+- No regression: existing chat bubble UI derived email/phone counts must remain exactly as they are today.
+
+Output required:
+- Files changed (full paths)
+- Where the RunSummary is computed (file + function name)
+- Where the chat bubble narrative now reads RunSummary
+- What you changed to make timeout non terminal (file + description)

@@ -1,0 +1,79 @@
+UI REPO TASK: add an “Export run” button to AFR Run Detail that downloads the full run as a PDF (or, if PDF is awkward, a well-formatted HTML file that prints cleanly to PDF).
+
+Goal
+In AFR Run Detail, add a button near the existing controls (for example near Refresh / Judgements) that lets me download the ENTIRE current run in detail.
+
+What the export must include
+For the currently open run, export all of this in one document:
+
+1. Run header
+- goal / summary
+- run id
+- client request id
+- conversation id if available
+- status
+- created time / updated time
+- type
+
+2. Event timeline
+- every event in order
+- timestamp
+- event type
+- status
+- title/message
+- raw details/payload if available
+
+3. Artefacts
+- every artefact for the run
+- timestamp
+- type
+- title
+- summary
+- full payload / JSON
+- any IDs linked to the artefact
+
+4. Judgements if present
+- verdict
+- reasons
+- scores/metrics
+- full payload
+
+5. Any visible “detail” sections currently hidden behind expanders
+- include those too in the export, even if the user has not expanded them on screen
+
+Behaviour
+- Add a button in AFR Run Detail called:
+  Export run
+- When clicked, generate and download the full run report
+- Preferred format: PDF
+- Acceptable fallback: printable HTML download that is structured to save as PDF cleanly
+- Filename format:
+  afr-run-<runId>.pdf
+  or
+  afr-run-<runId>.html
+
+Implementation guidance
+- Reuse the same data AFR already fetches for the current run where possible
+- If AFR only has partial data loaded, fetch the missing full details before export
+- Include ALL events and ALL artefacts, not just the ones currently visible in the viewport
+- Preserve order and timestamps
+- JSON payloads should be pretty-printed and readable
+- Make the export plain, clean, and reliable rather than fancy
+
+UI placement
+- Put the button in the Run Detail page header controls, alongside Refresh / Judgements
+- Keep styling consistent with existing AFR buttons
+
+Important
+- Do not export only the summary view
+- Do not omit artefact payloads
+- Do not rely on a screenshot
+- This must be a real structured export of the run data
+
+Success result
+From any AFR Run Detail page, I can click “Export run” and download one file containing the full run timeline, artefacts, payloads, and judgements in order.
+
+Deliverable
+Make the code change directly.
+Keep it production-grade and minimal.
+No TODOs.

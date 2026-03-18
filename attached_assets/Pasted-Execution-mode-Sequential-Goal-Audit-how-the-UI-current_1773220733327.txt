@@ -1,0 +1,90 @@
+Execution mode: Sequential
+
+Goal
+Audit how the UI currently surfaces result lists, verification state, and evidence in the chat/results view.
+
+Context
+
+We have a backend truth issue that now appears fixed:
+hard website-evidence queries are being filtered correctly in Supervisor.
+
+However, the UI is still showing result sets that appear to come from discovery/candidate data rather than the final delivered artefact.
+
+Example symptom:
+- user asks for pubs in Arundel that mention live music on their website
+- UI shows 5 results
+- all are marked Unverified
+- backend/Tower/final delivery appears to have only 3 verified results
+
+We need a precise audit of how the UI currently decides what to render.
+
+Tasks
+
+1. Identify every UI component involved in surfacing chat results / result cards / lead lists after a run.
+
+2. Trace the data flow for the results shown in chat:
+   - what API response / store / artefact / prop is used
+   - whether it comes from:
+     - discovery results
+     - candidate pool
+     - ranked leads
+     - lead_pack artefact
+     - final delivery artefact
+     - delivery summary
+     - fallback merged data
+
+3. Identify exactly where the UI determines:
+   - result count shown to the user
+   - verified / unverified badge
+   - evidence snippet text
+   - “included because …” reason text
+
+4. Determine whether the UI currently mixes multiple layers of truth, for example:
+   - showing discovery count with delivery wording
+   - showing candidate leads with final-run phrasing
+   - showing unverified candidates in the same list as delivered results
+
+5. Determine whether the UI has access today to:
+   - final delivered leads only
+   - verification status per delivered lead
+   - evidence snippet per lead
+   - source URL per lead
+   - Tower verdict
+   - delivery summary counts
+
+6. Recommend the cleanest UI truth model for chat rendering.
+
+Target behaviour we want
+
+For hard evidence queries, the UI should show the final delivered truth, not raw discovery.
+
+Ideal shape:
+- Verified matches
+- Closest / unverified matches only if explicitly supported and clearly separated
+- evidence snippet visible in chat
+- source URL visible or inspectable
+- count in header matches the actual delivered set
+
+Deliverables
+
+Write a markdown report named:
+
+UI_RESULTS_SURFACING_AUDIT.md
+
+Include:
+
+1. plain-English summary of current UI behaviour
+2. exact files/components/hooks involved
+3. exact current data source for displayed results
+4. diagnosis of why UI can show 5 when backend truth is 3
+5. recommended minimal fix
+6. recommended better long-term rendering model for:
+   - delivered truth
+   - evidence visibility
+   - verified vs closest-match separation
+
+Rules
+
+- Do not implement yet
+- Be concrete and file-based
+- Focus on what the UI actually does today, not what it should do

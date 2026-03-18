@@ -1,0 +1,120 @@
+PROMPT: Fix chat duplicate “Searching…” messages + stray typing dots during run
+
+You are working in the Wyshbone UI repo.
+
+Goal
+
+Clean up the chat UX so the user sees one clear “what’s happening” signal at a time.
+
+Current bug(s) seen in UI
+
+When an agent run starts, the chat often shows:
+
+A “Searching for X…” message twice
+
+Then the yellow status banner (“Checking requirements… results may change”)
+
+Plus typing dots (•••) still visible underneath
+
+This looks broken and spammy.
+
+Required behaviour (acceptance rules)
+
+No duplicate semantic status bubbles
+
+The “Searching for …” acknowledgement should appear at most once per run.
+
+If a second identical “Searching…” message arrives, ignore it.
+
+No typing dots while a system status banner is visible
+
+If the yellow/orange banner is showing (eg “Checking requirements…”), hide typing dots entirely.
+
+One active status signal
+
+During a run, show either:
+
+A single “Searching…” bubble, OR
+
+The yellow/orange banner
+
+Never both stacked with typing dots.
+
+Implementation approach (keep it minimal and safe)
+
+Do not change Supervisor or Tower logic. Only UI rendering / state handling.
+
+A) Dedup “Searching for …” bubbles
+
+In the place where incoming assistant/system messages are appended to the chat list (SSE handler / realtime handler / message reducer):
+
+Detect messages that match the “Searching for …” pattern (and any other known run-start acknowledgements you generate).
+
+If the most recent already-rendered system bubble is the same “Searching for …” (same normalized text), do not append the new one.
+
+Normalization should:
+
+Trim whitespace
+
+Collapse multiple spaces
+
+Lowercase
+
+Remove trailing punctuation differences if needed
+
+B) Hide typing indicator when banner is active
+
+Wherever the typing dots are rendered:
+
+Only show typing dots if:
+
+isAssistantTyping === true
+
+AND there is no active run-status banner (eg a boolean like isCheckingRequirements / runStatusBannerVisible / isInFlightVerification)
+
+If banner visible, force typing dots hidden.
+
+C) Prefer banner over “Searching…” once verification begins
+
+When the UI enters the “Checking requirements…” state:
+
+Either:
+
+Hide the previous “Searching…” bubble (do not delete history, just don’t render it), OR
+
+Convert it into the banner (if you already have a component that can replace the last system bubble)
+Pick the simplest option.
+
+What to deliver
+
+A small UI-only change set that:
+
+Dedups “Searching…” messages
+
+Removes typing dots while banner visible
+
+Ensures the user sees one clear progress signal
+
+How to test manually (must pass)
+
+Run a normal search: “find pubs in Arundel”
+
+Expected:
+
+Only one “Searching…” acknowledgement max
+
+Banner appears when checking requirements
+
+No typing dots while banner is visible
+
+No duplicate “Searching…” bubbles
+
+Trigger two rapid messages during run (send 2 user messages quickly)
+
+Expected:
+
+Still no duplicate “Searching…”
+
+No typing dots under banner
+
+Do not refactor unrelated code. Keep changes localized and readable.

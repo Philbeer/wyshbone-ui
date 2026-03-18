@@ -1,0 +1,92 @@
+Objective: Make the chat transcript show the final user-facing results for RUN lane as a single rich “Result Bubble”. It must be natural language + a small list of leads with useful details (not just names). It must be deterministic and driven only by artefacts. Dev Details remains separate.
+
+Tasks:
+
+Add a new chat message render type for RUN results, e.g. run_result.
+
+This message is created when delivery_summary arrives for a run.
+
+It renders a RunResultBubble component.
+
+Implement RunResultBubble (new component).
+Inputs: delivery_summary, verification_summary (if present), plus any lead detail artefacts already fetched (lead_pack / lead_enrich / contact_extract / leads_list as available).
+It must render:
+A) Natural summary text (deterministic templates):
+
+PASS: “I found {verified_exact} pubs that match what you asked for.”
+
+PARTIAL: “I found {verified_exact}, but not enough to reach {requested}.”
+
+STOP with unverifiable/unknown attribute: “I found candidates, but I couldn’t reliably confirm {attribute}. Based on what I can verify, I don’t have any that fully meet your criteria.”
+
+STOP with none: “I couldn’t find any pubs matching that request.”
+B) A list of leads:
+
+If verified_exact > 0: show section title “Matches”.
+
+Else if candidates exist: “Candidates (not fully verified)”.
+
+Else: no list.
+Each lead row must include:
+
+Name
+
+Area (best available: town + postcode, else address snippet)
+
+Website link (if present)
+
+Phone only if verified=true
+
+Badge: “Verified match” OR “Candidate” OR “{attribute}: unknown”
+C) Next action buttons (wiring can be shallow for now, but visible):
+
+“Widen the search area”
+
+“Check websites to confirm {attribute}”
+
+“Remove {attribute} requirement”
+Buttons should prefill the chat input with a suggested next message (existing prefill event pattern), not call tools directly.
+
+Remove/ignore any supervisor free-text result bubble for RUN lane:
+
+The chat transcript must not show “found X pubs…” from messages table as a result claim.
+
+Allow the neutral “Run complete. Results are available.” message to exist but it must be visually minimal and not the main output.
+
+Fix the misleading label bug:
+
+Never render “Exact matches” unless delivery_summary.verified_exact > 0.
+
+Never infer “exact” from leads_list length.
+
+Deliver:
+
+Rewrite full changed files.
+
+List files changed and what changed.
+
+Add test checklist:
+
+Query with live music hard → STOP 0 of 4, candidates shown with “live music: unknown”, no “Exact matches”.
+
+Query without live music → PARTIAL/STOP based on counts, lead rows show website/phone when available.
+
+Query that passes → PASS with Matches list and details.
+
+Constraints:
+
+Chat copy must not mention Tower/CVL/hard/soft/replans.
+
+All text must be deterministic, no LLM generation in UI.
+
+Notes on “details/links” without extra work
+
+Even if you don’t have perfect enrichment in every run, you can still show:
+
+Google Maps link (build from place_id if you have it)
+
+Website if present
+
+Phone only if verified
+
+If some fields are missing, just omit them cleanly.

@@ -1,0 +1,82 @@
+You are fixing a scrolling bug in the Wyshbone QA Regression Dashboard.
+
+IMPORTANT
+Do NOT change benchmark logic or agent behaviour.
+This is a UI layout fix only.
+
+Problem
+
+When the Full Benchmark Pack is running, the page becomes non-scrollable.
+
+Users cannot scroll down the test table while the benchmark is executing.
+
+This prevents viewing tests beyond the first few rows.
+
+From inspection, the page scroll appears to be locked while the run is active.
+
+Possible causes include:
+
+- document.body.style.overflow = "hidden"
+- a wrapper container using overflow: hidden
+- a modal/backdrop pattern unintentionally blocking scroll
+- a page wrapper using position: fixed during execution
+
+Goal
+
+Allow the QA Regression Dashboard page to scroll normally even while benchmarks are running.
+
+Required behaviour
+
+While the benchmark is running:
+
+• the test table must remain scrollable
+• the user must be able to scroll the page normally
+• no global scroll lock should be applied
+• the Run Full Benchmark Pack button and Stop button should remain fixed in position as they are now
+
+Implementation steps
+
+1. Inspect the benchmark run start logic.
+
+Find any code that modifies:
+
+document.body.style.overflow
+or applies overflow: hidden to the root layout container.
+
+2. Remove global scroll locking.
+
+The benchmark runner must NOT disable page scrolling.
+
+3. Ensure the table container supports scrolling.
+
+If needed, ensure the results table wrapper supports:
+
+overflow-y: auto
+
+4. Preserve layout stability.
+
+Do NOT break:
+
+• Run Full Benchmark Pack button
+• Stop button
+• progress panel
+• AFR links
+• test status updates
+
+5. Verify behaviour
+
+While a benchmark run is active:
+
+• user can scroll the page
+• user can see all 12 tests
+• progress updates still appear
+• scrolling does not interfere with the running tests
+
+Deliverables
+
+Provide:
+
+1. Files modified
+2. What was causing the scroll lock
+3. The exact change made
+4. Confirmation that the dashboard scrolls normally while benchmarks are running

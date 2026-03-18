@@ -627,7 +627,6 @@ export function AppSidebar({
   const { labels } = useVerticalLabels();
   const [showArchived, setShowArchived] = useState(false);
   const [localRuns, setLocalRuns] = useState<RunItem[]>(runs);
-  const [showPreviousChats, setShowPreviousChats] = useState(false);
   const [showScheduledMonitors, setShowScheduledMonitors] = useState(false);
   const [showIntegrations, setShowIntegrations] = useState(false);
   const [newRunIds, setNewRunIds] = useState<Set<string>>(new Set());
@@ -903,6 +902,7 @@ export function AppSidebar({
           </SidebarGroupContent>
         </SidebarGroup>
 
+        {/* Vertical selector hidden — re-enable when verticals are deliberately re-introduced
         <SidebarGroup data-tour-id="vertical">
           <SidebarGroupLabel className="flex items-center gap-2 ml-5">
             <Factory className="h-4 w-4" />
@@ -912,6 +912,7 @@ export function AppSidebar({
             <VerticalSelector />
           </SidebarGroupContent>
         </SidebarGroup>
+        */}
 
         <SidebarGroup>
           <SidebarGroupLabel>Navigation</SidebarGroupLabel>
@@ -925,41 +926,6 @@ export function AppSidebar({
                   <FilePlus className="h-4 w-4" />
                   <span>New Chat</span>
                 </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <Collapsible open={showPreviousChats} onOpenChange={setShowPreviousChats}>
-                  <CollapsibleTrigger asChild>
-                    <SidebarMenuButton data-testid="button-toggle-previous-chats">
-                      {showPreviousChats ? (
-                        <ChevronDown className="h-4 w-4" />
-                      ) : (
-                        <ChevronRight className="h-4 w-4" />
-                      )}
-                      <span>{showPreviousChats ? "Hide previous chats" : "Previous Chats"}</span>
-                    </SidebarMenuButton>
-                  </CollapsibleTrigger>
-                  <CollapsibleContent className="mt-2">
-                    {conversations.length === 0 ? (
-                      <p className="text-xs text-muted-foreground px-3 py-2">No previous chats</p>
-                    ) : (
-                      <div className="max-h-[400px] overflow-y-auto px-3 space-y-1">
-                        {conversations.map((conversation) => (
-                          <button
-                            key={conversation.id}
-                            onClick={() => {
-                              // Use the callback to load conversation
-                              onSelectConversation?.(conversation.id);
-                            }}
-                            className="w-full text-left px-3 py-2 rounded-md text-sm hover-elevate active-elevate-2 border border-border truncate"
-                            data-testid={`button-conversation-${conversation.id}`}
-                          >
-                            {conversation.label}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </CollapsibleContent>
-                </Collapsible>
               </SidebarMenuItem>
               <SidebarMenuItem>
                 <SidebarMenuButton asChild isActive={location === "/debug"} data-testid="link-debug">
@@ -1006,6 +972,14 @@ export function AppSidebar({
                   <Link href="/nudges">
                     <Sparkles className="h-4 w-4" />
                     <span>Nudges</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={location === "/learning"} data-testid="link-learning">
+                  <Link href="/learning">
+                    <History className="h-4 w-4" />
+                    <span>Learning</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
@@ -1143,6 +1117,14 @@ export function AppSidebar({
                     <Link href="/dev/afr">
                       <ClipboardCheck className="h-4 w-4" />
                       <span>Agent Flight Recorder</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+                <SidebarMenuItem>
+                  <SidebarMenuButton asChild isActive={location === "/dev/injection-moulding"} data-testid="link-dev-injection-moulding">
+                    <Link href="/dev/injection-moulding">
+                      <Factory className="h-4 w-4" />
+                      <span>Injection Moulding Demo</span>
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>

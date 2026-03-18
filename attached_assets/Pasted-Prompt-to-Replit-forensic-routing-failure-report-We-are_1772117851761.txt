@@ -1,0 +1,107 @@
+Prompt to Replit: forensic routing + failure report
+
+We are not asking you to change behaviour yet.
+We need a forensic report explaining what happened in the last run(s).
+
+Context
+
+We have implemented:
+
+3-way router: CHAT_INFO / CLARIFY_FOR_RUN / RUN_SUPERVISOR
+
+CLARIFY_FOR_RUN is DB-independent
+
+DB health gate before RUN_SUPERVISOR
+
+Observed behaviour:
+User enters:
+
+“find organisations that work with local authorities in blackpool”
+
+System responds with:
+
+“I can't run searches right now because the system is temporarily unavailable.”
+
+This implies the flow reached the DB health gate, but it should still be explainable and visible in the routing timeline.
+
+What we need from you (report only)
+
+For the most recent failed run, please produce a step-by-step report showing:
+
+Router decision
+
+What did decideChatMode() return?
+
+Include:
+
+mode
+
+reason
+
+whether a clarification session was active
+
+Clarification session state
+
+Was a clarification session created or reused?
+
+What fields were present?
+
+original_user_request
+
+outstanding_questions
+
+collected_answers
+
+Was the user input treated as:
+
+a clarification answer?
+
+a new request?
+
+neither?
+
+DB health gate
+
+Exactly where was the DB health check triggered?
+
+Which condition failed?
+
+Was this before or after attempting RUN_SUPERVISOR?
+
+Final output decision
+
+Why was the fallback CHAT_INFO “system unavailable” message chosen?
+
+Which code path emitted it?
+
+Why no clarification question was asked
+
+Explicitly explain why CLARIFY_FOR_RUN did not emit another clarification prompt at this stage.
+
+Decision tree trace
+
+Output a compact trace like:
+
+User input
+→ Router: CLARIFY_FOR_RUN (reason: semantic constraint)
+→ Clarification session: exists / updated
+→ Runnable check: false
+→ DB health gate: evaluated? yes/no
+→ Final response path: CHAT_INFO (fallback)
+Important
+
+Do not propose fixes yet.
+
+Do not refactor code.
+
+This is a truth report so we can decide the next move.
+
+Once we have this report, we’ll decide whether:
+
+DB health gating is in the wrong place, or
+
+CLARIFY_FOR_RUN exit logic is too eager, or
+
+RUN_SUPERVISOR preflight is firing too early.
+
+Produce the report in plain English with file/function references.
