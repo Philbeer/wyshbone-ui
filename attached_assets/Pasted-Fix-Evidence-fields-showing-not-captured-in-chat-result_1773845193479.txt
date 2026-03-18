@@ -1,0 +1,23 @@
+Fix: Evidence fields showing "not captured" in chat results — data mapping mismatch
+The EVIDENCE FOUND PER LEAD section now renders in the chat bubble with expandable rows — good. But when expanded, every field shows "not captured": URL visited, Quotes found, Matched phrase, Context snippet, Tower verdict.
+The same component on the QA progress page (/dev/qa-progress) shows all these fields correctly with verified/snippet/first_party badges. That's because the QA page reads evidence from the Behaviour Judge data endpoint, which has the evidence pre-formatted.
+The chat bubble version reads from the delivery summary artefact, where the same evidence data exists but in a different field structure. The fields aren't being mapped correctly.
+What to do:
+
+Open the component rendering the chat bubble evidence rows. Look at what data source it's receiving (the delivery summary artefact payload).
+Open the QA progress page component (BehaviourInspectContent in pages/dev/qa-progress.tsx or similar). Look at the field names it uses to populate: URL visited, Quotes found, Matched phrase, Context snippet, Tower verdict, and the verified/snippet/first_party badges.
+Log or inspect the delivery summary artefact payload for a completed GP run. Find where the equivalent evidence data lives — it will contain the URL that was checked, the evidence text/quotes extracted, the matched constraint phrase, the source type (snippet vs first_party), and any Tower verdict per lead. The field names will be different from the BJ format.
+Fix the mapping in the chat bubble evidence component so it reads the correct fields from the delivery summary. Specifically:
+
+URL visited → the website URL that was fetched for evidence
+Quotes found → the extracted evidence text / approved sentences
+Matched phrase → the constraint or keyword that was matched
+Context snippet → the surrounding context from the page
+Tower verdict → the per-lead Tower assessment if available
+Badges (verified/snippet/first_party) → the evidence source type and verification status
+
+
+Also ensure the verified/snippet/first_party badge rendering works — these should show on the collapsed row just like on the QA progress page.
+
+Reference: Compare a delivery summary artefact (from the Supervisor's artefact store or Supabase) with the BJ data that the QA progress page uses. The evidence is the same underlying data, just structured differently.
+Work on the main branch only — do not create or switch branches. After completing this task, append a structured summary to AGENT_LOG.md (what changed, files modified, decisions made, what's next).
