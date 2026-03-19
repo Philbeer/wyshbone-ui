@@ -507,7 +507,8 @@ export async function getDeliveryEvidence(runId: string): Promise<DeliveryEviden
   const constraintValueSet = new Set<string>();
 
   for (const lead of allDelivered) {
-    const name = (lead.name || '').toLowerCase().trim();
+    // Use same multi-field name derivation as the client's dsLeads mapping so keys align
+    const name = (lead.name || lead.lead_name || lead.business_name || lead.entity_name || '').toLowerCase().trim();
     if (!name || seen.has(name)) continue;
     seen.add(name);
 

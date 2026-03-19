@@ -393,20 +393,38 @@ export function BehaviourInspectContent({ runId, query, timestamp, fallback, del
   const dsLeads: LeadEvidence[] = useMemo(() => {
     const exact = deliverySummary?.delivered_exact ?? [];
     const closest = deliverySummary?.delivered_closest ?? [];
-    return [...exact, ...closest].map((l: any) => ({
-      ...l,
-      lead_name: l.name || l.lead_name || l.business_name,
-      url: l.website || l.url || l.source_url || l.website_url,
-      website_url: l.website || l.website_url,
-      verified: l.verified,
-      source_tier: l.source_tier,
-      constraint_verdicts: Array.isArray(l.constraint_verdicts) ? l.constraint_verdicts : [],
-      quotes: Array.isArray(l.quotes) ? l.quotes : (l.quote ? [l.quote] : []),
-      matched_phrase: l.matched_phrase || l.constraint_value || '',
-      context_snippet: l.context_snippet || l.surrounding_context || l.context || '',
-      tower_status: l.tower_status || l.verification_status || '',
-      source_type: l.source_type || l.source_tier || l.evidence_source || l.evidence_type || '',
-    }));
+    return [...exact, ...closest].map((l: any) => {
+      // Pull the first evidence item from the nested arrays so top-level fields
+      // are populated even when evidence only lives inside match_evidence / supporting_evidence.
+      const evidenceItems: any[] = (Array.isArray(l.match_evidence) && l.match_evidence.length ? l.match_evidence : null)
+        ?? (Array.isArray(l.supporting_evidence) && l.supporting_evidence.length ? l.supporting_evidence : null)
+        ?? (Array.isArray(l.evidence) && l.evidence.length ? l.evidence : null)
+        ?? [];
+      const ev0 = evidenceItems[0] ?? null;
+
+      const flatQuotes: string[] = evidenceItems.flatMap((e: any) => {
+        const q = e.quote || e.approved_sentences || e.text;
+        if (!q) return [] as string[];
+        return (Array.isArray(q) ? q : [q]) as string[];
+      });
+
+      return {
+        ...l,
+        lead_name: l.name || l.lead_name || l.business_name,
+        url: l.website || l.url || l.source_url || l.website_url || ev0?.source_url || ev0?.url || '',
+        website_url: l.website || l.website_url,
+        verified: l.verified,
+        source_tier: l.source_tier,
+        constraint_verdicts: Array.isArray(l.constraint_verdicts) ? l.constraint_verdicts : [],
+        quotes: Array.isArray(l.quotes) && l.quotes.length ? l.quotes
+          : (l.quote ? [l.quote] : (flatQuotes.length ? flatQuotes : [])),
+        matched_phrase: l.matched_phrase || l.constraint_value || ev0?.matched_phrase || ev0?.constraint_value || '',
+        context_snippet: l.context_snippet || l.surrounding_context || l.context || ev0?.context_snippet || ev0?.surrounding_context || '',
+        tower_status: l.tower_status || l.verification_status || ev0?.verification_status || '',
+        source_type: l.source_type || l.source_tier || l.evidence_source || l.evidence_type
+          || ev0?.source_type || ev0?.evidence_type || ev0?.evidence_source || '',
+      };
+    });
   }, [deliverySummary]);
 
   if (!judgeBLoading && !judgeB && fallback != null && dsLeads.length === 0) {

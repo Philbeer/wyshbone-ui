@@ -1009,3 +1009,66 @@ This gives three-tier fallback: `rich` (evidenceMap) → `item` (bjLeads) → `d
 - Server fix covers `evidence_refs` (used by `ReceiptAttributeOutcome`/GPT-4o attribution), `evidence` (generic array), and `citations` (citation-style GPT-4o output) — all mapped to the canonical `{source_url, quote, matched_phrase, ...}` shape used by the rest of the function.
 - Client fix only applies when `dsLeads` is populated (i.e., when `deliverySummary` prop is passed to `BehaviourInspectContent`). For the QA modal path (no `deliverySummary`), the server-side fix is the only rescue path.
 - The priority order preserves existing behaviour: `rich` (most authoritative) → `item` (bjLeads direct fields) → `dsItem` (delivery summary fallback).
+
+---
+
+## Session: Evidence Dropdown — Root Cause Deep Dive (Follow-up)
+
+**Date:** 2026-03-19  
+**Status:** Complete
+
+### What the diffs showed
+
+Running `git diff evidence-badges-chat-bubble..HEAD` across all changed files confirmed:
+
+- **`client/src/pages/chat.tsx`** — ZERO changes. No evidence rendering code was deleted.
+- **`client/src/pages/dev/qa-progress.tsx`** — only the additive `dsLeadsMap`/`dsItem` changes from the previous session. No logic removed.
+- **`server/routes.ts`** — only `execution_path` wiring and `console.log` statements. No evidence-related changes.
+- **`server/supabase-client.ts`** — only the expanded evidence array fallbacks from the previous session.
+
+The regression was therefore NOT caused by deleted client code, but by two latent bugs that were masked at tag-time by different data, now exposed as the Supervisor's delivery_summary format evolved:
+
+### Root Cause 1 — `getDeliveryEvidence` name key derivation (server)
+
+```typescript
+// BEFORE (tag):
+const name = (lead.name || '').toLowerCase().trim();
+if (!name || seen.has(name)) continue;  // ← skips lead if lead.name is absent
+```
+
+If the Supervisor writes leads with `lead_name` or `business_name` but no `name` field, the lead is silently skipped and its `evidenceMap` entry is never written. The rendering then gets `rich = null` for every lead.
+
+**Fix:** use the same multi-field derivation as the client's `dsLeads` mapping:
+```typescript
+const name = (lead.name || lead.lead_name || lead.business_name || lead.entity_name || '').toLowerCase().trim();
+```
+
+### Root Cause 2 — `dsLeads` mapping did not extract from nested evidence arrays (client)
+
+The `dsLeads` useMemo only looked at top-level fields on each lead:
+```typescript
+url: l.website || l.url || l.source_url || l.website_url,   // ← misses match_evidence[0].source_url
+quotes: Array.isArray(l.quotes) ? l.quotes : ...,           // ← misses match_evidence[].quote
+matched_phrase: l.matched_phrase || ...,                     // ← misses match_evidence[0].matched_phrase
+tower_status: l.tower_status || l.verification_status || '', // ← misses match_evidence[0].verification_status
+```
+
+When the Supervisor embeds evidence inside `match_evidence[]` or `supporting_evidence[]` (GP cascade / WEB_VISIT pattern), none of that data was surfaced in `dsLeads` items. So `dsItem` (the third-tier fallback from the previous session) was populated but all its evidence fields were still empty.
+
+**Fix:** extract the first evidence item from `match_evidence`/`supporting_evidence`/`evidence` and use it as fallback for all evidence fields. Quotes are flat-mapped from all items.
+
+### Files Modified
+- `server/supabase-client.ts` — `getDeliveryEvidence` key derivation: `lead.name || lead.lead_name || lead.business_name || lead.entity_name`
+- `client/src/pages/dev/qa-progress.tsx` — `dsLeads` useMemo: extracts `ev0` (first evidence item) from nested arrays; uses it as fallback for `url`, `quotes`, `matched_phrase`, `context_snippet`, `tower_status`, `source_type`
+
+### Verification from logs
+After the fix, the server log confirms:
+- `[delivery-evidence] allDelivered count: 17` — all leads processed
+- `[delivery-evidence] evidenceMap keys: ['blackpool council adoption services', ...]` — 17 keys registered
+- `first entry constraint_verdicts: [{ constraint: 'Blackpool Council', verdict: 'verified' }]` — evidence data present
+- Vite HMR: `hmr update /src/pages/dev/qa-progress.tsx` — no compile errors
+
+### What's Next
+- Trigger a fresh GP cascade run and expand evidence dropdowns to confirm URL + quotes + matched phrase now show
+- Trigger a GPT-4o run and confirm evidence fields show (GPT-4o may use `supporting_evidence` or `evidence_refs`)
+- Watch the `[delivery-evidence]` server logs for the new run to confirm evidenceMap entries have non-empty url/quotes
