@@ -842,3 +842,42 @@ Vite build clean. HMR applied. No TypeScript errors.
 - Verify the chat bubble against a live GP Cascade run that has BJ data to confirm all four fixes produce matching badges.
 - If `source_tier` values beyond `web_search`, `snippet`, `first_party`, `first_party_website`, `website` appear (e.g. `directory`, `crm`), extend the colour mapping accordingly.
 - Consider a `formatSourceType` helper to render human-readable labels (e.g. "Web search" instead of "web_search") if stakeholders prefer it.
+
+---
+
+## Search Mode Toggle → execution_path Wiring Audit
+
+**Date:** 2026-03-19  
+**Task:** Wire the existing GP / GPT-4o search mode toggle so that `execution_path` is included in the Supervisor request body on every run submission.
+
+### Finding
+
+The wiring was **already fully implemented** prior to this task. No code changes were required.
+
+### How it works (verified by code inspection)
+
+| File | Line | Role |
+|------|------|------|
+| `client/src/components/SearchModeToggle.tsx` | 10 | Defines `SearchMode = "gp_cascade" \| "gpt4o_primary"` |
+| `client/src/components/SearchModeToggle.tsx` | 12 | Module-level `_currentSearchMode` holds the live toggle value |
+| `client/src/components/SearchModeToggle.tsx` | 14–16 | `getSearchMode()` reads and returns `_currentSearchMode` |
+| `client/src/components/SearchModeToggle.tsx` | 21–28 | `handleSet()` updates both React state and the module-level variable on every toggle click |
+| `client/src/pages/chat.tsx` | 42 | `getSearchMode` imported from `SearchModeToggle` |
+| `client/src/pages/chat.tsx` | 2192 | `execution_path: getSearchMode()` included in the `POST /api/chat` body |
+| `client/src/pages/chat.tsx` | 3728 | `<SearchModeToggle />` rendered in the chat toolbar |
+
+### Behaviour
+
+- **GP mode (default):** `execution_path` is sent as `"gp_cascade"`. The Supervisor defaults to this path, so the effect is the same whether the field is present or absent.
+- **GPT-4o mode:** `execution_path` is sent as `"gpt4o_primary"`, routing the run through the GPT-4o primary pipeline.
+
+### Files Modified
+None — no changes were needed.
+
+### Decisions Made
+- No refactoring was performed. The existing module-level singleton pattern (`_currentSearchMode` + `getSearchMode()`) is a clean, low-overhead approach for sharing toggle state across the component boundary without adding a context or prop-drilling. It was left as-is.
+- `execution_path` is always included in the payload (never omitted), which is consistent with the existing `google_query_mode` field convention in the same payload.
+
+### What's next
+- Confirm the Supervisor backend reads and routes on `execution_path` correctly for both values.
+- Consider adding a visual indicator in the chat thread (e.g. a small badge on the assistant message) showing which execution path was used for a given run, to help with QA and debugging.
