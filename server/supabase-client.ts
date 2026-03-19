@@ -513,6 +513,20 @@ export async function getDeliveryEvidence(runId: string): Promise<DeliveryEviden
 
     const items: any[] = (lead.match_evidence?.length ? lead.match_evidence : null)
       ?? (lead.supporting_evidence?.length ? lead.supporting_evidence : null)
+      ?? (lead.evidence?.length ? lead.evidence : null)
+      ?? (lead.evidence_refs?.length ? lead.evidence_refs.map((r: any) => ({
+          source_url: r.url || r.source_url || '',
+          quote: r.snippet || r.quote || '',
+          matched_phrase: r.matched_variant || r.matched_phrase || '',
+          verification_status: r.verification_status || '',
+          source_type: r.source_type || 'web_search',
+        })) : null)
+      ?? (lead.citations?.length ? lead.citations.map((c: any) => ({
+          source_url: typeof c === 'string' ? c : (c.url || c.source_url || ''),
+          quote: typeof c === 'string' ? '' : (c.snippet || c.quote || ''),
+          verification_status: '',
+          source_type: 'web_search',
+        })) : null)
       ?? [];
 
     // Derive constraint_verdicts: prefer explicit field, then derive from match_basis[], then from match_evidence[]
@@ -547,7 +561,7 @@ export async function getDeliveryEvidence(runId: string): Promise<DeliveryEviden
     }
 
     evidenceMap[name] = {
-      url: items[0]?.source_url || lead.url || lead.website || '',
+      url: items[0]?.source_url || items[0]?.url || lead.url || lead.website || lead.source_url || lead.website_url || '',
       quotes: items.flatMap((e: any) => {
         const q = e.quote || e.approved_sentences || e.text;
         if (!q) return [];

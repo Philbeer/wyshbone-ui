@@ -493,10 +493,23 @@ export function BehaviourInspectContent({ runId, query, timestamp, fallback, del
               Evidence Found Per Lead
             </h4>
             <div className="space-y-1">
-              {evidence.map((item, idx) => {
+              {(() => {
+                // Build a name-keyed lookup from dsLeads so bjLead rows can fall back to
+                // the richer field data that comes from the delivery_summary payload.
+                const dsLeadsMap = new Map<string, LeadEvidence>(
+                  dsLeads.map(dl => {
+                    const key = (dl.lead_name || dl.name || dl.business_name || dl.entity_name || '').toLowerCase().trim();
+                    return [key, dl] as [string, LeadEvidence];
+                  })
+                );
+                return evidence.map((item, idx) => {
                 const displayName = item.lead_name || item.business_name || item.entity_name || item.name || `Lead ${idx + 1}`;
+                const displayKey = displayName.toLowerCase().trim();
                 const isExpanded = expandedEvidence.has(idx);
-                const rich = deliveryEvidence.evidenceMap[displayName.toLowerCase().trim()] ?? null;
+                const rich = deliveryEvidence.evidenceMap[displayKey] ?? null;
+                // When bjLeads is the source, item fields may be sparse; fall back to the
+                // corresponding dsLeads entry which carries richer mapped evidence fields.
+                const dsItem = dsLeadsMap.get(displayKey) ?? null;
                 const itemWithVerdicts: LeadEvidence = {
                   ...item,
                   constraint_verdicts: rich?.constraint_verdicts?.length
@@ -504,13 +517,13 @@ export function BehaviourInspectContent({ runId, query, timestamp, fallback, del
                     : (item.constraint_verdicts ?? []),
                 };
                 const badges = resolveConstraintBadges(itemWithVerdicts, verifiableConstraints, verificationPolicy);
-                const siteUrl = rich?.url || item.url || item.source_url || item.website_url || '';
+                const siteUrl = rich?.url || item.url || item.source_url || item.website_url || dsItem?.url || dsItem?.source_url || dsItem?.website_url || '';
                 const allQuotes: string[] = rich?.quotes?.length
                   ? rich.quotes
-                  : [...(item.quotes ?? []), ...(item.quote ? [item.quote] : [])];
-                const matchedPhrase = rich?.matched_phrase || item.matched_phrase || '';
-                const contextSnippet = rich?.context_snippet || item.context_snippet || item.context || '';
-                const towerStatus = rich?.verification_status || item.tower_status || '';
+                  : [...(item.quotes ?? []), ...(item.quote ? [item.quote] : []), ...(dsItem?.quotes ?? []), ...(dsItem?.quote ? [dsItem.quote] : [])];
+                const matchedPhrase = rich?.matched_phrase || item.matched_phrase || dsItem?.matched_phrase || '';
+                const contextSnippet = rich?.context_snippet || item.context_snippet || item.context || dsItem?.context_snippet || dsItem?.context || '';
+                const towerStatus = rich?.verification_status || item.tower_status || dsItem?.tower_status || '';
                 const towerCls = towerStatus.toUpperCase() === 'VERIFIED'
                   ? 'bg-green-100 text-green-700'
                   : towerStatus === 'weak_match'
@@ -598,7 +611,8 @@ export function BehaviourInspectContent({ runId, query, timestamp, fallback, del
                     )}
                   </div>
                 );
-              })}
+              });
+              })()}
             </div>
           </section>
         );

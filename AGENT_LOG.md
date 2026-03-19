@@ -935,3 +935,77 @@ The destructuring on line 1206 was also updated to extract `execution_path` from
 - Trigger a GPT-4o mode run and inspect the `supervisor_tasks` row in Supabase to confirm `request_data.execution_path = "gpt4o_primary"` is present.
 - Check the server console for `[chat] Supabase insert execution_path: gpt4o_primary` to verify end-to-end flow.
 - Optionally surface the active execution path in the run artefacts or the chat UI for easier QA.
+
+---
+
+## Session: Evidence Dropdown "No evidence details captured" Regression Fix
+
+**Date:** 2026-03-19  
+**Status:** Complete
+
+### Root Cause Analysis
+
+The "No evidence details captured" fallback fired when all five display fields (`siteUrl`, `allQuotes`, `matchedPhrase`, `contextSnippet`, `towerStatus`) were empty after two-source resolution:
+
+1. **`rich`** — from `GET /api/afr/delivery-evidence` → `getDeliveryEvidence()` which reads `delivery_summary` artefacts and builds `evidenceMap` keyed by `lead.name.toLowerCase().trim()`.
+2. **`item`** — from `bjLeads` (Behaviour Judge `input_snapshot.leads_evidence`) when present, otherwise `dsLeads`.
+
+Two failure modes caused the regression:
+
+**Failure Mode A — Server-side (both GP + GPT-4o):**  
+`getDeliveryEvidence` only searched `lead.match_evidence` and `lead.supporting_evidence` arrays. GPT-4o runs may store evidence in `lead.evidence`, `lead.evidence_refs`, or `lead.citations` fields. When none of these matched, `items` was `[]` and the entire `evidenceMap` entry had empty `url`/`quotes`/`matched_phrase`/`context_snippet`. Additionally, the URL fallback chain omitted `items[0]?.url`, `lead.source_url`, and `lead.website_url`.
+
+**Failure Mode B — Client-side (chat bubble, bjLeads present):**  
+When `bjLeads` is the primary evidence source (`evidence = bjLeads ?? dsLeads`), `dsLeads` was completely bypassed — not just as the evidence list, but also as a fallback for individual field data. `dsLeads` items (built from `chatMessage.deliverySummary`) carry rich mapped fields (`url`, `tower_status`, `quotes`, `matched_phrase`) that could rescue empty `bjLeads` items when `rich` is also null.
+
+### Fix 1 — `server/supabase-client.ts` (`getDeliveryEvidence`)
+
+Expanded the evidence array priority chain to handle more field names:
+
+```typescript
+const items: any[] = (lead.match_evidence?.length ? lead.match_evidence : null)
+  ?? (lead.supporting_evidence?.length ? lead.supporting_evidence : null)
+  ?? (lead.evidence?.length ? lead.evidence : null)
+  ?? (lead.evidence_refs?.length ? lead.evidence_refs.map((r) => ({
+      source_url: r.url || r.source_url || '',
+      quote: r.snippet || r.quote || '',
+      matched_phrase: r.matched_variant || r.matched_phrase || '',
+      ...
+    })) : null)
+  ?? (lead.citations?.length ? lead.citations.map(...) : null)
+  ?? [];
+```
+
+Expanded the URL fallback chain:
+```typescript
+url: items[0]?.source_url || items[0]?.url || lead.url || lead.website || lead.source_url || lead.website_url || '',
+```
+
+### Fix 2 — `client/src/pages/dev/qa-progress.tsx` (`BehaviourInspectContent`)
+
+Built a `dsLeadsMap` (name-keyed lookup over `dsLeads`) before the evidence `.map()` and used `dsItem` as a final fallback in all five field derivations:
+
+```typescript
+const dsLeadsMap = new Map<string, LeadEvidence>(
+  dsLeads.map(dl => {
+    const key = (dl.lead_name || dl.name || ...).toLowerCase().trim();
+    return [key, dl];
+  })
+);
+// Inside .map():
+const dsItem = dsLeadsMap.get(displayKey) ?? null;
+const siteUrl = rich?.url || item.url || ... || dsItem?.url || dsItem?.source_url || '';
+const towerStatus = rich?.verification_status || item.tower_status || dsItem?.tower_status || '';
+// etc.
+```
+
+This gives three-tier fallback: `rich` (evidenceMap) → `item` (bjLeads) → `dsItem` (dsLeads).
+
+### Files Modified
+- `server/supabase-client.ts` — expanded `items` evidence array priority chain + URL fallback
+- `client/src/pages/dev/qa-progress.tsx` — added `dsLeadsMap` + `dsItem` third-tier fallback in evidence field derivations
+
+### Decisions Made
+- Server fix covers `evidence_refs` (used by `ReceiptAttributeOutcome`/GPT-4o attribution), `evidence` (generic array), and `citations` (citation-style GPT-4o output) — all mapped to the canonical `{source_url, quote, matched_phrase, ...}` shape used by the rest of the function.
+- Client fix only applies when `dsLeads` is populated (i.e., when `deliverySummary` prop is passed to `BehaviourInspectContent`). For the QA modal path (no `deliverySummary`), the server-side fix is the only rescue path.
+- The priority order preserves existing behaviour: `rich` (most authoritative) → `item` (bjLeads direct fields) → `dsItem` (delivery summary fallback).
