@@ -23,6 +23,7 @@ export const chatRequestSchema = z.object({
   clientRequestId: z.string().optional(),
   metadata: z.record(z.any()).optional(),
   google_query_mode: z.enum(["TEXT_ONLY", "BIASED_STABLE"]).optional(),
+  execution_path: z.enum(["gp_cascade", "gpt4o_primary"]).optional(),
   clarify_run_id: z.string().optional(),
   clarify_client_request_id: z.string().optional(),
 });

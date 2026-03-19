@@ -1200,7 +1200,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const validatedData = validation.data;
       user = validatedData.user;
-      const { messages, defaultCountry, conversationId: requestedConversationId, clientRequestId: _clientRequestId, metadata, google_query_mode, clarify_run_id, clarify_client_request_id } = validatedData;
+      const { messages, defaultCountry, conversationId: requestedConversationId, clientRequestId: _clientRequestId, metadata, google_query_mode, execution_path, clarify_run_id, clarify_client_request_id } = validatedData;
       clientRequestId = _clientRequestId;
       console.log('📝 Chat request from user:', user.id, user.email, clientRequestId ? `(crid:${clientRequestId.slice(0,8)})` : '', metadata ? `metadata=${JSON.stringify(metadata).slice(0,200)}` : '', google_query_mode ? `gqm=${google_query_mode}` : '');
       
@@ -1312,11 +1312,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
             continuation_of_run: clarify_run_id,
           };
           if (google_query_mode) requestData.google_query_mode = google_query_mode;
+          if (execution_path) requestData.execution_path = execution_path;
           if (metadata) {
             if (metadata.scenario) requestData.scenario = metadata.scenario;
             if (metadata.constraints) requestData.constraints = metadata.constraints;
             requestData.metadata = metadata;
           }
+          console.log('[chat] Supabase insert execution_path:', execution_path ?? 'gp_cascade (default)');
           const supervisorTask = await createSupervisorTask(
             conversationId,
             user.id,
@@ -1425,6 +1427,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           console.log(`📦 [SEARCH_QUERY] user_message="${latestUserText.slice(0, 80)}" taskType="${taskType}"`);
 
           if (google_query_mode) requestData.google_query_mode = google_query_mode;
+          if (execution_path) requestData.execution_path = execution_path;
           if (metadata) {
             if (metadata.scenario) requestData.scenario = metadata.scenario;
             if (metadata.constraints) requestData.constraints = metadata.constraints;
@@ -1450,6 +1453,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             }).catch(err => console.error('AFR router log error:', err.message));
           }
 
+          console.log('[chat] Supabase insert execution_path:', execution_path ?? 'gp_cascade (default)');
           const supervisorTask = await createSupervisorTask(
             conversationId,
             user.id,
@@ -1556,6 +1560,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             };
 
             if (google_query_mode) requestDataClassify.google_query_mode = google_query_mode;
+            if (execution_path) requestDataClassify.execution_path = execution_path;
             if (metadata) {
               if (metadata.scenario) requestDataClassify.scenario = metadata.scenario;
               if (metadata.constraints) requestDataClassify.constraints = metadata.constraints;
@@ -1581,6 +1586,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               }).catch(err => console.error('AFR router log error:', err.message));
             }
 
+            console.log('[chat] Supabase insert execution_path:', execution_path ?? 'gp_cascade (default)');
             const supervisorTaskClassify = await createSupervisorTask(
               conversationId,
               user.id,

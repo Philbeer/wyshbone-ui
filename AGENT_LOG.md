@@ -881,3 +881,57 @@ None — no changes were needed.
 ### What's next
 - Confirm the Supervisor backend reads and routes on `execution_path` correctly for both values.
 - Consider adding a visual indicator in the chat thread (e.g. a small badge on the assistant message) showing which execution path was used for a given run, to help with QA and debugging.
+
+---
+
+## execution_path → Supabase supervisor_tasks Fix
+
+**Date:** 2026-03-19  
+**Task:** Wire `execution_path` from the search mode toggle into the `request_data` column of every `supervisor_tasks` Supabase insert so the Supervisor can read it when claiming the task.
+
+### Root Cause
+
+The previous audit confirmed `getSearchMode()` was being called and sent to `POST /api/chat` as `execution_path`. However, the UI server's `/api/chat` route was **not** passing that field through to the `request_data` object written to Supabase. The `chatRequestSchema` Zod validator was also silently stripping `execution_path` because the field was not declared in the schema.
+
+### What Changed
+
+#### `shared/schema.ts`
+- Added `execution_path: z.enum(["gp_cascade", "gpt4o_primary"]).optional()` to `chatRequestSchema`.
+- Without this, Zod's `.safeParse()` would strip the field before it reached the route handler.
+
+#### `server/routes.ts`
+Three separate supervisor task creation paths were updated — all follow the same pattern: inject `execution_path` into `requestData` immediately after `google_query_mode`, then log it just before the Supabase insert.
+
+| Path | Lines changed | Variable |
+|------|--------------|----------|
+| **CLARIFY_CONTINUATION** (clarify answer follow-up) | ~1317–1324 | `requestData` |
+| **RUN_SUPERVISOR** (main `decideChatMode → RUN_SUPERVISOR` lane) | ~1432–1459 | `requestData` |
+| **CLASSIFY_GATE** (CHAT_INFO override via classifier) | ~1565–1592 | `requestDataClassify` |
+
+Each site received:
+```typescript
+if (execution_path) requestData.execution_path = execution_path;
+// ...
+console.log('[chat] Supabase insert execution_path:', execution_path ?? 'gp_cascade (default)');
+```
+
+The destructuring on line 1206 was also updated to extract `execution_path` from `validatedData`.
+
+### Behaviour After Fix
+
+- **GP mode (default / omitted):** `execution_path` is absent from the payload → `if (execution_path)` guard evaluates falsy → field not written to `request_data`. Supervisor defaults to `gp_cascade`. Console prints `gp_cascade (default)`.
+- **GPT-4o mode:** `execution_path: "gpt4o_primary"` is written into `request_data`. Supervisor's `request_data.execution_path` branch at supervisor.ts line 1930 → mission-executor.ts line 714 activates the GPT-4o primary pipeline.
+
+### Files Modified
+- `shared/schema.ts` — added `execution_path` field to `chatRequestSchema`
+- `server/routes.ts` — destructured `execution_path` from validated body; injected into `requestData` / `requestDataClassify` in all three supervisor task insert paths; added `console.log` before each insert
+
+### Decisions Made
+- Only injected `execution_path` when truthy (matching the existing `google_query_mode` convention) so GP-mode rows stay clean and the Supervisor's default behaviour is unchanged.
+- The Tower `/api/chat` route (line 4848) also validates against `chatRequestSchema` but does not create supervisor tasks — no changes needed there.
+- No changes to the Supervisor backend were required; it already reads `request_data.execution_path` at supervisor.ts line 1930.
+
+### What's Next
+- Trigger a GPT-4o mode run and inspect the `supervisor_tasks` row in Supabase to confirm `request_data.execution_path = "gpt4o_primary"` is present.
+- Check the server console for `[chat] Supabase insert execution_path: gpt4o_primary` to verify end-to-end flow.
+- Optionally surface the active execution path in the run artefacts or the chat UI for easier QA.
