@@ -1,0 +1,55 @@
+Auto-download AFR export when a run finishes
+When a Supervisor run completes and the result bubble appears in chat, automatically download the AFR HTML export for that run. This gives Phil an instant forensic record of every run without manually going to the AFR page.
+What to do
+1. Extract the AFR export function into a shared utility
+Create a new file client/src/lib/afrExport.ts that exports the exportRunAsHtml function (and its dependencies: fetchRunExportData, buildRunSectionHtml, triggerHtmlDownload, EXPORT_CSS, and all the helper functions it needs like escHtml, formatTs, prettyJson, extractHighlightFields, extractRunGlance, buildGlanceHtml, buildKeyMomentsHtml, eventRowClass, artefactTypeLabel, exportBadgeClass, fetchBenchmarkMetaForRuns).
+Move these functions OUT of client/src/pages/dev/afr.tsx and into the new shared utility file. Then import them back into afr.tsx so the AFR page continues to work exactly as before.
+Also export a convenience function:
+typescriptexport async function autoExportRun(runId: string, clientRequestId: string | null): Promise<void> {
+  try {
+    await exportRunAsHtml(runId, clientRequestId);
+    console.log(`[AFR_AUTO_EXPORT] Downloaded AFR for run ${runId}`);
+  } catch (err: any) {
+    console.warn(`[AFR_AUTO_EXPORT] Failed to export run ${runId}: ${err.message}`);
+  }
+}
+2. Add auto-download trigger in chat.tsx
+In client/src/pages/chat.tsx, find the cleanupRunState function. This is called when a run finishes. At the end of this function, after the existing cleanup logic, add the auto-export call:
+typescript// Auto-download AFR if enabled
+const autoExportEnabled = localStorage.getItem('wyshbone_auto_export_afr') !== 'false'; // default ON
+if (autoExportEnabled && effectiveKey) {
+  const { autoExportRun } = await import('@/lib/afrExport');
+  // Small delay to let final artefacts persist
+  setTimeout(() => {
+    const runId = supervisorRunIdRef.current || effectiveKey;
+    const crid = supervisorClientRequestIdRef.current || null;
+    autoExportRun(runId, crid);
+  }, 3000);
+}
+IMPORTANT: cleanupRunState is currently a synchronous function. The auto-export should NOT block it. Use a fire-and-forget setTimeout pattern — the download happens in the background 3 seconds after the run completes (giving Supabase time to persist the final artefacts).
+3. Add a toggle in the diagnostic panel
+In the RunDiagnosticPanel component in chat.tsx, add a toggle to enable/disable auto-export. Add it next to the existing diagnostic controls:
+tsx<label className="flex items-center gap-1 text-[10px] text-muted-foreground cursor-pointer">
+  <input
+    type="checkbox"
+    checked={localStorage.getItem('wyshbone_auto_export_afr') !== 'false'}
+    onChange={(e) => {
+      localStorage.setItem('wyshbone_auto_export_afr', e.target.checked ? 'true' : 'false');
+    }}
+    className="w-3 h-3"
+  />
+  Auto-download AFR
+</label>
+What NOT to change
+
+The AFR page (dev/afr.tsx) must continue to work exactly as before — same bulk export, same single export, same UI. The only change is that the export functions now come from a shared import.
+Do not modify any Supervisor code.
+Do not modify the result bubble rendering or the finalizeRunUI function.
+
+Testing
+
+Run a query with auto-export ON (default) — the AFR HTML should auto-download ~3 seconds after the result bubble appears
+Toggle auto-export OFF in the diagnostic panel — runs should NOT auto-download
+The AFR page's "Export run" button and bulk export should still work exactly as before
+
+Work on the main branch only — do not create or switch branches. After completing this task, append a structured summary to AGENT_LOG.md (what changed, files modified, decisions made, what's next).
