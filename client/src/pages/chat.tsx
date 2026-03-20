@@ -218,6 +218,17 @@ function RunDiagnosticPanel({
               {diagLoading ? 'Loading...' : 'Fetch from DB'}
             </button>
             {diagError && <span className="text-red-500 ml-2">Error: {diagError}</span>}
+            <label className="flex items-center gap-1 text-[10px] text-muted-foreground cursor-pointer mt-1">
+              <input
+                type="checkbox"
+                defaultChecked={localStorage.getItem('wyshbone_auto_export_afr') !== 'false'}
+                onChange={(e) => {
+                  localStorage.setItem('wyshbone_auto_export_afr', e.target.checked ? 'true' : 'false');
+                }}
+                className="w-3 h-3"
+              />
+              Auto-download AFR
+            </label>
           </div>
 
           {diagData && diagData.diagnostics?.map((d: any, i: number) => (
@@ -1176,6 +1187,17 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         clearInterval(supervisorPollRef.current);
         supervisorPollRef.current = null;
       }
+    }
+
+    const autoExportEnabled = localStorage.getItem('wyshbone_auto_export_afr') !== 'false';
+    if (autoExportEnabled && effectiveKey) {
+      void import('@/lib/afrExport').then(({ autoExportRun }) => {
+        setTimeout(() => {
+          const runId = supervisorRunIdRef.current || effectiveKey;
+          const crid = supervisorClientRequestIdRef.current || null;
+          autoExportRun(runId, crid);
+        }, 3000);
+      });
     }
   }
 
