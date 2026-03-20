@@ -447,19 +447,40 @@ export interface BehaviourJudgeResult {
   } | null;
 }
 
+/**
+ * Picks the best BJ row when a run has multiple rows (one per judged artefact).
+ * combined_delivery rows always have requested_count set; final_delivery rows do not.
+ * Priority: requested_count IS NOT NULL > highest delivered_count > latest created_at.
+ */
+function pickBestBjRow(rows: BehaviourJudgeResult[]): BehaviourJudgeResult | null {
+  if (!rows || rows.length === 0) return null;
+  if (rows.length === 1) return rows[0];
+  return rows.reduce((best, row) => {
+    const bestHasReq = best.requested_count != null;
+    const rowHasReq = row.requested_count != null;
+    if (rowHasReq && !bestHasReq) return row;
+    if (bestHasReq && !rowHasReq) return best;
+    const bestDelivered = best.delivered_count ?? 0;
+    const rowDelivered = row.delivered_count ?? 0;
+    if (rowDelivered !== bestDelivered) return rowDelivered > bestDelivered ? row : best;
+    const bestTs = best.created_at ?? '';
+    const rowTs = row.created_at ?? '';
+    return rowTs > bestTs ? row : best;
+  });
+}
+
 export async function getBehaviourJudgeResult(runId: string): Promise<BehaviourJudgeResult | null> {
   if (!isSupabaseConfigured()) return null;
   const client = ensureSupabaseClient();
   const { data, error } = await client
     .from('behaviour_judge_results')
     .select('*')
-    .eq('run_id', runId)
-    .maybeSingle();
+    .eq('run_id', runId);
   if (error) {
     console.error('[behaviour-judge] lookup error:', error.message);
     return null;
   }
-  return data as BehaviourJudgeResult | null;
+  return pickBestBjRow((data || []) as BehaviourJudgeResult[]);
 }
 
 export interface LeadDeliveryEvidence {
@@ -592,15 +613,22 @@ export async function getBehaviourJudgeResults(runIds: string[]): Promise<Record
   const client = ensureSupabaseClient();
   const { data, error } = await client
     .from('behaviour_judge_results')
-    .select('run_id, outcome, confidence, reason, mission_intent_assessment, ground_truth_assessment')
+    .select('run_id, outcome, confidence, reason, delivered_count, requested_count, created_at, mission_intent_assessment, ground_truth_assessment')
     .in('run_id', runIds);
   if (error) {
     console.error('[behaviour-judge] bulk lookup error:', error.message);
     return {};
   }
-  const map: Record<string, BehaviourJudgeResult> = {};
+  const grouped: Record<string, BehaviourJudgeResult[]> = {};
   for (const row of (data || [])) {
-    map[(row as any).run_id] = row as BehaviourJudgeResult;
+    const rid = (row as any).run_id;
+    if (!grouped[rid]) grouped[rid] = [];
+    grouped[rid].push(row as BehaviourJudgeResult);
+  }
+  const map: Record<string, BehaviourJudgeResult> = {};
+  for (const [rid, rows] of Object.entries(grouped)) {
+    const best = pickBestBjRow(rows);
+    if (best) map[rid] = best;
   }
   return map;
 }

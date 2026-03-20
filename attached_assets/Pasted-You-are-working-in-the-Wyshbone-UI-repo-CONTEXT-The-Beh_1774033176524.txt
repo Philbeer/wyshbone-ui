@@ -1,0 +1,31 @@
+You are working in the Wyshbone UI repo.
+
+CONTEXT:
+The Behaviour Judge (BJ) fires in Tower after judging artefacts. It fires for BOTH per-loop `final_delivery` artefacts AND the `combined_delivery` artefact (which contains ALL leads from ALL loops merged together). Each firing persists a row to the `behaviour_judge_results` table in Supabase.
+
+BUG:
+When a multi-loop run produces a `combined_delivery` artefact (e.g. 8 leads from 2 loops), the UI shows the BJ verdict from the last `final_delivery` (e.g. "2 delivered") instead of the `combined_delivery` verdict (e.g. "8 delivered").
+
+ROOT CAUSE:
+In `server/supabase-client.ts`, the function `getBehaviourJudgeResult(runId)` queries `behaviour_judge_results` with `.eq('run_id', runId).maybeSingle()`. If there are multiple BJ rows for the same run_id (one for each judged artefact type), it gets whichever one Supabase returns — which is the wrong one.
+
+TASK:
+
+1. INVESTIGATE FIRST: Check the `behaviour_judge_results` table schema in Supabase to find which column indicates the artefact type that was judged. Look for columns like `artefact_type`, `judged_artefact_type`, `source_artefact_type`, or similar. You can check this by:
+   - Looking at the Supabase migration files in this repo
+   - Or querying the table: `SELECT column_name FROM information_schema.columns WHERE table_name = 'behaviour_judge_results'`
+   - Also check if the table might actually be called `bj_assessments` instead
+
+2. FIX `getBehaviourJudgeResult` in `server/supabase-client.ts`:
+   - Instead of `.maybeSingle()`, fetch ALL BJ rows for the run_id
+   - If any row has artefact_type = 'combined_delivery', return that one
+   - Otherwise return the row with artefact_type = 'final_delivery' (prefer the latest one if multiple exist)
+   - Fall back to any row if neither type matches (backwards compatibility)
+
+3. Also update the `getBehaviourJudgeResults` bulk function in the same file to apply the same preference logic.
+
+4. VERIFY: Check `client/src/components/live-activity-panel.tsx` where `BehaviourJudgeCard` is rendered — confirm it reads `delivered_count` from the BJ result. No change should be needed there if the server returns the right row.
+
+DO NOT change Tower code. The fix is entirely in this UI repo.
+
+Work on the main branch only — do not create or switch branches. After completing this task, append a structured summary to AGENT_LOG.md (what changed, files modified, decisions made, what's next).

@@ -1072,3 +1072,50 @@ After the fix, the server log confirms:
 - Trigger a fresh GP cascade run and expand evidence dropdowns to confirm URL + quotes + matched phrase now show
 - Trigger a GPT-4o run and confirm evidence fields show (GPT-4o may use `supporting_evidence` or `evidence_refs`)
 - Watch the `[delivery-evidence]` server logs for the new run to confirm evidenceMap entries have non-empty url/quotes
+
+---
+
+## BJ verdict wrong on multi-loop runs — fix `getBehaviourJudgeResult` preference logic
+
+**Date:** 2026-03-20  
+**Scope:** `server/supabase-client.ts` only
+
+### Problem
+Multi-loop Supervisor runs produce multiple rows in `behaviour_judge_results` — one per judged artefact (`final_delivery` per loop, plus a `combined_delivery` artefact covering all loops merged). The existing `getBehaviourJudgeResult(runId)` used `.maybeSingle()` which returns whichever row Supabase happens to return first. For multi-loop runs this was the last `final_delivery` row (e.g. "2 delivered") instead of the `combined_delivery` row (e.g. "8 delivered"), causing the BehaviourJudgeCard in the UI to show the wrong count.
+
+### Investigation
+
+**Schema confirmed via direct Supabase postgres query:**
+```
+id, run_id, outcome, reason, confidence, tower_verdict, delivered_count,
+requested_count, input_snapshot, created_at, mission_intent_assessment,
+ground_truth_assessment
+```
+
+No `artefact_type`, `judged_artefact_type`, or `source_artefact_type` column exists. The task description suggested looking for such a column — it does not exist in the current schema.
+
+**Key discriminator found:** The `combined_delivery` BJ row always has `requested_count IS NOT NULL` (it knows the user's original request count). Per-loop `final_delivery` rows have `requested_count = NULL`. This was confirmed by querying actual multi-row runs in Supabase.
+
+Example (run `c80ef2ee`):
+- `delivered_count=6, requested_count=NULL` → per-loop final_delivery
+- `delivered_count=8, requested_count=40` → combined_delivery ← correct answer
+- `delivered_count=2, requested_count=NULL` → per-loop final_delivery
+
+### Changes Made
+
+**`server/supabase-client.ts`:**
+
+1. Added private `pickBestBjRow(rows)` helper that selects the best row using:
+   - Priority 1: `requested_count IS NOT NULL` (combined_delivery)
+   - Priority 2: Highest `delivered_count` (most leads = most complete view)
+   - Priority 3: Latest `created_at` (tiebreaker)
+
+2. Rewrote `getBehaviourJudgeResult(runId)`: removed `.maybeSingle()`, fetches all rows for the run_id, passes them to `pickBestBjRow`.
+
+3. Rewrote `getBehaviourJudgeResults(runIds)`: now groups all rows by `run_id` and calls `pickBestBjRow` per run. Also added `delivered_count`, `requested_count`, `created_at` to the SELECT (previously omitted, which would break the picker logic and was a separate bug).
+
+4. `client/src/components/live-activity-panel.tsx`: verified no change needed — `BehaviourJudgeCard` already reads `judge.delivered_count` and `judge.requested_count` directly.
+
+### What's Next
+- Trigger a multi-loop run and confirm BehaviourJudgeCard shows combined_delivery count (not last loop's count)
+- If Tower adds an explicit `artefact_type` column to `behaviour_judge_results` in future, update `pickBestBjRow` to check `row.artefact_type === 'combined_delivery'` as priority 0
