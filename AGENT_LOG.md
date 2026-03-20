@@ -1119,3 +1119,34 @@ Example (run `c80ef2ee`):
 ### What's Next
 - Trigger a multi-loop run and confirm BehaviourJudgeCard shows combined_delivery count (not last loop's count)
 - If Tower adds an explicit `artefact_type` column to `behaviour_judge_results` in future, update `pickBestBjRow` to check `row.artefact_type === 'combined_delivery'` as priority 0
+
+---
+
+## Multi-loop chat bubble shows wrong lead count — prefer combined_delivery artefact
+
+**Date:** 2026-03-20  
+**Scope:** `client/src/pages/chat.tsx` — one line changed
+
+### Problem
+When a multi-loop reloop run finishes, `finalizeRunUI` scanned artefacts for `type === 'delivery_summary'` and always found the first loop's row. The combined result from all loops is stored under `type === 'combined_delivery'`, so the chat result bubble showed loop 1's count (e.g. 3) instead of the merged total (e.g. 7).
+
+### Fix
+Single line change in `finalizeRunUI` (line 879):
+
+```ts
+// Before
+const dsRow = rows.find((r: any) => r.type === 'delivery_summary');
+
+// After
+const dsRow = rows.find((r: any) => r.type === 'combined_delivery') || rows.find((r: any) => r.type === 'delivery_summary');
+```
+
+`combined_delivery` has the same payload shape as `delivery_summary` (`delivered_exact`, `delivered_closest`, `status`, etc.), so no other code paths need changing.
+
+### Decisions
+- Exactly one line changed as specified; no refactoring.
+- Fallback to `delivery_summary` preserves correct behaviour for single-loop runs that never produce a `combined_delivery`.
+
+### What's Next
+- Trigger a multi-loop run and confirm the chat bubble shows the combined lead count
+- Confirm the delivery summary card also reflects the correct total
