@@ -44,3 +44,27 @@ Previous logs archived to AGENT_LOG_ARCHIVE_20260321.md
 
 ### What's Next
 - Verify in a live run that the delivery summary panel renders correctly when both artefact types are present in the same run.
+
+---
+
+## Session: Make getDeliveryEvidence read constraint_led_evidence artefacts (2026-03-21)
+
+### What Changed
+- Extended `getDeliveryEvidence` in `server/supabase-client.ts` to fetch all `constraint_led_evidence` artefacts for a run after the existing `delivery_summary` processing, and merge their per-lead evidence into `evidenceMap`.
+- Merge logic is non-destructive: existing entries with evidence detail (url or quotes) are only supplemented with missing fields; entries with no detail are fully populated from the CLE artefact.
+- The fetch is wrapped in a try/catch so any failure is a non-fatal warning and never breaks the response.
+- This means GPT-4o primary runs (and GP cascade runs) now return rich per-lead evidence (URLs, quotes, matched phrases, tower verdicts) to the QA benchmark modal and chat evidence dropdowns instead of showing "No evidence details captured."
+
+### Files Modified
+| File | Change |
+|---|---|
+| `server/supabase-client.ts` | Replaced final `return { evidenceMap, verifiableConstraints };` in `getDeliveryEvidence` with CLE fetch + merge block followed by the return |
+
+### Decisions Made
+- Merge order is `delivery_summary` first, `constraint_led_evidence` second — delivery_summary data is considered authoritative where it exists.
+- `lead_name` keyed lowercase-trimmed to match the existing evidenceMap key convention.
+- Field mapping covers both old (`quote`, `url`) and new (`direct_quote`, `source_url`) field names to handle schema variations across runs.
+- Error is caught and logged as a warning rather than thrown so that runs without CLE artefacts continue to work unchanged.
+
+### What's Next
+- Confirm in a GPT-4o primary run that evidence dropdowns now populate with URLs and quotes from `constraint_led_evidence` artefacts.

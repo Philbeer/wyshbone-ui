@@ -605,6 +605,65 @@ export async function getDeliveryEvidence(runId: string): Promise<DeliveryEviden
 
   console.log('[delivery-evidence] evidenceMap keys:', Object.keys(evidenceMap), '| verifiableConstraints:', verifiableConstraints, '| first entry constraint_verdicts:', Object.values(evidenceMap)[0]?.constraint_verdicts);
 
+  // ── Also read constraint_led_evidence artefacts (per-lead evidence from both GP cascade and GPT-4o paths) ──
+  try {
+    const { data: cleData, error: cleError } = await client
+      .from('artefacts')
+      .select('payload_json')
+      .eq('run_id', runId)
+      .eq('type', 'constraint_led_evidence');
+
+    if (!cleError && cleData && cleData.length > 0) {
+      console.log(`[delivery-evidence] Found ${cleData.length} constraint_led_evidence artefacts for run ${runId}`);
+      for (const row of cleData) {
+        const p = row.payload_json as any;
+        if (!p || !p.lead_name) continue;
+        const name = (p.lead_name || '').toLowerCase().trim();
+        if (!name) continue;
+
+        // Only fill in if the evidenceMap entry is missing or has no evidence detail
+        const existing = evidenceMap[name];
+        const existingHasDetail = existing && (existing.quotes.length > 0 || existing.url);
+
+        const cleItems = Array.isArray(p.evidence_items) ? p.evidence_items : [];
+        if (cleItems.length === 0 && !existingHasDetail) continue;
+
+        const bestItem = cleItems[0];
+        const quotes = cleItems
+          .map((e: any) => e.direct_quote || e.quote || '')
+          .filter((q: string) => q.length > 0);
+        const url = bestItem?.source_url || bestItem?.url || p.lead_place_id || '';
+        const matchedPhrase = bestItem?.matched_phrase || bestItem?.constraint_value || '';
+        const contextSnippet = bestItem?.context_snippet || bestItem?.constraint_match_reason || '';
+        const towerStatus = p.tower_status || (bestItem?.confidence_score >= 0.7 ? 'verified' : '') || '';
+        const sourceType = bestItem?.source_type || bestItem?.source_tier || '';
+
+        if (!existingHasDetail) {
+          evidenceMap[name] = {
+            url,
+            quotes,
+            matched_phrase: matchedPhrase,
+            context_snippet: contextSnippet,
+            verification_status: towerStatus,
+            source_type: sourceType,
+            constraint_verdicts: existing?.constraint_verdicts || [],
+          };
+        } else if (existing) {
+          // Merge: fill in missing fields only
+          if (!existing.url && url) existing.url = url;
+          if (existing.quotes.length === 0 && quotes.length > 0) existing.quotes = quotes;
+          if (!existing.matched_phrase && matchedPhrase) existing.matched_phrase = matchedPhrase;
+          if (!existing.context_snippet && contextSnippet) existing.context_snippet = contextSnippet;
+          if (!existing.verification_status && towerStatus) existing.verification_status = towerStatus;
+          if (!existing.source_type && sourceType) existing.source_type = sourceType;
+        }
+      }
+      console.log('[delivery-evidence] After CLE merge, evidenceMap keys:', Object.keys(evidenceMap));
+    }
+  } catch (cleErr: any) {
+    console.warn('[delivery-evidence] constraint_led_evidence fetch failed (non-fatal):', cleErr.message);
+  }
+
   return { evidenceMap, verifiableConstraints };
 }
 
