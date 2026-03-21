@@ -873,7 +873,12 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
 
       const artefactTypes = rows.map((r: any) => r.type);
 
-      const dsRow = rows.find((r: any) => r.type === 'combined_delivery') || rows.find((r: any) => r.type === 'delivery_summary');
+      const dsRow = rows.find((r: any) => {
+        if (r.type !== 'combined_delivery' && r.type !== 'delivery_summary') return false;
+        let p = r.payload_json;
+        if (typeof p === 'string') { try { p = JSON.parse(p); } catch { return false; } }
+        return p && typeof p === 'object' && typeof p.status === 'string' && Array.isArray(p.delivered_exact);
+      }) || rows.find((r: any) => r.type === 'delivery_summary');
 
       if (!dsRow) {
         const hasMissionTerminal = artefactTypes.includes('run_summary') ||
