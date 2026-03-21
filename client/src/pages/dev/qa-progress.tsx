@@ -498,7 +498,24 @@ export function BehaviourInspectContent({ runId, query, timestamp, fallback, del
 
       {(() => {
         const bjLeads = judgeB?.input_snapshot?.leads_evidence ?? judgeB?.input_snapshot?.leads;
-        const evidence: LeadEvidence[] = bjLeads ?? dsLeads;
+        let evidence: LeadEvidence[] = bjLeads ?? dsLeads;
+        // If no leads from BJ or delivery summary, but evidenceMap has entries from CLE artefacts,
+        // create synthetic lead entries so the evidence section still renders
+        if (evidence.length === 0 && Object.keys(deliveryEvidence.evidenceMap).length > 0) {
+          evidence = Object.entries(deliveryEvidence.evidenceMap).map(([name, ev]) => ({
+            lead_name: name,
+            name: name,
+            url: ev.url,
+            source_url: ev.url,
+            quotes: ev.quotes,
+            matched_phrase: ev.matched_phrase,
+            context_snippet: ev.context_snippet,
+            tower_status: ev.verification_status,
+            source_tier: ev.source_type,
+            constraint_verdicts: ev.constraint_verdicts,
+            verified: ev.verification_status === 'verified',
+          } as LeadEvidence));
+        }
         if (evidence.length === 0) return null;
         const verificationPolicy = judgeB?.input_snapshot?.verification_policy;
         const verifiableConstraints: string[] =

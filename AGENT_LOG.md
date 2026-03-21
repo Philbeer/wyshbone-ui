@@ -83,3 +83,25 @@ Previous logs archived to AGENT_LOG_ARCHIVE_20260321.md
 
 ### What's Next
 - No further changes needed here; proceed with live-run verification as noted in the previous session.
+
+---
+
+## Session: Create lead rows from evidenceMap when bjLeads and dsLeads are empty (2026-03-21)
+
+### What Changed
+- In `BehaviourInspectContent` in `client/src/pages/dev/qa-progress.tsx`, changed the `evidence` variable from `const` to `let` and added a fallback block immediately after the initial assignment.
+- When both `bjLeads` and `dsLeads` are empty but `deliveryEvidence.evidenceMap` has entries (populated by the `constraint_led_evidence` artefact fetch added earlier), synthetic `LeadEvidence` objects are constructed from the evidenceMap and assigned to `evidence`.
+- This ensures the evidence section renders in the QA benchmark modal for GPT-4o primary runs where BJ and delivery_summary lead arrays are sparse or absent.
+
+### Files Modified
+| File | Change |
+|---|---|
+| `client/src/pages/dev/qa-progress.tsx` | Line ~501: `const evidence` → `let evidence`; added 18-line evidenceMap fallback block before the `if (evidence.length === 0) return null` guard |
+
+### Decisions Made
+- Synthetic leads are only created when both the BJ and delivery-summary paths yield zero leads — the real data always takes priority.
+- Field mapping (`lead_name`, `name`, `url`, `source_url`, `quotes`, `matched_phrase`, `context_snippet`, `tower_status`, `source_tier`, `constraint_verdicts`, `verified`) covers all `LeadEvidence` fields the downstream rendering code reads.
+- Cast to `LeadEvidence` via `as LeadEvidence` to satisfy TypeScript without modifying the type definition.
+
+### What's Next
+- Verify in the QA modal for a GPT-4o primary run that the per-lead evidence dropdowns now show content drawn from the evidenceMap synthetic entries.
