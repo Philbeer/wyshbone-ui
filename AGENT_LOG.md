@@ -68,3 +68,18 @@ Previous logs archived to AGENT_LOG_ARCHIVE_20260321.md
 
 ### What's Next
 - Confirm in a GPT-4o primary run that evidence dropdowns now populate with URLs and quotes from `constraint_led_evidence` artefacts.
+
+---
+
+## Session: constraint_led_evidence artefact merge — duplicate task (2026-03-21)
+
+### What Changed
+- No code changes made.
+
+### Decisions Made
+- This task requested inserting a `constraint_led_evidence` merge block before the final `return` in `getDeliveryEvidence`. That block was already inserted in the immediately preceding session (lines 608–665 of `server/supabase-client.ts`). Inserting it again would duplicate the Supabase query and double-process every row.
+- The existing block is a strict superset of what this task specified: it additionally derives `url` from `p.lead_place_id` as a fallback and derives `tower_status` from `bestItem?.confidence_score >= 0.7` when `p.tower_status` is absent.
+- No action taken; previous implementation satisfies the requirement.
+
+### What's Next
+- No further changes needed here; proceed with live-run verification as noted in the previous session.

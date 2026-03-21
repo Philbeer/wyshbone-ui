@@ -1,0 +1,51 @@
+## Task: Add constraint_led_evidence artefact reading to getDeliveryEvidence
+
+In server/supabase-client.ts, find the getDeliveryEvidence function. Find the LAST line of that function which is:
+
+  return { evidenceMap, verifiableConstraints };
+
+Insert the following block IMMEDIATELY BEFORE that return statement:
+
+  // ── Merge per-lead evidence from constraint_led_evidence artefacts ──
+  try {
+    const { data: cleData, error: cleError } = await client
+      .from('artefacts')
+      .select('payload_json')
+      .eq('run_id', runId)
+      .eq('type', 'constraint_led_evidence');
+    if (!cleError && cleData && cleData.length > 0) {
+      console.log(`[delivery-evidence] Found ${cleData.length} constraint_led_evidence artefacts`);
+      for (const row of cleData) {
+        const p = row.payload_json as any;
+        if (!p || !p.lead_name) continue;
+        const name = (p.lead_name || '').toLowerCase().trim();
+        if (!name) continue;
+        const existing = evidenceMap[name];
+        const existingHasDetail = existing && (existing.quotes.length > 0 || existing.url);
+        const cleItems = Array.isArray(p.evidence_items) ? p.evidence_items : [];
+        if (cleItems.length === 0 && !existingHasDetail) continue;
+        const bestItem = cleItems[0];
+        const quotes = cleItems.map((e: any) => e.direct_quote || e.quote || '').filter((q: string) => q.length > 0);
+        const url = bestItem?.source_url || bestItem?.url || '';
+        const matchedPhrase = bestItem?.matched_phrase || bestItem?.constraint_value || '';
+        const contextSnippet = bestItem?.context_snippet || bestItem?.constraint_match_reason || '';
+        const towerStatus = p.tower_status || '';
+        const sourceType = bestItem?.source_type || bestItem?.source_tier || '';
+        if (!existingHasDetail) {
+          evidenceMap[name] = { url, quotes, matched_phrase: matchedPhrase, context_snippet: contextSnippet, verification_status: towerStatus, source_type: sourceType, constraint_verdicts: existing?.constraint_verdicts || [] };
+        } else if (existing) {
+          if (!existing.url && url) existing.url = url;
+          if (existing.quotes.length === 0 && quotes.length > 0) existing.quotes = quotes;
+          if (!existing.matched_phrase && matchedPhrase) existing.matched_phrase = matchedPhrase;
+          if (!existing.verification_status && towerStatus) existing.verification_status = towerStatus;
+          if (!existing.source_type && sourceType) existing.source_type = sourceType;
+        }
+      }
+    }
+  } catch (cleErr: any) {
+    console.warn('[delivery-evidence] CLE fetch failed (non-fatal):', cleErr.message);
+  }
+
+Do NOT change anything else in the function. Just insert this block before the final return.
+
+Work on the main branch only — do not create or switch branches. After completing this task, append a structured summary to AGENT_LOG.md (what changed, files modified, decisions made, what's next).
