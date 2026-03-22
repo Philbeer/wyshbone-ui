@@ -1,0 +1,58 @@
+Search the repository before making changes. Read client/src/components/results/LiveActivityTicker.tsx thoroughly, and also search chat.tsx for where the LiveActivityTicker component is rendered (look for isActivityTicker in the message rendering JSX).
+THREE FIXES to the LiveActivityTicker:
+
+FIX 1: Ephemeral line should disappear when final milestones appear
+In LiveActivityTicker.tsx, the ephemeral "Checking The Sportsman Inn for live music..." line persists even after the "✅ N verified results delivered" milestone appears. This looks broken because the user sees both the completion message AND a spinning "checking..." line simultaneously.
+The fix is simple: in the render section, hide the ephemeral line if the run_complete milestone exists. Find the ephemeral rendering block:
+tsx{isActive && liveEvent && (
+Change it to:
+tsx{isActive && liveEvent && !milestones.some(m => m.key === 'run_complete') && (
+This way, as soon as the "verified results delivered" milestone appears, the ephemeral line vanishes — even before isActive formally becomes false.
+Also apply the same logic: if the tower_verdict milestone exists, also hide the ephemeral. Change the condition to:
+tsx{isActive && liveEvent && !milestones.some(m => m.key === 'run_complete' || m.key === 'tower_verdict') && (
+
+FIX 2: Show intent narrative inside the ticker timeline
+The intent narrative (🧠 entity_description) is currently being injected as a separate message in chat.tsx (in-{effectiveKey}), but it should appear INSIDE the LiveActivityTicker as the first item in the timeline — before the Google Places milestone.
+Step A: In chat.tsx, find where the LiveActivityTicker component is rendered for isActivityTicker messages. It currently passes runId, clientRequestId, and isActive. We need to also pass the intentNarrativePayload.
+Find the intent narrative message that's already being injected into the messages array (the one with id: 'in-${effectiveKey}' and isIntentNarrative: true). When that message exists in the messages array, we need to extract its intentNarrativePayload and pass it to the ticker.
+In the rendering section where isActivityTicker messages are handled, change the LiveActivityTicker render to:
+tsx{(() => {
+  const tickerMsg = message as any;
+  // Find the intent narrative message for this run
+  const intentMsg = messages.find(m => 
+    'isIntentNarrative' in m && (m as any).isIntentNarrative && 
+    m.id === `in-${tickerMsg.tickerCrid || tickerMsg.tickerRunId}`
+  ) as any;
+  return (
+    <LiveActivityTicker
+      runId={tickerMsg.tickerRunId || null}
+      clientRequestId={tickerMsg.tickerCrid || null}
+      isActive={isWaitingForSupervisor}
+      intentNarrativePayload={intentMsg?.intentNarrativePayload || null}
+    />
+  );
+})()}
+Step B: In chat.tsx, the intent narrative message (in-{key}) is currently rendered as its own separate bubble in the message loop (the isIntentNarrative render path). Since it's now shown inside the ticker, we need to HIDE the standalone intent narrative bubble when a ticker message exists for the same run.
+Find where isIntentNarrative messages are rendered. Add a condition: if there's also a ticker-{crid} message in the messages array, return null (skip rendering the standalone intent narrative). Something like:
+tsxif ('isIntentNarrative' in message && (message as any).isIntentNarrative) {
+  // If a ticker exists for this run, the intent shows inside the ticker — skip standalone render
+  const narrativeKey = message.id.replace('in-', '');
+  const hasTicker = messages.some(m => 'isActivityTicker' in m && (m as any).isActivityTicker && 
+    ((m as any).tickerCrid === narrativeKey || (m as any).tickerRunId === narrativeKey));
+  if (hasTicker) return null;
+  // ... existing intent narrative rendering ...
+}
+
+FIX 3: More vertical spacing between milestones with taller connecting line
+The milestones are currently too close together. The current spacing uses pb-5 between items. Increase this and make the vertical connector line more prominent.
+In LiveActivityTicker.tsx, make these CSS changes:
+
+Change milestone item spacing from pb-5 to pb-6 (both for the intent narrative item, each milestone item, and the ephemeral item).
+The vertical connector line (absolute left-[7px] top-0 bottom-0 w-0.5 bg-border) — change w-0.5 to w-px and change bg-border to bg-border/60 so it's slightly more subtle but still visible. This matches Claude's connector style.
+Change the dot size from h-2.5 w-2.5 to h-3 w-3 for all milestone dots to make them slightly larger and more visible.
+Change the milestone text from text-xs to text-[13px] so the milestone labels are slightly larger and more readable.
+The overall container padding: change pl-4 to pl-5 to give slightly more left indent.
+
+
+IMPORTANT: Do NOT modify any Supervisor or Tower code — this is UI-only.
+Work on the main branch only — do not create or switch branches. After completing this task, append a structured summary to AGENT_LOG.md (what changed, files modified, decisions made, what's next).
