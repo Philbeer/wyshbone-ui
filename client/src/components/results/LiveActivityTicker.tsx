@@ -164,24 +164,40 @@ function deriveMilestones(events: StreamEvent[]): Milestone[] {
   }
 
   // ── Milestone 2: Checking websites (only show AFTER GP search completes) ──
-  const webVisitCompletedFilter = (e: StreamEvent) => {
+  const webVisitAnyFilter = (e: StreamEvent) => {
     const s = (e.summary || '').toUpperCase();
-    return s.startsWith('TOOL COMPLETED') && s.includes('WEB VISIT');
+    const t = (e.details?.task || '').toUpperCase();
+    return (s.includes('WEB VISIT') || s.includes('WEB_VISIT') || t.includes('WEB VISIT') || t.includes('WEB_VISIT')) &&
+           !s.includes('SEARCH_PLACES') && !s.includes('SEARCH PLACES');
   };
-  const firstWebVisit = findFirstAfter(webVisitCompletedFilter, lastMilestoneTs);
-  if (firstWebVisit) {
-    const completedCount = countUniqueCompleted(webVisitCompletedFilter);
+  const firstWebVisitEvent = findFirstAfter(webVisitAnyFilter, lastMilestoneTs);
+  if (firstWebVisitEvent) {
+    const webVisitCompletedFilter = (e: StreamEvent) => {
+      const s = (e.summary || '').toUpperCase();
+      return (s.startsWith('TOOL COMPLETED') || s.includes('TOOL COMPLETED')) &&
+             (s.includes('WEB VISIT') || s.includes('WEB_VISIT'));
+    };
+    const completedMatches = sorted.filter(webVisitCompletedFilter);
+    const seenDomains = new Set<string>();
+    for (const e of completedMatches) {
+      const task = e.details?.task || e.summary || '';
+      const urlMatch = task.match(/https?:\/\/(?:www\.)?([^/\s&]+)/);
+      if (urlMatch) seenDomains.add(urlMatch[1]);
+      else seenDomains.add(e.id);
+    }
+    const completedCount = seenDomains.size;
+
     const gpMilestone = milestones.find(m => m.key === 'gp_search');
     const totalExpected = gpMilestone ? (extractCount(gpMilestone.text) ?? 0) : 0;
 
-    const ts = new Date(firstWebVisit.ts).getTime();
+    const ts = new Date(firstWebVisitEvent.ts).getTime();
     let text: string;
     if (completedCount > 0 && totalExpected > 0) {
-      text = `Checking websites... ${completedCount} of ${totalExpected} visited`;
+      text = `Checking websites — ${completedCount} of ${totalExpected} visited`;
     } else if (completedCount > 0) {
-      text = `Checking websites... ${completedCount} visited`;
+      text = `Checking websites — ${completedCount} visited so far`;
     } else {
-      text = 'Checking websites for evidence...';
+      text = 'Checking pub websites for evidence...';
     }
     milestones.push({
       key: 'web_evidence',
@@ -196,9 +212,9 @@ function deriveMilestones(events: StreamEvent[]): Milestone[] {
   const verifyFilter = (e: StreamEvent) => {
     const s = (e.summary || '').toUpperCase();
     const t = (e.details?.task || '').toUpperCase();
-    return s.includes('EVIDENCE VERIF') || t.includes('EVIDENCE VERIF') ||
-           s.includes('CHECKS PASSED') || t.includes('CHECKS PASSED') ||
-           (s.includes('VERIFICATION') && (e.status === 'completed' || s.includes('COMPLETE')));
+    return (s.includes('CHECKS PASSED') || t.includes('CHECKS PASSED')) ||
+           (s.includes('EVIDENCE VERIFICATION:') || t.includes('EVIDENCE VERIFICATION:')) ||
+           (s.includes('FINAL DELIVERY:') && (s.includes('LEADS') || t.includes('LEADS')));
   };
   const verifyEvent = findFirstAfter(verifyFilter, lastMilestoneTs);
   if (verifyEvent) {
@@ -301,21 +317,32 @@ function deriveEphemeral(events: StreamEvent[]): LiveEvent | null {
     let icon = '⚙️';
     let text = '';
 
-    if (summaryUp.includes('WEB VISIT') || summaryUp.includes('VISITING')) {
+    if (summaryUp.includes('WEB VISIT') || summaryUp.includes('WEB_VISIT') || summaryUp.includes('VISITING')) {
       icon = '🌐';
-      const urlMatch = (task || summary).match(/https?:\/\/(?:www\.)?([^/\s&]+)/);
       const nameMatch = (task || summary).match(/"([^"]+)"/);
+      const urlMatch = (task || summary).match(/https?:\/\/(?:www\.)?([^/\s&]+)/);
+      const colonMatch = (task || summary).match(/(?:WEB.?VISIT|Visiting)[:\s]+(?:https?:\/\/(?:www\.)?)?([^/\s&"(]+)/i);
       if (nameMatch) {
         text = `Visiting ${nameMatch[1]}...`;
       } else if (urlMatch) {
-        text = `Visiting ${urlMatch[1]}...`;
+        const domain = urlMatch[1].replace(/\.co\.uk$|\.com$|\.org$|\.uk$/, '');
+        text = `Visiting ${domain}...`;
+      } else if (colonMatch) {
+        text = `Visiting ${colonMatch[1].slice(0, 30)}...`;
       } else {
         text = 'Visiting website...';
       }
     } else if (summaryUp.includes('EVIDENCE') && !summaryUp.includes('VERIFICATION')) {
       icon = '📄';
       const nameMatch = (task || summary).match(/"([^"]+)"/);
-      text = nameMatch ? `Checking ${nameMatch[1]}...` : 'Checking evidence...';
+      const colonNameMatch = (task || summary).match(/(?:Evidence|Checking)[:\s]+"?([^"—\n]+)"?/i);
+      if (nameMatch) {
+        text = `Found evidence for ${nameMatch[1]}`;
+      } else if (colonNameMatch) {
+        text = `Found evidence for ${colonNameMatch[1].trim().slice(0, 30)}`;
+      } else {
+        text = 'Checking evidence...';
+      }
     } else if (summaryUp.includes('TOWER SEMANTIC') || (summaryUp.includes('VERIF') && !summaryUp.includes('VERIFICATION COMPLETE'))) {
       icon = '⚖️';
       const nameMatch = (task || summary).match(/"([^"]+)"/);
@@ -324,6 +351,21 @@ function deriveEphemeral(events: StreamEvent[]): LiveEvent | null {
       icon = '🔍';
       const countMatch = (task || summary).match(/(\d+)\s*kept/i);
       text = countMatch ? `Filtered to ${countMatch[1]} candidates` : 'Filtering candidates...';
+    } else if (summaryUp.includes('EXECUTING TOOL') || summaryUp.includes('EXECUTING:')) {
+      icon = '🔧';
+      const toolMatch = (task || summary).match(/(?:Executing(?:\s+Tool)?)[:\s]+(.+)/i);
+      if (toolMatch) {
+        const tool = toolMatch[1].trim();
+        if (/WEB.?VISIT/i.test(tool)) {
+          const urlMatch = tool.match(/https?:\/\/(?:www\.)?([^/\s&]+)/);
+          text = urlMatch ? `Visiting ${urlMatch[1]}...` : 'Visiting website...';
+          icon = '🌐';
+        } else {
+          text = `Running ${tool.slice(0, 35)}...`;
+        }
+      } else {
+        text = 'Executing...';
+      }
     } else if (summaryUp.includes('SEARCH_PLACES') || summaryUp.includes('SEARCH PLACES')) {
       continue;
     } else {

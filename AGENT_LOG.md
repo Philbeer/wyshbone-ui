@@ -402,3 +402,32 @@ Follow-up fixes to make the LiveActivityTicker actually visible in the chat, and
 ### What's Next
 - QA a live run to confirm: (a) milestones appear one-by-one in order, (b) website counter increments on each poll, (c) no jargon appears in the ephemeral line, (d) intent narrative shows at the top when payload is present.
 - Consider adding a `findFirstAfter`-guarded filter for milestone 1 itself if early historical events from prior runs ever bleed in.
+
+---
+
+## Session: Three Targeted LiveActivityTicker Fixes — 2026-03-22 (follow-up)
+
+### What Changed
+
+**Fix 1 — verifyFilter tightened (Milestone 3 appearing too early)**
+Replaced the broad `s.includes('VERIFICATION') && (e.status === 'completed' || s.includes('COMPLETE'))` clause with a strict filter that only matches events explicitly containing "CHECKS PASSED", "EVIDENCE VERIFICATION:" (with colon), or "FINAL DELIVERY: … LEADS". This excludes planning-phase events like "Verification Policy Selected" and "Artefact created: Verification attachment summary".
+
+**Fix 2 — Milestone 2 (Checking websites) not appearing**
+The old `webVisitCompletedFilter` used `s.startsWith('TOOL COMPLETED')` which missed "Executing Tool: WEB VISIT", "WEB VISIT: https://...", and artefact-style events. Replaced the entire Milestone 2 block with `webVisitAnyFilter` that detects any WEB VISIT or WEB_VISIT occurrence in summary or task (excluding SEARCH_PLACES). The milestone now triggers on the first such event after GP search. A tighter inner filter still counts only completed visits for the counter.
+
+**Fix 3 — Ephemeral line improvements (pub names and domains)**
+Three sub-changes inside `deriveEphemeral`:
+- WEB VISIT handler: extended to also match `WEB_VISIT` in summary; added `colonMatch` pattern for "WEB_VISIT: domain" formats; domain TLD stripping for cleaner display.
+- EVIDENCE handler: added `colonNameMatch` for "Evidence: Norfolk Tap" patterns; changed display to "Found evidence for X" for clarity.
+- New EXECUTING TOOL handler: inserted before the SEARCH_PLACES skip; catches "Executing Tool: ..." events and humanises them; if the tool is WEB_VISIT it delegates to the website-visiting display.
+
+### Files Modified
+- `client/src/components/results/LiveActivityTicker.tsx` (only file changed)
+
+### Decisions Made
+- Left `countUniqueCompleted` helper in place (still defined, harmless) to avoid touching unrelated code.
+- Domain TLD stripping (`.com`, `.co.uk`, `.org`, `.uk`) applied only in the `urlMatch` branch of the WEB VISIT handler to keep display concise without losing information.
+- EXECUTING TOOL handler placed after EXCLUSION FILTER and before SEARCH_PLACES skip, exactly as specified.
+
+### What's Next
+- QA a live run: confirm "Checking websites" milestone appears, counter increments, evidence verification only fires after website checking, and the ephemeral line shows pub names/domains rather than raw events.
