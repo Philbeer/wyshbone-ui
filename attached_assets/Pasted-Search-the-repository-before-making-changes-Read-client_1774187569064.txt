@@ -1,0 +1,53 @@
+Search the repository before making changes. Read client/src/components/results/LiveActivityTicker.tsx fully before editing.
+
+Goal: Fix the LiveActivityTicker timeline so each row has ONE icon (the emoji), not a colored dot AND an emoji. The vertical connector line should run between the emoji icons like Claude's UI does.
+
+PROBLEM: Right now every milestone row renders:
+1. A small colored dot (<span> with rounded-full classes) positioned on the vertical line
+2. PLUS an emoji icon in the text content next to it
+
+This gives a "row of dots on the left" plus duplicate emojis. We want ONLY the emoji as the timeline node.
+
+CHANGES TO MAKE — only the render/return section of LiveActivityTicker. Do NOT touch any logic (deriveMilestones, deriveEphemeral, fetchAndProcess, etc).
+
+1. Replace the outer container:
+FROM: <div className="pl-5 relative py-2">
+TO: <div className="relative py-2 pl-1">
+
+2. Replace the vertical connector line:
+FROM: <div className="absolute left-[7px] top-0 bottom-0 w-px bg-border/60" />
+TO: Only render when totalRows > 1. Use style={{ left: '10px', top: '18px', bottom: '22px' }} so the line starts/ends at emoji centers, not beyond them. Add a totalRows calculation before the return:
+  const showThinking = isActive && milestones.length === 0 && !liveEvent;
+  const showIntent = !!intentNarrativePayload?.entity_description;
+  const showEphemeral = isActive && !!liveEvent && !milestones.some(m => m.key === 'run_complete' || m.key === 'tower_verdict');
+  const totalRows = (showThinking ? 1 : 0) + (showIntent ? 1 : 0) + milestones.length + (showEphemeral ? 1 : 0);
+
+3. For EVERY row (thinking, intent, milestones, ephemeral), replace the pattern:
+OLD PATTERN:
+  <div className="relative pb-6">
+    <span className="absolute left-[-1px] top-1.5 h-3 w-3 rounded-full border-2 ... z-10" />
+    <div className="pl-5 flex items-center gap-2 ...">
+      <span>{ms.icon}</span>
+      <span>{ms.text}</span>
+    </div>
+  </div>
+
+NEW PATTERN:
+  <div className="relative flex items-start gap-3 pb-5">
+    <span className="relative z-10 flex-shrink-0 w-[20px] text-center text-sm leading-5 bg-card rounded-full">
+      {ms.icon}
+    </span>
+    <span className="text-[13px] text-foreground/80 font-medium pt-0.5">
+      {ms.text}
+    </span>
+  </div>
+
+KEY POINT: The emoji IS the timeline node. No separate colored dot. The vertical line at left:10px passes through the center of each 20px-wide emoji column.
+
+4. Thinking brains row: use 🧠 as the node icon, ThinkingBrains component goes in the right column.
+
+5. Intent narrative row: use 🧠 as the node icon, italic entity_description text goes in the right column.
+
+6. Ephemeral row: use liveEvent.icon as the node icon (with animate-pulse), Loader2 spinner + text in right column.
+
+Do NOT change any imports, interfaces, helper functions, deriveMilestones, deriveEphemeral, ThinkingBrains, fetchAndProcess, or the useEffect hooks. ONLY change the JSX return block and add the totalRows calculation just before it.
