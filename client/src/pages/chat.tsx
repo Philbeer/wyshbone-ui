@@ -36,6 +36,7 @@ import type { DeliverySummary, DeliveryLead } from "@/components/results/UserRes
 import type { VerificationSummaryPayload, ConstraintsExtractedPayload, LeadVerificationEntry, SemanticJudgementEntry } from "@/components/results/CvlArtefactViews";
 import RunResultBubble from "@/components/results/RunResultBubble";
 import type { PolicySnapshot, ContactCounts, RunReceipt } from "@/components/results/RunResultBubble";
+import { LiveActivityTicker } from "@/components/results/LiveActivityTicker";
 import { BehaviourInspectContent } from "@/pages/dev/qa-progress";
 import { resolveCanonicalStatus, STATUS_CONFIG } from "@/utils/deliveryStatus";
 import { getGoogleQueryMode } from "@/components/GoogleQueryModeToggle";
@@ -83,10 +84,11 @@ type Message = ChatMessage & {
   contactCounts?: ContactCounts | null;
   runReceipt?: RunReceipt | null;
   semanticJudgements?: SemanticJudgementEntry[] | null;
-  isReloopBreadcrumb?: boolean;
-  reloopLoopNumber?: number;
   totalLoops?: number | null;
   executorsTried?: string[] | null;
+  isActivityTicker?: boolean;
+  tickerRunId?: string | null;
+  tickerCrid?: string | null;
 };
 
 type SystemMessage = {
@@ -318,7 +320,6 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
   const inFlightSupervisorRunsRef = useRef<Map<string, { runId: string | null; crid: string }>>(new Map());
   const pendingResultPersistsRef = useRef<Array<{ payload: any; ts: number }>>([]);
   const intentNarrativeInjectedRef = useRef<Set<string>>(new Set());
-  const reloopBreadcrumbsInjectedRef = useRef<Map<string, Set<number>>>(new Map());
   const [collapsedIntentNarrativeIds, setCollapsedIntentNarrativeIds] = useState<Set<string>>(new Set());
 
   // Progress stack for chat status events (Part 2 implementation)
@@ -1387,29 +1388,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
           if (!isClarifying) {
             if (runElapsed > HARD_TIMEOUT_MS && !hardTimeoutEmitted.has(effectiveKey)) {
               hardTimeoutEmitted.add(effectiveKey);
-              console.warn(`[Chat][AFR-Poll] Hard timeout banner for ${effectiveKey} (${Math.round(runElapsed / 1000)}s). Polling continues.`);
-              const alreadyDelivered = deliverySummaryRunIdsRef.current.has(effectiveKey) ||
-                (runId && deliverySummaryRunIdsRef.current.has(runId)) ||
-                (crid && deliverySummaryRunIdsRef.current.has(crid));
-              if (!alreadyDelivered) {
-                const bannerMsg: Message = {
-                  id: `ds-${effectiveKey}`,
-                  role: 'assistant',
-                  content: '',
-                  timestamp: new Date(),
-                  source: 'supervisor',
-                  deliverySummary: {
-                    status: 'PENDING',
-                    delivered_exact: [],
-                    delivered_closest: [],
-                    delivered_count: 0,
-                    stop_reason: 'still_working',
-                  } as DeliverySummary,
-                  runId: runId || undefined,
-                  provisional: false,
-                };
-                upsertResultMessage(bannerMsg);
-              }
+              console.warn(`[Chat][AFR-Poll] Hard timeout for ${effectiveKey} (${Math.round(runElapsed / 1000)}s). Polling continues.`);
             }
             const failCount = consecutiveFailures.get(effectiveKey) || 0;
             if (runElapsed > SOFT_TIMEOUT_MS && failCount >= 5 && !softTimeoutEmitted.has(effectiveKey)) {
@@ -1489,59 +1468,6 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                   }
                 }
 
-                // ── reloop_iteration breadcrumbs (one per loop number) ─────────────
-                const reloopRows = inRows.filter((r: any) => r.type === 'reloop_iteration');
-                for (const rRow of reloopRows) {
-                  let rPayload: any = rRow.payload_json;
-                  if (typeof rPayload === 'string') {
-                    try { rPayload = JSON.parse(rPayload); } catch { rPayload = null; }
-                  }
-                  if (!rPayload) continue;
-                  const loopNumber: number = rPayload.loop_number ?? 0;
-                  if (!reloopBreadcrumbsInjectedRef.current.has(effectiveKey)) {
-                    reloopBreadcrumbsInjectedRef.current.set(effectiveKey, new Set());
-                  }
-                  const injectedLoops = reloopBreadcrumbsInjectedRef.current.get(effectiveKey)!;
-                  if (injectedLoops.has(loopNumber)) continue;
-                  injectedLoops.add(loopNumber);
-                  const executorType: string = rPayload.executor_type ?? '';
-                  const entitiesFound: number = rPayload.executor_output_summary?.entitiesFound ?? 0;
-                  const gateDecision: string = rPayload.gate_decision?.decision ?? '';
-                  const accumulatedCount: number = rPayload.accumulated_count ?? 0;
-                  let breadcrumbText = '';
-                  if (/gp_cascade|google|places/i.test(executorType)) {
-                    breadcrumbText = `Searched Google Places — found ${entitiesFound} results`;
-                  } else if (/gpt4o_search|gpt4o|web/i.test(executorType)) {
-                    breadcrumbText = `Ran web search — found ${entitiesFound} more results`;
-                  } else {
-                    breadcrumbText = `Ran ${executorType} — found ${entitiesFound} results`;
-                  }
-                  if (gateDecision === 're_loop') {
-                    breadcrumbText += ' — not enough coverage, trying another approach';
-                  } else if (gateDecision === 'stop_deliver') {
-                    breadcrumbText += ` — ready to deliver ${accumulatedCount} total`;
-                  }
-                  const breadcrumbId = `reloop-${effectiveKey}-${loopNumber}`;
-                  setMessages((prev) => {
-                    if (prev.some(m => m.id === breadcrumbId)) return prev;
-                    const dsIdx = prev.findIndex(m => m.id === `ds-${effectiveKey}`);
-                    const newMsg: Message = {
-                      id: breadcrumbId,
-                      role: 'assistant' as const,
-                      content: breadcrumbText,
-                      timestamp: new Date(),
-                      isReloopBreadcrumb: true,
-                      reloopLoopNumber: loopNumber,
-                    };
-                    if (dsIdx !== -1) {
-                      const next = [...prev];
-                      next.splice(dsIdx, 0, newMsg);
-                      return next;
-                    }
-                    return [...prev, newMsg];
-                  });
-                  console.log(`[Chat][AFR-Poll] reloop_iteration breadcrumb injected for ${effectiveKey}, loop=${loopNumber}`);
-                }
               }
             }
           } catch (err) {
@@ -2357,6 +2283,13 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
               if (parsed.type === 'run_id' && parsed.runId) {
                 console.log('🔗 Run ID received:', parsed.runId);
                 supervisorRunIdRef.current = parsed.runId;
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    (m as Message).isActivityTicker && (m as Message).tickerCrid === clientRequestId
+                      ? { ...m, tickerRunId: parsed.runId }
+                      : m
+                  )
+                );
                 window.dispatchEvent(new CustomEvent('wyshbone:run_id', {
                   detail: { runId: parsed.runId, clientRequestId: parsed.clientRequestId || clientRequestId },
                 }));
@@ -2453,6 +2386,21 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                 setSupervisorTaskId(parsed.supervisorTaskId);
                 supervisorClientRequestIdRef.current = clientRequestId;
                 setIsWaitingForSupervisor(true);
+
+                const tickerMsgId = `ticker-${clientRequestId}`;
+                setMessages((prev) => {
+                  if (prev.some(m => m.id === tickerMsgId)) return prev;
+                  const tickerMsg: Message = {
+                    id: tickerMsgId,
+                    role: 'assistant',
+                    content: '',
+                    timestamp: new Date(),
+                    isActivityTicker: true,
+                    tickerRunId: supervisorRunIdRef.current || null,
+                    tickerCrid: clientRequestId,
+                  };
+                  return [...prev, tickerMsg];
+                });
 
                 const provisionalKey = supervisorRunIdRef.current || clientRequestId;
                 if (!deliverySummaryRunIdsRef.current.has(provisionalKey)) {
@@ -3022,7 +2970,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                 // Previously these were hidden, but the conversation must never visually delete bubbles.
                 if ((chatMessage as any).deliverySummary) return true;
                 if ((chatMessage as any).isIntentNarrative) return true;
-                if ((chatMessage as any).isReloopBreadcrumb) return true;
+                if ((chatMessage as any).isActivityTicker) return true;
                 if (chatMessage.content.trim().length === 0) return false;
                 const content = chatMessage.content.trim();
                 if (chatMessage.role === 'assistant') {
@@ -3570,15 +3518,18 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                 );
               }
 
-              if (chatMessage.isReloopBreadcrumb) {
+              if (chatMessage.isActivityTicker) {
                 return (
                   <div
                     key={chatMessage.id}
-                    className="flex items-center gap-2 py-1 px-2 text-xs text-muted-foreground"
-                    data-testid={`message-reloop-breadcrumb-${chatMessage.id}`}
+                    className="pl-11"
+                    data-testid={`message-ticker-${chatMessage.id}`}
                   >
-                    <Activity className="w-3 h-3 flex-shrink-0 text-muted-foreground/70" />
-                    <span>{chatMessage.content}</span>
+                    <LiveActivityTicker
+                      runId={chatMessage.tickerRunId ?? null}
+                      clientRequestId={chatMessage.tickerCrid ?? null}
+                      isActive={isWaitingForSupervisor && chatMessage.tickerCrid === activeClientRequestId}
+                    />
                   </div>
                 );
               }

@@ -875,7 +875,20 @@ export function buildRunNarrative(
 ): RunNarrative {
   const exact = Array.isArray(deliverySummary.delivered_exact) ? deliverySummary.delivered_exact : [];
   const closest = Array.isArray(deliverySummary.delivered_closest) ? deliverySummary.delivered_closest : [];
-  const allLeads = [...exact, ...closest];
+  const allLeads = (() => {
+    const raw = [...exact, ...closest];
+    const seen = new Set<string>();
+    return raw.filter(lead => {
+      const placeId = (lead as any).place_id || (lead as any).placeId;
+      const name = (lead.name || '').toLowerCase().trim();
+      const key = placeId || name;
+      if (!key) return true;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      if (placeId && name) seen.add(name);
+      return true;
+    });
+  })();
   const deliveredCount = allLeads.length;
 
   const hasVerificationTruth = typeof verifiedMatchCount === 'number' && verifiedMatchCount >= 0;
@@ -1726,7 +1739,20 @@ export default function RunResultBubble({
 
   const exact = Array.isArray(deliverySummary.delivered_exact) ? deliverySummary.delivered_exact : [];
   const closest = Array.isArray(deliverySummary.delivered_closest) ? deliverySummary.delivered_closest : [];
-  const allLeads = [...exact, ...closest];
+  const allLeads = (() => {
+    const raw = [...exact, ...closest];
+    const seen = new Set<string>();
+    return raw.filter(lead => {
+      const placeId = (lead as any).place_id || (lead as any).placeId;
+      const name = (lead.name || '').toLowerCase().trim();
+      const key = placeId || name;
+      if (!key) return true;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      if (placeId && name) seen.add(name);
+      return true;
+    });
+  })();
 
   const hasResults = allLeads.length > 0 || (deliverySummary.delivered_count ?? 0) > 0;
 

@@ -131,3 +131,31 @@ UI-only additions to surface re-loop iteration progress as persistent breadcrumb
 - QA a multi-loop run to confirm breadcrumbs appear sequentially mid-run and persist post-delivery.
 - Verify the "N search loops" badge and updated narrative line appear correctly in the RunResultBubble for multi-loop runs.
 - Consider whether breadcrumb timestamps should reflect actual loop completion time (currently uses `new Date()` at injection time, which is within 1.5s of artefact creation).
+
+---
+
+## Session: BugFix x3 + LiveActivityTicker feature (2026-03-22)
+
+### What Changed
+Four separate changes: two bug fixes in rendering, one removal of the previous session's static breadcrumb approach, and a new `LiveActivityTicker` component replacing it.
+
+### Files Modified
+
+| File | Change |
+|---|---|
+| `client/src/pages/chat.tsx` | Removed `isReloopBreadcrumb` / `reloopLoopNumber` from Message type; added `isActivityTicker`, `tickerRunId`, `tickerCrid`; removed `reloopBreadcrumbsInjectedRef`; removed HARD_TIMEOUT_MS "still working" banner emission; removed entire reloop_iteration breadcrumb injection block; added ticker message injection on `parsed.supervisorTaskId`; wired `run_id` SSE handler to update ticker's `tickerRunId`; replaced `isReloopBreadcrumb` filter with `isActivityTicker`; replaced static breadcrumb render block with `<LiveActivityTicker>` render; added import for `LiveActivityTicker` |
+| `client/src/components/results/RunResultBubble.tsx` | Replaced `const allLeads = [...exact, ...closest]` with dedup IIFE (by `place_id` or normalised name) in both `buildRunNarrative` and the main render |
+| `client/src/components/results/LiveActivityTicker.tsx` | **New file.** Self-contained React component that polls `/api/afr/artefacts` every 2s while `isActive`, classifies artefacts into pinned vs ephemeral events, renders pinned lines permanently and an animated live line that disappears when the run completes |
+
+### Decisions Made
+- **Hard timeout banner removal**: Only the `upsertResultMessage` call was removed; the `hardTimeoutEmitted` set update and `console.warn` were kept so the polling guard still works correctly.
+- **Ticker placement**: Ticker message is injected via `setMessages` (append to end) when `parsed.supervisorTaskId` arrives, before the provisional bubble is upserted. The provisional bubble is always upserted via `upsertResultMessage` which splices-before-existing; the ticker being added first means it naturally appears above the provisional bubble in the list.
+- **`isActive` prop**: Passed as `isWaitingForSupervisor && chatMessage.tickerCrid === activeClientRequestId` so that older ticker messages from previous runs in the same chat session are correctly frozen (all their pinned events remain, live line stays hidden).
+- **Dedup strategy**: `place_id` preferred over name; if a lead has both, both keys are added to `seen` so subsequent duplicates are caught even if their place_id is absent.
+- **LiveActivityTicker polling loop**: The `useEffect` depends on `[isActive, runId, clientRequestId]`. When `isActive` flips false, the interval is cleared and one final `fetchAndProcess()` runs to capture any last artefacts. `liveEvent` is cleared via a separate `useEffect` that watches `isActive`.
+- **Pinned event dedup key**: `reloop_iteration-{loopNumber}`, `tower_judgement-combined_delivery`, `reloop_chain_summary` — composite keys prevent duplicate rows across multiple poll cycles.
+
+### What's Next
+- QA a multi-loop run end-to-end: confirm pinned events appear incrementally, live line cycles, pinned events persist after delivery, live line disappears.
+- Consider whether tower_judgement artefacts use `artefact_type === 'combined_delivery'` reliably or whether a fallback is needed.
+- The ECONNREFUSED proxy errors at startup are pre-existing (backend slow to start); not related to this change.
