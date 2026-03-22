@@ -280,17 +280,72 @@ function deriveMilestones(events: StreamEvent[]): Milestone[] {
 }
 
 function deriveEphemeral(events: StreamEvent[]): LiveEvent | null {
-  let latest: LiveEvent | null = null;
-  let latestTs = 0;
+  // ── Step 1: Build a URL-domain → pub-name map from ALL events ──
+  // Evidence events contain: "Norfolk Tap" + "norfolktap.com" 
+  // WEB_VISIT events contain: "https://norfolktap.com/"
+  // By mapping domains to names, we can show "Visiting Norfolk Tap..." even for URL-only events
+  const domainToName = new Map<string, string>();
+  
+  for (const event of events) {
+    const task = event.details?.task || '';
+    const summary = event.summary || '';
+    const combined = task + ' ' + summary;
+    
+    // Extract quoted name and URL from the same event
+    const nameMatch = combined.match(/"([^"]{2,40})"/);
+    const urlMatch = combined.match(/https?:\/\/(?:www\.)?([^/\s&"]+)/);
+    
+    if (nameMatch && urlMatch) {
+      const domain = urlMatch[1].toLowerCase();
+      domainToName.set(domain, nameMatch[1]);
+    }
+    
+    // Also extract from patterns like "WEB_VISIT: https://domain/ (N pages)" + nearby evidence with name
+    // And "Evidence: "Name" — ..." patterns
+    if (nameMatch && !urlMatch) {
+      // Store name keyed by event id so we can look it up for nearby events
+      domainToName.set(`name:${event.id}`, nameMatch[1]);
+    }
+  }
 
+  // ── Step 2: Helper to get a human name for any event ──
+  const getDisplayName = (event: StreamEvent): string | null => {
+    const task = event.details?.task || '';
+    const summary = event.summary || '';
+    const combined = task + ' ' + summary;
+    
+    // Direct quoted name in this event
+    const nameMatch = combined.match(/"([^"]{2,40})"/);
+    if (nameMatch) return nameMatch[1];
+    
+    // URL in this event → look up in our domain map
+    const urlMatch = combined.match(/https?:\/\/(?:www\.)?([^/\s&"]+)/);
+    if (urlMatch) {
+      const domain = urlMatch[1].toLowerCase();
+      const mapped = domainToName.get(domain);
+      if (mapped) return mapped;
+      // Fallback: clean the domain into a readable name
+      // "norfolktap.com" → "norfolktap", "www.redlionarundel.com" → "redlionarundel"
+      const cleanDomain = domain.replace(/\.co\.uk$|\.com$|\.org\.uk$|\.org$|\.uk$|\.net$/, '');
+      if (cleanDomain.length > 2 && cleanDomain.length < 30) return cleanDomain;
+    }
+    
+    return null;
+  };
+
+  // ── Step 3: Find the best recent ephemeral event ──
   const JUNK_PATTERNS = [
     /PROBE:/i, /ROUTER:/i, /ARTEFACT POST/i, /ARTEFACT.*SUCCEEDED/i,
     /ARTEFACTID=/i, /SUPERVISOR_PLAN/i, /INTENT_EXTRACTOR/i,
     /MISSION.*RECEIVED/i, /SEARCH QUERY PLAN/i, /SHADOW INTENT/i,
     /IMPLICIT CONSTRAINT/i, /CONSTRAINT.*CHECKLIST/i, /CAPABILITY CHECK/i,
     /PLAN V\d/i, /VERIFICATION POLICY/i, /INTENT NARRATIVE/i,
-    /^ARTEFACT CREATED:/i, /^ARTEFACT$/i, /COMPLETENESS CHECK/i,
+    /COMPLETENESS CHECK/i, /MISSION COMPLETENESS/i, /HANDOFF/i,
+    /PASS 1 CONSTRAINT/i, /CONSTRAINT EXPANSION/i,
   ];
+
+  let latest: LiveEvent | null = null;
+  let latestTs = 0;
 
   for (const event of events) {
     const ts = new Date(event.ts).getTime();
@@ -299,6 +354,7 @@ function deriveEphemeral(events: StreamEvent[]): LiveEvent | null {
     const summary = event.summary || '';
     const summaryUp = summary.toUpperCase();
     const task = event.details?.task || '';
+    const combined = summaryUp + ' ' + (task || '').toUpperCase();
 
     // Skip milestone-level events
     if (
@@ -307,74 +363,67 @@ function deriveEphemeral(events: StreamEvent[]): LiveEvent | null {
       summaryUp.includes('MISSION-DRIVEN EXECUTION COMPLETE')
     ) continue;
 
-    // Skip junk/technical events
-    const combined = summaryUp + ' ' + (task || '').toUpperCase();
+    // Skip junk
     if (JUNK_PATTERNS.some(p => p.test(combined))) continue;
 
-    // Also skip if summary is just "Artefact created: <something>"
-    if (/^ARTEFACT\s+(CREATED|CREATED:)/i.test(summary)) continue;
-
+    const name = getDisplayName(event);
     let icon = '⚙️';
     let text = '';
 
+    // ── WEB VISIT events (executing or completed) ──
     if (summaryUp.includes('WEB VISIT') || summaryUp.includes('WEB_VISIT') || summaryUp.includes('VISITING')) {
       icon = '🌐';
-      const nameMatch = (task || summary).match(/"([^"]+)"/);
-      const urlMatch = (task || summary).match(/https?:\/\/(?:www\.)?([^/\s&]+)/);
-      const colonMatch = (task || summary).match(/(?:WEB.?VISIT|Visiting)[:\s]+(?:https?:\/\/(?:www\.)?)?([^/\s&"(]+)/i);
-      if (nameMatch) {
-        text = `Visiting ${nameMatch[1]}...`;
-      } else if (urlMatch) {
-        const domain = urlMatch[1].replace(/\.co\.uk$|\.com$|\.org$|\.uk$/, '');
-        text = `Visiting ${domain}...`;
-      } else if (colonMatch) {
-        text = `Visiting ${colonMatch[1].slice(0, 30)}...`;
-      } else {
-        text = 'Visiting website...';
-      }
-    } else if (summaryUp.includes('EVIDENCE') && !summaryUp.includes('VERIFICATION')) {
+      text = name ? `Visiting ${name}...` : 'Visiting website...';
+    }
+    // ── Evidence events ──
+    else if (summaryUp.includes('EVIDENCE') && !summaryUp.includes('VERIFICATION')) {
       icon = '📄';
-      const nameMatch = (task || summary).match(/"([^"]+)"/);
-      const colonNameMatch = (task || summary).match(/(?:Evidence|Checking)[:\s]+"?([^"—\n]+)"?/i);
-      if (nameMatch) {
-        text = `Found evidence for ${nameMatch[1]}`;
-      } else if (colonNameMatch) {
-        text = `Found evidence for ${colonNameMatch[1].trim().slice(0, 30)}`;
-      } else {
-        text = 'Checking evidence...';
-      }
-    } else if (summaryUp.includes('TOWER SEMANTIC') || (summaryUp.includes('VERIF') && !summaryUp.includes('VERIFICATION COMPLETE'))) {
+      text = name ? `Checking ${name} for live music...` : 'Checking evidence...';
+    }
+    // ── Tower semantic verify ──
+    else if (summaryUp.includes('TOWER SEMANTIC') || summaryUp.includes('SEMANTIC VERIFY')) {
       icon = '⚖️';
-      const nameMatch = (task || summary).match(/"([^"]+)"/);
-      text = nameMatch ? `Verifying ${nameMatch[1]}...` : 'Verifying...';
-    } else if (summaryUp.includes('EXCLUSION FILTER')) {
+      text = name ? `Verifying ${name}...` : 'Verifying...';
+    }
+    // ── Exclusion filter ──
+    else if (summaryUp.includes('EXCLUSION FILTER')) {
       icon = '🔍';
       const countMatch = (task || summary).match(/(\d+)\s*kept/i);
       text = countMatch ? `Filtered to ${countMatch[1]} candidates` : 'Filtering candidates...';
-    } else if (summaryUp.includes('EXECUTING TOOL') || summaryUp.includes('EXECUTING:')) {
-      icon = '🔧';
-      const toolMatch = (task || summary).match(/(?:Executing(?:\s+Tool)?)[:\s]+(.+)/i);
-      if (toolMatch) {
-        const tool = toolMatch[1].trim();
-        if (/WEB.?VISIT/i.test(tool)) {
-          const urlMatch = tool.match(/https?:\/\/(?:www\.)?([^/\s&]+)/);
-          text = urlMatch ? `Visiting ${urlMatch[1]}...` : 'Visiting website...';
-          icon = '🌐';
-        } else {
-          text = `Running ${tool.slice(0, 35)}...`;
-        }
+    }
+    // ── Executing Tool events ──
+    else if (summaryUp.includes('EXECUTING TOOL') || summaryUp.includes('EXECUTING:')) {
+      // Extract tool type and humanise
+      if (/WEB.?VISIT/i.test(combined)) {
+        icon = '🌐';
+        text = name ? `Visiting ${name}...` : 'Visiting website...';
+      } else if (/EVIDENCE/i.test(combined)) {
+        icon = '📄';
+        text = name ? `Checking ${name}...` : 'Checking evidence...';
       } else {
-        text = 'Executing...';
+        continue; // Skip generic tool executions
       }
-    } else if (summaryUp.includes('SEARCH_PLACES') || summaryUp.includes('SEARCH PLACES')) {
+    }
+    // ── Artefact created events — only show if they have a useful name ──
+    else if (summaryUp.includes('ARTEFACT')) {
+      if (name && (summaryUp.includes('EVIDENCE') || summaryUp.includes('WEB VISIT'))) {
+        icon = '📄';
+        text = `Found evidence for ${name}`;
+      } else {
+        continue; // Skip generic artefact events
+      }
+    }
+    // ── Search places (skip — it's a milestone) ──
+    else if (summaryUp.includes('SEARCH_PLACES') || summaryUp.includes('SEARCH PLACES')) {
       continue;
-    } else {
-      const cleanText = (task || summary).replace(/^(Tool Completed|Executing Tool|Artefact created|Artefact Created):\s*/i, '').trim();
-      if (cleanText.length > 3 && cleanText.length < 60 && !/^[a-f0-9-]{20,}$/.test(cleanText)) {
-        text = cleanText.slice(0, 50) + (cleanText.length > 50 ? '...' : '');
-      } else {
-        continue;
-      }
+    }
+    // ── Anything else with a name is worth showing ──
+    else if (name) {
+      text = `Processing ${name}...`;
+    }
+    // ── Skip nameless generic events entirely ──
+    else {
+      continue;
     }
 
     if (!text) continue;

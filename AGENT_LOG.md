@@ -4,6 +4,44 @@ Previous logs archived to AGENT_LOG_ARCHIVE_20260321.md
 
 ---
 
+## Session: deriveEphemeral domain-map enrichment (2026-03-22 #4)
+
+### Goals
+Replace the `deriveEphemeral` function in `LiveActivityTicker.tsx` with a version that builds a URL-domain → pub-name map from ALL events before selecting the best ephemeral line, so WEB_VISIT events with only a URL can still display the pub name seen in a nearby Evidence event.
+
+### What Changed
+
+#### `client/src/components/results/LiveActivityTicker.tsx` — one function replaced
+
+**`deriveEphemeral` rewrite — three-step approach:**
+
+- **Step 1 — domainToName map:** Scans all events up-front; when an event contains both a quoted name and a URL, maps `domain → name`. Name-only events (no URL) are stored under `name:<event.id>` as a forward reference.
+- **Step 2 — `getDisplayName` helper:** For any single event, tries (a) direct quoted name, (b) URL → domain map lookup, (c) cleaned domain string (e.g. `norfolktap` from `norfolktap.com`) as a last resort — never returns null silently just because a URL was absent.
+- **Step 3 — event selection loop:** Identical skip logic (milestones, junk patterns) but uses `getDisplayName` uniformly across all branch types. Key behavioural changes:
+  - WEB VISIT: `Visiting <name>...` (was `Visiting website...` when no quoted name in that event).
+  - Evidence: `Checking <name> for live music...` (was `Found evidence for <name>` / `Checking evidence...`).
+  - Tower semantic: `Verifying <name>...` unchanged.
+  - EXECUTING TOOL: only WEB_VISIT and EVIDENCE sub-types shown; all others skipped (was showing generic `Running ...`).
+  - Artefact: only shown if name present AND summary includes EVIDENCE or WEB VISIT — otherwise skipped.
+  - Nameless generic events: skipped entirely (ephemeral line holds previous value rather than flashing "Processing...").
+- JUNK_PATTERNS expanded to include `COMPLETENESS CHECK`, `MISSION COMPLETENESS`, `HANDOFF`, `PASS 1 CONSTRAINT`, `CONSTRAINT EXPANSION` (removed `^ARTEFACT CREATED:` and `^ARTEFACT$` which are now handled by the artefact branch).
+
+### Files Modified
+| File | Change |
+|---|---|
+| `client/src/components/results/LiveActivityTicker.tsx` | `deriveEphemeral` function replaced entirely; all other code untouched |
+
+### Decisions Made
+- Domain key is lowercased before storage/lookup to avoid case-mismatch false negatives.
+- `cleanDomain` strip list extended to include `.org.uk` and `.net` (was missing from old fallback).
+- The `name:<event.id>` bucket exists for future use (name-only events); it is populated but not yet consumed in `getDisplayName` — consuming it would require temporal proximity logic that wasn't in scope.
+
+### What's Next
+- Monitor real runs to confirm ephemeral line stays named throughout the full web-visit phase.
+- Consider consuming `name:<event.id>` entries if temporal-proximity matching is needed.
+
+---
+
 ## Session: LiveActivityTicker website count + reloop text fixes (2026-03-22 #3)
 
 ### Goals
