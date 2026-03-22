@@ -534,22 +534,21 @@ export function LiveActivityTicker({ runId, clientRequestId, isActive, intentNar
   // ── Dedicated fast poll for intent_narrative (independent of stream) ──
   useEffect(() => {
     if (!isActive || (!runId && !clientRequestId)) return;
-
-    // Reset on new run
+    
     fetchedIntentNarrativeRef.current = null;
     setFetchedIntentNarrative(null);
     streamRunIdRef.current = null;
 
     let stopped = false;
-    let intentPollRef: NodeJS.Timeout | null = null;
+    let pollCount = 0;
+    const MAX_POLLS = 30; // 30 polls × 500ms = 15 seconds max
 
     const pollIntent = async () => {
-      if (stopped || fetchedIntentNarrativeRef.current) {
-        if (intentPollRef) { clearInterval(intentPollRef); intentPollRef = null; }
+      pollCount++;
+      if (stopped || fetchedIntentNarrativeRef.current || pollCount > MAX_POLLS) {
         return;
       }
 
-      // Build lookup attempts
       const fetchAttempts: string[] = [];
       if (clientRequestId) fetchAttempts.push(`client_request_id=${clientRequestId}`);
       if (streamRunIdRef.current && streamRunIdRef.current !== runId) fetchAttempts.push(`runId=${streamRunIdRef.current}`);
@@ -581,32 +580,25 @@ export function LiveActivityTicker({ runId, clientRequestId, isActive, intentNar
                 const finalPayload = { ...payload, entity_description: entityDesc } as IntentNarrativePayload;
                 fetchedIntentNarrativeRef.current = finalPayload;
                 setFetchedIntentNarrative(finalPayload);
-                console.log('[TICKER_INTENT] SUCCESS via', paramStr.slice(0, 30), '—', entityDesc.slice(0, 60));
-                if (intentPollRef) { clearInterval(intentPollRef); intentPollRef = null; }
+                console.log('[TICKER_INTENT] Found on poll', pollCount, 'via', paramStr.slice(0, 30));
                 return;
               }
             }
           }
         } catch {}
       }
+
+      // Schedule next poll if not found and not exhausted
+      if (!stopped && !fetchedIntentNarrativeRef.current && pollCount < MAX_POLLS) {
+        setTimeout(pollIntent, 500);
+      }
     };
 
-    // Start polling immediately, then every 1.5 seconds
+    // Start immediately
     pollIntent();
-    intentPollRef = setInterval(pollIntent, 1500);
-
-    // Auto-stop after 30 seconds (intent should appear within first 10s)
-    const timeout = setTimeout(() => {
-      if (intentPollRef) { clearInterval(intentPollRef); intentPollRef = null; }
-      if (!fetchedIntentNarrativeRef.current) {
-        console.log('[TICKER_INTENT] Gave up after 30s — no intent_narrative found');
-      }
-    }, 30000);
 
     return () => {
       stopped = true;
-      if (intentPollRef) { clearInterval(intentPollRef); intentPollRef = null; }
-      clearTimeout(timeout);
     };
   }, [isActive, runId, clientRequestId]);
 
