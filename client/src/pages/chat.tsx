@@ -2320,34 +2320,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                 }
               }
               
-              if (parsed.type === 'confidence' && parsed.content) {
-                const confidenceId = `confidence-${Date.now()}`;
-                const sanitisedContent = parsed.content
-                  .replace(/\s+and\s+return\s+exactly\b[^.]*/gi, '')
-                  .replace(/\s{2,}/g, ' ')
-                  .trim();
-                const normalizedIncoming = sanitisedContent.toLowerCase().replace(/\s+/g, ' ').replace(/[.!?]+$/, '');
-                setMessages((prev) => {
-                  const now = Date.now();
-                  const lastConfidence = [...prev].reverse().find(m => m.isConfidence);
-                  if (lastConfidence && (now - lastConfidence.timestamp.getTime()) < 10000) {
-                    const normalizedExisting = lastConfidence.content.trim().toLowerCase().replace(/\s+/g, ' ').replace(/[.!?]+$/, '');
-                    if (normalizedExisting === normalizedIncoming) {
-                      return prev;
-                    }
-                  }
-                  return [
-                    ...prev,
-                    {
-                      id: confidenceId,
-                      role: 'assistant' as const,
-                      content: sanitisedContent,
-                      timestamp: new Date(),
-                      isConfidence: true,
-                    },
-                  ];
-                });
-              }
+              // confidence messages suppressed — ticker shows live activity instead
 
               if (parsed.supervisorTaskId) {
                 streamHasSupervisorTask = true;
@@ -3199,6 +3172,12 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
 
               if (chatMessage.deliverySummary || chatMessage.runId) {
                 if (chatMessage.provisional) return null;
+                const allMsgsForResult = Array.isArray(messages) ? messages : [];
+                const hasTicker = allMsgsForResult.some(m =>
+                  (m as Message).isActivityTicker &&
+                  ((m as Message).tickerRunId === chatMessage.runId ||
+                   chatMessage.id === `ds-${(m as Message).tickerCrid}`)
+                );
                 const runResultBubble = chatMessage.deliverySummary ? (
                   <RunResultBubble
                       deliverySummary={chatMessage.deliverySummary}
@@ -3232,6 +3211,11 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                       <img src={wyshboneLogo} alt="Wyshbone" className="w-full h-full object-cover" />
                     </div>
                     <div className="flex flex-col items-start max-w-3xl lg:max-w-none w-full">
+                      {hasTicker && (
+                        <div className="relative border-l-2 border-primary/20 pl-3 -mt-1 mb-1 self-stretch">
+                          <span className="absolute left-[-5px] top-0 h-2 w-2 rounded-full bg-green-500/70" />
+                        </div>
+                      )}
                       <div className="rounded-lg px-4 py-4 bg-card border border-card-border w-full">
                         {chatMessage.runId ? (
                           <BehaviourInspectContent
@@ -3314,6 +3298,8 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
               }
 
               if (chatMessage.isIntentNarrative && chatMessage.intentNarrativePayload) {
+                // Intent narrative now rendered inside the LiveActivityTicker timeline
+                return null;
                 const payload = chatMessage.intentNarrativePayload;
                 const allMsgs = Array.isArray(messages) ? messages : [];
                 const myIndex = allMsgs.findIndex(m => m.id === chatMessage.id);
@@ -3497,6 +3483,13 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
               }
 
               if ('isActivityTicker' in chatMessage && (chatMessage as any).isActivityTicker) {
+                const allMsgsForTicker = Array.isArray(messages) ? messages : [];
+                const tickerIdx = allMsgsForTicker.findIndex(m => m.id === chatMessage.id);
+                const intentMsg = allMsgsForTicker
+                  .slice(0, tickerIdx + 1)
+                  .reverse()
+                  .find(m => (m as Message).isIntentNarrative && (m as Message).intentNarrativePayload);
+                const intentPayloadForTicker = intentMsg ? (intentMsg as Message).intentNarrativePayload ?? null : null;
                 return (
                   <div
                     key={chatMessage.id}
@@ -3509,6 +3502,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                         runId={(chatMessage as any).tickerRunId ?? null}
                         clientRequestId={(chatMessage as any).tickerCrid ?? null}
                         isActive={isWaitingForSupervisor}
+                        intentNarrativePayload={intentPayloadForTicker}
                       />
                     </div>
                   </div>
@@ -3516,38 +3510,8 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
               }
 
               if (chatMessage.isConfidence) {
-                const allMsgs = Array.isArray(messages) ? messages : [];
-                const myIndex = allMsgs.findIndex(m => m.id === chatMessage.id);
-                const hasResultAfter = allMsgs.slice(myIndex + 1).some(m => (m as Message).deliverySummary && !(m as Message).provisional);
-                if (hasResultAfter) return null;
-                const allConfidenceMessages = allMsgs.filter(m => 'isConfidence' in m && (m as Message).isConfidence);
-                const confidenceIndex = allConfidenceMessages.findIndex(m => m.id === chatMessage.id);
-                const totalConfidence = allConfidenceMessages.length;
-                const stepLabel = totalConfidence > 1 ? `Verification step ${confidenceIndex + 1}/${totalConfidence}` : null;
-                return (
-                  <div
-                    key={chatMessage.id}
-                    className="flex gap-3 flex-row"
-                    data-testid={`message-confidence-${chatMessage.id}`}
-                  >
-                    <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0">
-                      <img src={wyshboneLogo} alt="Wyshbone" className="w-full h-full object-cover" />
-                    </div>
-                    <div className="flex flex-col items-start max-w-3xl lg:max-w-none">
-                      <div className="rounded-lg px-4 py-2.5 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/50">
-                        <div className="flex items-center gap-2">
-                          <Search className="w-4 h-4 text-blue-500 dark:text-blue-400 flex-shrink-0" />
-                          <div>
-                            {stepLabel && (
-                              <p className="text-[10px] text-blue-500 dark:text-blue-400 font-medium mb-0.5">{stepLabel}</p>
-                            )}
-                            <p className="text-[14px] leading-relaxed text-blue-700 dark:text-blue-300 font-medium">{chatMessage.content}</p>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                );
+                // Confidence bubbles suppressed — ticker shows live activity instead
+                return null;
               }
 
               return (

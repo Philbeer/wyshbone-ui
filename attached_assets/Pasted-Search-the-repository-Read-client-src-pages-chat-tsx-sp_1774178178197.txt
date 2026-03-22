@@ -1,0 +1,108 @@
+Search the repository. Read client/src/pages/chat.tsx (specifically the message rendering section in the JSX return), client/src/components/results/LiveActivityTicker.tsx, and understand how isConfidence and isIntentNarrative messages are currently rendered.
+GOAL: Make the ticker, intent narrative, and results bubble form one continuous vertical timeline — and remove the "On it — searching now" bubble.
+
+FIX 1: Remove the "On it — searching now" confidence bubble
+In chat.tsx, find where isConfidence messages are rendered. The message says things like "On it — searching now." or "Searching for pubs in Arundel." Remove the rendering of ALL isConfidence messages entirely. Find the JSX block that checks m.isConfidence or message.isConfidence and renders the search icon + text bubble. Replace it with return null; so these messages produce no visible output.
+Also: find where confidence messages are CREATED (search for isConfidence: true in the message injection code in streamChatResponse). Remove or comment out the code that creates and injects these messages. They are no longer needed — the ticker shows the same info better.
+
+FIX 2: Move the intent narrative card INSIDE the LiveActivityTicker
+Currently the intent narrative is rendered as a separate chat bubble (with the Wyshbone avatar). It should instead be rendered INSIDE the ticker's timeline, as a card between the pinned events.
+Step A: Add a new prop to LiveActivityTicker:
+typescriptintentNarrativePayload?: IntentNarrativePayload | null;
+Where IntentNarrativePayload is the same interface used in chat.tsx. Import it or duplicate it in the ticker file.
+Step B: In chat.tsx, when rendering the isActivityTicker message, pass the intent narrative payload to the ticker. Find the intent narrative message (isIntentNarrative) for this run and extract its payload. Pass it as a prop:
+tsx<LiveActivityTicker
+  runId={...}
+  clientRequestId={...}
+  isActive={isWaitingForSupervisor}
+  intentNarrativePayload={intentPayloadForThisRun}
+/>
+To get intentPayloadForThisRun: look backwards through messages for one with isIntentNarrative: true and extract its intentNarrativePayload.
+Step C: In LiveActivityTicker, render the intent narrative card AFTER the thinking brains / early pinned events, and BEFORE the later pinned events. Insert it after the first pinned event (or after ThinkingBrains if no pinned events yet). Render it as a compact card:
+tsx{intentNarrativePayload && (
+  <div className="rounded-lg border bg-card/50 px-3 py-2 space-y-1 my-1">
+    <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+      <span>🧠</span> Here's what I understood
+    </div>
+    {intentNarrativePayload.entity_description && (
+      <p className="text-xs text-foreground leading-snug">{intentNarrativePayload.entity_description}</p>
+    )}
+    {intentNarrativePayload.entity_exclusions && intentNarrativePayload.entity_exclusions.length > 0 && (
+      <div className="text-[10px] text-muted-foreground">
+        <span className="font-medium">Not:</span> {intentNarrativePayload.entity_exclusions.join(', ')}
+      </div>
+    )}
+    {intentNarrativePayload.findability && (
+      <div className="text-[10px] text-muted-foreground">
+        How findable: <span className="font-medium">{intentNarrativePayload.findability}</span>
+      </div>
+    )}
+  </div>
+)}
+Step D: In chat.tsx, STOP rendering isIntentNarrative messages as separate chat bubbles. Find the render path for isIntentNarrative and return null instead.
+
+FIX 3: Add connecting timeline dots/lines to the ticker
+Replace the current simple list in LiveActivityTicker with a timeline layout that has dots and connecting lines (like the activity panel). Update the rendering:
+tsx<div className="border-l-2 border-primary/20 pl-3 space-y-0 py-2 relative">
+  {/* Thinking brains when nothing yet */}
+  {isActive && pinnedEvents.length === 0 && !liveEvent && !intentNarrativePayload && (
+    <div className="relative pl-4 pb-2">
+      <span className="absolute left-[-5px] top-1.5 h-2 w-2 rounded-full bg-primary/40" />
+      <ThinkingBrains />
+    </div>
+  )}
+
+  {/* Pinned events with dots */}
+  {pinnedEvents.map((evt, i) => (
+    <div key={evt.key} className="relative pl-4 pb-2">
+      <span className="absolute left-[-5px] top-1.5 h-2 w-2 rounded-full bg-primary/60" />
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <span>{evt.icon}</span>
+        <span>{evt.text}</span>
+      </div>
+      {/* Insert intent narrative after first pinned event */}
+      {i === 0 && intentNarrativePayload && (
+        <div className="mt-2 ml-0">
+          {/* intent narrative card here */}
+        </div>
+      )}
+    </div>
+  ))}
+
+  {/* If no pinned events but have intent narrative, show it standalone */}
+  {pinnedEvents.length === 0 && intentNarrativePayload && (
+    <div className="relative pl-4 pb-2">
+      <span className="absolute left-[-5px] top-1.5 h-2 w-2 rounded-full bg-primary/40" />
+      {/* intent narrative card */}
+    </div>
+  )}
+
+  {/* Live ephemeral line with dot */}
+  {isActive && liveEvent && (
+    <div className="relative pl-4 pb-1">
+      <span className="absolute left-[-5px] top-1.5 h-2 w-2 rounded-full bg-primary/30 animate-pulse" />
+      <div className="flex items-center gap-2 text-xs text-muted-foreground/70">
+        <Loader2 className="h-3 w-3 animate-spin flex-shrink-0" />
+        <span>{liveEvent.text}</span>
+      </div>
+    </div>
+  )}
+</div>
+The key visual elements: left border line (already exists), small dots at each event positioned on the border line (left-[-5px] to sit on the border), and the intent narrative card inlined between events.
+
+FIX 4: Make the RunResultBubble appear to continue the timeline
+In chat.tsx where the ds-{key} message renders RunResultBubble, if there's a ticker message (ticker-{crid}) visible for the same run, add a small connecting element at the top of the RunResultBubble render wrapper:
+When rendering a deliverySummary message, check if a ticker message exists for the same run. If so, add:
+tsx<div className="border-l-2 border-primary/20 ml-[calc(2rem+1px)] pl-3 pt-0 -mt-2">
+  <span className="absolute left-[-5px] top-0 h-2 w-2 rounded-full bg-green-500" />
+</div>
+This creates visual continuity from the ticker timeline into the results bubble.
+
+Important:
+
+Do NOT remove the LiveActivityTicker component or its polling logic — it's working well
+The intent narrative should ONLY appear inside the ticker timeline, NOT as a separate chat bubble
+The "On it — searching now" confidence message should be completely gone
+The ticker timeline with dots should feel like a natural continuation from the user's query down to the results
+
+Work on the main branch only — do not create or switch branches. After completing this task, append a structured summary to AGENT_LOG.md (what changed, files modified, decisions made, what's next).

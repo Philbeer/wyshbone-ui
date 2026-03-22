@@ -4,6 +4,47 @@ Previous logs archived to AGENT_LOG_ARCHIVE_20260321.md
 
 ---
 
+## Session: LiveActivityTicker + chat.tsx final wiring (2026-03-22)
+
+### Goals
+Complete the 4 remaining fixes from the ticker/intent-narrative improvement project.
+
+### What Changed
+
+#### `client/src/components/results/LiveActivityTicker.tsx` (full rewrite)
+- Data source switched to `/api/afr/stream` (polls with `runId` + `client_request_id` params).
+- `ThinkingBrains` sub-component: animated 3-brain indicator when no events exist yet.
+- Timeline dots: every row has `absolute left-[-5px] rounded-full` dot on the `border-l-2` container.
+- `IntentNarrativeCard` sub-component: compact card showing entity_description, entity_exclusions, findability.
+- `IntentNarrativePayload` interface exported.
+- `intentNarrativePayload?: IntentNarrativePayload | null` prop added to `LiveActivityTickerProps`.
+- Narrative card renders after first pinned event (or standalone if no pinned events yet).
+- Ephemeral live event row still animates at bottom.
+
+#### `client/src/pages/chat.tsx`
+- **FIX 1b** (confidence creation): `if (parsed.type === 'confidence' ...)` block removed — replaced with a one-line comment. No confidence messages injected during live stream.
+- **FIX 1a** (confidence render): `if (chatMessage.isConfidence)` block now returns `null` immediately (old render JSX left as unreachable dead code, removed cleanly).
+- **FIX 2b** (intent narrative render): `if (chatMessage.isIntentNarrative ...)` block now returns `null` immediately — intent narrative only appears inside the ticker.
+- **FIX 2c** (ticker intentNarrativePayload): When rendering `isActivityTicker`, scans `messages` backwards from the ticker's position to find the nearest `isIntentNarrative` message and passes its payload to `<LiveActivityTicker intentNarrativePayload={...} />`.
+- **FIX 4** (RunResultBubble connector): In the `chatMessage.deliverySummary` render block, checks if any `isActivityTicker` message with matching `tickerRunId` or `tickerCrid` exists. If so, renders a `border-l-2 border-primary/20` connecting bar with a green dot above the result card.
+
+### Files Modified
+| File | Change |
+|---|---|
+| `client/src/components/results/LiveActivityTicker.tsx` | Full rewrite — `/api/afr/stream`, thinking brains, timeline dots, intent narrative inline |
+| `client/src/pages/chat.tsx` | FIX 1a, 1b, 2b, 2c, 4 — confidence suppressed, intent narrative moved to ticker, connector element added |
+
+### Decisions Made
+- `isIntentNarrative` with `clarification_needed && findability === 'very_hard'`: clarification buttons are NOT shown in the compact ticker card (by spec). User can still type a clarification manually.
+- Historical messages: `base.isConfidence = true` assignment at load time kept (two places) — these messages are now suppressed at render time via the `return null` guard.
+- `rewriteConfidenceMessages()` kept as a no-op — it runs but has no messages to rewrite.
+- Unreachable code left after `return null` in the `isIntentNarrative` block (TypeScript compiles fine).
+
+### Status
+- App running cleanly; no TypeScript errors; HMR confirmed.
+
+---
+
 ## Session: Log Archive & Reset (2026-03-21)
 
 ### What Changed

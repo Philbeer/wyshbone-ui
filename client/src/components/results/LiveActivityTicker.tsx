@@ -3,10 +3,23 @@ import { Loader2, Brain } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { addDevAuthParams, buildApiUrl } from "@/lib/queryClient";
 
+export interface IntentNarrativePayload {
+  entity_description?: string;
+  entity_exclusions?: string[];
+  commercial_context?: string;
+  key_discriminator?: string;
+  findability?: 'easy' | 'moderate' | 'hard' | 'very_hard';
+  scarcity_expectation?: string;
+  suggested_approaches?: string[];
+  clarification_needed?: boolean;
+  clarification_question?: string;
+}
+
 export interface LiveActivityTickerProps {
   runId: string | null;
   clientRequestId: string | null;
   isActive: boolean;
+  intentNarrativePayload?: IntentNarrativePayload | null;
 }
 
 interface PinnedEvent {
@@ -64,10 +77,8 @@ function extractCount(text: string | null | undefined): number | null {
 function classifyEvent(event: StreamEvent): { pinned: PinnedEvent | null; ephemeral: LiveEvent | null } {
   const type = (event.type || '').toLowerCase();
   const summary = event.summary || '';
-  const summaryUp = summary.toUpperCase();
   const details = event.details || {};
   const task = details.task || '';
-  const taskUp = task.toUpperCase();
   const ts = event.ts ? new Date(event.ts).getTime() : Date.now();
 
   const matchesSummaryOrTask = (pattern: RegExp) =>
@@ -155,7 +166,30 @@ function ThinkingBrains() {
   );
 }
 
-export function LiveActivityTicker({ runId, clientRequestId, isActive }: LiveActivityTickerProps) {
+function IntentNarrativeCard({ payload }: { payload: IntentNarrativePayload }) {
+  return (
+    <div className="rounded-lg border bg-card/50 px-3 py-2 space-y-1 my-1">
+      <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+        <span>🧠</span> Here's what I understood
+      </div>
+      {payload.entity_description && (
+        <p className="text-xs text-foreground leading-snug">{payload.entity_description}</p>
+      )}
+      {payload.entity_exclusions && payload.entity_exclusions.length > 0 && (
+        <div className="text-[10px] text-muted-foreground">
+          <span className="font-medium">Not:</span> {payload.entity_exclusions.join(', ')}
+        </div>
+      )}
+      {payload.findability && (
+        <div className="text-[10px] text-muted-foreground">
+          How findable: <span className="font-medium">{payload.findability.replace('_', ' ')}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function LiveActivityTicker({ runId, clientRequestId, isActive, intentNarrativePayload }: LiveActivityTickerProps) {
   const [pinnedEvents, setPinnedEvents] = useState<PinnedEvent[]>([]);
   const [liveEvent, setLiveEvent] = useState<LiveEvent | null>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -232,26 +266,59 @@ export function LiveActivityTicker({ runId, clientRequestId, isActive }: LiveAct
     }
   }, [isActive]);
 
-  if (!isActive && pinnedEvents.length === 0 && !liveEvent) return null;
+  const hasAnything = pinnedEvents.length > 0 || !!liveEvent || !!intentNarrativePayload;
+  if (!isActive && !hasAnything) return null;
 
   return (
-    <div className="border-l-2 border-primary/20 pl-3 space-y-1 py-2">
-      {isActive && pinnedEvents.length === 0 && !liveEvent && (
-        <ThinkingBrains />
+    <div className="border-l-2 border-primary/20 pl-3 space-y-0 py-2 relative">
+      {/* Thinking brains when nothing yet */}
+      {isActive && pinnedEvents.length === 0 && !liveEvent && !intentNarrativePayload && (
+        <div className="relative pl-4 pb-2">
+          <span className="absolute left-[-5px] top-1.5 h-2 w-2 rounded-full bg-primary/40" />
+          <ThinkingBrains />
+        </div>
       )}
-      {pinnedEvents.map((evt) => (
-        <div key={evt.key} className="flex items-center gap-2 text-xs text-muted-foreground">
-          <span>{evt.icon}</span>
-          <span>{evt.text}</span>
+
+      {/* First pinned event (if any) */}
+      {pinnedEvents.length > 0 && (
+        <div key={pinnedEvents[0].key} className="relative pl-4 pb-2">
+          <span className="absolute left-[-5px] top-1.5 h-2 w-2 rounded-full bg-primary/60" />
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <span>{pinnedEvents[0].icon}</span>
+            <span>{pinnedEvents[0].text}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Intent narrative card — after first pinned, or standalone if no pinned */}
+      {intentNarrativePayload && (
+        <div className="relative pl-4 pb-2">
+          <span className="absolute left-[-5px] top-2 h-2 w-2 rounded-full bg-primary/40" />
+          <IntentNarrativeCard payload={intentNarrativePayload} />
+        </div>
+      )}
+
+      {/* Remaining pinned events */}
+      {pinnedEvents.slice(1).map((evt) => (
+        <div key={evt.key} className="relative pl-4 pb-2">
+          <span className="absolute left-[-5px] top-1.5 h-2 w-2 rounded-full bg-primary/60" />
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <span>{evt.icon}</span>
+            <span>{evt.text}</span>
+          </div>
         </div>
       ))}
+
+      {/* No pinned events, no intent narrative yet — thinking brains already shown above */}
+
+      {/* Live ephemeral line */}
       {isActive && liveEvent && (
-        <div
-          className="flex items-center gap-2 text-xs text-muted-foreground/70 animate-pulse"
-          key={liveEvent.timestamp}
-        >
-          <Loader2 className="h-3 w-3 animate-spin flex-shrink-0" />
-          <span className="transition-opacity duration-300">{liveEvent.text}</span>
+        <div className="relative pl-4 pb-1" key={liveEvent.timestamp}>
+          <span className="absolute left-[-5px] top-1.5 h-2 w-2 rounded-full bg-primary/30 animate-pulse" />
+          <div className="flex items-center gap-2 text-xs text-muted-foreground/70 animate-pulse">
+            <Loader2 className="h-3 w-3 animate-spin flex-shrink-0" />
+            <span className="transition-opacity duration-300">{liveEvent.text}</span>
+          </div>
         </div>
       )}
     </div>
