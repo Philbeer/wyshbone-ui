@@ -1,0 +1,81 @@
+Paste into Replit for wyshbone-ui:
+Search the repository. Read client/src/components/results/LiveActivityTicker.tsx and client/src/components/live-activity-panel.tsx (the sidebar activity panel that DOES show real-time events correctly).
+PROBLEM: The LiveActivityTicker polls /api/afr/artefacts which returns run_artefacts rows. But the real-time activity the user sees in the sidebar Activity Panel comes from agent_activities via a DIFFERENT data source. The run_artefacts rows are created late (often only at run completion), so the ticker shows "Processing..." for the entire run and never shows useful events like "Searching Google Places", "Visiting website", "Verifying lead", etc.
+SOLUTION: Make the LiveActivityTicker poll the SAME data source as the live-activity-panel component. Look at how live-activity-panel.tsx fetches its events — it likely uses /api/afr/stream or queries agent_activities. The ticker should use the same approach.
+Step 1: Investigate how live-activity-panel.tsx gets its data
+Read live-activity-panel.tsx to find:
+
+What API endpoint or Supabase query it uses to get real-time events
+What fields each activity has (action_taken, task_generated, status, metadata, etc.)
+How it classifies events for display
+
+Step 2: Rewrite LiveActivityTicker to use agent_activities
+Replace the /api/afr/artefacts polling with a query to agent_activities. There should be an existing API endpoint that returns activities for a run — check for /api/afr/activities, /api/activities, or look at what the activity panel uses.
+If no suitable API exists, use the Supabase client directly (check how live-activity-panel.tsx does it) to query:
+sqlSELECT * FROM agent_activities 
+WHERE run_id = ? OR metadata->>'clientRequestId' = ?
+ORDER BY created_at ASC
+```
+
+**Step 3: Classify agent_activities into pinned vs ephemeral**
+
+Based on the `action_taken` field from agent_activities:
+
+**PINNED events** (stay visible, max 5):
+- `action_taken` contains `search_places` or `SEARCH_PLACES` → "🔍 Google Places — found {N} results" (extract count from task_generated or metadata)
+- `action_taken` contains `reloop_iteration` → "🔄 Re-loop: trying another approach"  
+- `action_taken` = `tower_evaluation_completed` → "⚖️ Quality check: {verdict}" (extract from metadata.tower_verdict)
+- `action_taken` = `run_completed` → "✅ Run complete"
+- `action_taken` contains `step_completed` AND task_generated mentions "Google" or "Places" → "🔍 Found results via Google Places"
+
+**EPHEMERAL events** (cycle on single live line):
+- `action_taken` contains `tool_call_started` → "🔧 {tool_name}..." (from metadata.tool_name)
+- `action_taken` contains `web_visit` or `WEB VISIT` → "🌐 Visiting website..."
+- `action_taken` contains `step_started` → "⚙️ {step_label}..."
+- `action_taken` = `tower_decision_change_plan` → "🔄 Replanning..."
+- Any other activity → use `task_generated` text truncated to 40 chars
+
+**Step 4: Make the ticker more visually prominent**
+
+Currently it renders with `text-muted-foreground/60` which is too faint. Change:
+- Pinned events: `text-xs text-muted-foreground` (full opacity, not /60)
+- Ephemeral live line: `text-xs text-muted-foreground/80 animate-pulse` with `Loader2` spinner
+- Add a subtle left border: wrap the whole ticker in `border-l-2 border-primary/20 pl-3`
+
+**Step 5: Timeout fixes (still needed from last prompt)**
+
+In `client/src/pages/chat.tsx`, find these constants in the `pollStream` function:
+```
+const SOFT_TIMEOUT_MS = 30_000;
+const HARD_TIMEOUT_MS = 90_000;
+```
+
+Change to:
+```
+const SOFT_TIMEOUT_MS = 120_000;
+const HARD_TIMEOUT_MS = 300_000;
+```
+
+Also find the block where `HARD_TIMEOUT_MS` triggers a "still_working" banner message (creates a message with `stop_reason: 'still_working'`). Remove the banner creation — just keep the console.warn. Same for the SOFT_TIMEOUT banner.
+
+**Step 6: Lead dedup in RunResultBubble (still needed)**
+
+In `client/src/components/results/RunResultBubble.tsx`, find:
+```
+const allLeads = [...exact, ...closest];
+Replace with:
+typescriptconst allLeads = (() => {
+  const raw = [...exact, ...closest];
+  const seen = new Set<string>();
+  return raw.filter(lead => {
+    const placeId = (lead as any).place_id || (lead as any).placeId;
+    const name = (lead.name || '').toLowerCase().trim();
+    const key = placeId || name;
+    if (!key) return true;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    if (placeId && name) seen.add(name);
+    return true;
+  });
+})();
+Work on the main branch only — do not create or switch branches. After completing this task, append a structured summary to AGENT_LOG.md (what changed, files modified, decisions made, what's next).
