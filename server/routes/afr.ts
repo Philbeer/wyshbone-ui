@@ -593,9 +593,7 @@ export function createAfrRouter(_storage: typeof storage) {
         return res.status(400).json({ error: "runId and type are required" });
       }
 
-      if (process.env.NODE_ENV !== "production") {
-        console.log(`[AFR artefacts DEBUG] POST keys=${Object.keys(body).join(',')} payloadSource=${body.payload ? 'payload' : body.payloadJson != null ? 'payloadJson' : 'none'}`);
-      }
+      console.log(`[AFR artefacts] POST type=${type} runId=${runId?.slice(0,12)} crid=${clientRequestId?.slice(0,12) || 'NONE'} keys=${Object.keys(body).join(',')}`);
 
       let canonicalPayload: Record<string, unknown>;
       if (body.payload && typeof body.payload === 'object') {
@@ -630,6 +628,25 @@ export function createAfrRouter(_storage: typeof storage) {
       const artefactId = rows[0]?.id;
 
       console.log(`[AFR artefacts] Persisted artefact type=${type} runId=${runId} → artefactId=${artefactId}`);
+
+      // ── Auto-link supervisor_run_id bridge if clientRequestId is present ──
+      // The supervisor sends its own runId + the shared clientRequestId.
+      // By linking early, the GET handler can find supervisor artefacts immediately.
+      if (clientRequestId && runId) {
+        try {
+          const agentRunForBridge = await storage.getAgentRunByClientRequestId(clientRequestId);
+          if (agentRunForBridge && agentRunForBridge.id !== runId && !(agentRunForBridge as any).supervisorRunId) {
+            await db.execute(
+              sql`UPDATE agent_runs SET supervisor_run_id = ${runId}, updated_at = ${Date.now()} WHERE id = ${agentRunForBridge.id} AND supervisor_run_id IS NULL`
+            );
+            console.log(`🔗 [AFR artefacts POST] Auto-bridged supervisor_run_id=${runId} → agent_run=${agentRunForBridge.id} (via crid=${clientRequestId.slice(0, 12)})`);
+          }
+        } catch (bridgeErr: any) {
+          // Non-fatal — bridge will be set by /run-bridge eventually
+          console.warn(`[AFR artefacts POST] Auto-bridge failed:`, bridgeErr.message);
+        }
+      }
+
       res.status(201).json({ artefactId });
     } catch (error: any) {
       console.error("AFR POST /artefacts error:", error);
