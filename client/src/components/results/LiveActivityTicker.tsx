@@ -108,11 +108,23 @@ function deriveMilestones(events: StreamEvent[]): Milestone[] {
     const t = (e.type || '').toLowerCase();
     return s.includes('EVIDENCE') || t.includes('evidence');
   });
-  const webVisitCount = webVisitEvents.length;
+  // Count only unique completed web visit events — one per domain/entity
+  const completedWebVisits = events.filter(e => {
+    const s = (e.summary || '').toUpperCase();
+    return s.startsWith('TOOL COMPLETED') && s.includes('WEB VISIT');
+  });
+  const seenDomains = new Set<string>();
+  for (const e of completedWebVisits) {
+    const task = e.details?.task || e.summary || '';
+    const urlMatch = task.match(/https?:\/\/(?:www\.)?([^/\s&]+)/);
+    if (urlMatch) seenDomains.add(urlMatch[1]);
+    else seenDomains.add(e.id);
+  }
+  const webVisitCount = seenDomains.size || completedWebVisits.length;
   if (webVisitCount > 0 || evidenceEvents.length > 0) {
     const text = webVisitCount > 0
-      ? `Checking ${webVisitCount} websites for evidence`
-      : 'Checking evidence...';
+      ? `Checking ${webVisitCount} pub websites for live music mentions`
+      : 'Checking websites for evidence...';
     const firstTs = webVisitEvents[0]?.ts || evidenceEvents[0]?.ts;
     milestones.push({ key: 'web_evidence', icon: '🌐', text, timestamp: new Date(firstTs).getTime() });
   }
@@ -183,15 +195,26 @@ function deriveMilestones(events: StreamEvent[]): Milestone[] {
   if (reloopEvents.length > 0) {
     const reloopEvent = reloopEvents.find(e => {
       const s = (e.summary || '').toUpperCase();
-      return !s.includes('STOP_DELIVER') && !s.includes('COMPLETE');
+      return !s.includes('STOP_DELIVER') && !s.includes('COMPLETE') && !s.includes('→ PASS');
     });
     if (reloopEvent) {
+      const task = reloopEvent.details?.task || reloopEvent.summary || '';
+      let nextApproach = '';
+      if (/gpt4o|gpt-4o|web.?search/i.test(task)) {
+        nextApproach = 'switching to web search';
+      } else if (/gp_cascade|google|places/i.test(task) && milestones.some(m => m.key === 'gp_search')) {
+        nextApproach = 'switching to web search';
+      } else if (/gp_cascade|google|places/i.test(task)) {
+        nextApproach = 'trying Google Places';
+      } else {
+        nextApproach = 'trying a different approach';
+      }
       const gpIdx = milestones.findIndex(m => m.key === 'gp_search');
       const insertAt = gpIdx >= 0 ? gpIdx + 1 : 1;
       milestones.splice(insertAt, 0, {
         key: 'reloop',
         icon: '🔄',
-        text: 'Not enough — trying another approach',
+        text: `Not enough coverage — ${nextApproach}`,
         timestamp: new Date(reloopEvent.ts).getTime(),
       });
     }

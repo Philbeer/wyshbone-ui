@@ -4,6 +4,39 @@ Previous logs archived to AGENT_LOG_ARCHIVE_20260321.md
 
 ---
 
+## Session: LiveActivityTicker website count + reloop text fixes (2026-03-22 #3)
+
+### Goals
+Two targeted fixes to `deriveMilestones` — no other changes.
+
+### What Changed
+
+#### `client/src/components/results/LiveActivityTicker.tsx` — two edits only
+
+**FIX 1: Website count was inflated**
+- Problem: `webVisitEvents.length` counted every event mentioning "WEB VISIT" — executing, completed, artefact created — causing 3-5× inflation per pub.
+- Fix: Filter to only `TOOL COMPLETED` + `WEB VISIT` events, then dedupe by domain extracted from the URL in `details.task` / `summary`. `seenDomains.size` is the final count.
+- Text updated from `"Checking N websites for evidence"` → `"Checking N pub websites for live music mentions"`.
+
+**FIX 2: Reloop text now reflects next approach**
+- Problem: Generic "Not enough — trying another approach" gave no signal.
+- Fix: Inspect `reloopEvent.details.task || summary` for `gpt4o/web search` → `"switching to web search"`, `gp_cascade/google/places` (when gp_search milestone already exists) → `"switching to web search"`, `gp_cascade` first time → `"trying Google Places"`, fallback → `"trying a different approach"`. Text is now `"Not enough coverage — <next approach>"`.
+- Also added `→ PASS` to the reloop exclusion filter — a PASS result means the system delivered, not retried, so no reloop milestone shown.
+
+### Files Modified
+| File | Change |
+|---|---|
+| `client/src/components/results/LiveActivityTicker.tsx` | Two targeted edits inside `deriveMilestones` |
+
+### Decisions Made
+- Domain dedup uses `Set<string>` — if no URL is extractable from the event, falls back to unique event id to avoid under-counting.
+- `→ PASS` exclusion uses `.toUpperCase()` on the summary before checking, consistent with the existing exclusion checks.
+
+### Status
+- HMR confirmed twice; no TypeScript/console errors.
+
+---
+
 ## Session: LiveActivityTicker milestone redesign (2026-03-22 #2)
 
 ### Goals

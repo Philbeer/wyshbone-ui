@@ -1,0 +1,74 @@
+Read client/src/components/results/LiveActivityTicker.tsx before making changes.
+Two fixes only. Do not change anything else in the file.
+FIX 1: Website count is inflated
+The current code counts ALL events whose summary contains "WEB VISIT" — this includes Executing Tool: WEB VISIT, Tool Completed: WEB VISIT, Artefact Created: WEB VISIT:... for the SAME website, plus multiple pages per site. So one pub generates 3-5 events, making the count 3-5x too high.
+In the deriveMilestones function, find the Milestone 2 block that filters webVisitEvents. Replace its counting logic:
+Change from:
+typescriptconst webVisitCount = webVisitEvents.length;
+To counting only UNIQUE completed web visit tool events (one per domain/entity):
+typescript// Count only unique completed web visit events (not sub-pages, not started/artefact events)
+const completedWebVisits = events.filter(e => {
+  const s = (e.summary || '').toUpperCase();
+  // Only count "Tool Completed: WEB VISIT" events — one per entity visit
+  return s.startsWith('TOOL COMPLETED') && s.includes('WEB VISIT');
+});
+// Dedupe by domain if possible
+const seenDomains = new Set<string>();
+for (const e of completedWebVisits) {
+  const task = e.details?.task || e.summary || '';
+  const urlMatch = task.match(/https?:\/\/(?:www\.)?([^/\s&]+)/);
+  if (urlMatch) seenDomains.add(urlMatch[1]);
+  else seenDomains.add(e.id); // fallback: count unique event ids
+}
+const webVisitCount = seenDomains.size || completedWebVisits.length;
+Also update the text to be more natural — instead of "Checking N websites for evidence" use:
+typescriptconst text = webVisitCount > 0
+  ? `Checking ${webVisitCount} pub websites for live music mentions`
+  : 'Checking websites for evidence...';
+FIX 2: Reloop milestone should say what approach comes next
+The reloop events from the activity stream contain information about what executor was used and what comes next. The details.task or summary field of reloop events typically contains the executor type (e.g. "gp_cascade → PASS → stop_deliver" or "Re-loop 1: gp_cascade → PARTIAL → re_loop").
+In the deriveMilestones function, find the reloop milestone block. Change the text from the generic "Not enough — trying another approach" to extract the next executor:
+Replace:
+typescriptif (reloopEvent) {
+  const gpIdx = milestones.findIndex(m => m.key === 'gp_search');
+  const insertAt = gpIdx >= 0 ? gpIdx + 1 : 1;
+  milestones.splice(insertAt, 0, {
+    key: 'reloop',
+    icon: '🔄',
+    text: 'Not enough — trying another approach',
+    timestamp: new Date(reloopEvent.ts).getTime(),
+  });
+}
+With:
+typescriptif (reloopEvent) {
+  const task = reloopEvent.details?.task || reloopEvent.summary || '';
+  // Try to extract the next executor from patterns like "gp_cascade → PARTIAL → re_loop"
+  // or from metadata
+  let nextApproach = '';
+  if (/gpt4o|gpt-4o|web.?search/i.test(task)) {
+    nextApproach = 'switching to web search';
+  } else if (/gp_cascade|google|places/i.test(task) && milestones.some(m => m.key === 'gp_search')) {
+    // Already did GP, so the reloop must be trying something else
+    nextApproach = 'switching to web search';
+  } else if (/gp_cascade|google|places/i.test(task)) {
+    nextApproach = 'trying Google Places';
+  } else {
+    nextApproach = 'trying a different approach';
+  }
+  
+  const gpIdx = milestones.findIndex(m => m.key === 'gp_search');
+  const insertAt = gpIdx >= 0 ? gpIdx + 1 : 1;
+  milestones.splice(insertAt, 0, {
+    key: 'reloop',
+    icon: '🔄',
+    text: `Not enough coverage — ${nextApproach}`,
+    timestamp: new Date(reloopEvent.ts).getTime(),
+  });
+}
+Also: the reloop filter currently excludes events with "STOP_DELIVER" or "COMPLETE" in the summary. But it should also check for events where the verdict was PASS (which means the reloop decided to deliver, not retry). Add PASS to the exclusion:
+typescriptconst reloopEvent = reloopEvents.find(e => {
+  const s = (e.summary || '').toUpperCase();
+  return !s.includes('STOP_DELIVER') && !s.includes('COMPLETE') && !s.includes('→ PASS');
+});
+This means the "Not enough" milestone only shows when the system actually re-looped (PARTIAL/FAIL → re_loop), not when it passed first time.
+Work on the main branch only — do not create or switch branches. After completing this task, append a structured summary to AGENT_LOG.md (what changed, files modified, decisions made, what's next).
