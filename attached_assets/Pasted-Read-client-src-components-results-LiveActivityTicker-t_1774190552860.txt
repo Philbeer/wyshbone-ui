@@ -1,0 +1,110 @@
+Read client/src/components/results/LiveActivityTicker.tsx. Fix the intent narrative timing bug.
+
+PROBLEM: The ticker self-fetches artefacts using client_request_id and runId from props. But the intent_narrative artefact is stored under the SUPERVISOR's run_id, not the UI's agent_run id. The supervisor_run_id bridge in agent_runs takes time to be set up. During that gap, the artefact fetch returns rows that don't include intent_narrative because it's querying the wrong run_id.
+
+FIX: The stream response (/api/afr/stream) already returns a run_id field. We also need to capture the supervisor_run_id if available. Use these as additional lookup keys for the artefact fetch.
+
+CHANGES:
+
+1. Add run_id to StreamResponse interface. Find:
+  interface StreamResponse {
+    client_request_id: string | null;
+    title: string;
+    status: string;
+    is_terminal: boolean;
+    events: StreamEvent[];
+    event_count: number;
+  }
+
+Add run_id:
+  interface StreamResponse {
+    client_request_id: string | null;
+    run_id?: string | null;
+    title: string;
+    status: string;
+    is_terminal: boolean;
+    events: StreamEvent[];
+    event_count: number;
+  }
+
+2. Add a ref to track the resolved stream run_id. Near the other refs at the top of the component (near fetchedIntentNarrativeRef), add:
+  const streamRunIdRef = useRef<string | null>(null);
+
+3. In fetchAndProcess, after the stream data is parsed, capture the run_id. Find the line:
+      const newMilestones = deriveMilestones(data.events);
+
+Add BEFORE it:
+      // Capture the canonical run_id from the stream response
+      if (data.run_id && !streamRunIdRef.current) {
+        streamRunIdRef.current = data.run_id;
+      }
+
+4. In the self-fetch artefact block, try MULTIPLE lookups. Replace the entire self-fetch block (from "// Self-fetch intent narrative" comment to its closing catch) with:
+
+      // Self-fetch intent narrative from artefacts (keep trying every poll until found)
+      if (!fetchedIntentNarrativeRef.current) {
+        // Build a list of fetch attempts — try different ID combinations
+        const fetchAttempts: string[] = [];
+        
+        // Attempt 1: Use client_request_id only (forces endpoint to resolve and try supervisor fallback)
+        if (clientRequestId) {
+          fetchAttempts.push(`client_request_id=${clientRequestId}`);
+        }
+        // Attempt 2: If we have the stream's run_id and it differs from prop runId, try it directly
+        if (streamRunIdRef.current && streamRunIdRef.current !== runId) {
+          fetchAttempts.push(`runId=${streamRunIdRef.current}`);
+        }
+        // Attempt 3: Use prop runId directly
+        if (runId) {
+          fetchAttempts.push(`runId=${runId}`);
+        }
+        
+        for (const paramStr of fetchAttempts) {
+          if (fetchedIntentNarrativeRef.current) break;  // Found it in a previous attempt
+          try {
+            const artUrl = addDevAuthParams(buildApiUrl(`/api/afr/artefacts?${paramStr}`));
+            const artRes = await fetch(artUrl, { credentials: 'include', cache: 'no-store' });
+            if (!artRes.ok) continue;
+            const artRows = await artRes.json();
+            if (!Array.isArray(artRows) || artRows.length === 0) continue;
+            
+            const artTypes = artRows.map((r: any) => r.type);
+            console.log('[TICKER_INTENT] via', paramStr.slice(0, 30), '— types:', artTypes.join(', '));
+            
+            const inRow = artRows.find((r: any) => {
+              const t = (r.type || '').toLowerCase();
+              return t === 'intent_narrative' || t === 'intent_narrative_payload' || t === 'shadow_intent';
+            });
+            
+            if (inRow) {
+              let payload = inRow.payload_json;
+              if (typeof payload === 'string') {
+                try { payload = JSON.parse(payload); } catch { payload = null; }
+              }
+              if (payload && typeof payload === 'object') {
+                const entityDesc = payload.entity_description || payload.entityDescription ||
+                  payload.intent?.entity_description || payload.narrative?.entity_description;
+                
+                if (entityDesc) {
+                  const finalPayload = { ...payload, entity_description: entityDesc } as IntentNarrativePayload;
+                  fetchedIntentNarrativeRef.current = finalPayload;
+                  setFetchedIntentNarrative(finalPayload);
+                  console.log('[TICKER_INTENT] SUCCESS via', paramStr.slice(0, 30), '—', entityDesc.slice(0, 60));
+                  break;
+                }
+              }
+            }
+          } catch {}
+        }
+      }
+
+5. Reset streamRunIdRef when runId/clientRequestId changes. In the useEffect that has deps [isActive, runId, clientRequestId], find:
+    fetchedIntentNarrativeRef.current = null;
+    setFetchedIntentNarrative(null);
+
+Add after those two lines:
+    streamRunIdRef.current = null;
+
+The key insight: by trying client_request_id FIRST (without runId), we force the endpoint to go through its full resolution path including the supervisor_run_id fallback. This is more likely to find the intent_narrative than passing runId directly, which locks the query to one specific run_id.
+
+Do NOT change any rendering code or milestone/ephemeral logic.

@@ -61,6 +61,7 @@ interface StreamEvent {
 
 interface StreamResponse {
   client_request_id: string | null;
+  run_id?: string | null;
   title: string;
   status: string;
   is_terminal: boolean;
@@ -481,6 +482,7 @@ export function LiveActivityTicker({ runId, clientRequestId, isActive, intentNar
   const [liveEvent, setLiveEvent] = useState<LiveEvent | null>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const fetchedIntentNarrativeRef = useRef<IntentNarrativePayload | null>(null);
+  const streamRunIdRef = useRef<string | null>(null);
   const [fetchedIntentNarrative, setFetchedIntentNarrative] = useState<IntentNarrativePayload | null>(null);
 
   const fetchAndProcess = async () => {
@@ -496,6 +498,11 @@ export function LiveActivityTicker({ runId, clientRequestId, isActive, intentNar
       const data: StreamResponse = await res.json();
       if (!data || !Array.isArray(data.events)) return;
 
+      // Capture the canonical run_id from the stream response
+      if (data.run_id && !streamRunIdRef.current) {
+        streamRunIdRef.current = data.run_id;
+      }
+
       const newMilestones = deriveMilestones(data.events);
       setMilestones(newMilestones);
 
@@ -504,62 +511,58 @@ export function LiveActivityTicker({ runId, clientRequestId, isActive, intentNar
 
       // Self-fetch intent narrative from artefacts (keep trying every poll until found)
       if (!fetchedIntentNarrativeRef.current) {
-        try {
-          const artParams = new URLSearchParams();
-          if (clientRequestId) artParams.set('client_request_id', clientRequestId);
-          if (runId) artParams.set('runId', runId);
-          const artUrl = addDevAuthParams(buildApiUrl(`/api/afr/artefacts?${artParams.toString()}`));
-          const artRes = await fetch(artUrl, { credentials: 'include', cache: 'no-store' });
-          if (artRes.ok) {
+        // Build a list of fetch attempts — try different ID combinations
+        const fetchAttempts: string[] = [];
+        
+        // Attempt 1: Use client_request_id only (forces endpoint to resolve and try supervisor fallback)
+        if (clientRequestId) {
+          fetchAttempts.push(`client_request_id=${clientRequestId}`);
+        }
+        // Attempt 2: If we have the stream's run_id and it differs from prop runId, try it directly
+        if (streamRunIdRef.current && streamRunIdRef.current !== runId) {
+          fetchAttempts.push(`runId=${streamRunIdRef.current}`);
+        }
+        // Attempt 3: Use prop runId directly
+        if (runId) {
+          fetchAttempts.push(`runId=${runId}`);
+        }
+        
+        for (const paramStr of fetchAttempts) {
+          if (fetchedIntentNarrativeRef.current) break;  // Found it in a previous attempt
+          try {
+            const artUrl = addDevAuthParams(buildApiUrl(`/api/afr/artefacts?${paramStr}`));
+            const artRes = await fetch(artUrl, { credentials: 'include', cache: 'no-store' });
+            if (!artRes.ok) continue;
             const artRows = await artRes.json();
-            if (Array.isArray(artRows) && artRows.length > 0) {
-              const artTypes = artRows.map((r: any) => r.type);
-              console.log('[TICKER_INTENT] artefact types found:', artTypes.join(', '), 'runId:', runId, 'crid:', clientRequestId?.slice(0, 12));
-              
-              // Search for intent_narrative with flexible matching
-              const inRow = artRows.find((r: any) => {
-                const t = (r.type || '').toLowerCase();
-                return t === 'intent_narrative' || t === 'intent_narrative_payload' || t === 'shadow_intent';
-              });
-              
-              if (inRow) {
-                console.log('[TICKER_INTENT] Found artefact type:', inRow.type, 'payload type:', typeof inRow.payload_json);
-                let payload = inRow.payload_json;
-                if (typeof payload === 'string') {
-                  try { payload = JSON.parse(payload); } catch { payload = null; }
+            if (!Array.isArray(artRows) || artRows.length === 0) continue;
+            
+            const artTypes = artRows.map((r: any) => r.type);
+            console.log('[TICKER_INTENT] via', paramStr.slice(0, 30), '— types:', artTypes.join(', '));
+            
+            const inRow = artRows.find((r: any) => {
+              const t = (r.type || '').toLowerCase();
+              return t === 'intent_narrative' || t === 'intent_narrative_payload' || t === 'shadow_intent';
+            });
+            
+            if (inRow) {
+              let payload = inRow.payload_json;
+              if (typeof payload === 'string') {
+                try { payload = JSON.parse(payload); } catch { payload = null; }
+              }
+              if (payload && typeof payload === 'object') {
+                const entityDesc = payload.entity_description || payload.entityDescription ||
+                  payload.intent?.entity_description || payload.narrative?.entity_description;
+                
+                if (entityDesc) {
+                  const finalPayload = { ...payload, entity_description: entityDesc } as IntentNarrativePayload;
+                  fetchedIntentNarrativeRef.current = finalPayload;
+                  setFetchedIntentNarrative(finalPayload);
+                  console.log('[TICKER_INTENT] SUCCESS via', paramStr.slice(0, 30), '—', entityDesc.slice(0, 60));
+                  break;
                 }
-                if (payload && typeof payload === 'object') {
-                  // Check both direct entity_description and nested structures
-                  const entityDesc = payload.entity_description || payload.entityDescription || 
-                    payload.intent?.entity_description || payload.narrative?.entity_description ||
-                    (payload.outputs && typeof payload.outputs === 'object' ? payload.outputs.entity_description : null);
-                  
-                  if (entityDesc) {
-                    const finalPayload = { ...payload, entity_description: entityDesc } as IntentNarrativePayload;
-                    fetchedIntentNarrativeRef.current = finalPayload;
-                    setFetchedIntentNarrative(finalPayload);
-                    console.log('[TICKER_INTENT] SUCCESS — entity_description:', entityDesc.slice(0, 80));
-                  } else {
-                    console.log('[TICKER_INTENT] Artefact found but no entity_description. Top keys:', Object.keys(payload).join(', '));
-                    // Try using the whole payload if it has a string description-like field
-                    const possibleDesc = payload.description || payload.summary || payload.text;
-                    if (possibleDesc && typeof possibleDesc === 'string') {
-                      const fallbackPayload = { entity_description: possibleDesc } as IntentNarrativePayload;
-                      fetchedIntentNarrativeRef.current = fallbackPayload;
-                      setFetchedIntentNarrative(fallbackPayload);
-                      console.log('[TICKER_INTENT] FALLBACK — using field as entity_description:', possibleDesc.slice(0, 80));
-                    }
-                  }
-                }
-              } else {
-                // Not found yet - will retry on next poll
               }
             }
-          } else {
-            console.log('[TICKER_INTENT] artefact fetch failed:', artRes.status, 'runId:', runId, 'crid:', clientRequestId?.slice(0, 12));
-          }
-        } catch (err) {
-          console.warn('[TICKER_INTENT] fetch error:', err);
+          } catch {}
         }
       }
     } catch {}
@@ -568,6 +571,7 @@ export function LiveActivityTicker({ runId, clientRequestId, isActive, intentNar
   useEffect(() => {
     fetchedIntentNarrativeRef.current = null;
     setFetchedIntentNarrative(null);
+    streamRunIdRef.current = null;
 
     if (intervalRef.current) {
       clearInterval(intervalRef.current);
