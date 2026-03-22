@@ -1,0 +1,174 @@
+Read client/src/components/results/LiveActivityTicker.tsx. Make ONE change only — replace the deriveEphemeral function.
+PROBLEM: The ephemeral line shows pub names sometimes ("Visiting The Red Lion...") but then falls back to generic "Visiting website..." for long periods. This happens because:
+
+Some events have pub names in quotes (Evidence events), others only have URLs (WEB_VISIT events)
+The function picks only the single latest event, which often lacks a name
+When it can't extract a name, it shows generic text that makes the system look slow
+
+SOLUTION: Build a URL→name mapping from ALL events first, then use it to enrich every ephemeral event with a pub name even when the event itself only has a URL.
+Replace the entire deriveEphemeral function with:
+typescriptfunction deriveEphemeral(events: StreamEvent[]): LiveEvent | null {
+  // ── Step 1: Build a URL-domain → pub-name map from ALL events ──
+  // Evidence events contain: "Norfolk Tap" + "norfolktap.com" 
+  // WEB_VISIT events contain: "https://norfolktap.com/"
+  // By mapping domains to names, we can show "Visiting Norfolk Tap..." even for URL-only events
+  const domainToName = new Map<string, string>();
+  
+  for (const event of events) {
+    const task = event.details?.task || '';
+    const summary = event.summary || '';
+    const combined = task + ' ' + summary;
+    
+    // Extract quoted name and URL from the same event
+    const nameMatch = combined.match(/"([^"]{2,40})"/);
+    const urlMatch = combined.match(/https?:\/\/(?:www\.)?([^/\s&"]+)/);
+    
+    if (nameMatch && urlMatch) {
+      const domain = urlMatch[1].toLowerCase();
+      domainToName.set(domain, nameMatch[1]);
+    }
+    
+    // Also extract from patterns like "WEB_VISIT: https://domain/ (N pages)" + nearby evidence with name
+    // And "Evidence: "Name" — ..." patterns
+    if (nameMatch && !urlMatch) {
+      // Store name keyed by event id so we can look it up for nearby events
+      domainToName.set(`name:${event.id}`, nameMatch[1]);
+    }
+  }
+
+  // ── Step 2: Helper to get a human name for any event ──
+  const getDisplayName = (event: StreamEvent): string | null => {
+    const task = event.details?.task || '';
+    const summary = event.summary || '';
+    const combined = task + ' ' + summary;
+    
+    // Direct quoted name in this event
+    const nameMatch = combined.match(/"([^"]{2,40})"/);
+    if (nameMatch) return nameMatch[1];
+    
+    // URL in this event → look up in our domain map
+    const urlMatch = combined.match(/https?:\/\/(?:www\.)?([^/\s&"]+)/);
+    if (urlMatch) {
+      const domain = urlMatch[1].toLowerCase();
+      const mapped = domainToName.get(domain);
+      if (mapped) return mapped;
+      // Fallback: clean the domain into a readable name
+      // "norfolktap.com" → "norfolktap", "www.redlionarundel.com" → "redlionarundel"
+      const cleanDomain = domain.replace(/\.co\.uk$|\.com$|\.org\.uk$|\.org$|\.uk$|\.net$/, '');
+      if (cleanDomain.length > 2 && cleanDomain.length < 30) return cleanDomain;
+    }
+    
+    return null;
+  };
+
+  // ── Step 3: Find the best recent ephemeral event ──
+  const JUNK_PATTERNS = [
+    /PROBE:/i, /ROUTER:/i, /ARTEFACT POST/i, /ARTEFACT.*SUCCEEDED/i,
+    /ARTEFACTID=/i, /SUPERVISOR_PLAN/i, /INTENT_EXTRACTOR/i,
+    /MISSION.*RECEIVED/i, /SEARCH QUERY PLAN/i, /SHADOW INTENT/i,
+    /IMPLICIT CONSTRAINT/i, /CONSTRAINT.*CHECKLIST/i, /CAPABILITY CHECK/i,
+    /PLAN V\d/i, /VERIFICATION POLICY/i, /INTENT NARRATIVE/i,
+    /COMPLETENESS CHECK/i, /MISSION COMPLETENESS/i, /HANDOFF/i,
+    /PASS 1 CONSTRAINT/i, /CONSTRAINT EXPANSION/i,
+  ];
+
+  let latest: LiveEvent | null = null;
+  let latestTs = 0;
+
+  for (const event of events) {
+    const ts = new Date(event.ts).getTime();
+    if (ts <= latestTs) continue;
+
+    const summary = event.summary || '';
+    const summaryUp = summary.toUpperCase();
+    const task = event.details?.task || '';
+    const combined = summaryUp + ' ' + (task || '').toUpperCase();
+
+    // Skip milestone-level events
+    if (
+      summaryUp.includes('RUN COMPLETED') || summaryUp.includes('TOWER VERDICT') ||
+      summaryUp.includes('EXECUTION COMPLETED') || summaryUp.includes('[TOWER]') ||
+      summaryUp.includes('MISSION-DRIVEN EXECUTION COMPLETE')
+    ) continue;
+
+    // Skip junk
+    if (JUNK_PATTERNS.some(p => p.test(combined))) continue;
+
+    const name = getDisplayName(event);
+    let icon = '⚙️';
+    let text = '';
+
+    // ── WEB VISIT events (executing or completed) ──
+    if (summaryUp.includes('WEB VISIT') || summaryUp.includes('WEB_VISIT') || summaryUp.includes('VISITING')) {
+      icon = '🌐';
+      text = name ? `Visiting ${name}...` : 'Visiting website...';
+    }
+    // ── Evidence events ──
+    else if (summaryUp.includes('EVIDENCE') && !summaryUp.includes('VERIFICATION')) {
+      icon = '📄';
+      text = name ? `Checking ${name} for live music...` : 'Checking evidence...';
+    }
+    // ── Tower semantic verify ──
+    else if (summaryUp.includes('TOWER SEMANTIC') || summaryUp.includes('SEMANTIC VERIFY')) {
+      icon = '⚖️';
+      text = name ? `Verifying ${name}...` : 'Verifying...';
+    }
+    // ── Exclusion filter ──
+    else if (summaryUp.includes('EXCLUSION FILTER')) {
+      icon = '🔍';
+      const countMatch = (task || summary).match(/(\d+)\s*kept/i);
+      text = countMatch ? `Filtered to ${countMatch[1]} candidates` : 'Filtering candidates...';
+    }
+    // ── Executing Tool events ──
+    else if (summaryUp.includes('EXECUTING TOOL') || summaryUp.includes('EXECUTING:')) {
+      // Extract tool type and humanise
+      if (/WEB.?VISIT/i.test(combined)) {
+        icon = '🌐';
+        text = name ? `Visiting ${name}...` : 'Visiting website...';
+      } else if (/EVIDENCE/i.test(combined)) {
+        icon = '📄';
+        text = name ? `Checking ${name}...` : 'Checking evidence...';
+      } else {
+        continue; // Skip generic tool executions
+      }
+    }
+    // ── Artefact created events — only show if they have a useful name ──
+    else if (summaryUp.includes('ARTEFACT')) {
+      if (name && (summaryUp.includes('EVIDENCE') || summaryUp.includes('WEB VISIT'))) {
+        icon = '📄';
+        text = `Found evidence for ${name}`;
+      } else {
+        continue; // Skip generic artefact events
+      }
+    }
+    // ── Search places (skip — it's a milestone) ──
+    else if (summaryUp.includes('SEARCH_PLACES') || summaryUp.includes('SEARCH PLACES')) {
+      continue;
+    }
+    // ── Anything else with a name is worth showing ──
+    else if (name) {
+      text = `Processing ${name}...`;
+    }
+    // ── Skip nameless generic events entirely ──
+    else {
+      continue;
+    }
+
+    if (!text) continue;
+
+    latestTs = ts;
+    latest = { icon, text, timestamp: ts };
+  }
+
+  return latest;
+}
+Key changes from the old version:
+
+Builds a domainToName map at the start by scanning ALL events — so when a WEB_VISIT event has only a URL, we can still show the pub name if any previous evidence event linked that URL to a name
+Falls back to cleaned domain name ("norfolktap") rather than generic "Visiting website..."
+Artefact events only show if they have a name AND are evidence/web-visit related
+Generic nameless events are skipped entirely — the ephemeral line will hold its previous value until a named event arrives, which is much better than flashing "Processing..."
+Evidence events now say "Checking {name} for live music..." which is more specific
+
+Do not change anything else in the file — milestones, rendering, ThinkingBrains, polling are all correct.
+Work on the main branch only — do not create or switch branches. After completing this task, append a structured summary to AGENT_LOG.md (what changed, files modified, decisions made, what's next).
