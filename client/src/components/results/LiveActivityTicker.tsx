@@ -76,148 +76,188 @@ function extractCount(text: string | null | undefined): number | null {
 
 function deriveMilestones(events: StreamEvent[]): Milestone[] {
   const milestones: Milestone[] = [];
+  if (events.length === 0) return milestones;
 
-  // Milestone 1: Google Places search — consolidate ALL search_places events into one
-  const gpEvents = events.filter(e => {
+  const sorted = [...events].sort((a, b) => new Date(a.ts).getTime() - new Date(b.ts).getTime());
+
+  let lastMilestoneTs = 0;
+
+  const findFirstAfter = (
+    filter: (e: StreamEvent) => boolean,
+    afterTs: number
+  ): StreamEvent | null => {
+    return sorted.find(e => new Date(e.ts).getTime() > afterTs && filter(e)) || null;
+  };
+
+  const findLast = (filter: (e: StreamEvent) => boolean): StreamEvent | null => {
+    const matches = sorted.filter(filter);
+    return matches.length > 0 ? matches[matches.length - 1] : null;
+  };
+
+  const countUniqueCompleted = (
+    filter: (e: StreamEvent) => boolean
+  ): number => {
+    const matches = sorted.filter(filter);
+    const seen = new Set<string>();
+    for (const e of matches) {
+      const task = e.details?.task || e.summary || '';
+      const urlMatch = task.match(/https?:\/\/(?:www\.)?([^/\s&]+)/);
+      seen.add(urlMatch ? urlMatch[1] : e.id);
+    }
+    return seen.size;
+  };
+
+  // ── Milestone 1: Google Places search ──
+  const gpFilter = (e: StreamEvent) => {
     const s = (e.summary || '').toUpperCase();
     const t = (e.details?.task || '').toUpperCase();
-    return (
-      s.includes('SEARCH_PLACES') || s.includes('SEARCH PLACES') ||
-      t.includes('SEARCH_PLACES') || t.includes('SEARCH PLACES')
-    );
+    return (s.includes('SEARCH_PLACES') || s.includes('SEARCH PLACES') ||
+            t.includes('SEARCH_PLACES') || t.includes('SEARCH PLACES')) &&
+           (s.includes('COMPLETED') || s.includes('FOUND') || e.status === 'completed');
+  };
+  const gpEvent = findLast(gpFilter) || sorted.find(e => {
+    const s = (e.summary || '').toUpperCase();
+    const t = (e.details?.task || '').toUpperCase();
+    return s.includes('SEARCH_PLACES') || t.includes('SEARCH_PLACES');
   });
-  if (gpEvents.length > 0) {
+  if (gpEvent) {
     let maxCount = 0;
-    for (const e of gpEvents) {
-      const count = extractCount(e.details?.task) ?? extractCount(e.summary) ?? 0;
-      if (count > maxCount) maxCount = count;
+    for (const e of sorted) {
+      const s = (e.summary || '').toUpperCase();
+      const t = (e.details?.task || '').toUpperCase();
+      if (s.includes('SEARCH_PLACES') || t.includes('SEARCH_PLACES')) {
+        const count = extractCount(e.details?.task) ?? extractCount(e.summary) ?? 0;
+        if (count > maxCount) maxCount = count;
+      }
     }
-    const text = maxCount > 0
-      ? `Google Places — found ${maxCount} candidates`
-      : 'Google Places search';
-    milestones.push({ key: 'gp_search', icon: '🔍', text, timestamp: new Date(gpEvents[0].ts).getTime() });
+    const ts = new Date(gpEvent.ts).getTime();
+    milestones.push({
+      key: 'gp_search',
+      icon: '🔍',
+      text: maxCount > 0 ? `Google Places — found ${maxCount} candidates` : 'Searching Google Places...',
+      timestamp: ts,
+    });
+    lastMilestoneTs = ts;
   }
 
-  // Milestone 2: Website evidence checking (when web visits begin)
-  const webVisitEvents = events.filter(e => {
+  // ── Milestone 1.5: Reloop (only if system re-looped with a different executor) ──
+  const reloopFilter = (e: StreamEvent) => {
     const s = (e.summary || '').toUpperCase();
-    return s.includes('WEB VISIT') || s.includes('WEB_VISIT') || s.includes('VISITING');
-  });
-  const evidenceEvents = events.filter(e => {
-    const s = (e.summary || '').toUpperCase();
-    const t = (e.type || '').toLowerCase();
-    return s.includes('EVIDENCE') || t.includes('evidence');
-  });
-  // Count only unique completed web visit events — one per domain/entity
-  const completedWebVisits = events.filter(e => {
+    return (s.includes('RELOOP') || s.includes('RE-LOOP') || s.includes('RE_LOOP')) &&
+           !s.includes('STOP_DELIVER') && !s.includes('COMPLETE') && !s.includes('→ PASS');
+  };
+  const reloopEvent = findFirstAfter(reloopFilter, lastMilestoneTs);
+  if (reloopEvent) {
+    const task = reloopEvent.details?.task || reloopEvent.summary || '';
+    let nextApproach = 'trying a different approach';
+    if (/gpt4o|web.?search/i.test(task)) nextApproach = 'switching to web search';
+    else if (/gp_cascade|google|places/i.test(task) && milestones.some(m => m.key === 'gp_search')) nextApproach = 'switching to web search';
+
+    const ts = new Date(reloopEvent.ts).getTime();
+    milestones.push({
+      key: 'reloop',
+      icon: '🔄',
+      text: `Not enough coverage — ${nextApproach}`,
+      timestamp: ts,
+    });
+    lastMilestoneTs = ts;
+  }
+
+  // ── Milestone 2: Checking websites (only show AFTER GP search completes) ──
+  const webVisitCompletedFilter = (e: StreamEvent) => {
     const s = (e.summary || '').toUpperCase();
     return s.startsWith('TOOL COMPLETED') && s.includes('WEB VISIT');
-  });
-  const seenDomains = new Set<string>();
-  for (const e of completedWebVisits) {
-    const task = e.details?.task || e.summary || '';
-    const urlMatch = task.match(/https?:\/\/(?:www\.)?([^/\s&]+)/);
-    if (urlMatch) seenDomains.add(urlMatch[1]);
-    else seenDomains.add(e.id);
-  }
-  const webVisitCount = seenDomains.size || completedWebVisits.length;
-  if (webVisitCount > 0 || evidenceEvents.length > 0) {
-    const text = webVisitCount > 0
-      ? `Checking ${webVisitCount} pub websites for live music mentions`
-      : 'Checking websites for evidence...';
-    const firstTs = webVisitEvents[0]?.ts || evidenceEvents[0]?.ts;
-    milestones.push({ key: 'web_evidence', icon: '🌐', text, timestamp: new Date(firstTs).getTime() });
+  };
+  const firstWebVisit = findFirstAfter(webVisitCompletedFilter, lastMilestoneTs);
+  if (firstWebVisit) {
+    const completedCount = countUniqueCompleted(webVisitCompletedFilter);
+    const gpMilestone = milestones.find(m => m.key === 'gp_search');
+    const totalExpected = gpMilestone ? (extractCount(gpMilestone.text) ?? 0) : 0;
+
+    const ts = new Date(firstWebVisit.ts).getTime();
+    let text: string;
+    if (completedCount > 0 && totalExpected > 0) {
+      text = `Checking websites... ${completedCount} of ${totalExpected} visited`;
+    } else if (completedCount > 0) {
+      text = `Checking websites... ${completedCount} visited`;
+    } else {
+      text = 'Checking websites for evidence...';
+    }
+    milestones.push({
+      key: 'web_evidence',
+      icon: '🌐',
+      text,
+      timestamp: ts,
+    });
+    lastMilestoneTs = ts;
   }
 
-  // Milestone 3: Evidence verification complete
-  const verifyEvents = events.filter(e => {
+  // ── Milestone 3: Evidence verification complete (only AFTER web visits) ──
+  const verifyFilter = (e: StreamEvent) => {
     const s = (e.summary || '').toUpperCase();
     const t = (e.details?.task || '').toUpperCase();
-    return (
-      s.includes('EVIDENCE VERIF') || s.includes('VERIFICATION') || t.includes('VERIF') ||
-      s.includes('CHECKS PASSED') || t.includes('CHECKS PASSED')
-    );
-  });
-  if (verifyEvents.length > 0) {
-    const last = verifyEvents[verifyEvents.length - 1];
-    const task = last.details?.task || last.summary || '';
+    return s.includes('EVIDENCE VERIF') || t.includes('EVIDENCE VERIF') ||
+           s.includes('CHECKS PASSED') || t.includes('CHECKS PASSED') ||
+           (s.includes('VERIFICATION') && (e.status === 'completed' || s.includes('COMPLETE')));
+  };
+  const verifyEvent = findFirstAfter(verifyFilter, lastMilestoneTs);
+  if (verifyEvent) {
+    const task = verifyEvent.details?.task || verifyEvent.summary || '';
     const match = task.match(/(\d+)\/(\d+)/);
     const text = match
       ? `Evidence verified: ${match[1]}/${match[2]} checks passed`
       : 'Evidence verification complete';
-    milestones.push({ key: 'evidence_done', icon: '📋', text, timestamp: new Date(last.ts).getTime() });
+    const ts = new Date(verifyEvent.ts).getTime();
+    milestones.push({
+      key: 'evidence_done',
+      icon: '📋',
+      text,
+      timestamp: ts,
+    });
+    lastMilestoneTs = ts;
   }
 
-  // Milestone 4: Tower quality check
-  const towerEvents = events.filter(e => {
+  // ── Milestone 4: Tower quality check (only AFTER evidence verification) ──
+  const towerFilter = (e: StreamEvent) => {
     const s = (e.summary || '').toUpperCase();
-    const t = (e.details?.task || '').toUpperCase();
     const a = (e.details?.action || '').toLowerCase();
-    return (
-      s.includes('TOWER VERDICT') || s.includes('TOWER JUDGEMENT') ||
-      a.includes('tower_judgement') || s.includes('[TOWER]') ||
-      t.includes('TOWER VERDICT') || s.includes('QUALITY CHECK')
-    );
-  });
-  if (towerEvents.length > 0) {
-    const last = towerEvents[towerEvents.length - 1];
-    const task = last.details?.task || last.summary || '';
+    return (s.includes('[TOWER]') || s.includes('TOWER VERDICT') || s.includes('TOWER FINAL') ||
+            a === 'tower_judgement' || a === 'tower_evaluation_completed') &&
+           !s.includes('REQUESTING') && !s.includes('SEMANTIC');
+  };
+  const towerEvent = findFirstAfter(towerFilter, lastMilestoneTs);
+  if (towerEvent) {
+    const task = towerEvent.details?.task || towerEvent.summary || '';
     const verdictMatch = task.match(/(pass|fail|stop|accept|reject)/i);
     const verdict = verdictMatch ? verdictMatch[1].toUpperCase() : '';
-    const text = verdict ? `Quality check: ${verdict}` : 'Quality check complete';
-    milestones.push({ key: 'tower_verdict', icon: '⚖️', text, timestamp: new Date(last.ts).getTime() });
+    const ts = new Date(towerEvent.ts).getTime();
+    milestones.push({
+      key: 'tower_verdict',
+      icon: '⚖️',
+      text: verdict ? `Quality check: ${verdict}` : 'Quality check complete',
+      timestamp: ts,
+    });
+    lastMilestoneTs = ts;
   }
 
-  // Milestone 5: Run complete
-  const completeEvents = events.filter(e => {
+  // ── Milestone 5: Run complete (only AFTER tower) ──
+  const completeFilter = (e: StreamEvent) => {
     const s = (e.summary || '').toUpperCase();
     const t = (e.details?.task || '').toUpperCase();
-    return (
-      s.includes('RUN COMPLETED') || s.includes('EXECUTION COMPLETED') ||
-      t.includes('RUN COMPLETED') || s.includes('MISSION-DRIVEN EXECUTION COMPLETE')
-    );
-  });
-  if (completeEvents.length > 0) {
-    const last = completeEvents[completeEvents.length - 1];
-    const task = last.details?.task || last.summary || '';
+    return s.includes('RUN COMPLETED') || s.includes('EXECUTION COMPLETED') ||
+           t.includes('RUN COMPLETED') || s.includes('MISSION-DRIVEN EXECUTION COMPLETE');
+  };
+  const completeEvent = findFirstAfter(completeFilter, lastMilestoneTs);
+  if (completeEvent) {
+    const task = completeEvent.details?.task || completeEvent.summary || '';
     const countMatch = task.match(/(\d+)\s*leads/i);
-    const text = countMatch
-      ? `${countMatch[1]} verified results delivered`
-      : 'Run complete';
-    milestones.push({ key: 'run_complete', icon: '✅', text, timestamp: new Date(last.ts).getTime() });
-  }
-
-  // Milestone: Reloop (insert after gp_search if present)
-  const reloopEvents = events.filter(e => {
-    const s = (e.summary || '').toUpperCase();
-    return s.includes('RELOOP') || s.includes('RE-LOOP') || s.includes('RE_LOOP');
-  });
-  if (reloopEvents.length > 0) {
-    const reloopEvent = reloopEvents.find(e => {
-      const s = (e.summary || '').toUpperCase();
-      return !s.includes('STOP_DELIVER') && !s.includes('COMPLETE') && !s.includes('→ PASS');
+    const text = countMatch ? `${countMatch[1]} verified results delivered` : 'Run complete';
+    milestones.push({
+      key: 'run_complete',
+      icon: '✅',
+      text,
+      timestamp: new Date(completeEvent.ts).getTime(),
     });
-    if (reloopEvent) {
-      const task = reloopEvent.details?.task || reloopEvent.summary || '';
-      let nextApproach = '';
-      if (/gpt4o|gpt-4o|web.?search/i.test(task)) {
-        nextApproach = 'switching to web search';
-      } else if (/gp_cascade|google|places/i.test(task) && milestones.some(m => m.key === 'gp_search')) {
-        nextApproach = 'switching to web search';
-      } else if (/gp_cascade|google|places/i.test(task)) {
-        nextApproach = 'trying Google Places';
-      } else {
-        nextApproach = 'trying a different approach';
-      }
-      const gpIdx = milestones.findIndex(m => m.key === 'gp_search');
-      const insertAt = gpIdx >= 0 ? gpIdx + 1 : 1;
-      milestones.splice(insertAt, 0, {
-        key: 'reloop',
-        icon: '🔄',
-        text: `Not enough coverage — ${nextApproach}`,
-        timestamp: new Date(reloopEvent.ts).getTime(),
-      });
-    }
   }
 
   return milestones;
@@ -226,6 +266,15 @@ function deriveMilestones(events: StreamEvent[]): Milestone[] {
 function deriveEphemeral(events: StreamEvent[]): LiveEvent | null {
   let latest: LiveEvent | null = null;
   let latestTs = 0;
+
+  const JUNK_PATTERNS = [
+    /PROBE:/i, /ROUTER:/i, /ARTEFACT POST/i, /ARTEFACT.*SUCCEEDED/i,
+    /ARTEFACTID=/i, /SUPERVISOR_PLAN/i, /INTENT_EXTRACTOR/i,
+    /MISSION.*RECEIVED/i, /SEARCH QUERY PLAN/i, /SHADOW INTENT/i,
+    /IMPLICIT CONSTRAINT/i, /CONSTRAINT.*CHECKLIST/i, /CAPABILITY CHECK/i,
+    /PLAN V\d/i, /VERIFICATION POLICY/i, /INTENT NARRATIVE/i,
+    /^ARTEFACT CREATED:/i, /^ARTEFACT$/i, /COMPLETENESS CHECK/i,
+  ];
 
   for (const event of events) {
     const ts = new Date(event.ts).getTime();
@@ -237,36 +286,56 @@ function deriveEphemeral(events: StreamEvent[]): LiveEvent | null {
 
     // Skip milestone-level events
     if (
-      summaryUp.includes('SEARCH_PLACES') ||
-      summaryUp.includes('RUN COMPLETED') ||
-      summaryUp.includes('TOWER VERDICT') ||
-      summaryUp.includes('EXECUTION COMPLETED') ||
+      summaryUp.includes('RUN COMPLETED') || summaryUp.includes('TOWER VERDICT') ||
+      summaryUp.includes('EXECUTION COMPLETED') || summaryUp.includes('[TOWER]') ||
       summaryUp.includes('MISSION-DRIVEN EXECUTION COMPLETE')
     ) continue;
 
+    // Skip junk/technical events
+    const combined = summaryUp + ' ' + (task || '').toUpperCase();
+    if (JUNK_PATTERNS.some(p => p.test(combined))) continue;
+
+    // Also skip if summary is just "Artefact created: <something>"
+    if (/^ARTEFACT\s+(CREATED|CREATED:)/i.test(summary)) continue;
+
     let icon = '⚙️';
-    let text = summary.slice(0, 50) || 'Processing...';
+    let text = '';
 
     if (summaryUp.includes('WEB VISIT') || summaryUp.includes('VISITING')) {
       icon = '🌐';
-      const urlMatch = (task || summary).match(/https?:\/\/(?:www\.)?([^/\s]+)/);
-      text = urlMatch ? `Visiting ${urlMatch[1]}...` : 'Visiting website...';
-    } else if (summaryUp.includes('EVIDENCE')) {
+      const urlMatch = (task || summary).match(/https?:\/\/(?:www\.)?([^/\s&]+)/);
+      const nameMatch = (task || summary).match(/"([^"]+)"/);
+      if (nameMatch) {
+        text = `Visiting ${nameMatch[1]}...`;
+      } else if (urlMatch) {
+        text = `Visiting ${urlMatch[1]}...`;
+      } else {
+        text = 'Visiting website...';
+      }
+    } else if (summaryUp.includes('EVIDENCE') && !summaryUp.includes('VERIFICATION')) {
       icon = '📄';
       const nameMatch = (task || summary).match(/"([^"]+)"/);
       text = nameMatch ? `Checking ${nameMatch[1]}...` : 'Checking evidence...';
-    } else if (summaryUp.includes('TOWER SEMANTIC') || summaryUp.includes('VERIF')) {
+    } else if (summaryUp.includes('TOWER SEMANTIC') || (summaryUp.includes('VERIF') && !summaryUp.includes('VERIFICATION COMPLETE'))) {
       icon = '⚖️';
       const nameMatch = (task || summary).match(/"([^"]+)"/);
       text = nameMatch ? `Verifying ${nameMatch[1]}...` : 'Verifying...';
-    } else if (summaryUp.includes('EXECUTING') || summaryUp.includes('TOOL')) {
-      icon = '🔧';
-      const toolMatch = summary.match(/(?:Tool|Executing)[:\s]+(.+)/i);
-      text = toolMatch ? `${toolMatch[1].slice(0, 40)}...` : 'Executing...';
-    } else if (summaryUp.includes('ARTEFACT')) {
-      icon = '📦';
-      text = task ? task.slice(0, 50) : summary.slice(0, 50);
+    } else if (summaryUp.includes('EXCLUSION FILTER')) {
+      icon = '🔍';
+      const countMatch = (task || summary).match(/(\d+)\s*kept/i);
+      text = countMatch ? `Filtered to ${countMatch[1]} candidates` : 'Filtering candidates...';
+    } else if (summaryUp.includes('SEARCH_PLACES') || summaryUp.includes('SEARCH PLACES')) {
+      continue;
+    } else {
+      const cleanText = (task || summary).replace(/^(Tool Completed|Executing Tool|Artefact created|Artefact Created):\s*/i, '').trim();
+      if (cleanText.length > 3 && cleanText.length < 60 && !/^[a-f0-9-]{20,}$/.test(cleanText)) {
+        text = cleanText.slice(0, 50) + (cleanText.length > 50 ? '...' : '');
+      } else {
+        continue;
+      }
     }
+
+    if (!text) continue;
 
     latestTs = ts;
     latest = { icon, text, timestamp: ts };
@@ -370,6 +439,17 @@ export function LiveActivityTicker({ runId, clientRequestId, isActive, intentNar
           <span className="absolute left-[-1px] top-1.5 h-2.5 w-2.5 rounded-full border-2 border-primary/40 bg-card z-10" />
           <div className="pl-5">
             <ThinkingBrains />
+          </div>
+        </div>
+      )}
+
+      {/* Intent confirmation — what the system understood */}
+      {intentNarrativePayload?.entity_description && (
+        <div className="relative pb-5">
+          <span className="absolute left-[-1px] top-1.5 h-2.5 w-2.5 rounded-full border-2 border-primary/40 bg-primary/40 z-10" />
+          <div className="pl-5 text-xs text-foreground/70">
+            <span>🧠</span>{' '}
+            <span className="italic">{intentNarrativePayload.entity_description}</span>
           </div>
         </div>
       )}

@@ -372,3 +372,33 @@ Follow-up fixes to make the LiveActivityTicker actually visible in the chat, and
 ### What's Next
 - QA a fresh run to verify: (a) thinking brains appear immediately when a run starts, (b) event summaries/tasks classify correctly into pinned vs ephemeral, and (c) the border container is visible throughout.
 - Monitor whether `Tool Completed: SEARCH_PLACES` events carry a result count in `details.task` (e.g. "16 Leads Found") — if so the pinned Google Places count will populate correctly.
+
+---
+
+## Session: LiveActivityTicker UX Audit Fixes — 2026-03-22
+
+### What Changed
+1. **`deriveMilestones` replaced** — New implementation gates every milestone by timestamp order. Each milestone is only added if its triggering event has a timestamp strictly after the previous milestone's timestamp (`lastMilestoneTs`). This prevents milestones 1–3 from appearing simultaneously when the stream endpoint returns historical events all at once.
+   - Milestone 1 (GP search) anchors `lastMilestoneTs`.
+   - Milestone 1.5 (Reloop) uses `findFirstAfter` against `lastMilestoneTs`.
+   - Milestone 2 (Checking websites) uses `findFirstAfter` — cannot appear before GP search.
+   - Milestone 2 text now shows a live counter: "Checking websites... N of M visited".
+   - Milestone 3 (Evidence verification) uses `findFirstAfter` — cannot appear before web visits.
+   - Milestones 4 (Tower) and 5 (Run complete) chain the same way.
+
+2. **`deriveEphemeral` replaced** — Added `JUNK_PATTERNS` array (17 regex patterns) that filters out: Probe/Router/Artefact POST events, artefactId UUIDs, supervisor_plan, intent_extractor, and other technical internals. Generic fallback now checks text length and excludes UUID-like strings. If no user-friendly text can be derived, the event is skipped entirely rather than showing garbage.
+
+3. **Intent narrative JSX added** — A new block between the ThinkingBrains element and the milestones map renders `intentNarrativePayload.entity_description` (when present) with a brain emoji and italic styling, giving users a visible confirmation of what the system understood.
+
+### Files Modified
+- `client/src/components/results/LiveActivityTicker.tsx` (only file changed, as required)
+
+### Decisions Made
+- Used `findFirstAfter` (not `findLast`) for milestone 2+ to enforce strict ordering — a later duplicate event cannot pull a milestone backwards.
+- Kept `findLast` fallback for milestone 1 (GP search) since it's the anchor and we want the most complete count.
+- Skipped `SEARCH_PLACES` events in ephemeral (they are milestone-level) to avoid double-display.
+- Generic ephemeral fallback only passes text that is 4–59 chars and not a UUID, then truncates at 50 chars — safe minimum to avoid leaking internal identifiers.
+
+### What's Next
+- QA a live run to confirm: (a) milestones appear one-by-one in order, (b) website counter increments on each poll, (c) no jargon appears in the ephemeral line, (d) intent narrative shows at the top when payload is present.
+- Consider adding a `findFirstAfter`-guarded filter for milestone 1 itself if early historical events from prior runs ever bleed in.
