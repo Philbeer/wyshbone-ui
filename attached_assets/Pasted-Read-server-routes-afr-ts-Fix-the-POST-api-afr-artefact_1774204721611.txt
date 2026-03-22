@@ -1,0 +1,52 @@
+Read server/routes/afr.ts. Fix the POST /api/afr/artefacts handler to auto-set the supervisor_run_id bridge.
+
+ROOT CAUSE OF INTENT DELAY: The supervisor POSTs artefacts with BOTH runId (its own internal ID) and clientRequestId. But the POST handler ignores clientRequestId — it only uses runId to store the artefact. The bridge (supervisor_run_id on agent_runs) is set up later by a separate /run-bridge call. Until that call happens (~8-12s), the GET handler can't find supervisor artefacts.
+
+FIX: In the POST handler, when clientRequestId is present and runId differs from the agent_run's id, auto-link the supervisor_run_id bridge. This sets it up on the FIRST artefact POST (which is intent_narrative itself), so the GET handler finds it immediately on the next poll.
+
+Find the POST "/artefacts" handler. After the artefact is inserted (after the RETURNING id line and the console.log), add this block BEFORE the res.status(201) line:
+
+      // ── Auto-link supervisor_run_id bridge if clientRequestId is present ──
+      // The supervisor sends its own runId + the shared clientRequestId.
+      // By linking early, the GET handler can find supervisor artefacts immediately.
+      if (clientRequestId && runId) {
+        try {
+          const agentRunForBridge = await storage.getAgentRunByClientRequestId(clientRequestId);
+          if (agentRunForBridge && agentRunForBridge.id !== runId && !(agentRunForBridge as any).supervisorRunId) {
+            await db.execute(
+              sql`UPDATE agent_runs SET supervisor_run_id = ${runId}, updated_at = ${Date.now()} WHERE id = ${agentRunForBridge.id} AND supervisor_run_id IS NULL`
+            );
+            console.log(`🔗 [AFR artefacts POST] Auto-bridged supervisor_run_id=${runId} → agent_run=${agentRunForBridge.id} (via crid=${clientRequestId.slice(0, 12)})`);
+          }
+        } catch (bridgeErr: any) {
+          // Non-fatal — bridge will be set by /run-bridge eventually
+          console.warn(`[AFR artefacts POST] Auto-bridge failed:`, bridgeErr.message);
+        }
+      }
+
+So the POST handler now looks like:
+  ...existing INSERT...
+  console.log(`[AFR artefacts] Persisted artefact type=${type} runId=${runId} → artefactId=${artefactId}`);
+
+  // ── Auto-link supervisor_run_id bridge ──
+  ...the new block above...
+
+  res.status(201).json({ artefactId });
+
+WHY THIS WORKS:
+- t=3s: Supervisor POSTs intent_narrative with runId=sup123, clientRequestId=crid-abc
+- NEW: POST handler finds agent_run for crid-abc, sets supervisor_run_id=sup123
+- t=3.5s: Ticker's intent poll calls GET /api/afr/artefacts?client_request_id=crid-abc
+- GET resolves crid → agent_run.id=abc, queries artefacts for abc (none)
+- GET fallback: agent_run has supervisor_run_id=sup123 → queries artefacts for sup123 → FINDS intent_narrative!
+- Intent bubble appears BEFORE Google Places search
+
+This is a server-side fix — the bridge is set up at artefact POST time, not after a separate bridge call.
+
+ALSO: Check that the supervisor is actually sending clientRequestId in the POST body. Add logging. Find the existing debug log line:
+  console.log(`[AFR artefacts DEBUG] POST keys=${Object.keys(body).join(',')} ...`);
+
+Change it to always log (remove the env check):
+  console.log(`[AFR artefacts] POST type=${type} runId=${runId?.slice(0,12)} crid=${clientRequestId?.slice(0,12) || 'NONE'} keys=${Object.keys(body).join(',')}`);
+
+Do NOT change the GET handler or any other endpoint. Only modify the POST handler.
