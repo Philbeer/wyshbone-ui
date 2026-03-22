@@ -83,6 +83,10 @@ type Message = ChatMessage & {
   contactCounts?: ContactCounts | null;
   runReceipt?: RunReceipt | null;
   semanticJudgements?: SemanticJudgementEntry[] | null;
+  isReloopBreadcrumb?: boolean;
+  reloopLoopNumber?: number;
+  totalLoops?: number | null;
+  executorsTried?: string[] | null;
 };
 
 type SystemMessage = {
@@ -314,6 +318,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
   const inFlightSupervisorRunsRef = useRef<Map<string, { runId: string | null; crid: string }>>(new Map());
   const pendingResultPersistsRef = useRef<Array<{ payload: any; ts: number }>>([]);
   const intentNarrativeInjectedRef = useRef<Set<string>>(new Set());
+  const reloopBreadcrumbsInjectedRef = useRef<Map<string, Set<number>>>(new Map());
   const [collapsedIntentNarrativeIds, setCollapsedIntentNarrativeIds] = useState<Set<string>>(new Set());
 
   // Progress stack for chat status events (Part 2 implementation)
@@ -643,6 +648,8 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     leadVerifications: LeadVerificationEntry[] | null;
     runReceipt: RunReceipt | null;
     semanticJudgements: SemanticJudgementEntry[] | null;
+    totalLoops: number | null;
+    executorsTried: string[] | null;
   } {
     let vs: VerificationSummaryPayload | null = null;
     let ce: ConstraintsExtractedPayload | null = null;
@@ -654,7 +661,9 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
     let leadVerifications: LeadVerificationEntry[] | null = null;
     let runReceipt: RunReceipt | null = null;
     const semanticJudgements: SemanticJudgementEntry[] = [];
-    if (!Array.isArray(rows)) return { vs, ce, policySnapshot, policyApplied, learningUpdate, searchQueryCompiled, leadVerifications, runReceipt, semanticJudgements: null };
+    let totalLoops: number | null = null;
+    let executorsTried: string[] | null = null;
+    if (!Array.isArray(rows)) return { vs, ce, policySnapshot, policyApplied, learningUpdate, searchQueryCompiled, leadVerifications, runReceipt, semanticJudgements: null, totalLoops, executorsTried };
     for (const row of rows) {
       if (row.type === 'verification_summary') {
         let p = row.payload_json;
@@ -793,6 +802,14 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
           };
         }
       }
+      if (row.type === 'reloop_chain_summary') {
+        let p = row.payload_json;
+        if (typeof p === 'string') { try { p = JSON.parse(p); } catch { p = null; } }
+        if (p && typeof p === 'object') {
+          if (typeof (p as any).total_loops === 'number') totalLoops = (p as any).total_loops;
+          if (Array.isArray((p as any).executors_tried)) executorsTried = (p as any).executors_tried;
+        }
+      }
     }
     if (runReceipt) {
       for (const row of rows) {
@@ -811,7 +828,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         applied_policies: fallbackRules.map(r => ({ rule_text: r, source: 'plan' })),
       };
     }
-    return { vs, ce, policySnapshot, policyApplied, learningUpdate, searchQueryCompiled, leadVerifications, runReceipt, semanticJudgements: semanticJudgements.length > 0 ? semanticJudgements : null };
+    return { vs, ce, policySnapshot, policyApplied, learningUpdate, searchQueryCompiled, leadVerifications, runReceipt, semanticJudgements: semanticJudgements.length > 0 ? semanticJudgements : null, totalLoops, executorsTried };
   }
 
   function persistStructuredResult(payload: any) {
@@ -1067,7 +1084,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
       }
       if (!parsed || typeof parsed !== 'object') return;
 
-      const { vs, ce, policySnapshot, policyApplied, learningUpdate, searchQueryCompiled, leadVerifications, runReceipt, semanticJudgements } = parseSiblingArtefacts(rows);
+      const { vs, ce, policySnapshot, policyApplied, learningUpdate, searchQueryCompiled, leadVerifications, runReceipt, semanticJudgements, totalLoops, executorsTried } = parseSiblingArtefacts(rows);
 
       const tower2 = resolveAuthoritativeTower(rows);
       const dsPathTowerVerdict = tower2.verdict;
@@ -1118,6 +1135,8 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
         contactCounts,
         runReceipt,
         semanticJudgements,
+        totalLoops,
+        executorsTried,
       };
       upsertResultMessage(resultMessage);
 
@@ -1422,21 +1441,22 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
           }
 
 
-          // ── intent_narrative artefact check ────────────────────────────────────────
-          if (!intentNarrativeInjectedRef.current.has(effectiveKey)) {
-            try {
-              const inParams = new URLSearchParams();
-              if (crid) inParams.set('client_request_id', crid);
-              if (runId) inParams.set('runId', runId);
-              const inUrl = addDevAuthParams(buildApiUrl(`/api/afr/artefacts?${inParams.toString()}`));
-              const inRes = await fetch(inUrl, { credentials: 'include', cache: 'no-store' });
-              if (inRes.ok) {
-                const inRows = await inRes.json();
-                console.log('[INTENT_POLL] runId from map:', runId, 'rows:', inRows?.length);
-                console.log('[INTENT_POLL] rows types:', inRows?.map((r: any) => r.type));
-                console.log('[INTENT_CHECK]', intentNarrativeInjectedRef.current.has(effectiveKey), inRows?.find((r: any) => r.type === 'intent_narrative')?.type);
-                console.log('[INTENT_PAYLOAD]', inRows?.find((r: any) => r.type === 'intent_narrative')?.payload_json, typeof inRows?.find((r: any) => r.type === 'intent_narrative')?.payload_json);
-                if (Array.isArray(inRows)) {
+          // ── mid-run artefact checks (intent_narrative + reloop_iteration breadcrumbs) ──
+          try {
+            const inParams = new URLSearchParams();
+            if (crid) inParams.set('client_request_id', crid);
+            if (runId) inParams.set('runId', runId);
+            const inUrl = addDevAuthParams(buildApiUrl(`/api/afr/artefacts?${inParams.toString()}`));
+            const inRes = await fetch(inUrl, { credentials: 'include', cache: 'no-store' });
+            if (inRes.ok) {
+              const inRows = await inRes.json();
+              if (Array.isArray(inRows)) {
+                // ── intent_narrative injection (once per run) ──────────────────────────
+                if (!intentNarrativeInjectedRef.current.has(effectiveKey)) {
+                  console.log('[INTENT_POLL] runId from map:', runId, 'rows:', inRows?.length);
+                  console.log('[INTENT_POLL] rows types:', inRows?.map((r: any) => r.type));
+                  console.log('[INTENT_CHECK]', intentNarrativeInjectedRef.current.has(effectiveKey), inRows?.find((r: any) => r.type === 'intent_narrative')?.type);
+                  console.log('[INTENT_PAYLOAD]', inRows?.find((r: any) => r.type === 'intent_narrative')?.payload_json, typeof inRows?.find((r: any) => r.type === 'intent_narrative')?.payload_json);
                   const inRow = inRows.find((r: any) => r.type === 'intent_narrative');
                   if (inRow) {
                     intentNarrativeInjectedRef.current.add(effectiveKey);
@@ -1468,10 +1488,64 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                     }
                   }
                 }
+
+                // ── reloop_iteration breadcrumbs (one per loop number) ─────────────
+                const reloopRows = inRows.filter((r: any) => r.type === 'reloop_iteration');
+                for (const rRow of reloopRows) {
+                  let rPayload: any = rRow.payload_json;
+                  if (typeof rPayload === 'string') {
+                    try { rPayload = JSON.parse(rPayload); } catch { rPayload = null; }
+                  }
+                  if (!rPayload) continue;
+                  const loopNumber: number = rPayload.loop_number ?? 0;
+                  if (!reloopBreadcrumbsInjectedRef.current.has(effectiveKey)) {
+                    reloopBreadcrumbsInjectedRef.current.set(effectiveKey, new Set());
+                  }
+                  const injectedLoops = reloopBreadcrumbsInjectedRef.current.get(effectiveKey)!;
+                  if (injectedLoops.has(loopNumber)) continue;
+                  injectedLoops.add(loopNumber);
+                  const executorType: string = rPayload.executor_type ?? '';
+                  const entitiesFound: number = rPayload.executor_output_summary?.entitiesFound ?? 0;
+                  const gateDecision: string = rPayload.gate_decision?.decision ?? '';
+                  const accumulatedCount: number = rPayload.accumulated_count ?? 0;
+                  let breadcrumbText = '';
+                  if (/gp_cascade|google|places/i.test(executorType)) {
+                    breadcrumbText = `Searched Google Places — found ${entitiesFound} results`;
+                  } else if (/gpt4o_search|gpt4o|web/i.test(executorType)) {
+                    breadcrumbText = `Ran web search — found ${entitiesFound} more results`;
+                  } else {
+                    breadcrumbText = `Ran ${executorType} — found ${entitiesFound} results`;
+                  }
+                  if (gateDecision === 're_loop') {
+                    breadcrumbText += ' — not enough coverage, trying another approach';
+                  } else if (gateDecision === 'stop_deliver') {
+                    breadcrumbText += ` — ready to deliver ${accumulatedCount} total`;
+                  }
+                  const breadcrumbId = `reloop-${effectiveKey}-${loopNumber}`;
+                  setMessages((prev) => {
+                    if (prev.some(m => m.id === breadcrumbId)) return prev;
+                    const dsIdx = prev.findIndex(m => m.id === `ds-${effectiveKey}`);
+                    const newMsg: Message = {
+                      id: breadcrumbId,
+                      role: 'assistant' as const,
+                      content: breadcrumbText,
+                      timestamp: new Date(),
+                      isReloopBreadcrumb: true,
+                      reloopLoopNumber: loopNumber,
+                    };
+                    if (dsIdx !== -1) {
+                      const next = [...prev];
+                      next.splice(dsIdx, 0, newMsg);
+                      return next;
+                    }
+                    return [...prev, newMsg];
+                  });
+                  console.log(`[Chat][AFR-Poll] reloop_iteration breadcrumb injected for ${effectiveKey}, loop=${loopNumber}`);
+                }
               }
-            } catch (err) {
-              console.warn(`[Chat][AFR-Poll] Error fetching intent_narrative for ${effectiveKey}:`, err);
             }
+          } catch (err) {
+            console.warn(`[Chat][AFR-Poll] Error fetching mid-run artefacts for ${effectiveKey}:`, err);
           }
 
           if (isTerminal || status === 'completed' || status === 'failed' || 
@@ -2948,6 +3022,7 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                 // Previously these were hidden, but the conversation must never visually delete bubbles.
                 if ((chatMessage as any).deliverySummary) return true;
                 if ((chatMessage as any).isIntentNarrative) return true;
+                if ((chatMessage as any).isReloopBreadcrumb) return true;
                 if (chatMessage.content.trim().length === 0) return false;
                 const content = chatMessage.content.trim();
                 if (chatMessage.role === 'assistant') {
@@ -3217,6 +3292,8 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                       contactCounts={chatMessage.contactCounts}
                       runReceipt={chatMessage.runReceipt}
                       semanticJudgements={chatMessage.semanticJudgements}
+                      totalLoops={chatMessage.totalLoops}
+                      executorsTried={chatMessage.executorsTried}
                     />
                 ) : null;
                 return (
@@ -3489,6 +3566,19 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                         )}
                       </div>
                     </div>
+                  </div>
+                );
+              }
+
+              if (chatMessage.isReloopBreadcrumb) {
+                return (
+                  <div
+                    key={chatMessage.id}
+                    className="flex items-center gap-2 py-1 px-2 text-xs text-muted-foreground"
+                    data-testid={`message-reloop-breadcrumb-${chatMessage.id}`}
+                  >
+                    <Activity className="w-3 h-3 flex-shrink-0 text-muted-foreground/70" />
+                    <span>{chatMessage.content}</span>
                   </div>
                 );
               }

@@ -89,6 +89,8 @@ export interface RunResultBubbleProps {
   contactCounts?: ContactCounts | null;
   runReceipt?: RunReceipt | null;
   semanticJudgements?: SemanticJudgementEntry[] | null;
+  totalLoops?: number | null;
+  executorsTried?: string[] | null;
 }
 
 function dispatchFollowUp(params: {
@@ -868,6 +870,8 @@ export function buildRunNarrative(
   attributeOutcomes?: AttributeOutcome[] | null,
   hasReceiptAttributes?: boolean,
   verifiedMatchCount?: number,
+  totalLoops?: number | null,
+  executorsTried?: string[] | null,
 ): RunNarrative {
   const exact = Array.isArray(deliverySummary.delivered_exact) ? deliverySummary.delivered_exact : [];
   const closest = Array.isArray(deliverySummary.delivered_closest) ? deliverySummary.delivered_closest : [];
@@ -904,17 +908,21 @@ export function buildRunNarrative(
   const entityWord = query || 'businesses';
   const locationPart = location ? ` in ${titleCase(location)}` : '';
 
+  const multiLoopSuffix = (totalLoops != null && totalLoops > 1)
+    ? ` across ${totalLoops} search loops${executorsTried && executorsTried.length > 0 ? ` (${executorsTried.join(' + ')})` : ''}`
+    : '';
+
   if (hasVerificationTruth && verifiedMatchCount > 0) {
-    lines.push(`I found ${verifiedMatchCount} verified ${verifiedMatchCount === 1 ? 'match' : 'matches'}${locationPart}.`);
+    lines.push(`I found ${verifiedMatchCount} verified ${verifiedMatchCount === 1 ? 'match' : 'matches'}${locationPart}${multiLoopSuffix}.`);
     if (candidateOnlyCount > 0) {
       lines.push(`${candidateOnlyCount} other ${candidateOnlyCount === 1 ? 'candidate was' : 'candidates were'} found but could not be verified.`);
     }
   } else if (primaryCount > 0) {
-    lines.push(`I found ${primaryCount} ${entityWord}${locationPart}.`);
+    lines.push(`I found ${primaryCount} ${entityWord}${locationPart}${multiLoopSuffix}.`);
   } else if (candidateCount != null && candidateCount > 0) {
-    lines.push(`I searched Google Places for ${entityWord}${locationPart} and found ${candidateCount} possible ${candidateCount === 1 ? 'match' : 'matches'}.`);
+    lines.push(`I searched Google Places for ${entityWord}${locationPart} and found ${candidateCount} possible ${candidateCount === 1 ? 'match' : 'matches'}${multiLoopSuffix}.`);
   } else {
-    lines.push(`I searched Google Places for ${entityWord}${locationPart}.`);
+    lines.push(`I searched Google Places for ${entityWord}${locationPart}${multiLoopSuffix}.`);
   }
 
   for (const ao of outcomes) {
@@ -1685,6 +1693,8 @@ export default function RunResultBubble({
   contactCounts,
   runReceipt,
   semanticJudgements,
+  totalLoops,
+  executorsTried,
 }: RunResultBubbleProps) {
   const verifiedExact = resolveVerifiedCount(deliverySummary, verificationSummary);
   const target = resolveHasTargetCount(deliverySummary, constraintsExtracted);
@@ -1860,7 +1870,7 @@ export default function RunResultBubble({
       } satisfies AttributeOutcome))
     : attrOutcomes;
 
-  const narrative = !provisional ? buildRunNarrative(deliverySummary, searchQueryCompiled, constraintsExtracted, towerVerdict, contactCounts, effectiveAttrOutcomes, hasReceiptAttributes, hasVerificationData ? matches.length : undefined) : null;
+  const narrative = !provisional ? buildRunNarrative(deliverySummary, searchQueryCompiled, constraintsExtracted, towerVerdict, contactCounts, effectiveAttrOutcomes, hasReceiptAttributes, hasVerificationData ? matches.length : undefined, totalLoops, executorsTried) : null;
 
   return (
     <div className="space-y-3">
@@ -1916,6 +1926,13 @@ export default function RunResultBubble({
           <p className="text-xs text-blue-700 dark:text-blue-300 font-medium">
             I found results, but I couldn't verify which ones mention {unverifiableAttr ? `"${unverifiableAttr}"` : 'this attribute'} on their website.
           </p>
+        </div>
+      )}
+
+      {!provisional && totalLoops != null && totalLoops > 1 && (
+        <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
+          <RefreshCw className="h-2.5 w-2.5" />
+          {totalLoops} search loops
         </div>
       )}
 

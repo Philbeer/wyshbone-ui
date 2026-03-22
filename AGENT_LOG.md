@@ -105,3 +105,29 @@ Previous logs archived to AGENT_LOG_ARCHIVE_20260321.md
 
 ### What's Next
 - Verify in the QA modal for a GPT-4o primary run that the per-lead evidence dropdowns now show content drawn from the evidenceMap synthetic entries.
+
+---
+
+## Session: Reloop iteration breadcrumbs & loop count badge (2026-03-22)
+
+### What Changed
+UI-only additions to surface re-loop iteration progress as persistent breadcrumb messages in the chat, and a loop count badge on the final RunResultBubble.
+
+### Files Modified
+| File | Change |
+|---|---|
+| `client/src/pages/chat.tsx` | Added `isReloopBreadcrumb`, `reloopLoopNumber`, `totalLoops`, `executorsTried` to `Message` type; added `reloopBreadcrumbsInjectedRef`; extended `parseSiblingArtefacts` to parse `reloop_chain_summary` and return `totalLoops`/`executorsTried`; rewrote intent_narrative artefact block to always fetch `/api/afr/artefacts` each poll cycle (not only until intent_narrative is injected) so that `reloop_iteration` rows are picked up per loop; added `isReloopBreadcrumb` to message filter; added compact breadcrumb render path; passed `totalLoops`/`executorsTried` to `RunResultBubble` |
+| `client/src/components/results/RunResultBubble.tsx` | Added `totalLoops`/`executorsTried` to `RunResultBubbleProps` and component destructuring; added `multiLoopSuffix` in `buildRunNarrative` to append loop count and executor list to the first narrative line when `totalLoops > 1`; added a `RefreshCw` badge ("N search loops") rendered before `HumanSummary` when `totalLoops > 1` |
+
+### Decisions Made
+- The artefacts fetch (previously guarded by `!intentNarrativeInjectedRef.current.has(effectiveKey)`) was restructured to always run during active polling, since reloop_iteration artefacts arrive incrementally and need to be picked up on each poll cycle. The intent_narrative injection guard remains but is now nested inside the shared fetch block.
+- Breadcrumb messages use `id: reloop-{effectiveKey}-{loopNumber}` and are tracked in `reloopBreadcrumbsInjectedRef` (Map<key, Set<loopNumber>>) to prevent double-injection.
+- Breadcrumbs are ephemeral display-only (not persisted via `persistStructuredResult`), matching the same pattern as `isConfidence` and `isIntentNarrative` messages.
+- Breadcrumbs persist after the final RunResultBubble appears (not removed on run completion), as required.
+- `reloop_chain_summary` parsing was added inside the main `for (const row of rows)` loop in `parseSiblingArtefacts`, before the secondary `if (runReceipt)` pass.
+- `buildRunNarrative` signature extended with optional `totalLoops`/`executorsTried` at the end to avoid breaking callers.
+
+### What's Next
+- QA a multi-loop run to confirm breadcrumbs appear sequentially mid-run and persist post-delivery.
+- Verify the "N search loops" badge and updated narrative line appear correctly in the RunResultBubble for multi-loop runs.
+- Consider whether breadcrumb timestamps should reflect actual loop completion time (currently uses `new Date()` at injection time, which is within 1.5s of artefact creation).
