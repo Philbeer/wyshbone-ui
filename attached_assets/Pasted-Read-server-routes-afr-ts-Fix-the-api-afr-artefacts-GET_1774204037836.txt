@@ -1,0 +1,75 @@
+Read server/routes/afr.ts. Fix the /api/afr/artefacts GET endpoint so it finds supervisor artefacts BEFORE the supervisor_run_id bridge is set up.
+
+ROOT CAUSE: When the UI calls /api/afr/artefacts?client_request_id=X:
+1. It resolves X → agent_run.id (e.g. "abc")
+2. Queries artefacts WHERE run_id = 'abc'
+3. Tries supervisor_run_id fallback — but that column is NULL for ~8-12 seconds
+4. Returns empty — the intent_narrative artefact is under the supervisor's own run_id
+
+The supervisor logs agent_activities with the same client_request_id but with run_id = its OWN supervisor run_id. We can extract that from activities.
+
+FIX: After the initial artefact query, if we don't have intent_narrative yet, find ALL unique run_ids from agent_activities for this client_request_id, and query artefacts for any we haven't checked.
+
+In the GET "/artefacts" handler, find this section that handles the supervisor_run_id fallback:
+
+      const hasClarifyGateLocal = rows.some((r: any) => r.type === 'clarify_gate');
+      const hasDeliverySummary = rows.some((r: any) => r.type === 'delivery_summary');
+      if ((!hasDeliverySummary || !hasClarifyGateLocal) && resolvedRunId) {
+
+BEFORE that if-block (right after `let lookupPath = 'direct';`), add a NEW block:
+
+      // ── Early artefact discovery via activity run_ids ──
+      // Supervisor logs activities with its own run_id but shares the client_request_id.
+      // Before the supervisor_run_id bridge is linked, this is the only way to find
+      // supervisor artefacts (like intent_narrative) early.
+      if (clientRequestId && rows.length === 0 || (rows.length > 0 && !rows.some((r: any) => r.type === 'intent_narrative'))) {
+        try {
+          const activityRunIds = await db.execute(
+            sql`SELECT DISTINCT run_id FROM agent_activities
+                WHERE client_request_id = ${clientRequestId}
+                AND run_id IS NOT NULL
+                AND run_id != ${resolvedRunId || ''}
+                LIMIT 5`
+          );
+          const extraRunIds = (Array.isArray(activityRunIds) ? activityRunIds : (activityRunIds as any).rows ?? [])
+            .map((r: any) => r.run_id)
+            .filter(Boolean);
+          
+          if (extraRunIds.length > 0) {
+            console.log(`[AFR artefacts] Activity-based discovery: found ${extraRunIds.length} extra run_id(s) for crid=${clientRequestId.slice(0, 12)}...`);
+            for (const extraId of extraRunIds) {
+              const extraResult = await db.execute(
+                sql`SELECT id, run_id, type, title, summary, payload_json, created_at
+                    FROM artefacts
+                    WHERE run_id = ${extraId}
+                    ORDER BY created_at ASC`
+              );
+              const extraRows = Array.isArray(extraResult) ? extraResult : (extraResult as any).rows ?? [];
+              if (extraRows.length > 0) {
+                const existingIds = new Set(rows.map((r: any) => r.id));
+                for (const er of extraRows) {
+                  if (!existingIds.has((er as any).id)) {
+                    rows.push(er);
+                  }
+                }
+                lookupPath = `merged:direct+activity_run_id=${extraId}`;
+                console.log(`[AFR artefacts] Merged ${extraRows.length} artefact(s) from activity run_id=${extraId}`);
+              }
+            }
+          }
+        } catch (err: any) {
+          console.warn(`[AFR artefacts] Activity-based discovery error:`, err.message);
+        }
+      }
+
+This goes AFTER `let lookupPath = 'direct';` and BEFORE the existing `const hasClarifyGateLocal = ...` block.
+
+WHY THIS WORKS:
+- At t=3s: Supervisor logs first activity with run_id=supervisor_id, client_request_id=same_crid
+- At t=4s: Supervisor creates intent_narrative artefact with run_id=supervisor_id
+- At t=4.5s: UI calls /api/afr/artefacts?client_request_id=crid
+- NEW: Endpoint queries agent_activities WHERE client_request_id=crid → finds supervisor's run_id
+- NEW: Queries artefacts WHERE run_id=supervisor_id → finds intent_narrative!
+- No bridge needed — discovered via shared client_request_id on activities
+
+This is a ~3 line SQL query addition. Do NOT change any other endpoint or logic in the file.

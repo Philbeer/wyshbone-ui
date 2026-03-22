@@ -371,6 +371,50 @@ export function createAfrRouter(_storage: typeof storage) {
       let rows = Array.isArray(result) ? result : (result as any).rows ?? [];
       let lookupPath = 'direct';
 
+      // ── Early artefact discovery via activity run_ids ──
+      // Supervisor logs activities with its own run_id but shares the client_request_id.
+      // Before the supervisor_run_id bridge is linked, this is the only way to find
+      // supervisor artefacts (like intent_narrative) early.
+      if (clientRequestId && rows.length === 0 || (rows.length > 0 && !rows.some((r: any) => r.type === 'intent_narrative'))) {
+        try {
+          const activityRunIds = await db.execute(
+            sql`SELECT DISTINCT run_id FROM agent_activities
+                WHERE client_request_id = ${clientRequestId}
+                AND run_id IS NOT NULL
+                AND run_id != ${resolvedRunId || ''}
+                LIMIT 5`
+          );
+          const extraRunIds = (Array.isArray(activityRunIds) ? activityRunIds : (activityRunIds as any).rows ?? [])
+            .map((r: any) => r.run_id)
+            .filter(Boolean);
+          
+          if (extraRunIds.length > 0) {
+            console.log(`[AFR artefacts] Activity-based discovery: found ${extraRunIds.length} extra run_id(s) for crid=${clientRequestId.slice(0, 12)}...`);
+            for (const extraId of extraRunIds) {
+              const extraResult = await db.execute(
+                sql`SELECT id, run_id, type, title, summary, payload_json, created_at
+                    FROM artefacts
+                    WHERE run_id = ${extraId}
+                    ORDER BY created_at ASC`
+              );
+              const extraRows = Array.isArray(extraResult) ? extraResult : (extraResult as any).rows ?? [];
+              if (extraRows.length > 0) {
+                const existingIds = new Set(rows.map((r: any) => r.id));
+                for (const er of extraRows) {
+                  if (!existingIds.has((er as any).id)) {
+                    rows.push(er);
+                  }
+                }
+                lookupPath = `merged:direct+activity_run_id=${extraId}`;
+                console.log(`[AFR artefacts] Merged ${extraRows.length} artefact(s) from activity run_id=${extraId}`);
+              }
+            }
+          }
+        } catch (err: any) {
+          console.warn(`[AFR artefacts] Activity-based discovery error:`, err.message);
+        }
+      }
+
       const hasClarifyGateLocal = rows.some((r: any) => r.type === 'clarify_gate');
       const hasDeliverySummary = rows.some((r: any) => r.type === 'delivery_summary');
       if ((!hasDeliverySummary || !hasClarifyGateLocal) && resolvedRunId) {
