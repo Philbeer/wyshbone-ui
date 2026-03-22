@@ -508,71 +508,10 @@ export function LiveActivityTicker({ runId, clientRequestId, isActive, intentNar
 
       const ephemeral = isActive ? deriveEphemeral(data.events) : null;
       if (ephemeral) setLiveEvent(ephemeral);
-
-      // Self-fetch intent narrative from artefacts (keep trying every poll until found)
-      if (!fetchedIntentNarrativeRef.current) {
-        // Build a list of fetch attempts — try different ID combinations
-        const fetchAttempts: string[] = [];
-        
-        // Attempt 1: Use client_request_id only (forces endpoint to resolve and try supervisor fallback)
-        if (clientRequestId) {
-          fetchAttempts.push(`client_request_id=${clientRequestId}`);
-        }
-        // Attempt 2: If we have the stream's run_id and it differs from prop runId, try it directly
-        if (streamRunIdRef.current && streamRunIdRef.current !== runId) {
-          fetchAttempts.push(`runId=${streamRunIdRef.current}`);
-        }
-        // Attempt 3: Use prop runId directly
-        if (runId) {
-          fetchAttempts.push(`runId=${runId}`);
-        }
-        
-        for (const paramStr of fetchAttempts) {
-          if (fetchedIntentNarrativeRef.current) break;  // Found it in a previous attempt
-          try {
-            const artUrl = addDevAuthParams(buildApiUrl(`/api/afr/artefacts?${paramStr}`));
-            const artRes = await fetch(artUrl, { credentials: 'include', cache: 'no-store' });
-            if (!artRes.ok) continue;
-            const artRows = await artRes.json();
-            if (!Array.isArray(artRows) || artRows.length === 0) continue;
-            
-            const artTypes = artRows.map((r: any) => r.type);
-            console.log('[TICKER_INTENT] via', paramStr.slice(0, 30), '— types:', artTypes.join(', '));
-            
-            const inRow = artRows.find((r: any) => {
-              const t = (r.type || '').toLowerCase();
-              return t === 'intent_narrative' || t === 'intent_narrative_payload' || t === 'shadow_intent';
-            });
-            
-            if (inRow) {
-              let payload = inRow.payload_json;
-              if (typeof payload === 'string') {
-                try { payload = JSON.parse(payload); } catch { payload = null; }
-              }
-              if (payload && typeof payload === 'object') {
-                const entityDesc = payload.entity_description || payload.entityDescription ||
-                  payload.intent?.entity_description || payload.narrative?.entity_description;
-                
-                if (entityDesc) {
-                  const finalPayload = { ...payload, entity_description: entityDesc } as IntentNarrativePayload;
-                  fetchedIntentNarrativeRef.current = finalPayload;
-                  setFetchedIntentNarrative(finalPayload);
-                  console.log('[TICKER_INTENT] SUCCESS via', paramStr.slice(0, 30), '—', entityDesc.slice(0, 60));
-                  break;
-                }
-              }
-            }
-          } catch {}
-        }
-      }
     } catch {}
   };
 
   useEffect(() => {
-    fetchedIntentNarrativeRef.current = null;
-    setFetchedIntentNarrative(null);
-    streamRunIdRef.current = null;
-
     if (intervalRef.current) {
       clearInterval(intervalRef.current);
       intervalRef.current = null;
@@ -589,6 +528,85 @@ export function LiveActivityTicker({ runId, clientRequestId, isActive, intentNar
         clearInterval(intervalRef.current);
         intervalRef.current = null;
       }
+    };
+  }, [isActive, runId, clientRequestId]);
+
+  // ── Dedicated fast poll for intent_narrative (independent of stream) ──
+  useEffect(() => {
+    if (!isActive || (!runId && !clientRequestId)) return;
+
+    // Reset on new run
+    fetchedIntentNarrativeRef.current = null;
+    setFetchedIntentNarrative(null);
+    streamRunIdRef.current = null;
+
+    let stopped = false;
+    let intentPollRef: NodeJS.Timeout | null = null;
+
+    const pollIntent = async () => {
+      if (stopped || fetchedIntentNarrativeRef.current) {
+        if (intentPollRef) { clearInterval(intentPollRef); intentPollRef = null; }
+        return;
+      }
+
+      // Build lookup attempts
+      const fetchAttempts: string[] = [];
+      if (clientRequestId) fetchAttempts.push(`client_request_id=${clientRequestId}`);
+      if (streamRunIdRef.current && streamRunIdRef.current !== runId) fetchAttempts.push(`runId=${streamRunIdRef.current}`);
+      if (runId) fetchAttempts.push(`runId=${runId}`);
+
+      for (const paramStr of fetchAttempts) {
+        if (fetchedIntentNarrativeRef.current || stopped) break;
+        try {
+          const artUrl = addDevAuthParams(buildApiUrl(`/api/afr/artefacts?${paramStr}`));
+          const artRes = await fetch(artUrl, { credentials: 'include', cache: 'no-store' });
+          if (!artRes.ok) continue;
+          const artRows = await artRes.json();
+          if (!Array.isArray(artRows) || artRows.length === 0) continue;
+
+          const inRow = artRows.find((r: any) => {
+            const t = (r.type || '').toLowerCase();
+            return t === 'intent_narrative' || t === 'intent_narrative_payload' || t === 'shadow_intent';
+          });
+
+          if (inRow) {
+            let payload = inRow.payload_json;
+            if (typeof payload === 'string') {
+              try { payload = JSON.parse(payload); } catch { payload = null; }
+            }
+            if (payload && typeof payload === 'object') {
+              const entityDesc = payload.entity_description || payload.entityDescription ||
+                payload.intent?.entity_description || payload.narrative?.entity_description;
+              if (entityDesc) {
+                const finalPayload = { ...payload, entity_description: entityDesc } as IntentNarrativePayload;
+                fetchedIntentNarrativeRef.current = finalPayload;
+                setFetchedIntentNarrative(finalPayload);
+                console.log('[TICKER_INTENT] SUCCESS via', paramStr.slice(0, 30), '—', entityDesc.slice(0, 60));
+                if (intentPollRef) { clearInterval(intentPollRef); intentPollRef = null; }
+                return;
+              }
+            }
+          }
+        } catch {}
+      }
+    };
+
+    // Start polling immediately, then every 1.5 seconds
+    pollIntent();
+    intentPollRef = setInterval(pollIntent, 1500);
+
+    // Auto-stop after 30 seconds (intent should appear within first 10s)
+    const timeout = setTimeout(() => {
+      if (intentPollRef) { clearInterval(intentPollRef); intentPollRef = null; }
+      if (!fetchedIntentNarrativeRef.current) {
+        console.log('[TICKER_INTENT] Gave up after 30s — no intent_narrative found');
+      }
+    }, 30000);
+
+    return () => {
+      stopped = true;
+      if (intentPollRef) { clearInterval(intentPollRef); intentPollRef = null; }
+      clearTimeout(timeout);
     };
   }, [isActive, runId, clientRequestId]);
 

@@ -1,0 +1,124 @@
+Read client/src/components/results/LiveActivityTicker.tsx. Fix the intent narrative delay.
+
+ROOT CAUSE: The artefact self-fetch is nested INSIDE fetchAndProcess, which means:
+1. It only runs after the stream fetch succeeds
+2. It shares the same 2-second interval
+3. The supervisor_run_id bridge takes ~5-10 seconds to be set up by the supervisor
+4. Until the bridge exists, the artefact endpoint can't resolve from client_request_id to the supervisor's artefacts
+
+FIX: Add a SEPARATE dedicated useEffect that polls ONLY for intent_narrative, starting immediately, with a faster 1.5s interval, independent of the stream fetch.
+
+STEP 1: Remove the artefact self-fetch block from fetchAndProcess.
+
+Find and DELETE the entire block from:
+      // Self-fetch intent narrative from artefacts (keep trying every poll until found)
+      if (!fetchedIntentNarrativeRef.current) {
+
+...all the way down to its closing brace (the one that closes the outer if block, before the final catch {}).
+
+So fetchAndProcess should end like this after the deletion:
+      const ephemeral = isActive ? deriveEphemeral(data.events) : null;
+      if (ephemeral) setLiveEvent(ephemeral);
+    } catch {}
+  };
+
+STEP 2: Add a NEW separate useEffect for intent polling. Place it AFTER the existing useEffect that has deps [isActive, runId, clientRequestId], but BEFORE the useEffect that checks !isActive.
+
+Add this new useEffect:
+
+  // ── Dedicated fast poll for intent_narrative (independent of stream) ──
+  useEffect(() => {
+    if (!isActive || (!runId && !clientRequestId)) return;
+    
+    // Reset on new run
+    fetchedIntentNarrativeRef.current = null;
+    setFetchedIntentNarrative(null);
+    streamRunIdRef.current = null;
+
+    let stopped = false;
+    let intentPollRef: NodeJS.Timeout | null = null;
+
+    const pollIntent = async () => {
+      if (stopped || fetchedIntentNarrativeRef.current) {
+        if (intentPollRef) { clearInterval(intentPollRef); intentPollRef = null; }
+        return;
+      }
+
+      // Build lookup attempts
+      const fetchAttempts: string[] = [];
+      if (clientRequestId) fetchAttempts.push(`client_request_id=${clientRequestId}`);
+      if (streamRunIdRef.current && streamRunIdRef.current !== runId) fetchAttempts.push(`runId=${streamRunIdRef.current}`);
+      if (runId) fetchAttempts.push(`runId=${runId}`);
+
+      for (const paramStr of fetchAttempts) {
+        if (fetchedIntentNarrativeRef.current || stopped) break;
+        try {
+          const artUrl = addDevAuthParams(buildApiUrl(`/api/afr/artefacts?${paramStr}`));
+          const artRes = await fetch(artUrl, { credentials: 'include', cache: 'no-store' });
+          if (!artRes.ok) continue;
+          const artRows = await artRes.json();
+          if (!Array.isArray(artRows) || artRows.length === 0) continue;
+
+          const inRow = artRows.find((r: any) => {
+            const t = (r.type || '').toLowerCase();
+            return t === 'intent_narrative' || t === 'intent_narrative_payload' || t === 'shadow_intent';
+          });
+
+          if (inRow) {
+            let payload = inRow.payload_json;
+            if (typeof payload === 'string') {
+              try { payload = JSON.parse(payload); } catch { payload = null; }
+            }
+            if (payload && typeof payload === 'object') {
+              const entityDesc = payload.entity_description || payload.entityDescription ||
+                payload.intent?.entity_description || payload.narrative?.entity_description;
+              if (entityDesc) {
+                const finalPayload = { ...payload, entity_description: entityDesc } as IntentNarrativePayload;
+                fetchedIntentNarrativeRef.current = finalPayload;
+                setFetchedIntentNarrative(finalPayload);
+                console.log('[TICKER_INTENT] SUCCESS via', paramStr.slice(0, 30), '—', entityDesc.slice(0, 60));
+                if (intentPollRef) { clearInterval(intentPollRef); intentPollRef = null; }
+                return;
+              }
+            }
+          }
+        } catch {}
+      }
+    };
+
+    // Start polling immediately, then every 1.5 seconds
+    pollIntent();
+    intentPollRef = setInterval(pollIntent, 1500);
+
+    // Auto-stop after 30 seconds (intent should appear within first 10s)
+    const timeout = setTimeout(() => {
+      if (intentPollRef) { clearInterval(intentPollRef); intentPollRef = null; }
+      if (!fetchedIntentNarrativeRef.current) {
+        console.log('[TICKER_INTENT] Gave up after 30s — no intent_narrative found');
+      }
+    }, 30000);
+
+    return () => {
+      stopped = true;
+      if (intentPollRef) { clearInterval(intentPollRef); intentPollRef = null; }
+      clearTimeout(timeout);
+    };
+  }, [isActive, runId, clientRequestId]);
+
+STEP 3: Remove the reset lines from the stream useEffect since the intent useEffect now handles its own reset.
+
+In the existing useEffect with deps [isActive, runId, clientRequestId], find and DELETE these three lines:
+    fetchedIntentNarrativeRef.current = null;
+    setFetchedIntentNarrative(null);
+    streamRunIdRef.current = null;
+
+ALSO: Still keep the streamRunIdRef capture inside fetchAndProcess (the line that sets streamRunIdRef.current from data.run_id) — the intent poller reads it.
+
+This way:
+- Intent poll starts IMMEDIATELY when the ticker mounts
+- Runs every 1.5s independently of the stream
+- Tries client_request_id first (forces endpoint to check supervisor fallback)
+- Auto-stops once found or after 30 seconds
+- Stream fetch continues doing milestones/ephemeral independently
+
+Do NOT change any rendering code, milestone logic, or ephemeral logic.
