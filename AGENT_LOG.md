@@ -226,3 +226,37 @@ Follow-up fixes to make the LiveActivityTicker actually visible in the chat, and
 ### What's Next
 - QA a live run to confirm the ticker now shows search, visit, and verification events in real time during a run rather than displaying "Processing..." for the duration.
 - If the stream endpoint returns events only after they complete (status = completed), we may need to also show `status = running` events as ephemeral — monitor in QA.
+
+---
+
+## Session: LiveActivityTicker — Brain indicator + summary-based classification (2026-03-22 rev2)
+
+### What Changed
+
+**Brain thinking indicator added**
+- New `ThinkingBrains` sub-component renders three `Brain` icons (from lucide-react) that animate 1→2→3→1 on a 400ms interval, identical to the `ThinkingIndicator` in `live-activity-panel.tsx`.
+- Shown at the top of the ticker when `isActive && pinnedEvents.length === 0 && !liveEvent`.
+- The component now renders (the border container) even before any events arrive, so the user sees activity immediately rather than nothing.
+- `null` early-return changed to only bail out when `!isActive && pinnedEvents.length === 0 && !liveEvent`.
+
+**Classifier updated to match on `summary` and `details.task`**
+- Previous version matched primarily on `event.type`. Revised to also check `event.summary` and `details.task` using case-insensitive regex, matching actual stream output like `"Tool Completed: SEARCH_PLACES"` and `"SEARCH PLACES: 16 Leads Found"`.
+- Added `WEB_SEARCH` / `GPT-4o search` pinned pattern ("🌐 Web search complete").
+- Tool name extraction for ephemeral tool events now reads from `summary.match(/Tool Completed:\s*(.+)/i)` as well as `details.action`.
+- Fallback ephemeral text truncated at 50 chars (was 40).
+- Ephemeral opacity changed from `/80` → `/70` per spec.
+
+### Files Modified
+
+| File | Change |
+|---|---|
+| `client/src/components/results/LiveActivityTicker.tsx` | Added `ThinkingBrains` sub-component; updated `classifyEvent()` to match on `summary` + `details.task`; changed early-return guard; changed ephemeral opacity to `/70` |
+
+### Decisions Made
+- `Brain` and `cn` are already available in the project (`lucide-react` and `@/lib/utils`) — no new dependencies.
+- The `ThinkingBrains` component is self-contained inside the ticker file to avoid coupling with `live-activity-panel.tsx`.
+- HMR applied cleanly — no runtime errors in console or backend logs.
+
+### What's Next
+- QA a fresh run to verify: (a) thinking brains appear immediately when a run starts, (b) event summaries/tasks classify correctly into pinned vs ephemeral, and (c) the border container is visible throughout.
+- Monitor whether `Tool Completed: SEARCH_PLACES` events carry a result count in `details.task` (e.g. "16 Leads Found") — if so the pinned Google Places count will populate correctly.

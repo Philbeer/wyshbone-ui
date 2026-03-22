@@ -1,0 +1,103 @@
+Search the repository. Read these files before making changes:
+
+client/src/components/results/LiveActivityTicker.tsx
+client/src/components/live-activity-panel.tsx — specifically the StreamResponse and StreamEvent interfaces and how events are fetched
+
+ROOT CAUSE: The LiveActivityTicker polls /api/afr/artefacts (the run_artefacts table). But artefacts are created LATE — often only at run completion. The Activity Panel that works correctly uses /api/afr/stream which returns events from agent_activities in real-time. The ticker must use the same data source.
+FIX: Rewrite LiveActivityTicker to poll /api/afr/stream
+The /api/afr/stream endpoint accepts client_request_id and/or runId query params and returns JSON like:
+json{
+  "status": "executing",
+  "is_terminal": false,
+  "events": [
+    {
+      "id": "...",
+      "ts": "2026-03-22T10:20:00Z",
+      "type": "tool_completed",
+      "summary": "Tool Completed: SEARCH_PLACES",
+      "status": "completed",
+      "details": { "action": "step_completed:search_places", "task": "SEARCH PLACES: 16 Leads Found" }
+    },
+    ...
+  ]
+}
+Rewrite LiveActivityTicker.tsx to:
+
+Poll /api/afr/stream every 2 seconds (same as now), NOT /api/afr/artefacts
+Classify events from the events[] array using the summary, type, and details.task fields:
+
+PINNED events (stay permanently, deduped by type):
+
+summary or details.task matches SEARCH_PLACES or Google Places → "🔍 Google Places — found {N} results" (extract number from details.task if it contains a number like "16 Leads Found")
+summary or details.task matches WEB_SEARCH or GPT-4o → "🌐 Web search complete"
+type contains tower_evaluation or summary contains Tower verdict → "⚖️ Quality check: {verdict}" (extract from details.task)
+summary contains Run Completed or Execution Completed → "✅ Complete"
+summary or details.task matches reloop → "🔄 Re-loop: trying another approach"
+
+EPHEMERAL events (cycle on single live line, most recent wins):
+
+summary contains WEB VISIT or Visiting → "🌐 Visiting website..."
+summary contains Evidence → "📄 Checking evidence..."
+summary contains Tower semantic or Verif → "⚖️ Verifying..."
+summary contains Tool Completed → extract tool name, show "🔧 {tool}..."
+summary contains Executing → "⚙️ Executing..."
+Any other event → use summary truncated to 50 chars with "⚙️" prefix
+
+
+Show the three-brain thinking indicator when active and no events yet, or between events. Add this at the top of the component when isActive && pinnedEvents.length === 0 && !liveEvent:
+
+tsx<div className="flex items-center gap-2 text-xs text-muted-foreground">
+  <div className="flex items-center gap-0.5">
+    {[0, 1, 2].map(i => (
+      <Brain key={i} className={cn("h-3 w-3 transition-opacity duration-200", i < brainPhase ? "opacity-70" : "opacity-20")} />
+    ))}
+  </div>
+  <span>Thinking...</span>
+</div>
+Where brainPhase cycles 1→2→3 on a 400ms interval (same pattern as ThinkingIndicator in live-activity-panel.tsx). Import Brain from lucide-react and cn from @/lib/utils.
+
+Make the ticker more visible. Wrap the whole component in:
+
+tsx<div className="border-l-2 border-primary/20 pl-3 space-y-1 py-2">
+```
+
+5. **Pinned events styling:** `text-xs text-muted-foreground` (not /60)
+6. **Ephemeral line styling:** `text-xs text-muted-foreground/70` with `Loader2` spinner (already correct)
+
+**ALSO FIX — Timeouts in chat.tsx:**
+
+Find these constants in the `pollStream` function inside the `isWaitingForSupervisor` useEffect in `client/src/pages/chat.tsx`:
+```
+const SOFT_TIMEOUT_MS = 30_000;
+const HARD_TIMEOUT_MS = 90_000;
+```
+
+Change to:
+```
+const SOFT_TIMEOUT_MS = 120_000;
+const HARD_TIMEOUT_MS = 300_000;
+```
+
+Find the HARD_TIMEOUT block that creates a `still_working` banner message (approximately: `const bannerMsg: Message = { ... stop_reason: 'still_working' ... }; upsertResultMessage(bannerMsg);`). Remove the `bannerMsg` creation and the `upsertResultMessage(bannerMsg)` call. Keep the `hardTimeoutEmitted.add(effectiveKey)` and console.warn. The hard timeout should only log, NOT show a UI banner.
+
+**ALSO FIX — Lead dedup in RunResultBubble.tsx:**
+
+In `client/src/components/results/RunResultBubble.tsx`, find:
+```
+const allLeads = [...exact, ...closest];
+Replace with:
+typescriptconst allLeads = (() => {
+  const raw = [...exact, ...closest];
+  const seen = new Set<string>();
+  return raw.filter(lead => {
+    const placeId = (lead as any).place_id || (lead as any).placeId;
+    const name = (lead.name || '').toLowerCase().trim();
+    const key = placeId || name;
+    if (!key) return true;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    if (placeId && name) seen.add(name);
+    return true;
+  });
+})();
+Work on the main branch only — do not create or switch branches. After completing this task, append a structured summary to AGENT_LOG.md (what changed, files modified, decisions made, what's next).

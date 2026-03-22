@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
-import { Loader2 } from "lucide-react";
+import { Loader2, Brain } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { addDevAuthParams, buildApiUrl } from "@/lib/queryClient";
 
 export interface LiveActivityTickerProps {
@@ -63,72 +64,95 @@ function extractCount(text: string | null | undefined): number | null {
 function classifyEvent(event: StreamEvent): { pinned: PinnedEvent | null; ephemeral: LiveEvent | null } {
   const type = (event.type || '').toLowerCase();
   const summary = event.summary || '';
+  const summaryUp = summary.toUpperCase();
   const details = event.details || {};
   const task = details.task || '';
-  const action = details.action || '';
-  const label = details.label || '';
-  const results = details.results || '';
+  const taskUp = task.toUpperCase();
   const ts = event.ts ? new Date(event.ts).getTime() : Date.now();
 
-  if (/search_places/.test(type) || /gp_cascade/.test(type)) {
-    const count = extractCount(results) ?? extractCount(summary);
+  const matchesSummaryOrTask = (pattern: RegExp) =>
+    pattern.test(summary) || pattern.test(task);
+
+  if (matchesSummaryOrTask(/SEARCH_PLACES|SEARCH PLACES|Google Places/i) || /search_places|gp_cascade/.test(type)) {
+    const count = extractCount(task) ?? extractCount(summary);
     const text = count != null
       ? `Google Places — found ${count} results`
       : 'Google Places search';
     return { pinned: { key: `search_places-${event.id}`, icon: '🔍', text, timestamp: ts }, ephemeral: null };
   }
 
-  if (/reloop_iteration/.test(type)) {
+  if (matchesSummaryOrTask(/WEB.?SEARCH|GPT.?4o search|web search/i)) {
+    return { pinned: { key: `web_search-${event.id}`, icon: '🌐', text: 'Web search complete', timestamp: ts }, ephemeral: null };
+  }
+
+  if (matchesSummaryOrTask(/reloop|re.?loop/i) || /reloop/.test(type)) {
     return { pinned: { key: `reloop-${event.id}`, icon: '🔄', text: 'Re-loop: trying another approach', timestamp: ts }, ephemeral: null };
   }
 
-  if (type === 'tower_evaluation_completed' || type === 'tower_judgement') {
-    const verdict = results || action || summary || 'unknown';
+  if (/tower_evaluation|tower_judgement/.test(type) || matchesSummaryOrTask(/Tower verdict|tower evaluation|tower judgement/i)) {
+    const verdict = details.results || details.action || task || summary || 'unknown';
     return { pinned: { key: `tower_eval-${event.id}`, icon: '⚖️', text: `Quality check: ${verdict.slice(0, 40)}`, timestamp: ts }, ephemeral: null };
   }
 
-  if (type === 'run_completed' || type === 'reloop_chain_summary') {
-    return { pinned: { key: 'run_completed', icon: '✅', text: 'Run complete', timestamp: ts }, ephemeral: null };
+  if (matchesSummaryOrTask(/Run Completed|Execution Completed/i) || /run_completed|reloop_chain_summary/.test(type)) {
+    return { pinned: { key: 'run_completed', icon: '✅', text: 'Complete', timestamp: ts }, ephemeral: null };
   }
 
-  if (/step_completed/.test(type) && (/google|places/i.test(task) || /google|places/i.test(summary))) {
-    return { pinned: { key: `step_completed_places-${event.id}`, icon: '🔍', text: 'Found results via Google Places', timestamp: ts }, ephemeral: null };
-  }
-
-  if (/tool_call_started/.test(type)) {
-    const toolName = action || label || '';
-    const text = toolName ? `${toolName}...` : 'Running tool...';
-    return { pinned: null, ephemeral: { icon: '🔧', text, timestamp: ts } };
-  }
-
-  if (/web.?visit/.test(type)) {
+  if (matchesSummaryOrTask(/WEB VISIT|Visiting/i) || /web.?visit/.test(type)) {
     return { pinned: null, ephemeral: { icon: '🌐', text: 'Visiting website...', timestamp: ts } };
   }
 
-  if (/step_started/.test(type)) {
-    const stepLabel = label || task || action || summary;
-    const text = stepLabel ? `${stepLabel.slice(0, 40)}...` : 'Working...';
+  if (matchesSummaryOrTask(/Evidence/i) || /evidence/.test(type)) {
+    return { pinned: null, ephemeral: { icon: '📄', text: 'Checking evidence...', timestamp: ts } };
+  }
+
+  if (matchesSummaryOrTask(/Tower semantic|Verif/i) || /tower_semantic|verif/.test(type)) {
+    return { pinned: null, ephemeral: { icon: '⚖️', text: 'Verifying...', timestamp: ts } };
+  }
+
+  if (matchesSummaryOrTask(/Tool Completed/i) || /tool_call/.test(type)) {
+    const toolMatch = summary.match(/Tool Completed:\s*(.+)/i) || task.match(/Tool[:\s]+(.+)/i);
+    const toolName = toolMatch ? toolMatch[1].trim() : (details.action || details.label || '');
+    const text = toolName ? `${toolName.slice(0, 40)}...` : 'Running tool...';
+    return { pinned: null, ephemeral: { icon: '🔧', text, timestamp: ts } };
+  }
+
+  if (matchesSummaryOrTask(/Executing/i) || /step_started/.test(type)) {
+    const label = details.label || details.task || details.action || summary;
+    const text = label ? `${label.slice(0, 50)}...` : 'Executing...';
     return { pinned: null, ephemeral: { icon: '⚙️', text, timestamp: ts } };
   }
 
-  if (type === 'tower_decision_change_plan') {
-    return { pinned: null, ephemeral: { icon: '🔄', text: 'Replanning...', timestamp: ts } };
-  }
-
-  if (/evidence/.test(type)) {
-    const name = action || label || '';
-    const text = name ? `Checking evidence for ${name.slice(0, 30)}...` : 'Checking evidence...';
-    return { pinned: null, ephemeral: { icon: '📄', text, timestamp: ts } };
-  }
-
-  if (/tower_semantic|verif/.test(type)) {
-    const name = action || label || '';
-    const text = name ? `Verifying ${name.slice(0, 30)}...` : 'Verifying result...';
-    return { pinned: null, ephemeral: { icon: '⚖️', text, timestamp: ts } };
-  }
-
-  const fallbackText = summary ? summary.slice(0, 40) : 'Processing...';
+  const fallbackText = summary ? summary.slice(0, 50) : 'Processing...';
   return { pinned: null, ephemeral: { icon: '⚙️', text: fallbackText, timestamp: ts } };
+}
+
+function ThinkingBrains() {
+  const [phase, setPhase] = useState(1);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setPhase(p => (p % 3) + 1);
+    }, 400);
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+      <div className="flex items-center gap-0.5">
+        {[0, 1, 2].map(i => (
+          <Brain
+            key={i}
+            className={cn(
+              "h-3 w-3 transition-opacity duration-200",
+              i < phase ? "opacity-70" : "opacity-20"
+            )}
+          />
+        ))}
+      </div>
+      <span>Thinking...</span>
+    </div>
+  );
 }
 
 export function LiveActivityTicker({ runId, clientRequestId, isActive }: LiveActivityTickerProps) {
@@ -208,10 +232,13 @@ export function LiveActivityTicker({ runId, clientRequestId, isActive }: LiveAct
     }
   }, [isActive]);
 
-  if (pinnedEvents.length === 0 && !liveEvent) return null;
+  if (!isActive && pinnedEvents.length === 0 && !liveEvent) return null;
 
   return (
     <div className="border-l-2 border-primary/20 pl-3 space-y-1 py-2">
+      {isActive && pinnedEvents.length === 0 && !liveEvent && (
+        <ThinkingBrains />
+      )}
       {pinnedEvents.map((evt) => (
         <div key={evt.key} className="flex items-center gap-2 text-xs text-muted-foreground">
           <span>{evt.icon}</span>
@@ -220,7 +247,7 @@ export function LiveActivityTicker({ runId, clientRequestId, isActive }: LiveAct
       ))}
       {isActive && liveEvent && (
         <div
-          className="flex items-center gap-2 text-xs text-muted-foreground/80 animate-pulse"
+          className="flex items-center gap-2 text-xs text-muted-foreground/70 animate-pulse"
           key={liveEvent.timestamp}
         >
           <Loader2 className="h-3 w-3 animate-spin flex-shrink-0" />
