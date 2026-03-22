@@ -1,0 +1,79 @@
+OK, I have the full picture. Here's the plan and the prompt:
+Architecture summary: The Supervisor already emits reloop_iteration artefacts to the run_artefacts table on every loop with executor type, entity count, gate decision, and accumulated total. The UI AFR poller already runs every 1.5s during active runs and already injects intent_narrative artefacts mid-run. So this is UI-only — we extend the existing poller pattern to also surface reloop_iteration artefacts as breadcrumb messages.
+
+Prompt for wyshbone-ui (paste into Replit):
+
+Search the repository before making changes. Read client/src/pages/chat.tsx and client/src/components/results/RunResultBubble.tsx thoroughly first.
+Goal: Show the user what's happening between re-loop iterations as persistent breadcrumb messages in the chat.
+Context:
+The Supervisor already emits reloop_iteration artefacts to the run_artefacts table for each loop. Each has a payload like:
+json{
+  "chain_id": "...",
+  "loop_number": 1,
+  "executor_type": "gp_cascade",
+  "executor_output_summary": { "entitiesFound": 5, "timeMs": 2100, ... },
+  "judge_verdict": { "verdict": "PARTIAL", ... },
+  "gate_decision": { "decision": "re_loop", "suggestedNextExecutor": "gpt4o_search", ... },
+  "accumulated_count": 5
+}
+There is also a reloop_chain_summary artefact at end with total_loops, total_entities, executors_tried, and loop_history.
+The UI already polls /api/afr/artefacts every 1.5s during active runs (see the pollStream function in chat.tsx). It already injects intent_narrative artefacts as mid-run messages using intentNarrativeInjectedRef. We follow that exact same pattern.
+Part 1: Inject loop progress breadcrumbs into chat (chat.tsx)
+
+Add a new ref: reloopBreadcrumbsInjectedRef = useRef<Map<string, Set<number>>>() — tracks which loop numbers have been injected per run key.
+Inside the existing pollStream function, in the same block where intent_narrative artefacts are already checked (the if (!intentNarrativeInjectedRef.current.has(effectiveKey)) section), add a NEW section AFTER it that:
+
+Filters inRows for rows where type === 'reloop_iteration'
+For each reloop_iteration row not yet injected (check against the ref):
+
+Parse the payload
+Build a human-readable message based on executor_type and gate_decision.decision:
+
+If executor_type is gp_cascade or contains google or places: "Searched Google Places — found {entitiesFound} results"
+If executor_type is gpt4o_search or contains gpt4o or web: "Ran web search — found {entitiesFound} more results"
+Otherwise: "Ran {executor_type} — found {entitiesFound} results"
+
+
+If gate_decision.decision === 're_loop': append " — not enough coverage, trying another approach"
+If gate_decision.decision === 'stop_deliver': append " — ready to deliver {accumulated_count} total"
+Inject as a message with a new flag isReloopBreadcrumb: true and id reloop-{effectiveKey}-{loop_number}
+Insert the message BEFORE any existing ds-{effectiveKey} message (same insertion logic as intent_narrative)
+
+
+
+
+Add isReloopBreadcrumb?: boolean and reloopLoopNumber?: number to the Message type in chat.tsx.
+
+Part 2: Render breadcrumb messages in chat (chat.tsx)
+In the message rendering section of chat.tsx (where messages are mapped to JSX), add a render path for isReloopBreadcrumb messages. Render them as:
+
+A compact, muted row (not a full chat bubble) — similar to a system message
+Use a small icon: Activity from lucide-react for loop progress, or Search for the search step
+Text in text-xs text-muted-foreground style
+Example rendering: 🔍 Searched Google Places — found 5 results — not enough coverage, trying another approach
+These should NOT have avatars or full bubble styling — they're lightweight status lines
+
+Part 3: Loop count badge on RunResultBubble (RunResultBubble.tsx)
+
+Also check for a reloop_chain_summary artefact in parseSiblingArtefacts in chat.tsx. Extract total_loops and executors_tried from its payload. Pass these as new optional props to RunResultBubble: totalLoops?: number and executorsTried?: string[].
+In RunResultBubble.tsx, add totalLoops and executorsTried to the props interface.
+If totalLoops > 1, render a small badge near the top of the bubble (after the status icon area, before the HumanSummary), styled like:
+
+tsx{totalLoops > 1 && (
+  <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
+    <RefreshCw className="h-2.5 w-2.5" />
+    {totalLoops} search loops
+  </div>
+)}
+
+Extend buildRunNarrative to accept totalLoops and executorsTried. If totalLoops > 1, modify the first narrative line to mention the multi-loop search. For example, instead of "I found 8 verified matches in Arundel" → "I found 8 verified matches in Arundel across 2 search loops (Google Places + web search)."
+
+Important constraints:
+
+Do NOT modify any Supervisor code — this is UI-only
+The breadcrumb messages must persist after the run completes (they are NOT removed when the final RunResultBubble appears)
+The breadcrumb messages must NOT be persisted to the conversation history API (they are ephemeral display-only, like isConfidence messages)
+Follow the exact same injection pattern used for intent_narrative — insert before the DS message
+The reloop_iteration artefacts are already being fetched by the existing /api/afr/artefacts call in the poller — just filter the existing inRows array, do NOT make additional API calls
+
+Work on the main branch only — do not create or switch branches. After completing this task, append a structured summary to AGENT_LOG.md (what changed, files modified, decisions made, what's next).
