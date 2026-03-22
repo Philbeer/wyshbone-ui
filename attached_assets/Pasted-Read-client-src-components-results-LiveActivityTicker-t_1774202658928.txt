@@ -1,0 +1,90 @@
+Read client/src/components/results/LiveActivityTicker.tsx. Fix the intent narrative appearing AFTER Google Places.
+
+PROBLEM: The intent poll runs every 1.5s but the supervisor_run_id bridge takes ~5s to be set up. So the first 3-4 poll attempts all fail (artefact endpoint can't find the supervisor's artefacts yet). By the time the bridge is linked and the intent is found, the Google Places milestone has already appeared.
+
+FIX: Poll every 500ms for the first 15 seconds, then stop. This catches the intent as soon as the bridge is linked.
+
+Find the dedicated intent polling useEffect — the one with the comment:
+  // ── Dedicated fast poll for intent_narrative (independent of stream) ──
+
+Replace the ENTIRE useEffect (from the comment to its closing }, [isActive, runId, clientRequestId]);) with:
+
+  // ── Dedicated fast poll for intent_narrative (independent of stream) ──
+  useEffect(() => {
+    if (!isActive || (!runId && !clientRequestId)) return;
+    
+    fetchedIntentNarrativeRef.current = null;
+    setFetchedIntentNarrative(null);
+    streamRunIdRef.current = null;
+
+    let stopped = false;
+    let pollCount = 0;
+    const MAX_POLLS = 30; // 30 polls × 500ms = 15 seconds max
+
+    const pollIntent = async () => {
+      pollCount++;
+      if (stopped || fetchedIntentNarrativeRef.current || pollCount > MAX_POLLS) {
+        return;
+      }
+
+      const fetchAttempts: string[] = [];
+      if (clientRequestId) fetchAttempts.push(`client_request_id=${clientRequestId}`);
+      if (streamRunIdRef.current && streamRunIdRef.current !== runId) fetchAttempts.push(`runId=${streamRunIdRef.current}`);
+      if (runId) fetchAttempts.push(`runId=${runId}`);
+
+      for (const paramStr of fetchAttempts) {
+        if (fetchedIntentNarrativeRef.current || stopped) break;
+        try {
+          const artUrl = addDevAuthParams(buildApiUrl(`/api/afr/artefacts?${paramStr}`));
+          const artRes = await fetch(artUrl, { credentials: 'include', cache: 'no-store' });
+          if (!artRes.ok) continue;
+          const artRows = await artRes.json();
+          if (!Array.isArray(artRows) || artRows.length === 0) continue;
+
+          const inRow = artRows.find((r: any) => {
+            const t = (r.type || '').toLowerCase();
+            return t === 'intent_narrative' || t === 'intent_narrative_payload' || t === 'shadow_intent';
+          });
+
+          if (inRow) {
+            let payload = inRow.payload_json;
+            if (typeof payload === 'string') {
+              try { payload = JSON.parse(payload); } catch { payload = null; }
+            }
+            if (payload && typeof payload === 'object') {
+              const entityDesc = payload.entity_description || payload.entityDescription ||
+                payload.intent?.entity_description || payload.narrative?.entity_description;
+              if (entityDesc) {
+                const finalPayload = { ...payload, entity_description: entityDesc } as IntentNarrativePayload;
+                fetchedIntentNarrativeRef.current = finalPayload;
+                setFetchedIntentNarrative(finalPayload);
+                console.log('[TICKER_INTENT] Found on poll', pollCount, 'via', paramStr.slice(0, 30));
+                return;
+              }
+            }
+          }
+        } catch {}
+      }
+
+      // Schedule next poll if not found and not exhausted
+      if (!stopped && !fetchedIntentNarrativeRef.current && pollCount < MAX_POLLS) {
+        setTimeout(pollIntent, 500);
+      }
+    };
+
+    // Start immediately
+    pollIntent();
+
+    return () => {
+      stopped = true;
+    };
+  }, [isActive, runId, clientRequestId]);
+
+Key changes:
+1. Polls every 500ms instead of 1500ms (3x faster)
+2. Uses recursive setTimeout instead of setInterval (no overlapping requests)
+3. Starts on the FIRST tick (no initial delay)
+4. Stops as soon as found or after 30 polls (15 seconds)
+5. Much simpler cleanup — just sets stopped flag
+
+Do NOT change anything else in the file.
