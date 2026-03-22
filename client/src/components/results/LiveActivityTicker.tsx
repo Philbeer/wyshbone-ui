@@ -483,6 +483,7 @@ export function LiveActivityTicker({ runId, clientRequestId, isActive, intentNar
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const fetchedIntentNarrativeRef = useRef<IntentNarrativePayload | null>(null);
   const streamRunIdRef = useRef<string | null>(null);
+  const discoveredRunIdsRef = useRef<Set<string>>(new Set());
   const [fetchedIntentNarrative, setFetchedIntentNarrative] = useState<IntentNarrativePayload | null>(null);
 
   const fetchAndProcess = async () => {
@@ -501,6 +502,14 @@ export function LiveActivityTicker({ runId, clientRequestId, isActive, intentNar
       // Capture the canonical run_id from the stream response
       if (data.run_id && !streamRunIdRef.current) {
         streamRunIdRef.current = data.run_id;
+      }
+      // Extract ALL unique run_ids from events — supervisor activities carry the supervisor's run_id
+      if (data.events && data.events.length > 0) {
+        for (const evt of data.events) {
+          if (evt.run_id && evt.run_id !== data.run_id) {
+            discoveredRunIdsRef.current.add(evt.run_id);
+          }
+        }
       }
 
       const newMilestones = deriveMilestones(data.events);
@@ -538,6 +547,7 @@ export function LiveActivityTicker({ runId, clientRequestId, isActive, intentNar
     fetchedIntentNarrativeRef.current = null;
     setFetchedIntentNarrative(null);
     streamRunIdRef.current = null;
+    discoveredRunIdsRef.current = new Set();
 
     let stopped = false;
     let pollCount = 0;
@@ -550,6 +560,11 @@ export function LiveActivityTicker({ runId, clientRequestId, isActive, intentNar
       }
 
       const fetchAttempts: string[] = [];
+      // Try discovered supervisor run_ids FIRST — these are the most likely to have intent_narrative
+      for (const discoveredId of discoveredRunIdsRef.current) {
+        fetchAttempts.push(`runId=${discoveredId}`);
+      }
+      // Then try the standard paths
       if (clientRequestId) fetchAttempts.push(`client_request_id=${clientRequestId}`);
       if (streamRunIdRef.current && streamRunIdRef.current !== runId) fetchAttempts.push(`runId=${streamRunIdRef.current}`);
       if (runId) fetchAttempts.push(`runId=${runId}`);

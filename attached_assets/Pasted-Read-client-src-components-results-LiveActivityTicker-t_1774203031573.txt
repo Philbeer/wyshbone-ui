@@ -1,0 +1,67 @@
+Read client/src/components/results/LiveActivityTicker.tsx fully.
+
+ROOT CAUSE: All three artefact lookup attempts resolve to the SAME agent_run.id. The intent_narrative artefact is stored under the SUPERVISOR's run_id. The bridge (supervisor_run_id column) isn't linked yet. So all lookups fail until the bridge is set up (~8-12s).
+
+BUT: The /api/afr/stream response already contains EVENTS from the supervisor. Each event has a run_id field. Supervisor-logged activities have the SUPERVISOR's run_id. If we extract that from the events, we can query artefacts directly by the supervisor's run_id — bypassing the bridge entirely.
+
+TWO changes needed:
+
+CHANGE 1: In fetchAndProcess, extract supervisor run_ids from stream events.
+
+Add a new ref near the other refs at the top of the component (near streamRunIdRef):
+  const discoveredRunIdsRef = useRef<Set<string>>(new Set());
+
+In fetchAndProcess, AFTER the line:
+      if (data.run_id && !streamRunIdRef.current) {
+        streamRunIdRef.current = data.run_id;
+      }
+
+Add this block:
+      // Extract ALL unique run_ids from events — supervisor activities carry the supervisor's run_id
+      if (data.events && data.events.length > 0) {
+        for (const evt of data.events) {
+          if (evt.run_id && evt.run_id !== data.run_id) {
+            discoveredRunIdsRef.current.add(evt.run_id);
+          }
+        }
+      }
+
+
+CHANGE 2: In the intent poll useEffect, add discovered run_ids as additional lookup attempts.
+
+Find the block inside pollIntent that builds fetchAttempts:
+      const fetchAttempts: string[] = [];
+      if (clientRequestId) fetchAttempts.push(`client_request_id=${clientRequestId}`);
+      if (streamRunIdRef.current && streamRunIdRef.current !== runId) fetchAttempts.push(`runId=${streamRunIdRef.current}`);
+      if (runId) fetchAttempts.push(`runId=${runId}`);
+
+Replace it with:
+      const fetchAttempts: string[] = [];
+      // Try discovered supervisor run_ids FIRST — these are the most likely to have intent_narrative
+      for (const discoveredId of discoveredRunIdsRef.current) {
+        fetchAttempts.push(`runId=${discoveredId}`);
+      }
+      // Then try the standard paths
+      if (clientRequestId) fetchAttempts.push(`client_request_id=${clientRequestId}`);
+      if (streamRunIdRef.current && streamRunIdRef.current !== runId) fetchAttempts.push(`runId=${streamRunIdRef.current}`);
+      if (runId) fetchAttempts.push(`runId=${runId}`);
+
+
+CHANGE 3: Reset discoveredRunIdsRef when the run changes. In the intent poll useEffect, find:
+    fetchedIntentNarrativeRef.current = null;
+    setFetchedIntentNarrative(null);
+    streamRunIdRef.current = null;
+
+Add after those lines:
+    discoveredRunIdsRef.current = new Set();
+
+
+WHY THIS WORKS: 
+- At ~t=4s the supervisor logs its first activity (e.g. "Router: Supervisor Plan") with its own run_id
+- The stream endpoint returns this activity with run_id = supervisor_run_id
+- fetchAndProcess captures that run_id into discoveredRunIdsRef
+- The intent poll (running every 500ms) tries that run_id directly: /api/afr/artefacts?runId=SUPERVISOR_RUN_ID
+- This finds the intent_narrative immediately because it's stored under that exact run_id
+- No bridge needed — we bypass it entirely
+
+Do NOT change any rendering code, milestone logic, or ephemeral logic. Only add the discoveredRunIdsRef ref, the event scanning in fetchAndProcess, and the updated fetchAttempts in pollIntent.
