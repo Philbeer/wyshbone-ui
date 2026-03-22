@@ -1,0 +1,78 @@
+Search the repository before making changes. Read client/src/pages/chat.tsx thoroughly, especially the pollStream function inside the isWaitingForSupervisor useEffect, and the message rendering section. Also read client/src/components/results/RunResultBubble.tsx.GOAL: Fix 4 issues and build a live activity ticker in the chat.BUG FIX 1: Remove the "Still working" banner entirelyThe HARD_TIMEOUT_MS = 90_000 timeout fires a "Still working — this search is taking longer than usual" banner on almost every run. This looks bad and provides no value.Fix: Increase HARD_TIMEOUT_MS from 90_000 to 300_000 (5 minutes). Also increase SOFT_TIMEOUT_MS from 30_000 to 120_000. These are safety nets for genuinely stuck runs, not normal operation. Find these constants in the pollStream function.BUG FIX 2: Fix duplicate leads in RunResultBubbleThere are duplicate leads showing in the results. The dedup in RunResultBubble relies on splitLeadsByVerification and uses matchLeadToId. The issue is that leads from delivered_exact and delivered_closest can contain the same lead (same place_id or same name) — this happens when the Supervisor's combined delivery merges across loops.In RunResultBubble.tsx, find where allLeads is constructed:
+const allLeads = [...exact, ...closest];Add deduplication immediately after:
+typescriptconst allLeads = (() => {
+  const raw = [...exact, ...closest];
+  const seen = new Set<string>();
+  return raw.filter(lead => {
+    const placeId = (lead as any).place_id || (lead as any).placeId;
+    const name = (lead.name || '').toLowerCase().trim();
+    const key = placeId || name;
+    if (!key) return true;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    if (placeId && name) seen.add(name); // also dedupe by name if we have both
+    return true;
+  });
+})();BUG FIX 3: Remove the static breadcrumb lineIf there is any existing code that injects a reloopBreadcrumb or isReloopBreadcrumb message (e.g. "Searched Google Places — found 10 results — ready to deliver 10 total"), remove it. We are replacing it with the live activity ticker below.FEATURE: Live Activity Ticker in chat (the main task)Build a live activity ticker that appears in the chat between the user's message and the final RunResultBubble. It works like this:Concept: There is ONE ticker component that occupies a single position in the chat messages. It has two zones:
+
+Pinned lines (permanent): Significant events that stay visible. Max ~4-5 lines. These are: Google Places search completed, web search completed, Tower verdict, final delivery count.
+Live line (ephemeral, single line that keeps replacing itself): Shows the latest minor event cycling through: "Visiting website...", "Extracting evidence...", "Checking The Red Lion...", "Creating artefact..." etc. This line animates/fades as it replaces.
+Implementation approach:A. New component: LiveActivityTicker.tsx in client/src/components/results/Props:
+typescriptinterface LiveActivityTickerProps {
+  runId: string | null;
+  clientRequestId: string | null;
+  isActive: boolean; // true while run is in progress, false when done
+}This component:
+
+Polls /api/afr/artefacts every 2 seconds while isActive is true (it reuses data the parent already fetches — but to keep this self-contained, let it poll independently)
+Maintains two state arrays: pinnedEvents: {icon: string, text: string, timestamp: number}[] and liveEvent: {icon: string, text: string, timestamp: number} | null
+Classifies each artefact by type into pinned vs ephemeral:
+PINNED events (stay visible permanently):
+
+reloop_iteration → "🔍 Searched Google Places — found {N} results" or "🌐 Web search — found {N} more results" (based on executor_type)
+tower_judgement (on combined_delivery) → "⚖️ Quality check: {verdict}"
+reloop_chain_summary → "✅ {total_entities} results from {total_loops} search loops"
+EPHEMERAL events (cycle on single live line, replacing each other):
+
+evidence:* or artefact type contains "evidence" → "📄 Checking evidence for {entity_name}..."
+tower_semantic_judgement → "⚖️ Verifying {lead_name}..."
+web_visit or type contains "web_visit" → "🌐 Visiting {url domain}..."
+lead_pack → "📦 Building lead pack for {entity_name}..."
+contact_extract → "📧 Extracting contacts..."
+tool_call_started/tool_call_completed → "🔧 Running {tool_name}..."
+Any other artefact type → "⚙️ Processing..."
+Rendering:
+tsx<div className="space-y-1 py-2">
+  {/* Pinned events — each on its own line */}
+  {pinnedEvents.map((evt, i) => (
+    <div key={i} className="flex items-center gap-2 text-xs text-muted-foreground">
+      <span>{evt.icon}</span>
+      <span>{evt.text}</span>
+    </div>
+  ))}
+  {/* Live ephemeral line — single line that replaces itself */}
+  {isActive && liveEvent && (
+    <div className="flex items-center gap-2 text-xs text-muted-foreground/60 animate-pulse" key={liveEvent.timestamp}>
+      <Loader2 className="h-3 w-3 animate-spin" />
+      <span className="transition-opacity duration-300">{liveEvent.text}</span>
+    </div>
+  )}
+</div>When isActive becomes false, the live line disappears but all pinned events remain as a permanent breadcrumb trail.B. Inject the ticker into chat messages (chat.tsx)Add a new message type flag: isActivityTicker?: boolean and tickerRunId?: string | null and tickerCrid?: string | null to the Message type.When a run starts (in the SSE handler where parsed.type === 'run_id' or in the supervisor task section), inject a ticker message:
+typescriptconst tickerMsg: Message = {
+  id: `ticker-${clientRequestId}`,
+  role: 'assistant',
+  content: '',
+  timestamp: new Date(),
+  isActivityTicker: true,
+  tickerRunId: null, // will be set when run_id arrives
+  tickerCrid: clientRequestId,
+};When run_id arrives via SSE, update the ticker message's tickerRunId.In the message rendering loop, when isActivityTicker is true, render <LiveActivityTicker> instead of a normal bubble. Pass isActive={isWaitingForSupervisor}.When the final RunResultBubble (ds-{key}) is upserted, do NOT remove the ticker message. It stays as a permanent trail. The ticker component just stops its live line when isActive becomes false.C. Remove old breadcrumb codeRemove any existing code that injects reloop_iteration or reloop_chain_summary messages into the chat. The ticker handles all of this now.Important constraints:
+
+Do NOT modify any Supervisor or Tower code — this is UI-only
+The ticker must NOT be persisted to conversation history API
+The ticker component should be self-contained — it does its own polling
+Use Loader2 from lucide-react for the spinning icon on the live line
+The pinned events should be deduped by a composite key of (artefact_type, loop_number) to avoid showing the same event twice
+When a run completes, the pinned events stay visible. The live line vanishes.
+Keep the rendering lightweight — no full bubbles/avatars, just compact status lines like the activity panel
+Work on the main branch only — do not create or switch branches. After completing this task, append a structured summary to AGENT_LOG.md (what changed, files modified, decisions made, what's next).
