@@ -375,7 +375,7 @@ export function createAfrRouter(_storage: typeof storage) {
       // Supervisor logs activities with its own run_id but shares the client_request_id.
       // Before the supervisor_run_id bridge is linked, this is the only way to find
       // supervisor artefacts (like intent_narrative) early.
-      if (clientRequestId && rows.length === 0 || (rows.length > 0 && !rows.some((r: any) => r.type === 'intent_narrative'))) {
+      if (clientRequestId && (rows.length === 0 || (rows.length > 0 && !rows.some((r: any) => r.type === 'intent_narrative' || r.type === 'intent_extracted_shadow')))) {
         try {
           const activityRunIds = await db.execute(
             sql`SELECT DISTINCT run_id FROM agent_activities

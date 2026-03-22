@@ -580,7 +580,7 @@ export function LiveActivityTicker({ runId, clientRequestId, isActive, intentNar
 
           const inRow = artRows.find((r: any) => {
             const t = (r.type || '').toLowerCase();
-            return t === 'intent_narrative' || t === 'intent_narrative_payload' || t === 'shadow_intent';
+            return t === 'intent_narrative' || t === 'intent_narrative_payload' || t === 'shadow_intent' || t === 'intent_extracted_shadow';
           });
 
           if (inRow) {
