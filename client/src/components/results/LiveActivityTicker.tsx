@@ -21,11 +21,120 @@ interface LiveEvent {
   timestamp: number;
 }
 
+interface StreamEventDetails {
+  runType?: string;
+  action?: string | null;
+  task?: string | null;
+  error?: string | null;
+  durationMs?: number | null;
+  results?: string | null;
+  label?: string | null;
+  prompt?: string | null;
+  mode?: string | null;
+  outputPreview?: string | null;
+}
+
+interface StreamEvent {
+  id: string;
+  ts: string;
+  type: string;
+  summary: string;
+  details: StreamEventDetails;
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  run_id: string | null;
+  client_request_id: string | null;
+}
+
+interface StreamResponse {
+  client_request_id: string | null;
+  title: string;
+  status: string;
+  is_terminal: boolean;
+  events: StreamEvent[];
+  event_count: number;
+}
+
+function extractCount(text: string | null | undefined): number | null {
+  if (!text) return null;
+  const m = text.match(/(\d+)/);
+  return m ? parseInt(m[1], 10) : null;
+}
+
+function classifyEvent(event: StreamEvent): { pinned: PinnedEvent | null; ephemeral: LiveEvent | null } {
+  const type = (event.type || '').toLowerCase();
+  const summary = event.summary || '';
+  const details = event.details || {};
+  const task = details.task || '';
+  const action = details.action || '';
+  const label = details.label || '';
+  const results = details.results || '';
+  const ts = event.ts ? new Date(event.ts).getTime() : Date.now();
+
+  if (/search_places/.test(type) || /gp_cascade/.test(type)) {
+    const count = extractCount(results) ?? extractCount(summary);
+    const text = count != null
+      ? `Google Places — found ${count} results`
+      : 'Google Places search';
+    return { pinned: { key: `search_places-${event.id}`, icon: '🔍', text, timestamp: ts }, ephemeral: null };
+  }
+
+  if (/reloop_iteration/.test(type)) {
+    return { pinned: { key: `reloop-${event.id}`, icon: '🔄', text: 'Re-loop: trying another approach', timestamp: ts }, ephemeral: null };
+  }
+
+  if (type === 'tower_evaluation_completed' || type === 'tower_judgement') {
+    const verdict = results || action || summary || 'unknown';
+    return { pinned: { key: `tower_eval-${event.id}`, icon: '⚖️', text: `Quality check: ${verdict.slice(0, 40)}`, timestamp: ts }, ephemeral: null };
+  }
+
+  if (type === 'run_completed' || type === 'reloop_chain_summary') {
+    return { pinned: { key: 'run_completed', icon: '✅', text: 'Run complete', timestamp: ts }, ephemeral: null };
+  }
+
+  if (/step_completed/.test(type) && (/google|places/i.test(task) || /google|places/i.test(summary))) {
+    return { pinned: { key: `step_completed_places-${event.id}`, icon: '🔍', text: 'Found results via Google Places', timestamp: ts }, ephemeral: null };
+  }
+
+  if (/tool_call_started/.test(type)) {
+    const toolName = action || label || '';
+    const text = toolName ? `${toolName}...` : 'Running tool...';
+    return { pinned: null, ephemeral: { icon: '🔧', text, timestamp: ts } };
+  }
+
+  if (/web.?visit/.test(type)) {
+    return { pinned: null, ephemeral: { icon: '🌐', text: 'Visiting website...', timestamp: ts } };
+  }
+
+  if (/step_started/.test(type)) {
+    const stepLabel = label || task || action || summary;
+    const text = stepLabel ? `${stepLabel.slice(0, 40)}...` : 'Working...';
+    return { pinned: null, ephemeral: { icon: '⚙️', text, timestamp: ts } };
+  }
+
+  if (type === 'tower_decision_change_plan') {
+    return { pinned: null, ephemeral: { icon: '🔄', text: 'Replanning...', timestamp: ts } };
+  }
+
+  if (/evidence/.test(type)) {
+    const name = action || label || '';
+    const text = name ? `Checking evidence for ${name.slice(0, 30)}...` : 'Checking evidence...';
+    return { pinned: null, ephemeral: { icon: '📄', text, timestamp: ts } };
+  }
+
+  if (/tower_semantic|verif/.test(type)) {
+    const name = action || label || '';
+    const text = name ? `Verifying ${name.slice(0, 30)}...` : 'Verifying result...';
+    return { pinned: null, ephemeral: { icon: '⚖️', text, timestamp: ts } };
+  }
+
+  const fallbackText = summary ? summary.slice(0, 40) : 'Processing...';
+  return { pinned: null, ephemeral: { icon: '⚙️', text: fallbackText, timestamp: ts } };
+}
+
 export function LiveActivityTicker({ runId, clientRequestId, isActive }: LiveActivityTickerProps) {
   const [pinnedEvents, setPinnedEvents] = useState<PinnedEvent[]>([]);
   const [liveEvent, setLiveEvent] = useState<LiveEvent | null>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
-  const fetchedRef = useRef(false);
 
   const fetchAndProcess = async () => {
     if (!runId && !clientRequestId) return;
@@ -33,93 +142,24 @@ export function LiveActivityTicker({ runId, clientRequestId, isActive }: LiveAct
       const params = new URLSearchParams();
       if (clientRequestId) params.set('client_request_id', clientRequestId);
       if (runId) params.set('runId', runId);
-      const url = addDevAuthParams(buildApiUrl(`/api/afr/artefacts?${params.toString()}`));
+      params.set('_t', String(Date.now()));
+      const url = addDevAuthParams(buildApiUrl(`/api/afr/stream?${params.toString()}`));
       const res = await fetch(url, { credentials: 'include', cache: 'no-store' });
       if (!res.ok) return;
-      const rows: any[] = await res.json();
-      if (!Array.isArray(rows)) return;
+      const data: StreamResponse = await res.json();
+      if (!data || !Array.isArray(data.events)) return;
 
       const newPinned: PinnedEvent[] = [];
       let latestEphemeral: LiveEvent | null = null;
       let latestEphemeralTs = 0;
 
-      for (const row of rows) {
-        const type: string = row.type || '';
-        let payload: any = row.payload_json;
-        if (typeof payload === 'string') {
-          try { payload = JSON.parse(payload); } catch { payload = {}; }
-        }
-        payload = payload || {};
-        const rowTs: number = row.created_at ? new Date(row.created_at).getTime() : 0;
-
-        if (type === 'reloop_iteration') {
-          const loopNum: number = payload.loop_number ?? 0;
-          const pinnedKey = `reloop_iteration-${loopNum}`;
-          if (!newPinned.some(e => e.key === pinnedKey)) {
-            const executorType: string = payload.executor_type ?? '';
-            const entitiesFound: number = payload.executor_output_summary?.entitiesFound ?? 0;
-            let icon = '🔍';
-            let text = '';
-            if (/gp_cascade|google|places/i.test(executorType)) {
-              text = `Searched Google Places — found ${entitiesFound} results`;
-            } else if (/gpt4o_search|gpt4o|web/i.test(executorType)) {
-              icon = '🌐';
-              text = `Web search — found ${entitiesFound} more results`;
-            } else {
-              text = `Searched — found ${entitiesFound} results`;
-            }
-            newPinned.push({ key: pinnedKey, icon, text, timestamp: rowTs || Date.now() });
-          }
-        } else if (type === 'tower_judgement' && payload.artefact_type === 'combined_delivery') {
-          const pinnedKey = 'tower_judgement-combined_delivery';
-          if (!newPinned.some(e => e.key === pinnedKey)) {
-            const verdict = payload.verdict || payload.result || 'unknown';
-            newPinned.push({ key: pinnedKey, icon: '⚖️', text: `Quality check: ${verdict}`, timestamp: rowTs || Date.now() });
-          }
-        } else if (type === 'reloop_chain_summary') {
-          const pinnedKey = 'reloop_chain_summary';
-          if (!newPinned.some(e => e.key === pinnedKey)) {
-            const totalEntities: number = payload.total_entities ?? 0;
-            const totalLoops: number = payload.total_loops ?? 0;
-            if (totalLoops > 1) {
-              newPinned.push({ key: pinnedKey, icon: '✅', text: `${totalEntities} results from ${totalLoops} search loops`, timestamp: rowTs || Date.now() });
-            }
-          }
-        } else {
-          let icon = '⚙️';
-          let text = 'Processing...';
-
-          if (type.includes('evidence')) {
-            icon = '📄';
-            const entityName = payload.entity_name || payload.lead_name || payload.name || '';
-            text = entityName ? `Checking evidence for ${entityName}...` : 'Checking evidence...';
-          } else if (type === 'tower_semantic_judgement') {
-            icon = '⚖️';
-            const leadName = payload.lead_name || payload.name || '';
-            text = leadName ? `Verifying ${leadName}...` : 'Verifying result...';
-          } else if (type === 'web_visit' || type.includes('web_visit')) {
-            icon = '🌐';
-            const rawUrl = payload.url || payload.source_url || '';
-            let domain = rawUrl;
-            try { domain = new URL(rawUrl).hostname.replace('www.', ''); } catch {}
-            text = domain ? `Visiting ${domain}...` : 'Visiting website...';
-          } else if (type === 'lead_pack') {
-            icon = '📦';
-            const entityName = payload.entity_name || '';
-            text = entityName ? `Building lead pack for ${entityName}...` : 'Building lead pack...';
-          } else if (type === 'contact_extract') {
-            icon = '📧';
-            text = 'Extracting contacts...';
-          } else if (type === 'tool_call_started' || type === 'tool_call_completed') {
-            icon = '🔧';
-            const toolName = payload.tool_name || payload.name || '';
-            text = toolName ? `Running ${toolName}...` : 'Running tool...';
-          }
-
-          if (rowTs > latestEphemeralTs) {
-            latestEphemeralTs = rowTs;
-            latestEphemeral = { icon, text, timestamp: rowTs || Date.now() };
-          }
+      for (const event of data.events) {
+        const { pinned, ephemeral } = classifyEvent(event);
+        if (pinned) {
+          newPinned.push(pinned);
+        } else if (ephemeral && ephemeral.timestamp > latestEphemeralTs) {
+          latestEphemeralTs = ephemeral.timestamp;
+          latestEphemeral = ephemeral;
         }
       }
 
@@ -131,7 +171,7 @@ export function LiveActivityTicker({ runId, clientRequestId, isActive }: LiveAct
               merged.push(evt);
             }
           }
-          return merged;
+          return merged.slice(-5);
         });
       }
 
@@ -171,7 +211,7 @@ export function LiveActivityTicker({ runId, clientRequestId, isActive }: LiveAct
   if (pinnedEvents.length === 0 && !liveEvent) return null;
 
   return (
-    <div className="space-y-1 py-2">
+    <div className="border-l-2 border-primary/20 pl-3 space-y-1 py-2">
       {pinnedEvents.map((evt) => (
         <div key={evt.key} className="flex items-center gap-2 text-xs text-muted-foreground">
           <span>{evt.icon}</span>
@@ -180,10 +220,10 @@ export function LiveActivityTicker({ runId, clientRequestId, isActive }: LiveAct
       ))}
       {isActive && liveEvent && (
         <div
-          className="flex items-center gap-2 text-xs text-muted-foreground/60 animate-pulse"
+          className="flex items-center gap-2 text-xs text-muted-foreground/80 animate-pulse"
           key={liveEvent.timestamp}
         >
-          <Loader2 className="h-3 w-3 animate-spin" />
+          <Loader2 className="h-3 w-3 animate-spin flex-shrink-0" />
           <span className="transition-opacity duration-300">{liveEvent.text}</span>
         </div>
       )}

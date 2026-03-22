@@ -184,3 +184,45 @@ Follow-up fixes to make the LiveActivityTicker actually visible in the chat, and
 - QA a live run to confirm the ticker appears below the intent narrative bubble and above the provisional RunResultBubble.
 - Verify that `reloop_iteration` and `evidence:*` artefact types are being stored with the correct `type` field values to match the ticker's classification logic.
 - The `ABSOLUTE_TIMEOUT_MS` (600 000 = 10 min) remains as the hard kill switch — no change requested.
+
+---
+
+## Session: LiveActivityTicker — Switch to /api/afr/stream (2026-03-22)
+
+### What Changed
+
+**Step 1 — LiveActivityTicker data source rewritten**
+- Replaced `/api/afr/artefacts` polling with `/api/afr/stream` (same endpoint used by `live-activity-panel.tsx`).
+- The stream response returns `StreamEvent[]` with `type`, `summary`, `details.action`, `details.task`, `details.label`, `details.results`, and `ts` fields — available in real-time rather than only at run completion.
+- Added `StreamEvent` / `StreamResponse` interfaces inside the ticker so it correctly types the parsed response.
+
+**Step 2 — Classifier logic updated for StreamEvent fields**
+- `classifyEvent()` helper maps each `StreamEvent` to either a pinned or ephemeral display item using the `type` field (equivalent to `action_taken`) and `details` sub-fields (equivalent to `task_generated` / metadata).
+- PINNED: `search_places`, `gp_cascade`, `reloop_iteration`, `tower_evaluation_completed`, `tower_judgement`, `run_completed`, `reloop_chain_summary`, and `step_completed` + Google/Places mention in task.
+- EPHEMERAL: `tool_call_started`, `web_visit`, `step_started`, `tower_decision_change_plan`, `evidence`, `tower_semantic`, and a fallback using `summary` truncated to 40 chars.
+- Pinned list capped at 5 (`.slice(-5)`).
+
+**Step 3 — Visual improvements**
+- Whole ticker wrapped in `border-l-2 border-primary/20 pl-3` for subtle visual prominence.
+- Pinned events: `text-xs text-muted-foreground` (full opacity, was `/60`).
+- Ephemeral live line: `text-xs text-muted-foreground/80 animate-pulse` with `Loader2` spinner.
+
+**Steps 4 & 5 — Already done, no changes required**
+- `SOFT_TIMEOUT_MS = 120_000` and `HARD_TIMEOUT_MS = 300_000` were already updated in `client/src/pages/chat.tsx`; no banner messages were being created (only `console.warn`/`console.log`).
+- `allLeads` dedup (both the `buildRunNarrative` helper at line 878 and the component body at line 1742 in `RunResultBubble.tsx`) was already in place from a prior session.
+
+### Files Modified
+
+| File | Change |
+|---|---|
+| `client/src/components/results/LiveActivityTicker.tsx` | Fully rewritten: data source changed from `/api/afr/artefacts` to `/api/afr/stream`; classifier updated for `StreamEvent` fields; visual border and opacity improvements applied |
+
+### Decisions Made
+- Used `StreamEvent.type` as the `action_taken` equivalent and `StreamEvent.details` sub-fields (`action`, `task`, `label`, `results`) as the metadata/task_generated equivalent, since that is what the `/api/afr/stream` endpoint returns.
+- The `extractCount()` helper tries `details.results` then `summary` for result counts in pinned search events.
+- Ephemeral selection picks the event with the latest `ts` timestamp across the entire event list, matching the previous behaviour.
+- No changes to `chat.tsx` or `RunResultBubble.tsx` were needed.
+
+### What's Next
+- QA a live run to confirm the ticker now shows search, visit, and verification events in real time during a run rather than displaying "Processing..." for the duration.
+- If the stream endpoint returns events only after they complete (status = completed), we may need to also show `status = running` events as ephemeral — monitor in QA.
