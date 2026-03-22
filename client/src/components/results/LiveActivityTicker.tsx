@@ -502,7 +502,7 @@ export function LiveActivityTicker({ runId, clientRequestId, isActive, intentNar
       const ephemeral = isActive ? deriveEphemeral(data.events) : null;
       if (ephemeral) setLiveEvent(ephemeral);
 
-      // Self-fetch intent narrative from artefacts (once)
+      // Self-fetch intent narrative from artefacts (keep trying every poll until found)
       if (!fetchedIntentNarrativeRef.current) {
         try {
           const artParams = new URLSearchParams();
@@ -512,21 +512,55 @@ export function LiveActivityTicker({ runId, clientRequestId, isActive, intentNar
           const artRes = await fetch(artUrl, { credentials: 'include', cache: 'no-store' });
           if (artRes.ok) {
             const artRows = await artRes.json();
-            if (Array.isArray(artRows)) {
-              const inRow = artRows.find((r: any) => r.type === 'intent_narrative');
+            if (Array.isArray(artRows) && artRows.length > 0) {
+              const artTypes = artRows.map((r: any) => r.type);
+              console.log('[TICKER_INTENT] artefact types found:', artTypes.join(', '), 'runId:', runId, 'crid:', clientRequestId?.slice(0, 12));
+              
+              // Search for intent_narrative with flexible matching
+              const inRow = artRows.find((r: any) => {
+                const t = (r.type || '').toLowerCase();
+                return t === 'intent_narrative' || t === 'intent_narrative_payload' || t === 'shadow_intent';
+              });
+              
               if (inRow) {
+                console.log('[TICKER_INTENT] Found artefact type:', inRow.type, 'payload type:', typeof inRow.payload_json);
                 let payload = inRow.payload_json;
                 if (typeof payload === 'string') {
                   try { payload = JSON.parse(payload); } catch { payload = null; }
                 }
-                if (payload && typeof payload === 'object' && payload.entity_description) {
-                  fetchedIntentNarrativeRef.current = payload as IntentNarrativePayload;
-                  setFetchedIntentNarrative(payload as IntentNarrativePayload);
+                if (payload && typeof payload === 'object') {
+                  // Check both direct entity_description and nested structures
+                  const entityDesc = payload.entity_description || payload.entityDescription || 
+                    payload.intent?.entity_description || payload.narrative?.entity_description ||
+                    (payload.outputs && typeof payload.outputs === 'object' ? payload.outputs.entity_description : null);
+                  
+                  if (entityDesc) {
+                    const finalPayload = { ...payload, entity_description: entityDesc } as IntentNarrativePayload;
+                    fetchedIntentNarrativeRef.current = finalPayload;
+                    setFetchedIntentNarrative(finalPayload);
+                    console.log('[TICKER_INTENT] SUCCESS — entity_description:', entityDesc.slice(0, 80));
+                  } else {
+                    console.log('[TICKER_INTENT] Artefact found but no entity_description. Top keys:', Object.keys(payload).join(', '));
+                    // Try using the whole payload if it has a string description-like field
+                    const possibleDesc = payload.description || payload.summary || payload.text;
+                    if (possibleDesc && typeof possibleDesc === 'string') {
+                      const fallbackPayload = { entity_description: possibleDesc } as IntentNarrativePayload;
+                      fetchedIntentNarrativeRef.current = fallbackPayload;
+                      setFetchedIntentNarrative(fallbackPayload);
+                      console.log('[TICKER_INTENT] FALLBACK — using field as entity_description:', possibleDesc.slice(0, 80));
+                    }
+                  }
                 }
+              } else {
+                // Not found yet - will retry on next poll
               }
             }
+          } else {
+            console.log('[TICKER_INTENT] artefact fetch failed:', artRes.status, 'runId:', runId, 'crid:', clientRequestId?.slice(0, 12));
           }
-        } catch {}
+        } catch (err) {
+          console.warn('[TICKER_INTENT] fetch error:', err);
+        }
       }
     } catch {}
   };
