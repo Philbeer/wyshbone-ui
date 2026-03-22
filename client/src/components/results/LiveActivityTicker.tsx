@@ -574,7 +574,7 @@ export function LiveActivityTicker({ runId, clientRequestId, isActive, intentNar
     <div className="relative py-2 pl-1">
       {/* Vertical connector line — only when more than one row */}
       {totalRows > 1 && (
-        <div className="absolute w-px bg-border/60" style={{ left: '10px', top: '18px', bottom: '22px' }} />
+        <div className="absolute w-px bg-foreground/15" style={{ left: '14px', top: '18px', bottom: '22px' }} />
       )}
 
       {/* Thinking brains when nothing yet */}
