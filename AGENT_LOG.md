@@ -503,3 +503,35 @@ Three sub-changes inside `deriveEphemeral`:
 
 ### What's Next
 - QA a live run: confirm "Checking websites" milestone appears, counter increments, evidence verification only fires after website checking, and the ephemeral line shows pub names/domains rather than raw events.
+
+---
+
+## Session: LiveActivityTicker three-fix polish (2026-03-22 #6)
+
+### Goals
+Three UI-only fixes to `LiveActivityTicker.tsx` and the ticker render block in `chat.tsx`:
+1. Hide ephemeral spinning line once `run_complete` or `tower_verdict` milestone appears.
+2. Match intent narrative to ticker by ID (`in-{crid|runId}`) rather than by backwards array scan.
+3. Increase spacing, connector line subtlety, and dot/text size for better visual hierarchy.
+
+### Changes Made
+
+**`client/src/components/results/LiveActivityTicker.tsx`**
+- **Fix 1**: Changed ephemeral render guard from `{isActive && liveEvent && (` to `{isActive && liveEvent && !milestones.some(m => m.key === 'run_complete' || m.key === 'tower_verdict') && (` — ephemeral line vanishes as soon as the completion or verdict milestone arrives.
+- **Fix 3 — container**: `pl-4` → `pl-5` (slightly more left indent).
+- **Fix 3 — connector line**: `w-0.5 bg-border` → `w-px bg-border/60` (thinner, more subtle, matches Claude's style).
+- **Fix 3 — intent narrative item**: `pb-5` → `pb-6`, dot `h-2.5 w-2.5` → `h-3 w-3`, text `text-xs` → `text-[13px]`.
+- **Fix 3 — milestone items**: `pb-5` → `pb-6`, dot `h-2.5 w-2.5` → `h-3 w-3`, text `text-xs` → `text-[13px]`.
+- **Fix 3 — ephemeral item**: `pb-3` → `pb-6`, dot `h-2.5 w-2.5` → `h-3 w-3`.
+
+**`client/src/pages/chat.tsx`**
+- **Fix 2 Step A**: Replaced the backwards-scan intent lookup with an IIFE inside the ticker render that uses `messages.find(m => m.id === 'in-${tickerCrid || tickerRunId}')` — ensures the correct intent narrative is matched to the correct run by ID rather than proximity.
+- **Fix 2 Step B**: Already implemented (isIntentNarrative block returns `null` unconditionally); no change needed.
+
+### Decisions
+- The "thinking brains" placeholder dot (`h-2.5 w-2.5`) was deliberately left unchanged — instructions specified "all milestone dots" and the thinking state is pre-milestone.
+- The existing dead code block under `return null` in the isIntentNarrative handler was left intact (it compiles to nothing since it's unreachable), to avoid scope creep.
+- No Supervisor or Tower code was touched.
+
+### What's Next
+- QA a live run: confirm ephemeral line disappears on completion, 🧠 intent appears correctly inside the ticker timeline, and milestone spacing/dot sizes look right.

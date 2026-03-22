@@ -3483,13 +3483,6 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
               }
 
               if ('isActivityTicker' in chatMessage && (chatMessage as any).isActivityTicker) {
-                const allMsgsForTicker = Array.isArray(messages) ? messages : [];
-                const tickerIdx = allMsgsForTicker.findIndex(m => m.id === chatMessage.id);
-                const intentMsg = allMsgsForTicker
-                  .slice(0, tickerIdx + 1)
-                  .reverse()
-                  .find(m => (m as Message).isIntentNarrative && (m as Message).intentNarrativePayload);
-                const intentPayloadForTicker = intentMsg ? (intentMsg as Message).intentNarrativePayload ?? null : null;
                 return (
                   <div
                     key={chatMessage.id}
@@ -3498,12 +3491,21 @@ export default function ChatPage({ defaultCountry = 'GB', onInjectSystemMessage,
                   >
                     <div className="w-8 h-8 flex-shrink-0" />
                     <div className="flex-1">
-                      <LiveActivityTicker
-                        runId={(chatMessage as any).tickerRunId ?? null}
-                        clientRequestId={(chatMessage as any).tickerCrid ?? null}
-                        isActive={isWaitingForSupervisor}
-                        intentNarrativePayload={intentPayloadForTicker}
-                      />
+                      {(() => {
+                        const tickerMsg = chatMessage as any;
+                        const intentMsg = (Array.isArray(messages) ? messages : []).find(m =>
+                          'isIntentNarrative' in m && (m as any).isIntentNarrative &&
+                          m.id === `in-${tickerMsg.tickerCrid || tickerMsg.tickerRunId}`
+                        ) as any;
+                        return (
+                          <LiveActivityTicker
+                            runId={tickerMsg.tickerRunId || null}
+                            clientRequestId={tickerMsg.tickerCrid || null}
+                            isActive={isWaitingForSupervisor}
+                            intentNarrativePayload={intentMsg?.intentNarrativePayload || null}
+                          />
+                        );
+                      })()}
                     </div>
                   </div>
                 );

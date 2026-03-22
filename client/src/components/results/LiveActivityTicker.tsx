@@ -533,9 +533,9 @@ export function LiveActivityTicker({ runId, clientRequestId, isActive, intentNar
   if (!isActive && !hasAnything) return null;
 
   return (
-    <div className="pl-4 relative py-2">
+    <div className="pl-5 relative py-2">
       {/* Vertical connector line running full height */}
-      <div className="absolute left-[7px] top-0 bottom-0 w-0.5 bg-border" />
+      <div className="absolute left-[7px] top-0 bottom-0 w-px bg-border/60" />
 
       {/* Thinking brains when nothing yet */}
       {isActive && milestones.length === 0 && !liveEvent && (
@@ -549,9 +549,9 @@ export function LiveActivityTicker({ runId, clientRequestId, isActive, intentNar
 
       {/* Intent confirmation — what the system understood */}
       {intentNarrativePayload?.entity_description && (
-        <div className="relative pb-5">
-          <span className="absolute left-[-1px] top-1.5 h-2.5 w-2.5 rounded-full border-2 border-primary/40 bg-primary/40 z-10" />
-          <div className="pl-5 text-xs text-foreground/70">
+        <div className="relative pb-6">
+          <span className="absolute left-[-1px] top-1.5 h-3 w-3 rounded-full border-2 border-primary/40 bg-primary/40 z-10" />
+          <div className="pl-5 text-[13px] text-foreground/70">
             <span>🧠</span>{' '}
             <span className="italic">{intentNarrativePayload.entity_description}</span>
           </div>
@@ -560,16 +560,16 @@ export function LiveActivityTicker({ runId, clientRequestId, isActive, intentNar
 
       {/* Milestone events */}
       {milestones.map((ms) => (
-        <div key={ms.key} className="relative pb-5">
+        <div key={ms.key} className="relative pb-6">
           <span className={cn(
-            "absolute left-[-1px] top-1.5 h-2.5 w-2.5 rounded-full border-2 z-10",
+            "absolute left-[-1px] top-1.5 h-3 w-3 rounded-full border-2 z-10",
             ms.key === 'run_complete'
               ? "border-green-500 bg-green-500"
               : ms.key === 'tower_verdict'
                 ? "border-amber-500 bg-amber-500"
                 : "border-primary/60 bg-primary/60"
           )} />
-          <div className="pl-5 flex items-center gap-2 text-xs text-foreground/80 font-medium">
+          <div className="pl-5 flex items-center gap-2 text-[13px] text-foreground/80 font-medium">
             <span>{ms.icon}</span>
             <span>{ms.text}</span>
           </div>
@@ -577,9 +577,9 @@ export function LiveActivityTicker({ runId, clientRequestId, isActive, intentNar
       ))}
 
       {/* Ephemeral cycling line */}
-      {isActive && liveEvent && (
-        <div className="relative pb-3">
-          <span className="absolute left-[-1px] top-1.5 h-2.5 w-2.5 rounded-full border-2 border-muted-foreground/30 bg-card animate-pulse z-10" />
+      {isActive && liveEvent && !milestones.some(m => m.key === 'run_complete' || m.key === 'tower_verdict') && (
+        <div className="relative pb-6">
+          <span className="absolute left-[-1px] top-1.5 h-3 w-3 rounded-full border-2 border-muted-foreground/30 bg-card animate-pulse z-10" />
           <div className="pl-5 flex items-center gap-2 text-xs text-muted-foreground/60">
             <Loader2 className="h-3 w-3 animate-spin flex-shrink-0" />
             <span className="transition-all duration-300">{liveEvent.text}</span>
