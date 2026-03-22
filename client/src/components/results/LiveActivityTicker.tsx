@@ -172,9 +172,10 @@ function deriveMilestones(events: StreamEvent[]): Milestone[] {
   };
   const firstWebVisitEvent = findFirstAfter(webVisitAnyFilter, lastMilestoneTs);
   if (firstWebVisitEvent) {
+    // Count both successful AND failed web visits — failed means bot-blocked, still an attempt
     const webVisitCompletedFilter = (e: StreamEvent) => {
       const s = (e.summary || '').toUpperCase();
-      return (s.startsWith('TOOL COMPLETED') || s.includes('TOOL COMPLETED')) &&
+      return (s.includes('TOOL COMPLETED') || s.includes('TOOL FAILED')) &&
              (s.includes('WEB VISIT') || s.includes('WEB_VISIT'));
     };
     const completedMatches = sorted.filter(webVisitCompletedFilter);
@@ -187,8 +188,20 @@ function deriveMilestones(events: StreamEvent[]): Milestone[] {
     }
     const completedCount = seenDomains.size;
 
-    const gpMilestone = milestones.find(m => m.key === 'gp_search');
-    const totalExpected = gpMilestone ? (extractCount(gpMilestone.text) ?? 0) : 0;
+    // Use post-exclusion count if available, otherwise GP count
+    const exclusionEvent = sorted.find(e => {
+      const s = (e.summary || '').toUpperCase();
+      return s.includes('EXCLUSION FILTER') && s.includes('KEPT');
+    });
+    let totalExpected = 0;
+    if (exclusionEvent) {
+      const keptMatch = (exclusionEvent.details?.task || exclusionEvent.summary || '').match(/(\d+)\s*kept/i);
+      totalExpected = keptMatch ? parseInt(keptMatch[1], 10) : 0;
+    }
+    if (totalExpected === 0) {
+      const gpMilestone = milestones.find(m => m.key === 'gp_search');
+      totalExpected = gpMilestone ? (extractCount(gpMilestone.text) ?? 0) : 0;
+    }
 
     const ts = new Date(firstWebVisitEvent.ts).getTime();
     let text: string;

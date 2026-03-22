@@ -4,6 +4,40 @@ Previous logs archived to AGENT_LOG_ARCHIVE_20260321.md
 
 ---
 
+## Session: Milestone 2 visit counter — count failed visits + fix denominator (2026-03-22 #5)
+
+### Goals
+Two small fixes inside `deriveMilestones` Milestone 2 (Checking websites): (1) count bot-blocked (failed) web visits as attempted, (2) use the post-exclusion filter count as the denominator instead of the raw GP candidate count.
+
+### What Changed
+
+#### `client/src/components/results/LiveActivityTicker.tsx` — two edits in `deriveMilestones` Milestone 2
+
+**FIX 1 — `webVisitCompletedFilter` now includes `TOOL FAILED`**
+- Old: `s.startsWith('TOOL COMPLETED') || s.includes('TOOL COMPLETED')` — bot-blocked sites emit `TOOL FAILED: WEB_VISIT` and were silently excluded from the count.
+- New: `s.includes('TOOL COMPLETED') || s.includes('TOOL FAILED')` — both outcomes count as an attempted visit.
+- `WEB_VISIT` (underscore variant) also now explicitly covered in the filter (was already in the `any` filter but not the completed filter).
+
+**FIX 2 — Denominator uses post-exclusion count**
+- Old: denominator was the GP candidate count from the `gp_search` milestone text (e.g. 16), which ignores exclusion filtering.
+- New: looks for the first `EXCLUSION FILTER … KEPT` event; extracts the `N kept` count from `details.task || summary`. Falls back to the GP count only if no exclusion event is found or `kept` count is zero.
+- This means the progress text `"X of Y visited"` now reflects the actual filtered pool, not the inflated raw total.
+
+### Files Modified
+| File | Change |
+|---|---|
+| `client/src/components/results/LiveActivityTicker.tsx` | Two targeted edits inside `deriveMilestones` Milestone 2 block |
+
+### Decisions Made
+- `sorted.find(...)` used for the exclusion event (first match) — multiple exclusion events are unlikely; using `find` is safe and cheap.
+- Kept the GP fallback so the milestone still shows a denominator even when no exclusion filter event is present in the stream (e.g. early in a run or if the pipeline skips filtering).
+- Domain dedup in `seenDomains` is unchanged — failed visits still carry a URL in task/summary so dedup works the same way.
+
+### What's Next
+- Validate on a real run that `completedCount` now reaches the expected total and the text reads correctly (e.g. "Checking websites — 12 of 12 visited").
+
+---
+
 ## Session: deriveEphemeral domain-map enrichment (2026-03-22 #4)
 
 ### Goals

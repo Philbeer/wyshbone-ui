@@ -1,0 +1,34 @@
+Read client/src/components/results/LiveActivityTicker.tsx. Make ONE small change only.
+In the deriveMilestones function, find the Milestone 2 block (Checking websites). The current webVisitCompletedFilter only counts Tool completed: WEB_VISIT events. But bot-blocked websites show as Tool failed: WEB_VISIT — these are still attempted visits and should be counted.
+Find this code in the milestone 2 section:
+typescriptconst webVisitCompletedFilter = (e: StreamEvent) => {
+  const s = (e.summary || '').toUpperCase();
+  return s.startsWith('TOOL COMPLETED') && s.includes('WEB VISIT');
+};
+Replace with:
+typescript// Count both successful AND failed web visits — failed means bot-blocked, still an attempt
+const webVisitCompletedFilter = (e: StreamEvent) => {
+  const s = (e.summary || '').toUpperCase();
+  return (s.includes('TOOL COMPLETED') || s.includes('TOOL FAILED')) && 
+         (s.includes('WEB VISIT') || s.includes('WEB_VISIT'));
+};
+Also fix the denominator. Currently it uses the GP candidate count (16) but exclusion filtering reduces that. Find:
+typescriptconst gpMilestone = milestones.find(m => m.key === 'gp_search');
+const totalExpected = gpMilestone ? (extractCount(gpMilestone.text) ?? 0) : 0;
+Replace with:
+typescript// Use post-exclusion count if available, otherwise GP count
+const exclusionEvent = sorted.find(e => {
+  const s = (e.summary || '').toUpperCase();
+  return s.includes('EXCLUSION FILTER') && s.includes('KEPT');
+});
+let totalExpected = 0;
+if (exclusionEvent) {
+  const keptMatch = (exclusionEvent.details?.task || exclusionEvent.summary || '').match(/(\d+)\s*kept/i);
+  totalExpected = keptMatch ? parseInt(keptMatch[1], 10) : 0;
+}
+if (totalExpected === 0) {
+  const gpMilestone = milestones.find(m => m.key === 'gp_search');
+  totalExpected = gpMilestone ? (extractCount(gpMilestone.text) ?? 0) : 0;
+}
+Do not change anything else.
+Work on the main branch only — do not create or switch branches. After completing this task, append a structured summary to AGENT_LOG.md (what changed, files modified, decisions made, what's next).
